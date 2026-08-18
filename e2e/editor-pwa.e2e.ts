@@ -15,15 +15,15 @@ import {
 } from './support/editor-deployment';
 import { alignFromLayer, openLayerRow } from './support/layers';
 import {
-	addHistoricalMapButton,
+	addMapImageButton,
 	expectNothingPreparing,
-	pickHistoricalMapFile
-} from './support/historical-maps.js';
+	pickMapImageFile
+} from './support/map-images.js';
 import {
 	clickAt,
 	emptyWorkspace,
 	gradientPng,
-	historicalMap,
+	mapImage,
 	baseMap,
 	expectWarpedLayerAdded,
 	imagePoints,
@@ -163,7 +163,7 @@ const requestsExceptUpdateChecks = (asked: readonly string[]) =>
 	asked.filter((path) => !path.endsWith('/service-worker.js'));
 
 /**
- * A Project with one locally ingested Historical Map, both panes live, at whatever URL the page is
+ * A Project with one locally ingested Map Image, both panes live, at whatever URL the page is
  * already on.
  *
  * `support/alignment-workspace.ts`'s `start` cannot be used: it navigates to the Playwright
@@ -178,9 +178,9 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 
-	await pickHistoricalMapFile(page, {
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
@@ -212,7 +212,7 @@ async function startProjectWithMap(page: Page): Promise<string> {
 /**
  * Press Align on the Layer that draws `imageId`.
  *
- * Align is on the Layer since ticket 04, so a Project with two Historical Maps has two of them —
+ * Align is on the Layer since ticket 04, so a Project with two Map Images has two of them —
  * naming the image is how a test says which one it means, and `data-image-id` on the row is where
  * that is readable.
  */
@@ -534,7 +534,7 @@ test.describe('the app with the network off', () => {
 		await site.close();
 	});
 
-	test('a new Project explains the absent Base Map and still accepts a Historical Map file', async ({
+	test('a new Project explains the absent Base Map and still accepts a Map Image file', async ({
 		page,
 		context
 	}) => {
@@ -555,9 +555,9 @@ test.describe('the app with the network off', () => {
 		await expect(notice).toBeVisible();
 		await expect(notice).toContainText('no network connection');
 		await expect(notice).toContainText('Base Map');
-		await expect(notice).toContainText('Historical Map');
+		await expect(notice).toContainText('Map Image');
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
@@ -573,14 +573,14 @@ test.describe('the app with the network off', () => {
 	});
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
-	// THE CONTRACT CLAUSE: "a user's Historical Maps, Alignments, and Annotations always work with
+	// THE CONTRACT CLAUSE: "a user's Map Images, Alignments, and Annotations always work with
 	// no network."
 	//
 	// The Base Map does not, and after ticket 10 it *cannot* — no archive ships and the tile cache is
 	// ticket 11 — so this is the clause that has to be proved separately, and separately is where a
 	// removal slice is most likely to quietly break it. Everything below runs with the network cut.
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
-	test('a Project with a local Historical Map is fully usable with the network off', async ({
+	test('a Project with a local Map Image is fully usable with the network off', async ({
 		page,
 		context
 	}) => {
@@ -614,7 +614,7 @@ test.describe('the app with the network off', () => {
 		complaints.length = 0;
 
 		await page.reload();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`
 		// since ticket 03, so reaching it with the network off exercises the precached prerendered page
@@ -623,14 +623,12 @@ test.describe('the app with the network off', () => {
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 		// The user's own pyramid draws with no network, which is ADR-0011's injection layer earning its
-		// keep: a locally ingested Historical Map has no URL at all, so nothing about this pane can
+		// keep: a locally ingested Map Image has no URL at all, so nothing about this pane can
 		// depend on a server being there.
 		await expect(page.getByTestId('image-pane')).toBeVisible();
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: TILES_READY_MS }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: TILES_READY_MS
+		});
 		await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 
 		// Three Control Point pairs, placed by clicking the two panes, offline.
@@ -649,12 +647,12 @@ test.describe('the app with the network off', () => {
 
 		// A change to an existing pair, saved: the second write, so the claim is "saving works" and not
 		// "the first save happened to be queued before the network went".
-		await clickAt(historicalMap(page), 0.8, 0.2);
+		await clickAt(mapImage(page), 0.8, 0.2);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await clickAt(baseMap(page), 0.8, 0.2);
 		await waitForStored(page, imageId, 4);
 
-		// **The Historical Map is drawn warped over the earth, offline, with no Base Map under it.**
+		// **The Map Image is drawn warped over the earth, offline, with no Base Map under it.**
 		// This is the assertion ticket 10 was most likely to lose: `BaseMapPane` attaches the warped
 		// layer on the map's `load`, and the reason the bundled archive used to be precached was the
 		// measurement that a MapLibre style whose one vector source can never be reached never loads.
@@ -669,13 +667,13 @@ test.describe('the app with the network off', () => {
 		await expectWarpedLayerAdded(page);
 		expect(
 			await warpedTiles(page),
-			'the aligned Historical Map did not render over the Base Map offline'
+			'the aligned Map Image did not render over the Base Map offline'
 		).toBeGreaterThan(0);
 
 		// An Annotation drawn on the Project screen, and written to disk. Back out of the alignment
 		// route first: the Layer stack is on the Project (ticket 04), which is where this lands.
 		await page.getByTestId('back-to-project').click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('add-annotation-layer').click();
 		await waitForStack(page);
@@ -779,7 +777,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 	const REFERENCED_WIDTH = 700;
 	const REFERENCED_HEIGHT = 500;
 
-	test('reads a referenced Historical Map and a Base Map that needs the network, and caches neither', async ({
+	test('reads a referenced Map Image and a Base Map that needs the network, and caches neither', async ({
 		page,
 		context
 	}) => {
@@ -884,7 +882,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 		const project = new URL(page.url()).searchParams.get('p');
 		expect(project, 'a Project is addressed by ?p= (ADR-0008)').not.toBeNull();
 
-		// A Historical Map this Project references rather than holds, written beside the local one.
+		// A Map Image this Project references rather than holds, written beside the local one.
 		// Behind the app's back because the route that produces one is ticket 14's, and what is under
 		// test here is only what happens to the tiles once they arrive.
 		await writeProjectFile(
@@ -896,7 +894,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 				width: REFERENCED_WIDTH,
 				height: REFERENCED_HEIGHT
 			}),
-			// The Workspace root: a referenced Historical Map belongs to the Workspace like any other, so
+			// The Workspace root: a referenced Map Image belongs to the Workspace like any other, so
 			// its record sits beside every other map's rather than inside one Project (ADR-0023).
 			''
 		);
@@ -928,11 +926,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// `libraryRequests` sat at **0** — not one `info.json` — and the poll below timed out. Zero
 		// rather than "fewer than two" is what said the map was the wrong one.
 		await alignLayerFor(page, 'btv1b8592433v');
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: TILES_READY_MS }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: TILES_READY_MS
+		});
 		// `> 1`: at least one tile beyond the `info.json`, which is what makes this the library's bytes
 		// and not merely its description.
 		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
@@ -942,11 +938,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// and the local map has one of its own.
 		await page.goto(`${site.url}?p=${project}`);
 		await alignLayerFor(page, imageId);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: TILES_READY_MS }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: TILES_READY_MS
+		});
 		await makePair(page, [0.4, 0.4]);
 		await waitForStored(page, imageId, 1);
 
@@ -991,7 +985,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		await site.close();
 	});
 
-	test('a referenced Historical Map says so, names its host, and breaks nothing else', async ({
+	test('a referenced Map Image says so, names its host, and breaks nothing else', async ({
 		page,
 		context
 	}) => {
@@ -1003,7 +997,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		await page.reload();
 		const imageId = await startProjectWithMap(page);
 
-		// A Historical Map this Project *references* rather than holds, written beside the local one.
+		// A Map Image this Project *references* rather than holds, written beside the local one.
 		// Behind the app's back because the route that produces it needs a live IIIF host, and what is
 		// under test is what happens when there is none.
 		await writeProjectFile(
@@ -1038,7 +1032,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// reach the new document's initial value, whereas a genuinely disconnected machine reports
 		// `false` there. Both feed the same one signal in `InstalledApp`, so this drives the half that
 		// can be driven, and the reload below then asserts the half that matters most anyway: that a
-		// Project holding a referenced Historical Map still opens and still works offline.
+		// Project holding a referenced Map Image still opens and still works offline.
 		await context.setOffline(true);
 
 		const notice = page.getByTestId('referenced-offline');
@@ -1050,7 +1044,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// not be cached, so this map cannot be shown — but a Project that contained one and therefore
 		// would not open at all is the failure that matters.
 		await page.reload();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await expect(
 			(
 				await openLayerRow(
@@ -1059,14 +1053,12 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 				)
 			).getByTestId('referenced-image-host')
 		).toHaveText('gallica.example.test');
-		// The Project's *own* Historical Map still aligns, on `/align/` (ticket 03), reached from its
+		// The Project's *own* Map Image still aligns, on `/align/` (ticket 03), reached from its
 		// own Layer (ticket 04), opened (ticket 05).
 		await alignLayerFor(page, imageId);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: TILES_READY_MS }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: TILES_READY_MS
+		});
 		await makePair(page, [0.35, 0.35]);
 		await waitForStored(page, imageId, 1);
 		expect(errors, 'an unreachable referenced host must not throw').toEqual([]);
@@ -1260,21 +1252,19 @@ test.describe('an update, and who decides when', () => {
 		await emptyWorkspace(page);
 		await page.reload();
 
-		// A Project with a Historical Map and two Control Points, and a third pair half made: this is
+		// A Project with a Map Image and two Control Points, and a third pair half made: this is
 		// "mid-alignment" in the most literal sense story 9 has, because the pending half lives only in
 		// the page and any reload at all would lose it.
 		await startProjectWithMap(page);
 		// Mid-alignment now means on the alignment route (ticket 03), which is also the sharper form of
 		// this test: an update that reloaded would take the pending half *and* the route with it.
 		await alignFromLayer(page);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: TILES_READY_MS }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: TILES_READY_MS
+		});
 		await makePair(page, [0.3, 0.3]);
 		await makePair(page, [0.6, 0.35]);
-		await clickAt(historicalMap(page), 0.75, 0.6);
+		await clickAt(mapImage(page), 0.75, 0.6);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 
 		// A mark that survives nothing. If the page reloads for any reason, it is gone — which makes it

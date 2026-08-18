@@ -60,7 +60,7 @@ jobs:
       # "GitHub Actions" — the setting a fork does not inherit, and the one thing a forker must click.
       # Without this step the run goes green and `deploy-pages` uploads into a void, which is the
       # worst version of this failure: a successful workflow and a site serving raw source.
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - uses: pnpm/action-setup@v4
 
@@ -142,9 +142,9 @@ jobs:
             echo "::warning title=Borrowed place lookup service::This deployment's place search asks a geocoder it does not run. The use is within that service's published policy, and it is somebody else's hardware with no promise to this site. Unlike the archive above this does not fail the check: repointing it means running a planet-scale geocoder. See docs/hosting.md and ADR-0029."
           fi
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: apps/editor/build
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

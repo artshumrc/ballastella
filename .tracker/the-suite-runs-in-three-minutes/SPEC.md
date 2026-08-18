@@ -30,7 +30,7 @@ Alongside that, two scheduling faults were found and fixed, and one measurement 
 
 - **`fullyParallel` was never set.** Playwright was parallelising across *files* and running each file's tests serially in one worker, so a run could never finish faster than its longest file — 63 tests deep. Turning it on took `viewer-reader` from about four minutes to **40 seconds** and `editor-alignment-refinement` from 2m25s to **33s**.
 - **The recorded "eight workers measured 19% faster, so the suite is near this CPU's ceiling" was measuring the scheduling, not the processor**, because it predates `fullyParallel`. Re-measured properly: 4 workers 314s against 10 workers 206s on a heavy 156-test sample. Sublinear, but for the real reason — every test drives a software-rasterised WebGL context.
-- **A Historical Map's pyramid was rebuilt through the interface once per test** in the alignment family. It is now recorded once per build and written straight into OPFS.
+- **A Map Image's pyramid was rebuilt through the interface once per test** in the alignment family. It is now recorded once per build and written straight into OPFS.
 
 Those three together took the full suite from 13m04s to **10m55s — 16%**. That is the whole of what configuration can buy, and it is recorded here so nobody looks for a fourth such win. **The remaining 75% has to come from moving claims down a seam**, one file at a time, and this epic is that work.
 
@@ -58,7 +58,7 @@ The target is **150–250 Seam 2 tests and a suite that finishes in two to three
 18. As a contributor, I want tests whose subject *is* the ingest to keep driving the real file picker, so that the recording stays honest.
 19. As a contributor, I want a component test to render against a real parent when the component's behaviour depends on the parent updating, so that a focus assertion tests what the application does rather than what the test arranged.
 20. As a contributor, I want to know which specs cost the most per test, so that I cut by time rather than by count.
-21. As a contributor, I want the Historical Map and Annotation specs addressed first, so that the largest concentration of cost goes first.
+21. As a contributor, I want the Map Image and Annotation specs addressed first, so that the largest concentration of cost goes first.
 22. As a contributor, I want reordering, focus restoration and announcement assertable at the component seam, so that story 53's keyboard contract is cheap to keep.
 23. As a contributor, I want a Layer row's warning text assertable at the component seam, so that "as text and not as a colour" costs milliseconds.
 24. As a contributor, I want malformed-bundle refusals assertable at Seam 1, so that eight parsing claims stop booting a browser.
@@ -151,7 +151,7 @@ A count is a proxy for time and an imperfect one. It is chosen over a wall-clock
 
 ### The recorded Workspace
 
-A Historical Map's pyramid is captured once — through the real interface, by the real ingest — and replayed into OPFS for every test that needs a Project with a map already on disk.
+A Map Image's pyramid is captured once — through the real interface, by the real ingest — and replayed into OPFS for every test that needs a Project with a map already on disk.
 
 - Keyed to the build fingerprint the e2e build already computes, so a changed tiler, serialiser or Project screen discards it.
 - Cached per worker process and on disk; written by rename so concurrent first-runs cannot interleave.

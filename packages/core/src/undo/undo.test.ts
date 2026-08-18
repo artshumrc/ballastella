@@ -174,7 +174,7 @@ describe('a deleted Control Point pair', () => {
 		expect(restoreControlPoint(drafts, record)).toBe(drafts);
 	});
 
-	it('is recognised as belonging to one Historical Map', () => {
+	it('is recognised as belonging to one Map Image', () => {
 		const record: ControlPointDeletedUndo = {
 			kind: 'control-point-deleted',
 			imageId: 'floride-1657',
@@ -317,8 +317,8 @@ describe('a deleted Layer', () => {
 		expect(back.map((layer) => layer.id)).toEqual(['l-notes', 'l-map']);
 		// `order` follows the position, so the restored Layer's stored number agrees with the array.
 		expect(back.map((layer) => layer.order)).toEqual([0, 1]);
-		// Everything else about it, unchanged: its name, its opacity, its visibility, and the Historical
-		// Map it draws. `order` is the one field the stack owns rather than the record.
+		// Everything else about it, unchanged: its name, its opacity, its visibility, and the Map
+		// Image it draws. `order` is the one field the stack owns rather than the record.
 		expect(back[1]).toEqual({ ...mapLayer, order: 1 });
 	});
 
@@ -346,11 +346,11 @@ describe('a deleted Layer', () => {
 		expect(written.filter((layer) => layer.id === 'l-map')).toHaveLength(1);
 	});
 
-	// ADR-0023 and SPEC story 67: removing a Layer leaves the Historical Map available. A map Layer's
+	// ADR-0023 and SPEC story 67: removing a Layer leaves the Map Image available. A map Layer's
 	// Alignment and pyramid are the Workspace's and may be drawn by other Projects, so a delete must take
 	// **nothing** with it — which is why `layerFileRef` answers `''` for one. Returning the Alignment path
 	// here would make one Project's delete button destroy another Project's map.
-	it('claims no file for a map Layer, because its Historical Map is the Workspace’s', () => {
+	it('claims no file for a map Layer, because its Map Image is the Workspace’s', () => {
 		expect(layerFileRef(mapLayer)).toBe('');
 		expect(layerFileRef(notes)).toBe('annotations/l-notes.geojson');
 		expect(
@@ -385,7 +385,7 @@ describe('a deletion reversed through the slot, after it reached storage (ADR-00
 	// Not `alignmentPath(IMAGE_ID)`: that is an `AlignmentPath`, and the undo closure below commits it
 	// through `Autosave` exactly as `deleteLayer` does — which ticket 18's brand refuses, correctly.
 	// Production never records an Alignment delete for precisely the reason `undo.ts` gives: one
-	// Project's delete button must not destroy a Historical Map every Project shares.
+	// Project's delete button must not destroy a Map Image every Project shares.
 	const path: StorePath = `alignments/${IMAGE_ID}.json`;
 	// Deliberately *not* what `serialiseAlignment` would produce: a colleague's file, with fields this
 	// build carries rather than understands. A record that held a parsed Alignment would restore
@@ -525,7 +525,7 @@ describe('the one undo slot (ADR-0014)', () => {
 		expect(slot.record).toBeNull();
 	});
 
-	// A Control Point undo belongs to the Historical Map it was made on: once the user is aligning a
+	// A Control Point undo belongs to the Map Image it was made on: once the user is aligning a
 	// different one, an affordance offering to move a point they cannot see is worse than none.
 	it('forgets a record that no longer applies, and keeps one that does', () => {
 		const slot = new UndoSlot();

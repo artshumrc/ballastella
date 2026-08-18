@@ -1,10 +1,10 @@
-# Historical Maps and Alignments move to the Workspace
+# Map Images and Alignments move to the Workspace
 
 ## What to build
 
-A Historical Map's pyramid and its Alignment stop living inside a Project and live at the Workspace root instead, shared by every Project. A Project directory keeps `project.json` and `annotations/` and nothing else.
+A Map Image's pyramid and its Alignment stop living inside a Project and live at the Workspace root instead, shared by every Project. A Project directory keeps `project.json` and `annotations/` and nothing else.
 
-Nothing about the user interface changes in this slice. When you are done, the app looks and behaves exactly as it does now — every existing test still passes, adapted — but the files are in different places and **the same Historical Map can be referenced by two Projects at once**, which is the behaviour to demonstrate.
+Nothing about the user interface changes in this slice. When you are done, the app looks and behaves exactly as it does now — every existing test still passes, adapted — but the files are in different places and **the same Map Image can be referenced by two Projects at once**, which is the behaviour to demonstrate.
 
 ```
 workspace/
@@ -15,7 +15,7 @@ workspace/
     └── annotations/<layer-id>.geojson
 ```
 
-Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-the-workspace.md) first. It is the authority for this slice and explains why the Alignment moves too, which is the part that looks optional and is not.
+Read [ADR-0023](../../../docs/adr/0023-map-images-and-alignments-live-in-the-workspace.md) first. It is the authority for this slice and explains why the Alignment moves too, which is the part that looks optional and is not.
 
 ## Where to start
 
@@ -38,13 +38,13 @@ Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-th
 interface MapLayer extends LayerCommon {
   kind: 'map';
   opacity: number;
-  imageId: string;   // the Workspace Historical Map this Layer draws
+  imageId: string;   // the Workspace Map Image this Layer draws
 }
 ```
 
 `imageIdFromAlignmentRef` and `mapLayerImageInfoPath` are deleted — the Alignment path and the image directory are both derivable from `imageId`.
 
-**`imageMode` is not stored anywhere, because it is observable.** A Historical Map in the Workspace either has an `info.json` of ours, meaning its tiles are here, or only a `remote.json`, meaning they are on a Library's server. Delete `ImageMode`, `imageModeOf`, and `localCopySource`. `partitionByLocalCopy` becomes a Workspace-wide question rather than a per-Project one.
+**`imageMode` is not stored anywhere, because it is observable.** A Map Image in the Workspace either has an `info.json` of ours, meaning its tiles are here, or only a `remote.json`, meaning they are on a Library's server. Delete `ImageMode`, `imageModeOf`, and `localCopySource`. `partitionByLocalCopy` becomes a Workspace-wide question rather than a per-Project one.
 
 **Delete the repair path for a half-committed copy.** `#reconcileLocalCopies`, `unfinishedCopies`, `finishInterruptedCopy`, and the "Finish the offline copy" button all exist because a Layer's `imageMode` claim could disagree with the bytes on disk. With one derived answer per map there is nothing left to disagree. Removing them is required, not optional — leaving them means dead code that lies.
 
@@ -71,7 +71,7 @@ interface MapLayer extends LayerCommon {
 
 ## Acceptance criteria
 
-- [ ] Adding a Historical Map writes `images/<image-id>/info.json` at the Workspace root, and no bytes inside any Project directory.
+- [ ] Adding a Map Image writes `images/<image-id>/info.json` at the Workspace root, and no bytes inside any Project directory.
 - [ ] A first Control Point writes `alignments/<image-id>.json` at the Workspace root.
 - [ ] Two Projects can each hold a map Layer for the same `imageId`, and both render, with one pyramid on disk.
 - [ ] Deleting a Project leaves `images/<image-id>/` and `alignments/<image-id>.json` in place.
@@ -108,7 +108,7 @@ None — can start immediately.
 
 Three things worth knowing before the next ticket, none of them a deviation from the contract.
 
-**`HistoricalMapSource`, `tileBaseFor`, `sourceOf`, and `isReferenced` were kept.** The contract names
+**`MapImageSource`, `tileBaseFor`, `sourceOf`, and `isReferenced` were kept.** The contract names
 `ImageMode`, `imageModeOf`, and `localCopySource` for deletion and those are gone, but the union itself
 describes an *in-memory observation* of where tiles are, which ADR-0023 keeps rather than removes — and
 `tileBaseFor` is what ticket 07 needs to point the alignment pane at a Library's server. The cost of
@@ -117,7 +117,7 @@ writes `{ imageMode: 'mirrored', imageId }` by hand. Ticket 07 should give it on
 either is a smaller decision than making it here. The union's discriminator is still spelled `imageMode`,
 which the criterion's `grep` does not match — it is case-sensitive and looks for `ImageMode`.
 
-**The published viewer now costs one 404 per referenced Historical Map.** A static host has no directory
+**The published viewer now costs one 404 per referenced Map Image.** A static host has no directory
 listing, so the viewer asks whether a map has an `info.json` of its own and reads the answer off the
 status. `info.json` is asked first because a local copy is the common case and that request is one
 `@allmaps/maplibre` makes anyway; only a referenced map pays. `editor-publish.e2e.ts` asserts that exact
@@ -128,8 +128,8 @@ decision of its own.
 **`assertReferencesPresent` no longer asks a foreign Layer about `alignmentRef`.** It still asks about
 `geojsonRef`. A Layer carrying `alignmentRef` means nothing this build writes any more, so requiring the
 archive to carry it would refuse an archive for a reason nobody could act on. A foreign Layer's `imageId`
-is likewise not interpreted: this build cannot know that an unknown kind's `imageId` names a Historical
-Map, and guessing would refuse archives over a guess.
+is likewise not interpreted: this build cannot know that an unknown kind's `imageId` names a Map
+Image, and guessing would refuse archives over a guess.
 
 **The fence's exemptions are narrower than the contract above says, and it has a per-line opt-out.**
 The contract names four *directories and files*; `check-workspace-rooted-paths.mjs` exempts five
@@ -148,7 +148,7 @@ Three things the review of this ticket found and this ticket is deliberately not
 are pre-existing and belong with the ticket that changes the code around them; the third is a decision
 a person has to make.
 
-**A Historical Map added with no community Alignment references an Alignment that does not exist.**
+**A Map Image added with no community Alignment references an Alignment that does not exist.**
 `addReferencedMap` writes `alignments/<image-id>.json` only when the user chose a community Alignment
 (`apps/editor/src/lib/editor-session.svelte.ts`, in the `if (fields.alignment)` branch), while
 `layerReferences` in `packages/core/src/transfer/import-project-zip.ts` requires
@@ -157,12 +157,12 @@ that this same build refuses to import. Pre-existing — the shapes changed in t
 not — and it closes in **ticket 02**, whose contract already writes a starter Alignment when a map is
 added, for exactly this reason. Noted there.
 
-**"Is this Historical Map referenced rather than copied?" now has five implementations.**
+**"Is this Map Image referenced rather than copied?" now has five implementations.**
 `referencedImageIds` in `packages/core/src/publish/publish.ts`, `partitionByLocalCopy` in
 `packages/core/src/remote-iiif/referenced-image.ts`, `readMapLayer`'s 404 probe in
 `apps/viewer/src/lib/project-documents.ts`, and the derived sets in
 `apps/editor/src/routes/layers/+page.svelte` and `apps/viewer/src/routes/+page.svelte`. All five ask
-the same question of the same directory and can disagree. One `referencedHistoricalMaps(store)` in
+the same question of the same directory and can disagree. One `referencedMapImages(store)` in
 core would serve all of them. Left alone here because this ticket was already rewriting four of the
 five and a sixth rewrite is not what makes it correct; **ticket 08** is where it belongs, since it
 adds a core function that reads exactly this and must not become the sixth. Noted there.

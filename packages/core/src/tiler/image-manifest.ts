@@ -4,7 +4,7 @@
 // readable by something that is not this app (ADR-0002, ADR-0006). `info.json` describes an
 // image service; a Manifest is the document a IIIF viewer, an Allmaps Georeference Annotation,
 // or a library's own tooling points at. A local scan that only ever had an `info.json` would be
-// a second-class Historical Map the moment it left this app, which is precisely what SPEC story
+// a second-class Map Image the moment it left this app, which is precisely what SPEC story
 // 21 says it must not be.
 //
 // Its `id`s carry the same `https://unset.invalid/` placeholder as `info.json` and for the same
@@ -89,7 +89,7 @@ export function wholeImageDerivative(
 }
 
 /**
- * What the user calls this Historical Map, out of its `manifest.json`, or `''` when the document does
+ * What the user calls this Map Image, out of its `manifest.json`, or `''` when the document does
  * not say.
  *
  * The manifest's label is the **only** record of the file the user picked: an image id is a random
@@ -112,7 +112,7 @@ export function buildImageManifest({
 	info
 }: {
 	imageId: string;
-	/** What the user will see this Historical Map called. Usually the file they picked. */
+	/** What the user will see this Map Image called. Usually the file they picked. */
 	label: string;
 	info: Level0ImageInfo;
 }): ImageManifest {

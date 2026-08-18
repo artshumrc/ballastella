@@ -8,9 +8,9 @@ A scholar can type a place name and either move the map to it or drop a Pin at i
 
 **A Place is transient.** Choosing one either moves the camera or drops an ordinary Annotation. A Pin placed from a lookup is **byte-identical** to a Pin drawn by hand — same geometry, same properties, nothing marking its origin. Search is an authoring convenience, not a provenance system.
 
-**A Place is a starting point, usually wrong.** The workflow this feature exists for is: look up an address, see that it landed in the middle of a river, and drag it to where the wharf actually was — reading against the Base Map or a Historical Map layered over it. **The correction is the scholarship.** The lookup is step one and the cheap one.
+**A Place is a starting point, usually wrong.** The workflow this feature exists for is: look up an address, see that it landed in the middle of a river, and drag it to where the wharf actually was — reading against the Base Map or a Map Image layered over it. **The correction is the scholarship.** The lookup is step one and the cheap one.
 
-That gesture needs no new code. `overlay-points.ts` already draws `annotation-vertex` as a focusable, draggable, arrow-key-movable DOM `<button>` on a MapLibre `Marker`, which sits above the WebGL canvas where a warped Historical Map is drawn. Dragging a Pin against a historical map is vertex editing that shipped in ticket 10.
+That gesture needs no new code. `overlay-points.ts` already draws `annotation-vertex` as a focusable, draggable, arrow-key-movable DOM `<button>` on a MapLibre `Marker`, which sits above the WebGL canvas where a warped Map Image is drawn. Dragging a Pin against a map image is vertex editing that shipped in ticket 10.
 
 ## Nothing is written about where a coordinate came from
 

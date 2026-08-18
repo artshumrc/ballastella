@@ -90,10 +90,10 @@ single-run wall clock         mean 444.2s   min 382.5s   max 485.2s
 | Run | Test | Class | Error |
 | --- | --- | --- | --- |
 | 2 | `editor-transfer` says so when an export fails | transient-state timeout | 30 s waiting for the Export button |
-| 5 | `editor-pwa` fully usable with the network off | transient-state timeout | 30 s waiting for `align-historical-map` |
-| 5 | `editor-stored-image-pane` two Historical Maps in one Project | test-budget exhaustion | `toHaveCount(2) … Received: 1` at the 30 s test timeout |
+| 5 | `editor-pwa` fully usable with the network off | transient-state timeout | 30 s waiting for `align-map-image` |
+| 5 | `editor-stored-image-pane` two Map Images in one Project | test-budget exhaustion | `toHaveCount(2) … Received: 1` at the 30 s test timeout |
 | 6 | `editor-pwa` fully usable with the network off | assertion | `TypeError … reading 'id'` in `annotationLayerId` |
-| 7 | `editor-pwa` fully usable with the network off | transient-state timeout | 30 s waiting for `align-historical-map` |
+| 7 | `editor-pwa` fully usable with the network off | transient-state timeout | 30 s waiting for `align-map-image` |
 | 7 | `editor-workspace` transitions saved → saving → saved | assertion | `Expected "saving", Received "saved"` |
 | 8 | `editor-transfer` says so when an export fails | transient-state timeout | resolved the button, then `element was detached from the DOM` |
 | 10 | `editor-workspace` transitions saved → saving → saved | assertion | `Expected "saving", Received "saved"` |
@@ -121,7 +121,7 @@ each has a cause that can be named, fixed and watched fail:
 
 1. **`store.list` threw when a directory was deleted underneath it.** `collectFiles` in
    `directory-handle-store.ts` descended into a directory handle that had gone between the parent's
-   `entries()` yielding it and the recursive call. `EditorSession.refreshHistoricalMaps` reads that
+   `entries()` yielding it and the recursive call. `EditorSession.refreshMapImages` reads that
    as the Workspace being unreachable and replaces the hub — so the Export button was *detached*
    mid-click and never came back, which is what run 8 recorded. **A genuine app bug, not a test
    one**, and a serious one under ADR-0023: a colleague's sync client or a second tab deleting one
@@ -263,7 +263,7 @@ The mutation check applies to criterion 5: break the retry-rate threshold and co
 2. **Done, with one honest gap.** Fixed at their cause and passing `--repeat-each=10`:
    `editor-transfer` "says so when an export fails" (25/25, and again in a 560-test repeat block),
    `editor-workspace` "transitions saved → …" (10/10), `editor-pwa` "network off" (40/40),
-   `editor-stored-image-pane` "two Historical Maps" (10/10), plus the four found afterwards —
+   `editor-stored-image-pane` "two Map Images" (10/10), plus the four found afterwards —
    `editor-image-ingest` (in the same 560-test block), the two `editor-layers` keyboard tests (30/30)
    and `editor-alignment` "choosing the Base Map" (30/30).
    **The four that never reproduced take the criterion's second option, and here is the argument for
@@ -451,7 +451,7 @@ because the mutation check demanded it, **and the obvious causal story turned ou
 | a **missing** fixture file | red, `ENOENT`, every test |
 
 So "no Base Map means no warped render" is wrong. These specs never depended on the Base Map's
-*content* at all — their warped-tile assertions read the Historical Map's own pyramid out of OPFS,
+*content* at all — their warped-tile assertions read the Map Image's own pyramid out of OPFS,
 which never involved this archive. What they need is for the archive request to be **answered**, so
 MapLibre's source initialises and the warped layer is added.
 

@@ -6,7 +6,7 @@ import {
 	baseMap,
 	clickAt,
 	emptyWorkspace,
-	historicalMap,
+	mapImage,
 	makePairs,
 	rows,
 	showPaneDetails,
@@ -15,13 +15,13 @@ import {
 	warpedTiles
 } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { ensureAddHistoricalMapOpen } from './support/historical-maps.js';
+import { ensureAddMapImageOpen } from './support/map-images.js';
 import { generateId, installIiifHosts, service } from './support/iiif-hosts.js';
 import { alignFromLayer, layerRows, openLayerRow } from './support/layers.js';
 import { seedFile } from './support/stored-file.js';
 
 /**
- * Ticket 07: a Historical Map whose tiles are on a Library's server is aligned **in place**.
+ * Ticket 07: a Map Image whose tiles are on a Library's server is aligned **in place**.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHAT ONLY THIS FILE CAN ASSERT
@@ -76,7 +76,7 @@ async function createAndOpenProject(page: Page, name: string): Promise<void> {
  * How many of the Workspace's Projects have a Layer drawing `imageId`, read off disk.
  *
  * **The precondition for anything asserting the used-by sentence**, and it is a real race rather
- * than a tidy-up: `refreshMapUsage` reads every `project.json` once per Historical Map opened, so a
+ * than a tidy-up: `refreshMapUsage` reads every `project.json` once per Map Image opened, so a
  * Layer still inside ADR-0017 rule 2's debounce is a Project the walk does not see — and because the
  * walk does not run again, the sentence stays wrong for the whole visit. Waiting for the bytes is
  * waiting for the thing the screen is about to read.
@@ -98,7 +98,7 @@ const projectsDrawing = (page: Page, imageId: string): Promise<number> =>
 	}, imageId);
 
 /**
- * Add a referenced Historical Map from a bare image-service URL.
+ * Add a referenced Map Image from a bare image-service URL.
  *
  * @returns the image id, which is `generateId(uri)` and therefore the Alignment's file name
  */
@@ -109,7 +109,7 @@ async function addReferenced(
 	/** How many Layers the Project has once this one is in. */
 	layers = 1
 ): Promise<string> {
-	await ensureAddHistoricalMapOpen(page);
+	await ensureAddMapImageOpen(page);
 	await page.getByTestId('remote-url').fill(`${service(host, name)}/info.json`);
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible({ timeout: 30_000 });
@@ -119,7 +119,7 @@ async function addReferenced(
 }
 
 /**
- * The Layer drawing one Historical Map, found by the image it draws rather than by its position.
+ * The Layer drawing one Map Image, found by the image it draws rather than by its position.
  *
  * A new map Layer goes to the *top* of the stack, so index 0 names one row before a second map is
  * added and another after it — `support/layers.ts` records two failures in eleven runs from exactly
@@ -171,11 +171,9 @@ const atFullResolution = (url: string): boolean => {
 /** Wait until the alignment route's pane is live and every tile of the first view has decoded. */
 async function waitForPane(page: Page): Promise<void> {
 	await expect(page.getByTestId('image-pane')).toBeVisible({ timeout: 30_000 });
-	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-		'data-tiles-loaded',
-		'true',
-		{ timeout: 60_000 }
-	);
+	await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+		timeout: 60_000
+	});
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 }
 
@@ -213,7 +211,7 @@ for (const [what, host] of [
 		// The pane is reading the Library's sheet: its declared geometry, not the Workspace's. Read off
 		// the pane's own summary, which is the only way to say *which* pyramid is on screen.
 		await showPaneDetails(page);
-		const pyramid = page.getByTestId('historical-map-pyramid');
+		const pyramid = page.getByTestId('map-image-pyramid');
 		await expect(pyramid).toHaveAttribute('data-image-id', imageId);
 		await expect(pyramid).toHaveAttribute('data-width', '700');
 		await expect(pyramid).toHaveAttribute('data-height', '500');
@@ -324,7 +322,7 @@ test('refuses a service that publishes no tiles when the map is added, naming th
 	// ADR-0007's principle, extended from CORS to the pane itself: the refusal is decided when the
 	// resource is added and never when Align is clicked. A user must never be given a Layer with an
 	// Align button that leads to a screen which cannot work.
-	await ensureAddHistoricalMapOpen(page);
+	await ensureAddMapImageOpen(page);
 	await page.getByTestId('remote-url').fill(`${service('sizes-only.test', 'plain')}/info.json`);
 	await page.getByTestId('remote-read').click();
 
@@ -357,7 +355,7 @@ test('still refuses a host whose info.json is readable and whose tiles are not',
 	await installIiifHosts(page);
 	await openNewProject(page);
 
-	await ensureAddHistoricalMapOpen(page);
+	await ensureAddMapImageOpen(page);
 	await page.getByTestId('remote-url').fill(`${service('tiles-only.test', 'locked')}/info.json`);
 	await page.getByTestId('remote-read').click();
 
@@ -418,7 +416,7 @@ test('refuses to open the alignment view offline, and names the host', async ({
 	await context.setOffline(true);
 	await alignFromLayer(page);
 
-	const failure = page.getByTestId('historical-map-failure');
+	const failure = page.getByTestId('map-image-failure');
 	await expect(failure).toBeVisible({ timeout: 30_000 });
 	await expect(failure).toContainText('images.test');
 	await expect(failure).toContainText('no connection');
@@ -448,7 +446,7 @@ test('keeps working offline once the pane exists, and says whose sheet has gone'
 
 	await context.setOffline(true);
 
-	const notice = page.getByTestId('historical-map-offline');
+	const notice = page.getByTestId('map-image-offline');
 	await expect(notice).toBeVisible({ timeout: 30_000 });
 	await expect(notice).toHaveAttribute('data-offline-host', 'images.test');
 	await expect(notice).toContainText('images.test');
@@ -456,8 +454,8 @@ test('keeps working offline once the pane exists, and says whose sheet has gone'
 	// **The pane is still there and Control Points still place.** Blocking would discard an alignment
 	// legitimately in progress — the coordinate space is the `info.json`'s and stays valid whether or
 	// not any bytes arrive, so a click is the same image pixel either way.
-	await expect(historicalMap(page)).toBeVisible();
-	await clickAt(historicalMap(page), 0.35, 0.4);
+	await expect(mapImage(page)).toBeVisible();
+	await clickAt(mapImage(page), 0.35, 0.4);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 	await clickAt(baseMap(page), 0.35, 0.4);
 	await expect(rows(page)).toHaveCount(2);
@@ -667,7 +665,7 @@ test('keeps this session’s version when that is what the user chooses', async 
 	await expect(outcome).toContainText('Your version has been kept');
 });
 
-test('warns only on the Historical Map the warning is about', async ({ page }) => {
+test('warns only on the Map Image the warning is about', async ({ page }) => {
 	test.slow();
 	await installIiifHosts(page);
 	await openNewProject(page);
@@ -677,7 +675,7 @@ test('warns only on the Historical Map the warning is about', async ({ page }) =
 	await reachTheCollision(page, florida);
 	await expect(changedElsewhere(page)).toBeVisible({ timeout: 30_000 });
 
-	// A second Historical Map, aligned in the same session with the warning still standing. The button
+	// A second Map Image, aligned in the same session with the warning still standing. The button
 	// in that alert writes **one map's file**, so showing it over another map's Control Points would
 	// offer to put back a document that has nothing to do with what is on screen.
 	await page.getByTestId('back-to-project').click();
@@ -698,9 +696,7 @@ test('warns only on the Historical Map the warning is about', async ({ page }) =
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // WHO ELSE THIS ALIGNMENT BELONGS TO, AND WHAT THE SCREEN SAYS OUT LOUD
 
-test('names the Projects that draw this Historical Map while it is being aligned', async ({
-	page
-}) => {
+test('names the Projects that draw this Map Image while it is being aligned', async ({ page }) => {
 	test.slow();
 	await installIiifHosts(page);
 	await openNewProject(page);
@@ -717,11 +713,11 @@ test('names the Projects that draw this Historical Map while it is being aligned
 	// Read as text rather than off the attribute: the attribute is for tests and the sentence is for
 	// the user, and a version that kept the count and dropped the words would pass an attribute check.
 	await expect(usedBy).toContainText(PROJECT_NAME);
-	await expect(usedBy).toContainText('shared by every Project that draws this Historical Map');
+	await expect(usedBy).toContainText('shared by every Project that draws this Map Image');
 });
 
 /**
- * Two Historical Maps with **different** answers, so the sentence has to be about the one on screen.
+ * Two Map Images with **different** answers, so the sentence has to be about the one on screen.
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
  * │ THE ID SCOPING WAS A COMMENT IN TWO PLACES AND AN ASSERTION IN NONE.                       │
@@ -746,7 +742,7 @@ test('names a different set of Projects for a different map on the same screen',
 	const georgia = await addReferenced(page, 'images.test', 'georgia', 2);
 
 	// A second Project drawing only the second map. The image id is `generateId(uri)`, the same for
-	// everybody, so adding the same service here is the same Historical Map — which is the whole of
+	// everybody, so adding the same service here is the same Map Image — which is the whole of
 	// ADR-0023 and the reason this sentence exists.
 	// `goto` rather than a link, and it is doing work: a real navigation runs `pagehide`, which is
 	// ADR-0017 rule 3's flush, so the Layer just added is on disk rather than inside its debounce.
@@ -809,16 +805,16 @@ test('says what this screen is doing, in regions a screen reader is told about',
 	// this repository has settled it twice, in `ReviewBanner.svelte` and `UpdatePrompt.svelte` — so
 	// the region has to be here, empty, while the connection is fine. Asserted with the network up,
 	// because that is the state in which the earlier version of this had no region at all.
-	const region = page.getByTestId('historical-map-offline-region');
+	const region = page.getByTestId('map-image-offline-region');
 	await expect(region).toHaveAttribute('aria-live', 'polite');
 	await expect(region).toBeEmpty();
-	await expect(page.getByTestId('historical-map-offline')).toHaveCount(0);
+	await expect(page.getByTestId('map-image-offline')).toHaveCount(0);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // THE TWO GUARDS AROUND THE CONNECTION SIGNAL
 //
-// `HistoricalMapPane` reads the app's one online signal in two effects, and both are shaped by a
+// `MapImagePane` reads the app's one online signal in two effects, and both are shaped by a
 // guard whose absence is invisible: the pane still works, it merely rebuilds itself when it should
 // not. The existing offline specs go offline and never come back, so neither guard was exercised at
 // all. These two do the returning half.
@@ -839,13 +835,13 @@ test('a connection that blips does not discard the alignment in progress', async
 	// thing on this screen that a rebuilt pane cannot restore. Two placed pairs would survive a
 	// rebuild, because they would be re-read from the file, and the test would go green over the very
 	// thing it is for.
-	await clickAt(historicalMap(page), 0.3, 0.35);
+	await clickAt(mapImage(page), 0.3, 0.35);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 
 	await context.setOffline(true);
-	await expect(page.getByTestId('historical-map-offline')).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByTestId('map-image-offline')).toBeVisible({ timeout: 30_000 });
 	await context.setOffline(false);
-	await expect(page.getByTestId('historical-map-offline')).toHaveCount(0, { timeout: 30_000 });
+	await expect(page.getByTestId('map-image-offline')).toHaveCount(0, { timeout: 30_000 });
 
 	// ⚠ The pane must **not** have re-read its pyramid. It never stopped being valid: the coordinate
 	// space is the `info.json`'s, not the tiles', so nothing about it changed when the sheet stopped

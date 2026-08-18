@@ -1507,7 +1507,7 @@ describe('Autosave', () => {
 		 * It waited only on `file.draining` — a write the store already had — which is precisely the
 		 * state that does *not* obtain when the user drags a Control Point and presses Delete. Inside
 		 * the 400 ms debounce there is no drain: `pending` is set and `draining` is undefined, so the
-		 * wait answered `true` on the spot and the timer fired **during** `deleteHistoricalMap`'s own
+		 * wait answered `true` on the spot and the timer fired **during** `deleteMapImage`'s own
 		 * awaits — the first of which walks every Project in the Workspace. The Alignment landed after
 		 * `alignments/<id>.json` had been removed, orphaning a placement for a map that is gone, which
 		 * is the one leftover that function exists to prevent.
@@ -1553,7 +1553,7 @@ describe('Autosave', () => {
 		/**
 		 * ⚠ **The prefix is load-bearing and nothing asserted it** (round 5). Without it every call
 		 * would wait on every write in the Workspace, so one stuck write in a Project nobody is
-		 * looking at would put the whole two-second bound on every Historical Map deletion — a pause
+		 * looking at would put the whole two-second bound on every Map Image deletion — a pause
 		 * with no cause the user could see, and no test to say why.
 		 */
 		it('ignores a write in flight somewhere else in the Workspace', async () => {
@@ -1567,7 +1567,7 @@ describe('Autosave', () => {
 
 		/**
 		 * `settled` is `abandon`'s half that loses nothing: it brings a prefix to rest and discards no
-		 * bytes and no journal entry. It exists for `deleteHistoricalMap`, which decides for itself
+		 * bytes and no journal entry. It exists for `deleteMapImage`, which decides for itself
 		 * whether the deletion may happen at all and must not have the user's unsaved Alignment thrown
 		 * away before it does.
 		 */

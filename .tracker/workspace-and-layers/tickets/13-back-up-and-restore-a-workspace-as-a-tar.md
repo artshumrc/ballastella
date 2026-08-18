@@ -4,7 +4,7 @@
 
 A scholar can write their whole Workspace to one tar file and read it back — on this computer or another one. This is the backup and the move-between-machines story, and for anyone on Firefox, Safari, or an iPad it is the only way their work leaves the browser.
 
-Demonstrable end to end: back up a Workspace containing two Projects and a shared Historical Map; restore it in a fresh browser profile; find both Projects, one pyramid, and the Alignment intact.
+Demonstrable end to end: back up a Workspace containing two Projects and a shared Map Image; restore it in a fresh browser profile; find both Projects, one pyramid, and the Alignment intact.
 
 Read [ADR-0024](../../../docs/adr/0024-backup-and-handoff-are-different-artefacts.md) first, especially why this is not a zip.
 
@@ -95,7 +95,7 @@ store stream is an ADR-0017 question, not this slice's.
 
 ## Acceptance criteria
 
-- [x] A Workspace with two Projects sharing one Historical Map backs up to a single tar.
+- [x] A Workspace with two Projects sharing one Map Image backs up to a single tar.
 - [x] Restoring that tar into a fresh Workspace reproduces both Projects, one pyramid, one Alignment, and every Annotation.
 - [x] The tar contains no `index.html`, no `_app/`, and no `ballastella-site.json`. — also no `robots.txt` and no `base-map/`, because the ticket's "the enumerable viewer file set is what a backup excludes" points at `isViewerFile`, which enumerates all five. The cost is that an Offline Copy's Base Map extract has to be made again, so the restore notice says so as well as saying to publish — otherwise a Reader of a restored Project gets the silent blank map ticket 17 found the product had no notice for.
 - [x] Restoring reports that publishing is needed before the Workspace is a site again.

@@ -436,7 +436,7 @@ const EDITING_CONTROLS = [
  * commentary is invisible to every control sweep. This one reads `textContent`, so it reaches both.
  */
 const EDITOR_ONLY_PROSE = [
-	'Add a Historical Map',
+	'Add a Map Image',
 	'Add an Annotation Layer',
 	'this Workspace',
 	'you can still rename',
@@ -444,7 +444,7 @@ const EDITOR_ONLY_PROSE = [
 	'New Annotation',
 	'Nothing is on the map yet.',
 	'Everything in your Workspace still works',
-	'you can add a Historical Map now'
+	'you can add a Map Image now'
 ] as const;
 
 /**
@@ -1281,13 +1281,13 @@ test.describe('exploring a Project', () => {
 		const annotationAt = order.findIndex((id) =>
 			id.startsWith(`ballastella-layer-${ANNOTATION_LAYER_ID}-`)
 		);
-		expect(mapLayerAt, 'the warped Historical Map is on the map').toBeGreaterThan(-1);
+		expect(mapLayerAt, 'the warped Map Image is on the map').toBeGreaterThan(-1);
 		expect(annotationAt, 'the Annotation Layer is on the map').toBeGreaterThan(-1);
 		// Later in MapLibre's order is drawn above, and the Annotation Layer is `order: 0` — the top of the
 		// stack the author composed.
 		expect(annotationAt).toBeGreaterThan(mapLayerAt);
 
-		// And the Historical Map really carried bytes rather than merely being named: the pre-patch failure
+		// And the Map Image really carried bytes rather than merely being named: the pre-patch failure
 		// in `@allmaps/render` was an error upstream logged and swallowed, so a console check went green
 		// while the map rendered blank. `isCachedTile()` is `data !== undefined` and `data` is the ImageData
 		// the tile worker produced, so this counts tiles that made it all the way through the ADR-0011 shim
@@ -1362,8 +1362,8 @@ test.describe('exploring a Project', () => {
 		);
 		const at = collection.features[0].geometry.coordinates as [number, number];
 
-		// Framed on the Annotation, because the tile assertion above left the camera on the Historical
-		// Map's bounds — a mark outside the canvas is deliberately not pointed at.
+		// Framed on the Annotation, because the tile assertion above left the camera on the Map
+		// Image's bounds — a mark outside the canvas is deliberately not pointed at.
 		await page.evaluate(
 			(centre) =>
 				window.ballastellaReaderMap!.map.jumpTo({ center: centre as [number, number], zoom: 14 }),
@@ -1925,10 +1925,10 @@ test.describe('the Base Map a Reader sees', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// Reading a Historical Map as a document (SPEC story 85)
+// Reading a Map Image as a document (SPEC story 85)
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
-test.describe('a Historical Map read unwarped', () => {
+test.describe('a Map Image read unwarped', () => {
 	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
 
 	test.afterEach(async () => {
@@ -1956,8 +1956,8 @@ test.describe('a Historical Map read unwarped', () => {
 			// from disk per request, as a static host does, so this takes effect with no restart.
 			site = await published(oneProject());
 			const served = site.sites[0]!;
-			// At the **site root**, and stamped with an address that names no Project (ADR-0023): a Historical
-			// Map is shared, so it answers at one citable endpoint however many Projects draw it.
+			// At the **site root**, and stamped with an address that names no Project (ADR-0023): a Map
+			// Image is shared, so it answers at one citable endpoint however many Projects draw it.
 			await writeSiteFile(
 				site.directory,
 				`images/${IMAGE_ID}/info.json`,
@@ -1966,7 +1966,7 @@ test.describe('a Historical Map read unwarped', () => {
 			const seen = watch(page);
 			const url = `${served.url}?p=amsterdam-1625`;
 
-			// **Where the tile assertion below starts counting.** The warped Historical Map on the Project
+			// **Where the tile assertion below starts counting.** The warped Map Image on the Project
 			// page fetches the very same pyramid, so a filter over the whole request log would be satisfied by
 			// the *map's* tiles and say nothing about the unwarped viewer. Not hypothetical: it is how the
 			// `by link` case first passed while the direct-load case failed for a real reason.
@@ -1975,7 +1975,7 @@ test.describe('a Historical Map read unwarped', () => {
 				await page.goto(url);
 				await mapReady(page);
 				from = seen.requests.length;
-				// Offered inside the Historical Map's own card, which is where a Layer's contents are.
+				// Offered inside the Map Image's own card, which is where a Layer's contents are.
 				const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
 				await card.getByTestId('read-as-document').click();
 			} else {
@@ -2032,7 +2032,7 @@ test.describe('a Historical Map read unwarped', () => {
 	test('refuses plainly, and requests nothing, when the pyramid carries no web address', async ({
 		page
 	}) => {
-		// The unstamped case, which is the **default** for a locally ingested Historical Map: its `info.json`
+		// The unstamped case, which is the **default** for a locally ingested Map Image: its `info.json`
 		// still carries the ADR-0004 `https://unset.invalid/<image-id>` placeholder, OpenSeadragon builds
 		// every tile URL from that document's own `id`, and nothing a Manifest says can override it —
 		// measured, see `apps/viewer/src/lib/unwarped-manifest.ts`.
@@ -2057,7 +2057,7 @@ test.describe('a Historical Map read unwarped', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('says so when the image behind a Historical Map is not on the site', async ({ page }) => {
+	test('says so when the image behind a Map Image is not on the site', async ({ page }) => {
 		site = await published(oneProject({ withoutPyramid: true }));
 		const seen = watch(page);
 
@@ -2085,9 +2085,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		site = null;
 	});
 
-	test('names the host when a referenced Historical Map’s record cannot be read', async ({
-		page
-	}) => {
+	test('names the host when a referenced Map Image’s record cannot be read', async ({ page }) => {
 		// Ticket 17's degradation table: "Referenced image whose host is unreachable → say so, naming the
 		// host; keep the rest of the site working."
 		//
@@ -2303,7 +2301,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		const notice = page.getByTestId('base-map-not-published');
 		await expect(notice).toHaveText(
 			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'reference map here carries no place names at all. The Map Images and the ' +
 				'Annotations are not affected.'
 		);
 		// **And no outage claimed.** The archive answers here (the global `beforeEach` serves the
@@ -2410,13 +2408,13 @@ test.describe('a Published Site that is not entirely well', () => {
 				{ timeout: 60_000 }
 			)
 			.toBeGreaterThan(0);
-		// **And the Historical Map, which the assertion above cannot see.** A `kind: 'map'` Layer is a
+		// **And the Map Image, which the assertion above cannot see.** A `kind: 'map'` Layer is a
 		// `WarpedMapLayer` — a custom WebGL layer — and `queryRenderedFeatures()` returns nothing for
 		// one, so the filter above is satisfied by the Annotation Layer alone. `data-drawn="2"` is the
 		// page's own count of itself, which is exactly the kind of evidence this ticket refuses. Tiles
-		// in the renderer's cache are the Historical Map's equivalent of a rendered feature, and the
+		// in the renderer's cache are the Map Image's equivalent of a rendered feature, and the
 		// idiom is this suite's own — see "draws the stack in the author's order". Mutation-checked by
-		// 404ing the Historical Map's tiles: `data-drawn` stayed at `2` and this went to `0`.
+		// 404ing the Map Image's tiles: `data-drawn` stayed at `2` and this went to `0`.
 		await expect
 			.poll(
 				() =>
@@ -2471,7 +2469,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(page.getByTestId('base-map-unavailable')).toBeVisible({ timeout: 45_000 });
 		// **Drawn before the connection goes**, and this wait is load-bearing rather than tidy.
 		// `setOffline` refuses `localhost` too, so it takes away the site's own files as well as the
-		// archive — and the Historical Map's tiles are site files, fetched as the renderer needs them.
+		// archive — and the Map Image's tiles are site files, fetched as the renderer needs them.
 		// Cutting the connection mid-fetch leaves one Layer of two drawn, which is a true report of a
 		// Project that had not finished arriving and not the claim below. Without this the assertion
 		// after the cut is a race, and it lost one run in four here.
@@ -2492,7 +2490,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// ── No exception, and that is ticket 04's proof ─────────────────────────────────────────────
 		// This assertion used to carry a named exception for one message. Cutting the connection while a
 		// warped Layer is on screen makes `@allmaps/render`'s `loadImage` ask this site for the
-		// Historical Map's `info.json`, and the store's rejection — `SiteFileUnreachableError` —
+		// Map Image's `info.json`, and the store's rejection — `SiteFileUnreachableError` —
 		// escaped it uncaught, arriving as a `pageerror`. It was measured at three runs in eight, here
 		// and at the commit before the work that found it, so it was neither that change nor
 		// contention.
@@ -2645,7 +2643,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// outage notice alongside.
 		//
 		// The pair then read: "the modern reference map is drawn from the network without any place
-		// names on it — the geography, the Historical Maps, and the Annotations are all here", directly
+		// names on it — the geography, the Map Images, and the Annotations are all here", directly
 		// above "The Base Map could not be loaded from" the archive's host. The first sentence is
 		// a flat falsehood in that state, and it was the live behaviour of every site this deployment
 		// published. The claim about the geography is gone rather than made conditional — see the next
@@ -2687,7 +2685,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		]);
 		await expect(notPublished).toHaveText(
 			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'reference map here carries no place names at all. The Map Images and the ' +
 				'Annotations are not affected.'
 		);
 		await expect(page.getByTestId('base-map-unavailable').locator('p')).toHaveText(
@@ -2707,7 +2705,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// no connection the archive fails exactly as it does above, and the outage alert is deliberately
 		// withheld — its remedy reads "this is usually that server rather than your connection", which
 		// is a falsehood to hand somebody whose wifi is off. So a sentence keyed on *the notice* rather
-		// than on *the failure* would print "the geography, the Historical Maps, and the Annotations are
+		// than on *the failure* would print "the geography, the Map Images, and the Annotations are
 		// all here" in front of an empty rectangle, alone, with nothing underneath it to contradict it.
 		//
 		// The fix was not a third branch. This notice is about files the site does not carry, which is
@@ -2729,7 +2727,7 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		await expect(page.getByTestId('base-map-not-published')).toHaveText(
 			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'reference map here carries no place names at all. The Map Images and the ' +
 				'Annotations are not affected.'
 		);
 		// The archive did fail — no Base Map geography is on screen — and nothing on the page blames
@@ -3003,7 +3001,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async ({
+	test('warns that a referenced Map Image leaves a Reader with no network seeing nothing', async ({
 		page
 	}) => {
 		// SPEC story 29 from the Reader's side. What decides whether a Reader needs the network is the
@@ -3023,7 +3021,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(page.getByTestId('project-needs-network')).toContainText('network');
 
 		// ⚠ **And no per-Layer badge, which is a different thing from the paragraph above** (SPEC
-		// stories 20 and 21, ticket 05). Where a Historical Map's tiles are held is the author's
+		// stories 20 and 21, ticket 05). Where a Map Image's tiles are held is the author's
 		// publishing decision: a Reader cannot copy a pyramid, cannot repoint a service, and cannot make
 		// the badge say the other thing. The warning above survives because it names what will not draw
 		// on a train, which is a consequence a Reader meets.
@@ -3040,7 +3038,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	});
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
-	// A HISTORICAL MAP WHOSE TILES STOP ARRIVING, SAID OUT LOUD (ticket 04, SPEC stories 14–21)
+	// A MAP IMAGE WHOSE TILES STOP ARRIVING, SAID OUT LOUD (ticket 04, SPEC stories 14–21)
 	//
 	// The failure this section exists for was invisible by construction: the store's refusal escaped
 	// `@allmaps/render`'s `loadImage` as an uncaught `pageerror` — measured at three runs in eight —
@@ -3053,7 +3051,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	// fence.
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 
-	/** Tiles this Layer's renderer holds — the Historical Map's equivalent of a rendered feature. */
+	/** Tiles this Layer's renderer holds — the Map Image's equivalent of a rendered feature. */
 	const cachedTiles = (page: Page): Promise<number> =>
 		page.evaluate(
 			(id) =>
@@ -3065,7 +3063,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	const mapLayerVisible = (page: Page): Locator => layerVisible(page, MAP_LAYER_ID);
 
 	/**
-	 * Hide the Historical Map and show it again — the gesture that makes its tiles be fetched afresh.
+	 * Hide the Map Image and show it again — the gesture that makes its tiles be fetched afresh.
 	 *
 	 * ⚠ **A viewport change is not a lever here, and that is measured rather than assumed.** The first
 	 * attempt at this test zoomed a level and counted the requests the route intercepted: **zero**.
@@ -3088,7 +3086,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	};
 
 	/**
-	 * Refuse every other request for this Historical Map's bytes, leaving its `info.json` alone.
+	 * Refuse every other request for this Map Image's bytes, leaving its `info.json` alone.
 	 *
 	 * **Every other one, deliberately.** Refusing them all would leave the renderer's cache empty, and
 	 * "the tiles that arrived are still drawn" would then be a claim with no subject — the assertion
@@ -3138,7 +3136,7 @@ test.describe('a Published Site that is not entirely well', () => {
 
 	const TILE_ROUTE = `**/images/${IMAGE_ID}/**`;
 
-	test('tells a Reader when a Historical Map’s tiles stop arriving, and keeps what arrived', async ({
+	test('tells a Reader when a Map Image’s tiles stop arriving, and keeps what arrived', async ({
 		page
 	}) => {
 		site = await published(oneProject());
@@ -3158,13 +3156,13 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
 		// **The notice is asserted absent first**, so that its appearance below is this signal acting
 		// rather than a page that renders it always. A warning that is always on is unreadable.
-		await expect(page.getByTestId('historical-map-tiles-unavailable')).toHaveCount(0);
+		await expect(page.getByTestId('map-image-tiles-unavailable')).toHaveCount(0);
 
 		// ── The tiles stop arriving ─────────────────────────────────────────────────────────────────
 		await refuseEveryOtherTile(page);
 		await redrawMapLayer(page);
 
-		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		const notice = page.getByTestId('map-image-tiles-unavailable');
 		await expect(notice).toBeVisible({ timeout: 45_000 });
 
 		// Announced, and by the mechanism this repository settled on: `role="alert"` rather than a live
@@ -3192,7 +3190,7 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		// ── What arrived is still drawn ─────────────────────────────────────────────────────────────
 		// A fix that blanked the map on error would satisfy every assertion above. So the tiles that did
-		// arrive are asserted **in the renderer's cache** — the Historical Map's equivalent of a
+		// arrive are asserted **in the renderer's cache** — the Map Image's equivalent of a
 		// rendered feature, since `queryRenderedFeatures()` returns nothing for a custom WebGL layer —
 		// rather than by `data-drawn`, which is the page's own count of itself.
 		// Polled rather than read once: the notice goes up on the *first* refusal, and the cells that do
@@ -3271,14 +3269,14 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
 			timeout: 60_000
 		});
-		await expect(page.getByTestId('historical-map-tiles-unavailable')).toHaveCount(0);
+		await expect(page.getByTestId('map-image-tiles-unavailable')).toHaveCount(0);
 
 		await page.route(`**/images/${IMAGE_ID}/info.json`, (route) =>
 			route.fulfill({ status: 503, body: 'the site is having a bad afternoon' })
 		);
 		await redrawMapLayer(page);
 
-		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		const notice = page.getByTestId('map-image-tiles-unavailable');
 		await expect(notice).toBeVisible({ timeout: 45_000 });
 		await expect(notice.locator('p')).toHaveText(
 			tilesServerErrorNotice('Blaeu’s plan of 1625', new URL(served.url).host, 503)
@@ -3339,7 +3337,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
 			timeout: 60_000
 		});
-		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		const notice = page.getByTestId('map-image-tiles-unavailable');
 		await expect(notice).toHaveCount(0);
 
 		const INFO_ROUTE = `**/images/${IMAGE_ID}/info.json`;
@@ -3792,7 +3790,7 @@ test.describe('a Reader using a keyboard', () => {
 		expect(await opacity.inputValue()).not.toBe(before);
 		await expect(page.getByTestId('layer-view-status')).toContainText('%');
 
-		// And the way into reading a Historical Map on its own is a real control the keyboard can activate.
+		// And the way into reading a Map Image on its own is a real control the keyboard can activate.
 		// Asserted on the *navigation* rather than on the viewer, because this Project is unstamped and
 		// therefore takes the refusal branch — which is its own test. What is under test here is that a
 		// keyboard reaches the control and Enter acts on it.
@@ -3917,7 +3915,7 @@ function pinnedProject(pins: readonly [number, number][]): SiteFiles {
 		annotations: pins.map((coordinates, index) =>
 			annotation({ id: `1111111${index}-1111-4111-8111-111111111111`, coordinates })
 		),
-		// The stack replaced outright, so the Amsterdam Historical Map the fixture also carries cannot
+		// The stack replaced outright, so the Amsterdam Map Image the fixture also carries cannot
 		// stretch the box across the Atlantic and make "it framed on Boston" unassertable.
 		projectOverrides: {
 			layers: [
@@ -4040,7 +4038,7 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		// The divergence this criterion exists to catch. The editor's `readProjectContent` reads the
 		// Alignment and nothing else, so a Layer whose Alignment parses places its sheet there whatever
 		// happened to its tiles. The viewer used to contribute a Layer only at `status: 'ready'`, which
-		// is a claim about *drawing* — so a Historical Map whose library server was down was on the earth
+		// is a claim about *drawing* — so a Map Image whose library server was down was on the earth
 		// in the editor and nowhere at all on the Published Site, and the two apps framed one Project two
 		// ways.
 		//

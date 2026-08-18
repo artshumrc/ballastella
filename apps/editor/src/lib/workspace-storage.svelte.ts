@@ -887,7 +887,7 @@ export class WorkspaceStorage {
 	 * Open a Project somebody sent, into a **new Review Workspace**, and switch to it (SPEC 90–92).
 	 *
 	 * ⚠ **There is no other destination, and that is the whole design rather than a limitation.**
-	 * Under ADR-0023 there is exactly one Alignment per Historical Map in a Workspace, so opening a
+	 * Under ADR-0023 there is exactly one Alignment per Map Image in a Workspace, so opening a
 	 * colleague's bundle into the user's own would either overwrite an Alignment two of their Projects
 	 * are drawn by, or be refused. ADR-0024's answer is that neither happens: a bundle lands in a
 	 * throwaway Workspace of its own, several of which may exist at once, and two students' conflicting
@@ -965,7 +965,7 @@ export class WorkspaceStorage {
 	 */
 	async reviewFrom(remote: ReviewReference): Promise<ReviewedProject> {
 		const subject = `${describeRemote(remote)} · ${remote.project}`;
-		// Announced for `openBundle`'s reason: a Historical Map's pyramid is thousands of files over
+		// Announced for `openBundle`'s reason: a Map Image's pyramid is thousands of files over
 		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
 		const announce = (files: number, totalFiles: number, finished: boolean) => {
 			this.transfer = { kind: 'open', subject, files, totalFiles, finished };
@@ -1458,7 +1458,7 @@ export class WorkspaceStorage {
 	 */
 	async cloneFrom(remote: CloneReference): Promise<WorkspaceClone> {
 		const subject = describeRemote(remote);
-		// Announced for `openBundle`'s reason: a Historical Map's pyramid is thousands of files over
+		// Announced for `openBundle`'s reason: a Map Image's pyramid is thousands of files over
 		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
 		const announce = (files: number, totalFiles: number, finished: boolean) => {
 			this.transfer = { kind: 'open', subject, files, totalFiles, finished };

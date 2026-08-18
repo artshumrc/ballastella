@@ -2,7 +2,7 @@
 
 ## What to build
 
-When a scholar makes an Offline Copy of a referenced Historical Map, its picture stops coming from the
+When a scholar makes an Offline Copy of a referenced Map Image, its picture stops coming from the
 Library and starts coming from their own Workspace. Nothing about the picture should look different —
 the point is that it no longer needs the network, which is the whole promise of making the copy.
 
@@ -17,7 +17,7 @@ earlier tickets and not a licence to add a branch here.
 
 ## Where to start
 
-- `packages/core/src/project/historical-maps.ts` — `tileLocation`, and the comment stating that **both
+- `packages/core/src/project/map-images.ts` — `tileLocation`, and the comment stating that **both
   files present means `'in-workspace'`**. Also `partitionByOfflineCopy`, which exists precisely because a
   copied map keeps its record.
 - `packages/core/src/remote-iiif/referenced-image.ts` — the doc comment above `listReferencedImages`,
@@ -70,7 +70,7 @@ Covers SPEC stories **13, 14**.
 
 ## Acceptance criteria
 
-- [x] After an Offline Copy of a referenced Historical Map completes, the hub's picture for that map is
+- [x] After an Offline Copy of a referenced Map Image completes, the hub's picture for that map is
       served from the Workspace — its `src` is a `blob:` URL, or no request reaches the Library's host.
       **Both**, measured before and after the copy with the same instrument.
 - [x] The picture is still one that has actually decoded: `naturalWidth > 0`. Asserted as the exact
@@ -124,7 +124,7 @@ library" failed on the post-copy state, and the diff is the whole point of the t
 shown", "the element is visible", or even `naturalWidth > 0` alone stays green under it. What went red
 is the source and the laziness, which is why the criterion had to name them.
 
-Node cover as well: `historical-maps.test.ts` "is this Workspace once a copy has been made, though the
+Node cover as well: `map-images.test.ts` "is this Workspace once a copy has been made, though the
 citation stays" (`'referenced'` where `'in-workspace'` was expected) and "is the Workspace's own tile
 once an Offline Copy has been made, though the citation stays" (the Library's URL where the
 Workspace's was expected).
@@ -152,7 +152,7 @@ of them is the resolver's both-files case. Vitest's `-t` is a case-sensitive reg
 test is named "…once an **Offline Copy** has been made" with the domain term capitalised as CONTEXT.md
 requires. The command therefore exits 0 over `referenced-image.test.ts` and `index.test.ts` instead.
 Nothing was added to the node tests, because the both-files case **is** already covered — by
-`historical-maps.test.ts`'s "is this Workspace once a copy has been made, though the citation stays"
+`map-images.test.ts`'s "is this Workspace once a copy has been made, though the citation stays"
 and "is the Workspace's own tile once an Offline Copy has been made, though the citation stays", both
 of which mutation 1 turned red above. Renaming a test of ticket 01's to suit a filter string was left
 alone as the worse of the two fixes.

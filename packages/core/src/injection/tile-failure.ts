@@ -1,10 +1,10 @@
-// What a Reader — or a scholar — is told when a Historical Map's tiles stop arriving.
+// What a Reader — or a scholar — is told when a Map Image's tiles stop arriving.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS HERE AND NOT BESIDE `baseMapUnavailableNotice`
 //
 // The ticket offered `base-map/resolve.ts` "or a sibling module if that file is the wrong home for a
-// Historical Map's failure". It is the wrong home: everything in `base-map/` takes a `BaseMapEntry`
+// Map Image's failure". It is the wrong home: everything in `base-map/` takes a `BaseMapEntry`
 // and answers questions about the modern reference map underneath the work, and this answers a
 // question about the work itself. What decides *this* wording is not a catalog entry but the
 // refusal the injection layer met — so it lives beside {@link createStoreImageFetch}, which is the
@@ -28,7 +28,7 @@
 // application is asking.
 
 /**
- * Why a Historical Map's tiles could not be fetched, in the terms the remedy turns on.
+ * Why a Map Image's tiles could not be fetched, in the terms the remedy turns on.
  *
  * `host` is `null` when the bytes were being read from the site or Workspace the page itself came
  * from, and a hostname when they were being read from somebody else's server — a Library holding a
@@ -59,19 +59,18 @@ export type TileSourceFailure =
 const where = (host: string | null): string => (host === null ? 'this site' : host);
 
 /**
- * The sentence shown when a Historical Map's tiles stop arriving.
+ * The sentence shown when a Map Image's tiles stop arriving.
  *
  * @param failure why the tiles could not be fetched
  * @param mapName the Layer's name, or `null` when the failure cannot be attributed to one Layer —
  *   a pass-through request carries a URL and not a Layer, and a sentence that named the wrong map
  *   would send a scholar to check an Alignment that is fine
  */
-export function historicalMapTilesUnavailableNotice(
+export function mapImageTilesUnavailableNotice(
 	failure: TileSourceFailure,
 	mapName: string | null = null
 ): string {
-	const subject =
-		mapName === null ? 'A Historical Map on this page' : `The Historical Map “${mapName}”`;
+	const subject = mapName === null ? 'A Map Image on this page' : `The Map Image “${mapName}”`;
 	return `${subject} ${cause(failure)} ${SAFE} ${remedy(failure)}`;
 }
 

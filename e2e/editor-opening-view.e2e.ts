@@ -37,7 +37,7 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  * The Projects are **seeded straight into OPFS** rather than built through the interface, except where
  * the interface is the thing under test. Framing on Boston, on a Resource Mask, and on two sides of the
  * Pacific each needs a Project whose content is somewhere definite, and there is no route through the
- * editor that puts a Historical Map in Boston in less than half a minute.
+ * editor that puts a Map Image in Boston in less than half a minute.
  */
 
 /** The deployment default, which is what a Project with nothing on the earth must open on. */
@@ -189,20 +189,20 @@ type LayerSpec = { kind: 'map' | 'annotation'; id: string; visible?: boolean };
 /**
  * A whole Workspace as files, **Workspace-relative** (ADR-0023).
  *
- * The rooting is the load-bearing part of this fixture and not an incidental. A Historical Map's
+ * The rooting is the load-bearing part of this fixture and not an incidental. A Map Image's
  * Alignment is `alignments/<image-id>.json` at the *Workspace* root, shared by every Project, while a
  * Project's `project.json` and its Annotation Layers are inside its own directory. A fixture that
  * seeded the Alignment under the Project would be seeding a file the app no longer looks for — the
  * map Layer would read as unaligned, the fit would fall through to the deployment default, and the
  * Resource Mask criterion would pass vacuously on a Project with nothing in it.
  *
- * No pyramid is written. A Historical Map with no tiles still has a *place* — the Alignment is what
+ * No pyramid is written. A Map Image with no tiles still has a *place* — the Alignment is what
  * says where — and the opening view is computed from the Alignment alone, never from the renderer.
  */
 function workspaceFiles(options: {
 	layers: readonly LayerSpec[];
 	pins?: readonly (readonly [number, number])[];
-	/** Write no Alignment for the map Layer, which is a Historical Map nobody has aligned. */
+	/** Write no Alignment for the map Layer, which is a Map Image nobody has aligned. */
 	unaligned?: boolean;
 }): Record<string, string> {
 	const files: Record<string, string> = {
@@ -386,7 +386,7 @@ test.describe('a Project opens on its own content', () => {
 		expect(await showing(page, BOSTON_PINS)).toBe(true);
 	});
 
-	test('frames an aligned Historical Map on its Resource Mask, not on its Control Points', async ({
+	test('frames an aligned Map Image on its Resource Mask, not on its Control Points', async ({
 		page
 	}) => {
 		await open(page, workspaceFiles({ layers: [{ kind: 'map', id: 'l-map' }] }));
@@ -437,10 +437,8 @@ test.describe('a Project opens on its own content', () => {
 		await expect(page.getByTestId('opening-view')).toContainText('default view');
 	});
 
-	test('opens on the deployment default when its only Historical Map is unaligned', async ({
-		page
-	}) => {
-		// A Historical Map with no Alignment has no place on the earth, so there is nothing to frame on —
+	test('opens on the deployment default when its only Map Image is unaligned', async ({ page }) => {
+		// A Map Image with no Alignment has no place on the earth, so there is nothing to frame on —
 		// and inventing one would put the map somewhere the author never chose.
 		await open(page, workspaceFiles({ layers: [{ kind: 'map', id: 'l-map' }], unaligned: true }));
 
@@ -474,7 +472,7 @@ test.describe('a Project opens on its own content', () => {
 			})
 		});
 
-		// Boston's pins are visible and the Historical Map is not, so the box is the pins' alone. Both are
+		// Boston's pins are visible and the Map Image is not, so the box is the pins' alone. Both are
 		// in Boston, so this is asserted on the *size* of what is shown: the sheet's corners are outside
 		// a box fitted to three pins a mile apart.
 		expect(await showing(page, BOSTON_PINS)).toBe(true);
@@ -637,7 +635,7 @@ test.describe('the alignment view', () => {
 		await expect(announced).toContainText('Control Points, where the work was left');
 
 		// And now the other half: with the Alignment open, editing it must not move the earth under the
-		// gesture doing the editing. The handle dragged is on the **Historical Map** pane, so nothing
+		// gesture doing the editing. The handle dragged is on the **Map Image** pane, so nothing
 		// about the drag itself could pan the Base Map — what would move it is a refit.
 		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
 		await dragBy(page, imagePoints(page).first(), 40, 24);
@@ -763,7 +761,7 @@ async function watchWrites(page: Page): Promise<void> {
 /**
  * Every file in the **whole Workspace**, as a sha256 per path. The bytes are the assertion.
  *
- * The Workspace and not the Project, because a Historical Map's Alignment and its pyramid live at the
+ * The Workspace and not the Project, because a Map Image's Alignment and its pyramid live at the
  * Workspace root now (ADR-0023): a fit that touched an Alignment would leave a Project directory
  * byte-identical, and hashing only that would say nothing about the file it had written.
  */

@@ -60,7 +60,7 @@ oppositely.**
 | Axis | Ceiling | What drives it |
 | --- | --- | --- |
 | Bytes | ~1 GB — `STATIC_HOSTING_LIMIT_BYTES` | Base Map tiles, at `ESTIMATED_BYTES_PER_TILE` = 152 kB each |
-| Files | ~40,000 — tree truncation (ADR-0031) | Historical Map pyramids |
+| Files | ~40,000 — tree truncation (ADR-0031) | Map Image pyramids |
 | Requests | 5,000 per hour | New blobs on a first Publish |
 
 Base Map tiles are **file-cheap and byte-heavy**: `OFFLINE_TILE_LIMIT` refuses above 500 tiles for one

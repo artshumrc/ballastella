@@ -14,7 +14,7 @@
 	// markup rather than from a label somebody has to remember to update.
 	//
 	// **One row opens at a time, in place** (ticket 05). A Project is a stack of Layers and a Layer
-	// opens to reveal its contents — a Historical Map's alignment state and the button that aligns it,
+	// opens to reveal its contents — a Map Image's alignment state and the button that aligns it,
 	// an Annotation Layer's tools and Annotations — which is one idea applied twice rather than two
 	// panels that have to be kept agreeing.
 	//
@@ -78,7 +78,7 @@
 	// owns the column and records the luminance steps that decided `base-300` over `base-200`.
 	//
 	// On top of that the header carries a tint of the Layer kind's own colour — `accent` for a
-	// Historical Map, `info` for Annotations — so that two cards of different kinds differ before a
+	// Map Image, `info` for Annotations — so that two cards of different kinds differ before a
 	// word has been read, and **everything else in that card is in the same colour**: its toggle, its
 	// opacity slider, and the buttons inside it, including the ones `ProjectScreen` supplies as
 	// snippets. Every one of those is a daisyUI token rather than a value, and they are all named in
@@ -101,7 +101,7 @@
 	//
 	// Lucide, imported one glyph at a time (ADR-0016's amendment, and the note in the catalog entry).
 	// **No glyph is ever alone with meaning** (SPEC story 111): the kind icon sits beside the words
-	// "Historical Map", and every icon-only button carries its label in `sr-only` text. The two
+	// "Map Image", and every icon-only button carries its label in `sr-only` text. The two
 	// deliberate exceptions are the drag handle, which is `aria-hidden` because it is pointer-only and
 	// the move buttons are the contract, and the chevron, whose accessible name is the words "Open" and
 	// "Close" — those words were visible before, and what replaced them is a glyph whose meaning
@@ -155,7 +155,7 @@
 		/** What became of each Layer on the map, keyed by Layer id. */
 		outcomes: Readonly<Record<string, DrawnOutcome>>;
 		/**
-		 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
+		 * The Workspace Map Images whose tiles are on somebody else's server, by image id.
 		 *
 		 * **Passed in rather than read off the Layer, because ADR-0023 deleted the field that used to
 		 * carry it.** A map Layer names an `imageId` and nothing else; whether that image's tiles are here
@@ -163,8 +163,8 @@
 		 * only the page holding the store can make. A stored flag was what let a Layer claim the library
 		 * for tiles that had already been copied into the folder.
 		 *
-		 * **Optional, and its absence removes the badge rather than emptying it.** Where a Historical
-		 * Map's tiles are held is a fact about the author's publishing decision, and a consumer whose
+		 * **Optional, and its absence removes the badge rather than emptying it.** Where a Map
+		 * Image's tiles are held is a fact about the author's publishing decision, and a consumer whose
 		 * user cannot copy a pyramid or repoint a service has no reason to say it — see the note at the
 		 * head of this file on why that is an absent prop rather than a flag.
 		 */
@@ -209,7 +209,7 @@
 		 *
 		 * **Without it the empty state says only what is true of both apps** — that the Project has no
 		 * Layers on it. The editor's guidance names two buttons and the Workspace they draw from, and a
-		 * consumer whose user has neither cannot say it: a Reader told to press *Add a Historical Map* is
+		 * consumer whose user has neither cannot say it: a Reader told to press *Add a Map Image* is
 		 * being sent to look for a control that is not there (SPEC story 19).
 		 *
 		 * A snippet for the same reason as {@link mapContents}, and the sharpest case of it: the words name
@@ -230,7 +230,7 @@
 		 */
 		foreignLayerNote?: Snippet;
 		/**
-		 * The card of a Historical Map being prepared right now, or `undefined` when none is (ticket 06).
+		 * The card of a Map Image being prepared right now, or `undefined` when none is (ticket 06).
 		 *
 		 * Rendered as the **top row of the stack**, which is where the Layer it is becoming will be, so
 		 * that "a Layer appears and reports its own preparation" is one row moving through two states
@@ -242,7 +242,7 @@
 		 */
 		preparing?: Snippet;
 		/**
-		 * What is inside a Historical Map Layer, revealed when its card is open: whether it is aligned,
+		 * What is inside a Map Image Layer, revealed when its card is open: whether it is aligned,
 		 * the button that aligns it, and where its tiles come from.
 		 *
 		 * A snippet, so the card stays the one place a Layer is described and the actions stay with the
@@ -477,7 +477,7 @@
 	const kindLabel = (layer: Layer): string => {
 		switch (layer.kind) {
 			case 'map':
-				return 'Historical Map';
+				return 'Map Image';
 			case 'annotation':
 				return 'Annotations';
 			case 'foreign':
@@ -580,7 +580,7 @@
 		<ol class="mt-2 flex flex-col gap-2" aria-label="Layers, top first">
 			{#if preparing}
 				<!--
-					The Historical Map being prepared, in the stack, above the Layers that are already in it
+					The Map Image being prepared, in the stack, above the Layers that are already in it
 					(ticket 06). A new map Layer is added at the top, so this is where the card it becomes will
 					be, and the card does not move when the preparation finishes.
 

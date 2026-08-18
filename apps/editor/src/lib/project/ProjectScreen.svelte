@@ -5,7 +5,7 @@
 	// ONE SCREEN, AND WHY THIS ONE
 	//
 	// Entering a Project used to land on a page of fields with a link to a *different* page holding
-	// the map. Noticing that a Historical Map sat crooked meant seeing it on the stack page and
+	// the map. Noticing that a Map Image sat crooked meant seeing it on the stack page and
 	// navigating to the Project page to do anything about it. So `/layers/` and `ProjectView` are one
 	// screen now, and this is it: a Base Map with the Layer stack beside it.
 	//
@@ -13,15 +13,15 @@
 	// `documentKey` guard, `drawn` and `outcomes` — is the state layer for the whole screen and it is
 	// load-bearing in ways no test names: `documentKey` exists because a rename once re-read every
 	// Alignment and one drag of an opacity slider cost twenty reads per Layer. What `ProjectView`
-	// contributed is added around it: the Project name (now in a dialog), the way a Historical Map
+	// contributed is added around it: the Project name (now in a dialog), the way a Map Image
 	// gets in, and the remote-origin affordances.
 	//
 	// **What is left here, after ticket 06's carve.** Four subjects shared this `<script>`, and the
 	// annotation editing layer — `openLayerId`, the selection, the drawing gesture, and every
 	// function that writes an Annotation — is now `annotations/annotation-editing.svelte.ts`, where
 	// it has a unit test rather than only the browser suite. What remains is the document-loading
-	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Historical
-	// Map gets in. **1776 lines before ticket 06, 1879 after its first cut, and this is what the
+	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Map
+	// Image gets in. **1776 lines before ticket 06, 1879 after its first cut, and this is what the
 	// carve leaves.** If this file is growing again, the next thing to leave is one of those four.
 	//
 	// **A component rather than a route.** A Project is `/?p=<dir>` (ADR-0008) — the same prerendered
@@ -81,7 +81,7 @@
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
-	import AddHistoricalMap from '$lib/historical-maps/AddHistoricalMap.svelte';
+	import AddMapImage from '$lib/map-images/AddMapImage.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
@@ -252,7 +252,7 @@
 				// A map Layer that is not aligned yet is not handed to the map at all: there is nothing to
 				// place it by, and `showAlignment` would only refuse it a second time, in words that
 				// disagree with what its hidden twin would say. Its Alignment exists from the moment the
-				// Historical Map was added (ADR-0023), so the test is the Control Points and not the file.
+				// Map Image was added (ADR-0023), so the test is the Control Points and not the file.
 				if (document === undefined || notAligned.has(layer.id)) return [];
 				return [
 					{
@@ -268,7 +268,7 @@
 	);
 
 	/**
-	 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
+	 * The Workspace Map Images whose tiles are on somebody else's server, by image id.
 	 *
 	 * **An observation of the folder, which is the only place the answer lives** (ADR-0023): an image
 	 * directory with an `info.json` of ours has its tiles here, one with only a `remote.json` does not.
@@ -308,7 +308,7 @@
 	 * What a map Layer with too few Control Points says about itself (SPEC stories 18, 34, 35).
 	 *
 	 * One sentence for every unaligned map Layer, whichever way it got here, because the state is one
-	 * state: adding a Historical Map now puts a Layer in the stack straight away with a starter
+	 * state: adding a Map Image now puts a Layer in the stack straight away with a starter
 	 * Alignment beside it (ADR-0023), so "not aligned yet" is the ordinary first thing a Layer says
 	 * rather than a fault.
 	 */
@@ -324,7 +324,7 @@
 	 * half way leaves behind.
 	 *
 	 * Computed over {@link withDocuments} rather than {@link shown}, so a hidden Layer's answer is the same
-	 * answer. It has to be: the sentence is about the Historical Map's placement, and a Layer does not
+	 * answer. It has to be: the sentence is about the Map Image's placement, and a Layer does not
 	 * become aligned by being ticked.
 	 *
 	 * A Layer with no Alignment at all counts as not aligned rather than as missing. That is a
@@ -752,7 +752,7 @@
 			offlineSummary =
 				(cache?.tiles ?? 0) > 0
 					? `The Base Map is being drawn from the ${cache?.tiles} tiles in this Workspace. Whether that covers everything this Project needs cannot be checked without a connection.`
-					: 'The Base Map needs a network connection, and there is none. Your Historical Maps, Alignments, and Annotations are all still here.';
+					: 'The Base Map needs a network connection, and there is none. Your Map Images, Alignments, and Annotations are all still here.';
 		}
 	}
 
@@ -853,7 +853,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Bringing a Historical Map in, and the ones that live on somebody else's server
+	// Bringing a Map Image in, and the ones that live on somebody else's server
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
@@ -865,9 +865,9 @@
 	const offlineCopy = new OfflineCopyJob(() => session);
 
 	/**
-	 * The app's one online signal, so a referenced Historical Map can say why it is not there.
+	 * The app's one online signal, so a referenced Map Image can say why it is not there.
 	 *
-	 * ADR-0012's offline claim has one honest exception: a referenced Historical Map's tiles are on
+	 * ADR-0012's offline claim has one honest exception: a referenced Map Image's tiles are on
 	 * somebody else's server, so with no connection there is nothing to draw and no amount of caching
 	 * would change that — a partially cached remote pyramid renders *with holes*, which reads as
 	 * corruption. Say so, name the host, and leave the rest of the Project working.
@@ -889,10 +889,10 @@
 	);
 
 	/**
-	 * The remote-origin record for a map Layer's Historical Map, or `undefined`.
+	 * The remote-origin record for a map Layer's Map Image, or `undefined`.
 	 *
 	 * **Keyed by Layer, which is what replaced the two sections `ProjectView` had.** "Referenced
-	 * Historical Maps" and "Offline copies" were two lists of image ids sitting under a Project that
+	 * Map Images" and "Offline copies" were two lists of image ids sitting under a Project that
 	 * had no way to say which of its Layers each one belonged to; the same two facts — the tiles are on
 	 * a library's server, and this copy came from one — are properties of a Layer and belong on it
 	 * (ADR-0023). Tickets 05 and 07 give them their final form on an opened Layer card.
@@ -900,7 +900,7 @@
 	const originFor = (layer: MapLayer) =>
 		session.referencedImages.find((image) => image.imageId === layer.imageId);
 
-	/** The Historical Maps this Project draws, which is one Layer each (ADR-0023). */
+	/** The Map Images this Project draws, which is one Layer each (ADR-0023). */
 	const mapLayers = $derived(layers.filter((layer): layer is MapLayer => layer.kind === 'map'));
 
 	/** The map Layers of this Project whose tiles are fetched from a library. */
@@ -920,7 +920,7 @@
 		)
 	]);
 
-	/** Whether the "Add a Historical Map" dialog is up (ticket 06). A working choice, stored nowhere. */
+	/** Whether the "Add a Map Image" dialog is up (ticket 06). A working choice, stored nowhere. */
 	let addingMap = $state(false);
 
 	/**
@@ -929,14 +929,14 @@
 	 * **Held here rather than in the dialog because the dialog closes on success.** The one thing that
 	 * says this today is the community Alignment a user asked to import and did not get: the Layer is
 	 * there, the import did not happen, and *why* is not guessable from anything on screen — one
-	 * Alignment per Historical Map, shared by every Project that draws it, is a property of this
+	 * Alignment per Map Image, shared by every Project that draws it, is a property of this
 	 * application's storage (ADR-0023). A message rendered inside the dialog would be inserted and
 	 * removed in the same frame, which announces nothing at all.
 	 */
 	let addNotice = $state('');
 
 	/**
-	 * What the preparation of a Historical Map is doing, in one sentence (SPEC story 23).
+	 * What the preparation of a Map Image is doing, in one sentence (SPEC story 23).
 	 *
 	 * **One string, rendered twice**: visibly on the Layer's card, and in the always-present live
 	 * region below the stack. The ticket asks for the announcement to carry the same numbers as the
@@ -1183,15 +1183,15 @@
 					>
 						<p>
 							There is no network connection, so the Base Map cannot load yet. Everything in your
-							Workspace still works: you can add a Historical Map now and place it when the
-							connection is back.
+							Workspace still works: you can add a Map Image now and place it when the connection is
+							back.
 						</p>
 					</MapNotice>
 
 					{#if referencedLayers.length > 0}
 						<!--
 							The one honest exception to the offline claim, said rather than left as a blank pane.
-							Naming the host is the whole point: "this Historical Map is not here" is unactionable,
+							Naming the host is the whole point: "this Map Image is not here" is unactionable,
 							and "nothing can be fetched from gallica.bnf.fr while you are offline" tells an author
 							both why and what to do about it before their next trip to the archive.
 						-->
@@ -1199,9 +1199,9 @@
 							<p>
 								There is no connection, so nothing can be fetched from {unreachableHosts.join(
 									', '
-								)}. These Historical Maps stay blank until there is one. Everything else in this
-								Project — its own Historical Maps, its Alignments, and its Annotations — is
-								unaffected and still saves.
+								)}. These Map Images stay blank until there is one. Everything else in this Project
+								— its own Map Images, its Alignments, and its Annotations — is unaffected and still
+								saves.
 							</p>
 						</MapNotice>
 					{/if}
@@ -1373,7 +1373,7 @@
 				/>
 
 				<!--
-					The one way a Historical Map gets into this Project (ticket 06), and it is a button with
+					The one way a Map Image gets into this Project (ticket 06), and it is a button with
 					words on it rather than an icon (SPEC story 111). What it opens offers all three sources
 					at once — a file, a library, and a map this Workspace already holds — which is why this is
 					one affordance rather than three sections competing for a 24rem column.
@@ -1381,10 +1381,10 @@
 				<button
 					class="btn mt-4 btn-primary btn-sm"
 					type="button"
-					data-testid="add-historical-map"
+					data-testid="add-map-image"
 					onclick={() => (addingMap = true)}
 				>
-					Add a Historical Map
+					Add a Map Image
 				</button>
 
 				<button
@@ -1471,25 +1471,25 @@
 
 				{#if mapLayers.length === 0 && session.ingest === null}
 					<!--
-						The Historical Map empty state, beside the button that answers it (SPEC story 106). Derived
+						The Map Image empty state, beside the button that answers it (SPEC story 106). Derived
 						from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
-						to what this sentence *means*: the Workspace may hold a dozen Historical Maps and this Project
+						to what this sentence *means*: the Workspace may hold a dozen Map Images and this Project
 						draw none of them, and "you have no maps" would be false while "this Project has none" stays
 						true. It is also what says a cancelled or refused preparation left the Project exactly as it
 						was.
 
-						**And it now names the third source, which is the state ticket 04 left unsaid.** A Historical
-						Map whose starter Alignment could not be written arrives with its pyramid and without its
+						**And it now names the third source, which is the state ticket 04 left unsaid.** A Map
+						Image whose starter Alignment could not be written arrives with its pyramid and without its
 						Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
 						it is on screen and `open()` clears it, so after a reload this sentence was the only thing
 						left and it described a Workspace that was not empty as if it were. The pyramid is offered by
 						the "already in this Workspace" source, and adding it from there is what writes the Alignment
 						that failed — so the useful next action is available rather than merely described.
 					-->
-					<p class="mt-4 max-w-prose text-sm" data-testid="no-historical-maps">
-						This Project has no Historical Maps yet. Press Add a Historical Map to bring one in —
-						from a file on this computer, from a library’s IIIF address, or from one this Workspace
-						already holds, which copies nothing and keeps the alignment it already has.
+					<p class="mt-4 max-w-prose text-sm" data-testid="no-map-images">
+						This Project has no Map Images yet. Press Add a Map Image to bring one in — from a file
+						on this computer, from a library’s IIIF address, or from one this Workspace already
+						holds, which copies nothing and keeps the alignment it already has.
 					</p>
 				{/if}
 
@@ -1561,11 +1561,11 @@
 	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
-		The three sources a Historical Map comes from (ticket 06). **Outside `project-screen` for the
+		The three sources a Map Image comes from (ticket 06). **Outside `project-screen` for the
 		reason stated above** — a closed daisyUI modal is laid out, so every control in it would answer
 		the tab walk's `querySelectorAll` while being unreachable by keyboard.
 	-->
-	<AddHistoricalMap {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
+	<AddMapImage {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
 
 	<!--
 		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
@@ -1611,7 +1611,7 @@
 {/if}
 
 <!--
-	What is inside a Historical Map Layer, rendered by `LayerList` inside that Layer's open row: whether
+	What is inside a Map Image Layer, rendered by `LayerList` inside that Layer's open row: whether
 	it is placed on the earth yet, the button that places it, and where its tiles are fetched from.
 
 	**A snippet passed down rather than markup inside `LayerList`**, for one concrete reason: the Align
@@ -1620,7 +1620,7 @@
 	computed elsewhere and passed in is not the shape it recognises. Keeping it here also keeps
 	`LayerList` about the stack rather than about routes and about somebody else's IIIF server.
 
-	**A link, not a button.** The route is keyed by Layer id and a Historical Map in a Project has had
+	**A link, not a button.** The route is keyed by Layer id and a Map Image in a Project has had
 	its Layer since it was added (ADR-0023), so there is nothing to resolve on the way — an earlier
 	shape pressed a button that created the Layer and then navigated, which meant a disabled control
 	across a store read and a Workspace-shared `alignments/<id>.json` written to do it.
@@ -1637,7 +1637,7 @@
 {#snippet noLayersGuidance()}
 	<!--
 		What an empty stack tells a scholar, and **it names the two buttons that are actually there**
-		(SPEC story 106). "Add a Historical Map" and "Add an Annotation Layer" are the words on the
+		(SPEC story 106). "Add a Map Image" and "Add an Annotation Layer" are the words on the
 		controls below the stack, not a description of them: guidance that names something the user then
 		has to translate into what is on screen is guidance they have to solve first.
 
@@ -1647,7 +1647,7 @@
 		`LayerList` keeps the half that is true in both apps — that there are no Layers — and this is the
 		half that is only true here.
 	-->
-	No Layers yet. Press <strong>Add a Historical Map</strong> to bring one in — from a file, from a
+	No Layers yet. Press <strong>Add a Map Image</strong> to bring one in — from a file, from a
 	library, or from one this Workspace already holds — and it appears here straight away, aligned or
 	not. <strong>Add an Annotation Layer</strong> is for whenever you have something to say over it.
 {/snippet}
@@ -1674,7 +1674,7 @@
 
 {#snippet preparingLayer()}
 	<!--
-		The Historical Map being prepared, as its own card at the top of the stack (ticket 06).
+		The Map Image being prepared, as its own card at the top of the stack (ticket 06).
 
 		─────────────────────────────────────────────────────────────────────────────────────────
 		WHY THIS LAYER IS NOT IN `project.json` YET, AND WHY THAT IS THE POINT
@@ -1700,7 +1700,7 @@
 		<div class="flex flex-col gap-2">
 			<div class="flex flex-wrap items-baseline gap-2">
 				<span class="font-medium" data-testid="preparing-layer-name">{session.ingestLabel}</span>
-				<span class="text-sm opacity-70">Historical Map</span>
+				<span class="text-sm opacity-70">Map Image</span>
 			</div>
 
 			<!--
@@ -1740,7 +1740,7 @@
 {/snippet}
 
 <!--
-	The link that opens the align route for one Historical Map Layer, written **once** and rendered
+	The link that opens the align route for one Map Image Layer, written **once** and rendered
 	from both places that offer it: inside the open row, and beside "not aligned yet" on the closed one.
 
 	One snippet rather than two `<a>` elements, because the href is the part that can be wrong in a way
@@ -1758,9 +1758,9 @@
 
 	The label and the test id are given by the caller because the two are not the same affordance: one
 	is the row's own action, the other is the answer to a sentence a few characters to its left, and a
-	single id on both would make every `getByTestId('align-historical-map')` in the suite ambiguous.
+	single id on both would make every `getByTestId('align-map-image')` in the suite ambiguous.
 
-	**The Historical Map's own colour, not `primary`.** Both places this is rendered are inside a map
+	**The Map Image's own colour, not `primary`.** Both places this is rendered are inside a map
 	Layer's card — the open card and the problem band on the closed one — and a card's buttons are the
 	card's colour, so that a control in a card belongs to the Layer above it rather than to the app
 	(`layer-kind-style.ts` argues the whole arrangement). It is `KIND_STYLE.map` unconditionally rather
@@ -1780,7 +1780,7 @@
 
 <!--
 	What can be done about what a **closed** row is warning about — which, of the refusals a Layer can
-	report, is this one: a Historical Map that has not been aligned yet is answered by aligning it.
+	report, is this one: a Map Image that has not been aligned yet is answered by aligning it.
 
 	The closed row carries "not aligned yet" so that a scholar can notice it without opening anything;
 	before this, noticing was all they could do there, and the control the sentence describes was one
@@ -1797,7 +1797,7 @@
 {#snippet layerProblemAction(layer: Layer)}
 	{@const reported = outcomes[layer.id]}
 	{#if layer.kind === 'map' && reported?.status === 'refused' && reported.reason === NOT_ALIGNED}
-		{@render alignLink(layer, 'align-historical-map-now', 'Align now')}
+		{@render alignLink(layer, 'align-map-image-now', 'Align now')}
 	{/if}
 {/snippet}
 
@@ -1836,7 +1836,7 @@
 
 		<div class="flex flex-wrap items-center gap-2">
 			<!-- The Layer's own Align, offered whatever its Alignment says — see `alignLink` above. -->
-			{@render alignLink(layer, 'align-historical-map', 'Align')}
+			{@render alignLink(layer, 'align-map-image', 'Align')}
 
 			{#if referenced && origin}
 				<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->

@@ -1,14 +1,14 @@
-# A Reader is told when a Historical Map's tiles stop arriving
+# A Reader is told when a Map Image's tiles stop arriving
 
 ## What to build
 
-Stop the render seam throwing an uncaught error when a Historical Map's tiles cannot be fetched, and tell the Reader instead. A published site is the deployment with no console anyone is watching, so an error that only reaches the console reaches nobody.
+Stop the render seam throwing an uncaught error when a Map Image's tiles cannot be fetched, and tell the Reader instead. A published site is the deployment with no console anyone is watching, so an error that only reaches the console reaches nobody.
 
 ## What is already known — do not re-derive it
 
 **Measured 3 failures in 8 runs (37%), and 3 in 8 at the commit before the work that found it** — so it is pre-existing and it is not machine contention.
 
-The mechanism: `@allmaps/render`'s `loadImage` asks for the Historical Map's `info.json` when tiles are needed, and the store's `SiteFileUnreachableError` **escapes it uncaught**, arriving as a `pageerror`. Nothing a Reader sees changes today, which is why it went unnoticed — the viewer's own "no uncaught page error on any navigation" assertion is what surfaced it.
+The mechanism: `@allmaps/render`'s `loadImage` asks for the Map Image's `info.json` when tiles are needed, and the store's `SiteFileUnreachableError` **escapes it uncaught**, arriving as a `pageerror`. Nothing a Reader sees changes today, which is why it went unnoticed — the viewer's own "no uncaught page error on any navigation" assertion is what surfaced it.
 
 `e2e/viewer-reader.e2e.ts` currently carries a **deliberate, narrow exception** for exactly this one message in one test, with the measurement written beside it. **Removing that exception is part of this ticket's proof**: once the error is caught, the exception is no longer needed, and the test that asserts nothing is thrown should pass without it.
 
@@ -17,7 +17,7 @@ The mechanism: `@allmaps/render`'s `loadImage` asks for the Historical Map's `in
 - `packages/core/src/injection/store-image-fetch.ts` — `createStoreImageFetch` returns the `FetchFn` the render layer is handed. This is the boundary that owns the failure: the module that supplies the fetch is the module that decides what a refusal becomes.
 - `packages/core/src/store/http-project-store.ts` — `SiteFileUnreachableError`, which already carries the host and the status. **It has two message forms** — one for `status === 0` (no answer) and one naming a status — and the remedies differ. Branch on the facts, not on which app is asking.
 - `packages/core/src/render/warped-map-layer.ts` and `render/stack-layers.ts` — where the `FetchFn` reaches `WarpedMapLayer`. Read `warped-map-layer.ts`'s header comments first: they document a real patched behaviour in `@allmaps/render` and an ADR-0011 shim, and they are load-bearing.
-- **The sentence goes beside `baseMapUnavailableNotice` in `packages/core/src/base-map/resolve.ts`** — or in a sibling module if that file is the wrong home for a Historical Map's failure. Read that function's header: three things in the order the questions arrive, and unit tests that drive every row plus one asserting no row overclaims.
+- **The sentence goes beside `baseMapUnavailableNotice` in `packages/core/src/base-map/resolve.ts`** — or in a sibling module if that file is the wrong home for a Map Image's failure. Read that function's header: three things in the order the questions arrive, and unit tests that drive every row plus one asserting no row overclaims.
 - `apps/viewer/src/routes/+page.svelte` and `apps/viewer/src/lib/ReaderMapPane.svelte` — the viewer's notice regions and the `role="alert"` pattern already used there.
 - `e2e/viewer-reader.e2e.ts` — the fixture idiom: an archive routed to a committed file and then refused, including one that answers a header and then stops. That is how a mid-session failure is driven without a network.
 
@@ -40,15 +40,15 @@ The mechanism: `@allmaps/render`'s `loadImage` asks for the Historical Map's `in
 ## Out of scope
 
 - **The `forceRedraw` teardown defect.** Root-caused, and recorded as a note in `triiiceratops`' own repository — it is a first-party upstream fix plus a version bump here. Do not patch it, do not chase it, and **do not read its absence from a run as evidence about it**.
-- **The Base Map's unreachable-archive notice.** Already delivered in both deployments. This is Historical Map tiles — a different failure with a different remedy. Do not merge the two sentences.
+- **The Base Map's unreachable-archive notice.** Already delivered in both deployments. This is Map Image tiles — a different failure with a different remedy. Do not merge the two sentences.
 - **Changing the Base Map catalog.** Settled: the demo tiles stay. Do not raise it.
-- **Making Historical Map tiles available offline.** Telling the Reader is this ticket; changing what is fetchable is not.
+- **Making Map Image tiles available offline.** Telling the Reader is this ticket; changing what is fetchable is not.
 - **The editor.** Ticket 05.
 - **The write path.** Tickets 01–03.
 
 ## Acceptance criteria
 
-- [ ] With a Historical Map's tiles refused mid-session, the published viewer shows a sentence in visible text saying it is not the Reader's doing, that the Annotations and the author's work are unaffected, and what would help.
+- [ ] With a Map Image's tiles refused mid-session, the published viewer shows a sentence in visible text saying it is not the Reader's doing, that the Annotations and the author's work are unaffected, and what would help.
 - [ ] **No uncaught `pageerror` occurs** on that path — and the deliberate exception currently in `e2e/viewer-reader.e2e.ts` for this message is **removed**, with the test passing without it.
 - [ ] The sentence comes from the domain function; a wording change there turns the viewer test red.
 - [ ] The domain function is unit-tested across every row (connection gone / site missing a file / Library failing), including one test asserting **no** row overclaims.

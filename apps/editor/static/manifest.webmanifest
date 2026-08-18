@@ -1,7 +1,7 @@
 {
 	"name": "Ballastella",
 	"short_name": "Ballastella",
-	"description": "Place a Historical Map onto the modern world, annotate it, and keep the work as ordinary files you own.",
+	"description": "Place a Map Image onto the modern world, annotate it, and keep the work as ordinary files you own.",
 	"start_url": ".",
 	"scope": ".",
 	"display": "standalone",

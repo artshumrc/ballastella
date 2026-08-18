@@ -1000,7 +1000,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 	test('typing does not rebuild the Layer stack, so the map does not thrash', async ({ page }) => {
 		// The bug: the collection was part of the key the stack was built from, so every keystroke —
 		// each of which writes the file and hands the page a new collection — tore down and re-added
-		// **every layer in the stack**, Historical Maps included, and the map flickered and refetched
+		// **every layer in the stack**, Map Images included, and the map flickered and refetched
 		// tiles while a scholar typed a title. The structure key now carries only which MapLibre layers
 		// the contents need; the features themselves are pushed into the source that is already there.
 		//
@@ -3029,7 +3029,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * A Project with an aligned Historical Map **and** an empty Annotation Layer, seeded.
+ * A Project with an aligned Map Image **and** an empty Annotation Layer, seeded.
  *
  * The one test below that needs a warped sheet under its Pin is about correcting a Pin, not about
  * ingesting an image or making Control Points: it used to drive a whole alignment — two live map
@@ -3397,12 +3397,10 @@ test.describe('placing a Pin at a Place', () => {
 			.toBeVisible();
 	});
 
-	test('leaves the Pin draggable and arrow-key movable under a Historical Map', async ({
-		page
-	}) => {
+	test('leaves the Pin draggable and arrow-key movable under a Map Image', async ({ page }) => {
 		// ⚠ **The stakeholder's actual gesture**, and the reason this one pays for a real pyramid and a
 		// real solve: the Pin lands in the middle of a river and is dragged onto the quay *while reading
-		// against a Historical Map layered over the Base Map*. Vertex handles are DOM `<button>`s on
+		// against a Map Image layered over the Base Map*. Vertex handles are DOM `<button>`s on
 		// MapLibre `Marker`s, which sit above the WebGL canvas the warped sheet is drawn into — so this
 		// asserts that the correction needs no new code rather than assuming it.
 		test.setTimeout(180_000);
@@ -3418,9 +3416,9 @@ test.describe('placing a Pin at a Place', () => {
 		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
 		await waitForStack(page);
 
-		// ⚠ **The lookup answers where the sheet is.** The Project opened framed on the Historical Map
+		// ⚠ **The lookup answers where the sheet is.** The Project opened framed on the Map Image
 		// (ADR-0026), so this is the one candidate that leaves the sheet under the Pin — and the whole
-		// criterion is that the correction is made *against* the Historical Map. A Pin placed in
+		// criterion is that the correction is made *against* the Map Image. A Pin placed in
 		// Massachusetts would be dragged over an empty Base Map, which asserts something else.
 		const onTheSheet = await centre(page);
 		service.answerWith(await candidateAt(onTheSheet));

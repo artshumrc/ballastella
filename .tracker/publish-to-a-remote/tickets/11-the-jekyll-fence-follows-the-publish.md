@@ -54,7 +54,7 @@ fence that matches nothing and a tree with nothing to match print the same succe
 
 - **A Project not on the Front Page is still readable by anyone with the link.** The repository is public.
   Do not put embargoed material there.
-- **A first publish of a freshly tiled Historical Map is slow and may span more than an hour**, because
+- **A first publish of a freshly tiled Map Image is slow and may span more than an hour**, because
   GitHub allows 5 000 requests an hour and a large scan is thousands of tiles. Later publishes take seconds.
 - **The three limits, and which content drives which**: ~1 GB of bytes (driven by offline Base Map tiles),
   ~40 000 files (driven by pyramids), 5 000 requests an hour (driven by a first publish).

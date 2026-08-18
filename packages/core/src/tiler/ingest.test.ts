@@ -84,7 +84,7 @@ describe('ingestImageFile', () => {
 		expect(info.id).toBe(`https://unset.invalid/${result.imageId}`);
 	});
 
-	// ADR-0023, and the criterion in as many words: adding a Historical Map writes
+	// ADR-0023, and the criterion in as many words: adding a Map Image writes
 	// `images/<image-id>/info.json` at the Workspace root and **no bytes inside any Project directory**.
 	// A pyramid is prepared once and shared, so a copy landing inside the Project that happened to be open
 	// is the whole failure the move exists to end.
@@ -413,7 +413,7 @@ describe('ingestImageFile', () => {
 		// asserted by nothing, which is how a guard quietly becomes decoration.
 		//
 		// `info.json` is the completion marker for the whole directory: everything in the app finds a
-		// Historical Map by finding one. So this asserts more than "nothing is left behind" — it
+		// Map Image by finding one. So this asserts more than "nothing is left behind" — it
 		// asserts the cancel was taken *before* the map became findable, rather than after it and
 		// undone.
 		const controller = new AbortController();
@@ -479,7 +479,7 @@ describe('ingestImageFile', () => {
 		expect(close).toHaveBeenCalledTimes(1);
 	});
 
-	it('labels the Historical Map with the file the user picked', async () => {
+	it('labels the Map Image with the file the user picked', async () => {
 		const result = await ingestImageFile({
 			store,
 			file: imageFile(600, 400, 'Blaeu — Amsterdam, 1625.tif'),
@@ -502,8 +502,8 @@ describe('ingestImageFile', () => {
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
 
-		// `generateRandomId`, not `generateId(uri)`: two ingests of the same file are two Historical
-		// Maps, and deduplicating them by content is ticket 14's question about remote resources.
+		// `generateRandomId`, not `generateId(uri)`: two ingests of the same file are two Map
+		// Images, and deduplicating them by content is ticket 14's question about remote resources.
 		expect(first.imageId).not.toBe(second.imageId);
 		expect(first.imageId).toMatch(/^[0-9a-f]{16}$/);
 	});
@@ -521,7 +521,7 @@ describe('ingestImageFile', () => {
 			new Uint8Array([1])
 		);
 		// And a Project directory that happens to contain something shaped like a pyramid. It is not a
-		// Historical Map of this Workspace, and `listIngestedImages` no longer looks inside a Project at
+		// Map Image of this Workspace, and `listIngestedImages` no longer looks inside a Project at
 		// all (ADR-0023) — which is what stops one Project's leftovers being listed as Workspace material.
 		// project-rooted-path-is-the-fixture: the decoy `listIngestedImages` must not report
 		await store.write('some-project/images/decoy/info.json', new Uint8Array([1]));

@@ -1,8 +1,8 @@
-# Align a referenced Historical Map in place
+# Align a referenced Map Image in place
 
 ## What to build
 
-A Historical Map whose tiles are on a Library's server can be aligned without being copied first. The alignment view shows it in the same pane, with the same gestures, as a map whose tiles are in the Workspace.
+A Map Image whose tiles are on a Library's server can be aligned without being copied first. The alignment view shows it in the same pane, with the same gestures, as a map whose tiles are in the Workspace.
 
 Demonstrable end to end: add a remote IIIF map, click Align on its Layer, deep-zoom the sheet served from the Library, place Control Points, and see it draw warped on the Base Map — with no pyramid in the Workspace.
 
@@ -10,7 +10,7 @@ The gap this closes is narrow. `createImagePane(info, tiles)` **already** accept
 
 ## Where to start
 
-- `apps/editor/src/lib/image-pane/HistoricalMapPane.svelte` — the one place to change. It always fetches `` `${imageServiceId(wanted)}/info.json` `` and always builds `createImagePane(info, { storedImageId: wanted })`.
+- `apps/editor/src/lib/image-pane/MapImagePane.svelte` — the one place to change. It always fetches `` `${imageServiceId(wanted)}/info.json` `` and always builds `createImagePane(info, { storedImageId: wanted })`.
 - `packages/core/src/image-pane/iiif-image-pane.ts` — `createImagePane` and `ImagePaneTileBase = string | { storedImageId: string }`. Read its two guards: it refuses the `unset.invalid` placeholder passed as a string, and it refuses an image *id* passed where a base URI belongs. Both exist because those are the plausible slips.
 - `apps/editor/src/lib/image-pane/tile-protocol.ts` — `registerImagePaneTiles(paneId, pane, fetchTile)`. Already source-agnostic; read the comment saying it cannot tell a fixture from a stored pyramid, which is the point.
 - `@allmaps/iiif-parser`'s `getTileZoomLevels` — throws `"Image does not support tiles or custom regions and sizes."` for a level-0 service with no `tiles` and no arbitrary-region support. That throw is the refusal this ticket must surface at add time.
@@ -20,7 +20,7 @@ The gap this closes is narrow. `createImagePane(info, tiles)` **already** accept
 
 ## Contract
 
-**`HistoricalMapPane` takes where its tiles come from.** An `ImagePaneTileBase` prop, plus the `info.json` URL to read. For a Workspace-held map that is the placeholder and `{ storedImageId }`, exactly as now; for a referenced map it is the Library's service base and the service's own `info.json`. The pane must not decide this for itself — passing it in is what stops a future caller silently getting the wrong one.
+**`MapImagePane` takes where its tiles come from.** An `ImagePaneTileBase` prop, plus the `info.json` URL to read. For a Workspace-held map that is the placeholder and `{ storedImageId }`, exactly as now; for a referenced map it is the Library's service base and the service's own `info.json`. The pane must not decide this for itself — passing it in is what stops a future caller silently getting the wrong one.
 
 **The refusal is decided when the resource is added, never when Align is clicked.** ADR-0007 already establishes the principle for CORS: probed at add time, not discovered at render time. Extend the same probe to **build the image pane**; if it throws, refuse the resource then, naming the host and the reason. A user must never be given a Layer with an Align button that leads to a screen which cannot work.
 

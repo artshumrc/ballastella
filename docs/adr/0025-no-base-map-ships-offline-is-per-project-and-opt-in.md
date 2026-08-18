@@ -30,7 +30,7 @@ The Amsterdam extract stays in the repository as an **e2e fixture**: `e2e/suppor
 
 ## Cached tiles are files, not an archive
 
-The cache is `workspace/base-map/tiles/{z}/{x}/{y}.mvt`, read through a MapLibre `addProtocol` handler — [ADR-0011](./0011-local-tiles-reach-renderers-by-per-consumer-injection.md)'s pattern verbatim, the one `tile-protocol.ts` already implements for Historical Map tiles.
+The cache is `workspace/base-map/tiles/{z}/{x}/{y}.mvt`, read through a MapLibre `addProtocol` handler — [ADR-0011](./0011-local-tiles-reach-renderers-by-per-consumer-injection.md)'s pattern verbatim, the one `tile-protocol.ts` already implements for Map Image tiles.
 
 **Writing a PMTiles v3 archive client-side was rejected.** `pmtiles@4.4.1` has no writer — its exports are all read-side, and there is no varint writer or header serialiser — so it would mean implementing the 127-byte header, root and leaf directories, run-length-encoded clustered entries, and Hilbert tile ordering ourselves. That is archive-format code whose failure mode is silent, which is exactly the bug [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md) is escaping rather than one worth writing again. (`zxyToTileId` and `tileIdToZxy` *are* exported, so enumerating a bounding box's tiles and pulling each from a source archive is easy under any storage choice. Only writing was hard.)
 
@@ -44,13 +44,13 @@ Storing tiles as files also means:
 
 ## Consequences
 
-- **ADR-0012's offline claim narrows, and SPEC story 8 must be reworded rather than quietly broken.** The honest claim: a user's Historical Maps, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline.
+- **ADR-0012's offline claim narrows, and SPEC story 8 must be reworded rather than quietly broken.** The honest claim: a user's Map Images, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline.
 - **The tile budget is shown before it is spent, and there is a refusal threshold.** A city centre at z0–14 is tens of tiles; a country at z14 is thousands; a continent is hundreds of thousands. The user sees tile count and megabytes before agreeing — this fetches from someone else's server, and ADR-0007 already demands that courtesy before making an offline copy a level-0 pyramid.
 - **Every zoom level from 0 to the source's maximum is cached over the Project's extent.** Low zooms are one or two tiles each and nearly free, and omitting them makes zooming out go blank, which reads as breakage.
 - **Compression is explicit.** PMTiles stores tiles gzipped and its Protocol decompresses on the way out; storing them compressed and serving them as though they were not is a silent blank map.
 - **Attribution survives caching.** The data is OSM under ODbL, and the obligation does not lapse because no network request happens.
 - **`PublishedSite.baseMapBundled` changes meaning**, from "the deployment's extract was copied" to "this Workspace carries cached tiles". `ReaderMapPane` already has a check for whether the site carries the Base Map's own files.
-- **The cache is reclaimable from the hub**, listed with its size, like the Workspace's Historical Maps (ADR-0023).
+- **The cache is reclaimable from the hub**, listed with its size, like the Workspace's Map Images (ADR-0023).
 - **The opening view is computed from the Project's content, not from the catalog.** `BASE_MAP_CATALOG.initialView` survives only as the fallback for a Project with nothing placed on the earth yet — see ADR-0026.
 
 ## Amendment, 2026-08-08: the demo archive stays, as a decision rather than an oversight
@@ -70,7 +70,7 @@ Two things follow, and both are already true:
 
 The amendment above settled that `demo-bucket.protomaps.com` stayed. **That decision has been overtaken rather than reversed on its merits:** the bucket now answers `404` for `v4.pmtiles`. Measured, not inferred — `curl -r 0-16` returns `HTTP/2 404` from `Tigris OS`.
 
-So the Base Map was not degraded, it was **absent**. Every catalog entry read that one URL, so a scholar saw Historical Maps floating on blank space with nothing on screen explaining why. That is the failure this repository spent an epic removing from the write path, sitting unnoticed in deployment configuration — and it was invisible to the whole test suite by construction, because no test may reach the network (ADR-0014, and the network fence).
+So the Base Map was not degraded, it was **absent**. Every catalog entry read that one URL, so a scholar saw Map Images floating on blank space with nothing on screen explaining why. That is the failure this repository spent an epic removing from the write path, sitting unnoticed in deployment configuration — and it was invisible to the whole test suite by construction, because no test may reach the network (ADR-0014, and the network fence).
 
 `REMOTE_ARCHIVE` now reads `https://data.source.coop/protomaps/openstreetmap/v4.pmtiles`: Protomaps' daily planet build, mirrored on Source Cooperative in AWS us-west-2.
 
@@ -84,4 +84,4 @@ So the Base Map was not degraded, it was **absent**. Every catalog entry read th
 
 **`data.source.coop` was therefore added to `UNCONTROLLED_HOSTS` in the same change.** That set previously named only the host being left, so repointing would have made `pnpm check:deployment` pass and report a deployment fit to ship. A fence that goes green because the thing it described moved is worse than no fence. The rule the set encodes is *the deployment controls its own archive*, and every host fails that until somebody provisions one.
 
-**What ends this properly**, and the estimate is small enough to be worth writing down: `pmtiles extract <remote build> world.pmtiles --maxzoom=14` pulls a zoom-limited planet without downloading 125 GB — Protomaps documents extracting a full sub-pyramid from 0 to `maxzoom` as an efficient operation — giving roughly 60 GB, which is about **$0.75 a month** on storage with zero egress. Buildings appear around z14 and are what a scholar aligns a historical city map against; MapLibre overzooms above the archive's maximum, so z15–18 still render sharp vector geometry. That is one line of this file plus a bucket.
+**What ends this properly**, and the estimate is small enough to be worth writing down: `pmtiles extract <remote build> world.pmtiles --maxzoom=14` pulls a zoom-limited planet without downloading 125 GB — Protomaps documents extracting a full sub-pyramid from 0 to `maxzoom` as an efficient operation — giving roughly 60 GB, which is about **$0.75 a month** on storage with zero egress. Buildings appear around z14 and are what a scholar aligns a Map Image against; MapLibre overzooms above the archive's maximum, so z15–18 still render sharp vector geometry. That is one line of this file plus a bucket.

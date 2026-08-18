@@ -265,7 +265,7 @@ describe('imageSizeFromInfo', () => {
 
 	it('reads a document carrying members this build has never heard of', () => {
 		// The tolerance ADR-0010 asks for, in the direction that costs nothing: a newer build's
-		// `info.json` still has to give a Historical Map its starter Alignment.
+		// `info.json` still has to give a Map Image its starter Alignment.
 		expect(imageSizeFromInfo({ width: 12, height: 9, sizes: [], somethingNew: true })).toEqual({
 			width: 12,
 			height: 9

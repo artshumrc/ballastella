@@ -4,7 +4,7 @@ import { newAlignment, type Alignment } from '../alignment/alignment';
 import { parseAlignment, serialiseAlignment } from '../alignment/georeference-annotation';
 import { createImagePane } from '../image-pane/iiif-image-pane';
 import { createStoreImageFetch } from '../injection/store-image-fetch';
-import { partitionByOfflineCopy } from '../project/historical-maps';
+import { partitionByOfflineCopy } from '../project/map-images';
 import { imageInfoPath } from '../project/image-files';
 import { MemoryProjectStore } from '../store/memory-project-store';
 import { imageServiceId } from '../tiler/pyramid';
@@ -57,7 +57,7 @@ const alignment = (): Alignment => ({
 	]
 });
 
-describe('where a Historical Map’s tiles come from', () => {
+describe('where a Map Image’s tiles come from', () => {
 	it('sends a local copy through the injection layer and a reference to its own host', () => {
 		// The whole distinction. `{ storedImageId }` means "in this Workspace, reach it through the
 		// ADR-0011 shim"; a string means "served over HTTP from here". They are different *types*, so
@@ -143,7 +143,7 @@ describe('where a Historical Map’s tiles come from', () => {
  * geometry is a plausible pyramid either way — and it puts every Control Point the scholar then
  * places at the wrong image pixel.
  */
-describe('everything a pane needs to read one Historical Map', () => {
+describe('everything a pane needs to read one Map Image', () => {
 	it('reads a referenced map from the Library, document and tiles from the same base', () => {
 		const source = imagePaneSourceFor(sourceOf(record()));
 
@@ -164,7 +164,7 @@ describe('everything a pane needs to read one Historical Map', () => {
 	});
 
 	it('resolves the tiles and the info.json from one fact, so they cannot name different servers', () => {
-		// The unguarded direction. Both fields are derived from one `HistoricalMapSource`, so there is no
+		// The unguarded direction. Both fields are derived from one `MapImageSource`, so there is no
 		// input that produces a Library's tile base beside the store's `info.json` — the pairing that
 		// draws a stranger's sheet under our own pyramid's geometry with nothing raising anywhere.
 		for (const source of [sourceOf(record()), offlineCopySource]) {
@@ -282,7 +282,7 @@ describe('the record beside a referenced image', () => {
 
 	it('is spelled one way however the address arrived', () => {
 		// The same service reached three ways — bare, with a trailing slash, and as the URL a user
-		// copies out of their address bar — is one Historical Map. It has to be: `generateId` hashes
+		// copies out of their address bar — is one Map Image. It has to be: `generateId` hashes
 		// this string into the image's identity and into the key the Allmaps lookup is made on, so two
 		// spellings are two Layers that cannot be told apart and an existing Alignment silently not
 		// found. See `canonicalServiceUri`, which is the one place that decides it.
@@ -365,9 +365,9 @@ describe('every referenced image a Project records', () => {
 	it('reads only the Workspace’s own images, not a remote.json nested below one', async () => {
 		const store = await project({
 			'images/a8eb9e9cf936cc3d/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`,
-			'images/a8eb9e9cf936cc3d/tiles/remote.json': 'not a Historical Map',
+			'images/a8eb9e9cf936cc3d/tiles/remote.json': 'not a Map Image',
 			'images/a8eb9e9cf936cc3d/info.json': '{}',
-			// A Project directory that happens to hold something shaped like an image. Not a Historical Map
+			// A Project directory that happens to hold something shaped like an image. Not a Map Image
 			// of this Workspace, and not looked at (ADR-0023).
 			// project-rooted-path-is-the-fixture: the decoy `listReferencedImages` must not report
 			'amsterdam-1625/images/decoy/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`
@@ -445,7 +445,7 @@ describe('an Alignment of a referenced image', () => {
 	});
 });
 
-describe('a Historical Map that has been copied offline', () => {
+describe('a Map Image that has been copied offline', () => {
 	const other = () =>
 		referencedImage({
 			imageId: 'ffff0000ffff0000',
@@ -478,7 +478,7 @@ describe('a Historical Map that has been copied offline', () => {
 	});
 
 	it('reaches its tiles through the injection layer once the pyramid is beside it', () => {
-		// The transition the `HistoricalMapSource` union was shaped for, in one assertion: the same image
+		// The transition the `MapImageSource` union was shaped for, in one assertion: the same image
 		// id, and a base that has stopped being a URL on somebody else's host. What decides which side of
 		// it a map is on is `partitionByOfflineCopy` reading the folder, not a field anybody wrote.
 		const before = sourceOf(record());

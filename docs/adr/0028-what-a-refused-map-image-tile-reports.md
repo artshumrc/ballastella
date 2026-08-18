@@ -1,6 +1,6 @@
-# What a refused Historical Map tile reports, and what it deliberately does not
+# What a refused Map Image tile reports, and what it deliberately does not
 
-A Historical Map's tiles can stop being fetchable while somebody is looking at the map. The injection
+A Map Image's tiles can stop being fetchable while somebody is looking at the map. The injection
 layer (`createStoreImageFetch`, [ADR-0011](./0011-store-backed-tiles-through-documented-extension-points.md))
 catches that refusal and hands the application a sentence to render. This ADR records which refusals
 it reports, which it stays quiet about, when the sentence is withdrawn, and the residual that policy
@@ -63,7 +63,7 @@ the cells it refuses stay outstanding however many others succeed.
 
 **Two requests for the same URL are the one place order could still have decided it, and they are
 handled explicitly.** `WarpedMap.loadImage` fills `imagesById` only after its fetch resolves, so two
-Layers on one `imageId` — legal under [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md),
+Layers on one `imageId` — legal under [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md),
 and supported by the viewer — both fetch that `info.json` at once. Mid-outage one can fail while the
 other succeeds, and with the failure settling last a set keyed on URL alone recorded a refusal for
 bytes the page was already holding: a notice that never came down over a map with nothing wrong with
@@ -140,7 +140,7 @@ unattended asserts that no gesture happens.
 
 ## The sentence lives in the domain layer
 
-One function, `historicalMapTilesUnavailableNotice`, rendered by the published viewer and by the
+One function, `mapImageTilesUnavailableNotice`, rendered by the published viewer and by the
 editor. The two deployments must be incapable of describing one outage two ways at the same person,
 which is the same argument [ADR-0020](./0020-base-map-catalog-author-default-and-reader-switching.md)
 made for the Base Map's unreachable-archive notice. It carries the same three things in the same

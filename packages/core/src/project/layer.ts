@@ -1,7 +1,7 @@
 // One entry in a Project's ordered stack (CONTEXT.md, Layer).
 //
 // A Layer **references** its content and carries only how that content is presented — its name,
-// whether it is visible, where it sits in the stack, and for a Historical Map its opacity. None of
+// whether it is visible, where it sits in the stack, and for a Map Image its opacity. None of
 // that may live in the Alignment or in the GeoJSON, which are portability documents that have to
 // stand on their own (ADR-0002).
 //
@@ -69,10 +69,10 @@ interface LayerCommon {
 }
 
 /**
- * A Historical Map of the Workspace, in this Project's stack.
+ * A Map Image of the Workspace, in this Project's stack.
  *
  * **One field, and everything else is derived from it** (ADR-0023). The Workspace owns where a
- * Historical Map sits on the earth, so the Alignment is `alignmentPath(imageId)` and the pyramid is
+ * Map Image sits on the earth, so the Alignment is `alignmentPath(imageId)` and the pyramid is
  * `imageDirectory(imageId)` — both at the Workspace root, both shared by every Project that references
  * this image. A Project owns only how the map is presented: its name for the Layer, whether it is
  * visible, where it sits in the stack, and its opacity.
@@ -87,7 +87,7 @@ export interface MapLayer extends LayerCommon {
 	readonly kind: 'map';
 	/** 0–1. Present on this kind alone — see {@link Layer}. */
 	readonly opacity: number;
-	/** The Workspace Historical Map this Layer draws. Referenced, never contained. */
+	/** The Workspace Map Image this Layer draws. Referenced, never contained. */
 	readonly imageId: string;
 }
 
@@ -156,7 +156,7 @@ export function emptyAnnotationCollection(): Bytes {
 	);
 }
 
-/** A new map Layer for a Workspace Historical Map. Fully opaque and visible. */
+/** A new map Layer for a Workspace Map Image. Fully opaque and visible. */
 export function newMapLayer(fields: { id: string; name: string; imageId: string }): MapLayer {
 	return {
 		kind: 'map',

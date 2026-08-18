@@ -159,7 +159,7 @@ describe('projectOpeningBounds', () => {
 		expect(bounds).toEqual({ west: -71.2, south: 42.25, east: -70.9, north: 42.45 });
 	});
 
-	it('frames an aligned Historical Map on its Resource Mask, not on its Control Points', () => {
+	it('frames an aligned Map Image on its Resource Mask, not on its Control Points', () => {
 		const content: ContentLayer[] = [{ layer: mapLayerNamed('sheet'), alignment: BOSTON_SHEET }];
 
 		const bounds = projectOpeningBounds(content);
@@ -238,7 +238,7 @@ describe('projectOpeningBounds', () => {
 		expect(projectOpeningBounds([])).toBeNull();
 	});
 
-	it('has nothing to say about an unaligned Historical Map', () => {
+	it('has nothing to say about an unaligned Map Image', () => {
 		// Three shapes of "not aligned": no Alignment file at all, an Alignment with no Control Points,
 		// and one with too few for its transformation type to be solved. None has a place on the earth.
 		expect(projectOpeningBounds([{ layer: mapLayerNamed('sheet'), alignment: null }])).toBeNull();

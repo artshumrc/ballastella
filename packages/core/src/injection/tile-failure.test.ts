@@ -1,4 +1,4 @@
-// Every row of the sentence a person meets when a Historical Map's tiles stop arriving, plus the
+// Every row of the sentence a person meets when a Map Image's tiles stop arriving, plus the
 // row-crossing assertions that are the actual point of driving it here.
 //
 // The prior art is `base-map/resolve.test.ts`, and so is the reason: that notice shipped **false in
@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
 	TILE_RECOVERY_DELAYS,
-	historicalMapTilesUnavailableNotice,
+	mapImageTilesUnavailableNotice,
 	keepAskingForMissingTiles,
 	type TileSourceFailure
 } from './tile-failure.js';
@@ -28,22 +28,22 @@ const EVERY_ROW: readonly TileSourceFailure[] = [
 	{ kind: 'unreadable', host: 'maps.library.example', detail: 'the quota was exceeded' }
 ];
 
-describe('historicalMapTilesUnavailableNotice', () => {
+describe('mapImageTilesUnavailableNotice', () => {
 	it('names the Layer when the failure belongs to one, and does not invent one when it does not', () => {
 		// A pass-through request carries a URL and no Layer, so there is a real row with nothing to
 		// name. Naming the wrong map would send a scholar to check an Alignment that is fine.
 		const failure: TileSourceFailure = { kind: 'no-answer', host: null };
 
-		expect(historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan')).toContain(
-			'The Historical Map “Blaeu’s plan”'
+		expect(mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan')).toContain(
+			'The Map Image “Blaeu’s plan”'
 		);
-		expect(historicalMapTilesUnavailableNotice(failure)).toContain('A Historical Map on this page');
-		expect(historicalMapTilesUnavailableNotice(failure)).not.toContain('“');
+		expect(mapImageTilesUnavailableNotice(failure)).toContain('A Map Image on this page');
+		expect(mapImageTilesUnavailableNotice(failure)).not.toContain('“');
 	});
 
 	it('says the connection or that server, for a request that got no answer at all', () => {
-		const here = historicalMapTilesUnavailableNotice({ kind: 'no-answer', host: null });
-		const library = historicalMapTilesUnavailableNotice({
+		const here = mapImageTilesUnavailableNotice({ kind: 'no-answer', host: null });
+		const library = mapImageTilesUnavailableNotice({
 			kind: 'no-answer',
 			host: 'maps.library.example'
 		});
@@ -55,7 +55,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 	});
 
 	it('tells a Reader that reconnecting will not help when the file is simply not there', () => {
-		const notice = historicalMapTilesUnavailableNotice({ kind: 'file-missing', host: null });
+		const notice = mapImageTilesUnavailableNotice({ kind: 'file-missing', host: null });
 
 		expect(notice).toContain('does not hold the file it is drawn from');
 		expect(notice).toContain('Reconnecting will not help');
@@ -63,7 +63,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 	});
 
 	it('names the status, and says the connection is working, when a server answered and failed', () => {
-		const notice = historicalMapTilesUnavailableNotice({
+		const notice = mapImageTilesUnavailableNotice({
 			kind: 'server-error',
 			host: 'maps.library.example',
 			status: 503
@@ -85,7 +85,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		// a warning that would never go. So: what the map does by itself, and what it needs a person
 		// for, said separately.
 		for (const failure of EVERY_ROW) {
-			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
+			const notice = mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan');
 			const recovers = failure.kind === 'no-answer' || failure.kind === 'server-error';
 
 			if (recovers) {
@@ -111,7 +111,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		// The row that exists so the other three cannot be made to lie. Folding an unknown storage
 		// refusal into "could not be reached" would tell a scholar whose browser storage refused to go
 		// and check their wifi.
-		const notice = historicalMapTilesUnavailableNotice({
+		const notice = mapImageTilesUnavailableNotice({
 			kind: 'unreadable',
 			host: null,
 			detail: 'the quota was exceeded'
@@ -125,7 +125,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		// SPEC stories 14 and 15, which are the two questions a half-drawn map raises before any
 		// remedy is any use: is this me, and is the rest of it gone?
 		for (const failure of EVERY_ROW) {
-			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
+			const notice = mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan');
 
 			expect(notice).toContain('Nothing you did caused this');
 			expect(notice).toContain('the Annotations and the rest of the author’s work are unaffected');
@@ -139,7 +139,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		// telling somebody with no wifi that their connection is fine, or claiming a map is drawn
 		// while a notice above it says it stopped.
 		for (const failure of EVERY_ROW) {
-			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
+			const notice = mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan');
 
 			if (failure.kind !== 'no-answer') {
 				expect(notice).not.toContain('either your connection or that server');
@@ -179,7 +179,7 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		};
 
 		for (const failure of EVERY_ROW) {
-			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
+			const notice = mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan');
 			const stopped = notice.indexOf('stopped drawing');
 			const safe = notice.indexOf('Nothing you did caused this');
 			const remedy = notice.indexOf(REMEDY_MARK[failure.kind]);

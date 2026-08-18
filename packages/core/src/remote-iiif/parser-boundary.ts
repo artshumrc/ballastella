@@ -80,7 +80,7 @@ export function imageServiceUriCrossingBoundary(selected: unknown): string {
 	// Returns the normalised href rather than the input: the fragment stripping and scheme check in
 	// `remoteIiifUrl` are the point, and returning the original would make them advisory. The spelling
 	// is then `canonicalServiceUri`'s, the same one the pasted-URL path and `remote.json` use, so a
-	// canvas and a paste that name one service cannot become two Historical Maps.
+	// canvas and a paste that name one service cannot become two Map Images.
 	return canonicalServiceUri(remoteIiifUrl(trimmed).href);
 }
 

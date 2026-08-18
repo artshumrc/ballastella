@@ -3,19 +3,19 @@ import { type Page } from '@playwright/test';
 
 import { emptyWorkspace, gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { addHistoricalMapFromFile } from './support/historical-maps.js';
+import { addMapImageFromFile } from './support/map-images.js';
 import { installIiifHosts, service } from './support/iiif-hosts.js';
 import { seedFile } from './support/stored-file.js';
 
 /**
- * ADR-0030: every Historical Map on the Workspace hub shows a picture of the sheet beside its name,
+ * ADR-0030: every Map Image on the Workspace hub shows a picture of the sheet beside its name,
  * and that picture is the single tile at the coarsest level of the pyramid the map already has.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHAT ONLY THIS FILE CAN ASSERT
  *
  * Which URL each listing record carries is a pure function over stored documents, and is asserted as
- * such in `packages/core/src/project/historical-maps.test.ts`. What is left needs a browser, and it is
+ * such in `packages/core/src/project/map-images.test.ts`. What is left needs a browser, and it is
  * the only thing that can distinguish this feature working from it failing:
  *
  * ⚠ **that the picture DECODED.** Every failure mode here is silent and plausible. A wrong scale factor
@@ -36,7 +36,7 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /** The one card on the hub, whichever map it is for. */
 const card = (page: Page, label: string) =>
-	page.getByTestId('historical-map').filter({ hasText: label });
+	page.getByTestId('map-image').filter({ hasText: label });
 
 /**
  * What the browser actually decoded, in pixels, or `{ width: 0, height: 0 }` for an image with
@@ -55,7 +55,7 @@ const decoded = (page: Page, label: string): Promise<{ width: number; height: nu
 		}))
 		.catch(() => ({ width: 0, height: 0 }));
 
-test('a Historical Map added from a file shows a picture that has actually decoded', async ({
+test('a Map Image added from a file shows a picture that has actually decoded', async ({
 	page
 }) => {
 	await page.goto('./');
@@ -68,17 +68,17 @@ test('a Historical Map added from a file shows a picture that has actually decod
 	await dialog.getByRole('button', { name: 'Create' }).click();
 	await page.getByRole('link', { name: 'La Floride' }).click();
 
-	// Waited out in full, `info.json` included: `addHistoricalMapFromFile` returns when the preparing
+	// Waited out in full, `info.json` included: `addMapImageFromFile` returns when the preparing
 	// card has gone, which is the end of the whole add. A thumbnail assertion made before the pyramid is
 	// described has nothing to resolve and would flake.
-	await addHistoricalMapFromFile(page, {
+	await addMapImageFromFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
 
 	await page.getByRole('link', { name: 'Back to all Projects' }).click();
-	await expect(page.getByTestId('historical-map')).toHaveCount(1);
+	await expect(page.getByTestId('map-image')).toHaveCount(1);
 
 	// **700 × 500 reduces to 175 × 125**, worked out from ADR-0030's rule rather than from the code: the
 	// scale factors double until the sheet fits in one 256-pixel tile, so 1, 2, 4 — and the coarsest
@@ -169,7 +169,7 @@ test('a Workspace-held map whose coarsest tile was never written keeps the glyph
 	await expect(entry.getByTestId('map-thumbnail-image')).toHaveCount(0);
 });
 
-test('a Historical Map referenced from a Library shows a picture drawn from that Library', async ({
+test('a Map Image referenced from a Library shows a picture drawn from that Library', async ({
 	page
 }) => {
 	await installIiifHosts(page);
@@ -217,9 +217,7 @@ test('a Historical Map referenced from a Library shows a picture drawn from that
 	await expect(entry.getByTestId('map-thumbnail-image')).toHaveAttribute('loading', 'lazy');
 });
 
-test('a referenced Historical Map whose record has no tile side keeps the glyph', async ({
-	page
-}) => {
+test('a referenced Map Image whose record has no tile side keeps the glyph', async ({ page }) => {
 	await page.goto('./');
 	await emptyWorkspace(page);
 	// A record written before `remote.json` carried the tile side, which is the population ADR-0030

@@ -157,7 +157,7 @@ Groundwork, verified and measured under ticket 01:
 
 - `fullyParallel: true`, and the obsolete "eight workers bought 19%" note corrected in place with a re-measurement (4 workers 314s, 10 workers 206s on a heavy 156-test sample).
 - `workers` overridable by environment; the default stays 4 for the shared-machine reason, which the benchmark never was.
-- A Historical Map's pyramid recorded once per build and replayed into OPFS, replacing a per-test ingest through the interface.
+- A Map Image's pyramid recorded once per build and replayed into OPFS, replacing a per-test ingest through the interface.
 - A component seam for `apps/editor` — the fourth seam — with 13 component tests running in 993ms. ⚠ **Built in Vitest's browser mode, which is not the target.** It takes a Chromium process per run for claims that touch no OPFS, no WebGL and no service worker. Converting it to Node against a DOM implementation is ticket work, and the spec records the fidelity caveats — focusability of disabled controls above all — that decide which claims can follow it there and which stay at Seam 2.
 - `editor-layers` reduced 42 → 36 Seam 2 tests.
 
@@ -297,7 +297,7 @@ stop exactly that; three specs were not using it. The 32 `waitForTimeout` calls 
 a red herring: all four in `editor-layers` came to 9.5s out of 400s.
 
 ⚠ **A spec's floor is its longest test.** `editor-annotations` lost 11 tests in ticket 06 and ~60% of
-its CPU time, and its wall clock did not move: one Pin-under-a-Historical-Map test cost 24s and the
+its CPU time, and its wall clock did not move: one Pin-under-a-Map-Image test cost 24s and the
 file could not finish before it did. That test is now ~11s — it had been driving a full alignment as
 scenery — but the principle holds and is why count was always the wrong axis.
 

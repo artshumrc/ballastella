@@ -1,5 +1,5 @@
 <script lang="ts">
-	// One Historical Map of the Workspace, deep-zoomable — whether its tiles are in the Workspace or
+	// One Map Image of the Workspace, deep-zoomable — whether its tiles are in the Workspace or
 	// on a Library's server.
 	//
 	// SPEC story 31. Ticket 03 built this pane over a committed fixture served by HTTP, which is
@@ -27,7 +27,7 @@
 	// rather than passed beside it, so there is no "remote mode" to get out of step with the tiles.
 	//
 	// The pyramid is loaded here rather than by the page, because which pyramid is on screen is a
-	// question with a *load* behind it: switching Historical Maps replaces the pane, and a read that
+	// question with a *load* behind it: switching Map Images replaces the pane, and a read that
 	// resolves after the user has already moved on must not be allowed to draw the wrong map.
 
 	import {
@@ -58,7 +58,7 @@
 		controls
 	}: {
 		/**
-		 * Which Historical Map of the Workspace this is.
+		 * Which Map Image of the Workspace this is.
 		 *
 		 * Identity only: it keys the tile-protocol registration, names the map in a failure, and is
 		 * what a stale read compares itself against. It is deliberately **not** where the bytes come
@@ -209,7 +209,7 @@
 				// pyramid is unaffected: it is read out of the store and has never needed the network.
 				if (!connected && typeof tiles === 'string') {
 					throw new Error(
-						`this Historical Map's sheet is served by ${remoteHost || 'another server'}, and ` +
+						`this Map Image's sheet is served by ${remoteHost || 'another server'}, and ` +
 							`there is no connection. Its tiles were never copied into this Workspace, and the ` +
 							`record beside it says how big the image is but not how it is cut into tiles — so ` +
 							`there is nothing to draw and nothing safe to guess. Reconnect and this pane opens ` +
@@ -237,7 +237,7 @@
 				onpane?.(built);
 			} catch (cause) {
 				if (mine !== generation) return;
-				// ADR-0008: a Historical Map that cannot be read is a normal state to render, not an
+				// ADR-0008: a Map Image that cannot be read is a normal state to render, not an
 				// unhandled rejection. `createImagePane` refuses a pyramid whose shape would render
 				// plausibly but wrongly, and that refusal explains itself — so it is shown, not
 				// swallowed.
@@ -288,7 +288,7 @@
 </script>
 
 {#if failure}
-	<div role="alert" class="alert max-w-prose alert-warning" data-testid="historical-map-failure">
+	<div role="alert" class="alert max-w-prose alert-warning" data-testid="map-image-failure">
 		<p>{failure}</p>
 	</div>
 {:else if pane}
@@ -314,17 +314,17 @@
 		exactly why the neighbouring `role="alert"` regions on this screen are correct as they stand.
 		It is the wrong role here: this is a change of circumstance, not a mistake being made.
 	-->
-	<div aria-live="polite" data-testid="historical-map-offline-region">
+	<div aria-live="polite" data-testid="map-image-offline-region">
 		{#if offlineAfterOpening}
 			<div
 				class="mb-3 alert max-w-prose alert-warning"
-				data-testid="historical-map-offline"
+				data-testid="map-image-offline"
 				data-offline-host={remoteHost}
 			>
 				<p>
-					There is no connection, and this Historical Map’s sheet is served by {remoteHost}, so no
-					more of it will arrive until you are back online. You can carry on placing Control Points
-					— the pane still knows where every image pixel is, so they will be in the right place.
+					There is no connection, and this Map Image’s sheet is served by {remoteHost}, so no more
+					of it will arrive until you are back online. You can carry on placing Control Points — the
+					pane still knows where every image pixel is, so they will be in the right place.
 				</p>
 			</div>
 		{/if}
@@ -338,7 +338,7 @@
 		the screen with two live map panes competing for the height.
 	-->
 	<div class="flex flex-wrap items-center gap-2">
-		<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Historical Map view">
+		<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Map Image view">
 			<button class="btn btn-sm" onclick={() => paneView?.fitImage()}>Fit whole map</button>
 			<button class="btn btn-sm" onclick={() => paneView?.zoomToFullResolution()}>
 				Zoom to full resolution
@@ -367,7 +367,7 @@
 		<p
 			class="text-sm"
 			aria-live="polite"
-			data-testid="historical-map-tiles"
+			data-testid="map-image-tiles"
 			data-tiles-loaded={tilesLoaded}
 		>
 			{#if !tilesLoaded}
@@ -381,7 +381,7 @@
 
 	<div class="{frameClass} overflow-hidden rounded border border-base-300">
 		<!--
-			Keyed on the image, so switching Historical Maps builds a new map rather than repointing
+			Keyed on the image, so switching Map Images builds a new map rather than repointing
 			the old one. The tile protocol's registry is populated in `onMount`, and MapLibre's own
 			tile cache is keyed by URL under a source that would not have changed — a repointed pane
 			would draw the previous pyramid's cached tiles under the new map's coordinates.
@@ -405,5 +405,5 @@
 		{/key}
 	</div>
 {:else}
-	<p aria-live="polite">Opening the Historical Map…</p>
+	<p aria-live="polite">Opening the Map Image…</p>
 {/if}

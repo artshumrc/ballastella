@@ -2,7 +2,7 @@
 
 ## What to build
 
-The read-only experience a Reader gets from a Published Site. They arrive at a hub page, open a Project, and explore it: toggling Layers, adjusting the opacity of an aligned Historical Map, clicking an Annotation to read its title and description, switching Base Maps, and opening a Historical Map on its own to read it as a document.
+The read-only experience a Reader gets from a Published Site. They arrive at a hub page, open a Project, and explore it: toggling Layers, adjusting the opacity of an aligned Map Image, clicking an Annotation to read its title and description, switching Base Maps, and opening a Map Image on its own to read it as a document.
 
 It reads well on a phone. Nothing can be edited.
 
@@ -67,7 +67,7 @@ A missing or broken single Layer must never take down the whole Project view.
 - [x] The `localStorage` key is per site: two Published Sites on different paths do not share a preference
 - [x] Base Map choice is **never** written to Project data
 - [x] Entries needing network are marked or disabled
-- [~] A Historical Map opens unwarped via triiiceratops, reading over HTTP — **works, and only for a Project the author published with an address.** See "The unwarped view is limited by upstream" below.
+- [~] A Map Image opens unwarped via triiiceratops, reading over HTTP — **works, and only for a Project the author published with an address.** See "The unwarped view is limited by upstream" below.
 - [x] The site is usable at a 375 px viewport width: no horizontal page scroll, controls reachable, popups readable
 - [x] Tracy's theme is applied, and toggling theme changes the Base Map flavor in the same action
 - [x] An unreachable referenced host, an unknown base map id, and a newer `formatVersion` each degrade with a clear message and do not blank the site
@@ -94,7 +94,7 @@ Success: all exit 0 and the `grep` prints `OK: read-only`. The e2e suite must ru
 
 ### The unwarped view is limited by upstream, and it is the one criterion left `[~]`
 
-**A Historical Map reads unwarped over HTTP, and it is asserted doing so — but only for a Project the
+**A Map Image reads unwarped over HTTP, and it is asserted doing so — but only for a Project the
 author published with an address** (the opt-in canonical stamp, SPEC story 92). For an unstamped
 Project the page refuses with a sentence a Reader can act on rather than mounting a viewer that could
 only draw nothing. Both paths are asserted in `e2e/viewer-reader.e2e.ts`.

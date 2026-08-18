@@ -1041,7 +1041,7 @@ describe('Workspace', () => {
 		/**
 		 * Nothing writes such a record today — `createProject` refuses a reserved name and
 		 * `missingOwner` skips them — but this is the one operation in the chain that would act on it,
-		 * and `images/` holds every Project's Historical Maps (ADR-0023). The guard is on the
+		 * and `images/` holds every Project's Map Images (ADR-0023). The guard is on the
 		 * operation rather than on the writers, for the reason `#removeWorkspace`'s is.
 		 *
 		 * ⚠ **Said once and then dropped**, which the first spelling did not do. Nothing expires a
@@ -1244,20 +1244,20 @@ describe('toDirectoryName', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// ADR-0023: HISTORICAL MAPS AND ALIGNMENTS BELONG TO THE WORKSPACE
+// ADR-0023: MAP IMAGES AND ALIGNMENTS BELONG TO THE WORKSPACE
 //
 // The whole of the storage move, asserted against files. "After this sequence of actions the store
 // contains these files with this content" is not a proxy for the behaviour here — the user's folder
 // *is* the product (SPEC, Testing Decisions), and what moved is which files exist and where.
 
-describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
+describe('the Workspace’s shared Map Images (ADR-0023)', () => {
 	let store: MemoryProjectStore;
 	let workspace: Workspace;
 
 	const encode = (text: string) => new TextEncoder().encode(text);
 
-	/** One Historical Map in the Workspace: a pyramid and the Alignment that places it. */
-	const addHistoricalMap = async (imageId: string, tile = 'tile bytes') => {
+	/** One Map Image in the Workspace: a pyramid and the Alignment that places it. */
+	const addMapImage = async (imageId: string, tile = 'tile bytes') => {
 		await store.write(imageInfoPath(imageId), encode(`{"id":"https://unset.invalid/${imageId}"}`));
 		await store.write(`images/${imageId}/0,0,256,256/256,256/0/default.jpg`, encode(tile));
 		await seedAlignmentFixture(store, imageId, encode(`{"type":"Annotation","id":"${imageId}"}`));
@@ -1273,7 +1273,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 	// disk**, which is the difference between a semester's work publishing and failing under ADR-0008's
 	// ~1 GB budget.
 	it('lets two Projects hold a map Layer for the same image, with one pyramid on disk', async () => {
-		await addHistoricalMap('floride-1657');
+		await addMapImage('floride-1657');
 		const mine = await workspace.createProject('My reading');
 		const theirs = await workspace.createProject('Course copy');
 
@@ -1290,7 +1290,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 			});
 		}
 
-		// Both Projects name the same Historical Map, and each keeps its own presentation of it.
+		// Both Projects name the same Map Image, and each keeps its own presentation of it.
 		const layers = await Promise.all(
 			[mine, theirs].map(async (project) => (await workspace.readProject(project.directory)).layers)
 		);
@@ -1315,8 +1315,8 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 
 	// SPEC story 66: tidying up one piece of work must not cost the material. The map was prepared once
 	// and may be the only copy of a pyramid that took minutes to tile and gigabytes to hold.
-	it('leaves every Historical Map and Alignment in place when a Project is deleted', async () => {
-		await addHistoricalMap('floride-1657');
+	it('leaves every Map Image and Alignment in place when a Project is deleted', async () => {
+		await addMapImage('floride-1657');
 		const doomed = await workspace.createProject('A false start');
 		const file = await workspace.readProject(doomed.directory);
 		await workspace.writeProject(doomed.directory, {
@@ -1336,7 +1336,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 	describe('the reserved directory names', () => {
 		// `toDirectoryName('Images')` is `images`, so this is reachable by naming a Project rather than by
 		// contriving anything — and a Project that landed there would put `project.json` inside the shared
-		// pool, where deleting that Project would take every Project's Historical Maps with it.
+		// pool, where deleting that Project would take every Project's Map Images with it.
 		it.each([
 			['Images', 'images'],
 			['Alignments', 'alignments'],
@@ -1386,7 +1386,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 			// The Project's own files stay inside it.
 			expect(hoistedImageId('project.json')).toBeNull();
 			expect(hoistedImageId('annotations/a.geojson')).toBeNull();
-			// And anything that does not name a Historical Map is not hoisted to a path its name does not
+			// And anything that does not name a Map Image is not hoisted to a path its name does not
 			// describe: a bare directory entry, a nested Alignment, a name that is only the extension.
 			expect(hoistedImageId('images/floride-1657')).toBeNull();
 			expect(hoistedImageId('images/')).toBeNull();

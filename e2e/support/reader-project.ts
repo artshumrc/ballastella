@@ -146,7 +146,7 @@ export type ProjectFixture = {
 	/** The Annotations in the Annotation Layer. */
 	annotations?: unknown[];
 	/**
-	 * `'referenced'` puts the Historical Map on somebody else's server (ADR-0007).
+	 * `'referenced'` puts the Map Image on somebody else's server (ADR-0007).
 	 *
 	 * **Not written into `project.json`** — ADR-0023 deleted that field. It decides which *files* the
 	 * fixture lays down, which is where the answer now lives: `'referenced'` writes a `remote.json` and no
@@ -221,7 +221,7 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 	};
 
 	// **`info.json` present or absent is what says whether the tiles are here** (ADR-0023). A referenced
-	// Historical Map has neither a pyramid nor an `info.json` of ours; a local copy has both. Nothing in
+	// Map Image has neither a pyramid nor an `info.json` of ours; a local copy has both. Nothing in
 	// `project.json` claims either, so a fixture cannot lie about it to the app.
 	if (!fixture.withoutPyramid && imageMode !== 'referenced') {
 		files[`images/${IMAGE_ID}/info.json`] = infoJson(fixture.canonicalImageServiceId);
@@ -235,7 +235,7 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 		// **Every** tile the pyramid declares, and the paths are not hand-derived: they are what
 		// `planPyramid` produces for a 700 × 500 image at a 256 px tile size, which is what
 		// `@allmaps/iiif-parser` will ask for. A partial set would leave the renderer's cache empty and
-		// make "the Historical Map carried bytes" unassertable — the exact blank-map failure ticket 06
+		// make "the Map Image carried bytes" unassertable — the exact blank-map failure ticket 06
 		// spent a patch on. Regenerate by printing `planPyramid(buildImageInfo(…), 'x')` if the tile size
 		// or the fixture dimensions ever change.
 		const jpeg = tileJpeg();

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// One way into a Project for a Historical Map, offering all three of its sources at once
+	// One way into a Project for a Map Image, offering all three of its sources at once
 	// (ticket 06, SPEC stories 21–30, 33, 36).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@
 	// `querySelectorAll` of visible controls while being unreachable by keyboard, and
 	// `editor-project-screen.e2e.ts` walks exactly that set.
 
-	import { describeBytes, type WorkspaceHistoricalMap } from '@ballastella/core';
+	import { describeBytes, type WorkspaceMapImage } from '@ballastella/core';
 
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
@@ -54,14 +54,14 @@
 	} = $props();
 
 	/**
-	 * The Workspace's Historical Maps, walked when the dialog opens and not before.
+	 * The Workspace's Map Images, walked when the dialog opens and not before.
 	 *
-	 * `listWorkspaceHistoricalMaps` weighs every file under `images/`, which on a Workspace holding a
+	 * `listWorkspaceMapImages` weighs every file under `images/`, which on a Workspace holding a
 	 * gigapixel scan is tens of thousands of `size` calls — so it is tied to the gesture that needs
 	 * it rather than to a render. Re-walked on every open, because the answer changes: an ingest
 	 * that finished, a map deleted from the hub, a Layer added in another tab.
 	 *
-	 * **`refreshAddableHistoricalMaps` and not `refreshHistoricalMaps`**, which is the hub's. Two
+	 * **`refreshAddableMapImages` and not `refreshMapImages`**, which is the hub's. Two
 	 * differences, both of which were defects: it re-reads the `remote.json` records the add itself
 	 * needs, so this cannot list a map it will then refuse; and a walk that fails says so *here*
 	 * rather than putting the whole editor into the unreachable state, which would blank an open
@@ -75,11 +75,11 @@
 	$effect(() => {
 		if (!open) return;
 		onnotice?.('');
-		void session.refreshAddableHistoricalMaps();
+		void session.refreshAddableMapImages();
 	});
 
 	/**
-	 * The maps this Project could gain, which is every Historical Map in the Workspace **except the
+	 * The maps this Project could gain, which is every Map Image in the Workspace **except the
 	 * ones it already draws**.
 	 *
 	 * Offering a map this Project already has would be offering an action that does nothing:
@@ -92,7 +92,7 @@
 	 * that is the point of it: it has no Layer anywhere, so nothing else on this screen mentions it.
 	 */
 	const available = $derived(
-		session.historicalMaps.filter((map) => session.mapLayerFor(map.imageId) === undefined)
+		session.mapImages.filter((map) => session.mapLayerFor(map.imageId) === undefined)
 	);
 
 	/**
@@ -103,16 +103,16 @@
 	const fetchTile = $derived(session.imageServiceFetch());
 
 	/** What a map is called in the list, never its hash where anything better is known. */
-	const nameOf = (map: WorkspaceHistoricalMap): string => map.label || map.imageId;
+	const nameOf = (map: WorkspaceMapImage): string => map.label || map.imageId;
 
 	/**
 	 * What one Workspace map weighs, and how many files that is.
 	 *
 	 * The size is the ticket's requirement and the file count is what makes it legible: "3 files" and
-	 * "31 000 files" are different news about the same 40 MB. Both come from `WorkspaceHistoricalMap`,
+	 * "31 000 files" are different news about the same 40 MB. Both come from `WorkspaceMapImage`,
 	 * which is core's figure and the same one the hub's reclaim list states.
 	 */
-	const weightOf = (map: WorkspaceHistoricalMap): string =>
+	const weightOf = (map: WorkspaceMapImage): string =>
 		`${describeBytes(map.bytes)} in ${map.files} ${map.files === 1 ? 'file' : 'files'}`;
 
 	/**
@@ -125,7 +125,7 @@
 	 * together both find no Layer for the map.
 	 *
 	 * ⚠ **`#addMapLayer` holds the same invariant a second time**, with three `drawnAlready()`
-	 * checks across its awaits — so `editor-add-historical-map.e2e.ts`'s "two clicks in one task"
+	 * checks across its awaits — so `editor-add-map-image.e2e.ts`'s "two clicks in one task"
 	 * test asserts the *property* (one Layer, not two) and stays green with either guard alone.
 	 *
 	 * **Nothing re-checks that, and nothing here claims otherwise.** It was measured once, by hand,
@@ -143,7 +143,7 @@
 		adding = imageId;
 		// Read before the add, because the row this came from is gone by the time there is anything
 		// to say — the dialog closes on success.
-		const listed = session.historicalMaps.find((map) => map.imageId === imageId);
+		const listed = session.mapImages.find((map) => map.imageId === imageId);
 		const name = listed ? nameOf(listed) : imageId;
 		onnotice?.('');
 		try {
@@ -166,7 +166,7 @@
 			// was copied to make it one.
 			onnotice?.(
 				`“${layer.name || name}” is now a Layer in this Project. Nothing was copied: it is the ` +
-					`Historical Map this Workspace already holds, with the Alignment it already has.`
+					`Map Image this Workspace already holds, with the Alignment it already has.`
 			);
 		} finally {
 			adding = '';
@@ -192,11 +192,11 @@
 	}
 </script>
 
-<ModalDialog bind:open title="Add a Historical Map" wide>
+<ModalDialog bind:open title="Add a Map Image" wide>
 	<p class="max-w-prose text-sm">
-		A Historical Map belongs to this Workspace, not to one Project: prepared or aligned once, it can
-		be drawn by any number of Projects. Whichever of these three you use, it appears as a Layer in
-		this Project straight away.
+		A Map Image belongs to this Workspace, not to one Project: prepared or aligned once, it can be
+		drawn by any number of Projects. Whichever of these three you use, it appears as a Layer in this
+		Project straight away.
 	</p>
 
 	<!--
@@ -207,7 +207,7 @@
 		finishes instantly — and the progress is reported on the new Layer's own card in the sidebar,
 		which is why this dialog closes the moment a file is picked.
 
-		**The label is unchanged** ("Add a Historical Map from a file"): it is what a screen-reader user
+		**The label is unchanged** ("Add a Map Image from a file"): it is what a screen-reader user
 		and a keyboard user both go on, and it is what the whole browser suite reaches this control by.
 	-->
 	<section class="mt-6" aria-labelledby="add-from-file-heading">
@@ -217,7 +217,7 @@
 			you watch; you can carry on working while it runs, and you can stop it.
 		</p>
 		<label class="mt-3 block">
-			<span class="mb-1 block text-sm">Add a Historical Map from a file</span>
+			<span class="mb-1 block text-sm">Add a Map Image from a file</span>
 			<input
 				class="file-input w-full"
 				type="file"
@@ -248,13 +248,13 @@
 		where it is reached from and nothing about what it does.
 	-->
 	<div class="mt-8 border-t border-base-300 pt-2">
-		<!-- Its own `<section>` and its own heading, "Add a Historical Map from a library". A second
+		<!-- Its own `<section>` and its own heading, "Add a Map Image from a library". A second
 		     heading wrapped around it would announce the same source twice. -->
 		<AddRemoteMap {session} onadded={remoteAdded} />
 	</div>
 
 	<!--
-		Source three: a Historical Map this Workspace already holds (SPEC stories 27, 33).
+		Source three: a Map Image this Workspace already holds (SPEC stories 27, 33).
 
 		The one that did not exist before, and the one ADR-0023 is for: nothing is copied, the pyramid
 		is not read, and an Alignment made in another Project applies here the moment the Layer appears.
@@ -272,7 +272,7 @@
 			</div>
 		{/if}
 
-		{#if session.historicalMapsLoading && session.historicalMaps.length === 0}
+		{#if session.mapImagesLoading && session.mapImages.length === 0}
 			<p class="mt-3 text-sm" data-testid="workspace-maps-loading">
 				Looking through this Workspace…
 			</p>
@@ -284,14 +284,14 @@
 				that is broken.
 			-->
 			<p class="mt-3 max-w-prose text-sm" data-testid="no-workspace-maps">
-				{session.historicalMaps.length === 0
-					? 'This Workspace holds no Historical Maps yet. Add one from a file or from a library, and it is here for every Project afterwards.'
-					: 'Every Historical Map in this Workspace is already in this Project.'}
+				{session.mapImages.length === 0
+					? 'This Workspace holds no Map Images yet. Add one from a file or from a library, and it is here for every Project afterwards.'
+					: 'Every Map Image in this Workspace is already in this Project.'}
 			</p>
 		{:else}
 			<ul
 				class="mt-3 flex max-h-64 flex-col gap-1 overflow-y-auto"
-				aria-label="Historical Maps in this Workspace"
+				aria-label="Map Images in this Workspace"
 			>
 				{#each available as map (map.imageId)}
 					<!-- The row rather than the button, because the picture is beside the button: a picture
@@ -339,7 +339,7 @@
 		<button
 			type="button"
 			class="btn btn-sm"
-			data-testid="close-add-historical-map"
+			data-testid="close-add-map-image"
 			onclick={() => (open = false)}
 		>
 			Close

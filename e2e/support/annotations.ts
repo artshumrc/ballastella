@@ -1,7 +1,7 @@
 // Shared driving for the Annotation surface (ticket 10): get a Project open on the Layers pane with
 // one Annotation Layer, draw into it, and read back what landed in OPFS.
 //
-// Separate from `alignment-workspace.ts` because these tests need **no Historical Map at all** — an
+// Separate from `alignment-workspace.ts` because these tests need **no Map Image at all** — an
 // Annotation is on real geography and needs only the Base Map, so ingesting a pyramid would add
 // twenty seconds per test to assert nothing this slice is about. Nothing here reaches into the app's
 // own state: the assertions are on the written file and on what MapLibre reports it drew.
@@ -158,7 +158,7 @@ export async function hashesUnder(
 		async ([directory, prefix]) => {
 			const out: [string, number[]][] = [];
 			const root = await workspaceRoot();
-			// `''` walks the Workspace root, which is where a Historical Map's pyramid and its Alignment now
+			// `''` walks the Workspace root, which is where a Map Image's pyramid and its Alignment now
 			// live (ADR-0023) — shared by every Project, so not under any one of them.
 			const project = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const walk = async (handle: FileSystemDirectoryHandle, at: string): Promise<void> => {

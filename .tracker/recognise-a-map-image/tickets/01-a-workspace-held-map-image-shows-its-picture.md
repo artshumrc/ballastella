@@ -1,18 +1,18 @@
-# A Workspace-held Historical Map shows its picture on the hub
+# A Workspace-held Map Image shows its picture on the hub
 
 ## What to build
 
-On the Workspace hub, every Historical Map whose tiles are in the Workspace shows a small picture of
+On the Workspace hub, every Map Image whose tiles are in the Workspace shows a small picture of
 the sheet beside its name. The picture is the **single tile at the coarsest level of the pyramid the map
 already has** — nothing is generated, no file is written, and no ingest step is added.
 
-A Historical Map that is referenced from a Library shows a neutral glyph for now; its picture is
+A Map Image that is referenced from a Library shows a neutral glyph for now; its picture is
 ticket 03. A Workspace-held map whose geometry cannot be read shows the same glyph.
 
 This slice establishes everything the later tickets reuse: the resolver in the domain layer, the
 component, and both test seams.
 
-Read `../SPEC.md` and `docs/adr/0030-a-historical-maps-thumbnail-is-its-coarsest-pyramid-tile.md`
+Read `../SPEC.md` and `docs/adr/0030-a-map-images-thumbnail-is-its-coarsest-pyramid-tile.md`
 first. Every decision below is already made; none of them is yours to revisit.
 
 ## Where to start
@@ -25,20 +25,20 @@ first. Every decision below is already made; none of them is yours to revisit.
 - `packages/core/src/tiler/pyramid.test.ts` — the test named *"paints a body URL that the pyramid
   actually contains"* proves `wholeImageDerivative`'s output is a real tile path. Read it; it is the
   evidence this whole ticket rests on.
-- `packages/core/src/project/historical-maps.ts` — `WorkspaceHistoricalMap` (the listing type),
-  `listWorkspaceHistoricalMaps` (already reads `manifest.json` per map for the label), `tileLocation`,
+- `packages/core/src/project/map-images.ts` — `WorkspaceMapImage` (the listing type),
+  `listWorkspaceMapImages` (already reads `manifest.json` per map for the label), `tileLocation`,
   `readManifestLabel`.
-- `apps/editor/src/lib/components/ProjectHub.svelte` — the "Historical Maps" section; the `{#each
-  session.historicalMaps as map (map.imageId)}` list of daisyUI cards whose body is
+- `apps/editor/src/lib/components/ProjectHub.svelte` — the "Map Images" section; the `{#each
+  session.mapImages as map (map.imageId)}` list of daisyUI cards whose body is
   `card-body flex-row flex-wrap items-center justify-between`.
 - `apps/editor/src/lib/editor-session.svelte.ts` — `imageServiceFetch()` returns the ADR-0011 shim.
   This is how the component gets bytes.
 - `packages/core/src/injection/store-image-fetch.ts` — **read the file header before writing any
   code.** It states that `<img src>` cannot reach stored tiles and why a service worker is refused.
-- `apps/editor/src/lib/historical-maps/` — where `AddHistoricalMap.svelte` lives; put the new component
+- `apps/editor/src/lib/map-images/` — where `AddMapImage.svelte` lives; put the new component
   here.
-- `e2e/support/historical-maps.ts` — helpers for driving the add-a-map dialog, including the
-  `settle`/`ensureAddHistoricalMapOpen` discipline. Use them; the dialog's timing has already cost this
+- `e2e/support/map-images.ts` — helpers for driving the add-a-map dialog, including the
+  `settle`/`ensureAddMapImageOpen` discipline. Use them; the dialog's timing has already cost this
   suite a lot of flakes.
 - `e2e/editor-workspace.e2e.ts` — the hub's existing spec. Read it for how a Workspace with maps in it
   is set up and reached, then put the new assertions in their own feature-scoped spec (the house style
@@ -65,7 +65,7 @@ a trap: a pyramid on another tile side would yield a URL at the wrong scale fact
 **The listing type gains one nullable string.**
 
 ```
-WorkspaceHistoricalMap gains:
+WorkspaceMapImage gains:
   readonly thumbnail: string | null
 ```
 
@@ -73,7 +73,7 @@ WorkspaceHistoricalMap gains:
 no reason string, and no second discriminator: **how the URL must be fetched is already answered by the
 existing `tiles: TileLocation` field on the same record.**
 
-**Resolution happens in `listWorkspaceHistoricalMaps`, not in the component.** For a map whose
+**Resolution happens in `listWorkspaceMapImages`, not in the component.** For a map whose
 `tileLocation` is `'in-workspace'`: read its `info.json`, run it through the new geometry reader, and
 build the URL as
 
@@ -92,12 +92,12 @@ broken according to whether the site happens to be live. Take **only** `width`, 
 
 **This costs one extra `read` per Workspace-held map** in a scan that already reads one per map. That is
 accepted. It also means the existing test asserting the exact sorted set of paths
-`listWorkspaceHistoricalMaps` reads will go red; **extend it to expect the new read** rather than
+`listWorkspaceMapImages` reads will go red; **extend it to expect the new read** rather than
 loosening it to a subset match.
 
 **A new component, `MapThumbnail.svelte`, owning one job: turn a listing record into a picture.**
 
-- Props: the `WorkspaceHistoricalMap` (or its `thumbnail` and `tiles`), and the shim from
+- Props: the `WorkspaceMapImage` (or its `thumbnail` and `tiles`), and the shim from
   `session.imageServiceFetch()`.
 - When `thumbnail` is `null`: render the glyph and do nothing else.
 - When `tiles` is `'in-workspace'`: fetch the URL through the shim, **check `response.ok` before
@@ -131,7 +131,7 @@ Covers SPEC stories **1, 2, 4, 5, 6, 7, 8, 11, 15, 16, 17, 18, 20, 21, 22, 23, 2
 
 ## Out of scope
 
-- **The picker in `AddHistoricalMap.svelte`.** Ticket 02. Build the component so it can be dropped in
+- **The picker in `AddMapImage.svelte`.** Ticket 02. Build the component so it can be dropped in
   unchanged, but do not drop it in.
 - **Anything about referenced maps.** No `tileSize` on `remote.json`, no Library URL, no
   `loading="lazy"`. Ticket 03. Referenced maps show the glyph after this ticket and that is correct.
@@ -144,7 +144,7 @@ Covers SPEC stories **1, 2, 4, 5, 6, 7, 8, 11, 15, 16, 17, 18, 20, 21, 22, 23, 2
 - **Touching the tiler, `planPyramid`, `wholeImageDerivative`, or `buildImageManifest`.** They already
   do everything needed. If you find yourself editing them, stop and re-read the ADR.
 - **The Layer sidebar in `ProjectScreen.svelte`.** It lists Layers and is a different question.
-- **`apps/viewer` and anything published.** Its hub lists Projects and never Historical Maps.
+- **`apps/viewer` and anything published.** Its hub lists Projects and never Map Images.
 - **`CONTEXT.md`.** Deliberately unchanged; the reasoning is in the SPEC's Further Notes.
 - **Reporting a missing tile as an outage.** ADR-0028's residual is recorded, not closed.
 
@@ -152,17 +152,17 @@ Covers SPEC stories **1, 2, 4, 5, 6, 7, 8, 11, 15, 16, 17, 18, 20, 21, 22, 23, 2
 
 - [x] `imageGeometryFromInfo` returns width, height and tile side from an `info.json` this app wrote,
       and `null` when any of the three is missing or is not a positive integer.
-- [x] `listWorkspaceHistoricalMaps` sets `thumbnail` to the coarsest-tile URL on the
+- [x] `listWorkspaceMapImages` sets `thumbnail` to the coarsest-tile URL on the
       `https://unset.invalid/<imageId>` host for a Workspace-held map, and `null` for a referenced one.
-- [x] `listWorkspaceHistoricalMaps` sets `thumbnail` to `null` for a Workspace-held map whose
+- [x] `listWorkspaceMapImages` sets `thumbnail` to `null` for a Workspace-held map whose
       `info.json` will not yield geometry, and still lists the map.
 - [x] The URL is built on `imageServiceId(imageId)` even when the stored `info.json` carries a stamped
       absolute `id` — asserted with a document whose `id` is an unrelated `https://example.test/…`.
-- [x] The existing assertion on the exact set of paths `listWorkspaceHistoricalMaps` reads is extended
+- [x] The existing assertion on the exact set of paths `listWorkspaceMapImages` reads is extended
       to include the new `info.json` read, and still passes.
-- [x] On the hub, a Historical Map added from a file shows a picture that has actually decoded:
+- [x] On the hub, a Map Image added from a file shows a picture that has actually decoded:
       `naturalWidth > 0`.
-- [x] On the hub, a referenced Historical Map shows the glyph and no broken image.
+- [x] On the hub, a referenced Map Image shows the glyph and no broken image.
 - [x] `pnpm lint` passes, including `check-workspace-rooted-paths.mjs` and the e2e network fence.
 - [x] `pnpm precommit` passes.
 - [x] A mutation record is written into this ticket (see below).
@@ -172,9 +172,9 @@ Covers SPEC stories **1, 2, 4, 5, 6, 7, 8, 11, 15, 16, 17, 18, 20, 21, 22, 23, 2
 pnpm --filter @ballastella/core test --project node -t "thumbnail"
 pnpm --filter @ballastella/core test --project node -t "imageGeometryFromInfo"
 
-# Browser seam. Create e2e/editor-historical-map-thumbnails.e2e.ts and take `test` from
+# Browser seam. Create e2e/editor-map-image-thumbnails.e2e.ts and take `test` from
 # e2e/support/network-fence.ts, or scripts/check-e2e-network-fence.mjs will fail the lint.
-pnpm test:e2e editor-historical-map-thumbnails.e2e.ts
+pnpm test:e2e editor-map-image-thumbnails.e2e.ts
 
 # Everything, cheapest first.
 pnpm precommit
@@ -190,7 +190,7 @@ Mandatory, and the first row is the one this ticket exists to prove. Fill in and
 
 | Criterion | Mutation | Result |
 | --- | --- | --- |
-| the picture actually decoded | `wholeImageDerivative`'s `coarsest` halved (`factors[factors.length - 1]! / 2`), so the URL names `0,0,700,500/350,250/…` — a size at scale factor 2, where the level is two tiles wide and no such tile was ever written | **red**, as required. `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a Historical Map added from a file shows a picture that has actually decoded* failed on both attempts with `Timeout 20000ms exceeded while waiting on the predicate`: the poll sat on `{ width: 0, height: 0 }`. The `<img>` was present and laid out at its 96 × 96 attributes throughout — a `toBeVisible` or `src` check would have stayed green. The referenced-map test stayed green, correctly: it has no `<img>` to break. |
+| the picture actually decoded | `wholeImageDerivative`'s `coarsest` halved (`factors[factors.length - 1]! / 2`), so the URL names `0,0,700,500/350,250/…` — a size at scale factor 2, where the level is two tiles wide and no such tile was ever written | **red**, as required. `pnpm test:e2e editor-map-image-thumbnails.e2e.ts` → *a Map Image added from a file shows a picture that has actually decoded* failed on both attempts with `Timeout 20000ms exceeded while waiting on the predicate`: the poll sat on `{ width: 0, height: 0 }`. The `<img>` was present and laid out at its 96 × 96 attributes throughout — a `toBeVisible` or `src` check would have stayed green. The referenced-map test stayed green, correctly: it has no `<img>` to break. |
 | the URL is built on the placeholder host | `readWorkspaceThumbnail` builds on `storedId \|\| imageServiceId(imageId)`, `storedId` being the `id` field of the `info.json` it just read | **red**. `pnpm --filter @ballastella/core test --project node -t "thumbnail"` → 1 failed, 5 passed: *is on the placeholder host even when the info.json carries a stamped published address* — `Expected: "https://unset.invalid/aaa1/0,0,1200,851/150,107/0/default.jpg"`, `Received: "https://example.test/published/aaa1/0,0,1200,851/150,107/0/default.jpg"`. The other five passed, so only the stamped document distinguishes the two — which is exactly the population the criterion names. |
 | geometry is read, not assumed | `imageGeometryFromInfo`'s whole `tiles[0].width` read replaced by `tileSize: PYRAMID_TILE_SIZE` | **red against the pyramid on another tile side**. Same command → 1 failed, 5 passed: *is at the scale factor the declared tile side makes coarsest, not this build's own* — `Expected: "…/0,0,1200,851/300,213/0/default.jpg"`, `Received: "…/0,0,1200,851/150,107/0/default.jpg"`. A 512-pixel-tile pyramid's coarsest level is scale factor 4, and the mutant names the 256-tile pyramid's factor 8 — a tile that pyramid does not contain. Every 256-tile case stayed green, which is the trap: the assumption is right almost always. |
 
@@ -202,8 +202,8 @@ instead.
 | Criterion | Mutation (remediation) | Result |
 | --- | --- | --- |
 | the picture survives a hub refresh | the effect's `$derived` values removed, so it reads `map.thumbnail` and `map.tiles` directly and re-runs on record *identity* — the shape this ticket shipped | **red**, reproducing the review's measurement exactly. Temporary spec *a hub refresh does not tear down a picture that has already resolved*, failed on both attempts: `{ created: 3, revoked: 1 }` before creating a second Project became `{ created: 4, revoked: 2 }` after it. With the values read through `$derived` the counters are unchanged across the refresh and `naturalWidth` stays 175. |
-| a missing tile is refused before its body is read | `if (!response.ok) return;` deleted from `MapThumbnail.svelte` | **red**. `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a Workspace-held map whose coarsest tile was never written keeps the glyph* failed on both attempts at `expect(glyph).toBeVisible()` — `element(s) not found`: the 404's own plain-text body had become an object URL, so the glyph was replaced by an `<img>` with nothing in it. The other two tests stayed green, so only a pyramid whose coarsest tile is absent distinguishes the two. |
-| the picture is contained, unnamed and not a tab stop | `object-contain` → `object-cover`; then, separately, `alt=""` → `alt="Thumbnail of the map"` with `tabindex="0"` added | **red both times**, in *a Historical Map added from a file shows a picture that has actually decoded*. The first: `objectFit` `"contain"` → `"cover"` — a class-name assertion would have been red too, but the computed style is also red for a stylesheet that stopped applying. The second: `toHaveAttribute('alt', '')` failed against `alt="Thumbnail of the map"`, and `vite-plugin-svelte` additionally reported *noninteractive element cannot have nonnegative tabIndex value*. |
+| a missing tile is refused before its body is read | `if (!response.ok) return;` deleted from `MapThumbnail.svelte` | **red**. `pnpm test:e2e editor-map-image-thumbnails.e2e.ts` → *a Workspace-held map whose coarsest tile was never written keeps the glyph* failed on both attempts at `expect(glyph).toBeVisible()` — `element(s) not found`: the 404's own plain-text body had become an object URL, so the glyph was replaced by an `<img>` with nothing in it. The other two tests stayed green, so only a pyramid whose coarsest tile is absent distinguishes the two. |
+| the picture is contained, unnamed and not a tab stop | `object-contain` → `object-cover`; then, separately, `alt=""` → `alt="Thumbnail of the map"` with `tabindex="0"` added | **red both times**, in *a Map Image added from a file shows a picture that has actually decoded*. The first: `objectFit` `"contain"` → `"cover"` — a class-name assertion would have been red too, but the computed style is also red for a stylesheet that stopped applying. The second: `toHaveAttribute('alt', '')` failed against `alt="Thumbnail of the map"`, and `vite-plugin-svelte` additionally reported *noninteractive element cannot have nonnegative tabIndex value*. |
 
 ⚠ **`expect(img).toBeVisible()` passes for a broken image.** An `<img>` that 404s is visible and laid
 out at its attribute dimensions with no pixels in it. There is **no precedent for `naturalWidth` in

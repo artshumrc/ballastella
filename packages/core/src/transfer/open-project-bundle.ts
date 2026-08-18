@@ -38,7 +38,7 @@ import type { TransferProgressListener } from './transfer.js';
  * and for a stronger reason.** Restore never overwrites because the user cannot know what a backup
  * predates until they have looked at both. A bundle never opens into an existing Workspace at all —
  * not into the user's own even behind a confirmation (ADR-0024) — because under ADR-0023 there is one
- * Alignment per Historical Map in a Workspace, so merging a colleague's bundle would either overwrite
+ * Alignment per Map Image in a Workspace, so merging a colleague's bundle would either overwrite
  * an Alignment two of your own Projects are drawn by or be refused. There is no third answer, and the
  * type is where that is enforced: this function is handed no store it could write into.
  *
@@ -287,7 +287,7 @@ async function writeMark(store: ProjectStore, mark: ReviewMark): Promise<void> {
  * **Refused onto a fallback when the slug is one the Workspace itself needs.** `images/`,
  * `alignments/` and `base-map/` are the shared pool (ADR-0023), and a bundle called `Images.tar`
  * would otherwise put `project.json` and `annotations/` inside it — where the hoisted material also
- * lands, and where deleting the Project would take the Historical Maps with it.
+ * lands, and where deleting the Project would take the Map Images with it.
  */
 function reviewDirectoryName(fileName: string): string {
 	const stem = fileName.replace(/\.project\.tar$/i, '').replace(/\.tar$/i, '');
@@ -397,7 +397,7 @@ async function drainInto(
 		// exists" is a property of the hoisting rules rather than a rule anybody stated, and the two
 		// arrival paths saying the same thing in the same words is what keeps it true. The root entry
 		// only: `images/<id>/remote.json` is a referenced IIIF image's own document (ADR-0007) and is
-		// exactly the file a Project with a referenced Historical Map needs to be readable at all.
+		// exactly the file a Project with a referenced Map Image needs to be readable at all.
 		if (header.name === REMOTE_BINDING_PATH) {
 			await body.cancel();
 			continue;
@@ -468,7 +468,7 @@ async function drainInto(
  * Write one entry of a bundle, hoisting the shared material and routing an Alignment (ADR-0023).
  *
  * **The hoist is `hoistedImageId`, unchanged.** A bundle's paths are Project-relative, and
- * `images/<id>/…` and `alignments/<id>.json` name a Historical Map that belongs to the *Workspace*
+ * `images/<id>/…` and `alignments/<id>.json` name a Map Image that belongs to the *Workspace*
  * rather than to the Project; everything else goes inside the Project's directory. Sharing the
  * function with the Workspace rather than restating the rule is the point — a second reading of which
  * archive paths are shared is a second answer to the question ADR-0023 settled.
@@ -564,10 +564,10 @@ function readManifest(bytes: Bytes): ProjectFile {
 export function layerReferences(layer: Layer): readonly string[] {
 	switch (layer.kind) {
 		// ⚠ **A map Layer references no *file* that a bundle must carry, and requiring its Alignment
-		// was a refusal of the ordinary case.** A Historical Map added to a Project is a Layer from
+		// was a refusal of the ordinary case.** A Map Image added to a Project is a Layer from
 		// that moment, aligned or not — ADR-0023, and the Layer card says "Not aligned yet, so there
 		// is nothing to draw" — so `alignments/<image-id>.json` need not exist at all. The exporter
-		// already treats a missing one as ordinary (`export-project-bundle.ts`, "a Historical Map
+		// already treats a missing one as ordinary (`export-project-bundle.ts`, "a Map Image
 		// nobody has placed yet has no Alignment"), so demanding it here meant a scholar could export
 		// a Project and then be refused their own file on the way back in. The pyramid is a different
 		// matter and is still required, below: a Layer pointing at an image directory the bundle does
@@ -583,7 +583,7 @@ export function layerReferences(layer: Layer): readonly string[] {
 			return [layer.geojsonRef];
 		// A kind this build has never heard of is still asked about `geojsonRef`, because a Layer
 		// carrying one means by it what every other Layer means. It is **not** asked about `imageId`:
-		// this build cannot know that a foreign kind's `imageId` names a Historical Map at all, and
+		// this build cannot know that a foreign kind's `imageId` names a Map Image at all, and
 		// refusing an archive over a guess is refusing it for a reason nobody can act on.
 		case 'foreign':
 			return ['geojsonRef']
@@ -601,7 +601,7 @@ export function layerReferences(layer: Layer): readonly string[] {
  * see it because there is no directory there to check.
  *
  * ⚠ **An Alignment is deliberately not required**, though a map Layer's path to one is computable.
- * A Historical Map added to a Project is a Layer from that moment, aligned or not (ADR-0023), so a
+ * A Map Image added to a Project is a Layer from that moment, aligned or not (ADR-0023), so a
  * Project in that ordinary state has no `alignments/<image-id>.json` to carry — and the exporter
  * already skips it silently. Requiring it here meant that Project exported to a bundle **its own
  * sender could not re-open**, which is the worst shape a transfer defect can take: it is discovered
@@ -669,7 +669,7 @@ export function assertReferencesPresent(project: ProjectFile, present: ReadonlyS
 	// **Two ways to be describable, because there are two kinds of image.** A local copy has the
 	// `info.json` that makes its pyramid readable; a referenced image has `remote.json` instead,
 	// because its tiles *and* its `info.json` are on somebody else's server. Requiring `info.json` of
-	// both would mean a Project with a referenced Historical Map could be exported and then refused on
+	// both would mean a Project with a referenced Map Image could be exported and then refused on
 	// the way back in — a scholar unable to open their own export.
 	for (const directory of [...imageDirectories].sort()) {
 		const info = `${directory}/info.json`;

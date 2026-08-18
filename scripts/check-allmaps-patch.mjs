@@ -133,7 +133,7 @@ try {
 if (!renderer.includes('BALLASTELLA PATCH')) {
 	fail(
 		`@allmaps/render ${resolvedVersion}'s WebGL2Renderer is installed WITHOUT the second hunk. A ` +
-			'Historical Map whose tiles are refused will throw an uncaught page error again, with ' +
+			'Map Image whose tiles are refused will throw an uncaught page error again, with ' +
 			'nothing on screen changing. Run `pnpm install` and check for a patch-apply failure. If ' +
 			'upstream has fixed it — the other three renderers already had — drop this check with the hunk.'
 	);

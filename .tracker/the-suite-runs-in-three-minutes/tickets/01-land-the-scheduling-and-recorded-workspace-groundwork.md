@@ -9,7 +9,7 @@ Four changes are involved:
 1. `fullyParallel: true` in the Playwright configuration. Playwright was parallelising across *files* only, running each file's tests serially in one worker, so a run could never finish faster than its longest file.
 2. The worker count made overridable by environment, default unchanged at 4.
 3. The obsolete "eight workers measured 19% faster, so the suite is near this CPU's ceiling" note corrected in place. That measurement predates `fullyParallel` and was measuring the scheduling, not the processor.
-4. A recorded Workspace: a Historical Map's pyramid is captured once per build through the real interface and written straight into OPFS thereafter, instead of being rebuilt through the file picker in every test of the alignment family.
+4. A recorded Workspace: a Map Image's pyramid is captured once per build through the real interface and written straight into OPFS thereafter, instead of being rebuilt through the file picker in every test of the alignment family.
 
 Verify each, correct anything that does not hold, and commit.
 

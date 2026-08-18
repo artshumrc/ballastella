@@ -2,7 +2,7 @@
 //
 // ADR-0011's pattern verbatim, and the third instance of it in this repository: a private scheme
 // registered once, a registry that varies, and bytes through an injected reader. The other two are
-// `apps/editor/src/lib/image-pane/tile-protocol.ts` for a Historical Map's IIIF pyramid and
+// `apps/editor/src/lib/image-pane/tile-protocol.ts` for a Map Image's IIIF pyramid and
 // `pmtiles-protocol.ts` beside this file for the deployment's archive. This one reads
 // `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` out of the Workspace — keyed by archive since
 // ticket 12, though **this module never builds that path**: it is handed a `readTile` and the caller
@@ -35,7 +35,7 @@ const TILE_URL = new RegExp(`^${BASE_MAP_TILE_PROTOCOL}://tiles/(\\d+)/(\\d+)/(\
  * The `tiles` entry for a MapLibre vector source reading the Workspace's cache.
  *
  * A template rather than a URL, because MapLibre substitutes `{z}/{x}/{y}` itself — the same shape
- * `imagePaneTileTemplate` produces for a Historical Map's pyramid.
+ * `imagePaneTileTemplate` produces for a Map Image's pyramid.
  */
 export const cachedBaseMapTileTemplate = (): string =>
 	`${BASE_MAP_TILE_PROTOCOL}://tiles/{z}/{x}/{y}`;

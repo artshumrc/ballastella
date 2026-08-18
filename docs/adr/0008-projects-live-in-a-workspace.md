@@ -1,10 +1,10 @@
 # Projects live in a workspace, and the workspace is the published site
 
-> **Amended by [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md):** the tree below is out of date. `images/` and `alignments/` sit at the workspace root, shared by every project; a project directory holds `project.json` and `annotations/`. `images`, `alignments`, and `base-map` are therefore reserved directory names and must be refused when a project is created — `toDirectoryName('Images')` produces `images`, and the existing check runs only at publish time, which is too late.
+> **Amended by [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md):** the tree below is out of date. `images/` and `alignments/` sit at the workspace root, shared by every project; a project directory holds `project.json` and `annotations/`. `images`, `alignments`, and `base-map` are therefore reserved directory names and must be refused when a project is created — `toDirectoryName('Images')` produces `images`, and the existing check runs only at publish time, which is too late.
 >
 > **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** "a project zip is one project subdirectory" no longer describes transfer. Backup is a **tar of the whole workspace**; a project bundle is a separate artefact that opens only in a throwaway Review Workspace and is never merged into the recipient's own.
 >
-> The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold historical maps no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
+> The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold map images no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
 >
 > **Amended by [ADR-0032](./0032-publish-means-the-remote.md): the "hub page" below is the *Front Page*.** "Hub" was doing two jobs — this record's reader-facing published root, and `ProjectHub.svelte`, which is the *editor's* Project list. Read every "hub page" here as **Front Page**, and note that a Project is now either on it or not, which this record's `?p=` addressing already makes possible at no cost: a Project absent from the Front Page is still reachable by its query parameter, and is therefore not private.
 >

@@ -2,7 +2,7 @@
 
 ## What to build
 
-A user can choose how their Historical Map is stretched, see where the stretching is worst, be warned when their alignment is impossible, and outline the part of the sheet that is actually the map.
+A user can choose how their Map Image is stretched, see where the stretching is worst, be warned when their alignment is impossible, and outline the part of the sheet that is actually the map.
 
 Three related capabilities on top of ticket 07's Alignment: the **transformation picker**, **distortion visualisation with the fold warning**, and an editable **Resource Mask**.
 
@@ -194,7 +194,7 @@ Measured, in both directions, for all nine names upstream recognises:
 it back unchanged, so an Alignment written here is correct and interoperable — anything that reads the
 order gets the order. What would have been lost is our own *read*: a user who chose Higher-order (3rd),
 saved, and reopened would have got an affine Alignment, with every coordinate in the file intact and
-the Historical Map in the wrong place. That is exactly the failure ADR-0010's round-trip fixtures
+the Map Image in the wrong place. That is exactly the failure ADR-0010's round-trip fixtures
 exist to catch. `readTransformationType` therefore reads the order directly, and a test pins the
 upstream defect so that a fix upstream fails loudly rather than going unnoticed.
 
@@ -308,14 +308,14 @@ the second way a user reaches this without doing anything unusual.
   box, a mask covering one corner would have its own top-right, which is a different place.
 - **A third `<ul>` on this page broke two existing tests, exactly as ticket 07 predicted.** The
   picker's shortfall text was a list, and `editor-stored-image-pane.e2e.ts` and
-  `editor-alignment.e2e.ts` count Historical Maps with a bare `getByRole('listitem')`. It is a `<div>`
+  `editor-alignment.e2e.ts` count Map Images with a bare `getByRole('listitem')`. It is a `<div>`
   of `<p>`s now, which is better markup for help text anyway — but **the hazard is still live, and
   ticket 09's Layer list cannot avoid being a list.** Those selectors want scoping to
-  `getByRole('list', { name: 'Historical Maps in this Project' })`; I left them alone rather than churn
+  `getByRole('list', { name: 'Map Images in this Project' })`; I left them alone rather than churn
   two files a parallel slice is also in.
 - **Turning the overlay on does not rebuild the layer.** `addGeoreferencedMap` is keyed on the
   document's content, so re-adding would discard the tile cache and the user would watch their
-  Historical Map vanish and come back for a checkbox. `setMapOptions` reaches the same map in place,
+  Map Image vanish and come back for a checkbox. `setMapOptions` reaches the same map in place,
   from a second effect that has the display view as a dependency and the Alignment only through the
   layer it already built.
   **Correction, 2026-08-06 — this was only half done, and the other half was a live defect.** Turning
@@ -361,7 +361,7 @@ this one is a one-line addition upstream, in the `init` branch.
   of the stack gets `transformationType` — without which a Higher-order Alignment is silently drawn as
   affine — and `distortionMeasures`, without which nothing could ever be colourised. What it does not
   get is the overlay itself, which is right: the overlay belongs to the Alignment being *edited*, not
-  to every Historical Map on the map. Nothing crashes, nothing is half-configured, and the upstream
+  to every Map Image on the map. Nothing crashes, nothing is half-configured, and the upstream
   defect above cannot bite there because no measure is ever displayed. Recorded so that a future
   reader does not read the asymmetry as an oversight.
 - **The Advanced disclosure is forced open when an advanced type is selected**, and its hide button is

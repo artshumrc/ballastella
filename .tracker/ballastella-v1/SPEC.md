@@ -4,7 +4,7 @@ Vocabulary in this document is defined in [CONTEXT.md](../../CONTEXT.md). Decisi
 
 ## Problem Statement
 
-A historian has a photograph or scan of a historical map and wants to show where its places actually are on the earth, then write about them — labelling sites, tracing routes, outlining regions — and publish the result so colleagues and students can explore it.
+A historian has a Map Image — a photograph or scan of an old map — and wants to show where its places actually are on the earth, then write about them — labelling sites, tracing routes, outlining regions — and publish the result so colleagues and students can explore it.
 
 Today that requires either specialist GIS software with a steep learning curve and no publishing story, or a hosted platform that takes custody of the work. The hosted route has costs a scholar feels directly:
 
@@ -19,7 +19,7 @@ Meanwhile, an instructor teaching this material needs students to produce publis
 
 A browser application at a stable address that reads and writes **a folder the user owns**.
 
-A user picks a **Workspace** directory once. Inside it, each **Project** is a directory holding its **Historical Maps** as level-0 IIIF tiles, its **Alignments** as IIIF Georeference Annotations, and its **Annotations** as GeoJSON. Everything is a plain file in an open format, written as the user works.
+A user picks a **Workspace** directory once. Inside it, each **Project** is a directory holding its **Map Images** as level-0 IIIF tiles, its **Alignments** as IIIF Georeference Annotations, and its **Annotations** as GeoJSON. Everything is a plain file in an open format, written as the user works.
 
 Publishing writes a read-only viewer into the workspace. That workspace, pushed to any static host, *is* the website: a hub page listing the projects, each explorable with layer toggles, annotation popups, and a base map switcher. No server, no build pipeline, no account.
 
@@ -50,28 +50,28 @@ Which ticket delivers which story is recorded in the `Fulfills` column of [TRACK
 14. As a scholar, I want to be warned before an import overwrites an existing Project, so that I never silently lose work by accepting a colleague's file.
 15. As a scholar, I want to be warned as my Workspace approaches the size limit of free static hosting, so that publishing fails on my terms rather than cryptically.
 
-### Bringing in historical maps
+### Bringing in map images
 
-16. As a scholar, I want to add a Historical Map by pasting a IIIF Manifest URL, so that I can work with material a library has already published.
+16. As a scholar, I want to add a Map Image by pasting a IIIF Manifest URL, so that I can work with material a library has already published.
 17. As a scholar, I want to paste a IIIF Collection URL and browse what is inside it, so that one URL from a library is enough and I do not have to hunt for individual manifests.
 18. As a scholar, I want to paste a bare IIIF image service URL, so that institutions exposing images without manifests are still usable.
 19. As a scholar, I want to browse a multi-canvas Manifest and pick the canvas that is the map, so that an atlas or a bound volume is workable.
 20. As a scholar, I want to read a Manifest's metadata, rights, and attribution while choosing, so that I know what I am permitted to do with it.
-21. As a scholar, I want to add a Historical Map from a file on my computer, so that unpublished material and my own photographs are first-class.
+21. As a scholar, I want to add a Map Image from a file on my computer, so that unpublished material and my own photographs are first-class.
 22. As a scholar, I want a very large scan to be usable, so that the most interesting maps in an archive are not the ones the tool rejects.
 23. As a scholar, I want progress shown while a large image is prepared, so that I know the tool is working rather than broken.
 24. As a scholar, I want to be told immediately and specifically when a remote image cannot be used because its host forbids cross-origin access, naming the host, so that I am not left with a blank map and no explanation.
 25. As a scholar, I want to be told when the community has already aligned this map and offered the chance to import that Alignment, so that I do not repeat work others have done.
 26. As a privacy-conscious scholar, I want to see that the tool checks a third-party service for existing alignments, and to switch that off, so that working on sensitive material does not disclose what I am examining.
-27. As a scholar, I want to make an offline copy of a remote Historical Map, so that my Project survives the host reorganising or disappearing.
+27. As a scholar, I want to make an offline copy of a remote Map Image, so that my Project survives the host reorganising or disappearing.
 28. As a scholar, I want to see the source's rights statement at the moment I choose to copy it, so that I make that decision informed.
-29. As a scholar, I want to know which of my Historical Maps are copies and which are references, so that I understand what my Published Site needs from the network.
+29. As a scholar, I want to know which of my Map Images are copies and which are references, so that I understand what my Published Site needs from the network.
 
 ### Aligning
 
-30. As a scholar, I want to see my Historical Map beside a Base Map, so that I can find the same place on both.
-31. As a scholar, I want to zoom deeply into my Historical Map, so that I can place a Control Point on a precise feature.
-32. As a scholar, I want to click a point on the Historical Map and then its counterpart on the Base Map to create a Control Point, so that the act matches the single thought "this is there."
+30. As a scholar, I want to see my Map Image beside a Base Map, so that I can find the same place on both.
+31. As a scholar, I want to zoom deeply into my Map Image, so that I can place a Control Point on a precise feature.
+32. As a scholar, I want to click a point on the Map Image and then its counterpart on the Base Map to create a Control Point, so that the act matches the single thought "this is there."
 33. As a scholar, I want to see clearly that the tool is waiting for the second half of a Control Point, and to cancel with Escape, so that a mis-started pair costs nothing.
 34. As a scholar, I want my Control Points visibly numbered, so that an instructor can tell me "look at point 7."
 35. As a scholar, I want to drag either half of a Control Point to correct it, so that a near-miss is fixable without starting over.
@@ -87,13 +87,13 @@ Which ticket delivers which story is recorded in the `Fulfills` column of [TRACK
 45. As a scholar, I want to see a grid bent by my alignment, so that I can understand and teach what the transformation is doing.
 46. As a scholar, I want to outline the part of the sheet that is the map — excluding margins, titles, and decoration — so that only the map is drawn over the world.
 47. As a scholar, I want that outline to start as the whole image, so that my first alignment shows something rather than nothing.
-48. As a scholar, I want to view a Historical Map on its own, unwarped, so that I can read its cartouche and inscriptions as a document rather than as geography.
+48. As a scholar, I want to view a Map Image on its own, unwarped, so that I can read its cartouche and inscriptions as a document rather than as geography.
 
 ### Layers
 
-49. As a scholar, I want my aligned Historical Maps and my Annotations in one ordered list, so that I control what draws over what.
+49. As a scholar, I want my aligned Map Images and my Annotations in one ordered list, so that I control what draws over what.
 50. As a scholar, I want to show and hide any Layer, so that I can compare states and build an argument.
-51. As a scholar, I want to set the opacity of an aligned Historical Map, so that I can see the modern world through it.
+51. As a scholar, I want to set the opacity of an aligned Map Image, so that I can see the modern world through it.
 52. As a scholar, I want to reorder Layers, so that labels sit above the map they describe.
 53. As a keyboard user, I want to reorder Layers without dragging, so that the central organising feature is available to me.
 54. As a scholar, I want to rename a Layer, so that the list describes my argument rather than my filenames.
@@ -118,7 +118,7 @@ Which ticket delivers which story is recorded in the `Fulfills` column of [TRACK
 
 68. As a scholar, I want to choose between Base Maps emphasising streets or physical geography, so that the reference map serves my argument.
 69. As a scholar, I want to set which Base Map a Reader sees first, so that the framing of my work is mine.
-70. As a Reader, I want to switch Base Maps myself while exploring, so that I can see the historical map against different modern contexts.
+70. As a Reader, I want to switch Base Maps myself while exploring, so that I can see the map image against different modern contexts.
 71. As a Reader, I want my Base Map preference remembered on this site, so that I do not reset it every visit.
 72. As a Reader, I want Base Maps that need a network connection to be marked as such, so that I understand why one is unavailable offline.
 
@@ -139,7 +139,7 @@ Which ticket delivers which story is recorded in the `Fulfills` column of [TRACK
 82. As a Reader, I want a hub page listing the projects, so that I can find my way in.
 83. As a Reader, I want to explore a Project with working layer toggles, opacity, and annotation popups, so that the published site is genuinely usable rather than a screenshot.
 84. As a Reader on a phone, I want the published site to be readable, so that I can look at work someone sent me.
-85. As a Reader, I want to view a Historical Map on its own, unwarped, so that I can read it as a document.
+85. As a Reader, I want to view a Map Image on its own, unwarped, so that I can read it as a document.
 86. As a scholar, I want the published site to carry the design of the tool, so that what I show colleagues looks finished.
 87. As a scholar, I want to export my Project as a zip containing only data, so that I can archive or deposit it without a bundled application.
 88. As a scholar, I want to publish a fully self-contained site including its Base Map, so that it works with no network at all.
@@ -149,7 +149,7 @@ Which ticket delivers which story is recorded in the `Fulfills` column of [TRACK
 ### Interoperability and durability
 
 91. As a scholar, I want my Alignment to be a standard IIIF Georeference Annotation, so that Allmaps and other platforms can use my work.
-92. As a scholar, I want to make my Historical Map a real, citable IIIF endpoint at a published address, so that other tools and scholars can consume it directly.
+92. As a scholar, I want to make my Map Image a real, citable IIIF endpoint at a published address, so that other tools and scholars can consume it directly.
 93. As a scholar, I want the same files to keep working after I move them between machines, hosts, and domains, so that my work is not bound to where it was made.
 94. As a librarian, I want a deposited Project to consist of standard formats with no proprietary index, so that it is preservable.
 
@@ -405,7 +405,7 @@ There is none in this repo — it is greenfield. The nearest reference is the Al
 
 ### Explicitly not tested
 
-Rendering correctness by pixel comparison. Whether a warped Historical Map lands in the right place on screen is verified by the projection round-trip assertion and the `signDetJ` fold check, not by screenshots — cross-platform WebGL screenshot testing is a maintenance sink and the plan should not rest on it.
+Rendering correctness by pixel comparison. Whether a warped Map Image lands in the right place on screen is verified by the projection round-trip assertion and the `signDetJ` fold check, not by screenshots — cross-platform WebGL screenshot testing is a maintenance sink and the plan should not rest on it.
 
 ## Out of Scope
 

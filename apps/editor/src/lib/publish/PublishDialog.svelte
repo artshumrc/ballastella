@@ -119,7 +119,7 @@
 	 * Whether the deployment's Base Map display assets (glyphs and sprites) travel with the site.
 	 */
 	let includeBaseMap = $state(true);
-	/** The address the user wants their Historical Maps to answer at, or `''` (SPEC story 92). */
+	/** The address the user wants their Map Images to answer at, or `''` (SPEC story 92). */
 	let canonicalUrl = $state('');
 
 	/** The credential being pasted, for a Workspace that is bound and not signed in. */
@@ -605,7 +605,7 @@
 			`Published: ${published.files} files written into your Workspace, carrying ` +
 			`${describeProjects(published.site.projects)}.` +
 			(published.stamped > 0
-				? ` ${published.stamped === 1 ? '1 Historical Map' : `${published.stamped} Historical Maps`} ` +
+				? ` ${published.stamped === 1 ? '1 Map Image' : `${published.stamped} Map Images`} ` +
 					`stamped for ${canonicalUrl.trim()}.`
 				: '') +
 			(sent
@@ -690,8 +690,8 @@
 		<p>
 			An <code>index.html</code> and a read-only viewer are written into your Workspace, beside the
 			work already there:
-			<strong>{plan.files.length} files, {describeBytes(plan.bytes)}</strong>. Your Historical Maps
-			are not copied — publishing adds a website to the folder you already have.
+			<strong>{plan.files.length} files, {describeBytes(plan.bytes)}</strong>. Your Map Images are
+			not copied — publishing adds a website to the folder you already have.
 		</p>
 		<p class="mt-2 text-sm opacity-80" data-testid="publish-projects">
 			The site will carry {describeProjects(plan.projects)}.
@@ -839,7 +839,7 @@
 					<!--
 					The three budgets, stated separately because the two kinds of content load them
 					oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a
-					Historical Map's pyramid is the other way round. Shown whether or not they warn, so
+					Map Image's pyramid is the other way round. Shown whether or not they warn, so
 					that "how many files and how many bytes will this send" is answerable before the button
 					is pressed rather than only when something is already wrong (SPEC story 9).
 				-->
@@ -892,7 +892,7 @@
 		</label>
 
 		<label class="floating-label mt-6">
-			<span>Address your Historical Maps will be published at (optional)</span>
+			<span>Address your Map Images will be published at (optional)</span>
 			<input
 				class="input w-full"
 				bind:value={canonicalUrl}
@@ -900,7 +900,7 @@
 			/>
 		</label>
 		<p class="mt-2 text-sm opacity-70">
-			Fill this in and each Historical Map becomes a real IIIF image service at that address, which
+			Fill this in and each Map Image becomes a real IIIF image service at that address, which
 			Allmaps and other tools can read directly. Your Projects keep working here either way.
 		</p>
 

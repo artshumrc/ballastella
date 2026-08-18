@@ -26,7 +26,7 @@ Candidates, each to be judged against the boundary rather than assumed:
 ## Contract
 
 - **Ask of each claim: can this fail for the reason its title gives, at the seam I am moving it to?** "A newly drawn Annotation is drawn with the last one's style" is a claim about state the editing layer holds — it can move. "All three appear on the map, each painted by the layer for its geometry" is a claim about MapLibre — it cannot, and stays.
-- **Anything touching the map canvas stays at Seam 2**: drawing by clicking the map, the popup rendered over the map, the pin draggable under a Historical Map, the three line styles rendering distinctly.
+- **Anything touching the map canvas stays at Seam 2**: drawing by clicking the map, the popup rendered over the map, the pin draggable under a Map Image, the three line styles rendering distinctly.
 - **The one-write-per-gesture claims stay at Seam 2** (ADR-0017 rule 1). They are about what reaches storage when a gesture ends, and storage is the subject.
 - Prefer `annotation-editing.svelte.ts`'s existing Node seam over a rendered component wherever the claim is about state rather than markup. Fewer seams and cheaper tests; the component seam is for what is *rendered*.
 - Every retired Seam 2 test names its replacement.

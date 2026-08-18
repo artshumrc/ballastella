@@ -26,7 +26,7 @@ export const projectFilePath = (directory: string): string => `${directory}/${PR
  * It was a list of the image ids whose map Layer the user had deleted, and it existed only because
  * an Alignment write created map Layers lazily: without a tombstone, deleting a Layer and then
  * nudging a Control Point silently brought it back. A map Layer is now created by exactly one thing
- * — the user adding a Historical Map to a Project — so nothing can resurrect one and the field is
+ * — the user adding a Map Image to a Project — so nothing can resurrect one and the field is
  * dead.
  *
  * Named here rather than left as an unknown field because "unknown" means *preserved*: `ProjectFile`
@@ -76,7 +76,7 @@ export interface ProjectFile {
 	 */
 	readonly baseMap: string | null;
 	/**
-	 * The address this Project's Historical Maps have been stamped for, or `null` (ADR-0004).
+	 * The address this Project's Map Images have been stamped for, or `null` (ADR-0004).
 	 *
 	 * Set only by the opt-in publish step that rewrites each `info.json` `id`, and remembered here so
 	 * that a later publish can offer the same address rather than asking again — which is what makes
@@ -224,7 +224,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
 	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
 	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
-	// thing — the user adding a Historical Map to a Project — so the field means nothing to any build
+	// thing — the user adding a Map Image to a Project — so the field means nothing to any build
 	// that can read this one. Left in `unknownFields` it would be *preserved* by
 	// `serialiseProjectFile` for the life of the Workspace, and preserved in a new position, so every
 	// Project written by the previous build would gain a spurious diff on its first edit and keep a

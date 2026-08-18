@@ -4,9 +4,9 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	Autosave,
 	DeletedProjects,
-	HistoricalMapInUseError,
+	MapImageInUseError,
 	PublishManifests,
-	HistoricalMapPartlyDeletedError,
+	MapImagePartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
 	ProjectFileUnreadableError,
@@ -33,7 +33,7 @@ import {
 	createStoreImageFetch,
 	readCachedTileSource,
 	writeCachedTileSource,
-	deleteHistoricalMap,
+	deleteMapImage,
 	emptyAnnotationCollection,
 	exportProjectBundle,
 	imageDirectory,
@@ -42,12 +42,12 @@ import {
 	imageSizeFromInfo,
 	ingestImageFile,
 	fetchTilesIntoCache,
-	historicalMapUsage,
+	mapImageUsage,
 	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
-	listWorkspaceHistoricalMaps,
+	listWorkspaceMapImages,
 	makeOfflineCopy,
 	moveLayer,
 	isControlPointUndo,
@@ -100,7 +100,7 @@ import {
 	type FetchFn,
 	type FetchTilesOptions,
 	type GeoBounds,
-	type HistoricalMapSource,
+	type MapImageSource,
 	type IngestProgress,
 	type IngestedImage,
 	type FinishedDeletions,
@@ -129,7 +129,7 @@ import {
 	type UndoRecord,
 	type ViewerBundle,
 	type ViewerBundleFile,
-	type WorkspaceHistoricalMap,
+	type WorkspaceMapImage,
 	type WorkspaceSize
 } from '@ballastella/core';
 
@@ -219,12 +219,12 @@ export type ProjectProblem =
 	| { readonly kind: 'reserved-name'; readonly message: string };
 
 /**
- * What adding a Historical Map did to `alignments/<image-id>.json`.
+ * What adding a Map Image did to `alignments/<image-id>.json`.
  *
  * Three outcomes rather than a boolean because only one of them is worth telling the user about,
  * and it is not the one a boolean would name. `'left alone'` is the ordinary re-add, silent by
  * design; `'kept over the offer'` is the user having asked for a community Alignment and not got
- * it, which must be said out loud — a Historical Map has **one** Alignment, shared by every Project
+ * it, which must be said out loud — a Map Image has **one** Alignment, shared by every Project
  * that draws it (ADR-0023), so importing over it would have discarded work that may belong to a
  * Project the user is not even looking at.
  *
@@ -234,20 +234,20 @@ export type ProjectProblem =
  */
 type InitialAlignment = AlignmentWriteOutcome;
 
-/** A Historical Map put in the stack, and what became of its Alignment. */
+/** A Map Image put in the stack, and what became of its Alignment. */
 type MapLayerAdded = {
-	/** The new Layer, or the one this Project already had for this Historical Map. */
+	/** The new Layer, or the one this Project already had for this Map Image. */
 	readonly layer: MapLayer;
 	readonly alignment: InitialAlignment;
 };
 
 /** The outcome of {@link EditorSession.addReferencedMap}. */
 export type ReferencedMapAdded = {
-	/** The new Layer, or the one this Project already had for this Historical Map. */
+	/** The new Layer, or the one this Project already had for this Map Image. */
 	readonly layer: MapLayer;
 	/**
 	 * The user chose a community Alignment and it was **not** written, because this Workspace already
-	 * holds an Alignment for that Historical Map that somebody has worked on. The Layer was still
+	 * holds an Alignment for that Map Image that somebody has worked on. The Layer was still
 	 * added, and it draws the Alignment that was already there. The surface that asked must say so.
 	 */
 	readonly keptExistingAlignment: boolean;
@@ -420,7 +420,7 @@ export class EditorSession {
 	undoable = $state<UndoRecord | null>(null);
 
 	/**
-	 * The Historical Maps **the Workspace** holds, and the ingest running now if one is (ADR-0023).
+	 * The Map Images **the Workspace** holds, and the ingest running now if one is (ADR-0023).
 	 *
 	 * Not the open Project's: a pyramid is shared, so `images/` has one answer whichever Project is
 	 * open, and which of these a Project *draws* is its Layer stack rather than a second list.
@@ -430,7 +430,7 @@ export class EditorSession {
 	 */
 	images = $state<IngestedImage[]>([]);
 	/**
-	 * The Historical Maps the Workspace **references** rather than holds (ADR-0007, ADR-0023).
+	 * The Map Images the Workspace **references** rather than holds (ADR-0007, ADR-0023).
 	 *
 	 * A separate list from {@link images}: a local copy has an `info.json` of ours beside it and a
 	 * referenced image has a `remote.json` instead, because its tiles and its description are both on
@@ -453,23 +453,23 @@ export class EditorSession {
 	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
 
 	/**
-	 * Every Historical Map in the Workspace, with its size, where its tiles are, and who draws it.
+	 * Every Map Image in the Workspace, with its size, where its tiles are, and who draws it.
 	 *
 	 * The hub's reclaim list — the one place a scholar can answer "why is my Workspace two gigabytes?"
-	 * (SPEC stories 63–65). Loaded by {@link refreshHistoricalMaps} rather than on every render, because
+	 * (SPEC stories 63–65). Loaded by {@link refreshMapImages} rather than on every render, because
 	 * it weighs every file under `images/` and that is a walk a keystroke must not trigger.
 	 *
 	 * A **separate** list from {@link images} and {@link referencedImages}, which are what an open
 	 * Project's panes read: those two are the raw halves of the observation, and this is the answer with
 	 * used-by and a size against it.
 	 */
-	historicalMaps = $state<WorkspaceHistoricalMap[]>([]);
+	mapImages = $state<WorkspaceMapImage[]>([]);
 
 	/**
-	 * Which Projects draw the one Historical Map a screen is about (SPEC story 56).
+	 * Which Projects draw the one Map Image a screen is about (SPEC story 56).
 	 *
 	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-	 * │ "TOLD WHICH PROJECTS USE THIS HISTORICAL MAP **WHILE I AM ALIGNING IT**."                  │
+	 * │ "TOLD WHICH PROJECTS USE THIS MAP IMAGE **WHILE I AM ALIGNING IT**."                  │
 	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
 	 *
 	 * ADR-0023 made the Alignment the Workspace's, shared by every Project that draws the map, and
@@ -479,13 +479,13 @@ export class EditorSession {
 	 * told *afterwards*, in the concurrent-edit alert, is being told once it has already happened and
 	 * only when somebody else was editing at the same moment.
 	 *
-	 * **A separate field from {@link historicalMaps}, and a much cheaper answer.** That one weighs
+	 * **A separate field from {@link mapImages}, and a much cheaper answer.** That one weighs
 	 * every file under `images/` — thousands of tiles — because the hub's question is "why is my
 	 * Workspace two gigabytes?". This one reads each `project.json` and no pyramid at all. See
 	 * {@link refreshMapUsage} for what the two do share, which is one `list` of the Workspace.
 	 *
 	 * ⚠ **A map keyed by image id, and not one record carrying an id beside it.** The align route can
-	 * change which Historical Map it is on without unmounting, and the walk behind this is
+	 * change which Map Image it is on without unmounting, and the walk behind this is
 	 * asynchronous — so between choosing a map and its answer arriving there is a window in which the
 	 * *previous* map's Projects are the only answer in hand. Naming them against the map now on screen
 	 * is a claim about who loses work if this Alignment is refined, made about the wrong Alignment.
@@ -497,13 +497,13 @@ export class EditorSession {
 	 * caller is trusted to check — which is the same move {@link AlignmentWorkspace}'s `livePane`
 	 * makes for the same kind of hazard.
 	 *
-	 * Bounded by the number of Historical Maps opened in one session, which is a handful of names and
+	 * Bounded by the number of Map Images opened in one session, which is a handful of names and
 	 * Project names each.
 	 */
 	readonly #mapUsage = new SvelteMap<string, AlignmentUsers>();
 
 	/**
-	 * Which Projects draw one Historical Map, or `null` while nothing has been walked for it yet.
+	 * Which Projects draw one Map Image, or `null` while nothing has been walked for it yet.
 	 *
 	 * `null` is "no answer yet" and renders as nothing at all — see `describeAlignmentUsers`, which
 	 * gives the same answer for an empty list, so a screen never shows a half-answer.
@@ -511,21 +511,21 @@ export class EditorSession {
 	mapUsageFor(imageId: string): AlignmentUsers | null {
 		return this.#mapUsage.get(imageId) ?? null;
 	}
-	/** Whether {@link historicalMaps} is still being walked, so the hub can say so rather than "none". */
-	historicalMapsLoading = $state(false);
+	/** Whether {@link mapImages} is still being walked, so the hub can say so rather than "none". */
+	mapImagesLoading = $state(false);
 	/**
-	 * Why the last attempt to delete a Historical Map did not happen, or `''`.
+	 * Why the last attempt to delete a Map Image did not happen, or `''`.
 	 *
 	 * A refusal rather than an error boundary: a map two Projects draw cannot be deleted, and the
 	 * sentence naming them is the whole of the interaction (SPEC story 64).
 	 */
-	historicalMapError = $state('');
+	mapImageError = $state('');
 
 	/**
-	 * Why adding a Historical Map the Workspace already holds did not happen, or `''`.
+	 * Why adding a Map Image the Workspace already holds did not happen, or `''`.
 	 *
 	 * Its own field rather than {@link ingestError}, which is the file source's, and rather than
-	 * {@link historicalMapError}, which is the hub's refusal to delete. Three different gestures fail
+	 * {@link mapImageError}, which is the hub's refusal to delete. Three different gestures fail
 	 * for three different reasons, and a shared field is how one of them ends up wearing another's
 	 * sentence — which this epic has already shipped once, in `layer-not-aligned`.
 	 */
@@ -539,7 +539,7 @@ export class EditorSession {
 	#ingestAbort: AbortController | null = null;
 
 	/**
-	 * Why the Historical Map's stored Alignment could not be read, if it could not.
+	 * Why the Map Image's stored Alignment could not be read, if it could not.
 	 *
 	 * A file that is there and unreadable must say so. Falling back to an empty Alignment silently
 	 * would show the user no Control Points and then overwrite the ones they had on the next save —
@@ -565,7 +565,7 @@ export class EditorSession {
 	} | null>(null);
 
 	/**
-	 * For each Historical Map, the Alignment bytes this session believes are on disk.
+	 * For each Map Image, the Alignment bytes this session believes are on disk.
 	 *
 	 * Written by {@link readAlignment} — what it read — and by every successful
 	 * {@link writeAlignment} — what it wrote. `Autosave.commit` resolves only once the store has the
@@ -590,7 +590,7 @@ export class EditorSession {
 	readonly #alignmentOnDisk = new SvelteMap<string, Bytes | null>();
 
 	/**
-	 * The Alignment write currently in flight for each Historical Map, so the next one waits for it.
+	 * The Alignment write currently in flight for each Map Image, so the next one waits for it.
 	 *
 	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 	 * │ WITHOUT THIS, THIS SESSION REPORTS *ITSELF* AS THE COLLEAGUE WHO CHANGED THE FILE.         │
@@ -615,7 +615,7 @@ export class EditorSession {
 	 * between the re-read and the commit is still lost silently, and no per-session queue can help
 	 * with that.
 	 *
-	 * Keyed per Historical Map, because two different maps' Alignments are two different files and
+	 * Keyed per Map Image, because two different maps' Alignments are two different files and
 	 * serialising them against each other would be a debounce nobody asked for.
 	 *
 	 * A `SvelteMap` for `svelte/prefer-svelte-reactivity`; as with {@link #alignmentOnDisk}, nothing
@@ -1042,13 +1042,13 @@ export class EditorSession {
 	}
 
 	/**
-	 * Clear the last Historical Map refusal.
+	 * Clear the last Map Image refusal.
 	 *
 	 * Called when a deletion is asked for again, so the sentence beside the list is always about the
 	 * click the user has just made rather than about a map they have since stopped thinking about.
 	 */
-	dismissHistoricalMapError(): void {
-		this.historicalMapError = '';
+	dismissMapImageError(): void {
+		this.mapImageError = '';
 	}
 
 	/** Clear the announced transfer status, once the user has had a chance to read it. */
@@ -1105,7 +1105,7 @@ export class EditorSession {
 			this.unreachableDetail = '';
 			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
 			// files and writes nothing (ADR-0010). `listReferencedImages` looks for `remote.json`, which
-			// is the same walk of the same directory and is where the other kind of Historical Map is.
+			// is the same walk of the same directory and is where the other kind of Map Image is.
 			//
 			// Both walk the **Workspace's** `images/` rather than this Project's, because that is where the
 			// pyramids are (ADR-0023). Nothing is reconciled afterwards: which of these a Layer draws is the
@@ -1143,12 +1143,12 @@ export class EditorSession {
 	}
 
 	/**
-	 * Add a Historical Map from a file on the user's computer (SPEC stories 21, 22, 23).
+	 * Add a Map Image from a file on the user's computer (SPEC stories 21, 22, 23).
 	 *
 	 * **The pyramid lands in the Workspace, not in the Project** (ADR-0023), so the map this adds is
 	 * available to every Project from the moment it is prepared. The open Project is required, because
-	 * the gesture that reaches here is inside one and **the Layer is made now** — adding a Historical
-	 * Map is the one thing that puts a map Layer in the stack (ADR-0023), and it is made whether or not
+	 * the gesture that reaches here is inside one and **the Layer is made now** — adding a Map
+	 * Image is the one thing that puts a map Layer in the stack (ADR-0023), and it is made whether or not
 	 * anyone ever places a Control Point on it.
 	 *
 	 * The tiling itself is deliberately not routed through {@link #mutate} or {@link Autosave}. A
@@ -1217,15 +1217,15 @@ export class EditorSession {
 				},
 				signal: controller.signal
 			});
-			// **The Layer, now.** A local image id is random (ADR-0015), so this is always a Historical
-			// Map no Layer draws yet and always a Layer added rather than a no-op — but it goes through
+			// **The Layer, now.** A local image id is random (ADR-0015), so this is always a Map
+			// Image no Layer draws yet and always a Layer added rather than a no-op — but it goes through
 			// the same method the referenced path uses, so there is one implementation of "adding a map
 			// puts a Layer in the stack" rather than two that can drift.
 			await this.#addMapLayer({ imageId: ingested.imageId, image: ingested });
 			// **Last, so the map appears in the list only once the whole add is done.** The list is what
 			// the interface shows for "it is here", and the file input beside it is disabled while
 			// {@link ingest} is running — so listing the pyramid before the Layer and the Alignment were
-			// written made a Historical Map look added while the second half was still in flight, and
+			// written made a Map Image look added while the second half was still in flight, and
 			// picking the next file inside that window did nothing at all.
 			this.images = await listIngestedImages(this.#store);
 		} catch (cause) {
@@ -1253,7 +1253,7 @@ export class EditorSession {
 	 *
 	 * The ADR-0011 injection layer, handed out from here because this is the only place the app
 	 * talks to `@ballastella/core` and the only place that holds the store. Every consumer of a
-	 * Historical Map's bytes takes this one function: the image pane's MapLibre source through
+	 * Map Image's bytes takes this one function: the image pane's MapLibre source through
 	 * `addProtocol`, `@allmaps/maplibre` through its `fetchFn` option, and OpenSeadragon's
 	 * `TileSource`. Requests to any other host pass straight through to the network, so a remote
 	 * referenced image keeps working unchanged.
@@ -1269,13 +1269,13 @@ export class EditorSession {
 	}
 
 	/**
-	 * Read one Historical Map's Alignment, or start a new one over the whole image.
+	 * Read one Map Image's Alignment, or start a new one over the whole image.
 	 *
 	 * A missing file comes back as a fresh Alignment rather than as an error — and **nothing is written
 	 * here**, which is ADR-0010: merely opening last year's Project, or opening the alignment view over
 	 * one of its maps, must not modify a single byte of it.
 	 *
-	 * **When the file appears is the add, not the first Control Point** (ADR-0023). Every Historical Map
+	 * **When the file appears is the add, not the first Control Point** (ADR-0023). Every Map Image
 	 * in a Project has had a starter Alignment on disk since the moment it was added, because a map
 	 * Layer whose `alignments/<id>.json` is absent is a Project `assertReferencesPresent` refuses. So the
 	 * missing-file branch below is no longer the ordinary first case; it is a Workspace whose Alignment
@@ -1372,7 +1372,7 @@ export class EditorSession {
 				// ⚠ **Only the warning the user answered**, and the queue above is what made this matter.
 				// Waiting behind an in-flight save means that save can raise a *newer*
 				// `alignmentChangedElsewhere` while this one waits — a second colleague write, or one on
-				// a different Historical Map, since the field is not keyed by image. Blanking it
+				// a different Map Image, since the field is not keyed by image. Blanking it
 				// unconditionally throws away an alert nobody has seen, and that alert is the one thing on
 				// the screen a user cannot find out any other way. So it is cleared only if it is still
 				// the one this call is answering.
@@ -1400,7 +1400,7 @@ export class EditorSession {
 	 * and rule 5's save state are one mechanism rather than one per file kind.
 	 *
 	 * **It touches `project.json` not at all, and that is ADR-0023.** A map Layer is created by exactly
-	 * one thing — the user adding a Historical Map to a Project — so placing, moving, or deleting a
+	 * one thing — the user adding a Map Image to a Project — so placing, moving, or deleting a
 	 * Control Point cannot create one, cannot rename one, and cannot reorder the stack. The version
 	 * that made a Layer here needed a tombstone list in `project.json` to stop a deleted Layer coming
 	 * back on the next nudge; with the Layer made by the gesture alone there is nothing to resurrect it,
@@ -1428,7 +1428,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Run `write` once every Alignment write already queued for this Historical Map has finished.
+	 * Run `write` once every Alignment write already queued for this Map Image has finished.
 	 *
 	 * The queue itself. See {@link #alignmentWriteInFlight} for what it is for and what it is not:
 	 * it removes this session's overlap with itself, and says nothing about a real colleague.
@@ -1497,7 +1497,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Give a Historical Map the Alignment it starts life with, or the one the user chose to import,
+	 * Give a Map Image the Alignment it starts life with, or the one the user chose to import,
 	 * and **never at the cost of one somebody has worked on** (ADR-0023).
 	 *
 	 * The starter is `newAlignment`: zero Control Points and a Resource Mask over the whole sheet, the
@@ -1508,14 +1508,14 @@ export class EditorSession {
 	 * not import (ADR-0023's consequence on the starter Alignment).
 	 *
 	 * This does not offend ADR-0010, which forbids writing when *merely opening* a Project. Adding a
-	 * Historical Map is an explicit act, and this happens only on that act.
+	 * Map Image is an explicit act, and this happens only on that act.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY AN OFFERED ALIGNMENT DOES NOT SIMPLY WIN
 	 *
 	 * A remote resource's image id is `generateId(uri)`, the same every time anybody adds it, and
 	 * ADR-0023 moved `alignments/<id>.json` out of the Project and into the Workspace — one Alignment
-	 * per Historical Map, shared by every Project that draws it. So an unconditional write here is not
+	 * per Map Image, shared by every Project that draws it. So an unconditional write here is not
 	 * "overwrite the file I just made". It is: align a Library map in Project A, place Control Points,
 	 * add the same map to Project B months later, accept the community offer Allmaps happens to have
 	 * — and Project A's placement is gone, silently, from a gesture that said nothing about Project A.
@@ -1562,7 +1562,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Record what is on disk for a Historical Map after a write this session made (ticket 07).
+	 * Record what is on disk for a Map Image after a write this session made (ticket 07).
 	 *
 	 * **Every write of an Alignment must come through here, and the reason is a false alarm rather
 	 * than a lost edit.** `writeAlignment` compares against this baseline to decide whether somebody
@@ -1579,7 +1579,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Where one Historical Map's tiles are, as the union `tileBaseFor` and `imagePaneSourceFor` take.
+	 * Where one Map Image's tiles are, as the union `tileBaseFor` and `imagePaneSourceFor` take.
 	 *
 	 * **The one lookup behind two answers that must never disagree** (ticket 07). The pane's tile base
 	 * and the Alignment's `resource.id` are both "where is this image served from", and the pairing
@@ -1593,13 +1593,13 @@ export class EditorSession {
 	 * `'offline-copy'` for a referenced map that has since been copied — which is right: once the
 	 * pyramid is here it is what should be drawn and what the Alignment should be keyed on.
 	 */
-	historicalMapSource(imageId: string): HistoricalMapSource {
+	mapImageSource(imageId: string): MapImageSource {
 		const referenced = this.remoteOrigins.referenced.find((image) => image.imageId === imageId);
 		return referenced ? sourceOf(referenced) : { imageMode: 'offline-copy', imageId };
 	}
 
 	/**
-	 * Where this Historical Map's Alignment should say its image is served from, as an argument
+	 * Where this Map Image's Alignment should say its image is served from, as an argument
 	 * spread onto a `writeAlignmentFile` call — `{ address }` for a referenced map, `{}` for one
 	 * whose pyramid is in the Workspace.
 	 *
@@ -1607,7 +1607,7 @@ export class EditorSession {
 	 * override an address it passed itself.
 	 */
 	#alignmentAddressFor(imageId: string): { address?: AlignmentAddress } {
-		const source = this.historicalMapSource(imageId);
+		const source = this.mapImageSource(imageId);
 		return source.imageMode === 'referenced'
 			? { address: referencedAlignmentAddress(source.service) }
 			: {};
@@ -1629,7 +1629,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * The open Project's map Layer for one Historical Map, or `undefined`.
+	 * The open Project's map Layer for one Map Image, or `undefined`.
 	 *
 	 * **A lookup and nothing else.** Since ADR-0023 a map that is in a Project always already has its
 	 * Layer — adding the map is what made it, and made its starter Alignment with it — so the question
@@ -1641,8 +1641,8 @@ export class EditorSession {
 	 * `Alignment` does not model (SPEC story 60). Merely opening a view is not a write, and this cannot
 	 * become one.
 	 *
-	 * **`undefined` is a real answer, not a gap to fill.** `images` lists the *Workspace's* Historical
-	 * Maps (ADR-0023), so a Project can be shown a map it does not draw — and putting a map into a
+	 * **`undefined` is a real answer, not a gap to fill.** `images` lists the *Workspace's* Map
+	 * Images (ADR-0023), so a Project can be shown a map it does not draw — and putting a map into a
 	 * Project is adding it, a different gesture with its own affordance, rather than something a link
 	 * should do on the way past.
 	 *
@@ -1656,7 +1656,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Put a `kind: 'map'` Layer in the stack for a Historical Map the user has just added (ADR-0023).
+	 * Put a `kind: 'map'` Layer in the stack for a Map Image the user has just added (ADR-0023).
 	 *
 	 * **The one thing in the application that creates a map Layer.** An Alignment write does not, which
 	 * is what lets a deleted Layer stay deleted without a tombstone in `project.json`: nothing but this
@@ -1669,7 +1669,7 @@ export class EditorSession {
 	 * **Adding a map this Project already draws is a no-op on the stack**, not an error and not a
 	 * duplicate. The existing Layer keeps its id, its position, and the name the user gave it, and
 	 * `project.json` is not written, so `updatedAt` does not move either. The test is the `imageId`,
-	 * which is a map Layer's whole link to its Historical Map.
+	 * which is a map Layer's whole link to its Map Image.
 	 *
 	 * **The Alignment is settled before that no-op, not after it**, which is the one thing the
 	 * re-add gesture can repair. A Project written by an earlier build can hold a map Layer whose
@@ -1758,14 +1758,14 @@ export class EditorSession {
 	}
 
 	/**
-	 * Add a Historical Map that stays on somebody else's server (SPEC stories 16–20, 25, 29).
+	 * Add a Map Image that stays on somebody else's server (SPEC stories 16–20, 25, 29).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER OF THE THREE WRITES, WHICH IS NOT ARBITRARY
 	 *
 	 *   1. `images/<id>/remote.json` — where the tiles are, and the provenance.
 	 *   2. `alignments/<id>.json` — the community Alignment the user chose, or the starter one every
-	 *      Historical Map gets (ADR-0023), written by {@link #addMapLayer}.
+	 *      Map Image gets (ADR-0023), written by {@link #addMapLayer}.
 	 *   3. `project.json`, gaining the Layer that references both.
 	 *
 	 * `project.json` is **last**, and it is the same discipline `addAnnotationLayer` follows and the
@@ -1862,7 +1862,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Draw a Historical Map this Workspace already holds in **this** Project too (SPEC stories 27, 33).
+	 * Draw a Map Image this Workspace already holds in **this** Project too (SPEC stories 27, 33).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * NOTHING IS COPIED, AND THAT IS THE WHOLE FEATURE
@@ -1877,7 +1877,7 @@ export class EditorSession {
 	 * {@link writeAlignmentFile}'s `create` intent, so the file somebody else's afternoon is in is
 	 * kept and the starter is written only when there is nothing there. The one case that reaches the
 	 * write is the reason this source has to offer more than the maps a Project already has: a
-	 * Historical Map whose ingest landed and whose starter Alignment did not arrives with a pyramid
+	 * Map Image whose ingest landed and whose starter Alignment did not arrives with a pyramid
 	 * and **without** a Layer (ADR-0023 writes the Alignment first on purpose), and after a reload
 	 * nothing on the Project screen connects the two. Adding it from here is the repair.
 	 *
@@ -1896,7 +1896,7 @@ export class EditorSession {
 		const image = await this.#storedImageSize(imageId);
 		if (image === null) {
 			this.addMapError =
-				`That Historical Map was not added: this Workspace holds no readable description of its ` +
+				`That Map Image was not added: this Workspace holds no readable description of its ` +
 				`size, so there is nothing to place an Alignment over. Its record at ` +
 				`images/${imageId}/ is missing or damaged.`;
 			return null;
@@ -1912,14 +1912,14 @@ export class EditorSession {
 		});
 		if (added === null) {
 			this.addMapError =
-				this.saveError || 'That Historical Map was not added: the Layer could not be written.';
+				this.saveError || 'That Map Image was not added: the Layer could not be written.';
 			return null;
 		}
 		return added.layer;
 	}
 
 	/**
-	 * The pixel dimensions of a Historical Map already in this Workspace, or `null`.
+	 * The pixel dimensions of a Map Image already in this Workspace, or `null`.
 	 *
 	 * Two records, in this order, and the order is the same rule {@link tileLocation} states: an
 	 * `info.json` of ours means the tiles are here and it is the authority on their size; otherwise
@@ -1944,7 +1944,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * The Historical Maps **the Workspace** still fetches from a library, and the ones it has copied.
+	 * The Map Images **the Workspace** still fetches from a library, and the ones it has copied.
 	 *
 	 * Split on **whether the pyramid is there**, which is now the only thing there is to split on
 	 * (ADR-0023): the stored `imageMode` is gone, so this is not merely the more reliable of two answers
@@ -1957,7 +1957,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
+	 * The Workspace Map Images whose tiles are on somebody else's server, by image id.
 	 *
 	 * **Here rather than derived again in the Layers pane**, which is where it used to be: it is the
 	 * same question `partitionByOfflineCopy` above has just answered, and a `$derived` set in a page is
@@ -1971,7 +1971,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Walk the Workspace's Historical Maps for the hub's reclaim list (SPEC story 63).
+	 * Walk the Workspace's Map Images for the hub's reclaim list (SPEC story 63).
 	 *
 	 * Called by the hub when it appears, again whenever the **Project list** changes — a Project
 	 * deleted here can be the last one that drew a map, and a stale list would say "no Project uses
@@ -1980,7 +1980,7 @@ export class EditorSession {
 	 * never to a keystroke or a re-render.
 	 */
 	/**
-	 * Work out which Projects draw one Historical Map, for {@link mapUsage} (SPEC story 56).
+	 * Work out which Projects draw one Map Image, for {@link mapUsage} (SPEC story 56).
 	 *
 	 * **A failure is silence rather than a sentence.** Every other reader of this walk is a screen
 	 * *about* the Workspace; this one is a scholar aligning a map, and "the Projects that use this map
@@ -1988,20 +1988,20 @@ export class EditorSession {
 	 * unaffected. `null` renders as nothing at all, which is the same thing the answer "still walking"
 	 * renders as.
 	 *
-	 * Not routed through the unreachable verdict either, for the reason {@link refreshHistoricalMaps}
-	 * spells out about `refreshAddableHistoricalMaps`: a transient failure reading the Workspace must
+	 * Not routed through the unreachable verdict either, for the reason {@link refreshMapImages}
+	 * spells out about `refreshAddableMapImages`: a transient failure reading the Workspace must
 	 * not take a scholar's alignment off the screen.
 	 *
-	 * **`historicalMapUsage` and not `listWorkspaceHistoricalMaps`**, which is what the hub calls. Both
+	 * **`mapImageUsage` and not `listWorkspaceMapImages`**, which is what the hub calls. Both
 	 * begin with one `list` of the Workspace — every path in it, tile files included, which is not free
-	 * and is why this is called once per Historical Map opened rather than per render — but the hub's
+	 * and is why this is called once per Map Image opened rather than per render — but the hub's
 	 * then `size`s every one of those files to answer "why is my Workspace two gigabytes?". This reads
 	 * only each `project.json` and no pyramid at all. A screen a scholar opens to place Control Points
 	 * must not pay for a size walk it does not show.
 	 */
 	async refreshMapUsage(imageId: string): Promise<void> {
 		try {
-			const usage = await historicalMapUsage(this.#store);
+			const usage = await mapImageUsage(this.#store);
 			// Filed under the id it was asked about. A walk that resolves after the user has moved on
 			// therefore answers a question nobody is asking any more, rather than answering the wrong one.
 			this.#mapUsage.set(imageId, {
@@ -2015,24 +2015,24 @@ export class EditorSession {
 		}
 	}
 
-	async refreshHistoricalMaps(): Promise<void> {
-		this.historicalMapsLoading = true;
+	async refreshMapImages(): Promise<void> {
+		this.mapImagesLoading = true;
 		try {
-			this.historicalMaps = await listWorkspaceHistoricalMaps(this.#store);
+			this.mapImages = await listWorkspaceMapImages(this.#store);
 		} catch (cause) {
 			// The same call `refresh` makes about the Project list: a Workspace that cannot be walked is
 			// the unreachable state, not an exception the hub has to survive.
 			//
 			// ⚠ **This verdict is the hub's to afford, and only the hub's.** It blanks the whole screen
 			// and offers the Workspace-recovery affordance, which is right when the Workspace *is* the
-			// screen. {@link refreshAddableHistoricalMaps} is the same walk asked for from a dialog on
+			// screen. {@link refreshAddableMapImages} is the same walk asked for from a dialog on
 			// an open Project, and it deliberately does not come here: a transient failure reading
 			// `images/` must not take a scholar's Project off the screen because they pressed a button.
-			this.historicalMaps = [];
+			this.mapImages = [];
 			this.status = 'unreachable';
 			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
 		} finally {
-			this.historicalMapsLoading = false;
+			this.mapImagesLoading = false;
 		}
 	}
 
@@ -2042,9 +2042,9 @@ export class EditorSession {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE WALK, THREE RECORDS, BECAUSE TWO OF THEM DECIDED DIFFERENT HALVES OF ONE ANSWER
 	 *
-	 * The picker lists {@link historicalMaps} and adds out of {@link referencedImages} and
+	 * The picker lists {@link mapImages} and adds out of {@link referencedImages} and
 	 * {@link images}. Re-walking only the first is how a dialog comes to **offer a map it will then
-	 * refuse**: `listWorkspaceHistoricalMaps` lists an image directory holding a `remote.json`
+	 * refuse**: `listWorkspaceMapImages` lists an image directory holding a `remote.json`
 	 * whether or not this session has ever read that record, and `addWorkspaceMap` gets the map's
 	 * size out of the record. A referenced map that entered the Workspace after this Project was
 	 * opened — another tab, a synced folder, which is exactly what ADR-0023 invites — was listed by
@@ -2055,30 +2055,30 @@ export class EditorSession {
 	 * would otherwise be added with a Library's address over a pyramid that is right here.
 	 *
 	 * **A walk failure is a sentence in the dialog, not the unreachable verdict.** See the warning
-	 * on {@link refreshHistoricalMaps}. `addMapError` is where it goes because that is the element
+	 * on {@link refreshMapImages}. `addMapError` is where it goes because that is the element
 	 * the picker already renders, beside the list the failure is about.
 	 */
-	async refreshAddableHistoricalMaps(): Promise<void> {
+	async refreshAddableMapImages(): Promise<void> {
 		this.addMapError = '';
-		this.historicalMapsLoading = true;
+		this.mapImagesLoading = true;
 		try {
 			const referenced = await listReferencedImages(this.#store);
 			this.referencedImages = referenced.images;
 			this.referencedImageErrors = referenced.unreadable;
 			this.images = await listIngestedImages(this.#store);
-			this.historicalMaps = await listWorkspaceHistoricalMaps(this.#store);
+			this.mapImages = await listWorkspaceMapImages(this.#store);
 		} catch (cause) {
 			this.addMapError =
-				`The Historical Maps in this Workspace could not be looked through: ` +
+				`The Map Images in this Workspace could not be looked through: ` +
 				`${cause instanceof Error ? cause.message : String(cause)} Everything already in this ` +
 				`Project is unaffected, and a file or a library address still works.`;
 		} finally {
-			this.historicalMapsLoading = false;
+			this.mapImagesLoading = false;
 		}
 	}
 
 	/**
-	 * Delete one Historical Map from the Workspace — its pyramid, its `remote.json`, and its Alignment
+	 * Delete one Map Image from the Workspace — its pyramid, its `remote.json`, and its Alignment
 	 * (SPEC story 65).
 	 *
 	 * **Refused, not cascaded, when a Project draws it** (SPEC story 64). The refusal names the Projects
@@ -2090,12 +2090,12 @@ export class EditorSession {
 	 *
 	 * @returns whether the map was deleted
 	 */
-	async deleteHistoricalMap(imageId: string): Promise<boolean> {
-		this.historicalMapError = '';
-		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
+	async deleteMapImage(imageId: string): Promise<boolean> {
+		this.mapImageError = '';
+		const label = this.mapImages.find((map) => map.imageId === imageId)?.label ?? '';
 		await this.#quietBeforeDeleting(imageId);
 		try {
-			await deleteHistoricalMap(this.#store, imageId, { label });
+			await deleteMapImage(this.#store, imageId, { label });
 		} catch (cause) {
 			// ⚠ **The sweep is here and below, and never before the `await`** (ticket 21, review 2).
 			// It used to be the first thing this method did, which made it the one remaining
@@ -2104,41 +2104,41 @@ export class EditorSession {
 			// away the user's unsaved Alignment edit; the asynchronous half is the one a reload cuts.
 			// A reload in between therefore lost the edit **and** left the map in place: data loss
 			// with no deletion to justify it, through a window that is wider than `deleteProject`'s
-			// ever was, because the first `await` here is `historicalMapUsage` — a walk of every
+			// ever was, because the first `await` here is `mapImageUsage` — a walk of every
 			// Project in the Workspace.
 			//
-			// Swept only when something was actually removed, which `HistoricalMapPartlyDeletedError`
-			// is the only failure that says. `HistoricalMapInUseError` is a refusal taken *before*
+			// Swept only when something was actually removed, which `MapImagePartlyDeletedError`
+			// is the only failure that says. `MapImageInUseError` is a refusal taken *before*
 			// anything is deleted, and sweeping on it would throw away an unsaved Alignment for a map
 			// that is still right there — the same loss by the opposite mistake.
-			if (cause instanceof HistoricalMapPartlyDeletedError) this.#forgetJournalled(imageId);
+			if (cause instanceof MapImagePartlyDeletedError) this.#forgetJournalled(imageId);
 			// Two of these are sentences core has already written for the user, and they are used as
 			// written. "Could not be deleted" is the fallback and is only true when nothing was: a
 			// half-finished deletion says so itself, because telling a user nothing happened when the
 			// Alignment and half the tiles are gone is the one message here that could cost them work.
-			this.historicalMapError =
-				cause instanceof HistoricalMapInUseError || cause instanceof HistoricalMapPartlyDeletedError
+			this.mapImageError =
+				cause instanceof MapImageInUseError || cause instanceof MapImagePartlyDeletedError
 					? cause.message
 					: `“${label || imageId}” could not be deleted: ${
 							cause instanceof Error ? cause.message : String(cause)
 						}`;
 			// The listing is walked again either way: a partly deleted map is still listed, and what it
 			// now weighs is not what the row on screen says.
-			await this.refreshHistoricalMaps();
+			await this.refreshMapImages();
 			return false;
 		}
 		// The files are gone, so now the journalled copies of them may go (ticket 20's reason, in
 		// ticket 21's order): anything still journalled for the pyramid or the Alignment would be put
-		// back at the next startup, describing a Historical Map that is no longer in the Workspace.
+		// back at the next startup, describing a Map Image that is no longer in the Workspace.
 		this.#forgetJournalled(imageId);
 		this.images = this.images.filter((image) => image.imageId !== imageId);
 		this.referencedImages = this.referencedImages.filter((image) => image.imageId !== imageId);
-		await this.refreshHistoricalMaps();
+		await this.refreshMapImages();
 		return true;
 	}
 
 	/**
-	 * Drop every pending and journalled byte belonging to one Historical Map: its pyramid **and its
+	 * Drop every pending and journalled byte belonging to one Map Image: its pyramid **and its
 	 * Alignment**.
 	 *
 	 * ⚠ **The Alignment is not under `images/<id>/`, and `abandon` was only given that prefix**
@@ -2147,13 +2147,13 @@ export class EditorSession {
 	 * this method exists for, the unsaved specimen *is* the Alignment: its journal entry was
 	 * forgotten and the pending bytes it is written from were not, leaving `capture()` to re-journal
 	 * it at `pagehide` and `flush()` to write it outright — recreating `alignments/<id>.json` for a
-	 * Historical Map that is gone, which is the orphan `deleteHistoricalMap` exists to prevent.
+	 * Map Image that is gone, which is the orphan `deleteMapImage` exists to prevent.
 	 *
 	 * ⚠ **The promise `abandon` answers with is dropped here, and that is now merely true rather than
-	 * load-bearing** (round 4). This runs *after* `deleteHistoricalMap` has removed the files, so a
+	 * load-bearing** (round 4). This runs *after* `deleteMapImage` has removed the files, so a
 	 * write still in flight has already either landed or not and waiting on it would re-delete
 	 * nothing. The window it used to leave open is closed by {@link #quietBeforeDeleting}, at the top
-	 * of {@link deleteHistoricalMap} and **before** the deletion, where waiting can still change the
+	 * of {@link deleteMapImage} and **before** the deletion, where waiting can still change the
 	 * outcome.
 	 */
 	#forgetJournalled(imageId: string): void {
@@ -2170,7 +2170,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Let the store finish with a Historical Map's files before asking for them to be deleted
+	 * Let the store finish with a Map Image's files before asking for them to be deleted
 	 * (ticket 21, rounds 4 and 5).
 	 *
 	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
@@ -2202,7 +2202,7 @@ export class EditorSession {
 	 * with `abandon`, two files away, for the same reason.
 	 *
 	 * Bounded, so a write that never settles costs a pause and not the gesture; if the wait expires
-	 * the deletion goes ahead anyway, and `deleteHistoricalMap`'s partial-failure design leaves a map
+	 * the deletion goes ahead anyway, and `deleteMapImage`'s partial-failure design leaves a map
 	 * that is still listed and can be finished by hand.
 	 */
 	async #quietBeforeDeleting(imageId: string): Promise<void> {
@@ -2516,7 +2516,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Stamp every Historical Map in the Workspace with a canonical address (SPEC story 92).
+	 * Stamp every Map Image in the Workspace with a canonical address (SPEC story 92).
 	 *
 	 * Opt-in, and the **only** thing publishing does that writes the user's own files: it rewrites
 	 * each `info.json`'s `id` from the ADR-0004 placeholder to `<url>/images/<image-id>`, so that the
@@ -2524,9 +2524,9 @@ export class EditorSession {
 	 * directly.
 	 *
 	 * **The images are stamped once for the whole Workspace, and then every Project records the
-	 * address** (ADR-0023). The pyramids are shared, so there is one address per Historical Map — the
+	 * address** (ADR-0023). The pyramids are shared, so there is one address per Map Image — the
 	 * per-Project version wrote `<url>/<project>/images/<id>`, a citation that broke the moment a second
-	 * Project used the map. `images` therefore counts Historical Maps and not Project-image pairs.
+	 * Project used the map. `images` therefore counts Map Images and not Project-image pairs.
 	 *
 	 * `info.json` first and `project.json` second, the same order every other write here follows: a
 	 * document's record of the address must never claim a stamp the images do not carry. A failure part
@@ -2568,7 +2568,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Copy a referenced Historical Map into the Workspace as local tiles (SPEC stories 27, 28).
+	 * Copy a referenced Map Image into the Workspace as local tiles (SPEC stories 27, 28).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * TWO WRITES NOW, WHERE THERE WERE THREE
@@ -2705,7 +2705,7 @@ export class EditorSession {
 		return fetchAnnotationsFromApi(image);
 	}
 
-	/** What the user calls one Historical Map, or `''` when its manifest cannot be read. */
+	/** What the user calls one Map Image, or `''` when its manifest cannot be read. */
 	async #imageLabel(imageId: string): Promise<string> {
 		try {
 			const bytes = await this.#store.read(imageManifestPath(imageId));
@@ -2713,7 +2713,7 @@ export class EditorSession {
 		} catch {
 			// Swallowed, because a name is not worth failing an add over. The caller falls back to the
 			// image id — a poor name the user can change (SPEC story 54) — where throwing would leave a
-			// Historical Map prepared, an Alignment written, and no Layer drawing either of them.
+			// Map Image prepared, an Alignment written, and no Layer drawing either of them.
 			return '';
 		}
 	}
@@ -2816,7 +2816,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Forget an undo that belongs to a Historical Map the user is no longer aligning.
+	 * Forget an undo that belongs to a Map Image the user is no longer aligning.
 	 *
 	 * A Control Point record names its image, and an affordance offering to put back a point that is
 	 * not on screen — in a pane showing a different map — is worse than no affordance: it describes an
@@ -2844,8 +2844,8 @@ export class EditorSession {
 	 * way round, a failure between the two steps would leave exactly that. This way the worst
 	 * intermediate state is a file nothing references — bytes, not breakage.
 	 *
-	 * **Steps 2 and 4 do nothing for a map Layer, and that is ADR-0023** (SPEC story 67). Its Historical
-	 * Map and its Alignment belong to the Workspace and may be drawn by other Projects, so removing the
+	 * **Steps 2 and 4 do nothing for a map Layer, and that is ADR-0023** (SPEC story 67). Its Map
+	 * Image and its Alignment belong to the Workspace and may be drawn by other Projects, so removing the
 	 * Layer must leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where
 	 * that decision lives. Only an Annotation Layer has a file of this Project's to take with it.
 	 *
@@ -2916,7 +2916,7 @@ export class EditorSession {
 	 * re-serialisation of a parsed model would be merely equivalent, and ticket 09 asserts these files
 	 * survive display-state edits byte-for-byte.
 	 *
-	 * A map Layer has no file to put back — its Historical Map and its Alignment were never removed
+	 * A map Layer has no file to put back — its Map Image and its Alignment were never removed
 	 * (ADR-0023) — so for one of those this is the stack and nothing else.
 	 */
 	async #restoreLayer(record: UndoRecord): Promise<void> {
@@ -2987,11 +2987,11 @@ export class EditorSession {
 	/**
 	 * One map Layer's Alignment as stored, or `null` when there is no file yet.
 	 *
-	 * Read from the Workspace by the Layer's `imageId` (ADR-0023) — and without the Historical Map's
+	 * Read from the Workspace by the Layer's `imageId` (ADR-0023) — and without the Map Image's
 	 * pyramid, which the stack does not load: the Alignment carries the image's pixel dimensions itself,
 	 * so a Layer can be drawn from the one file it names.
 	 *
-	 * A Layer whose `imageId` is `''` names no Historical Map — a hand-edited or damaged document — and
+	 * A Layer whose `imageId` is `''` names no Map Image — a hand-edited or damaged document — and
 	 * answers `null` rather than reading `alignments/.json`.
 	 *
 	 * A file that is there and unreadable throws, for the same reason {@link readAlignment} surfaces

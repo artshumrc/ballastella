@@ -607,7 +607,7 @@ export class WriteAheadJournal {
 	 *
 	 * ⚠ **This is derived, so it can be wrong.** `forget` is not only called on success:
 	 * `Autosave.abandon` calls it for bytes the store never took, when the user deletes the Project
-	 * or Historical Map they belong to. A later edit to the same path is then recorded against a
+	 * or Map Image they belong to. A later edit to the same path is then recorded against a
 	 * baseline that was never on disk.
 	 *
 	 * ⚠ **What a wrong baseline costs, per event and in aggregate.** `replay.ts` reads this field on

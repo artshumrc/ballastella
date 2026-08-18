@@ -8,7 +8,7 @@
 // screen-reader user never hears. The rule is one component's now, so it is one test.
 //
 // ⚠ **What stays in `e2e/`.** Which notice is up when, and what each one says: the sentences are
-// core's (`baseMapUnavailableNotice`, `historicalMapTilesUnavailableNotice` and the rest, each with
+// core's (`baseMapUnavailableNotice`, `mapImageTilesUnavailableNotice` and the rest, each with
 // its own unit tests), and the conditions that raise them are asserted against real archives and a
 // real MapLibre in `editor-base-map.e2e.ts`, `editor-pwa.e2e.ts` and `viewer-reader.e2e.ts`. Those
 // specs also carry the mechanism through to the built apps, on the elements they already address.

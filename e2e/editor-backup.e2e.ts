@@ -78,7 +78,7 @@ const projectJson = (name: string): string =>
 	)}\n`;
 
 /**
- * A Workspace with two Projects over one shared Historical Map — the first acceptance criterion's
+ * A Workspace with two Projects over one shared Map Image — the first acceptance criterion's
  * shape, and the one ADR-0023 made possible.
  */
 const workspaceFiles = (): Record<string, string> => ({

@@ -136,7 +136,7 @@ check — pan, zoom, delete, hide and show, and a Project left and reopened.
 Left as it is because the tolerance is this file's existing convention rather than a choice made
 here: the Annotation vertex handle's own position is asserted against `map.project()` with the
 identical pair of `toBeCloseTo(…, 0)` calls, in "leaves the Pin draggable and arrow-key movable under
-a Historical Map". Changing one pair alone would leave the file saying two things about the same
+a Map Image". Changing one pair alone would leave the file saying two things about the same
 measurement.
 
 ### Two Annotations with the same id would share one mark

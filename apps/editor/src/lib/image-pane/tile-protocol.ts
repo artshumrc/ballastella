@@ -22,7 +22,7 @@
 //
 // **Where the bytes come from is injected** (ADR-0011, ticket 06). Ticket 03 fetched them from
 // the app's static assets, which kept the projection isolated from the storage layer while the
-// projection was the risk; a pane over a Historical Map the user ingested is handed
+// projection was the risk; a pane over a Map Image the user ingested is handed
 // `createStoreImageFetch` instead, and the tile URLs it builds are on the `unset.invalid`
 // placeholder host that shim routes. This file cannot tell the two apart, which is the point:
 // one `fetch`-shaped seam, and the fixture pane and the user's own map take the same path
@@ -52,7 +52,7 @@ export const imagePaneTileTemplate = (paneId: string) => `${PROTOCOL}://${paneId
  * that unregisters it again, for component teardown.
  *
  * `fetchTile` is where the pyramid actually lives. Pass `createStoreImageFetch(...)` for a
- * Historical Map in the user's Project — it resolves the placeholder host out of the
+ * Map Image in the user's Project — it resolves the placeholder host out of the
  * `ProjectStore` and passes anything else through — and leave it out only for a pyramid that
  * really is served over HTTP, which in this app is ticket 03's committed fixture alone.
  */

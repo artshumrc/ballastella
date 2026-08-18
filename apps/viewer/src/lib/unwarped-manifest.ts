@@ -1,4 +1,4 @@
-// A one-canvas IIIF Presentation Manifest over a Historical Map **as this site serves it**, so a
+// A one-canvas IIIF Presentation Manifest over a Map Image **as this site serves it**, so a
 // Reader can read the sheet unwarped (SPEC story 85).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -77,10 +77,10 @@ export type ServedImageInfo = {
 	readonly document: Readonly<Record<string, unknown>>;
 };
 
-/** The `info.json` could not be read, so this Historical Map cannot be shown as a document. */
+/** The `info.json` could not be read, so this Map Image cannot be shown as a document. */
 export class ServedImageInfoUnreadableError extends Error {
 	constructor(reason: string) {
-		super(`This Historical Map’s info.json could not be read: ${reason}`);
+		super(`This Map Image’s info.json could not be read: ${reason}`);
 		this.name = 'ServedImageInfoUnreadableError';
 	}
 }
@@ -198,7 +198,7 @@ function wholeImage(info: ServedImageInfo): { path: string; width: number; heigh
  *   the document's own `id`, and never a URL this app composed. Composing one would produce a Manifest
  *   that *looks* right and a viewer that fetches from somewhere else entirely, which is the trap the note
  *   at the top of this file exists to describe.
- * @param label what the Reader sees this Historical Map called. The Layer's name, which is the author's
+ * @param label what the Reader sees this Map Image called. The Layer's name, which is the author's
  *   own words for it (SPEC story 54) — never the image id, which is a random identifier (ADR-0015).
  */
 export function servedImageManifest(options: {

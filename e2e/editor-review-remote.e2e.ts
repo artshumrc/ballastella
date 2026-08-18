@@ -15,7 +15,7 @@ import { expectWorkspaceNamed, openWorkspaceMenu, switchToWorkspace } from './su
  *
  *   - a repository and a Project folder typed into the editor become a **review copy** the app
  *     switches to, carrying the banner and its two exits;
- *   - the Project in it lists on the hub, opens and draws, so its Historical Map, its Alignment and
+ *   - the Project in it lists on the hub, opens and draws, so its Map Image, its Alignment and
  *     its Annotations all really landed, read back through the app's own code;
  *   - the Workspace-shared maps the *other* Project draws never arrive (ADR-0023);
  *   - the result is **unbound and unpublishable**, and the credential is **sealed** while it is open
@@ -76,7 +76,7 @@ const FEATURES = '{"type":"FeatureCollection","features":[]}';
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
 /**
- * A published Workspace holding **two** Projects and **three** Historical Maps.
+ * A published Workspace holding **two** Projects and **three** Map Images.
  *
  * `map-3` is drawn by no Layer of either Project and `map-2` only by the Boston one, which is what
  * makes "only what this Project references travels" assertable rather than merely true of a fixture
@@ -227,7 +227,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, REPOSITORY]);
 
 		const stored = await everyByteOf(page, REPOSITORY);
-		// The Project, its Annotations, the one Historical Map its Layers draw and that map's
+		// The Project, its Annotations, the one Map Image its Layers draw and that map's
 		// Alignment — plus the mark that makes this Workspace a review copy, and nothing else at all.
 		expect(Object.keys(stored).sort()).toEqual([...AMSTERDAM_CLOSURE, 'review.json'].sort());
 		expect(stored['images/map-1/info.json']).toBe('{"width":4096,"height":3072}');
@@ -235,7 +235,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		expect(stored[`${AMSTERDAM}/annotations/warehouses.geojson`]).toBe(FEATURES);
 	});
 
-	test('brings down no Historical Map this Project’s Layers do not draw', async ({ page }) => {
+	test('brings down no Map Image this Project’s Layers do not draw', async ({ page }) => {
 		// ADR-0023: the pool belongs to the Workspace, and a reviewer has no business receiving a
 		// colleague's other scans — `map-2` is the other Project's and `map-3` is nobody's.
 		await start(page);
@@ -265,7 +265,7 @@ test.describe('reviewing one Project from a Remote', () => {
 
 	test('the reviewed Project lists on the hub, opens, and draws', async ({ page }) => {
 		// Read back through the app's own code rather than through `getFileHandle`: a Project that
-		// lists, opens and renders is what "its Historical Maps and Alignments are present" means to a
+		// lists, opens and renders is what "its Map Images and Alignments are present" means to a
 		// scholar.
 		await start(page);
 
@@ -278,7 +278,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		await expect(page).toHaveURL(new RegExp(`\\?p=${AMSTERDAM}$`));
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(page.getByTestId('project-screen')).toBeVisible();
-		// Both Layers, so the map Layer's Historical Map and the annotation Layer's document both
+		// Both Layers, so the map Layer's Map Image and the annotation Layer's document both
 		// survived the trip through GitHub. In the Project's own Layer order, top first.
 		await expect(page.getByTestId('layer-name-text')).toHaveText([
 			'Amsterdam 1625 notes',

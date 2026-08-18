@@ -55,7 +55,7 @@ export type ImagePaneTile = {
 	 * fractionally covered. It is **not** correct for a tiler that resizes to `floor` or `round`
 	 * and pads the remainder, nor for one that resizes to the rounded `size` and calls it done:
 	 * either of those stretches every ragged tile by up to 0.6% at the right and bottom margins
-	 * of every Historical Map in the app. Sub-pixel, systematic, in the margins — and invisible
+	 * of every Map Image in the app. Sub-pixel, systematic, in the margins — and invisible
 	 * to every test in this slice, because the coordinates would all still be right.
 	 *
 	 * The committed fixture satisfies this (verified by decoding all 29 tiles: every ragged tile

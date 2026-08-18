@@ -6,7 +6,7 @@ The same search surface slice 1 built, now on an open Annotation Layer, where ch
 
 This is the slice the epic exists for.
 
-**The gesture it serves:** a scholar looks up an address, sees the Pin land in the middle of a river, and drags it onto the quay — reading against the Base Map, or against a Historical Map layered over it. **The lookup is the cheap step; the correction is the scholarship.** A design that treats the service's answer as authoritative is designing against the actual use.
+**The gesture it serves:** a scholar looks up an address, sees the Pin land in the middle of a river, and drags it onto the quay — reading against the Base Map, or against a Map Image layered over it. **The lookup is the cheap step; the correction is the scholarship.** A design that treats the service's answer as authoritative is designing against the actual use.
 
 Read [`SPEC.md`](../SPEC.md) and [ADR-0029](../../../docs/adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md) first.
 
@@ -57,7 +57,7 @@ Read [`SPEC.md`](../SPEC.md) and [ADR-0029](../../../docs/adr/0029-place-lookup-
 - [x] **A Pin placed from a lookup is byte-identical to a Pin drawn by hand and given the same title** — asserted by producing both and comparing the serialised files. This is the epic's central claim and it is directly checkable.
 - [x] The Pin carries no property naming a service, a query, a status, or an origin.
 - [x] The Pin is selected immediately after placement.
-- [x] The Pin is draggable immediately **and** movable by keyboard, through the existing vertex affordance — asserted **with a Historical Map Layer visible above the Base Map**, which is the stakeholder's actual gesture.
+- [x] The Pin is draggable immediately **and** movable by keyboard, through the existing vertex affordance — asserted **with a Map Image Layer visible above the Base Map**, which is the stakeholder's actual gesture.
 - [x] **Placing produces exactly one store write**, asserted by counting. **Mutate this specifically:** split it into create-then-title, confirm the count assertion goes red, and restore.
 - [x] Style inheritance matches a hand-drawn Annotation — draw a coloured one, then place one, and assert it took the same colour.
 - [x] The candidate list is **the component slice 1 built, not a copy** — asserted by a wording or behaviour change in the shared component moving both surfaces.
@@ -79,7 +79,7 @@ what made it vacuous is written at the test itself so the next person does not r
 | …and again, on the style half | `styleForNewAnnotation(collection)` → `undefined` for a placed Pin | red — `produces a Pin byte-identical…` and the style criterion below |
 | No property naming a service, query, status, or origin | the same `ballastella:source` property | red — `titles it with what the scholar typed, and records nothing about the lookup` |
 | Selected immediately after placement | `selectedAnnotationId` no longer set in `#addDrawn` | red — the editor, the row's `aria-pressed`, and the handle count |
-| Draggable and arrow-key movable under a Historical Map | `onmoveend` dropped from the `annotation-vertex` points | red — `leaves the Pin draggable and arrow-key movable…` |
+| Draggable and arrow-key movable under a Map Image | `onmoveend` dropped from the `annotation-vertex` points | red — `leaves the Pin draggable and arrow-key movable…` |
 | …and the handle is drawn where the Pin is | `rotate: 45deg` put back on the handle element instead of its `::before` | red — the handle's box centre measured 341 px from `map.project()` of the written coordinate |
 | Exactly one store write (the two-commit split) | `#addDrawn(…)` then `commitAnnotations(setText(…))` | red — the count went to 2 |
 | Exactly one store write (the debounced split) | `#addDrawn(…)` then `typeText({ title })` | red — count stays 1 forever, and the counted write measured 338 bytes against the 366 the file ended up holding |

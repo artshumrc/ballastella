@@ -3,7 +3,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
+import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
 import { alignFromLayer } from './support/layers';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
@@ -21,7 +21,7 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  *
  * Ticket 06 asserted this on a bare `/warped` dev route, because no Alignment existed and the layer
  * had nothing to hold. **Ticket 07 deleted that route and this file now drives the real thing** — a
- * Historical Map ingested the ordinary way, three Control Points paired by clicking, and the warped
+ * Map Image ingested the ordinary way, three Control Points paired by clicking, and the warped
  * layer where it belongs, in the Base Map pane. Everything below is therefore asserted on the path a
  * scholar actually takes.
  *
@@ -116,12 +116,12 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.click();
 }
 
-const historicalMap = (page: Page) => page.getByTestId('image-pane');
+const mapImage = (page: Page) => page.getByTestId('image-pane');
 const baseMap = (page: Page) => page.getByTestId('base-map-pane');
 const warpedStatus = (page: Page) => page.getByTestId('warped-status');
 
 async function clickAt(page: Page, which: 'image' | 'base', fx: number, fy: number): Promise<void> {
-	const target = which === 'image' ? historicalMap(page) : baseMap(page);
+	const target = which === 'image' ? mapImage(page) : baseMap(page);
 	const box = await target.boundingBox();
 	if (!box) throw new Error('the pane has no box to click in');
 	await target.click({ position: { x: box.width * fx, y: box.height * fy } });
@@ -136,7 +136,7 @@ async function makePair(page: Page, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one ingested Historical Map, on its own page with both panes live.
+ * A Project with one ingested Map Image, on its own page with both panes live.
  *
  * @returns the image id the tiler minted
  */
@@ -146,27 +146,27 @@ async function projectWithImage(page: Page): Promise<string> {
 	await page.reload();
 	await createProject(page, 'Amsterdam 1625');
 	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 
-	await pickHistoricalMapFile(page, {
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
 	// The image id off the Layer the map arrived with (ADR-0023). Ticket 04 removed the Project's
-	// separate list of image ids: the Layer already says which Historical Map it draws, and two
+	// separate list of image ids: the Layer already says which Map Image it draws, and two
 	// renderings of one fact is one of them going stale.
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
 	// Both panes are the `/align/` route since ticket 03, and since ticket 05 the link that goes there
-	// is inside the Layer's own row. The id is read above, before the click: the Historical Maps list is
+	// is inside the Layer's own row. The id is read above, before the click: the Map Images list is
 	// on the Project page and this leaves it.
 	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
-	await expect(historicalMap(page)).toBeVisible();
+	await expect(mapImage(page)).toBeVisible();
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 	return imageId;
 }
@@ -214,7 +214,7 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		// missing rather than being shown an empty Base Map.
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', '');
 		await expect(warpedStatus(page)).toContainText(
-			'1 more Control Point and the Historical Map will be drawn'
+			'1 more Control Point and the Map Image will be drawn'
 		);
 		await expect(page.evaluate(() => Boolean(window.ballastellaWarped))).resolves.toBe(false);
 

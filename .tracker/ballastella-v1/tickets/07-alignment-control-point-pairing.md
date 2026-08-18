@@ -2,7 +2,7 @@
 
 ## What to build
 
-The core act of the application. A user sees their Historical Map beside the Base Map, clicks a feature on the map, then clicks the same place on the earth, and a numbered Control Point pair appears. With enough pairs, the Historical Map appears warped onto the Base Map. The Alignment is written to the Project as a IIIF Georeference Annotation.
+The core act of the application. A user sees their Map Image beside the Base Map, clicks a feature on the map, then clicks the same place on the earth, and a numbered Control Point pair appears. With enough pairs, the Map Image appears warped onto the Base Map. The Alignment is written to the Project as a IIIF Georeference Annotation.
 
 **Fulfills** — [SPEC.md](../SPEC.md) user stories 30, 32, 33, 34, 35, 36, 37, and 91. With tickets 10 and 13: 94 (standard formats, no proprietary index).
 
@@ -36,7 +36,7 @@ This bears directly on autosave: **autosave must *skip* incomplete pairs, not th
 
 Six behaviours, all required (ADR-0022):
 
-1. Click on the Historical Map, then on the Base Map, creates one pair. **Click-then-click**, not place-then-link, and never auto-pair-by-order.
+1. Click on the Map Image, then on the Base Map, creates one pair. **Click-then-click**, not place-then-link, and never auto-pair-by-order.
 2. The pending half is **visible, labelled, and cancellable with Escape**.
 3. Pairs are **visibly numbered**, so an instructor can say "look at point 7."
 4. **Both halves are draggable**, and dragging either edits the pair. Per ADR-0017, a drag commits **once, on pointer-up** — not per pointer-move.
@@ -47,27 +47,27 @@ Persistence: `alignments/<image-id>.json`, a IIIF Georeference Annotation produc
 
 **Commit round-trip fixtures.** Saved Alignments must survive serialise → deserialise unchanged. Every `@allmaps/*` package is pre-1.0, so this test is what stands between a beta bump and every Alignment in the field being subtly misplaced (ADR-0010).
 
-Once the minimum point count for `polynomial1` (3) is met, the warped Historical Map renders on the Base Map via `WarpedMapLayer`.
+Once the minimum point count for `polynomial1` (3) is met, the warped Map Image renders on the Base Map via `WarpedMapLayer`.
 
 ## Out of scope
 
 - **Choosing a transformation type, distortion visualisation, the fold warning, and the Resource Mask** — ticket 08. Here: `polynomial1` always, and the Resource Mask defaults to the full image rectangle without being editable.
 - **Undo** — ticket 11.
-- **The Layer list** — ticket 09. One Historical Map, one Alignment, no layer UI.
+- **The Layer list** — ticket 09. One Map Image, one Alignment, no layer UI.
 - **Annotations** — ticket 10. `terra-draw` arrives here for Control Points only.
 - **Importing an existing Alignment from Allmaps** — ticket 14.
 - **A general command/history architecture.** ADR-0014 fences this; do not build one to make future undo easier.
 
 ## Acceptance criteria
 
-- [x] Clicking the Historical Map then the Base Map creates one numbered pair
+- [x] Clicking the Map Image then the Base Map creates one numbered pair
 - [x] The pending half is visible and labelled, and Escape cancels it leaving no trace in UI state or on disk
 - [x] Dragging either half moves the pair, and produces **exactly one** store write, on pointer-up
 - [x] Selecting either half visibly highlights its partner in the other pane
 - [x] Deleting removes both halves
 - [x] Ordinals are visible and remain stable across reload
 - [x] With a pending half present, autosave writes a valid Georeference Annotation **excluding** the incomplete pair, and does not throw
-- [x] With 3 or more pairs, the Historical Map renders warped on the Base Map — asserted by tiles arriving **and decoding**, not by an absence of console errors; needs the `@allmaps/render` patch, see note 1
+- [x] With 3 or more pairs, the Map Image renders warped on the Base Map — asserted by tiles arriving **and decoding**, not by an absence of console errors; needs the `@allmaps/render` patch, see note 1
 - [x] `alignments/<image-id>.json` is a valid Georeference Annotation, parseable by `@allmaps/annotation`
 - [x] Committed fixture Alignments round-trip through serialise → deserialise with identical Control Points and Resource Mask
 - [~] The written transformation type is `polynomial1` — never `straight`, never `polynomial` — **`straight` and the bare alias are both excluded and the type reads back as `polynomial1`, but the literal string cannot be written: `@allmaps/annotation` silently drops it**; see note 2
@@ -120,7 +120,7 @@ through the ADR-0011 shim. Three tests turn on it: the third pair making the map
 (`editor-warped-fetch.e2e.ts`).
 
 **A defect of mine that this found.** Dropping back below the minimum Control Point count removed the
-layer but left the page still saying "drawn from 3 Control Points" — a claim about a Historical Map
+layer but left the page still saying "drawn from 3 Control Points" — a claim about a Map Image
 placed by points the user had just deleted. `BaseMapPane` now reports `onwarped(null)` when it stops
 drawing, rather than leaving the page to infer a lifecycle it cannot see.
 
@@ -321,12 +321,12 @@ problem to retire.
 - **`window.ballastellaAlignmentWrites` is a new browser-test handle**, on the same terms as
   `ballastellaServedTiles` and `ballastellaBaseMap`. It exists because the drag criterion is about a
   **count** and a write into OPFS issues no request, so there is nothing outside the page to count.
-- **The Control Point list is a `<ul>`.** Several existing e2e tests count Historical Maps with a bare
+- **The Control Point list is a `<ul>`.** Several existing e2e tests count Map Images with a bare
   `getByRole('listitem')`, which is safe only because that list is absent when there are no Control
   Points. A future slice adding a third list on this page should expect to disambiguate.
 - **A defect found by the new warped tests, and fixed:** dropping back below the minimum Control Point
   count removed the layer but left the page still claiming "drawn from 3 Control Points" — a statement
-  about a Historical Map placed by points the user had just deleted. `BaseMapPane` now reports
+  about a Map Image placed by points the user had just deleted. `BaseMapPane` now reports
   `onwarped(null)` when it stops drawing, instead of leaving the page to infer a lifecycle it cannot
   see.
 - **`pnpm test:e2e` was run with `CI=1` on the committed ports 4173/4174**, verified free before each

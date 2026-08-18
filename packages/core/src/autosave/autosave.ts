@@ -542,7 +542,7 @@ export class Autosave {
 	 *
 	 * {@link abandon}'s sibling, and the difference is the whole reason it exists: `abandon` is for a
 	 * path whose bytes are about to be *removed*, so it throws them away; this is for a path that is
-	 * about to be removed **by somebody else** — `deleteHistoricalMap`, which decides for itself
+	 * about to be removed **by somebody else** — `deleteMapImage`, which decides for itself
 	 * whether the deletion may happen at all and must not have the user's unsaved Alignment thrown
 	 * away before it does. Nothing here is discarded: an edit that survives this is on disk, and if
 	 * the deletion is then refused the user still has it.
@@ -576,7 +576,7 @@ export class Autosave {
 	settled(prefix: string): Promise<boolean> {
 		// ⚠ **Prefix-scoped, and it has to be.** Without this every call would wait on every write in
 		// the Workspace, so one stuck write in a Project nobody is looking at would put the whole bound
-		// on every Historical Map deletion — a pause with no cause the user could see.
+		// on every Map Image deletion — a pause with no cause the user could see.
 		const quiet = this.#bringToRest((path) => path.startsWith(prefix));
 		this.#publish();
 		return this.#quietUnder(quiet);

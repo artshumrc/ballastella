@@ -43,7 +43,7 @@ describe('project.json', () => {
 	 * A map Layer used to be created by an Alignment write, so "does a Layer for this image exist" was
 	 * not an idempotence key a deletion could survive, and this file carried a list of the image ids
 	 * whose Layer the user had deleted. A Layer is now created by exactly one thing — the user adding a
-	 * Historical Map to a Project — so nothing can resurrect one and there is nothing to record.
+	 * Map Image to a Project — so nothing can resurrect one and there is nothing to record.
 	 *
 	 * Asserted as the exact key set rather than as an absence, so the day something is added to
 	 * `ProjectFile` this test says so and somebody decides on purpose. An absence assertion goes green
@@ -140,7 +140,7 @@ describe('the Base Map field', () => {
  *
  * `removedMapLayers` was a list of the image ids whose map Layer the user had deleted, consulted on
  * every Alignment write because an Alignment write is what created map Layers. A Layer is now
- * created by exactly one thing — the user adding a Historical Map to a Project — so the field means
+ * created by exactly one thing — the user adding a Map Image to a Project — so the field means
  * nothing.
  *
  * Removing it from `ProjectFile` is not enough on its own, and that is what these cover: an

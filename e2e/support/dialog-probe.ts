@@ -2,7 +2,7 @@
 // WHY A DIALOG CLOSED, RECORDED AT THE MOMENT IT CLOSED.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 //
-// The Add-Historical-Map dialog closes by itself, after `openAddHistoricalMap` has already read
+// The Add-Map-Image dialog closes by itself, after `openAddMapImage` has already read
 // `HTMLDialogElement.open === true` off it. The suite sees that as a click on a button that is
 // present, laid out, and never visible — daisyUI's `.modal` keeps a *closed* dialog laid out — so
 // the report is 345 polls of "element is not visible" and not one word about the close.

@@ -23,6 +23,7 @@
 import { IIIF, type Collection, type Image, type Manifest } from '@allmaps/iiif-parser';
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
+import { isImageContentType } from '../remote-image/content-type.js';
 
 /** Which of the three IIIF shapes a pasted URL turned out to name. */
 export type RemoteIiifKind = 'image' | 'manifest' | 'collection';
@@ -86,6 +87,33 @@ export class RemoteIiifRejectedError extends Error {
 		this.name = 'RemoteIiifRejectedError';
 		this.url = options.url;
 		this.host = options.host ?? '';
+	}
+}
+
+/**
+ * The address named an image file — a JPEG, a PNG — rather than a IIIF description.
+ *
+ * **A subclass rather than a message, because one caller acts on it.** A single image file cannot be
+ * referenced tile by tile, but it can be copied into the Workspace and tiled here, so the editor's
+ * add-a-map flow catches this and takes that path instead of showing a refusal
+ * (`remote-image/fetch-remote-image.ts`). Every other caller — the image-service read, the community
+ * lookup — meets it as the ordinary refusal it is, which is why the message is a plain statement of
+ * what arrived rather than advice that would only be true on the add path.
+ */
+export class RemoteImageResponseError extends RemoteIiifRejectedError {
+	/** The `content-type` the host sent, without its parameters. */
+	readonly contentType: string;
+
+	constructor(options: { url: string; host: string; contentType: string }) {
+		super({
+			url: options.url,
+			host: options.host,
+			reason:
+				`${options.host} sent an image file (${options.contentType}) rather than a IIIF ` +
+				`Manifest, Collection, or image description.`
+		});
+		this.name = 'RemoteImageResponseError';
+		this.contentType = options.contentType;
 	}
 }
 
@@ -305,9 +333,14 @@ export async function fetchRemoteJson(
 					: // A `fetch` that rejects cross-origin is usually CORS, and saying so here is worth
 						// more than the browser's own "Failed to fetch" — but it can also be DNS or an
 						// offline laptop, so both are offered rather than one guessed at.
+						//
+						// **Nothing here says "IIIF service", and that is deliberate.** A request that never
+						// completed carries no `content-type`, so at this point the address may equally have
+						// been a plain image file — and telling a scholar what a IIIF service has to do,
+						// about a JPEG, sends them looking for a manifest that was never involved.
 						`${url.hostname} could not be reached (${message(cause)}). Either it is not ` +
-						`responding, you are offline, or it does not allow other websites to read it — ` +
-						`which is what a IIIF service has to do for Ballastella to draw its tiles.`
+						`responding, you are offline, or it does not allow other websites to read its ` +
+						`files — which it has to do for Ballastella to read a map from it.`
 			});
 		}
 
@@ -322,6 +355,19 @@ export async function fetchRemoteJson(
 		}
 
 		const contentType = response.headers.get('content-type') ?? '';
+
+		// **An image file is reported as one, and it is the only refusal here a caller can act on.**
+		// A JPEG read as JSON fails as "Unexpected token ÿ", which accuses the host of sending broken
+		// data when what it sent is a perfectly good image at exactly the address the user meant. It is
+		// named before the body is read, so nothing downloads a 200 MB scan in order to fail to parse it.
+		if (isImageContentType(contentType)) {
+			throw new RemoteImageResponseError({
+				url: url.href,
+				host: url.hostname,
+				contentType: contentType.split(';')[0]?.trim() ?? contentType
+			});
+		}
+
 		if (/^\s*text\/html\b/i.test(contentType)) {
 			throw new RemoteIiifRejectedError({
 				url: url.href,

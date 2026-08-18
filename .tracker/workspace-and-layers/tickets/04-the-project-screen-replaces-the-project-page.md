@@ -4,7 +4,7 @@
 
 Entering a Project puts the user on a Base Map with a Layer sidebar, and that is the Project. The separate `/layers/` route and the `ProjectView` page both disappear into it, along with `/base-map/`.
 
-Demonstrable end to end: from the hub, open a Project; land on a full-height map with the Layer stack beside it; rename the Project from a menu; toggle the theme once from a bar that is present on every screen; click Align on a Historical Map and come back.
+Demonstrable end to end: from the hub, open a Project; land on a full-height map with the Layer stack beside it; rename the Project from a menu; toggle the theme once from a bar that is present on every screen; click Align on a Map Image and come back.
 
 ## Where to start
 
@@ -49,7 +49,7 @@ The visible control is a **two-state toggle**: the first click writes an explici
 | Project name, folder, last saved | Project settings dialog |
 | Add from file, ingest progress and cancel | Layer sidebar (ticket 06 makes it the full flow; here, keep it working wherever it fits) |
 | `AddRemoteMap` | Same |
-| Referenced Historical Maps section | **Deleted.** Its information becomes Layer-card state (tickets 05, 07) |
+| Referenced Map Images section | **Deleted.** Its information becomes Layer-card state (tickets 05, 07) |
 | Offline copies section | **Deleted.** Same |
 | `MirrorMap` per-map action | Layer card (ticket 11 owns its final form; keep it reachable) |
 | Undo, save indicator | Navigation bar |
@@ -77,7 +77,7 @@ The visible control is a **two-state toggle**: the first click writes an explici
 - [x] Project settings opens as a `<dialog>` via `showModal()`, closes on Escape, and returns focus to the control that opened it.
 - [x] Focusing the Project name field and tabbing away without typing causes no write and leaves `updatedAt` unchanged.
 - [x] Typing a Project name coalesces into one write, committed when the edit ends.
-- [x] Align on a Historical Map Layer navigates to `/align/`, and returning lands on `/?p=` with the same Project open.
+- [x] Align on a Map Image Layer navigates to `/align/`, and returning lands on `/?p=` with the same Project open.
 - [x] Every control on the Project screen is reachable by keyboard.
 
 ```sh
@@ -110,7 +110,7 @@ teardown.
 **Where `ProjectView`'s Referenced and Offline-copies sections went.** Onto the Layer, as the
 contract says, via a `mapActions` snippet `LayerList` renders inside a map Layer's row: Align, the
 serving host, "View unwarped", `MirrorMap`, and a mirrored copy's source URI. Tickets 05 and 07 own
-their final form. The Project page's list of the Workspace's Historical Maps is gone with the
+their final form. The Project page's list of the Workspace's Map Images is gone with the
 sections, so `data-image-id` on a Layer row is where a test reads an image id now.
 
 **Two consequences worth naming for the reviewer.**
@@ -118,7 +118,7 @@ sections, so `data-image-id` on a Layer row is where a test reads an image id no
 - The save indicator is on every screen now, so the hub has a `role="status"` it did not have.
   `ProjectHub`'s transfer announcement became `aria-live="polite"`, which is this repo's settled
   convention wherever the two meet.
-- A Historical Map the Workspace holds but **this Project does not draw** has no place on the
+- A Map Image the Workspace holds but **this Project does not draw** has no place on the
   Project screen any more (ADR-0023). `ProjectView`'s `align-unavailable` alert is therefore gone;
   the sentence that covers the case is the sidebar's empty state.
 
@@ -174,8 +174,8 @@ is kept and unlinked.
 
 **Recorded elsewhere, deliberately not widened into this ticket.**
 
-- A Historical Map whose starter Alignment failed leaves a pyramid with no Layer, and after a reload
-  nothing on screen connects it to "This Project has no Historical Maps yet" — `ingestError` is
+- A Map Image whose starter Alignment failed leaves a pyramid with no Layer, and after a reload
+  nothing on screen connects it to "This Project has no Map Images yet" — `ingestError` is
   cleared by `open()`. Written into ticket 06's Contract, which owns the sidebar's add flow and its
   empty states.
 - `mirror` vocabulary moved into `lib/project/ProjectScreen.svelte` and a new e2e suite. Added to

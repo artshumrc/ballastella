@@ -31,11 +31,11 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 
 **`PROVENANCE.md` is rewritten** to describe what actually ships — glyphs, sprites, and their licences — plus the archive kept as a fixture and why. The ODbL, OFL, and BSD-3-Clause obligations do not lapse.
 
-**The offline first-run state is named, not blank.** An installed app opened with no connection and no cached tiles must say so: there is no connection, so the Base Map cannot load yet, and everything else works — a Historical Map can be added now and placed when the connection is back. **Not a spinner, not an empty canvas.** This is a user's first contact with the application and a blank grey rectangle is the worst version of it.
+**The offline first-run state is named, not blank.** An installed app opened with no connection and no cached tiles must say so: there is no connection, so the Base Map cannot load yet, and everything else works — a Map Image can be added now and placed when the connection is back. **Not a spinner, not an empty canvas.** This is a user's first contact with the application and a blank grey rectangle is the worst version of it.
 
 **The Base Map switcher must still distinguish available-offline from needs-network** (ADR-0020). With no bundled archive every catalog entry needs the network until ticket 11 caches tiles, so the switcher's marking must be honest about that rather than silently claiming offline capability.
 
-**SPEC story 69's claim is narrowed in the documentation, not quietly broken.** A user's Historical Maps, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline. ADR-0012 already carries this amendment — check that no user-facing copy still promises otherwise.
+**SPEC story 69's claim is narrowed in the documentation, not quietly broken.** A user's Map Images, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline. ADR-0012 already carries this amendment — check that no user-facing copy still promises otherwise.
 
 ## Out of scope
 
@@ -54,7 +54,7 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 - [x] The e2e suite still serves real pmtiles bytes from a fixture and every Base Map spec passes.
 - [x] `PROVENANCE.md` describes only what ships, plus the fixture, and carries every licence obligation.
 - [x] With the service worker in control, no connection, and a new Project, the Project screen shows a named explanation naming the absence of a connection — asserted on its text, not on the absence of a canvas.
-- [x] In that state, adding a Historical Map from a file still works and the Layer appears.
+- [x] In that state, adding a Map Image from a file still works and the Layer appears.
 - [x] The Base Map switcher marks every entry that needs the network as needing it.
 - [x] No user-facing copy claims the Base Map works offline without the Project having been made available offline.
 - [x] The three Base Map looks still resolve over one dataset with no extra archive.

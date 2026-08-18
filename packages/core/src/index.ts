@@ -89,27 +89,27 @@ export {
 	imageInfoPath,
 	imageManifestPath
 } from './project/image-files.js';
-// ADR-0023's derived answer, in one place: which Historical Maps the Workspace holds, whether each
+// ADR-0023's derived answer, in one place: which Map Images the Workspace holds, whether each
 // one's tiles are here or on a Library's server, who draws it, and what deleting it takes. Both apps
 // — the viewer reaches only for `tileLocation`, because a static file server cannot list a directory
 // and its half of the observation is a 404 probe.
 export {
-	HistoricalMapInUseError,
-	HistoricalMapPartlyDeletedError,
-	deleteHistoricalMap,
-	historicalMapUsage,
-	listWorkspaceHistoricalMaps,
+	MapImageInUseError,
+	MapImagePartlyDeletedError,
+	deleteMapImage,
+	mapImageUsage,
+	listWorkspaceMapImages,
 	partitionByOfflineCopy,
-	referencedHistoricalMaps,
+	referencedMapImages,
 	tileLocation,
-	unusedHistoricalMapBytes,
-	unusedHistoricalMaps,
-	type HistoricalMapFiles,
-	type HistoricalMapUsage,
-	type HistoricalMapUser,
+	unusedMapImageBytes,
+	unusedMapImages,
+	type MapImageFiles,
+	type MapImageUsage,
+	type MapImageUser,
 	type TileLocation,
-	type WorkspaceHistoricalMap
-} from './project/historical-maps.js';
+	type WorkspaceMapImage
+} from './project/map-images.js';
 // The opening view (ADR-0026). Both apps, and that is the whole point of it being here: a Published
 // Site that opened on the deployment's default while the editor opened on the work would be two
 // answers to one question, and ticket 17 is already merged and would not remind anyone.
@@ -655,14 +655,14 @@ export {
 	type StoreImageFetchOptions,
 	type TileFetchOutcome
 } from './injection/store-image-fetch.js';
-// The sentence a person is shown when a Historical Map's tiles stop arriving. One function, rendered
+// The sentence a person is shown when a Map Image's tiles stop arriving. One function, rendered
 // by the published viewer (ticket 04) and by the editor (ticket 05), so that one outage cannot be
 // described two ways at the same scholar.
 // `keepAskingForMissingTiles` is what makes that sentence's self-healing clause true: MapLibre paints
 // no frames when nothing changes, and the renderer only re-asks for a refused record while it is
 // painting.
 export {
-	historicalMapTilesUnavailableNotice,
+	mapImageTilesUnavailableNotice,
 	keepAskingForMissingTiles,
 	type TileSourceFailure
 } from './injection/tile-failure.js';
@@ -746,19 +746,32 @@ export {
 	serialiseReferencedImage,
 	sourceOf,
 	tileBaseFor,
-	type HistoricalMapSource,
+	type MapImageSource,
 	type ImagePaneSource,
 	type ReferencedImage
 } from './remote-iiif/referenced-image.js';
 export {
 	REMOTE_IIIF_LIMITS,
 	RemoteIiifRejectedError,
+	RemoteImageResponseError,
 	readRemoteIiifResource,
 	remoteIiifUrl,
 	type RemoteIiifKind,
 	type RemoteIiifLimits,
 	type RemoteIiifResource
 } from './remote-iiif/remote-resource.js';
+
+// A plain image at a URL, downloaded into the bytes the tiler takes. Not IIIF and not a reference:
+// a single image file has no request that returns part of it, so the only way to draw one is to copy
+// it into the Workspace and cut its own tiles.
+export { isImageContentType } from './remote-image/content-type.js';
+export {
+	REMOTE_IMAGE_LIMITS,
+	RemoteImageRefusedError,
+	fetchRemoteImageFile,
+	type FetchRemoteImageOptions,
+	type RemoteImageLimits
+} from './remote-image/fetch-remote-image.js';
 
 // Single-level undo (ADR-0014, ticket 11). Editor-only in practice — a Published Site has nothing to
 // undo — but here rather than in the app because it is where the record shapes, the wording of the

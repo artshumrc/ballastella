@@ -1,6 +1,6 @@
 # OPFS-first Project Store, File System Access as a capability upgrade
 
-> **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** the OPFS root holds **several named workspaces** rather than being one, so that a Review Workspace is not a subdirectory of the user's own. `OpfsProjectStore` already takes a directory-handle factory, so this changes what is passed in and not the store. ADR-0024 also requires `navigator.storage.persist()`, which is called nowhere today — OPFS data is otherwise best-effort and evictable, which is unacceptable now that it is the primary home for a shared pool of large pyramids ([ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md)).
+> **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** the OPFS root holds **several named workspaces** rather than being one, so that a Review Workspace is not a subdirectory of the user's own. `OpfsProjectStore` already takes a directory-handle factory, so this changes what is passed in and not the store. ADR-0024 also requires `navigator.storage.persist()`, which is called nowhere today — OPFS data is otherwise best-effort and evictable, which is unacceptable now that it is the primary home for a shared pool of large pyramids ([ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md)).
 >
 > **The "explicit zip operation" below is now a tar**, and it is a whole-workspace backup rather than a per-project handoff — see ADR-0024 for why the zip could not carry it.
 >

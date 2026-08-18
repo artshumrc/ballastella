@@ -16,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS PROBES FOR `info.json` RATHER THAN READING A FLAG
 //
-// ADR-0023 deleted `MapLayer.imageMode`, because whether a Historical Map's tiles are here is a fact
+// ADR-0023 deleted `MapLayer.imageMode`, because whether a Map Image's tiles are here is a fact
 // about the files and a stored flag could disagree with them — an offline copy used to leave every other
 // Project's Layer still claiming the library. So the answer is read the way it is written: an `info.json`
 // of ours means the tiles are on this site, and only a `remote.json` means they are on a Library's server.
@@ -24,7 +24,7 @@
 // **The rule itself is core's `tileLocation` and this module does not restate it.** What is local here
 // is only the *observation*: the editor answers the same two booleans by walking `images/` once, and a
 // static host makes that impossible, so this asks for the two files by name and reads the 404. Two
-// observers, one rule — see `packages/core/src/project/historical-maps.ts` for why that seam exists and
+// observers, one rule — see `packages/core/src/project/map-images.ts` for why that seam exists and
 // what happened when it did not.
 //
 // `info.json` is asked for first because a local copy is the common case and that request costs nothing
@@ -82,7 +82,7 @@ export type LayerDocuments =
 			 */
 			readonly service?: string;
 			/**
-			 * Whether this map Layer's Historical Map is served from somebody else's server, as observed
+			 * Whether this map Layer's Map Image is served from somebody else's server, as observed
 			 * from the files on this site rather than claimed by `project.json` (ADR-0023).
 			 *
 			 * What the page says out loud about needing the network, and what `showAlignment` uses to refuse
@@ -160,7 +160,7 @@ export async function readLayerDocuments(
  *
  * **But an Alignment that parsed is a place, whatever else about the Layer failed.** `'ready'` is a
  * claim about drawing — it means this Layer can go on the map — and framing is a different question
- * from drawing. A Historical Map whose library server is down, or whose `remote.json` was never
+ * from drawing. A Map Image whose library server is down, or whose `remote.json` was never
  * copied, is still a sheet somewhere on the earth, and the editor's `readProjectContent` has always
  * counted it. Reading `'ready'` here instead made the two apps disagree about what a Project contains,
  * which is the one thing ADR-0026 puts this computation in `core` to prevent.
@@ -183,7 +183,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 	if (imageId === '') {
 		return {
 			status: 'unreadable',
-			reason: `${named} does not name a Historical Map this site can find.`,
+			reason: `${named} does not name a Map Image this site can find.`,
 			hostUnreachable: false
 		};
 	}

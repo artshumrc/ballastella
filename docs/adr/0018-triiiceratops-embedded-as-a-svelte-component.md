@@ -6,7 +6,7 @@
 
 The editor no longer needs it for two reasons, and the second is the one that decides it:
 
-- Since ticket 07 the alignment view deep-zooms **any** Historical Map, Workspace-held or referenced, in the same pane. "Look closely at this sheet" is answered uniformly, without a second tiling viewer on the screen.
+- Since ticket 07 the alignment view deep-zooms **any** Map Image, Workspace-held or referenced, in the same pane. "Look closely at this sheet" is answered uniformly, without a second tiling viewer on the screen.
 - The editor's copy could **never** show a locally ingested pyramid. The paragraph below says ADR-0011 requires passing a custom OpenSeadragon `TileSource`, and that is still true and still unsatisfied: triiiceratops 1.0.0-rc.35 has no prop, plugin hook, or config path that accepts one. So the affordance appeared on a map fetched from a library and not on one ingested from a file, **for a reason the user could not possibly infer** — the opposite of an interface that documents itself. The object it would have been passed, `storedPyramidTileSource`, is kept in `@ballastella/core` with that gap named in its header.
 
 **"Two IIIF parsers in one bundle" is now true of neither app, and the section below should be read as history.** Measured on the ticket-15 build, by grepping the served assets rather than the manifests:

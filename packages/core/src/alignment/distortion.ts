@@ -1,4 +1,4 @@
-// Distortion: where the Historical Map is stretched worst, and whether the Alignment has folded
+// Distortion: where the Map Image is stretched worst, and whether the Alignment has folded
 // over itself (ADR-0013).
 //
 // Two different things live here, and keeping them apart is the point of the module.
@@ -147,7 +147,7 @@ export interface FoldWarning {
 	 */
 	readonly kind: 'mirrored' | 'local';
 	/**
-	 * Which part of the Historical Map the folding is centred in, in the words the message uses —
+	 * Which part of the Map Image the folding is centred in, in the words the message uses —
 	 * `top-right`, `bottom`, `centre`, and so on.
 	 *
 	 * Always populated, but only put in front of the user for a `local` fold: telling somebody whose
@@ -225,9 +225,9 @@ export function detectFold(alignment: Alignment): FoldWarning | null {
 		kind: everywhere ? 'mirrored' : 'local',
 		where,
 		message: everywhere
-			? 'This Alignment turns the whole Historical Map over — it is mirrored. Two Control Points ' +
+			? 'This Alignment turns the whole Map Image over — it is mirrored. Two Control Points ' +
 				'are probably swapped.'
-			: `This Alignment folds over itself near the ${where} of the Historical Map. A Control ` +
+			: `This Alignment folds over itself near the ${where} of the Map Image. A Control ` +
 				'Point there is probably in the wrong place.',
 		foldedSamples: folded.length,
 		sampleCount: measured

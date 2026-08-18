@@ -190,7 +190,7 @@ describe('baseMapNotPublishedNotice', () => {
 	const siteServed = FORKED_CATALOG.entries[0]!;
 	const remote = FORKED_CATALOG.entries[2]!;
 	const NO_PLACE_NAMES = /carries no place names at all/;
-	const NOTHING_UNDER_THE_WORK = /only the Historical Maps and Annotations are drawn/;
+	const NOTHING_UNDER_THE_WORK = /only the Map Images and Annotations are drawn/;
 
 	it('says nothing at all when the site carries the files', () => {
 		for (const entry of [siteServed, remote]) {
@@ -220,7 +220,7 @@ describe('baseMapNotPublishedNotice', () => {
 		// …and this is the row the shipped sentence got wrong. `styleFor` tries the site's own cached
 		// tiles **before** it falls back to the bare background, so a site that carries tiles and no
 		// display assets draws geography from its own files — while the notice went on saying only the
-		// Historical Maps and Annotations were drawn.
+		// Map Images and Annotations were drawn.
 		expect(
 			baseMapNotPublishedNotice(siteServed, { bundledAssets: false, cachedTiles: true })
 		).toMatch(NO_PLACE_NAMES);

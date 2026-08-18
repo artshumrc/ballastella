@@ -1,8 +1,8 @@
-# Add a Historical Map from the sidebar, from any of three sources
+# Add a Map Image from the sidebar, from any of three sources
 
 ## What to build
 
-One button in the Layer sidebar — "Add a Historical Map" — offering three sources with equal visibility: a file on this computer, a remote IIIF address, or a Historical Map already in the Workspace. Whichever is chosen, a Layer appears in the stack and progress is reported on that Layer's own card.
+One button in the Layer sidebar — "Add a Map Image" — offering three sources with equal visibility: a file on this computer, a remote IIIF address, or a Map Image already in the Workspace. Whichever is chosen, a Layer appears in the stack and progress is reported on that Layer's own card.
 
 Demonstrable end to end: add a map from a file and watch tile progress on the new Layer's card; add one from a IIIF Manifest and pick which image is the map; add one you already have and see it appear instantly with its existing Alignment already in place.
 
@@ -12,7 +12,7 @@ Demonstrable end to end: add a map from a file and watch tile progress on the ne
 - `apps/editor/src/lib/components/ProjectView.svelte` as ticket 04 left it — the file input, the ingest progress region with its `aria-live` and cancel button, and the `session.ingestImage(file)` call. **The progress region's comment explains why it is `aria-live` rather than `role="status"`** (the save indicator already owns that role on the page); the same reasoning applies wherever it lands.
 - `apps/editor/src/lib/remote-iiif/AddRemoteMap.svelte` (299 lines) and `add-remote-map.svelte.ts` — the existing remote flow: paste a URL, resolve a Manifest, Collection, or bare image service, pick a canvas from a list of real `<button>`s, probe, and add. This is reused, not rewritten.
 - `apps/editor/src/lib/remote-iiif/lookup-setting.svelte.ts` and `packages/core/src/remote-iiif/community-alignments.ts` — the ADR-0015 community Alignment lookup. It stays.
-- `apps/editor/src/lib/editor-session.svelte.ts` — `ingestImage`, `addReferencedMap`, `cancelIngest`, `ingest`, `ingestLabel`, `ingestError`, and `images` (the Workspace's Historical Maps after ticket 01).
+- `apps/editor/src/lib/editor-session.svelte.ts` — `ingestImage`, `addReferencedMap`, `cancelIngest`, `ingest`, `ingestLabel`, `ingestError`, and `images` (the Workspace's Map Images after ticket 01).
 - `packages/core/src/tiler/ingest.ts` — `ingestImageFile`, its `signal`, and `ImageTooLargeError`. **Ticket 19 changed this surface:** `openStreaming` and `streamingTilerUnavailableReason` are gone, there is one tiler, and `maxIngestPixels` (default `MAX_INGEST_PIXELS`, 528,006,700) is the cap.
 
 ## Contract
@@ -35,20 +35,20 @@ Demonstrable end to end: add a map from a file and watch tile progress on the ne
 
 **Empty states name the next action.** A Project with no Layers says what to do, in one sentence, and the thing it names is the button that is there.
 
-**And one of them has to say more than that — a state ticket 04 left without a persistent explanation.** A Historical Map whose starter Alignment could not be written arrives with its pyramid and *without* its Layer (ADR-0023 writes the Alignment first on purpose). While the failure is on screen `session.ingestError` says so; `EditorSession.open()` clears it (`editor-session.svelte.ts`), so after a reload the sidebar says "This Project has no Historical Maps yet" while a pyramid the scholar watched land sits in the Workspace, with nothing connecting the two. `ProjectView`'s `align-unavailable` alert used to cover this because it derived from `session.images` and therefore survived a reload; ticket 04 deleted it with the section it lived in, which is licensed — a Workspace map this Project does not draw is not a fact about this Project — but this half of it was real and is now unsaid. The Workspace-side answer is ticket 08's hub list; what belongs here is that the "already in the Workspace" source offers that orphaned pyramid, so the one useful next action is available rather than merely described.
+**And one of them has to say more than that — a state ticket 04 left without a persistent explanation.** A Map Image whose starter Alignment could not be written arrives with its pyramid and *without* its Layer (ADR-0023 writes the Alignment first on purpose). While the failure is on screen `session.ingestError` says so; `EditorSession.open()` clears it (`editor-session.svelte.ts`), so after a reload the sidebar says "This Project has no Map Images yet" while a pyramid the scholar watched land sits in the Workspace, with nothing connecting the two. `ProjectView`'s `align-unavailable` alert used to cover this because it derived from `session.images` and therefore survived a reload; ticket 04 deleted it with the section it lived in, which is licensed — a Workspace map this Project does not draw is not a fact about this Project — but this half of it was real and is now unsaid. The Workspace-side answer is ticket 08's hub list; what belongs here is that the "already in the Workspace" source offers that orphaned pyramid, so the one useful next action is available rather than merely described.
 
 ## Out of scope
 
 - **Do not change how a remote address is resolved, how canvases are listed, or how the community Alignment lookup works.** Reuse `AddRemoteMap`'s machinery. It handles Manifests, Collections, and bare image services, and its canvas picker is already keyboard-operable.
 - **Do not change the ingest pipeline, the tiler, or the pyramid format.**
 - **Do not add the remote-alignment probe.** Ticket 07 adds it to this flow — which is exactly why that ticket is blocked by this one.
-- **Do not build the Workspace-wide Historical Maps list with sizes and used-by.** Ticket 08. The picker here needs labels and sizes; it does not need used-by or delete.
+- **Do not build the Workspace-wide Map Images list with sizes and used-by.** Ticket 08. The picker here needs labels and sizes; it does not need used-by or delete.
 - **Do not add bulk adding** — no multi-select file input, no "add all canvases".
 - **Do not touch `MirrorMap`** beyond keeping it reachable. Ticket 11.
 
 ## Acceptance criteria
 
-- [ ] One "Add a Historical Map" affordance in the sidebar offers all three sources without any of them being behind an extra step.
+- [ ] One "Add a Map Image" affordance in the sidebar offers all three sources without any of them being behind an extra step.
 - [ ] Adding from a file creates a Layer immediately and reports tile progress on that Layer's card.
 - [ ] The progress announcement contains the tile numbers, and `getByRole('status')` on the Project screen is unambiguous.
 - [ ] Cancelling a preparation removes its Layer and leaves no bytes in `images/` and no Alignment.

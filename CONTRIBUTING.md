@@ -1,7 +1,7 @@
 # Contributing to Ballastella
 
 Read [`CONTEXT.md`](CONTEXT.md) first. It defines the project's vocabulary — Workspace,
-Project, Layer, Historical Map, Alignment, Control Point — and the near-synonyms to avoid.
+Project, Layer, Map Image, Alignment, Control Point — and the near-synonyms to avoid.
 The code and the UI are required to use those words, so a pull request that calls an
 Alignment a "georeference" or a Control Point a "GCP" will be asked to change.
 

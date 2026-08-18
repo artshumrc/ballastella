@@ -16,7 +16,7 @@
    imperatively for MapLibre (`overlay-points.ts`) and so sit outside Svelte's component tree
    — there is nothing for a scoped rule to attach to. They live in the layout's stylesheet
    rather than in `ImagePane.svelte` because **both** panes draw them: a Control Point has a
-   half on the Historical Map and a half on the Base Map, and rules shipped with one component
+   half on the Map Image and a half on the Base Map, and rules shipped with one component
    would be missing on a route that mounts only the other.
 
    Colours come from daisyUI's theme variables rather than being literals, so a Control Point

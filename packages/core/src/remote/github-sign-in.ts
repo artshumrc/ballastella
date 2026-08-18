@@ -328,7 +328,7 @@ export async function refreshGitHubToken(options: {
  * How much of the eight hours has to be left for a publish to be allowed to start.
  *
  * ⚠ **The whole point of a margin is that expiry is refused *before* an upload, never during one.**
- * A first publish of a large Historical Map is thousands of requests and can run for many minutes,
+ * A first publish of a large Map Image is thousands of requests and can run for many minutes,
  * and a token that dies partway leaves loose blobs in no tree and a ref that never moved. One minute
  * is not enough to cover a long publish, so this is not a guarantee that the token outlives the
  * upload — it is what stops a publish being started with a credential already at its end. The

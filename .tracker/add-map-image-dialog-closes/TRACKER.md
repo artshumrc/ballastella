@@ -1,8 +1,8 @@
-# Tracker for add-historical-map-dialog-closes
+# Tracker for add-map-image-dialog-closes
 
 ## Purpose
 
-The Add-Historical-Map dialog closes by itself, after the code that opened it has already confirmed it open. It was found as an intermittent end-to-end failure, and it was measured rather than argued about: it is **not load** and **not** the epic that surfaced it.
+The Add-Map-Image dialog closes by itself, after the code that opened it has already confirmed it open. It was found as an intermittent end-to-end failure, and it was measured rather than argued about: it is **not load** and **not** the epic that surfaced it.
 
 One ticket. This is a bug report with a measurement attached, not a feature.
 
@@ -10,7 +10,7 @@ One ticket. This is a bug report with a measurement attached, not a feature.
 
 **Completed and merged**, 2026-08-09.
 
-The cause was named with captured evidence and the fix is test-support only — no product code changed. `EditorSession.#addMapLayer` publishes the new Layer (rendering `layer-row`) and *then* awaits the trailing `project.json` write, which is when the dialog closes. `addReferenced` returned inside that window, and the next `ensureAddHistoricalMapOpen` asked `HTMLDialogElement.open`, got `true`, and handed back a dialog it never re-opened.
+The cause was named with captured evidence and the fix is test-support only — no product code changed. `EditorSession.#addMapLayer` publishes the new Layer (rendering `layer-row`) and *then* awaits the trailing `project.json` write, which is when the dialog closes. `addReferenced` returned inside that window, and the next `ensureAddMapImageOpen` asked `HTMLDialogElement.open`, got `true`, and handed back a dialog it never re-opened.
 
 **`.open` was never the wrong fact. It was the wrong question** — it answers "open at this instant" where the callers meant "open and mine to use."
 
@@ -49,7 +49,7 @@ The measurement was made on an exclusive box with nothing else running, four ful
 
 345 polls at 500 ms is about 172 s of an already-resolved, already-laid-out button being *not visible*, until the 180 s `test.slow()` budget expired.
 
-**It has been seen before, and the previous fix is incomplete.** `e2e/support/historical-maps.ts` documents this exact signature — "element is not stable, twice, then element is not visible, 111 times" — as the bug that `HTMLDialogElement.open` was introduced to fix. `openAddHistoricalMap` verifies `open === true` and all three sources visible, and the dialog closes anyway *after* that check passes. So something closes it in the window between the helper's check and the click.
+**It has been seen before, and the previous fix is incomplete.** `e2e/support/map-images.ts` documents this exact signature — "element is not stable, twice, then element is not visible, 111 times" — as the bug that `HTMLDialogElement.open` was introduced to fix. `openAddMapImage` verifies `open === true` and all three sources visible, and the dialog closes anyway *after* that check passes. So something closes it in the window between the helper's check and the click.
 
 **Exit codes never surfaced this.** All four runs exited 0: the retry budget allows 2 flaky of ~523 and no run had 2. It is visible only in the reporter's per-retry line — which is why the standing rule against passing a `--reporter` override on the command line exists.
 
@@ -57,7 +57,7 @@ The measurement was made on an exclusive box with nothing else running, four ful
 
 ## Where to start
 
-The defect is in the app or in the helper, not in the harness. `openAddHistoricalMap`'s check passing and the dialog then closing is the whole of it. Instrument that window rather than reasoning about it — the epic this came from spent four rounds learning that a plausible story is not evidence.
+The defect is in the app or in the helper, not in the harness. `openAddMapImage`'s check passing and the dialog then closing is the whole of it. Instrument that window rather than reasoning about it — the epic this came from spent four rounds learning that a plausible story is not evidence.
 
 ## Ledger
 

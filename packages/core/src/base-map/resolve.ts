@@ -93,7 +93,7 @@ export function baseMapUnavailableNotice(entry: BaseMapEntry, host: string | nul
 	const where = host === null ? 'this site' : host;
 	return (
 		`The Base Map “${entry.label}” could not be loaded from ${where}. ` +
-		'Nothing in your Workspace is affected — your Historical Maps, their Alignments and your ' +
+		'Nothing in your Workspace is affected — your Map Images, their Alignments and your ' +
 		'Annotations are all still here and still saving, and they will draw over the geography ' +
 		'again as soon as a Base Map does. ' +
 		(entry.needsNetwork
@@ -156,9 +156,9 @@ export function baseMapOptions(
  * Including the Base Map's glyphs, sprites, and tiles is a choice a scholar makes at publish time
  * (ADR-0020's opt-in, SPEC stories 88 and 89), so a great many sites will be short of them and every
  * one of those Readers meets whatever this returns. It lived in `+page.svelte` as a nested ternary
- * and was **false in a reachable row twice over** — first claiming "the geography, the Historical
- * Maps, and the Annotations are all here" while the archive was refusing, then, once that was fixed,
- * still claiming "only the Historical Maps and Annotations are drawn" for a site that carries its own
+ * and was **false in a reachable row twice over** — first claiming "the geography, the Map
+ * Images, and the Annotations are all here" while the archive was refusing, then, once that was fixed,
+ * still claiming "only the Map Images and Annotations are drawn" for a site that carries its own
  * cached tiles and draws geography from them.
  *
  * Both were the same mistake: a sentence about what is *drawn*, chosen without the state that decides
@@ -186,7 +186,7 @@ export function baseMapNotPublishedNotice(
 	if (!site.cachedTiles && !isAbsoluteUrl(entry.archive)) {
 		return (
 			'This site was published without its own copy of the modern reference map, so only the ' +
-			'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
+			'Map Images and Annotations are drawn. The Base Maps marked “needs network” still work.'
 		);
 	}
 	// A reference map does draw — from the network, or from this site's own cached tiles — and what it
@@ -202,7 +202,7 @@ export function baseMapNotPublishedNotice(
 	// announce one claim on load and another a beat later when the archive's error arrived.
 	return (
 		'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
-		'map here carries no place names at all. The Historical Maps and the Annotations are not ' +
+		'map here carries no place names at all. The Map Images and the Annotations are not ' +
 		'affected.'
 	);
 }

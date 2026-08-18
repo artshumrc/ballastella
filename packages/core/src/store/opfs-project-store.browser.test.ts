@@ -147,7 +147,7 @@ it('lists what is still there when a directory is deleted while the walk is runn
 	// folder, or the user deleting a Project in another window can all remove a directory between
 	// the root's `entries()` yielding it and the walk descending into it. Chromium raises
 	// `NotFoundError` from inside the `for await` at that point, and it used to come out of `list`
-	// — which `EditorSession.refreshHistoricalMaps` reads as the Workspace being unreachable, so one
+	// — which `EditorSession.refreshMapImages` reads as the Workspace being unreachable, so one
 	// deleted Project replaced the whole hub with "your Workspace cannot be reached".
 	//
 	// The deletion here is real and lands at the real race point: the root's iterator is wrapped so

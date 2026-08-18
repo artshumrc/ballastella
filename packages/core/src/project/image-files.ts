@@ -1,8 +1,8 @@
-// Where a Historical Map's tiles live **in the Workspace**: three path joins and nothing else
+// Where a Map Image's tiles live **in the Workspace**: three path joins and nothing else
 // (ADR-0023).
 //
 // **These are store paths, not Project-relative fragments.** That is the whole of ADR-0023 as far as
-// this module is concerned: a Historical Map's pyramid is shared by every Project in the Workspace, so
+// this module is concerned: a Map Image's pyramid is shared by every Project in the Workspace, so
 // `images/<image-id>/info.json` is the path, complete, and nothing prefixes a Project directory onto
 // it. `scripts/check-workspace-rooted-paths.mjs` is what keeps it that way — the failure mode of
 // getting it wrong is a pane showing somebody else's map rather than an error.
@@ -19,15 +19,15 @@
 
 import type { StorePath } from '../store/project-store.js';
 
-/** Where the Workspace keeps every Historical Map's pyramid (ADR-0023). */
+/** Where the Workspace keeps every Map Image's pyramid (ADR-0023). */
 export const IMAGE_DIRECTORY = 'images';
 
-/** Where one Historical Map's pyramid lives in the Workspace. A store path. */
+/** Where one Map Image's pyramid lives in the Workspace. A store path. */
 export const imageDirectory = (imageId: string): StorePath => `${IMAGE_DIRECTORY}/${imageId}`;
 
-/** The path of a Historical Map's `info.json` in the Workspace. A store path. */
+/** The path of a Map Image's `info.json` in the Workspace. A store path. */
 export const imageInfoPath = (imageId: string): StorePath => `${imageDirectory(imageId)}/info.json`;
 
-/** The path of a Historical Map's IIIF Presentation manifest in the Workspace. A store path. */
+/** The path of a Map Image's IIIF Presentation manifest in the Workspace. A store path. */
 export const imageManifestPath = (imageId: string): StorePath =>
 	`${imageDirectory(imageId)}/manifest.json`;

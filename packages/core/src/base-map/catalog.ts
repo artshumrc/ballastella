@@ -27,7 +27,7 @@ import type { BaseMapCatalog } from './entry';
  * overlooked — see the amendment in ADR-0025 dated 2026-08-10.
  *
  * **Why it replaced `demo-bucket.protomaps.com`.** That bucket now answers `404` for this file, so
- * the Base Map was not degraded but absent: Historical Maps drew on blank space with nothing on
+ * the Base Map was not degraded but absent: Map Images drew on blank space with nothing on
  * screen saying why. The previous decision — recorded in ADR-0025 as settled — was that the demo
  * tiles stayed. A 404 overtook it.
  *

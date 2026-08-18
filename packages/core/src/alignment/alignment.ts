@@ -13,7 +13,7 @@ import type { AlignmentPath } from '../store/project-store.js';
 export type GeoPoint = { lng: number; lat: number };
 
 /**
- * A single correspondence between one point on a Historical Map image and one point on the
+ * A single correspondence between one point on a Map Image and one point on the
  * earth (CONTEXT.md, Control Point).
  *
  * **Both halves are required, and that is structural rather than validated.** A Control Point
@@ -228,11 +228,11 @@ export function withTransformationType(
 }
 
 /**
- * One Historical Map's correspondence with the earth: its Control Points, its Resource Mask,
+ * One Map Image's correspondence with the earth: its Control Points, its Resource Mask,
  * and its transformation type (CONTEXT.md, Align / Alignment).
  */
 export interface Alignment {
-	/** Which Historical Map of the Workspace this aligns. Its identity is its file path. */
+	/** Which Map Image of the Workspace this aligns. Its identity is its file path. */
 	readonly imageId: string;
 	/** The image's pixel dimensions, which the Resource Mask and the renderer are both in terms of. */
 	readonly image: { readonly width: number; readonly height: number };
@@ -287,7 +287,7 @@ export interface Alignment {
 }
 
 /**
- * Where the **Workspace** keeps one Historical Map's Alignment (ADR-0023).
+ * Where the **Workspace** keeps one Map Image's Alignment (ADR-0023).
  *
  * At the Workspace root rather than inside a Project, because "where is this map on the earth" has to
  * have one answer. The rejected shape copied the Alignment into each Project, and *N* answers drift:

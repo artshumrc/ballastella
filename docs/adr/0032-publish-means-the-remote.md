@@ -68,7 +68,7 @@ Project, exported to be sent to somebody, opening only into a Review Workspace.
   Workspace bound to it — `restore-workspace-tar`'s semantics, which never overwrite and never merge.
   **Review a Project from a Remote** creates a Review Workspace — `openBundle`'s semantics.
 - **Importing one Project into your own Workspace is refused**, for ADR-0024's reason unchanged: an
-  Alignment is Workspace-shared, one per Historical Map (ADR-0023), so it would either overwrite an
+  Alignment is Workspace-shared, one per Map Image (ADR-0023), so it would either overwrite an
   Alignment two of your own Projects depend on, or be refused. A new transport does not make the
   collision go away.
 - **A Review Workspace can never be bound to a Remote, and no credential is read or written while one

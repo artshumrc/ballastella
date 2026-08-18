@@ -9,7 +9,7 @@ It needs **no credential at all**. Reading a public repository requires none, so
 account can seed a Workspace from their instructor's Remote. This is the story the epic is most likely to be
 used for and the one that costs least to deliver.
 
-It is as expensive as a first publish — thousands of files for one Historical Map — so it reports per-file
+It is as expensive as a first publish — thousands of files for one Map Image — so it reports per-file
 progress and **resumes** rather than restarting.
 
 ## Where to start
@@ -86,7 +86,7 @@ on both calls, but that makes a credential a prerequisite for the one operation 
 - [ ] Naming a public repository holding a published Workspace creates a new named Workspace, fills it, and
       switches to it.
 - [ ] Cloning with no credential present succeeds.
-- [ ] The cloned Workspace's Projects, Historical Maps, Alignments, and Annotations are all readable, and a
+- [ ] The cloned Workspace's Projects, Map Images, Alignments, and Annotations are all readable, and a
       Project opens and renders.
 - [ ] The cloned Workspace is bound to the repository it came from.
 - [ ] An existing Workspace with the same content is untouched — nothing is merged and nothing is

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Aligning one Historical Map: the sheet on one side and the world on the other (ticket 03).
+	// Aligning one Map Image: the sheet on one side and the world on the other (ticket 03).
 	//
 	// A route of its own rather than a section of the Project page. Aligning is a whole screen's worth
 	// of work — two live map contexts, a Control Point list, a Resource Mask, and a transformation
@@ -8,7 +8,7 @@
 	//
 	// **Keyed by Layer id, not by image id.** The Layer is what the user clicked, what carries the name
 	// they gave it, and what exists before a single Control Point does — so `?layer=` is honest for a
-	// Historical Map nobody has placed yet, where `?image=` would be addressing a pyramid and hoping
+	// Map Image nobody has placed yet, where `?image=` would be addressing a pyramid and hoping
 	// the Project has something to draw it with. The image id is recovered from the Layer here, which
 	// is the one direction that always works (ADR-0023).
 	//
@@ -56,7 +56,7 @@
 	});
 
 	/**
-	 * The Layer named by `?layer=`, if it is a Historical Map Layer of this Project.
+	 * The Layer named by `?layer=`, if it is a Map Image Layer of this Project.
 	 *
 	 * `null` covers three different mistakes that all render the same way and must all render
 	 * *something*: no such Layer, a Layer of another kind, and a Layer belonging to a different
@@ -181,10 +181,10 @@
 			</div>
 		{:else if layerId === null}
 			<div role="alert" class="alert flex-col items-start alert-info" data-testid="no-layer">
-				<h2 class="font-semibold">No Historical Map chosen</h2>
+				<h2 class="font-semibold">No Map Image chosen</h2>
 				<p>
-					This screen aligns one Historical Map, so it needs to be told which. Choose one on the
-					Project and press Align.
+					This screen aligns one Map Image, so it needs to be told which. Choose one on the Project
+					and press Align.
 				</p>
 				<a class="btn btn-sm" href="{resolve('/')}?p={projectQuery}">Back to this Project</a>
 			</div>
@@ -192,7 +192,7 @@
 			<p>Opening Project “{openDirectory}”…</p>
 		{:else if layer === null}
 			<!--
-				A `layer` id this Project has no Historical Map Layer for. Reachable by a stale bookmark, by
+				A `layer` id this Project has no Map Image Layer for. Reachable by a stale bookmark, by
 				a link shared between two Workspaces, and by deleting the Layer in another tab — none of
 				which is an error in the application, and all of which used to be an empty split screen.
 			-->
@@ -201,10 +201,10 @@
 				class="alert flex-col items-start alert-warning"
 				data-testid="layer-missing"
 			>
-				<h2 class="font-semibold">That Historical Map is not in this Project</h2>
+				<h2 class="font-semibold">That Map Image is not in this Project</h2>
 				<p>
-					“{openDirectory}” has no Historical Map Layer with the id <code>{layerId}</code>. It may
-					have been removed from the Project, or this link may have come from a different Workspace.
+					“{openDirectory}” has no Map Image Layer with the id <code>{layerId}</code>. It may have
+					been removed from the Project, or this link may have come from a different Workspace.
 				</p>
 				<a class="btn btn-sm" href="{resolve('/')}?p={projectQuery}">Back to this Project</a>
 			</div>

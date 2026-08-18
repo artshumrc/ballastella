@@ -36,7 +36,7 @@ import { IMAGE_SERVICE_PLACEHOLDER_ORIGIN } from '../tiler/pyramid.js';
 import type { TileSourceFailure } from './tile-failure.js';
 
 // **The placeholder resolves at the Workspace root, and takes no Project directory** (ADR-0023).
-// A Historical Map's pyramid is shared by every Project that references it, so there is one answer to
+// A Map Image's pyramid is shared by every Project that references it, so there is one answer to
 // "where are this image's tiles" and it does not depend on which Project is open. That change is the
 // riskiest in ADR-0023 precisely because its failure mode is not an error: rooted at the wrong place,
 // the shim answers with *somebody else's map*, at the right size, in the right pane. Hence
@@ -117,12 +117,12 @@ export type StoreImageFetchOptions = {
 	 */
 	readonly fetch?: FetchFn;
 	/**
-	 * Told what became of each request, so the app can say when a Historical Map stops drawing.
+	 * Told what became of each request, so the app can say when a Map Image stops drawing.
 	 *
 	 * ⚠ **Optional. The published viewer passes one (ticket 04); the editor gets one in ticket 05.**
 	 *
 	 * Until then the editor is no worse off than it was, and that is a measured claim rather than a
-	 * hope: its two readers of this shim — `HistoricalMapPane.svelte`'s ADR-0008 catch and
+	 * hope: its two readers of this shim — `MapImagePane.svelte`'s ADR-0008 catch and
 	 * `tile-protocol.ts` — already turned a refusal into a sentence a scholar reads, by throwing on a
 	 * non-ok `Response`, and {@link refusal} carries the store's own cause through in `statusText` so
 	 * that sentence still names it. An earlier version of this comment claimed the editor path "used
@@ -135,7 +135,7 @@ export type StoreImageFetchOptions = {
 	 * notice up until that URL comes back, and the editor makes requests through this shim that are
 	 * *expected* to fail and are never retried — `add-remote-map`'s cross-origin tile probe deliberately
 	 * asks a host for a tile to find out whether it will answer. Wired naively, one probe against an
-	 * unreachable library leaves a permanent "a Historical Map stopped drawing" over a Workspace where
+	 * unreachable library leaves a permanent "a Map Image stopped drawing" over a Workspace where
 	 * nothing is wrong. Either the probe stops going through this shim, or a probe is told apart from a
 	 * draw.
 	 */
@@ -143,7 +143,7 @@ export type StoreImageFetchOptions = {
 };
 
 /**
- * What became of one request for a Historical Map's bytes.
+ * What became of one request for a Map Image's bytes.
  *
  * ⚠ **Not every request produces one.** A **404 for a tile cell is not reported at all**, and that
  * is a measured decision rather than an omission: `@allmaps/iiif-parser` derives its own tile grid
@@ -177,9 +177,9 @@ export type TileFetchOutcome =
 			readonly ok: false;
 			readonly failure: TileSourceFailure;
 			/**
-			 * The Historical Map whose bytes these were, or `null` for a request that named no image.
+			 * The Map Image whose bytes these were, or `null` for a request that named no image.
 			 *
-			 * The app resolves it to a Layer's name, because "a Historical Map stopped drawing" sends a
+			 * The app resolves it to a Layer's name, because "a Map Image stopped drawing" sends a
 			 * Reader looking through a stack and "*this* one stopped drawing" does not. `null` for the
 			 * pass-through half, which carries a URL and no image id — a sentence that named the wrong
 			 * map would be worse than one that named none.
@@ -270,11 +270,11 @@ const isAbort = (cause: unknown): boolean => cause instanceof Error && cause.nam
  *
  * The status is the refusal's own where there is one, so a caller reading `response.status` reads
  * what the server said. The body is the sentence's *facts*, not the sentence: a renderer's log is
- * not where a person is told anything, and {@link historicalMapTilesUnavailableNotice} owns the
+ * not where a person is told anything, and {@link mapImageTilesUnavailableNotice} owns the
  * wording so that the two deployments cannot drift.
  *
  * ⚠ **`statusText` carries the cause, and that is not decoration.** Two callers in the editor build
- * a sentence a scholar reads out of `${status} ${statusText}` — `HistoricalMapPane.svelte`'s
+ * a sentence a scholar reads out of `${status} ${statusText}` — `MapImagePane.svelte`'s
  * ADR-0008 catch and `tile-protocol.ts`'s tile loader — and both of them used to receive the store's
  * own thrown error. Answering with a bare status turned `“abc123” could not be opened: the quota was
  * exceeded` into `… (500 )`, losing the cause and leaving a dangling space. Measured, and fixed here
@@ -347,7 +347,7 @@ const describeFailure = (failure: TileSourceFailure): string => {
 };
 
 /**
- * A `fetch` that answers the placeholder host from the Workspace's Historical Maps, and leaves every
+ * A `fetch` that answers the placeholder host from the Workspace's Map Images, and leaves every
  * other host alone.
  *
  * **Workspace-rooted, and it takes no Project directory** (ADR-0023). One instance therefore serves

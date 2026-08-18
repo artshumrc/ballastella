@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ProjectSummary, WorkspaceHistoricalMap } from '@ballastella/core';
+	import type { ProjectSummary, WorkspaceMapImage } from '@ballastella/core';
 	import { untrack } from 'svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -26,19 +26,19 @@
 	 * `packages/core`'s, and that it reaches OPFS at all is `e2e/`'s.
 	 */
 	let {
-		historicalMaps = [],
+		mapImages = [],
 		projects = [],
-		historicalMapsLoading = false
+		mapImagesLoading = false
 	}: {
-		historicalMaps?: readonly WorkspaceHistoricalMap[];
+		mapImages?: readonly WorkspaceMapImage[];
 		projects?: readonly ProjectSummary[];
-		historicalMapsLoading?: boolean;
+		mapImagesLoading?: boolean;
 	} = $props();
 
 	// Seeds, captured once on purpose: after mount the harness owns these lists and the hub changes
 	// them through the session below. `untrack` says so, rather than leaving the compiler to warn
 	// about a prop read that looks like an oversight.
-	let maps = $state(untrack(() => [...historicalMaps]));
+	let maps = $state(untrack(() => [...mapImages]));
 	let listed = $state(untrack(() => [...projects]));
 
 	provideWorkspaceHost();
@@ -57,21 +57,21 @@
 		get projects() {
 			return listed;
 		},
-		get historicalMaps() {
+		get mapImages() {
 			return maps;
 		},
-		get historicalMapsLoading() {
-			return historicalMapsLoading;
+		get mapImagesLoading() {
+			return mapImagesLoading;
 		},
-		historicalMapError: '',
+		mapImageError: '',
 		projectProblem: null,
 		transfer: null,
 		transferError: '',
-		dismissHistoricalMapError: () => {},
+		dismissMapImageError: () => {},
 		dismissProjectProblem: () => {},
-		refreshHistoricalMaps: async () => {},
+		refreshMapImages: async () => {},
 		// The hub deletes through the session and then re-renders from what the session now holds.
-		deleteHistoricalMap: async (imageId: string) => {
+		deleteMapImage: async (imageId: string) => {
 			maps = maps.filter((map) => map.imageId !== imageId);
 			return true;
 		},
@@ -87,7 +87,7 @@
 		exportProject: async () => {},
 		baseMapCacheSize: async () => ({ tiles: 0, bytes: 0 }),
 		clearBaseMapCache: async () => 0,
-		// A Historical Map's picture is its own coarsest tile, read through the ADR-0011 shim. No
+		// A Map Image's picture is its own coarsest tile, read through the ADR-0011 shim. No
 		// fixture here carries a `thumbnail`, so this is never called; it exists so the hub can ask.
 		imageServiceFetch: () => async () => new Response(null, { status: 404 })
 	} as unknown as EditorSession;

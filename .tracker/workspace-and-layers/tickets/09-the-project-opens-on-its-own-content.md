@@ -2,7 +2,7 @@
 
 ## What to build
 
-Opening a Project frames the map on what that Project has actually placed on the earth — its Annotations and its aligned Historical Maps — instead of on central Amsterdam at zoom 13.
+Opening a Project frames the map on what that Project has actually placed on the earth — its Annotations and its aligned Map Images — instead of on central Amsterdam at zoom 13.
 
 Demonstrable end to end: a Project whose only work is in Boston opens on Boston. A Project with one pin opens at a sensible neighbourhood zoom, not on four roof tiles. A brand-new Project opens on the deployment's default. A published site opens the same way the editor does.
 
@@ -21,11 +21,11 @@ Read [ADR-0026](../../../docs/adr/0026-the-opening-view-is-computed-from-the-pro
 
 **One pure function in `@ballastella/core`,** used by the editor and by the published viewer. No renderer involved, no async race, testable in Node. It takes the Project's Layers plus their Alignments and Annotation collections, and returns bounds or nothing.
 
-An aligned Historical Map's extent comes from **transforming its Resource Mask ring** through `GcpTransformer` — not from its Control Points' extent, which understates the sheet, and not from the renderer, which would mean fitting after an async render.
+An aligned Map Image's extent comes from **transforming its Resource Mask ring** through `GcpTransformer` — not from its Control Points' extent, which understates the sheet, and not from the renderer, which would mean fitting after an async render.
 
 **The fallback chain, in order:** visible Layers with an extent → all Layers with an extent → `BASE_MAP_CATALOG.initialView`. So a brand-new Project opens somewhere deliberate rather than at 0°, 0°, and a Project whose work is all hidden still opens on it.
 
-**An unaligned Historical Map contributes nothing.** It has no place on the earth. A Project of only unaligned maps falls through to the deployment default.
+**An unaligned Map Image contributes nothing.** It has no place on the earth. A Project of only unaligned maps falls through to the deployment default.
 
 **Fit once, on open. Never again.** Refitting when a Layer is toggled, an Annotation is added, or an Alignment changes would pull the map out from under someone mid-edit. This is the single most likely thing to get wrong, because a reactive derived value recomputing bounds will feel natural and will produce exactly that bug.
 
@@ -51,7 +51,7 @@ An aligned Historical Map's extent comes from **transforming its Resource Mask r
 ## Acceptance criteria
 
 - [x] A Project whose Annotations are all in one city opens framed on that city.
-- [x] A Project whose only content is one aligned Historical Map opens framed on that map's Resource Mask extent, not on its Control Points' extent.
+- [x] A Project whose only content is one aligned Map Image opens framed on that map's Resource Mask extent, not on its Control Points' extent.
 - [x] A Project with one point Annotation opens at or below the zoom cap, never at maximum zoom.
 - [x] A Project with no Layers, and a Project whose only map is unaligned, both open on `BASE_MAP_CATALOG.initialView`.
 - [x] A Project whose content is all hidden opens framed on that content rather than on the deployment default.
@@ -81,7 +81,7 @@ The "fit once" criteria are the ones that will pass vacuously if asserted by rea
 ## Notes from the implementation
 
 - **`canSolve` and the `try`/`catch` in `alignedSheetRing` are two guards over one criterion, and each
-  alone passes the tests.** Removing either singly leaves "an unaligned Historical Map contributes
+  alone passes the tests.** Removing either singly leaves "an unaligned Map Image contributes
   nothing" green — upstream throws on too few Control Points, and `canSolve` refuses them before it
   gets the chance. Removing both together reddens it. Both are kept: the guard states this project's
   own gate rather than depending on an upstream error, and the `catch` is now driven directly by a

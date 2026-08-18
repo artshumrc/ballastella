@@ -4,7 +4,7 @@
 
 The published viewer says so when the Base Map's archive answers nothing, instead of showing a blank rectangle. The editor already does this; the viewer does not, and the viewer is the one with no console anyone is watching.
 
-Demonstrable end to end: a published site whose Base Map archive refuses answers a Reader with visible text saying it is not their fault, their work is safe, and what would fix it — and the Annotations and Historical Maps still draw over the empty geography.
+Demonstrable end to end: a published site whose Base Map archive refuses answers a Reader with visible text saying it is not their fault, their work is safe, and what would fix it — and the Annotations and Map Images still draw over the empty geography.
 
 ## Why this is not a nice-to-have
 
@@ -14,7 +14,7 @@ The application's whole response is a pane with nothing in it. A Reader cannot t
 
 `ReaderMapPane.svelte:29` already makes this argument against itself, about a different hazard:
 
-> This pane matters more, not less: a Reader navigating between the Project view and a Historical Map read unwarped crosses exactly that boundary, and **a Published Site has no console anyone is watching.**
+> This pane matters more, not less: a Reader navigating between the Project view and a Map Image read unwarped crosses exactly that boundary, and **a Published Site has no console anyone is watching.**
 
 ## What already exists — use it, do not re-derive it
 
@@ -33,7 +33,7 @@ The application's whole response is a pane with nothing in it. A Reader cannot t
 
 **The same sentence in both deployments.** The wording is `baseMapUnavailableNotice`'s to decide, not the template's, so the editor and the viewer cannot drift into saying different things about the same failure. If you find yourself writing a second sentence, put it in core instead.
 
-**The Reader's content still draws.** Annotations and Historical Maps must keep rendering over the missing geography — the notice explains an absence, it does not replace the map. Assert this, because a fix that blanks the pane on error would pass a naive "the notice appears" test.
+**The Reader's content still draws.** Annotations and Map Images must keep rendering over the missing geography — the notice explains an absence, it does not replace the map. Assert this, because a fix that blanks the pane on error would pass a naive "the notice appears" test.
 
 **It is not the offline notice.** The connection is fine. Telling somebody with working wifi that they have none is a worse answer than saying nothing.
 
@@ -49,7 +49,7 @@ The application's whole response is a pane with nothing in it. A Reader cannot t
 
 - [ ] A published site whose Base Map archive refuses shows the notice, in visible text, with the three things in `baseMapUnavailableNotice`'s stated order.
 - [ ] The notice is announced to a screen reader — and the mechanism is the one the editor reasoned out (`role="alert"`, not a live region that is never heard because it was inserted with its text).
-- [ ] Annotations and Historical Maps still draw while the notice is up. Asserted.
+- [ ] Annotations and Map Images still draw while the notice is up. Asserted.
 - [ ] The offline notice is not shown when the connection is fine.
 - [ ] The editor and the viewer produce the **same sentence** for the same failure, from the same function. Asserted rather than eyeballed.
 - [ ] No test depends on the network — the refusal is produced by routing, like every other archive assertion in this suite.

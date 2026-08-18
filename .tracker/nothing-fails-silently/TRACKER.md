@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Every failure to write, and every failure to fetch, either succeeds, is retried, or is **said** — in words, on the screen, to the person who can act on it. Three findings from `workspace-and-layers` say Ballastella currently has states where something has gone wrong and nothing anywhere reports it: a `commit` that resolves successfully while its bytes never reach the store, a Historical Map whose tiles stop arriving and answer with an uncaught error, and one unexplained case of the screen being ahead of the disk.
+Every failure to write, and every failure to fetch, either succeeds, is retried, or is **said** — in words, on the screen, to the person who can act on it. Three findings from `workspace-and-layers` say Ballastella currently has states where something has gone wrong and nothing anywhere reports it: a `commit` that resolves successfully while its bytes never reach the store, a Map Image whose tiles stop arriving and answer with an uncaught error, and one unexplained case of the screen being ahead of the disk.
 
 Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md).
 
@@ -36,9 +36,9 @@ Last updated: 2026-08-09.
 
 - **It is not ticket 04.** It reproduces on `7868a4b`, one commit before ticket 04 existed, with an identical stack and an identical call log. The `await passThrough(...)` / `inFlight` microtask suspect is ruled out as the introducer.
 - **It is not load, and this is the number.** The passing retry ran under *identical* concurrency to the failure — same run, same 4 workers, dispatched as test #169 of 523 with ~350 still in flight — and finished in **11.5–23.8s against the failed attempt's 180s**. Load was not lower when it passed. Contention makes work slow; it does not make a laid-out button vanish for 172 consecutive seconds.
-- **What it is.** `locator.click` on `getByTestId('remote-read')` (`e2e/editor-align-referenced.e2e.ts:113`, inside `addReferenced`) logs `element is not stable` twice, then `element is not visible` **345 times** — ~172s of polling an already-resolved button. The Add-Historical-Map dialog closes under the click and never returns. `e2e/support/historical-maps.ts` documents this exact signature as the bug `HTMLDialogElement.open` was introduced to fix. **It is not fully fixed.** `openAddHistoricalMap` verifies `open === true` and all three sources visible, and the dialog closes anyway after that check passes.
+- **What it is.** `locator.click` on `getByTestId('remote-read')` (`e2e/editor-align-referenced.e2e.ts:113`, inside `addReferenced`) logs `element is not stable` twice, then `element is not visible` **345 times** — ~172s of polling an already-resolved button. The Add-Map-Image dialog closes under the click and never returns. `e2e/support/map-images.ts` documents this exact signature as the bug `HTMLDialogElement.open` was introduced to fix. **It is not fully fixed.** `openAddMapImage` verifies `open === true` and all three sources visible, and the dialog closes anyway after that check passes.
 
-That is an app/helper race in the Add-Historical-Map dialog, not a harness problem and not this epic's subject. It needs its own ticket.
+That is an app/helper race in the Add-Map-Image dialog, not a harness problem and not this epic's subject. It needs its own ticket.
 
 **Not measured:** any workers=1 or workers=2 cell, on any commit. So the "load *widens* an existing window" half is unproven and is not claimed — only the "pre-existing" half is.
 

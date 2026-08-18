@@ -21,7 +21,7 @@ depends on how the scheduler packed the run.
 | --- | ---: | ---: | ---: |
 | `e2e/editor-layers.e2e.ts` | 35 | 142.3 | 4.07 |
 | `e2e/editor-annotations.e2e.ts` | 37 | 136.9 | 3.70 |
-| `e2e/editor-add-historical-map.e2e.ts` | 18 | 117.9 | 6.55 |
+| `e2e/editor-add-map-image.e2e.ts` | 18 | 117.9 | 6.55 |
 | `e2e/editor-base-map.e2e.ts` | 36 | 93.2 | 2.59 |
 | `e2e/viewer-reader.e2e.ts` | 63 | 83.9 | 1.33 |
 | `e2e/editor-undo.e2e.ts` | 14 | 83.2 | 5.94 |
@@ -49,7 +49,7 @@ depends on how the scheduler packed the run.
 | `e2e/editor-warped-fetch.e2e.ts` | 3 | 11.4 | 3.81 |
 | `e2e/editor-remote-conflict.e2e.ts` | 5 | 9.5 | 1.89 |
 | `e2e/editor-image-pane.e2e.ts` | 5 | 8.1 | 1.63 |
-| `e2e/editor-historical-map-thumbnails.e2e.ts` | 4 | 5.0 | 1.24 |
+| `e2e/editor-map-image-thumbnails.e2e.ts` | 4 | 5.0 | 1.24 |
 | `e2e/editor-network-fence.e2e.ts` | 7 | 1.2 | 0.18 |
 | `e2e/viewer.e2e.ts` | 2 | 0.3 | 0.15 |
 | `e2e/editor.e2e.ts` | 1 | 0.3 | 0.27 |
@@ -74,13 +74,13 @@ depends on how the scheduler packed the run.
 - 6.2s — editor › editor-annotations.e2e.ts › deleting an Annotation (SPEC story 66) › removes it from the file and leaves the others
 - 5.4s — editor › editor-annotations.e2e.ts › style is on each Annotation (ADR-0009, as amended) › a newly drawn Annotation is drawn with the last one’s style
 
-### `e2e/editor-add-historical-map.e2e.ts` — 117.9s over 18 tests
+### `e2e/editor-add-map-image.e2e.ts` — 117.9s over 18 tests
 
-- 30.8s — editor › editor-add-historical-map.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › Escape that closes it does not abandon a part-drawn shape behind it
-- 12.1s — editor › editor-add-historical-map.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › is never handed to a caller while the panel inside it is still working
-- 9.8s — editor › editor-add-historical-map.e2e.ts › adding a map this Workspace already holds › says so afterwards, because the dialog it happened in is gone (SPEC story 112)
-- 9.7s — editor › editor-add-historical-map.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › says it is looking through the Workspace before it can say what is in it
-- 9.7s — editor › editor-add-historical-map.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › every control in it is reachable by keyboard
+- 30.8s — editor › editor-add-map-image.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › Escape that closes it does not abandon a part-drawn shape behind it
+- 12.1s — editor › editor-add-map-image.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › is never handed to a caller while the panel inside it is still working
+- 9.8s — editor › editor-add-map-image.e2e.ts › adding a map this Workspace already holds › says so afterwards, because the dialog it happened in is gone (SPEC story 112)
+- 9.7s — editor › editor-add-map-image.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › says it is looking through the Workspace before it can say what is in it
+- 9.7s — editor › editor-add-map-image.e2e.ts › the dialog itself (ADR-0016, SPEC stories 111, 112) › every control in it is reachable by keyboard
 
 ### `e2e/editor-base-map.e2e.ts` — 93.2s over 36 tests
 
@@ -96,7 +96,7 @@ depends on how the scheduler packed the run.
 - 3.5s — viewer › viewer-reader.e2e.ts › a Published Site that is not entirely well › says the same thing about its missing labels with no connection at all
 - 3.5s — viewer › viewer-reader.e2e.ts › a Published Site that is not entirely well › makes no claim about the Base Map when the page is opened with no connection
 - 3.5s — viewer › viewer-reader.e2e.ts › a Published Site that is not entirely well › withdraws the claim when the Reader switches to a Base Map it has not asked yet
-- 3.1s — viewer › viewer-reader.e2e.ts › a Published Site that is not entirely well › tells a Reader when a Historical Map’s tiles stop arriving, and keeps what arrived
+- 3.1s — viewer › viewer-reader.e2e.ts › a Published Site that is not entirely well › tells a Reader when a Map Image’s tiles stop arriving, and keeps what arrived
 
 ### `e2e/editor-undo.e2e.ts` — 83.2s over 14 tests
 
@@ -124,16 +124,16 @@ depends on how the scheduler packed the run.
 
 ### `e2e/editor-remote-iiif.e2e.ts` — 62.0s over 18 tests
 
-- 6.9s — editor › editor-remote-iiif.e2e.ts › adding a Historical Map from a IIIF URL › re-adding a map after deleting its Layer keeps the Alignment already on it
-- 6.5s — editor › editor-remote-iiif.e2e.ts › adding a Historical Map from a IIIF URL › adding a map another Project has aligned keeps that Alignment, and says so
-- 6.3s — editor › editor-remote-iiif.e2e.ts › adding a Historical Map from a IIIF URL › adding the same referenced map again leaves the stack byte-identical
-- 5.3s — editor › editor-remote-iiif.e2e.ts › adding a Historical Map from a IIIF URL › a deleted map Layer comes back when the same map is added again
-- 4.8s — editor › editor-remote-iiif.e2e.ts › adding a Historical Map from a IIIF URL › imports the community Alignment over a starter nobody has touched
+- 6.9s — editor › editor-remote-iiif.e2e.ts › adding a Map Image from a IIIF URL › re-adding a map after deleting its Layer keeps the Alignment already on it
+- 6.5s — editor › editor-remote-iiif.e2e.ts › adding a Map Image from a IIIF URL › adding a map another Project has aligned keeps that Alignment, and says so
+- 6.3s — editor › editor-remote-iiif.e2e.ts › adding a Map Image from a IIIF URL › adding the same referenced map again leaves the stack byte-identical
+- 5.3s — editor › editor-remote-iiif.e2e.ts › adding a Map Image from a IIIF URL › a deleted map Layer comes back when the same map is added again
+- 4.8s — editor › editor-remote-iiif.e2e.ts › adding a Map Image from a IIIF URL › imports the community Alignment over a starter nobody has touched
 
 ### `e2e/editor-alignment.e2e.ts` — 61.8s over 18 tests
 
 - 6.6s — editor › editor-alignment.e2e.ts › the Alignment on disk › restores every pair, its ordinal, and the warped render across a reload
-- 6.0s — editor › editor-alignment.e2e.ts › the warped Historical Map › appears over the Base Map on the third pair, and not before
+- 6.0s — editor › editor-alignment.e2e.ts › the warped Map Image › appears over the Base Map on the third pair, and not before
 - 4.6s — editor › editor-alignment.e2e.ts › Control Point pairing › Escape after the first click of the very first pair writes nothing at all
 - 3.4s — editor › editor-alignment.e2e.ts › the Alignment on disk › surfaces an Alignment that is there and cannot be read, rather than silently emptying it
 - 3.2s — editor › editor-alignment.e2e.ts › choosing the Base Map while aligning › the switcher is on the alignment workspace, with no navigation
@@ -141,7 +141,7 @@ depends on how the scheduler packed the run.
 ### `e2e/editor-align-referenced.e2e.ts` — 56.3s over 17 tests
 
 - 5.9s — editor › editor-align-referenced.e2e.ts › names a different set of Projects for a different map on the same screen
-- 5.5s — editor › editor-align-referenced.e2e.ts › warns only on the Historical Map the warning is about
+- 5.5s — editor › editor-align-referenced.e2e.ts › warns only on the Map Image the warning is about
 - 4.4s — editor › editor-align-referenced.e2e.ts › an offline copy of a map aligned in place keeps every Control Point
 - 3.9s — editor › editor-align-referenced.e2e.ts › says when somebody else changed this Alignment, and puts their version back
 - 3.9s — editor › editor-align-referenced.e2e.ts › refuses to open the alignment view offline, and names the host
@@ -157,9 +157,9 @@ depends on how the scheduler packed the run.
 ### `e2e/editor-offline-copy.e2e.ts` — 53.4s over 17 tests
 
 - 9.6s — editor › editor-offline-copy.e2e.ts › making an offline copy › reports progress, and announces it to assistive technology
-- 6.4s — editor › editor-offline-copy.e2e.ts › a copied Historical Map, once it is copied › a copied map is one pyramid that two Projects both draw
-- 6.1s — editor › editor-offline-copy.e2e.ts › a copied Historical Map, once it is copied › renders warped through the injection shim with no request to the library at all
-- 2.8s — editor › editor-offline-copy.e2e.ts › a copied Historical Map, once it is copied › survives a reload with the network switched off, drawing from the Project
+- 6.4s — editor › editor-offline-copy.e2e.ts › a copied Map Image, once it is copied › a copied map is one pyramid that two Projects both draw
+- 6.1s — editor › editor-offline-copy.e2e.ts › a copied Map Image, once it is copied › renders warped through the injection shim with no request to the library at all
+- 2.8s — editor › editor-offline-copy.e2e.ts › a copied Map Image, once it is copied › survives a reload with the network switched off, drawing from the Project
 - 2.7s — editor › editor-offline-copy.e2e.ts › making an offline copy › copies a level-0 source from its own tiles, having warned that it means many requests
 
 ### `e2e/editor-remote-binding.e2e.ts` — 51.4s over 20 tests
@@ -204,9 +204,9 @@ depends on how the scheduler packed the run.
 
 ### `e2e/editor-pwa.e2e.ts` — 29.5s over 23 tests
 
-- 4.2s — editor › editor-pwa.e2e.ts › a working session that reaches other people’s servers › reads a referenced Historical Map and a Base Map that needs the network, and caches neither
-- 4.0s — editor › editor-pwa.e2e.ts › the app with the network off › a Project with a local Historical Map is fully usable with the network off
-- 3.3s — editor › editor-pwa.e2e.ts › what offline cannot fix, and what it must not break › a referenced Historical Map says so, names its host, and breaks nothing else
+- 4.2s — editor › editor-pwa.e2e.ts › a working session that reaches other people’s servers › reads a referenced Map Image and a Base Map that needs the network, and caches neither
+- 4.0s — editor › editor-pwa.e2e.ts › the app with the network off › a Project with a local Map Image is fully usable with the network off
+- 3.3s — editor › editor-pwa.e2e.ts › what offline cannot fix, and what it must not break › a referenced Map Image says so, names its host, and breaks nothing else
 - 3.1s — editor › editor-pwa.e2e.ts › an update, and who decides when › the prompt appears, nothing reloads, and the alignment in progress is untouched
 - 1.7s — editor › editor-pwa.e2e.ts › what offline cannot fix, and what it must not break › the service worker does not serve the ProjectStore
 
@@ -228,11 +228,11 @@ depends on how the scheduler packed the run.
 
 ### `e2e/editor-image-ingest.e2e.ts` — 21.5s over 9 tests
 
-- 5.2s — editor › editor-image-ingest.e2e.ts › adding a Historical Map from a file › says so when a second file is picked while one is still being prepared
-- 5.1s — editor › editor-image-ingest.e2e.ts › adding a Historical Map from a file › the Layer appears first, and reports its own preparation on its own card
-- 2.2s — editor › editor-image-ingest.e2e.ts › adding a Historical Map from a file › shows an image that was already in the Project when it is opened
-- 2.0s — editor › editor-image-ingest.e2e.ts › adding a Historical Map from a file › turns a picked file into a pyramid in the Project, with progress announced
-- 1.8s — editor › editor-image-ingest.e2e.ts › adding a Historical Map from a file › picking the same file twice in a row starts two preparations
+- 5.2s — editor › editor-image-ingest.e2e.ts › adding a Map Image from a file › says so when a second file is picked while one is still being prepared
+- 5.1s — editor › editor-image-ingest.e2e.ts › adding a Map Image from a file › the Layer appears first, and reports its own preparation on its own card
+- 2.2s — editor › editor-image-ingest.e2e.ts › adding a Map Image from a file › shows an image that was already in the Project when it is opened
+- 2.0s — editor › editor-image-ingest.e2e.ts › adding a Map Image from a file › turns a picked file into a pyramid in the Project, with progress announced
+- 1.8s — editor › editor-image-ingest.e2e.ts › adding a Map Image from a file › picking the same file twice in a row starts two preparations
 
 ### `e2e/editor-opening-view.e2e.ts` — 20.6s over 12 tests
 
@@ -252,11 +252,11 @@ depends on how the scheduler packed the run.
 
 ### `e2e/editor-stored-image-pane.e2e.ts` — 19.4s over 6 tests
 
-- 6.3s — editor › editor-stored-image-pane.e2e.ts › a Historical Map read from the Project › renders the correct pyramid for each of two Historical Maps in one Project
-- 3.6s — editor › editor-stored-image-pane.e2e.ts › a Historical Map read from the Project › deep-zooms the user’s own pyramid with nothing fetched from the network
-- 3.4s — editor › editor-stored-image-pane.e2e.ts › a Historical Map read from the Project › hands the ragged-edge drawing a fractional placement, on a real pyramid
-- 3.2s — editor › editor-stored-image-pane.e2e.ts › a Historical Map read from the Project › surfaces a pyramid it refuses to draw, instead of a blank map
-- 2.7s — editor › editor-stored-image-pane.e2e.ts › a Historical Map read from the Project › is operable from the keyboard, and reports the pixel under the pointer
+- 6.3s — editor › editor-stored-image-pane.e2e.ts › a Map Image read from the Project › renders the correct pyramid for each of two Map Images in one Project
+- 3.6s — editor › editor-stored-image-pane.e2e.ts › a Map Image read from the Project › deep-zooms the user’s own pyramid with nothing fetched from the network
+- 3.4s — editor › editor-stored-image-pane.e2e.ts › a Map Image read from the Project › hands the ragged-edge drawing a fractional placement, on a real pyramid
+- 3.2s — editor › editor-stored-image-pane.e2e.ts › a Map Image read from the Project › surfaces a pyramid it refuses to draw, instead of a blank map
+- 2.7s — editor › editor-stored-image-pane.e2e.ts › a Map Image read from the Project › is operable from the keyboard, and reports the pixel under the pointer
 
 ### `e2e/editor-review-remote.e2e.ts` — 19.2s over 20 tests
 
@@ -294,14 +294,14 @@ depends on how the scheduler packed the run.
 - 1.9s — editor › editor-image-pane.e2e.ts › pans by the distance the pointer moved, in image pixels
 - 1.7s — editor › editor-image-pane.e2e.ts › loads tiles at every scale factor, ragged edges included, with nothing failing
 - 1.4s — editor › editor-image-pane.e2e.ts › reports the same pixel after zooming fully out and back in
-- 1.3s — editor › editor-image-pane.e2e.ts › renders the fixture Historical Map and reports the pixel under the cursor
+- 1.3s — editor › editor-image-pane.e2e.ts › renders the fixture Map Image and reports the pixel under the cursor
 
-### `e2e/editor-historical-map-thumbnails.e2e.ts` — 5.0s over 4 tests
+### `e2e/editor-map-image-thumbnails.e2e.ts` — 5.0s over 4 tests
 
-- 2.1s — editor › editor-historical-map-thumbnails.e2e.ts › a Historical Map added from a file shows a picture that has actually decoded
-- 1.9s — editor › editor-historical-map-thumbnails.e2e.ts › a Workspace-held map whose coarsest tile was never written keeps the glyph
-- 0.5s — editor › editor-historical-map-thumbnails.e2e.ts › a Historical Map referenced from a Library shows a picture drawn from that Library
-- 0.4s — editor › editor-historical-map-thumbnails.e2e.ts › a referenced Historical Map whose record has no tile side keeps the glyph
+- 2.1s — editor › editor-map-image-thumbnails.e2e.ts › a Map Image added from a file shows a picture that has actually decoded
+- 1.9s — editor › editor-map-image-thumbnails.e2e.ts › a Workspace-held map whose coarsest tile was never written keeps the glyph
+- 0.5s — editor › editor-map-image-thumbnails.e2e.ts › a Map Image referenced from a Library shows a picture drawn from that Library
+- 0.4s — editor › editor-map-image-thumbnails.e2e.ts › a referenced Map Image whose record has no tile side keeps the glyph
 
 ### `e2e/editor-network-fence.e2e.ts` — 1.2s over 7 tests
 

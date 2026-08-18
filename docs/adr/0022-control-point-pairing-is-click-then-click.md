@@ -1,6 +1,6 @@
 # Control point pairs are made click-then-click
 
-A user clicks a spot on the historical map, a pending marker appears, and they click the corresponding spot on the base map. That completes one pair.
+A user clicks a spot on the map image, a pending marker appears, and they click the corresponding spot on the base map. That completes one pair.
 
 This matches how the act is actually reasoned about: "*this* church tower is *there*" is a single thought with two halves, not two independent acts joined afterwards. Placing points independently and linking them later was rejected because it admits a state with eleven points on the image and eight on the map and no way to see which are orphaned — hard to visualise, harder to explain to a student. Auto-pairing by placement order was rejected as worst: it makes ordering load-bearing and invisible, so one misordered placement silently shifts every later pairing and the only symptom is a warp that is inexplicably wrong.
 

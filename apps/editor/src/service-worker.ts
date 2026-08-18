@@ -25,7 +25,7 @@
 //      API copy would be a *second source of truth* competing with the store, and the two diverge
 //      the first time a user edits offline. This is the most damaging thing this file could do.
 //   2. **Remote IIIF tiles are never cached.** A referenced source can be gigabytes, and the Cache
-//      API evicts unpredictably under quota pressure — producing a partially cached Historical Map
+//      API evicts unpredictably under quota pressure — producing a partially cached Map Image
 //      that renders *with holes*, which reads as corruption rather than as absence.
 //   3. **Remote Base Map tiles are never cached**, for the same reason. Note the difference from the
 //      bundled archive below: `needsNetwork: true` entries are somebody else's server and a whole
@@ -42,7 +42,7 @@
 //      to dodge a 5,084,535-byte `vips.wasm` that `vite build` emitted twice. Ticket 10 measured
 //      precaching it and reverted: it cost 23% more than the 4,137,622-byte pmtiles archive that
 //      ticket had just removed, and it bought criterion 7 — an installed app with no connection
-//      accepting a Historical Map file on first run — **nothing**, because the streaming tiler could
+//      accepting a Map Image file on first run — **nothing**, because the streaming tiler could
 //      not run in this deployment at all and every image a browser can decode went through the
 //      decode-and-crop tiler, which is browser-native and reaches nothing.
 //

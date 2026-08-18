@@ -1,4 +1,4 @@
-// One remote IIIF image service, read and judged: is this a Historical Map this app can
+// One remote IIIF image service, read and judged: is this a Map Image this app can
 // actually draw, and what is its identity?
 //
 // This is the module where ticket 03's guards stop being theoretical. Everything before this
@@ -74,7 +74,7 @@ export type RemoteImageService = {
 	 * rather than being a feature.
 	 *
 	 * A locally ingested image gets `generateRandomId()` instead (ticket 05): there is no URI to
-	 * hash, and two ingests of one file are two Historical Maps.
+	 * hash, and two ingests of one file are two Map Images.
 	 */
 	readonly imageId: string;
 	readonly width: number;
@@ -299,7 +299,7 @@ export function extendedTileset(
 /**
  * The declared `id`, checked before this app adopts it as the image's identity.
  *
- * **Everything downstream is built from this string**: `generateId(uri)` mints the Historical Map's
+ * **Everything downstream is built from this string**: `generateId(uri)` mints the Map Image's
  * id from it, `createImagePane` builds every tile URL on it, and it is written into `remote.json` as
  * the citation. It is also the one URL on this path that used to skip {@link remoteIiifUrl} — a
  * stranger's document was believed on read (`parseReferencedImage` checks the scheme) but not on
@@ -324,7 +324,7 @@ function adoptDeclaredId(declaredId: string, at: { url: string; host: string }):
 			reason:
 				`${at.host} answered with an image description that names itself “${declaredId}”, and ` +
 				`Ballastella will not adopt that as this map's address: ${message(cause)}\n\n` +
-				`Every tile request, the identifier this Historical Map is filed under, and the citation ` +
+				`Every tile request, the identifier this Map Image is filed under, and the citation ` +
 				`written beside it all come from that address, so it is checked exactly as a pasted one ` +
 				`is. Nothing has been added.`
 		});

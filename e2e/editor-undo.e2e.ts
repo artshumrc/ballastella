@@ -2,7 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { addHistoricalMapButton } from './support/historical-maps.js';
+import { addMapImageButton } from './support/map-images.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 import {
 	clickAt,
 	emptyWorkspace,
-	historicalMap,
+	mapImage,
 	imagePoints,
 	makePairs,
 	rows as controlPointRows,
@@ -201,7 +201,7 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 	// whole of the helper: the undo record has to survive the workspace being destroyed and rebuilt,
 	// and the stack being drawn on the way is what destroys it.
 	await page.getByTestId('back-to-project').click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
 		timeout: STACK_READY_MS
@@ -217,7 +217,7 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 }
 
 /**
- * A Project with one aligned Historical Map: three pairs, written, and drawn warped.
+ * A Project with one aligned Map Image: three pairs, written, and drawn warped.
  *
  * **The recorded journey.** This is what every aligned test in this file used to run for itself, and
  * it is still what runs on the first test through a cold worker; {@link alignedWorkspace} keeps the
@@ -271,7 +271,7 @@ async function seededWorkspace(
 	return { imageId: snapshot.imageId, layerId: snapshot.layerId };
 }
 
-/** A Project with one aligned Historical Map on disk — seeded. See {@link seededWorkspace}. */
+/** A Project with one aligned Map Image on disk — seeded. See {@link seededWorkspace}. */
 const alignedWorkspace = (page: Page) =>
 	seededWorkspace(page, 'undo-aligned', alignedProjectThroughTheInterface);
 
@@ -298,7 +298,7 @@ async function alignedProject(page: Page): Promise<string> {
  */
 async function annotatingWorkspace(page: Page): Promise<string> {
 	const { layerId } = await seededWorkspace(page, 'undo-annotating', async (fresh) => ({
-		// The ingest's two ids are the recording's vocabulary and there is no Historical Map here, so
+		// The ingest's two ids are the recording's vocabulary and there is no Map Image here, so
 		// the image id is deliberately empty: nothing in this fixture has a pyramid to name.
 		imageId: '',
 		layerId: await startAnnotating(fresh)
@@ -388,13 +388,13 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		expect(await rowText(page, 1)).not.toBe(wasAt);
 
 		await page.getByTestId('back-to-project').click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await delayNextReadOf(page, 'info.json', 3000);
 
-		// This workspace starts opening, but is destroyed before its Historical Map pane calls `onpane`.
+		// This workspace starts opening, but is destroyed before its Map Image pane calls `onpane`.
 		await alignFromLayer(page);
 		await page.getByTestId('back-to-project').click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		// A replacement workspace becomes live before the stale pane finishes its delayed read.
 		await alignFromLayer(page);
@@ -413,7 +413,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 	 * on screen **now**.
 	 *
 	 * `EditorSession.open` returns early for the Project already showing, and `forgetUndoOfOtherImages`
-	 * drops a Control Point record only for a *different* Historical Map — so a trip to the Layers pane
+	 * drops a Control Point record only for a *different* Map Image — so a trip to the Layers pane
 	 * and back leaves the pending undo exactly where it was while the workspace builds a fresh
 	 * `AlignmentPairing` out of the file. That is the ticket's premise working, and it is also what made
 	 * a restore closure that had captured its pairing dangerous: undoing wrote *that* object's whole
@@ -647,7 +647,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 
 		const [annotationLayer, mapLayer] = (await rowIds(page)) as [string, string];
 		// At the Workspace root (ADR-0023), which is what makes the claim below a claim about ADR-0023
-		// rather than about undo: deleting the Layer must leave the Historical Map and its Alignment where
+		// rather than about undo: deleting the Layer must leave the Map Image and its Alignment where
 		// they are, because another Project may be drawing them (SPEC story 67).
 		const before = await hashesUnder(page, 'alignments/', '');
 		expect(before).toHaveLength(1);
@@ -733,7 +733,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
  * undo could not help because nothing had been undone. `ProjectFile.removedMapLayers` was the record
  * that stopped it.
  *
- * A Layer is now created by exactly one thing — the user adding a Historical Map to a Project — so the
+ * A Layer is now created by exactly one thing — the user adding a Map Image to a Project — so the
  * record is gone and these tests assert the property directly rather than the record: **no Alignment
  * write, in this session or a later one, touches the Layer stack at all.**
  */
@@ -743,8 +743,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 	 * THE TEST THAT USED TO BE FIRST HERE, AND WHY THERE IS NOTHING LEFT FOR IT TO DRIVE
 	 *
 	 * "Delete the map Layer, then write the Alignment again" was the reproduction. Ticket 02 closed it
-	 * in the model — only adding a Historical Map makes a Layer — and ticket 03 closed the *gesture* as
-	 * well: aligning is `/align/?p=…&layer=…`, keyed by Layer id, so a Historical Map with no Layer in
+	 * in the model — only adding a Map Image makes a Layer — and ticket 03 closed the *gesture* as
+	 * well: aligning is `/align/?p=…&layer=…`, keyed by Layer id, so a Map Image with no Layer in
 	 * this Project has no alignment view to be on. There is no click sequence that writes an Alignment
 	 * for a map this Project does not draw, so the test could only be kept by driving something the
 	 * interface does not offer.
@@ -815,7 +815,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		test.setTimeout(120_000);
 		await start(page);
 		await saved(page);
-		// The Layer is already there: adding the Historical Map is what put it in the stack (ADR-0023),
+		// The Layer is already there: adding the Map Image is what put it in the stack (ADR-0023),
 		// before any Control Point exists.
 		const before = await readProjectFile(page, 'project.json');
 		expect(JSON.parse(before).layers).toHaveLength(1);
@@ -823,9 +823,9 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await delayReadsOf(page, 'manifest.json', 1500);
 
 		// Two completed pairs in quick succession, the second landing inside the first's manifest read.
-		await clickAt(historicalMap(page), 0.3, 0.3);
+		await clickAt(mapImage(page), 0.3, 0.3);
 		await clickAt(page.getByTestId('base-map-pane'), 0.3, 0.3);
-		await clickAt(historicalMap(page), 0.7, 0.35);
+		await clickAt(mapImage(page), 0.7, 0.35);
 		await clickAt(page.getByTestId('base-map-pane'), 0.7, 0.35);
 		await expect(controlPointRows(page)).toHaveCount(2);
 

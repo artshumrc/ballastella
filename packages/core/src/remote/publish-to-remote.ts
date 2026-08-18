@@ -46,7 +46,7 @@ import { REMOTE_BINDING_PATH } from './remote-binding.js';
  * Well under the 100 000 entries at which `GET /git/trees/{ref}?recursive=1` truncates, because the
  * *other* half of that endpoint's limit is a 7 MB response and a path is not a fixed number of bytes
  * — so the entry count is a ceiling that arrives early rather than a threshold to sit against
- * (ADR-0031, ADR-0033). A Historical Map pyramid is what reaches it: `MAX_INGEST_PIXELS` is the
+ * (ADR-0031, ADR-0033). A Map Image pyramid is what reaches it: `MAX_INGEST_PIXELS` is the
  * measured decode ceiling, and one image at it is roughly 11 000 tiles, so four such maps are here.
  */
 export const MAX_PUBLISHED_FILES = 40_000;
@@ -1075,9 +1075,9 @@ function truncatedMessage(listed: number, remote: RemoteRepository): string {
 	return (
 		`GitHub could only list the first ${listed} files in ${remote.owner}/${remote.repository}, so ` +
 		`it cannot say which of your files are already there. Publishing anyway would send everything ` +
-		`again and then leave a site with most of a Historical Map silently missing, so nothing has ` +
+		`again and then leave a site with most of a Map Image silently missing, so nothing has ` +
 		`been sent. This repository has to hold fewer files before it can be published to: deleting ` +
-		`Historical Maps no Project uses is usually where the count is.`
+		`Map Images no Project uses is usually where the count is.`
 	);
 }
 
@@ -1224,7 +1224,7 @@ function tooManyFilesMessage(files: number): string {
 	return (
 		`This Workspace holds ${files} files, and ${MAX_PUBLISHED_FILES} is the most that can be ` +
 		`published to GitHub in one go — past that, GitHub stops listing a repository's files and a ` +
-		`publish can no longer tell what is already there. Nothing has been sent. A Historical Map's ` +
+		`publish can no longer tell what is already there. Nothing has been sent. A Map Image's ` +
 		`tiles are almost always what the count is: deleting one no Project uses, or referencing a ` +
 		`very large sheet from its library rather than copying it, is the way down.`
 	);
@@ -1235,7 +1235,7 @@ function hostingLimitMessage(bytes: number): string {
 		`Your Published Site would hold ${describeBytes(bytes)}, past the ` +
 		`${describeBytes(STATIC_HOSTING_LIMIT_BYTES)} GitHub Pages will publish. This is a cliff ` +
 		`rather than a slowdown: the push may well fail outright. Offline Base Map tiles are usually ` +
-		`what the bytes are — they are about 152 kB each — and Historical Maps no Project uses are the ` +
+		`what the bytes are — they are about 152 kB each — and Map Images no Project uses are the ` +
 		`other place to look.`
 	);
 }

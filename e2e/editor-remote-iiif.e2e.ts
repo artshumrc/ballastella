@@ -4,13 +4,13 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { IMAGE_HEIGHT, IMAGE_WIDTH } from './support/alignment-workspace.js';
+import { IMAGE_HEIGHT, IMAGE_WIDTH, gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
-	addHistoricalMapButton,
-	addHistoricalMapIsOpen,
-	ensureAddHistoricalMapOpen
-} from './support/historical-maps.js';
+	addMapImageButton,
+	addMapImageIsOpen,
+	ensureAddMapImageOpen
+} from './support/map-images.js';
 // The fake IIIF services, shared by every spec that needs one (ticket 07). This file used to carry
 // its own copy of the host table, the `info.json` builder and the tile matcher; see the module
 // header there for why three private copies of one fixture was a defect rather than a duplication.
@@ -178,7 +178,7 @@ async function createProject(page: Page, name: string): Promise<void> {
 /**
  * A new Project, open, on its own Project screen.
  *
- * ⚠ **This deliberately does not open the "Add a Historical Map" dialog**, and it used to. The
+ * ⚠ **This deliberately does not open the "Add a Map Image" dialog**, and it used to. The
  * library flow is one of the three sources that dialog offers, so `lookUp` opens it — which is the
  * one gesture that needs it. Opening it here instead left a **modal** dialog up for the rest of
  * every test, inerting the Project screen behind it: every call site today happens to add a map
@@ -192,7 +192,7 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 }
 
 /**
- * Wait until a referenced Historical Map has landed on the Project screen, and leave its Layer open.
+ * Wait until a referenced Map Image has landed on the Project screen, and leave its Layer open.
  *
  * Since ticket 05 the library a referenced map's tiles come from is *inside* the Layer that fetches
  * them, so seeing it is opening the row. That makes this the wait as well as the assertion: the row
@@ -214,12 +214,12 @@ async function expectReferencedMap(page: Page, at: number | Locator = 0): Promis
  * screen, so a spec that adds one and then looks up another address has to come back in.
  */
 async function lookUp(page: Page, url: string): Promise<void> {
-	await ensureAddHistoricalMapOpen(page);
+	await ensureAddMapImageOpen(page);
 	await page.getByTestId('remote-url').fill(url);
 	await page.getByTestId('remote-read').click();
 }
 
-test.describe('adding a Historical Map from a IIIF URL', () => {
+test.describe('adding a Map Image from a IIIF URL', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -317,7 +317,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		const imageId = generateId(service('images.test', 'florida'));
 		expect(imageId).toMatch(/^[0-9a-f]{16}$/);
 
-		// At the Workspace root: a referenced Historical Map belongs to the Workspace like any other, so
+		// At the Workspace root: a referenced Map Image belongs to the Workspace like any other, so
 		// adding the same remote resource from a second Project reaches the record already here (ADR-0023).
 		const record = (await readJson(page, '', `images/${imageId}/remote.json`)) as Record<
 			string,
@@ -444,12 +444,12 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 
 	/**
-	 * SPEC story 68, the second half: adding a Historical Map the Project already draws is a no-op on
+	 * SPEC story 68, the second half: adding a Map Image the Project already draws is a no-op on
 	 * the stack — not a duplicate row, and not a refusal.
 	 *
 	 * The referenced path is where this can be driven at all: `generateId(uri)` is deterministic, so
 	 * the second add lands on the same image id, where a local file's random id (ADR-0015) makes two
-	 * adds legitimately two Historical Maps.
+	 * adds legitimately two Map Images.
 	 *
 	 * Byte identity on `project.json`, so "unchanged" covers the Layer's id, its position, its name,
 	 * **and** `updatedAt` — a re-add that rewrote the document to say the same thing would pass a count
@@ -592,7 +592,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		// Deleting a Layer never deletes a Historical Map or its Alignment (ADR-0023). Stated here
+		// Deleting a Layer never deletes a Map Image or its Alignment (ADR-0023). Stated here
 		// because everything below is about what the *re-add* does to a file that is still there.
 		expect(await readText(page, '', `alignments/${imageId}.json`)).toBe(aligned);
 
@@ -622,7 +622,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * THE ALIGNMENT IS THE WORKSPACE'S, SO OVERWRITING IT IS NEVER A LOCAL DECISION
 	 *
 	 * ADR-0023 moved `alignments/<image-id>.json` out of the Project and into the Workspace: one
-	 * Alignment per Historical Map, shared by every Project that draws it. That turns a write here
+	 * Alignment per Map Image, shared by every Project that draws it. That turns a write here
 	 * into an edit of Projects the user is not looking at, and it turns the community-import path into
 	 * a way to destroy an afternoon's work from a screen that never mentions the Project losing it —
 	 * align a Library map in one Project, add the same map to another months later, accept whatever
@@ -658,7 +658,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// A colleague's different reading of the same sheet is what Allmaps offers from now on.
 		await nowOffering(page, [communityAnnotation('images.test', 'florida', 'refined')]);
 
-		// A second Project, and the same Historical Map added to it.
+		// A second Project, and the same Map Image added to it.
 		await page.goto('/');
 		await openNewProject(page, 'Boston 1775');
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
@@ -676,7 +676,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		).toEqual([expect.objectContaining({ kind: 'map', imageId })]);
 
 		// **And the user is told**, in terms that name the reason rather than only the outcome: a
-		// Historical Map has one Alignment, shared, so importing over it would have discarded work.
+		// Map Image has one Alignment, shared, so importing over it would have discarded work.
 		const notice = page.getByTestId('remote-notice');
 		await expect(notice).toContainText('was not written');
 		await expect(notice).toContainText('one Alignment shared by every Project');
@@ -749,7 +749,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE PROJECTS THE PREVIOUS BUILD BROKE, AND THE GESTURE THAT MENDS THEM
 	 *
-	 * Before ADR-0023's starter Alignment, adding a referenced Historical Map without a community
+	 * Before ADR-0023's starter Alignment, adding a referenced Map Image without a community
 	 * offer wrote no `alignments/<id>.json` at all. The Layer referenced a file that did not exist,
 	 * `assertReferencesPresent` refused the Project by name, and it could be neither exported nor
 	 * published — permanently, because nothing later wrote the missing file either.
@@ -870,7 +870,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// The setting is at the point of use, which since ticket 06 is inside the dialog the library
 		// source lives in — so reaching it is the same gesture as reaching the URL field, and this
 		// is the one test in this suite that asks about it before looking anything up.
-		await ensureAddHistoricalMapOpen(page);
+		await ensureAddMapImageOpen(page);
 
 		// On by default, and it says so at the point of use.
 		const toggle = page.getByTestId('community-lookup-toggle');
@@ -914,6 +914,61 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(error).toContainText('library.test');
 	});
 
+	test('copies a plain image file into the Workspace and tiles it here', async ({ page }) => {
+		// The third thing this one box accepts, and the only one that is not a reference: a single
+		// image file has no request that returns part of it, so it cannot be drawn from where it is.
+		// The address is recognised from what the host *sent* — an image `content-type` — rather than
+		// from how it is spelled, which is why the fixture serves it from a path with no extension in
+		// one of the two lookups below.
+		await installIiifHosts(page);
+		// Registered after the fixture hosts so it shadows their handler for this path (Playwright
+		// consults the most recently registered route first).
+		await page.route('https://images.test/plain/**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'image/png',
+				headers: { 'access-control-allow-origin': '*' },
+				body: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
+			})
+		);
+		await openNewProject(page);
+
+		await lookUp(page, 'https://images.test/plain/la-floride.png');
+
+		// The dialog closes on the download, as it does when a file is picked: what happens next is the
+		// tiler's, and it reports on the new Layer's own card.
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(false);
+		await expect(layerRows(page)).toHaveCount(1);
+
+		const row = await openLayerRow(page, 0);
+		// **Not referenced.** The tiles are files of this Workspace, so no Library is named on the row —
+		// which is the whole difference between this source and the one above it.
+		await expect(row.getByTestId('referenced-image-host')).toHaveCount(0);
+
+		// A pyramid of ours, written under the Workspace root (ADR-0023), with the sheet's real size.
+		const images = await page.evaluate(async () => {
+			const root = await workspaceRoot();
+			const directory = await root.getDirectoryHandle('images');
+			const ids: string[] = [];
+			for await (const name of directory.keys()) ids.push(name);
+			return ids;
+		});
+		expect(images).toHaveLength(1);
+		const info = (await readJson(page, '', `images/${images[0]}/info.json`)) as {
+			width: number;
+			height: number;
+		};
+		expect(info.width).toBe(IMAGE_WIDTH);
+		expect(info.height).toBe(IMAGE_HEIGHT);
+
+		// The Map Image is named after the file the address would have saved as, which for an address
+		// with nothing to save as falls back to what the host said it sent.
+		const manifest = (await readJson(page, '', `images/${images[0]}/manifest.json`)) as {
+			label: { none: string[] };
+		};
+		expect(manifest.label.none[0]).toBe('la-floride.png');
+	});
+
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
 		// SPEC story 95. Driven entirely from the keyboard, **including the step that reaches it**:
 		// ticket 06 put the library source inside a dialog, so "reachable" now starts one gesture
@@ -922,11 +977,13 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await installIiifHosts(page);
 		await openNewProject(page);
 
-		await addHistoricalMapButton(page).focus();
+		await addMapImageButton(page).focus();
 		await page.keyboard.press('Enter');
-		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(true);
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(true);
 
-		await page.getByLabel('IIIF Manifest, Collection, or image address').focus();
+		await page
+			.getByLabel('IIIF Manifest, Collection, image service, or image file address')
+			.focus();
 		await page.keyboard.type('https://library.test/iiif/atlas/manifest.json');
 		await page.keyboard.press('Enter');
 
@@ -947,7 +1004,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────────
- * THE EDITOR NO LONGER READS A HISTORICAL MAP AS A DOCUMENT — TICKET 15
+ * THE EDITOR NO LONGER READS A MAP IMAGE AS A DOCUMENT — TICKET 15
  *
  * Two tests used to live at the top of this block: one that opened a referenced map unwarped in
  * triiiceratops and asserted tiles were requested from the library (SPEC story 48), and one that
@@ -955,14 +1012,14 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
  * custom-element registry. Both went with the affordance.
  *
  * **Story 101 is rescoped, not dropped**: the published viewer keeps the unwarped view, and
- * `viewer-reader.e2e.ts`'s "a Historical Map read unwarped" block is where it is asserted now.
+ * `viewer-reader.e2e.ts`'s "a Map Image read unwarped" block is where it is asserted now.
  * That block does **not** carry an equivalent of the custom-element assertion — see the amendment
  * note on ADR-0018, which records the gap rather than implying it was moved.
  *
  * What this block still holds is the *warped* half: a referenced Layer drawn from the remote host's
  * tiles, by both routes in.
  */
-test.describe('a referenced Historical Map, drawn from the library that holds it', () => {
+test.describe('a referenced Map Image, drawn from the library that holds it', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -1072,11 +1129,11 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 	test('says so when the record of where a referenced map lives cannot be read', async ({
 		page
 	}) => {
-		// `remote.json` is the only thing that says where a referenced Historical Map's tiles are, and a
+		// `remote.json` is the only thing that says where a referenced Map Image's tiles are, and a
 		// Project whose copy of it has been hand-edited or half-written is a Layer nothing can draw. The
 		// failure this guards is the quiet one: skipping the record, and leaving the scholar with a Layer
 		// that draws nothing and no sentence anywhere. Opening the Project must not fail either — the
-		// other Historical Maps are fine — so the readable ones are listed and the broken one is named.
+		// other Map Images are fine — so the readable ones are listed and the broken one is named.
 		//
 		// Two maps, because one is not the same test: the reason is shown beside the Layer stack, so a
 		// Project whose *only* referenced record is unreadable currently says nothing at all. That gap
@@ -1140,7 +1197,7 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 		// deleting them. A criterion of the form "X is gone" is the easiest kind to pass vacuously —
 		// "no control named X" is true of a page that failed to render at all — so this asserts the
 		// *absence* only on a page where the affordance's own preconditions are met: a referenced
-		// Historical Map, added from a library, with its Layer row open and naming its host. That row
+		// Map Image, added from a library, with its Layer row open and naming its host. That row
 		// is exactly where "View unwarped" used to be.
 		//
 		// The bundle half is what catches a regression no `data-testid` could: an import that comes

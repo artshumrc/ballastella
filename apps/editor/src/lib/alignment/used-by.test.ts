@@ -17,7 +17,7 @@ describe('who else this Alignment belongs to', () => {
 			mightBeUsedBy: []
 		});
 		expect(said).toContain('Right now that is Amsterdam 1625.');
-		expect(said).toContain('shared by every Project that draws this Historical Map');
+		expect(said).toContain('shared by every Project that draws this Map Image');
 		// No plural claim over a single Project, which would be a sentence about a risk that is not
 		// there — and this screen's whole job here is to be exact about how far an edit reaches.
 		expect(said).not.toContain('Projects do');

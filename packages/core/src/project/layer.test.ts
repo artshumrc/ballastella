@@ -64,11 +64,11 @@ describe('the Layer union (ADR-0002)', () => {
 		expect(opacities).toEqual([0.25, null]);
 	});
 
-	// ADR-0023: the Workspace owns where a Historical Map sits on the earth, so a map Layer names the
+	// ADR-0023: the Workspace owns where a Map Image sits on the earth, so a map Layer names the
 	// image and carries nothing else about it. The two fields that are gone are named explicitly because
 	// their absence *is* the contract: `alignmentRef` was a second name for a derivable path, and
 	// `imageMode` was a claim that could disagree with the bytes on disk.
-	it('names one Workspace Historical Map and claims nothing else about it', () => {
+	it('names one Workspace Map Image and claims nothing else about it', () => {
 		const layer = newMapLayer({ id: 'a', name: 'n', imageId: 'floride-1657' });
 
 		expect(layer.imageId).toBe('floride-1657');
@@ -449,7 +449,7 @@ describe('writing the layers array', () => {
 	});
 });
 
-describe('the Layer → Historical Map link (ADR-0023)', () => {
+describe('the Layer → Map Image link (ADR-0023)', () => {
 	// Both Workspace paths come out of the one field, so there is no second name to disagree with the
 	// first — and both are complete store paths, with no Project directory anywhere in them. That last
 	// part is what `scripts/check-workspace-rooted-paths.mjs` enforces, and its failure mode is a pane
@@ -465,7 +465,7 @@ describe('the Layer → Historical Map link (ADR-0023)', () => {
 	// Two Projects referencing the same image is the behaviour ADR-0023 exists for, and at the level of
 	// the model it is this: two Layers, different ids, different display state, one image id — and
 	// therefore one Alignment path and one pyramid.
-	it('lets two Projects name the same Historical Map with their own display state', () => {
+	it('lets two Projects name the same Map Image with their own display state', () => {
 		const mine = newMapLayer({ id: 'l-1', name: 'My reading', imageId: 'floride-1657' });
 		const theirs = newMapLayer({ id: 'l-2', name: 'Course copy', imageId: 'floride-1657' });
 

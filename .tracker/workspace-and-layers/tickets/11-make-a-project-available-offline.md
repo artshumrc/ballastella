@@ -2,7 +2,7 @@
 
 ## What to build
 
-A scholar can say that a Project should work with no network. They are shown how many Base Map tiles and how many megabytes that will take, they agree, and the tiles are fetched into the Workspace and served from there. The same screen carries the per-map "make an offline copy" action for Historical Maps that live on a Library's server.
+A scholar can say that a Project should work with no network. They are shown how many Base Map tiles and how many megabytes that will take, they agree, and the tiles are fetched into the Workspace and served from there. The same screen carries the per-map "make an offline copy" action for Map Images that live on a Library's server.
 
 Demonstrable end to end: a Project with work in one city, made available offline; the network cut; the Project reopened and the Base Map still draws across the area the work covers, at every zoom.
 
@@ -39,14 +39,14 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 
 **The per-map offline copy action moves to the Layer card.** Its existing behaviour is kept exactly: the plan the user was shown is the plan that runs; the rights statement and `requiredStatement` are displayed at the moment of choosing; a level-0 source that would take thousands of requests is warned about; copying is one map at a time and never bulk. Making an offline copy of an already-aligned map keeps every Control Point — that already works and must not regress.
 
-**The cache is reclaimable from the hub**, listed with its size beside the Historical Maps.
+**The cache is reclaimable from the hub**, listed with its size beside the Map Images.
 
 ## Out of scope
 
 - **Do not write a PMTiles archive.** `pmtiles@4.4.1` has no writer; hand-rolling the v3 header, leaf directories, run-length-encoded entries, and Hilbert ordering is archive-format code whose failure mode is silent, which is the class of bug this epic is escaping.
 - **Do not cache HTTP byte ranges in the service worker.** The cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption (ADR-0012 fence 2).
 - **Do not cache raster tiles.** Vector is what keeps several Base Map looks over one dataset.
-- **Do not cache remote Historical Map tiles for offline alignment.** Same fence: a partially cached remote pyramid renders with holes. Making an offline copy is the supported answer.
+- **Do not cache remote Map Image tiles for offline alignment.** Same fence: a partially cached remote pyramid renders with holes. Making an offline copy is the supported answer.
 - **Do not add a COOP/COEP service worker.**
 - **Do not refetch tiles already in the cache**, and do not re-fetch on every open.
 - **Do not make this automatic.** It is opt-in, per Project, always with the numbers first.
@@ -62,7 +62,7 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 - [x] Re-running the action fetches only tiles not already present.
 - [x] The attribution string is present with the cache serving and the network cut.
 - [x] The hub shows the cache's size and clears it, and clearing makes the Projects report themselves not available offline.
-- [x] Making an offline copy of a Historical Map is reachable from its Layer card, shows the rights statement before copying, warns on a level-0 source, and preserves every Control Point of an already-aligned map.
+- [x] Making an offline copy of a Map Image is reachable from its Layer card, shows the rights statement before copying, warns on a level-0 source, and preserves every Control Point of an already-aligned map.
 - [x] A published site with cached tiles draws its Base Map with the network cut.
 
 ```sh

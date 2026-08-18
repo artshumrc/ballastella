@@ -5,7 +5,7 @@
 //
 // It writes an `index.html`, the read-only viewer's files, and one small record of the site into
 // the Workspace, **beside** the Projects already there. It copies no Project data at all — not one
-// tile, not one `project.json` — because a single Historical Map is hundreds of megabytes to
+// tile, not one `project.json` — because a single Map Image is hundreds of megabytes to
 // gigabytes of pyramid and copying it on every publish is slowest exactly in OPFS, the most
 // constrained backend (ADR-0006). That is why `publishSite` never calls `store.read` on anything
 // inside a Project directory, and why `publish.test.ts` puts a spy on `read` to keep it that way.
@@ -37,7 +37,7 @@ import {
 	type BaseMapCacheSize
 } from '../base-map/offline-cache.js';
 import { BASE_MAP_TILE_ROOT } from '../base-map/tile-cache.js';
-import { referencedHistoricalMaps, unusedHistoricalMapBytes } from '../project/historical-maps.js';
+import { referencedMapImages, unusedMapImageBytes } from '../project/map-images.js';
 import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
 import {
@@ -444,14 +444,14 @@ export type PublishPlan = {
 	/** What the Workspace holds now, from `ProjectStore#size` and never from reading a tile. */
 	readonly workspace: WorkspaceSize;
 	/**
-	 * How much of {@link workspace} is Historical Maps no Project's Layers draw (SPEC story 98).
+	 * How much of {@link workspace} is Map Images no Project's Layers draw (SPEC story 98).
 	 *
 	 * **Publishing is additive and cannot leave them out** — they are already in the directory the site
 	 * is written into — so the honest thing is to say what they weigh. That sentence is what gives the
 	 * hub's reclaim list a reason to be visited, and `{ bytes: 0, maps: 0 }` for a Workspace where every
 	 * map is in use is the answer rather than the absence of one.
 	 */
-	readonly unusedHistoricalMaps: { readonly bytes: number; readonly maps: number };
+	readonly unusedMapImages: { readonly bytes: number; readonly maps: number };
 	/**
 	 * Whether the Workspace already carries cached Base Map tiles (ADR-0025).
 	 *
@@ -558,7 +558,7 @@ export async function planPublish(
 	const workspace = await workspaceSize(store);
 	// Cheap even beside that walk: the classification and the used-by are one `list` of `images/` and
 	// one read per Project, and the `size` calls happen only for the maps nothing draws — usually none.
-	const unusedHistoricalMaps = await unusedHistoricalMapBytes(store);
+	const unusedMapImages = await unusedMapImageBytes(store);
 	// ADR-0025: an observation of the folder, not a choice. One `list` of `base-map/tiles/` and a
 	// `size` per tile — the same `list` + `size` discipline as `workspaceSize`, never a `read`.
 	const caches = await baseMapCaches(store);
@@ -617,14 +617,14 @@ export async function planPublish(
 						`network connection. `
 					: `The Base Map tiles still need a network connection: make a Project available offline ` +
 						`if the site has to draw its geography on a train. `) +
-				`These files count against the same hosting budget as your Historical Maps.`
+				`These files count against the same hosting budget as your Map Images.`
 		});
 	}
 
 	if (crossesHostingLimit(workspace.bytes, bytes)) {
 		warnings.push({
 			kind: 'hosting-limit',
-			message: hostingWarning(workspace.bytes, bytes, unusedHistoricalMaps)
+			message: hostingWarning(workspace.bytes, bytes, unusedMapImages)
 		});
 	}
 
@@ -634,7 +634,7 @@ export async function planPublish(
 		files,
 		bytes,
 		workspace,
-		unusedHistoricalMaps,
+		unusedMapImages,
 		baseMapBundled: baseMapTiles.tiles > 0,
 		baseMapAssetsBundled: includeBaseMap && baseMap.length > 0,
 		baseMapAssetsRequested: includeBaseMap,
@@ -680,7 +680,7 @@ const collisionMessage = (collisions: readonly string[]): string =>
 /**
  * The two facts publishing needs out of the Projects' own documents, in one walk.
  *
- * **The referenced Historical Maps** are each Project's map Layers intersected with what the Workspace
+ * **The referenced Map Images** are each Project's map Layers intersected with what the Workspace
  * observably fetches from elsewhere, because the warning is about what the *site* draws: a `remote.json`
  * for an image nothing references costs a Reader nothing, and a Layer over a referenced image renders
  * blank without a network (ADR-0007, SPEC stories 29 and 90).
@@ -701,7 +701,7 @@ async function inspectProjects(
 	referenced: { project: PublishedProject; layers: string[] }[];
 	canonicalUrl: string | null;
 }> {
-	const remote = await referencedHistoricalMaps(store);
+	const remote = await referencedMapImages(store);
 	const referenced: { project: PublishedProject; layers: string[] }[] = [];
 	let canonicalUrl: string | null = null;
 	for (const project of projects) {
@@ -721,7 +721,7 @@ async function inspectProjects(
 }
 
 // The private `referencedImageIds` that used to be here — one `list` of `images/`, sorted out by
-// suffix — is now `referencedHistoricalMaps` in `project/historical-maps.ts`, which is the same walk
+// suffix — is now `referencedMapImages` in `project/map-images.ts`, which is the same walk
 // through the one implementation of ADR-0023's rule. It was one of five readings of that rule; the
 // hub's reclaim list needed a sixth, and got that module instead.
 
@@ -731,7 +731,7 @@ function referencedWarning(referenced: { project: PublishedProject; layers: stri
 		.map((entry) => `${entry.project.name}: ${entry.layers.join(', ')}`)
 		.join('; ');
 	return (
-		`${total === 1 ? 'One Historical Map' : `${total} Historical Maps`} in this Workspace ` +
+		`${total === 1 ? 'One Map Image' : `${total} Map Images`} in this Workspace ` +
 		`${total === 1 ? 'is' : 'are'} still fetched from the library that holds ${total === 1 ? 'it' : 'them'} ` +
 		`rather than copied into your own folder (${where}). Your Published Site depends on those ` +
 		`servers: a Reader with no network, or one visiting after the library reorganises, sees ` +
@@ -748,11 +748,11 @@ function referencedWarning(referenced: { project: PublishedProject; layers: stri
  * one Workspace. Only the sentence differs, because ticket 15's is about a copy that is about to be
  * made and this one is about a site that is about to be pushed.
  *
- * **And it names what is reclaimable** (SPEC story 98). Publishing is additive: the Historical Maps no
+ * **And it names what is reclaimable** (SPEC story 98). Publishing is additive: the Map Images no
  * Project draws are already in the directory being published and cannot be left out, so a warning
  * about a cliff that did not say how much of the drop is dead weight would be telling the user they
  * are stuck when they are one deletion from not being. The clause is omitted rather than written with
- * a zero, because "including 0 bytes of Historical Maps no Project uses" is noise in the one message
+ * a zero, because "including 0 bytes of Map Images no Project uses" is noise in the one message
  * that has to be read.
  */
 function hostingWarning(
@@ -765,7 +765,7 @@ function hostingWarning(
 	return (
 		`This Workspace holds ${describeBytes(current)}` +
 		(unused.maps > 0
-			? `, including ${describeBytes(unused.bytes)} of Historical Maps no Project uses — ` +
+			? `, including ${describeBytes(unused.bytes)} of Map Images no Project uses — ` +
 				`${unused.maps === 1 ? 'one map' : `${unused.maps} maps`} you can delete from the hub to ` +
 				`reclaim that space — and`
 			: ' and') +
@@ -1068,12 +1068,12 @@ export function normaliseCanonicalUrl(input: string): string {
 }
 
 /**
- * The IIIF image service `id` one Historical Map answers at, once the Workspace is at `url`.
+ * The IIIF image service `id` one Map Image answers at, once the Workspace is at `url`.
  *
  * `<url>/images/<image-id>` — the directory the pyramid is in, because `@allmaps/iiif-parser` builds
  * every tile URL by concatenating the IIIF path onto `id`, and the pyramid's files are laid out at
  * exactly that path **relative to the Workspace** (ADR-0004, ADR-0023). No Project directory: a
- * Historical Map is shared, so it answers at one address whichever Projects reference it — and a stamp
+ * Map Image is shared, so it answers at one address whichever Projects reference it — and a stamp
  * that named one of them would 404 for every tile the moment that Project was renamed or deleted.
  *
  * Stamp the wrong base and every tile 404s, so this is the one function that decides it.
@@ -1088,7 +1088,7 @@ export const canonicalImageServiceId = (url: string, imageId: string): string =>
 	// `normaliseCanonicalUrl` has already stripped any trailing slash, so this adds exactly one.
 	new URL(imageDirectory(imageId), `${url}/`).href;
 
-/** What stamping the Workspace's Historical Maps changed. */
+/** What stamping the Workspace's Map Images changed. */
 export type CanonicalStamp = {
 	readonly url: string;
 	/** The `info.json` files rewritten. */
@@ -1096,14 +1096,14 @@ export type CanonicalStamp = {
 };
 
 /**
- * Rewrite every named Historical Map's `info.json` `id` to the canonical address (SPEC story 92).
+ * Rewrite every named Map Image's `info.json` `id` to the canonical address (SPEC story 92).
  *
  * This is what turns a scholar's tiles into a real, citable IIIF endpoint that Allmaps, Theseus,
  * and OpenSeadragon can consume directly — the interoperability promise actually paying out rather
  * than being a claim about file formats (ADR-0004).
  *
  * **A Workspace-level action, and it takes no Project directory** (ADR-0023). The pyramids are shared,
- * so there is one address per Historical Map and stamping it once is stamping it for every Project. The
+ * so there is one address per Map Image and stamping it once is stamping it for every Project. The
  * per-Project version wrote `<url>/<project>/images/<id>`, which was a citation that broke as soon as
  * a second Project used the map or the first one was renamed.
  *

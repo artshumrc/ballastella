@@ -14,7 +14,7 @@ import { expectWorkspaceNamed, openWorkspaceMenu, switchToWorkspace } from './su
  *
  *   - a repository name typed into the editor becomes a **new named Workspace** that the app
  *     switches to, with the Workspace it came from left exactly as it was;
- *   - the Project in it lists on the hub, opens, and draws — so the Historical Map, the Alignment
+ *   - the Project in it lists on the hub, opens, and draws — so the Map Image, the Alignment
  *     and the Annotations all really landed, in a store the app reads through its own code;
  *   - only the **owned namespace** arrives, so the publisher's `README.md`, `CNAME` and workflow do
  *     not become the cloner's own content and are not published as theirs later (ADR-0033);
@@ -230,7 +230,7 @@ test.describe('cloning a published Workspace', () => {
 		await expect(page).toHaveURL(/\?p=amsterdam-1625$/);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(page.getByTestId('project-screen')).toBeVisible();
-		// Both Layers, so the map Layer's Historical Map and the annotation Layer's document both
+		// Both Layers, so the map Layer's Map Image and the annotation Layer's document both
 		// survived the round trip through GitHub. Read off the Layer list rather than by text: each
 		// name is also on that Layer's own Open button, and `getByText` matches both.
 		// In the Project's own Layer order, top first, which is the order the file declares.

@@ -126,7 +126,7 @@ export async function exportProjectBundle(
 /**
  * The Workspace files this Project's map Layers reference, at the archive paths they belong at.
  *
- * One `list` per referenced Historical Map rather than one walk of `images/`, because a Workspace can
+ * One `list` per referenced Map Image rather than one walk of `images/`, because a Workspace can
  * hold maps no Project uses (ADR-0023) and a bundle must not carry a stranger's pyramid — that is the
  * difference between a handoff and a backup, and it is this function.
  *
@@ -167,7 +167,7 @@ async function sharedEntries(
 			await store.size(alignment as StorePath);
 			found.push({ archivePath: alignment, storePath: alignment as StorePath });
 		} catch (cause) {
-			// A Historical Map nobody has placed yet has no Alignment, which is ordinary.
+			// A Map Image nobody has placed yet has no Alignment, which is ordinary.
 			if (!(cause instanceof PathNotFoundError)) throw cause;
 		}
 	}

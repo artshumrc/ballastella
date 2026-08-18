@@ -6,7 +6,7 @@ import {
 	IMAGE_WIDTH,
 	clickAt,
 	drawnMap,
-	historicalMap,
+	mapImage,
 	imagePoints,
 	makePair,
 	makePairs,
@@ -28,7 +28,7 @@ import {
 import { routeBaseMapArchive } from './support/editor-deployment';
 
 /**
- * SPEC's Seam 2 for Alignment refinement: choosing how the Historical Map is stretched, seeing where
+ * SPEC's Seam 2 for Alignment refinement: choosing how the Map Image is stretched, seeing where
  * the stretching is worst, being warned that the Alignment has folded, and outlining the part of the
  * sheet that is actually the map (stories 39–47, and 96 for the guidance in the accessibility tree).
  *
@@ -346,7 +346,7 @@ test.describe('distortion (ADR-0013)', () => {
 		expect(['red', 'darkblue']).not.toContain(drawn?.distortionColor00);
 
 		// The map is still drawn: turning a display option on must not rebuild the layer and throw away
-		// the tile cache, which would make the Historical Map vanish and come back for a checkbox.
+		// the tile cache, which would make the Map Image vanish and come back for a checkbox.
 		expect(await warpedTiles(page)).toBeGreaterThan(0);
 
 		// And the other measure can be displayed, which is what computing both is for.
@@ -417,7 +417,7 @@ test.describe('distortion (ADR-0013)', () => {
 		};
 
 		// 1. Changing how the map is stretched. ADR-0013's named pedagogical use: a student switches on
-		//    "Colour the Historical Map by how much it is stretched" and then tries another type.
+		//    "Colour the Map Image by how much it is stretched" and then tries another type.
 		await picker(page).selectOption('projective');
 		await expect.poll(async () => (await drawnMap(page))?.transformationType).toBe('projective');
 		await stillColouring('after changing the transformation type');
@@ -529,7 +529,7 @@ test.describe('the fold warning (ADR-0013)', () => {
 		await start(page);
 		await expect(foldWarning(page)).toHaveCount(0);
 
-		// Left on the Historical Map to right on the Base Map, and right to left: the "I swapped two
+		// Left on the Map Image to right on the Base Map, and right to left: the "I swapped two
 		// Control Points" error, which is exactly what ADR-0013 says the warning catches on affine.
 		await makePair(page, [0.25, 0.3], [0.75, 0.3]);
 		await makePair(page, [0.75, 0.3], [0.25, 0.3]);
@@ -886,7 +886,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		const second = imagePoints(page).nth(1);
 		await second.focus();
 		await expect(second).toBeFocused();
-		await expect(second).toHaveAttribute('aria-label', /Control Point 2, Historical Map half/);
+		await expect(second).toHaveAttribute('aria-label', /Control Point 2, Map Image half/);
 
 		await page.keyboard.press('Delete');
 		await expect(imagePoints(page)).toHaveCount(2);
@@ -895,7 +895,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await expect(imagePoints(page).nth(1)).toBeFocused();
 		await expect(imagePoints(page).nth(1)).toHaveAttribute(
 			'aria-label',
-			/Control Point 2, Historical Map half/
+			/Control Point 2, Map Image half/
 		);
 
 		// Arrow keys move the Control Point, not the map. Read off the list, which states the image pixel
@@ -1021,7 +1021,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await expect(rows(page)).toHaveCount(3);
 
 		// And the pane still starts a Control Point where there is no handle.
-		await clickAt(historicalMap(page), 0.55, 0.9);
+		await clickAt(mapImage(page), 0.55, 0.9);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await page.keyboard.press('Escape');
 	});

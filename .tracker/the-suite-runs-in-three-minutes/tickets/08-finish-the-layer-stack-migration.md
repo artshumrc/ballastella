@@ -18,7 +18,7 @@ Remaining candidates:
 
 ## Contract
 
-- **What stays at Seam 2, without exception**: that a reordered Layer draws above another in MapLibre's own layer order; that an opaque annotation above a map Layer still draws above it; that the Historical Map draws warped and comes off the map when hidden; that any of it survives a reload. Those are the renderer and OPFS, and this file is the only place they are asserted.
+- **What stays at Seam 2, without exception**: that a reordered Layer draws above another in MapLibre's own layer order; that an opaque annotation above a map Layer still draws above it; that the Map Image draws warped and comes off the map when hidden; that any of it survives a reload. Those are the renderer and OPFS, and this file is the only place they are asserted.
 - **Byte-identity across reorder, rename, toggle and opacity is a claim about what the application writes during a session.** If moving it to Seam 1 turns it into the serialiser agreeing with itself, leave it at Seam 2 and record that judgement.
 - Address elements by position, never by a held locator — a disclosure's accessible name changes from "Open — …" to "Close — …" when clicked.
 - Every retired Seam 2 test names its replacement.

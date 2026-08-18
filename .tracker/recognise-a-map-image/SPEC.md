@@ -1,30 +1,30 @@
-# Recognise a Historical Map
+# Recognise a Map Image
 
 ## Problem Statement
 
-A scholar's Workspace hub lists its Historical Maps as text: a label, a size, where the tiles are, and
+A scholar's Workspace hub lists its Map Images as text: a label, a size, where the tiles are, and
 which Projects use each one. When the label is missing it lists a random identifier instead. A scholar
 who has brought in a dozen sheets from the same atlas — or the same city in three different decades —
 cannot tell which entry is which without opening a Project and drawing it.
 
-The same is true at the moment it matters most. The picker that offers "a Historical Map you already
+The same is true at the moment it matters most. The picker that offers "a Map Image you already
 have" is the same text list, so choosing which of eleven scans to add to a new Project means
 recognising a map by its filename.
 
 Two further consequences follow from the same gap. Local image ids are random rather than content
-hashes, so the same file added twice is two Historical Maps (ADR-0023) — and a text list gives a
-scholar no way to notice they have done it. And a Historical Map is the one thing in a Workspace that
+hashes, so the same file added twice is two Map Images (ADR-0023) — and a text list gives a
+scholar no way to notice they have done it. And a Map Image is the one thing in a Workspace that
 is expensive: a scholar deciding what to delete to stay under a hosting budget is deciding from a
 size in megabytes and a folder name.
 
 ## Solution
 
-Every Historical Map in the Workspace hub, and in the picker for a map already in the Workspace,
+Every Map Image in the Workspace hub, and in the picker for a map already in the Workspace,
 shows a small picture of the map itself beside its name.
 
-Nothing is generated to make this work. A Historical Map whose tiles are in the Workspace already
+Nothing is generated to make this work. A Map Image whose tiles are in the Workspace already
 contains a whole-sheet derivative — the single tile at the coarsest level of its pyramid, which is
-what a level-0 pyramid ends in by construction. That tile is the picture. A Historical Map that is
+what a level-0 pyramid ends in by construction. That tile is the picture. A Map Image that is
 referenced from a Library has the equivalent single tile on the Library's own server, and this app
 already establishes at add time that the Library will serve it. So a scholar sees pictures for every
 map they already have, with no re-ingest, no download, and no bytes added to their Workspace.
@@ -35,11 +35,11 @@ shape and nothing claims to have failed.
 
 ## User Stories
 
-1. As a scholar, I want to see a picture of each Historical Map on my Workspace hub, so that I can
+1. As a scholar, I want to see a picture of each Map Image on my Workspace hub, so that I can
    tell my maps apart without opening a Project.
-2. As a scholar, I want to recognise a Historical Map whose label is missing by its picture, so that a
+2. As a scholar, I want to recognise a Map Image whose label is missing by its picture, so that a
    random folder name is not the only thing identifying it.
-3. As a scholar, I want to see a picture of each Historical Map in the picker for maps I already have,
+3. As a scholar, I want to see a picture of each Map Image in the picker for maps I already have,
    so that adding the right sheet to a new Project does not depend on remembering a filename.
 4. As a scholar, I want the picture to keep the sheet's proportions, so that I can recognise a tall
    folio or a wide panoramic sheet by its shape.
@@ -49,43 +49,43 @@ shape and nothing claims to have failed.
    looks blurred or degraded.
 7. As a scholar, I want the cards to stay put while pictures arrive, so that clicking Delete on the
    right map does not become a moving target.
-8. As a scholar, I want a Historical Map with no available picture to keep a card of the same shape, so
+8. As a scholar, I want a Map Image with no available picture to keep a card of the same shape, so
    that the list stays a list rather than becoming ragged.
-9. As a scholar, I want a Historical Map referenced from a Library to show a picture drawn from that
+9. As a scholar, I want a Map Image referenced from a Library to show a picture drawn from that
    Library, so that referencing a map costs me nothing in storage and still shows me what it is.
-10. As a scholar, I want a referenced Historical Map's picture to cost one small request rather than a
+10. As a scholar, I want a referenced Map Image's picture to cost one small request rather than a
     download of the whole sheet, so that browsing my own Workspace does not pull megabytes.
 11. As a scholar working offline, I want my Workspace's own maps to still show pictures, so that the
     maps whose tiles I hold do not become anonymous when I have no network.
 12. As a scholar working offline, I want referenced maps to show a neutral glyph rather than an error,
     so that being on a train is a normal state rather than a fault.
-13. As a scholar, I want a Historical Map I have made an Offline Copy of to show a picture from my own
+13. As a scholar, I want a Map Image I have made an Offline Copy of to show a picture from my own
     Workspace, so that the copy really has removed my dependence on the Library.
 14. As a scholar, I want that switch to happen by itself when the copy completes, so that I do not have
     to do anything to make it take effect.
-15. As a scholar, I want a Historical Map I add from a file on my computer to have a picture as soon as
+15. As a scholar, I want a Map Image I add from a file on my computer to have a picture as soon as
     it appears, so that adding a map involves no second wait.
 16. As a scholar, I want no extra files written into my Workspace for this, so that the ~1 GB
     published-site budget is spent on maps rather than on pictures of maps.
 17. As a scholar, I want the maps already in my Workspace to gain pictures with no action from me, so
     that I am not asked to re-add work I have already done.
-18. As a scholar with many Historical Maps, I want the hub to open as promptly as it does now, so that
+18. As a scholar with many Map Images, I want the hub to open as promptly as it does now, so that
     the pictures are an addition rather than a cost.
 19. As a scholar, I want requests to a Library limited to the maps I can actually see, so that opening
     my Workspace does not fire a request for every referenced map at once.
 20. As a scholar, I want to notice that I have added the same sheet twice, so that I can delete the
     duplicate before I build Projects on both.
-21. As a scholar deciding what to delete to save space, I want to see what each expensive Historical
-    Map actually is, so that the decision is about content rather than about megabytes.
+21. As a scholar deciding what to delete to save space, I want to see what each expensive Map
+    Image actually is, so that the decision is about content rather than about megabytes.
 22. As a scholar, I want the existing size, tile location, and "used by" facts to remain exactly as they
     are, so that the picture adds information without displacing any.
 23. As a scholar, I want Delete to go on working unchanged, including its refusal when a map is in use,
     so that a visual change has not altered what the buttons do.
 24. As a scholar whose `remote.json` will not parse, I want the map still listed with a neutral glyph,
     so that a damaged record leaves me able to see and delete the map.
-25. As a scholar, I want a Historical Map with an incomplete pyramid to stay invisible as it is today,
+25. As a scholar, I want a Map Image with an incomplete pyramid to stay invisible as it is today,
     so that a half-finished ingest does not start appearing as a broken picture.
-26. As a scholar reviewing a Project someone sent me, I want its Historical Maps to show pictures in
+26. As a scholar reviewing a Project someone sent me, I want its Map Images to show pictures in
     the Review Workspace, so that I can see what I have been sent before reading it.
 27. As a scholar using a screen reader, I do not want to hear each map's name read twice, so that the
     picture adds nothing to announce beyond the label already beside it.
@@ -109,7 +109,7 @@ shape and nothing claims to have failed.
 ## Implementation Decisions
 
 Recorded in full, with the reasoning, in
-`docs/adr/0030-a-historical-maps-thumbnail-is-its-coarsest-pyramid-tile.md`. The decisions that bind
+`docs/adr/0030-a-map-images-thumbnail-is-its-coarsest-pyramid-tile.md`. The decisions that bind
 implementation:
 
 **The thumbnail is the coarsest single tile of the pyramid, and nothing is generated.** A level-0
@@ -141,13 +141,13 @@ such level has one synthesised, and the add-time probe fetches that exact tile b
 accepted. So this leans on an invariant already established rather than on a compliance-level
 assumption.
 
-**Resolution happens in the domain layer**, inside the function that lists the Workspace's Historical
-Maps, and the URL is carried on the listing type beside `label`, `bytes`, `tiles`, and `usedBy`. This
+**Resolution happens in the domain layer**, inside the function that lists the Workspace's Map
+Images, and the URL is carried on the listing type beside `label`, `bytes`, `tiles`, and `usedBy`. This
 costs one additional small read per Workspace-held map, in a scan that already reads one per map. IIIF
 knowledge stays out of the view layer, and the resolver stays testable with no browser.
 
 ```
-WorkspaceHistoricalMap gains:
+WorkspaceMapImage gains:
   readonly thumbnail: string | null    // null when the geometry needed is unavailable
 ```
 
@@ -261,7 +261,7 @@ asserting on a pyramid already has a helper that polls for a completed one.
 
 ## Out of Scope
 
-- **The Published Site.** Its hub lists Projects and never Historical Maps, so there is no surface to
+- **The Published Site.** Its hub lists Projects and never Map Images, so there is no surface to
   put pictures on. Nothing published changes.
 - **The Layer sidebar inside a Project.** It lists Layers, and whether a Layer wants a picture is a
   different question about a different concept.

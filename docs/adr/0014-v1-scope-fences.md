@@ -5,7 +5,7 @@ Recorded because unnamed adjacent scope is where a plan quietly triples, and bec
 > **These are v1's fences and they stay as the record of v1.** Two statements below have since been overtaken and must not be read as current:
 >
 > - **"`terra-draw` provides no undo, so this is ours"** — `terra-draw` is not used anywhere and never was. See [ADR-0005](./0005-maplibre-and-terra-draw.md)'s Resolution. Single-level undo is still ours and still single-level; only the stated reason was wrong.
-> - **"Annotating the unwarped image is the most likely v2 feature"** — still plausible, but note that [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md) moves historical maps and alignments to the workspace, so a second annotation model would target a *workspace-level* image rather than a project-level one. The tolerance this section asks for — a third layer kind, and nothing assuming all annotations are geographic — is unaffected and still required, `"foreign"` still reserved.
+> - **"Annotating the unwarped image is the most likely v2 feature"** — still plausible, but note that [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md) moves map images and alignments to the workspace, so a second annotation model would target a *workspace-level* image rather than a project-level one. The tolerance this section asks for — a third layer kind, and nothing assuming all annotations are geographic — is unaffected and still required, `"foreign"` still reserved.
 >
 > "Authoring is desktop-only; viewing is fully responsive" holds and is load-bearing for everything the next epic adds.
 >

@@ -6,10 +6,10 @@ import zlib from 'node:zlib';
 import { expectWarpedDrawn } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
-	addHistoricalMapButton,
+	addMapImageButton,
 	expectNothingPreparing,
-	pickHistoricalMapFile
-} from './support/historical-maps.js';
+	pickMapImageFile
+} from './support/map-images.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 import { countFileReads, countFileWrites, fileReads, fileWrites } from './support/store-traffic.js';
@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  * **Every claim about ordering and visibility is asserted on what rendered, never on an absence of
  * errors.** Two handles make that possible, and both are about MapLibre's own state rather than the
  * app's: `map.getLayersOrder()` *is* the mechanism by which one Layer draws above another, and each
- * warped Layer's tile cache is the honest signal that an aligned Historical Map carried bytes. The
+ * warped Layer's tile cache is the honest signal that an aligned Map Image carried bytes. The
  * failure this path used to have was an error `@allmaps/render` logged and swallowed, so a
  * console-only check went green while the map rendered blank.
  *
@@ -192,7 +192,7 @@ async function delayWritesTo(page: Page, needle: string, ms: number): Promise<vo
 }
 
 /**
- * The names of the **Workspace's** stored Historical Maps, which are random identifiers (ADR-0015).
+ * The names of the **Workspace's** stored Map Images, which are random identifiers (ADR-0015).
  *
  * At the Workspace root rather than inside a Project (ADR-0023): a pyramid is prepared once and shared,
  * so `images/` has one answer whichever Project is open.
@@ -207,7 +207,7 @@ const storedImageIds = (page: Page): Promise<string[]> =>
 	});
 
 /**
- * The id of the first Historical Map whose pyramid is **complete**, or `null`.
+ * The id of the first Map Image whose pyramid is **complete**, or `null`.
  *
  * `info.json` is written last by the tiler and is therefore the completion marker for the whole
  * directory, so its arrival is the moment the ingest is over and the rest of the add — the
@@ -268,7 +268,7 @@ async function emptyWorkspace(page: Page): Promise<void> {
 /**
  * One file of a Project, straight out of OPFS.
  *
- * Pass `''` as the directory for something at the Workspace root — a Historical Map's pyramid or its
+ * Pass `''` as the directory for something at the Workspace root — a Map Image's pyramid or its
  * Alignment, which belong to the Workspace rather than to any Project (ADR-0023).
  */
 const readProjectFile = (page: Page, directory: string, path: string): Promise<string> =>
@@ -295,7 +295,7 @@ const writeProjectFile = (
 	page.evaluate(
 		async ([directory, path, text]) => {
 			const root = await workspaceRoot();
-			// `''` writes at the Workspace root, where a Historical Map's pyramid and its Alignment live
+			// `''` writes at the Workspace root, where a Map Image's pyramid and its Alignment live
 			// (ADR-0023). The reader above already took `''` to mean that; this did not, and the two
 			// disagreeing is how a fixture asks for `alignments/…` and gets a `NotAllowedError`.
 			let handle =
@@ -364,7 +364,7 @@ async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
 /**
  * An empty Project, open, with nothing added to it yet.
  *
- * Split out of {@link projectWithImage} because adding the Historical Map is now itself the thing
+ * Split out of {@link projectWithImage} because adding the Map Image is now itself the thing
  * under test in two places — the write it can fail on and the window it can lose a rename in — and
  * both of those have to arrange something *before* the file is picked.
  *
@@ -376,7 +376,7 @@ async function emptyProject(page: Page): Promise<string> {
 	await page.reload();
 	await createProject(page, 'Amsterdam 1625');
 	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 	return 'amsterdam-1625';
 }
 
@@ -384,14 +384,14 @@ async function emptyProject(page: Page): Promise<string> {
  * Pick the gradient PNG in the file input, and return once the whole add is over.
  *
  * **The barrier is the pyramid on disk, not the Layer.** Ticket 04 deleted the Project page's list
- * of the Workspace's Historical Maps, which is what this used to wait on — and the obvious
+ * of the Workspace's Map Images, which is what this used to wait on — and the obvious
  * replacement, waiting for the Layer row, is wrong here: one caller below is about the add whose
  * Layer is deliberately *never made*, so waiting for it would hang for thirty seconds and then fail
  * on the wrong line. `images/<id>/info.json` is written by the tiler last, so it lands when the
  * ingest ends and the Layer is on its way.
  */
-async function addHistoricalMap(page: Page): Promise<void> {
-	await pickHistoricalMapFile(page, {
+async function addMapImage(page: Page): Promise<void> {
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
@@ -406,10 +406,10 @@ async function addHistoricalMap(page: Page): Promise<void> {
 }
 
 /**
- * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
+ * A Project with one ingested Map Image and not one Control Point yet — the state a scholar is in
  * when they make their first pair, **and still on the Project page**.
  *
- * **There is a map Layer in the stack already** (ADR-0023): adding the Historical Map is what put it
+ * **There is a map Layer in the stack already** (ADR-0023): adding the Map Image is what put it
  * there, and it says it is not aligned yet until the pairs exist. So the barrier is the save
  * indicator rather than a pane: since ticket 03 there is no alignment pane on this page to wait for,
  * and the whole of the add — pyramid, Alignment, `project.json` — is what "Saved" means here.
@@ -418,13 +418,13 @@ async function addHistoricalMap(page: Page): Promise<void> {
  */
 async function projectWithImageThroughTheInterface(page: Page): Promise<string> {
 	const directory = await emptyProject(page);
-	await addHistoricalMap(page);
+	await addMapImage(page);
 	await expect(page.getByRole('status')).toHaveText('Saved locally');
 	return directory;
 }
 
 /**
- * On to the alignment route for the Project's one Historical Map (ticket 03).
+ * On to the alignment route for the Project's one Map Image (ticket 03).
  *
  * Separate from {@link projectWithImage} because most of this file never needs the panes — it is
  * about the Layer stack — and because the two tests that are about what *adding* the map does have to
@@ -453,7 +453,7 @@ async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack with
+ * A Project with one aligned Map Image, which is the smallest thing that has a Layer stack with
  * something in it that draws.
  *
  * Made through the interface rather than seeded into OPFS: the Layer comes from the add (ADR-0023)
@@ -516,7 +516,7 @@ const mapLayerIds = async (page: Page): Promise<{ imageId: string; layerId: stri
  * a changed tiler or serialiser discards it.
  *
  * ⚠ **A test whose subject is the add itself must not use this.** Three below drive
- * {@link emptyProject} and {@link addHistoricalMap} directly — the one that asserts what adding a
+ * {@link emptyProject} and {@link addMapImage} directly — the one that asserts what adding a
  * map writes, the one that fails the starter Alignment write, and the one that renames the Project
  * inside the add's own window. They are what keeps the recording honest.
  *
@@ -539,7 +539,7 @@ async function seededWorkspace(
 }
 
 /**
- * A Project with one ingested Historical Map and not one Control Point yet — seeded.
+ * A Project with one ingested Map Image and not one Control Point yet — seeded.
  *
  * See {@link seededWorkspace} for what "seeded" costs and does not cover, and
  * {@link projectWithImageThroughTheInterface} for the journey that was recorded to make it.
@@ -548,7 +548,7 @@ const projectWithImage = (page: Page): Promise<string> =>
 	seededWorkspace(page, 'layers-with-image', projectWithImageThroughTheInterface);
 
 /**
- * A Project with one aligned Historical Map — seeded.
+ * A Project with one aligned Map Image — seeded.
  *
  * See {@link seededWorkspace}, and {@link alignedProjectThroughTheInterface} for the journey that
  * was recorded to make it.
@@ -563,7 +563,7 @@ const STACK_READY_MS = 20_000;
  * Open the Layers pane and wait until the stack has been put on the map.
  *
  * The wait is longer than the default because what it waits for is a whole Base Map style — a PMTiles
- * header, sprites, glyphs — and then a warped Historical Map on top of it. Five seconds is enough on an
+ * header, sprites, glyphs — and then a warped Map Image on top of it. Five seconds is enough on an
  * idle machine and not on a busy one, which reads as a failure of whatever the test went on to do.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -571,7 +571,7 @@ const STACK_READY_MS = 20_000;
  *
  * There are two ways to reach this pane and **they were not equivalent**. A fresh load — `via: 'load'`,
  * which is what every test in this file used and so remains the default — worked; the client-side
- * navigation from the Project page did not, once that page had a local Historical Map on it. Its
+ * navigation from the Project page did not, once that page had a local Map Image on it. Its
  * `WarpedMapLayer` was taken off a map that had already been removed, `Map#getLayer` threw because a
  * removed map has no style, and an exception thrown while Svelte is destroying one page abandons the
  * rest of that flush — including the mount of the page being navigated to. So the Layers pane arrived
@@ -693,7 +693,7 @@ const warpedOpacity = (page: Page, layerId: string): Promise<number> =>
  *
  * **Waits for the map to settle first**, and that is not politeness. `queryRenderedFeatures` reads
  * what is *painted*, so while a camera move is still resolving it answers `[]` for every layer on the
- * map, base map and all — which reads as "the Annotation Layer is not above the Historical Map" and is
+ * map, base map and all — which reads as "the Annotation Layer is not above the Map Image" and is
  * really "ask again". Both callers query immediately after `warpedTiles`, which jumps the camera onto
  * the sheet; before ADR-0026 that jump was a couple of zoom levels from the deployment default and
  * mostly landed on tiles already in hand, and now it is a jump back from wherever the Project's own
@@ -808,7 +808,7 @@ const projectJson = async (page: Page, directory: string) =>
 /**
  * The Workspace path of the one Alignment this Project draws, derived from the Layer's image id.
  *
- * The id is not spelled out because a Historical Map's id is a random identifier rather than its
+ * The id is not spelled out because a Map Image's id is a random identifier rather than its
  * filename (ADR-0015) — which is also why the Layer's *name* comes from the image's manifest. The path
  * around it is spelled out rather than imported from `core`, so that a fixture built from the same
  * function the app builds its paths with cannot agree with itself however wrong both are.
@@ -820,13 +820,13 @@ const alignmentRefOf = async (page: Page, directory: string): Promise<string> =>
 		).imageId
 	}.json`;
 
-test.describe('a Layer for a Historical Map that has just been added', () => {
+test.describe('a Layer for a Map Image that has just been added', () => {
 	/**
 	 * SPEC stories 18 and 68, and the criterion ticket 02 exists for: **the gesture that makes the
 	 * Layer is adding the map, not aligning it.** Asserted before a single Control Point exists, which
 	 * is what makes it a claim about the add rather than about the alignment that used to follow.
 	 */
-	test('adding a Historical Map produces a kind: map Layer in project.json, with no Control Point', async ({
+	test('adding a Map Image produces a kind: map Layer in project.json, with no Control Point', async ({
 		page
 	}) => {
 		// Through the real file input, not seeded: this test's subject *is* what adding a map writes,
@@ -838,7 +838,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		expect(file.layers).toHaveLength(1);
 		expect(file.layers[0]).toMatchObject({
 			kind: 'map',
-			// The file the user picked, which is the only record of what they call this Historical Map: an
+			// The file the user picked, which is the only record of what they call this Map Image: an
 			// image id is a random identifier (ADR-0015), so naming the Layer from it would name it after
 			// a hash. SPEC story 54 is that they can rename it from here.
 			name: 'la-floride.png',
@@ -909,7 +909,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await page.waitForTimeout(2000);
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
 
-		// Hidden, and it still says it: the sentence is about where the Historical Map sits on the earth,
+		// Hidden, and it still says it: the sentence is about where the Map Image sits on the earth,
 		// and a Layer does not become aligned by being ticked.
 		await rows(page).first().getByTestId('layer-visible').uncheck();
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
@@ -982,7 +982,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		expect(after.updatedAt).toBe(before.updatedAt);
 	});
 
-	// Adding a Historical Map the Project already draws is a no-op on the stack rather than a duplicate
+	// Adding a Map Image the Project already draws is a no-op on the stack rather than a duplicate
 	// or a refusal. It needs an image id that is the *same* on the second add, which a local file never
 	// has — `generateRandomId()`, ADR-0015 — so it is covered on the referenced path, where
 	// `generateId(uri)` is deterministic: see `editor-remote-iiif.e2e.ts`.
@@ -1012,12 +1012,12 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		const directory = await emptyProject(page);
 		await failWritesUnderAlignments(page);
 
-		// The list of the Workspace's Historical Maps is written **last** by the add, so waiting for it
+		// The list of the Workspace's Map Images is written **last** by the add, so waiting for it
 		// is waiting for the whole gesture to be over — including the half that failed. The barrier is
 		// deliberately not the failure message: an implementation that made the Layer anyway would
 		// overwrite the message with the successful `project.json` write, and this test would then go
 		// red on the wrong line and say nothing about the Layer.
-		await addHistoricalMap(page);
+		await addMapImage(page);
 
 		// No Layer, because the Alignment it would draw is not there. Read off the page, which renders
 		// the count out of the one in-memory `project.json`, and out of the file.
@@ -1028,19 +1028,19 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await expect(
 			readProjectFile(page, '', `alignments/${(await storedImageIds(page))[0]}.json`)
 		).rejects.toThrow();
-		// And the user is told, rather than being left with a Historical Map that quietly did not arrive.
+		// And the user is told, rather than being left with a Map Image that quietly did not arrive.
 		await expect(page.getByText('Quota exceeded')).toBeVisible();
 
 		// **And there is no way to align it into existence either**, which is ticket 03's half of the
 		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project screen
 		// offers no Align link for this map at all rather than a control that would make one.
-		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
-		await expect(page.getByTestId('align-historical-map-now')).toHaveCount(0);
+		await expect(page.getByTestId('align-map-image')).toHaveCount(0);
+		await expect(page.getByTestId('align-map-image-now')).toHaveCount(0);
 		// Said, not merely absent. The Project page used to carry a dedicated "this map is in the
-		// Workspace but not in this Project" alert beside its list of the Workspace's Historical Maps;
+		// Workspace but not in this Project" alert beside its list of the Workspace's Map Images;
 		// ticket 04 deleted that list, so the sentence that has to be true here is the sidebar's own
 		// empty state — and it names the next action rather than only the fact (SPEC story 106).
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 	});
 
 	/**
@@ -1050,15 +1050,15 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 * `manifest.json` for the Layer's name, and writes the document back. A version that wrote back the
 	 * *snapshot it took before the await* discarded whatever else changed inside that window — and one
 	 * of them is the Project name field, which sits on this very page: a user renames their Project
-	 * while their Historical Map is being added, sees the field revert to the old name, and the file on
+	 * while their Map Image is being added, sees the field revert to the old name, and the file on
 	 * disk carries the old name too. `project.json` is the document whose loss is "not one annotation
 	 * but the map of everything" (ADR-0017 rule 4).
 	 *
 	 * ──────────────────────────────────────────────────────────────────────────────────
-	 * THE BARRIER IS THE PYRAMID, AND IT USED TO BE THE HISTORICAL MAPS LIST
+	 * THE BARRIER IS THE PYRAMID, AND IT USED TO BE THE MAP IMAGES LIST
 	 *
 	 * The rename has to happen **inside** the window, or this test asserts nothing while claiming to
-	 * assert something. Waiting for the Historical Maps list to show one item no longer puts it inside
+	 * assert something. Waiting for the Map Images list to show one item no longer puts it inside
 	 * anything: `ingestImage` sets `this.images` *last*, deliberately, so that a map appears in the
 	 * list only once the whole add is done. By the time that row rendered the Layer was written, the
 	 * window was shut, and reverting the fix under test left this green.
@@ -1079,7 +1079,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// only makes it wide enough to drive on purpose.
 		await delayReadsOf(page, 'manifest.json', 3000);
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
@@ -1130,7 +1130,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 *
 	 * Every other test in this file loads `/layers?p=…` directly, so a defect that only the client-side
 	 * navigation reaches was invisible to the whole suite by construction — see {@link openLayers}. It
-	 * needs a **local** Historical Map on the Project page to reproduce, because that is what puts a
+	 * needs a **local** Map Image on the Project page to reproduce, because that is what puts a
 	 * warped layer on a Base Map pane that then has to be torn down: the pane the user is leaving removed
 	 * its map first and asked it for a layer afterwards, `Map#getLayer` threw on a map with no style, and
 	 * Svelte abandoned the rest of the destroy — and with it the mount of the pane being navigated to.
@@ -1160,7 +1160,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 
 		// Out of the alignment route, which is where the warped pane being torn down now lives.
 		await page.getByTestId('back-to-project').click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await openLayers(page, directory, { via: 'link' });
 
 		const layerId = (await rowIds(page))[0] as string;
@@ -1222,9 +1222,7 @@ test.describe('a Base Map that never finishes loading', () => {
 });
 
 test.describe('showing and hiding a Layer (SPEC story 50)', () => {
-	test('draws the Historical Map warped, and takes it off the map when hidden', async ({
-		page
-	}) => {
+	test('draws the Map Image warped, and takes it off the map when hidden', async ({ page }) => {
 		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
@@ -1422,7 +1420,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		test.setTimeout(30_000 + 2 * WARPED_TILE_WAIT_MS);
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 
-		// Both are genuinely rendering: the Historical Map has decoded tiles, and the Annotation
+		// Both are genuinely rendering: the Map Image has decoded tiles, and the Annotation
 		// Layer's polygon is painted where we are about to compare them.
 		expect(await warpedTiles(page, mapId)).toBeGreaterThan(0);
 		expect(await renderedAtCentre(page)).toContain(`ballastella-layer-${annotationId}-fill`);
@@ -1911,7 +1909,7 @@ test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
 
 test.describe('leaving the Project screen and coming back', () => {
 	/**
-	 * The round trip the stack is *for*: notice a Historical Map sitting crooked, go and fix it, come
+	 * The round trip the stack is *for*: notice a Map Image sitting crooked, go and fix it, come
 	 * back and look again.
 	 *
 	 * This used to be "the Layers pane links back to its Project", because the two were different
@@ -2027,7 +2025,7 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 //
 // A Project is a stack of Layers and a Layer opens to reveal what is inside it. What a *closed* row
 // still shows is the load-bearing half: the name, the visibility toggle, and whatever the Layer is
-// warning about — because "this Historical Map needs aligning" is the state a scholar has to be able
+// warning about — because "this Map Image needs aligning" is the state a scholar has to be able
 // to notice **without opening anything**.
 //
 // ⚠ **The position controls used to be on that list and are not any more.** The Layers revision moved
@@ -2119,7 +2117,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		await expect(open.getByTestId('layer-not-aligned')).toHaveCount(0);
 		// The Align button is still there, because aligning is still the thing to do about a map with a
 		// broken Alignment — this is about what is *said*, not about what is offered.
-		await expect(open.getByTestId('align-historical-map')).toHaveCount(1);
+		await expect(open.getByTestId('align-map-image')).toHaveCount(1);
 	});
 
 	/**
@@ -2141,10 +2139,10 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		// Closed, the row's own Align is not on the screen — which is what makes every other spec's
 		// `openLayerRow` a step the user really takes rather than a formality. The "Align now" beside the
 		// not-aligned sentence is a different affordance under a different id, and has its own spec below.
-		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
+		await expect(page.getByTestId('align-map-image')).toHaveCount(0);
 
 		const row = await openLayerRow(page, 0);
-		const align = row.getByTestId('align-historical-map');
+		const align = row.getByTestId('align-map-image');
 		await expect(align).toHaveRole('link');
 		const layerId = (await projectJson(page, directory)).layers[0].id as string;
 		expect(await align.getAttribute('href')).toContain(`?p=${directory}&layer=${layerId}`);
@@ -2177,7 +2175,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		// Still closed: the point is that nothing had to be opened.
 		await expect(row.getByTestId('layer-disclosure')).toHaveAttribute('aria-expanded', 'false');
 
-		const now = row.getByTestId('align-historical-map-now');
+		const now = row.getByTestId('align-map-image-now');
 		await expect(now).toHaveRole('link');
 		await expect(now).toHaveText('Align now');
 		const layerId = (await projectJson(page, directory)).layers[0].id as string;
@@ -2217,14 +2215,14 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 
 		const row = rows(page).first();
 		await expect(row.getByTestId('layer-problem')).not.toHaveText('');
-		await expect(row.getByTestId('align-historical-map-now')).toHaveCount(0);
-		await expect((await openLayerRow(page, 0)).getByTestId('align-historical-map')).toHaveCount(1);
+		await expect(row.getByTestId('align-map-image-now')).toHaveCount(0);
+		await expect((await openLayerRow(page, 0)).getByTestId('align-map-image')).toHaveCount(1);
 	});
 
 	/**
 	 * The negative half, and it is about a Layer's *visibility* rather than its Alignment.
 	 *
-	 * "Not aligned yet" is about where the Historical Map sits on the earth, and a Layer does not
+	 * "Not aligned yet" is about where the Map Image sits on the earth, and a Layer does not
 	 * become aligned, or stop being, by being ticked — so an aligned Layer must say nothing about
 	 * needing alignment whether it is shown or hidden. Hiding one takes it off the map and out of what
 	 * the renderer reports, which is precisely the way this could go wrong.

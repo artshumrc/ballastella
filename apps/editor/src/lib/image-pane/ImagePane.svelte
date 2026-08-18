@@ -25,7 +25,7 @@
 </script>
 
 <script lang="ts">
-	// The image pane: a Historical Map's own pyramid in a MapLibre map, in image pixel space.
+	// The image pane: a Map Image's own pyramid in a MapLibre map, in image pixel space.
 	//
 	// Nothing here is warped. The pane shows the image unwarped in its own coordinate system,
 	// laid on the synthetic projection `@ballastella/core` computes for the pyramid; warped
@@ -62,7 +62,7 @@
 		label: string;
 		/**
 		 * Where this pyramid's tiles are read from (ADR-0011). `createStoreImageFetch(...)` for a
-		 * Historical Map in the user's Project; left out only for one really served over HTTP.
+		 * Map Image in the user's Project; left out only for one really served over HTTP.
 		 */
 		fetchTile?: FetchFn;
 		overlayPoints?: PaneOverlayPoint[];
@@ -135,7 +135,7 @@
 				// remote font endpoint would put a network dependency in the middle of a pane whose
 				// whole content is local (user story 8).
 				sources: {
-					'historical-map': {
+					'map-image': {
 						type: 'raster',
 						tiles: [imagePaneTileTemplate(paneId)],
 						tileSize: pane.tileSize,
@@ -148,9 +148,9 @@
 				},
 				layers: [
 					{
-						id: 'historical-map',
+						id: 'map-image',
 						type: 'raster',
-						source: 'historical-map',
+						source: 'map-image',
 						// No cross-fade: a half-faded tile is a half-visible coordinate.
 						paint: { 'raster-fade-duration': 0 }
 					}

@@ -92,7 +92,7 @@ export type AlignmentWrite =
 	 * this build would write for this map — which means nothing has happened to it since it was
 	 * created and there is nothing to lose. Anything else is kept, and the caller is told so.
 	 *
-	 * This is the starter Alignment written when a Historical Map is added to the Workspace, and it
+	 * This is the starter Alignment written when a Map Image is added to the Workspace, and it
 	 * is the community Alignment a user accepts on the add. **The community offer is the case this
 	 * distinction exists for.** A remote resource's image id is `generateId(uri)`, the same for
 	 * everybody, so "accept the offer" in Project B is not overwriting a file you just made: it is
@@ -148,7 +148,7 @@ export type AlignmentWrite =
 	 * belief between the two writes, and a caller whose writes can *overlap* must stop them
 	 * overlapping — otherwise the second one asks about a version its own first one has already
 	 * replaced, and this returns `'written over a change'` with the user's own document as
-	 * `displaced`. `EditorSession` queues its Alignment writes per Historical Map for exactly that
+	 * `displaced`. `EditorSession` queues its Alignment writes per Map Image for exactly that
 	 * reason; see `#alignmentWriteInFlight`, which is where the measurement is written down.
 	 *
 	 * **And the restore is a `replace` whose words are one step behind.** The caller that puts the
@@ -428,7 +428,7 @@ async function commitAs(
 }
 
 /**
- * What this Workspace already holds for a Historical Map, as far as writing over it goes.
+ * What this Workspace already holds for a Map Image, as far as writing over it goes.
  *
  * **Three answers rather than "is there a file", because that is not the question.** An Alignment
  * nobody has touched — the starter this build writes on the add — holds no work at all, so
@@ -450,7 +450,7 @@ async function existing(
 	} catch (cause) {
 		// Only "no such path" means there is nothing there. A folder whose permission was revoked, or a
 		// backend that is down, answers `'worked on'` — the safe direction. The cost of a false "there
-		// is one" is a Historical Map added without its starter Alignment, which the next add of the
+		// is one" is a Map Image added without its starter Alignment, which the next add of the
 		// same map writes; the cost of a false "there is none" is Control Points somebody spent an
 		// afternoon placing, gone with no message.
 		return cause instanceof PathNotFoundError ? 'none' : 'worked on';

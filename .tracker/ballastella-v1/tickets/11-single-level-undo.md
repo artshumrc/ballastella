@@ -132,7 +132,7 @@ Undo lifts the tombstone along with restoring the Layer, and `addReferencedMap` 
 the same remote map again is the user asking for the Layer, not an Alignment write recreating one.
 
 **The consequence, which is real and is recorded as a finding below**: for a *locally ingested*
-Historical Map there is no affordance in v1 that lifts a tombstone except undo. A user who deletes a
+Map Image there is no affordance in v1 that lifts a tombstone except undo. A user who deletes a
 map Layer, does not undo, and reloads has no way back into the stack for that image.
 
 ### The undo record holds bytes, and the slot lives in core
@@ -163,11 +163,11 @@ is a file nothing references rather than a Layer referencing nothing. `#restoreL
 1. **A deleted map Layer cannot be put back except by undo, and that is a dead end after a reload.**
    The tombstone is total, as the trap requires. For a referenced image, adding it again lifts it; for
    a locally ingested one, nothing does — re-aligning the image produces Control Points and no Layer,
-   silently. Needs human judgement: either an affordance ("this Historical Map is not in the stack —
+   silently. Needs human judgement: either an affordance ("this Map Image is not in the stack —
    put it back", which would lift the tombstone) or an accepted limitation stated in the docs.
 2. **Leaving the Layers pane while a map Layer is drawn throws out of the stack's teardown.**
    `Cannot read properties of undefined (reading 'getLayer')`, which kills the *next* page's effects —
-   the alignment workspace then sits at "Opening the Historical Map…" for ever. Reproduces with no undo
+   the alignment workspace then sits at "Opening the Map Image…" for ever. Reproduces with no undo
    involved: open `/layers` on an aligned Project, uncheck the Layer's visibility, check it again, then
    follow "Back to this Project". Not this ticket's code; it is in the Layers-pane drawing/lifecycle
    path another agent is working in. `editor-undo.e2e.ts` navigates by URL to stay clear of it, with a
@@ -186,7 +186,7 @@ is a file nothing references rather than a Layer referencing nothing. `#restoreL
 5. **The `Ctrl+Z` shortcut deliberately yields to text fields.** Editing a title, a Layer name, or a
    Project name is not one of the four covered actions, so the field's own undo has to keep working;
    asserted directly.
-6. **Undo is not offered across a change of Historical Map.** A Control Point record names its image,
+6. **Undo is not offered across a change of Map Image.** A Control Point record names its image,
    and `AlignmentWorkspace` clears one belonging to another image when the selected map changes — an
    affordance offering to move a point that is not on screen describes an edit the user cannot watch
    happen. Records about the Project (a Layer, an Annotation) survive that.

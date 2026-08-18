@@ -494,7 +494,7 @@ for (const { pattern, why } of patterns) {
 	// And a block opener must not be blamed for a write inside it, or the pragma that excuses a
 	// fixture would have to sit above a `describe` where it describes nothing.
 	const block = [
-		"describe('deleting a Historical Map', () => {",
+		"describe('deleting a Map Image', () => {",
 		'\tit('.concat("'takes the Alignment with it', async () => {"),
 		"\t\tawait store.write('alignments/aaa1.json', bytes(120));",
 		'\t});',

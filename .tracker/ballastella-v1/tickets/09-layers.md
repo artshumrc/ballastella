@@ -2,7 +2,7 @@
 
 ## What to build
 
-An ordered list of Layers in the editor. A user can show and hide any Layer, set the opacity of an aligned Historical Map, reorder Layers so labels sit above the map they describe, and rename a Layer so the list describes their argument rather than their filenames.
+An ordered list of Layers in the editor. A user can show and hide any Layer, set the opacity of an aligned Map Image, reorder Layers so labels sit above the map they describe, and rename a Layer so the list describes their argument rather than their filenames.
 
 Reordering works by dragging **and** by keyboard.
 
@@ -12,7 +12,7 @@ Reordering works by dragging **and** by keyboard.
 
 [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (the whole slice), [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) (the reorderable list is custom and needs a keyboard path), [ADR-0014](../../../docs/adr/0014-v1-scope-fences.md) (why the union must tolerate a third kind).
 
-`project.json` and autosave come from ticket 02; the aligned Historical Map from ticket 07.
+`project.json` and autosave come from ticket 02; the aligned Map Image from ticket 07.
 
 ## Contract
 
@@ -55,7 +55,7 @@ Creating an Alignment (ticket 07) now produces a `kind: 'map'` Layer. `kind: 'an
 
 ## Acceptance criteria
 
-- [x] Aligning a Historical Map produces a `kind: 'map'` Layer in `project.json`
+- [x] Aligning a Map Image produces a `kind: 'map'` Layer in `project.json`
 - [x] Show/hide works for both kinds and survives reload
 - [x] Opacity works on a map Layer and is absent from the annotation Layer type — assigning it is a **type error**, verified by a type-level test
 - [x] Reordering by drag changes render order, including across kinds: an annotation Layer above a map Layer draws above it
@@ -142,7 +142,7 @@ are carried rather than validated: ticket 10 owns the style controls and their c
 
 **Where the Layer list lives.** A pane of its own, `apps/editor/src/routes/layers/+page.svelte`, rather
 than a panel beside the alignment workspace. The stack is the whole Project composed — which is what
-tickets 16 and 17 publish — where aligning is one Historical Map being placed; and putting the two on
+tickets 16 and 17 publish — where aligning is one Map Image being placed; and putting the two on
 one page would have meant two WebGL contexts and two warped renderers side by side. `ProjectView` links
 to it with the Layer count, and it links back to the Project as well as to the hub: the stack is where a
 user *notices* that a Control Point needs fixing, and the trip back to the alignment workspace should not
@@ -246,8 +246,8 @@ cannot be waived; what is inside it is the owning ticket's.
 **And an image directory now has two ways to be describable, which is what made the above safe to
 require.** The pre-existing structural check asked for an `info.json` in *every* `images/<id>/`, and a
 referenced image (ticket 14) has neither tiles nor an `info.json` locally — its record is `remote.json`,
-because its `info.json` is on somebody else's server. So a Project with a remote referenced Historical
-Map could be exported and was then **refused on the way back in**, which is the same "a scholar cannot
+because its `info.json` is on somebody else's server. So a Project with a remote referenced Map
+Image could be exported and was then **refused on the way back in**, which is the same "a scholar cannot
 import their own export" the Layer checks exist to prevent, arriving from the other direction. Verified
 before it was changed, not assumed. `info.json` **or** `remote.json` now satisfies it, and a directory
 that is neither is still refused naming both ways out. This was found at the merge seam with ticket 14
@@ -320,7 +320,7 @@ effects holding layers on it asked it afterwards.
 
 What made that more than a noisy console: an exception thrown while Svelte is destroying one page
 abandons the rest of that synchronous flush, and the *mount* of the page being navigated to is in the
-same flush. So clicking through from a Project page that had a local Historical Map — and therefore a
+same flush. So clicking through from a Project page that had a local Map Image — and therefore a
 warped layer to take off — produced a Layers pane with **no MapLibre map inside it at all**: the pane's
 `<div>` was in the DOM, its `onMount` never ran, `window.ballastellaLayerStack` was never set, and the
 region read "0 of 1 Layers are drawn" with "Not aligned yet" beside a Layer that was aligned. The only

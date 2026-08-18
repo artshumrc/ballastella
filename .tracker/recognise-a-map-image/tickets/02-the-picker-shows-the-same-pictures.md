@@ -2,7 +2,7 @@
 
 ## What to build
 
-The "Already in this Workspace" section of the Add-a-Historical-Map dialog shows each candidate map's
+The "Already in this Workspace" section of the Add-a-Map-Image dialog shows each candidate map's
 picture, exactly as the hub does. This is the surface where recognising a sheet matters most: a scholar
 is choosing which of several scans to add to the Project they have open, and the only thing
 distinguishing them today is a label that may be a random folder name.
@@ -12,20 +12,20 @@ place and proves it there.
 
 ## Where to start
 
-- `apps/editor/src/lib/historical-maps/AddHistoricalMap.svelte` — the "Already in this Workspace"
+- `apps/editor/src/lib/map-images/AddMapImage.svelte` — the "Already in this Workspace"
   section and its candidate rows. The `available` derivation filters the same
-  `session.historicalMaps` records the hub renders, so **the data is already present and no new
+  `session.mapImages` records the hub renders, so **the data is already present and no new
   plumbing is needed.**
 - The `MapThumbnail` component ticket 01 added, in the same directory.
 - Whatever ticket 01's hub markup ended up as — match it rather than inventing a second treatment.
-- `e2e/support/historical-maps.ts` — `ensureAddHistoricalMapOpen`, `settle`, and the busy-state helpers.
+- `e2e/support/map-images.ts` — `ensureAddMapImageOpen`, `settle`, and the busy-state helpers.
   **Read the ⚠ comments.** The dialog stays open for a while after an add has visibly succeeded, and
   that window is what made this suite flake; a test that asks about the dialog without settling first
   will be intermittently wrong rather than wrong.
 
 ## Contract
 
-**No new data and no new resolution.** The picker's rows already hold `WorkspaceHistoricalMap` records
+**No new data and no new resolution.** The picker's rows already hold `WorkspaceMapImage` records
 carrying `thumbnail` and `tiles`. If this ticket finds itself adding a field, a fetch, or a call into the
 domain layer, something has gone wrong — stop and re-read ticket 01's contract.
 
@@ -55,7 +55,7 @@ Covers SPEC story **3**.
 
 ## Acceptance criteria
 
-- [x] In the Add-a-Historical-Map dialog, a Workspace-held candidate map shows a picture that has
+- [x] In the Add-a-Map-Image dialog, a Workspace-held candidate map shows a picture that has
       actually decoded: `naturalWidth > 0`. Asserted exactly — 700 × 500 reduces to 175 × 125 by
       ADR-0030's rule — so a URL at any other scale factor is red rather than merely smaller.
 - [x] A candidate whose `thumbnail` is `null` shows the glyph and no broken image. An `info.json`
@@ -65,7 +65,7 @@ Covers SPEC story **3**.
       behaviour of this dialog is unchanged. Asserted at the end of the picture test, and all sixteen
       pre-existing tests in the spec pass untouched.
 - [x] No new field, fetch, or domain-layer call was added for this ticket. The rows already held
-      `WorkspaceHistoricalMap`; the only addition is `session.imageServiceFetch()`, which is the shim
+      `WorkspaceMapImage`; the only addition is `session.imageServiceFetch()`, which is the shim
       the hub already reads through and the component's own required prop.
 - [x] `pnpm precommit` passes. `lint`, `check` and `test` green first time; `e2e` needed a second run,
       and the reason is recorded below rather than glossed.
@@ -74,8 +74,8 @@ Covers SPEC story **3**.
 ```sh
 # Add to the spec ticket 01 created, or to the dialog's own spec — whichever holds the
 # already-in-this-Workspace flow. `test` must come from e2e/support/network-fence.ts.
-pnpm test:e2e editor-add-historical-map.e2e.ts
-pnpm test:e2e editor-historical-map-thumbnails.e2e.ts
+pnpm test:e2e editor-add-map-image.e2e.ts
+pnpm test:e2e editor-map-image-thumbnails.e2e.ts
 
 pnpm precommit
 ```
@@ -95,7 +95,7 @@ Success is exit code 0 from each. Read exit codes directly; no `grep`, and no `-
 URL otherwise identical, so the element is still rendered and still laid out at its attribute
 dimensions.
 
-`pnpm test:e2e editor-add-historical-map.e2e.ts -g "actually decoded"` → **exit 1**, both the run and
+`pnpm test:e2e editor-add-map-image.e2e.ts -g "actually decoded"` → **exit 1**, both the run and
 its retry, timing out on the `naturalWidth` poll:
 
 ```
@@ -125,7 +125,7 @@ box assertion was added at each call site — the picker's picture and glyph at 
 `width={96} height={96}`, with the wrapper's inline `style` left driven by the prop — exactly the
 half-revert a careless edit would produce.
 
-`pnpm test:e2e editor-add-historical-map.e2e.ts -g "picker"` → **exit 1**, both tests, on the run and
+`pnpm test:e2e editor-add-map-image.e2e.ts -g "picker"` → **exit 1**, both tests, on the run and
 its retry.
 
 **The glyph is where the mutation is caught, and the `<img>` provably cannot catch it.** That is worth
@@ -189,7 +189,7 @@ two runs on an idle box, which is more than the budget was set to absorb comfort
 `src` against a computed string compares the computation with itself.
 
 ⚠ **A picker assertion that does not settle the dialog first will flake, not fail.** Use
-`ensureAddHistoricalMapOpen` / `settle` from the support module rather than waiting on appearance.
+`ensureAddMapImageOpen` / `settle` from the support module rather than waiting on appearance.
 
 ## Blocked by
 

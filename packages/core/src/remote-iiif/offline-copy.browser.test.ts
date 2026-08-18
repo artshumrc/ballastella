@@ -307,7 +307,7 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 	// for `size=w,h`: the file's full extent is the region's full extent, so a 851-pixel region at scale
 	// factor 8 becomes 106.375 pixels' worth of content inside a 107-pixel file. A tiler that resized by
 	// 1 ÷ scaleFactor and padded the remainder instead would stretch every ragged tile by up to 0.6% at
-	// the right and bottom margins of every Historical Map — sub-pixel, systematic, in the margins.
+	// the right and bottom margins of every Map Image — sub-pixel, systematic, in the margins.
 	//
 	// Ticket 14 can only check the checkable half of this against a stranger's server and has to
 	// tolerate the rest. Here the whole copy is driven end to end — a level-0 host cutting 1:1 tiles,

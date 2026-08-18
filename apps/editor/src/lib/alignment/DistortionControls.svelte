@@ -20,7 +20,7 @@
 	}: {
 		view: DistortionView;
 		/**
-		 * Whether there is a warped Historical Map to colourise at all.
+		 * Whether there is a warped Map Image to colourise at all.
 		 *
 		 * Below the minimum Control Point count there is no drawn map, so a checkbox that turned an
 		 * overlay on would do nothing visible and read as broken. Disabled with the reason said, rather
@@ -53,7 +53,7 @@
 <div
 	class="flex flex-col gap-1"
 	role="group"
-	aria-label="How the warped Historical Map is drawn"
+	aria-label="How the warped Map Image is drawn"
 	data-testid="distortion-controls"
 	data-distortion-measure={view.measure ?? ''}
 	data-distortion-grid={view.grid}
@@ -69,12 +69,12 @@
 				onchange={(event) => toggleOverlay(event.currentTarget.checked)}
 			/>
 			<!--
-				"the Historical Map", never a bare "map". CONTEXT.md lists `map` under the words to avoid
-				for a Historical Map, and this label sits beside a Base Map — so the unqualified word is
+				"the Map Image", never a bare "map". CONTEXT.md lists `map` under the words to avoid
+				for a Map Image, and this label sits beside a Base Map — so the unqualified word is
 				ambiguous exactly where the user is looking at both. The component's other five strings
 				were already qualified.
 			-->
-			Colour the Historical Map by how much it is stretched
+			Colour the Map Image by how much it is stretched
 		</label>
 
 		<label class="label cursor-pointer gap-2 text-sm">
@@ -118,7 +118,7 @@
 
 	{#if !enabled}
 		<p class="max-w-prose text-sm opacity-70" data-testid="distortion-unavailable">
-			There is nothing to colour yet — the Historical Map has to be drawn over the Base Map first.
+			There is nothing to colour yet — the Map Image has to be drawn over the Base Map first.
 		</p>
 	{/if}
 </div>

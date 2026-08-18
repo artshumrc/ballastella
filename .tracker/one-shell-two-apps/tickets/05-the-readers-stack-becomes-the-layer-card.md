@@ -10,7 +10,7 @@ Replace the viewer's `ReaderLayerControls` with the shared Layer card. A Reader 
 kind line, the disclosure, the hidden-Layer treatment and the problem band — the same stack the
 scholar authored on — with no editing on it, because the viewer passes no editing callbacks.
 
-The "needs the network" badges go, because a Reader decides nothing about where a Historical Map's
+The "needs the network" badges go, because a Reader decides nothing about where a Map Image's
 tiles are held and cannot make the badge say the other thing.
 
 This is the ticket that makes a scholar recognise their own published work.
@@ -54,7 +54,7 @@ shared identities rather than aliasing the shared card's ids to the old `reader-
 element, one id, and a suite that reads the same in both apps.
 
 **No badge.** `data-image-mode` and its two sentences must not appear anywhere in the viewer's
-output. The paragraph below the stack that names Historical Maps needing the network
+output. The paragraph below the stack that names Map Images needing the network
 (`project-needs-network`) is a **different thing** and stays: it is a Reader-actionable warning about
 what will not draw on a train, not a per-Layer label.
 
@@ -108,7 +108,7 @@ pnpm --filter @ballastella/viewer run build && du -sb apps/viewer/build
 # Nothing a Reader cannot act on, and nothing a Reader could edit — asserted against the built viewer
 # served over HTTP, because rendering is where the claim is true. A grep over the chunk answers a
 # different question and answers it wrongly; see "Costs, accepted and recorded" in the SPEC.
-pnpm test:e2e viewer-reader -g "reads everything through the HTTP store|warns that a referenced Historical Map"
+pnpm test:e2e viewer-reader -g "reads everything through the HTTP store|warns that a referenced Map Image"
 ```
 
 Success: everything exits 0. `editor-publish` is in the list because the editor stages and publishes
@@ -126,7 +126,7 @@ ticket's Contract, and the epic has accepted it as a recorded cost rather than a
 accepted and recorded** in [the SPEC](../SPEC.md).
 
 What is asserted instead is the rendered half, which is where the claim is real:
-`e2e/viewer-reader.e2e.ts`'s "warns that a referenced Historical Map…" opens a Historical Map's card
+`e2e/viewer-reader.e2e.ts`'s "warns that a referenced Map Image…" opens a Map Image's card
 and gives `[data-image-mode]` a count of 0 across the page, and `expectNothingEditable` sweeps every
 editing id with a card **open** at desktop and phone width.
 
@@ -159,11 +159,11 @@ the editor's two sentences leaving the viewer's chunk — the only direction tho
 - The stack is `@ballastella/ui`'s `LayerList`. The viewer passes `layers`, `outcomes`,
   `openLayerId`, `onopen`, `onshow`, `ondragopacity` and a `mapContents` snippet, and nothing else.
 - **`Read as a document` is the `mapContents` snippet**, not a new prop. That slot is already the
-  card's designated "what is inside a Historical Map Layer", it is optional, and the editor cannot
+  card's designated "what is inside a Map Image Layer", it is optional, and the editor cannot
   see it.
 - **The empty state gained one optional snippet, `noLayersGuidance`**, and it is the only change the
   shared package needed. The card's empty state used to be the editor's own guidance verbatim — "Press
-  **Add a Historical Map** … from one this Workspace already holds" — so a published Project with no
+  **Add a Map Image** … from one this Workspace already holds" — so a published Project with no
   Layers told a Reader to press two buttons that do not exist in the viewer (a regression against the
   Contract and story 19). `LayerList` now says only what is true in both apps, *This Project has no
   Layers on it.*, and the guidance is markup `ProjectScreen` passes in, word for word unchanged. No
@@ -206,7 +206,7 @@ the editor's two sentences leaving the viewer's chunk — the only direction tho
   absence needs somewhere real to be paired against.
 
 **Mutation check, both halves in one run.** With `referencedImageIds` re-added to the viewer's prop
-set, `pnpm test:e2e viewer-reader editor-layers -g "warns that a referenced Historical Map|shows the
+set, `pnpm test:e2e viewer-reader editor-layers -g "warns that a referenced Map Image|shows the
 Layer as a local copy"`:
 
 - viewer, **red**: `layer-image-mode` `toHaveCount(0)` — expected 0, received 1;

@@ -2,8 +2,8 @@
 
 ## What to build
 
-Naming a public GitHub repository **and one Project inside it** downloads that Project — with the Historical
-Maps, Alignments, and Annotations its Layers reference — into a **Review Workspace**: throwaway, unbound,
+Naming a public GitHub repository **and one Project inside it** downloads that Project — with the Map
+Images, Alignments, and Annotations its Layers reference — into a **Review Workspace**: throwaway, unbound,
 unpublishable, carrying the persistent banner that says so.
 
 This is the existing Project Bundle path with a different source of bytes. It is deliberately *not* an import
@@ -13,11 +13,11 @@ into the user's own Workspace, and that refusal is the point of the ticket as mu
 
 - `docs/adr/0024-backup-and-handoff-are-different-artefacts.md`, the "Why handoff cannot merge" section.
   Read it in full before writing anything. Its argument — that an Alignment is Workspace-shared, one per
-  Historical Map (ADR-0023), so importing a colleague's Project would either overwrite an Alignment two of
+  Map Image (ADR-0023), so importing a colleague's Project would either overwrite an Alignment two of
   your own Projects depend on or be refused — is unchanged by a new transport.
 - `packages/core/src/transfer/open-project-bundle.ts` and `project-bundle.ts` — what a self-contained
   Project consists of, and how a Review Workspace is populated from one. The gathering logic (which
-  Historical Maps and Alignments a Project's Layers reference) already exists here; reuse it against a
+  Map Images and Alignments a Project's Layers reference) already exists here; reuse it against a
   remote file list rather than a tar.
 - `apps/editor/src/lib/workspace-storage.svelte.ts`'s `openBundle`, and `packages/core/src/project/review-workspace.ts`
   for `REVIEW_MARK_PATH` and the mark's shape.
@@ -32,7 +32,7 @@ into the user's own Workspace, and that refusal is the point of the ticket as mu
 **The unit is one Project plus what it references**, not the whole repository. From the Remote's tree, take
 `<dir>/project.json`, its `annotations/`, and — by reading the Project's Layers — the `images/<id>/**` and
 `alignments/<id>.json` at the Workspace root that those Layers name. Nothing else. A Workspace-shared
-Historical Map that no Layer of this Project references does not travel.
+Map Image that no Layer of this Project references does not travel.
 
 **The result is a Review Workspace: unbound, and unpublishable.** `remote.json` is not written. Ticket 03's
 two hard refusals apply and must be asserted here specifically, because this is the route that creates the
@@ -69,8 +69,8 @@ route. If the user wants a colleague's map in their own research, they add the m
 - [ ] Naming a public repository and a Project directory inside it creates a Review Workspace holding that
       one Project, and switches to it.
 - [ ] The Review banner is shown and carries its two exits.
-- [ ] The Project opens and renders, with its Historical Maps and Alignments present.
-- [ ] A Workspace-shared Historical Map that no Layer of the chosen Project references is **not** downloaded.
+- [ ] The Project opens and renders, with its Map Images and Alignments present.
+- [ ] A Workspace-shared Map Image that no Layer of the chosen Project references is **not** downloaded.
 - [ ] The resulting Workspace has no `remote.json`.
 - [ ] Attempting to bind it is refused, asserted by calling the domain refusal directly.
 - [ ] With it open, the credential store neither reads nor writes.

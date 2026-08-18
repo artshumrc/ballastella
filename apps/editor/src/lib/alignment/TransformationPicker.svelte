@@ -1,5 +1,5 @@
 <script lang="ts">
-	// How the Historical Map is stretched: ADR-0013's picker (SPEC stories 39–42).
+	// How the Map Image is stretched: ADR-0013's picker (SPEC stories 39–42).
 	//
 	// A native `<select>`, because ADR-0016's binding contract names one for the transformation type —
 	// few options, nothing custom needed, and native arrow-key and type-ahead behaviour that no
@@ -119,7 +119,7 @@
 
 <div class="flex flex-col gap-1" data-testid="transformation-picker">
 	<label class="text-sm font-medium" for="transformation-type">
-		How this Historical Map is stretched
+		How this Map Image is stretched
 	</label>
 
 	<div class="flex flex-wrap items-center gap-2">
@@ -182,9 +182,9 @@
 			below it.
 		-->
 		<p class="max-w-prose text-sm opacity-70" data-testid="transformation-simple-note">
-			Simple cannot turn the Historical Map over, so it is the one choice where the "this Alignment
-			is mirrored" warning cannot appear. Under Simple, two swapped Control Points show up as a
-			badly placed Historical Map rather than as a warning.
+			Simple cannot turn the Map Image over, so it is the one choice where the "this Alignment is
+			mirrored" warning cannot appear. Under Simple, two swapped Control Points show up as a badly
+			placed Map Image rather than as a warning.
 		</p>
 	{/if}
 
@@ -202,7 +202,7 @@
 			that are already inside a named group, which is noise rather than structure.
 
 			The hazard it avoids is still live even though the page that produced it is gone. `ProjectView`
-			listed Historical Maps as a `<ul>` and several browser tests counted them with a bare
+			listed Map Images as a `<ul>` and several browser tests counted them with a bare
 			`getByRole('listitem')`; a third list here made two of them fail. Ticket 04 deleted that page
 			and the list with it, so those tests read the Layer stack now — but the Layer stack is also a
 			list, and the Annotation list beside it is a third, so a bare `listitem` count on the Project

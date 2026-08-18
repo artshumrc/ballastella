@@ -115,9 +115,9 @@ export type SyntheticLngLat = { lng: number; lat: number };
  * free of IIIF. `iiif-image-pane.ts` reads these off a parsed `Image`.
  */
 export type PyramidGeometry = {
-	/** Width of the Historical Map image, in pixels. */
+	/** Width of the Map Image, in pixels. */
 	width: number;
-	/** Height of the Historical Map image, in pixels. */
+	/** Height of the Map Image, in pixels. */
 	height: number;
 	tileWidth: number;
 	tileHeight: number;

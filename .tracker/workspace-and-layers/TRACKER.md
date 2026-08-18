@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The goal of `workspace-and-layers` is to reshape Ballastella around one working screen and one shared pool of material: a Project is a Base Map with a Layer sidebar and the scholar stays there; Historical Maps and their Alignments belong to the Workspace so one map is prepared and aligned once and used by any number of Projects; a map on a Library's server can be aligned in place; the Base Map opens on the scholar's own work and is cached offline only when asked for; and backup, handoff, and review become three distinct, honest artefacts.
+The goal of `workspace-and-layers` is to reshape Ballastella around one working screen and one shared pool of material: a Project is a Base Map with a Layer sidebar and the scholar stays there; Map Images and their Alignments belong to the Workspace so one map is prepared and aligned once and used by any number of Projects; a map on a Library's server can be aligned in place; the Base Map opens on the scholar's own work and is cached offline only when asked for; and backup, handoff, and review become three distinct, honest artefacts.
 
-Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/adr](../../docs/adr) — principally [ADR-0023](../../docs/adr/0023-historical-maps-and-alignments-live-in-the-workspace.md), [ADR-0024](../../docs/adr/0024-backup-and-handoff-are-different-artefacts.md), [ADR-0025](../../docs/adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md), [ADR-0026](../../docs/adr/0026-the-opening-view-is-computed-from-the-projects-content.md); vocabulary is in [CONTEXT.md](../../CONTEXT.md).
+Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/adr](../../docs/adr) — principally [ADR-0023](../../docs/adr/0023-map-images-and-alignments-live-in-the-workspace.md), [ADR-0024](../../docs/adr/0024-backup-and-handoff-are-different-artefacts.md), [ADR-0025](../../docs/adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md), [ADR-0026](../../docs/adr/0026-the-opening-view-is-computed-from-the-projects-content.md); vocabulary is in [CONTEXT.md](../../CONTEXT.md).
 
 ## Current status
 
@@ -44,7 +44,7 @@ Last updated: 2026-08-09.
 
    **The lesson worth keeping: captured evidence told us *what* happened and we inferred *why*, and the inference was wrong for months.** "The file is present after a delete" is consistent with "something rewrote it" and with "nothing ever removed it", and only instrumentation separated them.
 
-   **Still open, from this work:** `deleteHistoricalMap` has the identical shape and is presumably identically exposed. Not measured, not claimed fixed. And `FinishedDeletions.unfinished` is returned but not rendered — a notice beside `RecoveredEdits` (stories 111, 112) is the honest end state.
+   **Still open, from this work:** `deleteMapImage` has the identical shape and is presumably identically exposed. Not measured, not claimed fixed. And `FinishedDeletions.unfinished` is returned but not rendered — a notice beside `RecoveredEdits` (stories 111, 112) is the honest end state.
 
 2. **`Cannot set properties of undefined (setting 'forceRedraw')`** — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation the spec's own comment records as a hazard. `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". Ticket 20 ruled itself out with evidence (`git diff main -- apps/viewer` empty; the built viewer bundle carries none of its code). **It reproduces — verified 2026-08-08** on ticket 14's branch, which touches no viewer code. `viewer-reader.e2e.ts:1044` "opens over HTTP by link, and the navigation throws nothing" failed on the first attempt and passed on retry, and the failure text is now captured rather than inferred:
 
@@ -90,17 +90,17 @@ Last updated: 2026-08-09.
 
 5. **An uncaught `pageerror` when the connection is cut with a warped Layer on screen.** Found 2026-08-09 during ticket 22, and **measured rather than absorbed: 3 failures in 8 runs (37%), and 3 in 8 at the base commit too** — so neither that ticket's change nor machine contention.
 
-   `@allmaps/render`'s `loadImage` asks for the Historical Map's `info.json` when tiles are needed, and the store's `SiteFileUnreachableError` escapes it **uncaught**, arriving as a `pageerror`. Nothing a Reader sees changes today, which is why it went unnoticed — the viewer's own `pageerror` assertion is what surfaced it.
+   `@allmaps/render`'s `loadImage` asks for the Map Image's `info.json` when tiles are needed, and the store's `SiteFileUnreachableError` escapes it **uncaught**, arriving as a `pageerror`. Nothing a Reader sees changes today, which is why it went unnoticed — the viewer's own `pageerror` assertion is what surfaced it.
 
    Ticket 22 excepted **that one message in that one test**, with the measurement written beside it; any other page error from the same path still turns the test red. That is a deliberate narrow exception, not a silenced assertion.
 
-   **What to do about it is a render-seam question, not a Base Map one**: what should happen when a Historical Map's tiles stop being fetchable mid-session? ADR-0023 has an opinion about the Workspace's shared material; nothing yet says what the render layer owes a Reader whose connection goes while a map is drawn.
+   **What to do about it is a render-seam question, not a Base Map one**: what should happen when a Map Image's tiles stop being fetchable mid-session? ADR-0023 has an opinion about the Workspace's shared material; nothing yet says what the render layer owes a Reader whose connection goes while a map is drawn.
 
 6. **A deep-zoom assertion that is vacuous for a referenced map — in merged code.** Found 2026-08-09 by ticket 15, in **ticket 07's** `e2e/editor-align-referenced.e2e.ts`, and reported rather than quietly worked around.
 
    With the zoom control made a no-op the assertion stayed green, and a probe printed `full-res tiles: 1` *before* the click, on both service levels. The 700×500 fixture is already served 1:1 at overview, so "zooms to full resolution" cannot fail on it. Pre-existing and identical on `main` — ticket 15 did not introduce it.
 
-   The consequence: **ticket 15's acceptance criterion "the alignment view still deep-zooms both a Workspace-held and a referenced Historical Map" is only half-covered.** The Workspace-held half is real (mutation-checked red); the referenced half is not. Closing it needs a fixture large enough to have more than one full-resolution tile.
+   The consequence: **ticket 15's acceptance criterion "the alignment view still deep-zooms both a Workspace-held and a referenced Map Image" is only half-covered.** The Workspace-held half is real (mutation-checked red); the referenced half is not. Closing it needs a fixture large enough to have more than one full-resolution tile.
 
 7. **ADR-0018's decision is now unguarded in the only app that still uses triiiceratops.** Ticket 15 removed the editor's unwarped view, and with it the assertion that `<triiiceratops-viewer>` stays unregistered — the check that ADR-0018's "embedded as a Svelte component, never as a custom element" decision was being kept. The editor's replacement registry check guards the *removal* and says nothing about the viewer.
 
@@ -164,7 +164,7 @@ Last updated: 2026-08-09.
 
    ```
    expect(locator).toHaveCount(expected) failed
-   Locator:  getByTestId('historical-map-tiles-unavailable')
+   Locator:  getByTestId('map-image-tiles-unavailable')
    Expected: 0   Received: 1   Timeout: 45000ms
    ```
 
@@ -233,14 +233,14 @@ These apply to every remaining ticket. They are not advice.
 
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
-| 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
+| 01 | [01-map-images-move-to-the-workspace.md](./tickets/01-map-images-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Completed | 01 | 18, 34, 35, 68 |
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Completed | 02, 04 | 14–17, 20 |
-| 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Completed | 02, 05 | 21–30, 33, 36, 106 |
-| 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Completed | 06 | 31, 32, 39, 40, 56, 80, 81 |
-| 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
+| 06 | [06-add-a-map-image-from-three-sources.md](./tickets/06-add-a-map-image-from-three-sources.md) | Completed | 02, 05 | 21–30, 33, 36, 106 |
+| 07 | [07-align-a-referenced-map-image-in-place.md](./tickets/07-align-a-referenced-map-image-in-place.md) | Completed | 06 | 31, 32, 39, 40, 56, 80, 81 |
+| 08 | [08-the-workspaces-map-images-on-the-hub.md](./tickets/08-the-workspaces-map-images-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Completed | 08, 10 | 6, 69–73, 75–79, 97, 99 |

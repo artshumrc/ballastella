@@ -1,4 +1,4 @@
-// Driving the one way a Historical Map gets into a Project (ticket 06).
+// Driving the one way a Map Image gets into a Project (ticket 06).
 //
 // **Why every suite needs this and did not before.** The file input used to sit in the Project's
 // sidebar, so a spec could reach it the moment the screen was up. Ticket 06 makes adding a map one
@@ -27,8 +27,7 @@
 import { expect, type Locator, type Page } from './test.js';
 
 /** The sidebar's one add affordance. */
-export const addHistoricalMapButton = (page: Page): Locator =>
-	page.getByTestId('add-historical-map');
+export const addMapImageButton = (page: Page): Locator => page.getByTestId('add-map-image');
 
 /** The `<dialog>` itself, found by something only it contains. */
 const addDialog = (page: Page): Locator =>
@@ -51,9 +50,9 @@ const addDialog = (page: Page): Locator =>
  *
  * Asking this **`toBe(false)`** is always sound — a dialog cannot un-close. Asking it `toBe(true)`
  * and then *acting* on the answer is what needs {@link settle} in front of it, and
- * {@link ensureAddHistoricalMapOpen} is the only place here that does that.
+ * {@link ensureAddMapImageOpen} is the only place here that does that.
  */
-export const addHistoricalMapIsOpen = (page: Page): Promise<boolean> =>
+export const addMapImageIsOpen = (page: Page): Promise<boolean> =>
 	addDialog(page)
 		.evaluate((element) => (element as HTMLDialogElement).open)
 		.catch(() => false);
@@ -90,10 +89,10 @@ const addInFlight = (page: Page): Promise<boolean> =>
  * timed the `layer-row` at 597.2 ms and the dialog closing at 632.2 ms: a **35 ms** window. Under
  * `Emulation.setCPUThrottlingRate` at 20×, a caller that returned the moment the row appeared —
  * which is exactly what `addReferenced` in `editor-align-referenced.e2e.ts` does — then asked
- * {@link addHistoricalMapIsOpen} and was answered **`true`**.
+ * {@link addMapImageIsOpen} and was answered **`true`**.
  *
  * What followed is the failure this file's `.open` fix was supposed to have ended, and did not:
- * {@link ensureAddHistoricalMapOpen} took that `true` and handed back the dialog *without
+ * {@link ensureAddMapImageOpen} took that `true` and handed back the dialog *without
  * re-opening it*; `fill` on the URL waited out the `disabled` and landed during daisyUI's ~300 ms
  * fade; and the click beside it reported "element is not stable" twice and then "element is not
  * visible" for 172 seconds, on a button that was present, laid out, and inside a dialog that had
@@ -111,28 +110,28 @@ const settle = (page: Page): Promise<void> =>
  * spec: a source that quietly stopped rendering would otherwise show up as a puzzling timeout in
  * whichever suite happened to use it next.
  */
-export async function openAddHistoricalMap(page: Page): Promise<Locator> {
+export async function openAddMapImage(page: Page): Promise<Locator> {
 	// **No {@link settle} here, and that is a measurement rather than an omission.** This clicks the
 	// sidebar button, which an open modal intercepts — so this function is only reachable with the
 	// dialog shut, and a shut dialog has no add in flight: every source closes the dialog at the
 	// *end* of its add. A wait here would be a guard no run could exercise, which is the shape the
 	// last version of this fix took. The wait belongs at the one door that can be answered by an
-	// open dialog, which is {@link ensureAddHistoricalMapOpen}.
-	await addHistoricalMapButton(page).click();
+	// open dialog, which is {@link ensureAddMapImageOpen}.
+	await addMapImageButton(page).click();
 	const dialog = addDialog(page);
 	// The element's own state first, so none of what follows can be satisfied by a dialog that is
-	// merely still painted. See {@link addHistoricalMapIsOpen}.
-	await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(true);
-	await expect(dialog.getByLabel('Add a Historical Map from a file')).toBeVisible();
+	// merely still painted. See {@link addMapImageIsOpen}.
+	await expect.poll(() => addMapImageIsOpen(page)).toBe(true);
+	await expect(dialog.getByLabel('Add a Map Image from a file')).toBeVisible();
 	await expect(dialog.getByTestId('remote-url')).toBeVisible();
 	// **A heading each, as well as a control each.** "Three sources, equally visible" is partly
-	// about the headings that name them: `editor-remote-iiif.e2e.ts` used to pin "Add a Historical
-	// Map from a library" and stopped when the flow moved in here, so a source that quietly lost
+	// about the headings that name them: `editor-remote-iiif.e2e.ts` used to pin "Add a Map
+	// Image from a library" and stopped when the flow moved in here, so a source that quietly lost
 	// its own name — folded under another heading, or left with a control and no label — would
 	// have satisfied every remaining assertion.
 	await expect(dialog.getByRole('heading', { name: 'From a file on this computer' })).toBeVisible();
 	await expect(
-		dialog.getByRole('heading', { name: 'Add a Historical Map from a library' })
+		dialog.getByRole('heading', { name: 'Add a Map Image from a library' })
 	).toBeVisible();
 	await expect(dialog.getByRole('heading', { name: 'Already in this Workspace' })).toBeVisible();
 	return dialog;
@@ -146,10 +145,10 @@ export async function openAddHistoricalMap(page: Page): Promise<Locator> {
  * this used to return the first when its caller meant the second. {@link settle} carries the
  * measurement and the failure it produced.
  */
-export async function ensureAddHistoricalMapOpen(page: Page): Promise<Locator> {
+export async function ensureAddMapImageOpen(page: Page): Promise<Locator> {
 	await settle(page);
-	if (await addHistoricalMapIsOpen(page)) return addDialog(page);
-	return openAddHistoricalMap(page);
+	if (await addMapImageIsOpen(page)) return addDialog(page);
+	return openAddMapImage(page);
 }
 
 /** What Playwright needs to stand in for a file the user picked. */
@@ -166,30 +165,30 @@ export interface PickedFile {
  * the point of the ticket and belongs to the caller: the dialog closes, a card appears at the top of
  * the stack, and it reports its own preparation until the Layer takes its place.
  */
-export async function pickHistoricalMapFile(page: Page, file: PickedFile): Promise<void> {
-	const dialog = await openAddHistoricalMap(page);
-	await dialog.getByLabel('Add a Historical Map from a file').setInputFiles(file);
+export async function pickMapImageFile(page: Page, file: PickedFile): Promise<void> {
+	const dialog = await openAddMapImage(page);
+	await dialog.getByLabel('Add a Map Image from a file').setInputFiles(file);
 }
 
 /**
- * Add a Historical Map from a file and wait until its Layer is in the stack.
+ * Add a Map Image from a file and wait until its Layer is in the stack.
  *
  * The wait is on the **preparing card being gone**, not only on a row being there: a row and a card
  * are both in the `<ol>` while an ingest runs, so a spec that went on as soon as it saw one row
  * would sometimes be looking at the card.
  */
-export async function addHistoricalMapFromFile(
+export async function addMapImageFromFile(
 	page: Page,
 	file: PickedFile,
 	options: { layers?: number; timeout?: number } = {}
 ): Promise<void> {
 	const { layers = 1, timeout = 30_000 } = options;
-	await pickHistoricalMapFile(page, file);
+	await pickMapImageFile(page, file);
 	await expect(page.getByTestId('layer-row')).toHaveCount(layers, { timeout });
 	await expect(page.getByTestId('preparing-layer')).toHaveCount(0, { timeout });
 }
 
-/** The card of the Historical Map being prepared right now, at the top of the stack. */
+/** The card of the Map Image being prepared right now, at the top of the stack. */
 export const preparingCard = (page: Page): Locator => page.getByTestId('preparing-layer');
 
 /** Nothing is being prepared any more. The honest "the ingest is over" wait. */

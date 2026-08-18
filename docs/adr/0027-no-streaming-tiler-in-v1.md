@@ -37,7 +37,7 @@ The one place `wasm-vips` genuinely executed was `streaming-tiler.test.ts`, unde
 Three of ticket 05's four options were available and each was declined:
 
 - **Vendor a single-threaded build.** Upstream can produce one; it is not published. It means committing a multi-megabyte binary to this repository and sharpening the LGPLv3 obligation rather than discharging it.
-- **Inject COOP/COEP with a service worker** (the `coi-serviceworker` pattern), which does work on GitHub Pages. `require-corp` then breaks fetching remote IIIF tiles that carry no CORP header — which is the entire subject of referenced Historical Maps — and `credentialless` fixes that in Chromium and not in Safari. It is a site-wide restriction on how the page may load every other origin's files, and it would put the Base Map archive and every library's tiles at risk to enable a path used by a minority of images. It remains an open decision for a human, fenced out of the tickets that touch the service worker.
+- **Inject COOP/COEP with a service worker** (the `coi-serviceworker` pattern), which does work on GitHub Pages. `require-corp` then breaks fetching remote IIIF tiles that carry no CORP header — which is the entire subject of referenced Map Images — and `credentialless` fixes that in Chromium and not in Safari. It is a site-wide restriction on how the page may load every other origin's files, and it would put the Base Map archive and every library's tiles at risk to enable a path used by a minority of images. It remains an open decision for a human, fenced out of the tickets that touch the service worker.
 - **Raise the threshold and keep the tiler.** Meaningless while the tiler cannot start.
 
 ## What replaces it

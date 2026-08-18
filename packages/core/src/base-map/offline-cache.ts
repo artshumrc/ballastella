@@ -10,7 +10,7 @@
 // written or maintained.
 //
 // **Where the tiles come from is injected** (ADR-0011), the same seam `createStoreImageFetch` sits on
-// for Historical Map pyramids: {@link fetchTilesIntoCache} takes a `readTile` and knows nothing about
+// for Map Image pyramids: {@link fetchTilesIntoCache} takes a `readTile` and knows nothing about
 // PMTiles, HTTP, or the catalog. The app supplies a reader over the deployment's archive; the tests
 // supply one over a fixture, and reach no network.
 

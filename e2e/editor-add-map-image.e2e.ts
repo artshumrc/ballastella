@@ -19,20 +19,20 @@ import {
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
-	addHistoricalMapButton,
-	addHistoricalMapFromFile,
-	addHistoricalMapIsOpen,
-	ensureAddHistoricalMapOpen,
-	openAddHistoricalMap,
-	pickHistoricalMapFile,
+	addMapImageButton,
+	addMapImageFromFile,
+	addMapImageIsOpen,
+	ensureAddMapImageOpen,
+	openAddMapImage,
+	pickMapImageFile,
 	preparingCard
-} from './support/historical-maps.js';
+} from './support/map-images.js';
 import { installIiifHosts, service } from './support/iiif-hosts.js';
 import { openLayerRow } from './support/layers.js';
 import { waitForStoredLayers } from './support/saved.js';
 
 /**
- * Ticket 06: a Historical Map comes into a Project from any of three sources, through one
+ * Ticket 06: a Map Image comes into a Project from any of three sources, through one
  * affordance, and the third of them is new (SPEC stories 21–30, 33, 36, 106).
  *
  * SPEC Seam 2 — the running app in a real browser against real OPFS. What can only be asserted here
@@ -105,7 +105,7 @@ async function emptyProject(page: Page, name: string, directory: string): Promis
 	await openLayers(page, directory);
 }
 
-test.describe('adding a Historical Map', () => {
+test.describe('adding a Map Image', () => {
 	test('offers all three sources at once, with none of them behind a further step', async ({
 		page
 	}) => {
@@ -116,17 +116,17 @@ test.describe('adding a Historical Map', () => {
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
 		// One affordance in the sidebar, with words on it (SPEC story 111).
-		const button = addHistoricalMapButton(page);
+		const button = addMapImageButton(page);
 		await expect(button).toBeVisible();
-		await expect(button).toHaveText('Add a Historical Map');
+		await expect(button).toHaveText('Add a Map Image');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		// Each of the three is ready to use with no further click: a file can be picked, an address
 		// typed, and the Workspace's answer is already on screen.
-		await expect(dialog.getByLabel('Add a Historical Map from a file')).toBeEnabled();
+		await expect(dialog.getByLabel('Add a Map Image from a file')).toBeEnabled();
 		await expect(dialog.getByTestId('remote-url')).toBeEditable();
 		await expect(dialog.getByTestId('no-workspace-maps')).toContainText(
-			'This Workspace holds no Historical Maps yet'
+			'This Workspace holds no Map Images yet'
 		);
 	});
 
@@ -136,16 +136,16 @@ test.describe('adding a Historical Map', () => {
 		// other is a failure rather than a drift nobody notices.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
-		const label = await addHistoricalMapButton(page).textContent();
+		const label = await addMapImageButton(page).textContent();
 		await expect(page.getByTestId('no-layers')).toContainText(label!.trim());
-		await expect(page.getByTestId('no-historical-maps')).toContainText(label!.trim());
+		await expect(page.getByTestId('no-map-images')).toContainText(label!.trim());
 	});
 
 	test('lists the Workspace’s other maps with their sizes, and leaves out the ones this Project has', async ({
 		page
 	}) => {
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -154,10 +154,10 @@ test.describe('adding a Historical Map', () => {
 
 		// In the Project that draws it, it is not on offer: adding it again would do nothing, and an
 		// affordance that does nothing is worse than one that is not there.
-		let dialog = await openAddHistoricalMap(page);
+		let dialog = await openAddMapImage(page);
 		await expect(dialog.getByTestId('workspace-map')).toHaveCount(0);
 		await expect(dialog.getByTestId('no-workspace-maps')).toContainText('already in this Project');
-		await page.getByTestId('close-add-historical-map').click();
+		await page.getByTestId('close-add-map-image').click();
 
 		// In a second Project it is, with the name it was given and what it weighs.
 		await page.goto('/');
@@ -165,7 +165,7 @@ test.describe('adding a Historical Map', () => {
 		await page.getByRole('link', { name: 'Boston 1775' }).click();
 		await openLayers(page, 'boston-1775');
 
-		dialog = await openAddHistoricalMap(page);
+		dialog = await openAddMapImage(page);
 		const offered = dialog.getByTestId('workspace-map');
 		await expect(offered).toHaveCount(1);
 		await expect(offered).toContainText('la-floride.png');
@@ -198,11 +198,11 @@ test.describe('adding a Historical Map', () => {
 		await page.getByRole('link', { name: 'Boston 1775' }).click();
 		await openLayers(page, 'boston-1775');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await dialog.getByTestId('workspace-map').click();
 
 		// The Layer is there, and it is **not** "not aligned yet": the Alignment made in Amsterdam is
-		// this Layer's Alignment, because it belongs to the Historical Map and not to a Project.
+		// this Layer's Alignment, because it belongs to the Map Image and not to a Project.
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		await expect(page.getByTestId('layer-row').first()).toHaveAttribute('data-image-id', imageId);
 		const row = await openLayerRow(page);
@@ -226,16 +226,16 @@ test.describe('adding a Historical Map', () => {
 		// │ THE STATE TICKET 04 LEFT WITHOUT A PERSISTENT EXPLANATION.                            │
 		// └───────────────────────────────────────────────────────────────────────────────────────┘
 		//
-		// A Historical Map whose starter Alignment could not be written arrives with its pyramid and
+		// A Map Image whose starter Alignment could not be written arrives with its pyramid and
 		// *without* its Layer — ADR-0023 writes the Alignment first on purpose. `session.ingestError`
 		// says so while it is on screen and `EditorSession.open()` clears it, so after a reload the
-		// sidebar said "This Project has no Historical Maps yet" while a pyramid the scholar watched
+		// sidebar said "This Project has no Map Images yet" while a pyramid the scholar watched
 		// land sat in the Workspace with nothing connecting the two.
 		//
 		// The state is reproduced from its consequences rather than by failing a write: the Alignment
 		// and the Layer are removed, which is exactly the pair of files that add would have left.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -250,10 +250,10 @@ test.describe('adding a Historical Map', () => {
 		// After a reload nothing on this screen mentions the pyramid — which is the whole complaint.
 		await page.reload();
 		await openLayers(page, 'amsterdam-1625');
-		await expect(page.getByTestId('no-historical-maps')).toBeVisible();
+		await expect(page.getByTestId('no-map-images')).toBeVisible();
 
 		// Except here, which is the answer: the orphan is on offer, and adding it is the repair.
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		const offered = dialog.getByTestId('workspace-map');
 		await expect(offered).toHaveCount(1);
 		await offered.click();
@@ -272,7 +272,7 @@ test.describe('adding a Historical Map', () => {
 });
 
 /**
- * A `remote.json` as another tab would have left it — a referenced Historical Map that entered this
+ * A `remote.json` as another tab would have left it — a referenced Map Image that entered this
  * Workspace after this Project was opened, which is exactly what ADR-0023 invites.
  */
 const remoteRecord = (service: string, label: string) =>
@@ -290,23 +290,23 @@ const remoteRecord = (service: string, label: string) =>
 test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 	test('opens as a modal dialog, closes on Escape, and gives focus back', async ({ page }) => {
 		// The repo's pattern, from `editor-project-screen.e2e.ts`'s settings-dialog test, and it is
-		// here because the helper this suite uses cannot stand in for it: `addHistoricalMapIsOpen`
+		// here because the helper this suite uses cannot stand in for it: `addMapImageIsOpen`
 		// reads `HTMLDialogElement.open`, which is `true` for `show()` as well as `showModal()`. So
 		// the implementation was correct and nothing held it there — `:modal` is the only assertion
 		// that tells the two apart, and with it goes the focus trap, Escape, and focus restoration.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
-		const button = addHistoricalMapButton(page);
+		const button = addMapImageButton(page);
 		await button.click();
-		const dialog = page.getByRole('dialog', { name: 'Add a Historical Map' });
+		const dialog = page.getByRole('dialog', { name: 'Add a Map Image' });
 		await expect(dialog).toBeVisible();
 		expect(
 			await dialog.evaluate((element) => element.matches(':modal')),
-			'the Add a Historical Map dialog was not opened with showModal()'
+			'the Add a Map Image dialog was not opened with showModal()'
 		).toBe(true);
 
 		await page.keyboard.press('Escape');
-		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(false);
 		// Back on the control the user reached for, which is where they can open it again.
 		await expect(button).toBeFocused();
 	});
@@ -318,10 +318,10 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		// │ `.open` IS TRUE THROUGHOUT THIS TEST. THAT IS THE POINT OF IT.                        │
 		// └───────────────────────────────────────────────────────────────────────────────────────┘
 		//
-		// `ensureAddHistoricalMapOpen` used to answer from `HTMLDialogElement.open` alone, and an
+		// `ensureAddMapImageOpen` used to answer from `HTMLDialogElement.open` alone, and an
 		// add that is still being written has the dialog open with a close already committed to it
 		// — measured at 35 ms on an idle box and reproduced at 20× CPU throttle, both written down
-		// on `settle` in `support/historical-maps.ts`. A caller handed that dialog filled a field
+		// on `settle` in `support/map-images.ts`. A caller handed that dialog filled a field
 		// on it and then waited 172 seconds to click the button beside it, because by then it had
 		// shut and nothing was going to re-open it.
 		//
@@ -340,16 +340,16 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 			await route.fallback();
 		});
 
-		await openAddHistoricalMap(page);
+		await openAddMapImage(page);
 		await page.getByTestId('remote-url').fill(address);
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('remote-read')).toBeDisabled();
 		// The dialog really is open while all of this is true — so a helper that asks only that
 		// question answers instantly, which is the defect.
-		expect(await addHistoricalMapIsOpen(page)).toBe(true);
+		expect(await addMapImageIsOpen(page)).toBe(true);
 
 		const began = Date.now();
-		await ensureAddHistoricalMapOpen(page);
+		await ensureAddMapImageOpen(page);
 		const ensured = Date.now() - began;
 
 		// A whole second of margin under a three-second delay: the only way this number is small is
@@ -359,7 +359,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		);
 		await expect(page.getByTestId('remote-add')).toBeVisible({ timeout: 30_000 });
 
-		// **One door, not two, and that was measured too.** `openAddHistoricalMap` clicks the
+		// **One door, not two, and that was measured too.** `openAddMapImage` clicks the
 		// sidebar button, which an open modal intercepts — so it is only reachable with the dialog
 		// shut, and a shut dialog has no add in flight. Putting the same wait there as well would
 		// have been a guard nothing could turn red, which is exactly how the previous fix came to be
@@ -377,7 +377,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		// had no such test — about five controls left the walk, and its `toBeGreaterThan(10)` guard
 		// does not notice. This is the replacement, and the carve-out's justification now holds.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -390,7 +390,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		await createProject(page, 'Boston 1775');
 		await page.getByRole('link', { name: 'Boston 1775' }).click();
 		await openLayers(page, 'boston-1775');
-		await openAddHistoricalMap(page);
+		await openAddMapImage(page);
 
 		// Asked of the DOM rather than listed here, so a control added to the dialog later is
 		// covered without anybody remembering to add it.
@@ -441,9 +441,9 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		const drawingStatus = page.getByTestId('annotation-status');
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
 
-		await openAddHistoricalMap(page);
+		await openAddMapImage(page);
 		await page.keyboard.press('Escape');
-		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(false);
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
 
 		// And Escape still cancels when the dialog is not in the way, so the guard swallowed nothing.
@@ -458,7 +458,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		// `MutationObserver` installed before the gesture sees a state that exists for one flush,
 		// where `expect(...).toBeVisible()` is a race that reports "the branch is dead" as a flake.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -480,7 +480,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 			look();
 		});
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await expect(dialog.getByTestId('workspace-map')).toHaveCount(1);
 
 		expect(
@@ -502,7 +502,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		// dialog that closed for no reason. `remote-notice` is the live region that already exists
 		// for a statement that has to outlive the dialog.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -518,7 +518,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		// Always rendered, which is what makes a change to its text an announcement at all.
 		await expect(notice).toHaveText('');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await dialog.getByTestId('workspace-map').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 
@@ -533,7 +533,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		// sentence about something that happened minutes ago sat in a live region while the user
 		// opened the dialog, changed their mind, and closed it again.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -545,16 +545,16 @@ test.describe('adding a map this Workspace already holds', () => {
 		await page.getByRole('link', { name: 'Boston 1775' }).click();
 		await openLayers(page, 'boston-1775');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await dialog.getByTestId('workspace-map').click();
 		const notice = page.getByTestId('remote-notice');
 		await expect(notice).toContainText('la-floride.png');
 
 		// Opened again and closed without adding anything: the sentence goes with the gesture that
 		// made it, rather than staying true of nothing.
-		await openAddHistoricalMap(page);
+		await openAddMapImage(page);
 		await expect(notice).toHaveText('');
-		await page.getByTestId('close-add-historical-map').click();
+		await page.getByTestId('close-add-map-image').click();
 		await expect(notice).toHaveText('');
 	});
 
@@ -569,13 +569,13 @@ test.describe('adding a map this Workspace already holds', () => {
 		// get two `addWorkspaceMap` calls in flight together.
 		//
 		// ⚠ **Measured: this invariant is held twice, and each guard alone keeps this test green.**
-		// Deleting `AddHistoricalMap`'s early return leaves it passing (the session's own third
+		// Deleting `AddMapImage`'s early return leaves it passing (the session's own third
 		// `drawnAlready()` check catches the race); deleting that check leaves it passing (the
 		// dialog's early return catches it); deleting **both** turns it red, with two Layers over
 		// one pyramid. So this asserts the property rather than either guard — which is what it
 		// should assert — and neither guard is dead code that a single mutation would expose.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
@@ -587,7 +587,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		await page.getByRole('link', { name: 'Boston 1775' }).click();
 		await openLayers(page, 'boston-1775');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await expect(dialog.getByTestId('workspace-map')).toHaveCount(1);
 		await page.evaluate(() => {
 			const button = document.querySelector<HTMLButtonElement>('[data-testid="workspace-map"]')!;
@@ -614,7 +614,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		// The other half this reaches: `#storedImageSize`'s `remote.json` fallback, and the
 		// `{ address }` spread that keeps `target.source.id` resolvable for a referenced map.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await expect(page.getByTestId('no-historical-maps')).toBeVisible();
+		await expect(page.getByTestId('no-map-images')).toBeVisible();
 
 		await writeStoredFile(
 			page,
@@ -622,7 +622,7 @@ test.describe('adding a map this Workspace already holds', () => {
 			remoteRecord('https://images.test/iiif/florida', 'Chart of the Florida coast')
 		);
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		const offered = dialog.getByTestId('workspace-map');
 		await expect(offered).toHaveCount(1);
 		await expect(offered).toContainText('Chart of the Florida coast');
@@ -655,7 +655,7 @@ test.describe('adding a map this Workspace already holds', () => {
 
 		await writeStoredFile(page, 'images/damaged-record/remote.json', '{ not json at all');
 
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		const offered = dialog.getByTestId('workspace-map');
 		await expect(offered).toHaveCount(1);
 		await offered.click();
@@ -664,7 +664,7 @@ test.describe('adding a map this Workspace already holds', () => {
 		await expect(refusal).toBeVisible();
 		await expect(refusal).toContainText('images/damaged-record/');
 		// The dialog stays up: a refusal whose dialog vanished with it is a refusal nobody read.
-		expect(await addHistoricalMapIsOpen(page)).toBe(true);
+		expect(await addMapImageIsOpen(page)).toBe(true);
 		// And nothing was written — no Layer, and no Alignment over a sheet of unknown size.
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		expect(await storedAlignment(page, 'damaged-record')).toBeNull();
@@ -709,10 +709,10 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 		// The surface this matters most on: a scholar choosing which of several scans to add is
 		// otherwise choosing between folder names. Same component as the hub's, same tile, no new data.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		// Waited out in full: `addHistoricalMapFromFile` returns when the preparing card has gone, which
+		// Waited out in full: `addMapImageFromFile` returns when the preparing card has gone, which
 		// is the end of the whole add. A picture assertion made before the pyramid is described has
 		// nothing to resolve.
-		await addHistoricalMapFromFile(page, {
+		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
@@ -720,9 +720,9 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 		await waitForStoredLayers(page, 1, 'amsterdam-1625');
 		await secondProject(page);
 
-		// ⚠ `ensureAddHistoricalMapOpen` rather than a wait on the dialog appearing: see `settle` in
-		// `support/historical-maps.ts` for the window that made asking about this dialog flake.
-		const dialog = await ensureAddHistoricalMapOpen(page);
+		// ⚠ `ensureAddMapImageOpen` rather than a wait on the dialog appearing: see `settle` in
+		// `support/map-images.ts` for the window that made asking about this dialog flake.
+		const dialog = await ensureAddMapImageOpen(page);
 		await expect(dialog.getByTestId('workspace-map')).toHaveCount(1);
 
 		// **700 × 500 reduces to 175 × 125**, worked out from ADR-0030's rule rather than from the code:
@@ -772,7 +772,7 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 		// dialog gone. The picture is beside the button, so nothing about it is in the way of the click.
 		await dialog.getByTestId('workspace-map').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
-		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(false);
 	});
 
 	test('a candidate whose picture cannot be resolved shows the glyph and no broken image', async ({
@@ -802,7 +802,7 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 			JSON.stringify({ label: { none: ['Carte sans mesures'] } })
 		);
 
-		const dialog = await ensureAddHistoricalMapOpen(page);
+		const dialog = await ensureAddMapImageOpen(page);
 		const row = candidate(dialog, 'Carte sans mesures');
 		await expect(row).toHaveCount(1);
 
@@ -826,15 +826,15 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 	});
 });
 
-test.describe('the stack while a Historical Map is being prepared', () => {
+test.describe('the stack while a Map Image is being prepared', () => {
 	test('does not say the Project has no Layers over a Layer that is being prepared', async ({
 		page
 	}) => {
 		// `LayerList`'s empty state is `layers.length === 0 && !preparing`, and without the second
-		// half "No Layers yet. Press Add a Historical Map…" renders directly above the card of the
+		// half "No Layers yet. Press Add a Map Image…" renders directly above the card of the
 		// map the user is watching being prepared.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			// Big enough that the preparation is a state to look at rather than a frame — the same
@@ -844,8 +844,8 @@ test.describe('the stack while a Historical Map is being prepared', () => {
 
 		await expect(preparingCard(page)).toBeVisible();
 		await expect(page.getByTestId('no-layers')).toHaveCount(0);
-		// The Historical Map empty state beside it is the same rule and already had its guard.
-		await expect(page.getByTestId('no-historical-maps')).toHaveCount(0);
+		// The Map Image empty state beside it is the same rule and already had its guard.
+		await expect(page.getByTestId('no-map-images')).toHaveCount(0);
 
 		await page.getByRole('button', { name: 'Cancel preparing la-floride.png' }).click();
 		// And it comes back when there is genuinely nothing, so the guard hid nothing permanently.

@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A PURE FUNCTION IN `core` AND NOT A RENDERER QUESTION
 //
-// An aligned Historical Map's geographic extent is its **Resource Mask** put through the same
+// An aligned Map Image's geographic extent is its **Resource Mask** put through the same
 // `GcpTransformer` the renderer solves with — not its Control Points' extent, which understates the
 // sheet by however much of it lies outside the points, and not the drawn layer's own bounds, which
 // would mean waiting for an asynchronous render before the map could be framed. `@allmaps/transform`
@@ -76,7 +76,7 @@ export interface GeoBounds {
  *
  * The documents are read by the caller, for the same reason `DrawnLayer`'s are: reaching the store
  * is the app's business, and this module has to run in Node. **Both are optional and `null` is
- * ordinary** — a Historical Map nobody has aligned yet, or an Annotation Layer nobody has drawn in,
+ * ordinary** — a Map Image nobody has aligned yet, or an Annotation Layer nobody has drawn in,
  * simply contributes nothing.
  *
  * Unlike the drawn stack, hidden Layers belong in this list. Hiding everything must not make a

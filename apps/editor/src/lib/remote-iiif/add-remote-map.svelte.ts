@@ -1,4 +1,4 @@
-// Adding a Historical Map from a IIIF URL: the state of that job, from paste to Layer.
+// Adding a Map Image from a IIIF URL: the state of that job, from paste to Layer.
 //
 // A class of its own rather than more fields on `EditorSession`, because none of it is
 // `project.json`. Pasting a URL, browsing a Collection, reading a library's rights statement and
@@ -21,6 +21,8 @@
 
 import {
 	COMMUNITY_ALIGNMENT_DISCLOSURE,
+	RemoteImageResponseError,
+	fetchRemoteImageFile,
 	describeRemoteResource,
 	findCommunityAlignments,
 	imageServiceUriCrossingBoundary,
@@ -50,6 +52,8 @@ export type AddRemoteStep =
 	| 'choosing'
 	/** Reading the chosen image service and probing its host. */
 	| 'checking'
+	/** The address was an image file, and its bytes are on their way here. */
+	| 'downloading'
 	/** Writing the Layer. */
 	| 'adding';
 
@@ -75,6 +79,16 @@ export class AddRemoteMap {
 	 * about what just happened that vanishes with the thing that caused it is not a message.
 	 */
 	notice = $state('');
+
+	/**
+	 * The image file just downloaded and handed to the tiler, by name, or `''`.
+	 *
+	 * How this panel's caller learns that a paste turned out to be an image file rather than a IIIF
+	 * resource: there is no Layer to hand back at that moment — the pyramid is still being cut, and
+	 * `EditorSession.ingestImage` makes the Layer when it has one — so the surface closes on this the
+	 * way it closes on a picked file, and the progress is on the Layer's own card.
+	 */
+	downloaded = $state('');
 
 	/** The resource that was read, or `null`. Held so choosing costs no further request. */
 	resource = $state<RemoteIiifResource | null>(null);
@@ -143,6 +157,7 @@ export class AddRemoteMap {
 		this.url = '';
 		this.step = 'idle';
 		this.error = '';
+		this.downloaded = '';
 		this.resource = null;
 		this.described = null;
 		this.selectedCanvas = '';
@@ -159,7 +174,7 @@ export class AddRemoteMap {
 	 * case here: it arrives as a list of items to open, and opening one is another call to this same
 	 * method, which is what makes "one URL from a library is enough" true.
 	 */
-	async read(url = this.url): Promise<void> {
+	async read(url: string = this.url): Promise<void> {
 		this.error = '';
 		// Cleared here rather than in `reset`: the next lookup is the point at which what happened to
 		// the *last* add stops being the news on this page.
@@ -188,6 +203,56 @@ export class AddRemoteMap {
 			this.step = 'idle';
 			this.resource = null;
 			this.described = null;
+			// **An image file is a third thing the same box accepts**, and it is recognised by the
+			// document that arrived rather than by the address: a URL ending `.jpg` may serve a Manifest,
+			// and a IIIF-looking path may serve a JPEG. `readRemoteIiifResource` names it before it reads
+			// the body, so nothing has been downloaded yet when this branch is taken.
+			if (cause instanceof RemoteImageResponseError) {
+				await this.#addImageFile(cause.url);
+				return;
+			}
+			this.error = message(cause);
+		}
+	}
+
+	/**
+	 * Copy a plain image into the Workspace and cut its tiles (the third source's remote half).
+	 *
+	 * **A copy, and never a reference.** A IIIF image service is left where it is and drawn tile by
+	 * tile; a single image file has no request that returns part of it, so there is nothing to
+	 * reference — the only way to draw one is to hold its pixels. That makes this the file source with
+	 * a download in front of it, and it goes through `EditorSession.ingestImage` for exactly that
+	 * reason rather than growing a second ingest.
+	 *
+	 * The download is awaited here, with the panel saying so, because a host that 404s or refuses
+	 * cross-origin reads has to be reported *in the panel the user is looking at*. Everything after it
+	 * is the ingest's, whose progress is on the new Layer's card — so this returns as soon as the bytes
+	 * are handed over, and the surface above closes.
+	 */
+	async #addImageFile(url: string): Promise<void> {
+		const session = this.#session();
+		// Asked before a megabyte is downloaded rather than after: `ingestImage` refuses a second file
+		// while one is being prepared, and meeting that refusal at the end of a long download would
+		// have spent the download for nothing.
+		if (session.ingest !== null) {
+			this.step = 'idle';
+			this.error =
+				`That address is an image file, which Ballastella copies into this Workspace and tiles ` +
+				`here — and “${session.ingestLabel}” is still being prepared. One map is prepared at a ` +
+				`time, so wait for that one to finish and look this address up again.`;
+			return;
+		}
+
+		this.step = 'downloading';
+		try {
+			const file = await fetchRemoteImageFile(url, { fetch: this.#fetch() });
+			this.reset();
+			this.downloaded = file.name;
+			// Not awaited, and not this panel's job to watch: the tiling is minutes of work on a large
+			// scan, it reports on the Layer's card, and it can be cancelled from there.
+			void session.ingestImage(file);
+		} catch (cause) {
+			this.step = 'idle';
 			this.error = message(cause);
 		}
 	}
@@ -263,7 +328,7 @@ export class AddRemoteMap {
 	 * epic has broken more often than any other, and the one whose breach destroyed `name`,
 	 * `updatedAt`, and `layers` while the indicator said "Saved".
 	 *
-	 * **A chosen community Alignment is a request, not a guarantee.** ADR-0023 gives a Historical Map
+	 * **A chosen community Alignment is a request, not a guarantee.** ADR-0023 gives a Map Image
 	 * one Alignment, held in the Workspace and shared by every Project that draws it, so importing
 	 * over one somebody has worked on would discard Control Points that may belong to a Project the
 	 * user is not looking at. The session refuses that and says which way it went; the refusal is a
@@ -315,12 +380,12 @@ export class AddRemoteMap {
  *
  * Three things, in the order they need them: the Layer is there (so they do not add it again), the
  * import did not happen (so they do not assume it did), and *why* — which is the part that is not
- * guessable, because "one Alignment per Historical Map, shared by every Project" is a property of
+ * guessable, because "one Alignment per Map Image, shared by every Project" is a property of
  * this application's storage rather than of anything on the screen (ADR-0023).
  */
 const KEPT_EXISTING_ALIGNMENT =
 	'The Layer was added, but the alignment you chose to import was not written. ' +
-	'This Workspace already holds an Alignment for that Historical Map, and a Historical Map has ' +
+	'This Workspace already holds an Alignment for that Map Image, and a Map Image has ' +
 	'one Alignment shared by every Project that draws it — importing over it would have discarded ' +
 	'the Control Points already in it. The Layer draws the Alignment that was already there.';
 

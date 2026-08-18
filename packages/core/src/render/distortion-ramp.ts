@@ -2,7 +2,7 @@
 //
 // Upstream's defaults are literal `red`, `darkblue`, `green`, `yellow`, `red`. They are legible
 // against Allmaps' own interface and not against Tracy's, and ADR-0016 makes one theme signal drive
-// both the interface and the map — a colourised Historical Map is on the map, so it is on the same
+// both the interface and the map — a colourised Map Image is on the map, so it is on the same
 // side of that rule as the Base Map flavour.
 //
 // daisyUI publishes its theme as CSS custom properties on the document, so the ramp is read from

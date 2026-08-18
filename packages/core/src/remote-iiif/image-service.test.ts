@@ -128,7 +128,7 @@ describe('real IIIF services in the wild', () => {
 		// `mps.lib.harvard.edu`. The Image API requires `id` to be the base every image request is
 		// built on, so the fetched URL is the wrong one to build tile URLs from *and* the wrong one to
 		// mint an identifier from — a second URL redirecting to the same service would otherwise
-		// produce a second, different Historical Map and a second, different community lookup.
+		// produce a second, different Map Image and a second, different community lookup.
 		const harvard = await accept('harvard-ids');
 
 		expect(harvard.requestedUrl).toContain('ids.lib.harvard.edu');
@@ -342,7 +342,7 @@ describe('bounds on what a stranger’s info.json may declare', () => {
 describe('the id a stranger’s document declares for itself', () => {
 	// A document served from `library.test` that says its own address is something else. Adopting it
 	// is not optional — it is what the Image API requires and what `harvard-ids` above needs — but
-	// what is adopted becomes the identifier this Historical Map is filed under, the base of every
+	// what is adopted becomes the identifier this Map Image is filed under, the base of every
 	// tile request, and the citation written into `remote.json`. So it goes through the same check a
 	// pasted address does.
 	const declaring = (id: unknown) => ({

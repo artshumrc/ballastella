@@ -57,7 +57,7 @@ const projectJson = (overrides: Record<string, unknown> = {}): string =>
 	)}\n`;
 
 /**
- * A Workspace with **two Projects and two Historical Maps**, only one of each pair belonging to the
+ * A Workspace with **two Projects and two Map Images**, only one of each pair belonging to the
  * Project that gets exported.
  *
  * This is the shape the first acceptance criterion is about: a bundle carries the Project it names
@@ -393,8 +393,8 @@ describe('a bundle opens into a Review Workspace', () => {
 	});
 
 	// The other `remote.json` in this codebase, which a bundle absolutely must carry: a referenced
-	// IIIF image's own document (ADR-0007). Dropped along with the binding, a Project whose Historical
-	// Map lives on somebody else's server would be refused on the way in as unreadable.
+	// IIIF image's own document (ADR-0007). Dropped along with the binding, a Project whose Map
+	// Image lives on somebody else's server would be refused on the way in as unreadable.
 	it('keeps a referenced image’s own remote.json, which is a different file entirely', async () => {
 		const into = destination();
 
@@ -759,13 +759,13 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 	});
 
 	// ⚠ **The asymmetry that let a Project export to a bundle its own sender could not re-open.**
-	// `exportProjectBundle` treats a Historical Map nobody has placed yet as ordinary and leaves the
+	// `exportProjectBundle` treats a Map Image nobody has placed yet as ordinary and leaves the
 	// Alignment out; the reader used to require one for every map Layer. So a scholar who added a map
 	// and had not aligned it — the state the Layer card itself describes as "Not aligned yet" —
 	// exported a file that was refused on the way back in, which is the worst shape a transfer defect
 	// can take: found by the recipient, about a file the sender can no longer change. Driven through
 	// the real exporter rather than a hand-built archive, because it is the *pair* that was wrong.
-	it('opens a Project whose Historical Map has not been aligned yet', async () => {
+	it('opens a Project whose Map Image has not been aligned yet', async () => {
 		const workspace = seed({
 			'amsterdam-1625/project.json': projectJson(),
 			'amsterdam-1625/annotations/warehouses.geojson': '{"type":"FeatureCollection"}',

@@ -79,13 +79,13 @@ export type IngestResult = {
 export type IngestOptions = {
 	readonly store: ProjectStore;
 	readonly file: File | Blob;
-	/** What to call this Historical Map. Defaults to the file's name. */
+	/** What to call this Map Image. Defaults to the file's name. */
 	readonly label?: string;
 	/**
 	 * The image id to write this pyramid under. A fresh random one when absent.
 	 *
 	 * Absent is right for a file the user picked: there is no URI to derive an identity from, and two
-	 * ingests of one file are two Historical Maps (ADR-0015). It is supplied by exactly one caller —
+	 * ingests of one file are two Map Images (ADR-0015). It is supplied by exactly one caller —
 	 * `makeOfflineCopy`, making an offline copy of a referenced remote image — where the opposite
 	 * holds and is load-bearing: that image's id is `generateId(uri)`, which is what every Alignment in
 	 * the Workspace names and what `annotations.allmaps.org` keys the image on, so making an offline copy must land on
@@ -100,7 +100,7 @@ export type IngestOptions = {
 	readonly signal?: AbortSignal;
 };
 
-/** One ingested Historical Map of the Workspace, as the UI lists them. */
+/** One ingested Map Image of the Workspace, as the UI lists them. */
 export type IngestedImage = {
 	readonly imageId: string;
 	readonly directory: StorePath;
@@ -108,7 +108,7 @@ export type IngestedImage = {
 };
 
 /**
- * The Historical Maps the **Workspace** holds, found by looking for `info.json` and nothing else
+ * The Map Images the **Workspace** holds, found by looking for `info.json` and nothing else
  * (ADR-0023). Shared by every Project, so this asks the Workspace root and takes no Project directory.
  *
  * `info.json` is written last, so this reports only complete pyramids — the tiles of an
@@ -125,7 +125,7 @@ export async function listIngestedImages(store: ProjectStore): Promise<IngestedI
 				const directory = path.slice(0, -'/info.json'.length);
 				return { imageId: directory.slice(prefix.length), directory, infoPath: path };
 			})
-			// A nested `images/<id>/…/info.json` is not a Historical Map; only the top level is.
+			// A nested `images/<id>/…/info.json` is not a Map Image; only the top level is.
 			.filter((image) => !image.imageId.includes('/'))
 	);
 }
@@ -152,8 +152,8 @@ export class ImageTooLargeError extends Error {
 	readonly maxPixels: number;
 
 	constructor(pixels: number, maxPixels: number) {
-		// **"This file", not "this image"** (CONTEXT.md, *Historical Map*: avoid map, image, scan,
-		// source). What the user picked is a file; it would have become a Historical Map, and did not.
+		// **"This file", not "this image"** (CONTEXT.md, *Map Image*: avoid map, image, scan,
+		// source). What the user picked is a file; it would have become a Map Image, and did not.
 		super(
 			`This file is ${Math.round(pixels / 1e6)} megapixels, above the ` +
 				`${Math.round(maxPixels / 1e6)} megapixel limit of what a browser can decode. Convert it ` +

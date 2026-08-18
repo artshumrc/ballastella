@@ -1,6 +1,6 @@
 // The one online signal, and what happens when a component asks for it from outside the layout.
 //
-// `HistoricalMapPane` reads `.online` in its load effect since ticket 07 — on the component that
+// `MapImagePane` reads `.online` in its load effect since ticket 07 — on the component that
 // ticket deliberately made reusable — so a pane mounted outside the root layout used to throw
 // `Cannot read properties of undefined (reading 'online')` from inside an effect, naming nothing.
 

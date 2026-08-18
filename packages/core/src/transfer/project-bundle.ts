@@ -16,7 +16,7 @@
 // way in that it always has and `assertReferencesPresent` works on the same path set.
 //
 // **What did change is where it may be opened.** A bundle carries `alignments/<image-id>.json`, and
-// under ADR-0023 there is exactly one Alignment per Historical Map in a Workspace. Opening a
+// under ADR-0023 there is exactly one Alignment per Map Image in a Workspace. Opening a
 // colleague's bundle into your own Workspace would therefore either overwrite an Alignment two of
 // your own Projects are drawn by, or be refused — and the propagation risk ADR-0023 accepts is one a
 // user takes on for *their own* edits, not one that arrives inside somebody else's file. So a bundle

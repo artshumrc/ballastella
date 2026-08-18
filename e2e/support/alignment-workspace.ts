@@ -1,4 +1,4 @@
-// Shared driving for the Alignment surface: get a Project open with one ingested Historical Map,
+// Shared driving for the Alignment surface: get a Project open with one ingested Map Image,
 // make Control Point pairs, and read what landed in OPFS.
 //
 // Extracted here because ticket 08's refinement suite needs exactly the ground ticket 07's pairing
@@ -10,7 +10,7 @@
 import { expect, type Locator, type Page } from './test.js';
 import zlib from 'node:zlib';
 
-import { addHistoricalMapButton, pickHistoricalMapFile } from './historical-maps.js';
+import { addMapImageButton, pickMapImageFile } from './map-images.js';
 import { openLayerRow } from './layers';
 import { readStoredFileOrNull } from './stored-file';
 import { restoreWorkspace, snapshotWorkspace } from './workspace-snapshot.js';
@@ -172,14 +172,14 @@ async function ingestThroughTheInterface(
 	// The wait is load-bearing: a Project is selected client-side from `?p=` (ADR-0008), so for a
 	// moment after the click the hub is still rendered — and the hub lists Projects as list items.
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 
-	await pickHistoricalMapFile(page, {
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 	});
-	// **Read off the Layer, which is where a Historical Map now appears** (ticket 04). It used to be
+	// **Read off the Layer, which is where a Map Image now appears** (ticket 04). It used to be
 	// read out of a list of image ids on the Project page; that list is gone, because the Layer the map
 	// arrives with (ADR-0023) already says which image it draws and one of the two had to be a
 	// duplicate of the other.
@@ -197,11 +197,11 @@ async function ingestThroughTheInterface(
 }
 
 /**
- * A Project open, one Historical Map on disk, both panes live.
+ * A Project open, one Map Image on disk, both panes live.
  *
- * The Historical Map is **seeded rather than ingested** — see `workspace-snapshot.ts` for what that
+ * The Map Image is **seeded rather than ingested** — see `workspace-snapshot.ts` for what that
  * means and what it deliberately does not cover. A test whose subject is the ingest itself must
- * drive `pickHistoricalMapFile` instead.
+ * drive `pickMapImageFile` instead.
  *
  * @returns the image id, which is the Alignment's file name
  */
@@ -226,11 +226,9 @@ export async function start(page: Page): Promise<string> {
 	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
 	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
 	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
-	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-		'data-tiles-loaded',
-		'true',
-		{ timeout: TILES_READY_MS }
-	);
+	await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+		timeout: TILES_READY_MS
+	});
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
@@ -244,12 +242,12 @@ export async function start(page: Page): Promise<string> {
  * `/align/?p=<project>&layer=<layer-id>`" is the ticket's contract and a helper that waited on a
  * heading alone would keep passing if the button started rendering the panes in place again.
  *
- * The Layer's row is opened first, because since ticket 05 the Align link is inside it — a Historical
- * Map Layer opens to show whether it is aligned and the button that aligns it.
+ * The Layer's row is opened first, because since ticket 05 the Align link is inside it — a Map
+ * Image Layer opens to show whether it is aligned and the button that aligns it.
  */
 export async function openAlignment(page: Page, at = 0): Promise<void> {
 	const row = await openLayerRow(page, at);
-	await row.getByTestId('align-historical-map').click();
+	await row.getByTestId('align-map-image').click();
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 }
@@ -263,15 +261,13 @@ export async function waitForSurface(page: Page): Promise<void> {
 	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
 	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
 	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
-	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-		'data-tiles-loaded',
-		'true',
-		{ timeout: TILES_READY_MS }
-	);
+	await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+		timeout: TILES_READY_MS
+	});
 }
 
 /**
- * Open the Historical Map pane's "Image details" readout — the pyramid, the zoom and the pointer.
+ * Open the Map Image pane's "Image details" readout — the pyramid, the zoom and the pointer.
  *
  * **Closed by default on the page, so a test that reads it has to ask.** The readout is a diagnostic,
  * and on the alignment screen it was four rows of numbers charging permanent rent under the sheet;
@@ -281,22 +277,22 @@ export async function waitForSurface(page: Page): Promise<void> {
  * would fail with a message about the pyramid rather than about the disclosure.
  *
  * Idempotent, and cheap enough to call after every navigation: the state lives on the component, so a
- * route change closes it again while switching Historical Maps deliberately does not.
+ * route change closes it again while switching Map Images deliberately does not.
  */
 export async function showPaneDetails(page: Page): Promise<void> {
-	const toggle = page.getByTestId('historical-map-details-toggle');
+	const toggle = page.getByTestId('map-image-details-toggle');
 	await expect(toggle).toBeVisible();
 	if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-	await expect(page.getByTestId('historical-map-pyramid')).toBeVisible();
+	await expect(page.getByTestId('map-image-pyramid')).toBeVisible();
 }
 
-export const historicalMap = (page: Page) => page.getByTestId('image-pane');
+export const mapImage = (page: Page) => page.getByTestId('image-pane');
 export const baseMap = (page: Page) => page.getByTestId('base-map-pane');
 export const rows = (page: Page) => page.getByTestId('control-point-row');
 export const warpedStatus = (page: Page) => page.getByTestId('warped-status');
 
 /**
- * The Historical Map is drawn warped over the Base Map.
+ * The Map Image is drawn warped over the Base Map.
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
  * │ ONE PLACE, BECAUSE THIS ASSERTION IS MADE TWENTY TIMES AND ITS FAILURE NAMES NOTHING.      │
@@ -338,7 +334,7 @@ export const expectWarpedDrawn = async (page: Page): Promise<void> => {
  * Split out of {@link expectWarpedDrawn} rather than left as its only content, because there is
  * exactly one place where it is the honest claim: `editor-pwa.e2e.ts`'s offline session, where the
  * Base Map archive is refused on purpose and the whole point is that the scholar's own work draws
- * with nothing underneath it. Everywhere else, "the Historical Map is drawn over the geography"
+ * with nothing underneath it. Everywhere else, "the Map Image is drawn over the geography"
  * means the geography drew too, and that is what {@link expectWarpedDrawn} now says.
  *
  * Named for what it proves, so a call site cannot claim more than it is asking for. Ticket 17
@@ -358,7 +354,7 @@ export const expectWarpedLayerAdded = (page: Page) =>
  * `data-warped-status="drawn"` passes with an archive of **all zeros** and with the route answering
  * **404** — measured, both. What those specs need is for the archive request to be *answered* so
  * MapLibre's source initialises and the warped layer is added; the Base Map's own content never came
- * into it. So twenty assertions that read as "the Historical Map is drawn over the geography" were
+ * into it. So twenty assertions that read as "the Map Image is drawn over the geography" were
  * making no claim at all about the geography.
  *
  * `queryRenderedFeatures` filtered to the Base Map's **own source** is what makes the claim real,
@@ -411,13 +407,13 @@ export const expectBaseMapDrawn = async (page: Page): Promise<void> => {
 const BASE_MAP_DRAWN_MS = 30_000;
 
 export const imagePoints = (page: Page) =>
-	historicalMap(page).locator('[data-testid="pane-overlay-point-control-point"]');
+	mapImage(page).locator('[data-testid="pane-overlay-point-control-point"]');
 
 export const maskVertices = (page: Page) =>
-	historicalMap(page).locator('[data-testid="pane-overlay-point-mask-vertex"]');
+	mapImage(page).locator('[data-testid="pane-overlay-point-mask-vertex"]');
 
 export const maskEdges = (page: Page) =>
-	historicalMap(page).locator('[data-testid="pane-overlay-point-mask-edge"]');
+	mapImage(page).locator('[data-testid="pane-overlay-point-mask-edge"]');
 
 /** Click at a fraction across a pane, so the same helper works for both canvases. */
 export async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
@@ -427,7 +423,7 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
 }
 
 /**
- * Make one complete pair: a click on the Historical Map, then one on the Base Map.
+ * Make one complete pair: a click on the Map Image, then one on the Base Map.
  *
  * Waits for the pending state in between, which is what makes this click-then-click rather than two
  * clicks that happen to arrive in order. The two panes take separate fractions so that a *mirrored*
@@ -439,7 +435,7 @@ export async function makePair(
 	base: readonly [number, number] = image
 ): Promise<void> {
 	const before = await rows(page).count();
-	await clickAt(historicalMap(page), image[0], image[1]);
+	await clickAt(mapImage(page), image[0], image[1]);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 	await clickAt(baseMap(page), base[0], base[1]);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
@@ -537,7 +533,7 @@ const WARPED_TILE_WAIT_MS = 30_000;
  *
  * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
  * produced — so this counts tiles that made it all the way through the ADR-0011 shim rather than
- * tiles that were merely asked for. It is the honest signal for "the Historical Map renders warped":
+ * tiles that were merely asked for. It is the honest signal for "the Map Image renders warped":
  * the failure this path used to have was an error `@allmaps/render` logged and swallowed, so a check
  * for an absence of console errors went green while the map rendered blank.
  *

@@ -5,6 +5,7 @@ import { ParserBoundaryError, imageServiceUriCrossingBoundary } from './parser-b
 import {
 	REMOTE_IIIF_LIMITS,
 	RemoteIiifRejectedError,
+	RemoteImageResponseError,
 	readRemoteIiifResource,
 	remoteIiifUrl
 } from './remote-resource';
@@ -168,6 +169,40 @@ describe('a document from somebody else’s server', () => {
 		expect(failure?.host).toBe('library.example.test');
 		expect(failure?.message).toContain('sent a web page rather than a IIIF description');
 		expect(failure?.message).not.toContain('JSON');
+	});
+
+	it('names an image file for what it is, before it reads a byte of it', async () => {
+		// A JPEG parsed as JSON fails as "Unexpected token", which accuses a host of sending broken data
+		// when it sent a perfectly good image at exactly the address the user meant. The editor acts on
+		// this refusal — it copies the image into the Workspace and tiles it — so it is a type rather
+		// than a sentence, and it is decided from the headers so that a 200 MB scan is not downloaded in
+		// order to fail to parse it.
+		//
+		// **The body here never ends**, which is how "before it reads a byte of it" is asserted rather
+		// than described: a read of this response is the bound's refusal — a different error — and a
+		// wait for it to finish is a test that hangs.
+		const failure = await readRemoteIiifResource(
+			'https://images.example.test/maps/la-floride.jpg',
+			{
+				fetch: async () =>
+					new Response(
+						new ReadableStream<Uint8Array>({
+							pull(controller) {
+								controller.enqueue(new Uint8Array(1024).fill(0xff));
+							}
+						}),
+						{ headers: { 'content-type': 'image/jpeg' } }
+					)
+			}
+		).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageResponseError
+		);
+
+		expect(failure).toBeInstanceOf(RemoteImageResponseError);
+		expect(failure?.contentType).toBe('image/jpeg');
+		expect(failure?.host).toBe('images.example.test');
+		expect(failure?.message).not.toContain('past what Ballastella will read');
 	});
 
 	it('stops reading a response that is larger than the bound, without believing content-length', async () => {
@@ -352,7 +387,7 @@ describe('the parser boundary', () => {
 		'https://images.example.test/iiif/3/sheet-1/info.json',
 		'  https://images.example.test/iiif/3/sheet-1#canvas  '
 	])('spells one service one way, however it was written: %s', (written) => {
-		// The URI crossing the boundary is hashed into the Historical Map's identity and into the key
+		// The URI crossing the boundary is hashed into the Map Image's identity and into the key
 		// the Allmaps lookup is made on, so two spellings of one service are two Layers that cannot be
 		// told apart and an existing Alignment silently not found. One canonicaliser answers for the
 		// paste, the boundary, `remote.json`, and an annotation's own target.

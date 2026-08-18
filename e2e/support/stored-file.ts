@@ -121,7 +121,7 @@ export const readStoredJsonOrNull = async <T>(page: Page, path: string): Promise
  * │ THE WRITE HALF OF THIS MODULE, AND IT IS HERE FOR THE SAME REASON THE READ HALF IS.        │
  * └───────────────────────────────────────────────────────────────────────────────────────────┘
  *
- * A spec that needs a Workspace in a particular state — a Historical Map the hub can list and
+ * A spec that needs a Workspace in a particular state — a Map Image the hub can list and
  * delete, a colleague's Alignment arriving through a sync — cannot always get there through the
  * interface: an ingest takes a real image and a real tiler, which is minutes of work and a different
  * test's subject, and *nothing at all* in this application produces another process's write.

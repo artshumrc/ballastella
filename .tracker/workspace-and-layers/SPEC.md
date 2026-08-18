@@ -2,27 +2,27 @@
 
 ## Problem Statement
 
-Ballastella can align a Historical Map onto the world, annotate it, and publish it. But a scholar sitting down in front of it has to learn the tool's architecture before they can use it, and four specific things stand in their way.
+Ballastella can align a Map Image onto the world, annotate it, and publish it. But a scholar sitting down in front of it has to learn the tool's architecture before they can use it, and four specific things stand in their way.
 
-**They cannot stay in one place.** Aligning happens on the Project page; the stack of Layers over the Base Map is a *different* page. Noticing that a Control Point is wrong means seeing the Historical Map sitting crooked on the stack page, then navigating to the Project page to fix it, then back to check. The two views are about the same work and are never on screen together.
+**They cannot stay in one place.** Aligning happens on the Project page; the stack of Layers over the Base Map is a *different* page. Noticing that a Control Point is wrong means seeing the Map Image sitting crooked on the stack page, then navigating to the Project page to fix it, then back to check. The two views are about the same work and are never on screen together.
 
 **The tool asks them architecture questions before it asks them anything else.** First contact is a section headed "Where your work is stored," weighing browser-managed private storage against a directory handle. And every Project opens on central Amsterdam at zoom 13 — the bounds of a 4 MB Base Map extract that ships with the app — regardless of whether the scholar's work is in Boston, Batavia, or the Baltic.
 
-**A Historical Map belongs to one Project, forever.** A scholar teaching two courses from the same 1625 survey must bring it in twice, wait for it to be tiled twice, align it twice, and store two copies of a pyramid that may be gigabytes. Under the shared ~1 GB static-hosting budget, that is the difference between a semester's work publishing and failing.
+**A Map Image belongs to one Project, forever.** A scholar teaching two courses from the same 1625 survey must bring it in twice, wait for it to be tiled twice, align it twice, and store two copies of a pyramid that may be gigabytes. Under the shared ~1 GB static-hosting budget, that is the difference between a semester's work publishing and failing.
 
-**A Historical Map on a library's server cannot be aligned at all.** The tool will show it, and will copy it locally, but the only way to *place* it on the earth is to copy the whole pyramid off someone else's server first — which is slow, which may be thousands of requests, and which is exactly the copy ADR-0007 says not to make by default.
+**A Map Image on a library's server cannot be aligned at all.** The tool will show it, and will copy it locally, but the only way to *place* it on the earth is to copy the whole pyramid off someone else's server first — which is slow, which may be thousands of requests, and which is exactly the copy ADR-0007 says not to make by default.
 
-Beneath all four: the application has accumulated more surface than its audience can carry. It is meant to be usable by a fourth-grader without instructions, and today it has two ways to look at a Historical Map (one of which works for half of them, for reasons no user could infer), three places a Base Map can be chosen, a repair button for a half-finished copy, and a theme toggle on two pages and not others.
+Beneath all four: the application has accumulated more surface than its audience can carry. It is meant to be usable by a fourth-grader without instructions, and today it has two ways to look at a Map Image (one of which works for half of them, for reasons no user could infer), three places a Base Map can be chosen, a repair button for a half-finished copy, and a theme toggle on two pages and not others.
 
 ## Solution
 
-**One screen.** Entering a Project puts the scholar on a Base Map with a sidebar of Layers, and that is where they stay. Adding a Historical Map, adding Annotations, reordering, renaming, hiding, fading, and publishing all happen without leaving it. Aligning opens one dedicated split-screen view — the sheet beside the world — reached from the Layer that needs it and returning to exactly where they were.
+**One screen.** Entering a Project puts the scholar on a Base Map with a sidebar of Layers, and that is where they stay. Adding a Map Image, adding Annotations, reordering, renaming, hiding, fading, and publishing all happen without leaving it. Aligning opens one dedicated split-screen view — the sheet beside the world — reached from the Layer that needs it and returning to exactly where they were.
 
-**The map opens on the work.** A Project's opening view is computed from what the Project has actually placed on the earth: its Annotations and its aligned Historical Maps, fitted with padding and a sensible zoom ceiling. A Project with nothing placed yet falls back to the deployment's default.
+**The map opens on the work.** A Project's opening view is computed from what the Project has actually placed on the earth: its Annotations and its aligned Map Images, fitted with padding and a sensible zoom ceiling. A Project with nothing placed yet falls back to the deployment's default.
 
-**Historical Maps belong to the Workspace, not to a Project.** A map is brought in once, aligned once, and used by any number of Projects. The Workspace answers *where a map sits on the earth*; a Project answers *how maps are presented and what is stacked over them* — its name for the Layer, its visibility, its order, its opacity, and the Annotations drawn above. Adding a Layer offers three sources: a file on this computer, a remote IIIF resource, or a Historical Map already in the Workspace.
+**Map Images belong to the Workspace, not to a Project.** A map is brought in once, aligned once, and used by any number of Projects. The Workspace answers *where a map sits on the earth*; a Project answers *how maps are presented and what is stacked over them* — its name for the Layer, its visibility, its order, its opacity, and the Annotations drawn above. Adding a Layer offers three sources: a file on this computer, a remote IIIF resource, or a Map Image already in the Workspace.
 
-**A referenced Historical Map is alignable in place.** The same pane aligns a map whose tiles are in the Workspace and a map whose tiles are on a Library's server. Making an offline copy afterwards keeps the Alignment and moves the map off the network — and because there is one Alignment per map, that is one file to correct rather than one per Project.
+**A referenced Map Image is alignable in place.** The same pane aligns a map whose tiles are in the Workspace and a map whose tiles are on a Library's server. Making an offline copy afterwards keeps the Alignment and moves the map off the network — and because there is one Alignment per map, that is one file to correct rather than one per Project.
 
 **No Base Map ships, and offline coverage is asked for.** The 4 MB Amsterdam extract is gone. A scholar who wants a Project to work with no network says so, is shown how many tiles and how many megabytes that will take, and agrees to it. The tiles cached are the ones that Project's own content needs.
 
@@ -36,7 +36,7 @@ Beneath all four: the application has accumulated more surface than its audience
 
 1. As a scholar, I want entering a Project to put me straight onto a map with my Layers beside it, so that I begin working rather than navigating.
 2. As a scholar, I want the map to fill the useful part of the screen, so that the thing I am studying is the thing I am mostly looking at.
-3. As a scholar, I want to add a Historical Map, reorder Layers, rename them, hide them, and fade them without leaving this screen, so that my attention stays on the work.
+3. As a scholar, I want to add a Map Image, reorder Layers, rename them, hide them, and fade them without leaving this screen, so that my attention stays on the work.
 4. As a scholar, I want a Project's opening view to frame everything I have placed on the earth, so that I see my own work rather than a city I have never visited.
 5. As a scholar, I want a Project with nothing placed yet to open somewhere deliberate, so that an empty Project does not look broken.
 6. As a scholar, I want zooming out never to go blank inside the area I have made available offline, so that the map does not appear to break when I pull back.
@@ -53,16 +53,16 @@ Beneath all four: the application has accumulated more surface than its audience
 14. As a scholar, I want a Layer to open in place to reveal what is inside it, so that I learn the structure by using it rather than by being told.
 15. As a scholar, I want only one Layer open at a time, so that the sidebar does not become a wall of controls.
 16. As a scholar, I want an Annotation Layer to open into its drawing tools and its list of Annotations, so that drawing is where the Annotations are.
-17. As a scholar, I want a Historical Map Layer to open into its alignment state and a way to fix it, so that the thing that needs doing is where the thing that needs it lives.
-18. As a scholar, I want one Historical Map per Layer, so that a Layer's controls always mean one predictable thing.
-19. As a scholar, I want to add as many Historical Map Layers as I like, so that a Project can hold a whole series of sheets.
+17. As a scholar, I want a Map Image Layer to open into its alignment state and a way to fix it, so that the thing that needs doing is where the thing that needs it lives.
+18. As a scholar, I want one Map Image per Layer, so that a Layer's controls always mean one predictable thing.
+19. As a scholar, I want to add as many Map Image Layers as I like, so that a Project can hold a whole series of sheets.
 20. As a scholar, I want a Layer of a kind this version does not understand to be kept, nameable, and reorderable rather than discarded, so that a Project written by a newer version survives a round trip through this one.
 
-### Bringing a Historical Map in
+### Bringing a Map Image in
 
-21. As a scholar, I want one obvious action to add a Historical Map, so that I do not have to know in advance which kind of map I have.
-22. As a scholar, I want to choose between a file on this computer, a remote IIIF resource, and a Historical Map I already have, so that all three ways in are equally visible.
-23. As a scholar, I want to see which Historical Maps I already have, with their sizes, so that reusing one is easier than fetching it again.
+21. As a scholar, I want one obvious action to add a Map Image, so that I do not have to know in advance which kind of map I have.
+22. As a scholar, I want to choose between a file on this computer, a remote IIIF resource, and a Map Image I already have, so that all three ways in are equally visible.
+23. As a scholar, I want to see which Map Images I already have, with their sizes, so that reusing one is easier than fetching it again.
 24. As a scholar, I want the list of maps I already have to exclude the ones already in this Project, so that I am not offered something that would do nothing.
 25. As a scholar, I want a large scan's progress reported as it is prepared, so that I know the tool is working and roughly how long is left.
 26. As a scholar, I want to cancel preparing a scan I picked by mistake, so that a wrong click does not cost me minutes.
@@ -73,8 +73,8 @@ Beneath all four: the application has accumulated more surface than its audience
 31. As a scholar, I want a remote resource that cannot be aligned to be refused when I add it, with the reason and the host named, so that I am not promised a screen that then fails.
 32. As a scholar, I want a remote resource whose tiles cannot be read cross-origin to be refused when I add it, so that I do not get a blank map with no explanation.
 33. As a scholar, I want to be told when someone has already aligned this map, so that I can start from their work instead of from nothing.
-34. As a scholar, I want a Historical Map to appear in my Layer list as soon as I add it, so that adding it produces something visible.
-35. As a scholar, I want a newly added Historical Map to be marked clearly as not yet aligned, so that I know what is left to do.
+34. As a scholar, I want a Map Image to appear in my Layer list as soon as I add it, so that adding it produces something visible.
+35. As a scholar, I want a newly added Map Image to be marked clearly as not yet aligned, so that I know what is left to do.
 36. As a scholar, I want adding the same remote resource twice to give me one Layer, so that a class all adding the same map produces one map each.
 
 ### Aligning
@@ -98,32 +98,32 @@ Beneath all four: the application has accumulated more surface than its audience
 53. As a scholar, I want that outline to start as the whole sheet, so that my first alignment shows something rather than nothing.
 54. As a scholar, I want the outline's handles only when I ask for them, so that eight draggable corners are not in the way of placing points.
 55. As a scholar, I want to reopen a half-finished alignment and land where I was working, so that I do not navigate back to my own points every time.
-56. As a scholar, I want to be told which Projects use this Historical Map while I am aligning it, so that I know what my changes affect.
+56. As a scholar, I want to be told which Projects use this Map Image while I am aligning it, so that I know what my changes affect.
 57. As a scholar, I want one obvious way back to my Project, so that the alignment view feels like a room and not a detour.
 58. As a scholar, I want my alignment to be there when I come back, without saving it, so that I never lose work to a forgotten button.
 59. As a scholar, I want to take back a mis-aimed drag or a wrongly deleted Control Point, so that I trust the tool enough to experiment.
 60. As a scholar, I want an alignment I make to be usable by other IIIF tools, so that my work is not trapped in this application.
 
-### Historical Maps as Workspace property
+### Map Images as Workspace property
 
-61. As a scholar, I want a Historical Map I have brought in to be usable by any of my Projects, so that I prepare and align it once.
+61. As a scholar, I want a Map Image I have brought in to be usable by any of my Projects, so that I prepare and align it once.
 62. As a scholar, I want a map's alignment to be the same wherever it is used, so that "where this map is on the earth" has one answer.
-63. As a scholar, I want to see every Historical Map in my Workspace with its size and which Projects use it, so that I can understand what my Workspace holds.
-64. As a scholar, I want deleting a Historical Map that is in use to be refused, naming the Projects that use it, so that one click cannot destroy several arguments.
-65. As a scholar, I want to delete a Historical Map no Project uses, so that I can reclaim space I am no longer spending.
-66. As a scholar, I want deleting a Project to leave my Historical Maps alone, so that tidying up one piece of work does not cost me the material.
-67. As a scholar, I want removing a Layer to leave the Historical Map available, so that I can put it back if I change my mind.
-68. As a scholar, I want to put a Historical Map back into a Project after removing its Layer, so that a deletion is not permanent by accident.
+63. As a scholar, I want to see every Map Image in my Workspace with its size and which Projects use it, so that I can understand what my Workspace holds.
+64. As a scholar, I want deleting a Map Image that is in use to be refused, naming the Projects that use it, so that one click cannot destroy several arguments.
+65. As a scholar, I want to delete a Map Image no Project uses, so that I can reclaim space I am no longer spending.
+66. As a scholar, I want deleting a Project to leave my Map Images alone, so that tidying up one piece of work does not cost me the material.
+67. As a scholar, I want removing a Layer to leave the Map Image available, so that I can put it back if I change my mind.
+68. As a scholar, I want to put a Map Image back into a Project after removing its Layer, so that a deletion is not permanent by accident.
 
 ### Offline, and copies
 
-69. As a scholar, I want my own Historical Maps, Alignments, and Annotations to work with no network at all, so that a reading room's hostile wifi does not stop me.
+69. As a scholar, I want my own Map Images, Alignments, and Annotations to work with no network at all, so that a reading room's hostile wifi does not stop me.
 70. As a scholar, I want to say that a Project should work offline, so that I decide what is worth the bytes rather than the tool deciding for me.
 71. As a scholar, I want to be shown how many tiles and how many megabytes making a Project offline will take, before it happens, so that I agree to a known cost.
 72. As a scholar, I want an unreasonably large offline request refused with an explanation, so that I do not start something that will not finish.
 73. As a scholar, I want to see which of my Projects are available offline, so that I know what I can rely on before I travel.
 74. As a scholar, I want the Base Map to be absent with an explanation rather than blank, when there is no connection and no cache, so that I can tell absence from breakage.
-75. As a scholar, I want to make an offline copy of a Historical Map that stays on a Library's server, so that my work survives that library reorganising.
+75. As a scholar, I want to make an offline copy of a Map Image that stays on a Library's server, so that my work survives that library reorganising.
 76. As a scholar, I want an offline copy to keep the address it came from, so that I can still cite it.
 77. As a scholar, I want to make an offline copy of a map I have already aligned, keeping every Control Point, so that placing and preserving are not a single-chance decision.
 78. As a scholar, I want to be warned before copying when the source would take thousands of requests, so that I do not hammer somebody else's server unaware.
@@ -152,10 +152,10 @@ Beneath all four: the application has accumulated more surface than its audience
 
 96. As a scholar, I want to publish from one place and have every Project in my Workspace become a site, so that setting up hosting is a once-per-semester job.
 97. As a scholar, I want to be told how large my published site will be and how close it is to the hosting limit, so that a push does not fail cryptically.
-98. As a scholar, I want to be told how much of that size is Historical Maps no Project uses, so that I know what I can reclaim.
+98. As a scholar, I want to be told how much of that size is Map Images no Project uses, so that I know what I can reclaim.
 99. As a scholar, I want to be told when my published site will need a network connection, so that I do not promise a reader something that fails on a plane.
 100. As a reader, I want a published Project to open framed on the work, so that my first sight carries the argument.
-101. As a reader, I want to read a Historical Map as a document — the cartouche, the title, the decoration — separately from its place on the earth, so that I can look at the sheet as an object.
+101. As a reader, I want to read a Map Image as a document — the cartouche, the title, the decoration — separately from its place on the earth, so that I can look at the sheet as an object.
 102. As a reader, I want to switch Base Maps, including to a muted high-contrast one, so that Annotations stay legible for me.
 103. As a reader, I want my Base Map choice remembered for this site and not to leak into another scholar's, so that my preference is mine and local.
 104. As a reader on a phone, I want the published site to read well, so that I can follow the argument where I actually am.
@@ -179,26 +179,26 @@ Every decision below has an ADR. Where one exists, it is authoritative and this 
 
 ### Storage layout — ADR-0023
 
-Historical Maps and Alignments move to the Workspace root. A Project directory holds `project.json` and `annotations/` only.
+Map Images and Alignments move to the Workspace root. A Project directory holds `project.json` and `annotations/` only.
 
 ```
 workspace/
 ├── index.html                     ← publish output (ADR-0008)
 ├── images/<image-id>/             ← shared: info.json, manifest.json, remote.json, tiles
-├── alignments/<image-id>.json     ← shared: one per Historical Map
+├── alignments/<image-id>.json     ← shared: one per Map Image
 ├── base-map/tiles/<archive>/{z}/{x}/{y}.mvt  ← opt-in offline cache, keyed by archive (ADR-0025)
 └── <project-directory>/
     ├── project.json
     └── annotations/<layer-id>.geojson
 ```
 
-**The line:** the Workspace owns where a Historical Map sits on the earth; a Project owns how maps are presented and what is stacked over them.
+**The line:** the Workspace owns where a Map Image sits on the earth; a Project owns how maps are presented and what is stacked over them.
 
-**Accepted risk, recorded rather than mitigated away:** refining an Alignment moves every Project using that map, published ones included. The mitigation is visibility — the alignment view names those Projects — not prevention. **Accepted cost:** a Historical Map can be aligned only one way; more than one Alignment per map is a deliberate v2 candidate.
+**Accepted risk, recorded rather than mitigated away:** refining an Alignment moves every Project using that map, published ones included. The mitigation is visibility — the alignment view names those Projects — not prevention. **Accepted cost:** a Map Image can be aligned only one way; more than one Alignment per map is a deliberate v2 candidate.
 
 ### The Layer model
 
-`MapLayer` loses `alignmentRef` and `imageMode` and gains an image id. `imageIdFromAlignmentRef` and `mapLayerImageInfoPath` go with them. One Historical Map per Layer — no grouping, no nesting.
+`MapLayer` loses `alignmentRef` and `imageMode` and gains an image id. `imageIdFromAlignmentRef` and `mapLayerImageInfoPath` go with them. One Map Image per Layer — no grouping, no nesting.
 
 ```
 MapLayer        { kind: 'map',        id, name, visible, order, opacity, imageId }
@@ -206,7 +206,7 @@ AnnotationLayer { kind: 'annotation', id, name, visible, order, geojsonRef, defa
 ForeignLayer    { kind: 'foreign',    id, name, visible, order, declaredKind, … }
 ```
 
-**`imageMode` is not stored, because it is observable.** A Historical Map in the Workspace either has an `info.json` of ours — tiles are here — or only a `remote.json` — tiles are on a Library's server. So `imageModeOf`, `localCopySource`, `#reconcileLocalCopies`, `unfinishedCopies`, and the "Finish the offline copy" repair path are all deleted: with one Alignment per map, nothing remains that can disagree with the bytes on disk.
+**`imageMode` is not stored, because it is observable.** A Map Image in the Workspace either has an `info.json` of ours — tiles are here — or only a `remote.json` — tiles are on a Library's server. So `imageModeOf`, `localCopySource`, `#reconcileLocalCopies`, `unfinishedCopies`, and the "Finish the offline copy" repair path are all deleted: with one Alignment per map, nothing remains that can disagree with the bytes on disk.
 
 **Layers are created eagerly, by an explicit gesture only.** Consequently `ProjectFile.removedMapLayers`, `#ensureMapLayer`, and `#placingMapLayers` are deleted — the tombstone existed solely because Alignment writes created Layers lazily. A **starter Alignment** is written when a map is added to the Workspace, so no Layer ever holds a dangling reference and reference-integrity validation is untouched.
 
@@ -216,7 +216,7 @@ ForeignLayer    { kind: 'foreign',    id, name, visible, order, declaredKind, �
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Hub: Projects, Workspace Historical Maps, publish, transfer |
+| `/` | Hub: Projects, Workspace Map Images, publish, transfer |
 | `/?p=<dir>` | **The Project**: Base Map with a Layer sidebar |
 | `/align/?p=<dir>&layer=<layer-id>` | Split-screen alignment, keyed by **Layer** id |
 | `/image-pane/` | Retained, unlinked: the only storage-independent projection coverage |
@@ -241,7 +241,7 @@ No pmtiles archive ships. **Glyphs and sprites still do** (636 KB, 184 KB): ever
 
 The catalog deployment fence **fails `pnpm check:deployment` while the catalog points at `demo-bucket.protomaps.com`** — the bucket this repo already documents as unsuitable to rely on. By explicit human decision on 2026-08-07, ordinary development and educational evaluation temporarily retain that URL because there is no hosting budget; it remains blocked for production. Every production deployment names its own archive, which ADR-0020 makes a one-line change. The Amsterdam extract stays as an **e2e fixture**, not as shipped output.
 
-The offline cache is individual vector tiles at `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` behind a MapLibre `addProtocol` handler — **keyed by archive since ticket 12**, because ADR-0020 makes two catalog entries on two archives a supported deployment and one shared directory would serve both, drawing a plausible pane of the wrong world with no error anywhere — ADR-0011's pattern, as already implemented for Historical Map tiles. Writing a PMTiles v3 archive was rejected: `pmtiles@4.4.1` has no writer, and hand-rolling one is archive-format code whose failure mode is silent. Caching byte ranges was rejected: the cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption.
+The offline cache is individual vector tiles at `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` behind a MapLibre `addProtocol` handler — **keyed by archive since ticket 12**, because ADR-0020 makes two catalog entries on two archives a supported deployment and one shared directory would serve both, drawing a plausible pane of the wrong world with no error anywhere — ADR-0011's pattern, as already implemented for Map Image tiles. Writing a PMTiles v3 archive was rejected: `pmtiles@4.4.1` has no writer, and hand-rolling one is archive-format code whose failure mode is silent. Caching byte ranges was rejected: the cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption.
 
 Contracts: the tile count and byte estimate are shown before they are spent, with a refusal threshold; **every** zoom level from 0 to the source's maximum is cached over the extent, because omitting low zooms makes zooming out go blank; compression is explicit, since PMTiles stores tiles gzipped and serving them as though it did not is a silent blank map; attribution survives caching, because ODbL does not lapse when no request happens. The cache is Workspace-level and therefore deduplicates across Projects, so "is this Project offline?" is computed, not a flag that can lie. `PublishedSite.baseMapBundled` changes meaning to "this Workspace carries cached tiles", and `PublishedSite.baseMapCaches` — which replaced `baseMapMaxZoom` in ticket 12, at `formatVersion` 2 — names **which archives** those tiles are for and how deep each goes, because a Reader's HTTP store cannot list a directory and a key cannot be read backwards. A record written before that is read as one cache belonging to no archive, so an already-published offline site keeps drawing.
 
@@ -300,7 +300,7 @@ All three of v1's categories are reused, plus the existing `pnpm lint` fence pat
 
 **Seam 1 — `ProjectStore` with an in-memory adapter (Node).** The bulk of this epic, because the epic is mostly a change to which files exist and where.
 
-- Adding a Historical Map writes `images/<id>/` and `alignments/<id>.json` at the Workspace root; the Project gains a Layer referencing the image id.
+- Adding a Map Image writes `images/<id>/` and `alignments/<id>.json` at the Workspace root; the Project gains a Layer referencing the image id.
 - A starter Alignment exists at add time, so no Layer ever holds a dangling reference.
 - Deleting a Project or a Layer leaves the map; deleting an in-use map is refused and names the Projects.
 - `images`, `alignments`, `base-map` refused as Project directory names, at creation.
@@ -345,7 +345,7 @@ Within this repo now, unlike v1: the shared `ProjectStore` adapter suite; `proje
 
 ### Explicitly not tested
 
-Rendering correctness by pixel comparison, unchanged from v1. Whether a warped Historical Map lands in the right place is established by the projection round-trip assertion and the fold check, not by screenshots.
+Rendering correctness by pixel comparison, unchanged from v1. Whether a warped Map Image lands in the right place is established by the projection round-trip assertion and the fold check, not by screenshots.
 
 ## Out of Scope
 
@@ -353,7 +353,7 @@ Carried from ADR-0014 and still out: collaboration and multi-user editing; accou
 
 New to this epic:
 
-- **More than one Alignment per Historical Map.** The accepted cost of ADR-0023, and its named v2 candidate.
+- **More than one Alignment per Map Image.** The accepted cost of ADR-0023, and its named v2 candidate.
 - **An author-set opening view.** ADR-0026 records the argument for it and declines it for now.
 - **Pulling an Alignment made elsewhere into a Project.** Meaningless now that there is one Alignment per map, but recorded because it was the v2 item under the rejected design.
 - **Promoting a reviewed Project into your own Workspace.** No "keep this" — it is exactly what reintroduces the Alignment collision, and there is no honest resolution.
@@ -363,7 +363,7 @@ New to this epic:
 - **zip64.** The zip is gone; do not implement it.
 - **Writing a PMTiles archive.** Rejected in ADR-0025.
 - **Pretty per-Project URLs.** ADR-0008 defers them as additive.
-- **Grouped or multi-sheet Historical Map Layers.** One map per Layer. A `kind: "group"` Layer remains possible later without invalidating anything here.
+- **Grouped or multi-sheet Map Image Layers.** One map per Layer. A `kind: "group"` Layer remains possible later without invalidating anything here.
 
 ## Further Notes
 
@@ -377,4 +377,4 @@ New to this epic:
 
 **On the test suite.** 295 e2e specs are keyed to routes and test ids that move in this epic. They are to be **rewired, not deleted**, and the mutation check applies to every rewired assertion. A route that no longer exists is not a licence to drop the behaviour it covered.
 
-**On the epic's name.** `workspace-and-layers` names the two structural moves — the Workspace gains the Historical Maps, and the Layer sidebar becomes the Project. Deliberately not a version number: this is still the initial version of the application, being reshaped before anyone has used it.
+**On the epic's name.** `workspace-and-layers` names the two structural moves — the Workspace gains the Map Images, and the Layer sidebar becomes the Project. Deliberately not a version number: this is still the initial version of the application, being reshaped before anyone has used it.

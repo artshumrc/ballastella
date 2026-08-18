@@ -46,7 +46,7 @@ const projectJson = (name: string, imageId: string, annotation: string): string 
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
 /**
- * A published Workspace holding **two** Projects and **three** Historical Maps.
+ * A published Workspace holding **two** Projects and **three** Map Images.
  *
  * `map-3` is drawn by no Layer of either Project — a Workspace holds a shared pool (ADR-0023) — and
  * `map-2` is drawn only by the Boston Project. Both are what make "only what this Project references
@@ -163,7 +163,7 @@ describe('reviewFromRemote', () => {
 		);
 	});
 
-	it('leaves behind every Historical Map no Layer of that Project references', async () => {
+	it('leaves behind every Map Image no Layer of that Project references', async () => {
 		// ADR-0023: the pool is the Workspace's, and a reviewer has no business receiving a colleague's
 		// other scans. `map-2` belongs to the other Project and `map-3` to no Project at all.
 		const fake = await github();
@@ -335,7 +335,7 @@ describe('reviewFromRemote', () => {
 		expect(await second.store.list('')).not.toContain('alignments/map-1.json');
 	});
 
-	it('says which Historical Map the Remote did not hold, rather than dropping the Layer', async () => {
+	it('says which Map Image the Remote did not hold, rather than dropping the Layer', async () => {
 		// ⚠ **A transfer that quietly delivers less than it was given is the failure the whole tar
 		// format change escaped**, and here it is invisible without this: nothing on a Layer card says
 		// an image is missing, so a map Layer whose pyramid never arrived draws blank and looks exactly
@@ -352,7 +352,7 @@ describe('reviewFromRemote', () => {
 		expect(result.unmet).toEqual([
 			{ reference: 'images/map-1/', layer: 'The sheet', kind: 'image' }
 		]);
-		expect(result.notice).toContain('1 Layer names a Historical Map the Remote does not hold');
+		expect(result.notice).toContain('1 Layer names a Map Image the Remote does not hold');
 		expect(result.notice).toContain('“The sheet” (images/map-1/)');
 		// And the rest of the Project is there to read, which is the whole reason not to refuse.
 		expect(await text(destination.store, `${AMSTERDAM}/annotations/warehouses.geojson`)).toBe(
@@ -401,7 +401,7 @@ describe('reviewFromRemote', () => {
 		]);
 		expect(result.notice).toContain('1 Layer names an Annotation file the Remote does not hold');
 		expect(result.notice).toContain('“Warehouses”');
-		// And the Historical Map still came, so the reviewer sees the sheet the Annotations were about.
+		// And the Map Image still came, so the reviewer sees the sheet the Annotations were about.
 		expect(await text(destination.store, 'images/map-1/info.json')).toBe(
 			'{"width":1024,"height":768}'
 		);

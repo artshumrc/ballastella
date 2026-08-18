@@ -1,13 +1,13 @@
 <script lang="ts">
 	import MapGlyph from '@lucide/svelte/icons/map';
-	import type { FetchFn, WorkspaceHistoricalMap } from '@ballastella/core';
+	import type { FetchFn, WorkspaceMapImage } from '@ballastella/core';
 
 	/**
-	 * The picture of one Historical Map: its own coarsest pyramid tile, in a fixed box (ADR-0030).
+	 * The picture of one Map Image: its own coarsest pyramid tile, in a fixed box (ADR-0030).
 	 *
 	 * **Nothing is generated to make this work.** A level-0 pyramid's scale factors double until the
 	 * whole sheet fits inside one tile, so its coarsest level is already a whole-sheet derivative, and
-	 * `listWorkspaceHistoricalMaps` has already worked out its URL. This component's one job is turning
+	 * `listWorkspaceMapImages` has already worked out its URL. This component's one job is turning
 	 * that URL into pixels.
 	 *
 	 * **The derivative is bounded by the tile side, which is the *service's* and not always ours.** A
@@ -31,13 +31,13 @@
 		fetchTile,
 		size = 96
 	}: {
-		map: WorkspaceHistoricalMap;
+		map: WorkspaceMapImage;
 		/**
 		 * The ADR-0011 injection shim, from `session.imageServiceFetch()`.
 		 *
 		 * A stored tile has no URL a browser can follow — `<img src>` cannot reach OPFS or a picked
 		 * folder — so the bytes come through the same extension point every other consumer of a
-		 * Historical Map's pixels uses, and become an object URL here. A service worker serving the
+		 * Map Image's pixels uses, and become an object URL here. A service worker serving the
 		 * store at a virtual path is refused for the reason ADR-0011 gives.
 		 */
 		fetchTile: FetchFn;
@@ -55,7 +55,7 @@
 	let picture = $state<string | null>(null);
 
 	// ⚠ **The two facts the picture depends on, read through `$derived` so that the effect below
-	// re-runs on their VALUES and not on the record's identity.** `refreshHistoricalMaps` replaces the
+	// re-runs on their VALUES and not on the record's identity.** `refreshMapImages` replaces the
 	// whole listing with freshly built records on every refresh — creating a Project is one — so an
 	// effect that read `map.thumbnail` directly re-ran for a map nothing had happened to: it revoked a
 	// live object URL, blanked the picture back to the glyph, and read the tile again. These are

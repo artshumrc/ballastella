@@ -22,7 +22,7 @@ Read [ADR-0024](../../../docs/adr/0024-backup-and-handoff-are-different-artefact
 
 **A bundle is one self-contained Project**: `project.json`, `annotations/`, and the `images/<id>/` and `alignments/<id>.json` its Layers reference. Its internal paths are Project-relative, exactly as the zip's already were, so `assertReferencesPresent` works unchanged.
 
-**A bundle opens only into a Review Workspace. There is no path that merges it into the recipient's own.** Under ADR-0023 there is one Alignment per Historical Map in a Workspace, so importing a colleague's bundle into your own would either overwrite an Alignment two of your own Projects depend on, or be refused. The propagation risk ADR-0023 accepts is one a user takes on for *their own* edits — not one that arrives inside someone else's file.
+**A bundle opens only into a Review Workspace. There is no path that merges it into the recipient's own.** Under ADR-0023 there is one Alignment per Map Image in a Workspace, so importing a colleague's bundle into your own would either overwrite an Alignment two of your own Projects depend on, or be refused. The propagation risk ADR-0023 accepts is one a user takes on for *their own* edits — not one that arrives inside someone else's file.
 
 **A reviewed Project cannot be promoted out.** No "keep this", no "copy to my Workspace", no "save a copy". If a scholar wants a colleague's map in their own research they add the map themselves. This is the fence that makes the rest coherent; do not add a convenience that breaks it.
 
@@ -58,7 +58,7 @@ Read [ADR-0024](../../../docs/adr/0024-backup-and-handoff-are-different-artefact
 - [ ] Exporting a Project produces a tar containing `project.json`, `annotations/`, and only the `images/<id>/` and `alignments/<id>.json` its Layers reference — not the Workspace's other maps.
 - [ ] Opening that bundle creates a Review Workspace holding exactly that one Project.
 - [ ] The user's own Workspace is byte-identical before and after opening and discarding a bundle.
-- [ ] A bundle whose Historical Map has the same image id as one in the user's own Workspace does not touch the user's copy or its Alignment.
+- [ ] A bundle whose Map Image has the same image id as one in the user's own Workspace does not touch the user's copy or its Alignment.
 - [ ] The banner is visible on the hub, the Project screen, and the alignment route while a Review Workspace is open, and names what was opened.
 - [ ] The banner's two exits both work, and are keyboard-reachable.
 - [ ] Two bundles can be open as two Review Workspaces, each with its own Alignment for the same image id, and switching between them shows each Project's own alignment.

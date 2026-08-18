@@ -169,7 +169,7 @@ export async function baseMapArchiveFixture(): Promise<Buffer> {
  * pass with an archive of **all zeros**, and they pass with the route answering **404**. They never
  * depended on the Base Map's content: what they need is for the archive request to be *answered* so
  * MapLibre's source initialises and the warped layer gets added. Their warped-tile assertions read
- * the Historical Map's own pyramid out of OPFS, which never involved this archive.
+ * the Map Image's own pyramid out of OPFS, which never involved this archive.
  *
  * So what broke them was not the 404. It was that an **unrouted** request is cross-origin, and the
  * bucket's 404 carries no `access-control-allow-origin` while its preflight answers 403 — so the

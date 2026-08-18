@@ -39,7 +39,7 @@ const OUTSIDE_NAMESPACE = [
 
 /**
  * A published Workspace as a publish leaves it on the Remote: the viewer's files, the Jekyll marker,
- * one Project with a Historical Map and an Alignment, plus the paths a Clone must treat specially.
+ * one Project with a Map Image and an Alignment, plus the paths a Clone must treat specially.
  *
  * {@link OUTSIDE_NAMESPACE} is the scholar's own; `remote.json` names a **different** repository, as
  * a fork's published binding would, so a Clone that copied it down instead of writing its own would
@@ -280,7 +280,7 @@ describe('cloneFromRemote', () => {
 			// Reported rather than swallowed: a transfer that quietly delivers less than it was given is
 			// the failure `restore-workspace-tar.ts` was rewritten to escape.
 			expect(result.notice).toContain('alignments/map-1.json');
-			expect(result.notice).toContain('already had one for the same Historical Map');
+			expect(result.notice).toContain('already had one for the same Map Image');
 		});
 
 		it('re-fetches a file whose bytes here differ from the Remote', async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "Make an offline copy" for one referenced Historical Map (SPEC stories 27 and 28, ADR-0007).
+	// "Make an offline copy" for one referenced Map Image (SPEC stories 27 and 28, ADR-0007).
 	//
 	// The dialog exists because of one sentence in ADR-0007: the decision must not be made implicitly by
 	// a button labelled only "Download". So the button opens a modal that says three things before

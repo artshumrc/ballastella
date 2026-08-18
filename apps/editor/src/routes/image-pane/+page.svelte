@@ -2,9 +2,9 @@
 	// A development surface for the image pane, over a committed fixture pyramid.
 	//
 	// This is deliberately not a user-facing route: the pane here shows a fixture, not the
-	// user's own Historical Map. It exists so the synthetic projection can be exercised — and
+	// user's own Map Image. It exists so the synthetic projection can be exercised — and
 	// asserted in a real browser — before the storage layer, the tiler, or Control Points
-	// exist. Ticket 06 puts the same pane over a Historical Map read from the ProjectStore.
+	// exist. Ticket 06 puts the same pane over a Map Image read from the ProjectStore.
 
 	import { asset } from '$app/paths';
 	import { createImagePane, type ImagePane, type ResourcePoint } from '@ballastella/core';
@@ -94,9 +94,9 @@
 	<header>
 		<h1 class="text-2xl font-bold">Image pane</h1>
 		<p class="text-sm">
-			A committed fixture Historical Map — Nicolas Sanson, <i>La Floride</i>, 1657 — shown unwarped
-			in its own coordinate system. Pan and zoom it, and click anywhere to be told which image pixel
-			is under the cursor.
+			A committed fixture Map Image — Nicolas Sanson, <i>La Floride</i>, 1657 — shown unwarped in
+			its own coordinate system. Pan and zoom it, and click anywhere to be told which image pixel is
+			under the cursor.
 		</p>
 	</header>
 
@@ -124,7 +124,7 @@
 				bind:this={paneView}
 				{pane}
 				paneId={PANE_ID}
-				label="Historical Map, unwarped, in image pixel coordinates"
+				label="Map Image, unwarped, in image pixel coordinates"
 				{overlayPoints}
 				onclickpoint={(point) => (reported = point)}
 				onview={(view) => {

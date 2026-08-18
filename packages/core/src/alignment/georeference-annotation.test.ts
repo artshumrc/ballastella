@@ -51,7 +51,7 @@ const fixture = (name: string): Uint8Array =>
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
 /**
- * Every committed fixture, and which Historical Map each one aligns.
+ * Every committed fixture, and which Map Image each one aligns.
  *
  * **`allmaps-shaped` is in this list, and that is the point of the list.** It exists precisely
  * because it is a document *we did not write* — `id`, `created`, `modified`, `partOf`, `provider`,
@@ -228,7 +228,7 @@ describe('the committed fixture Alignments round-trip', () => {
 });
 
 describe('persistence spends none of the coordinate pipeline’s precision headroom', () => {
-	// The Control Point a user places on the Historical Map is a point in the pane's synthetic
+	// The Control Point a user places on the Map Image is a point in the pane's synthetic
 	// geography, recovered as an image pixel by `syntheticToResource`, stored as that pixel, and
 	// converted back the next time the pane draws it. **Storage is in the middle of the loop the
 	// drift failure lives in** (ADR-0005: control points that drift as you zoom, which reads as
@@ -673,7 +673,7 @@ describe('a half-pair never reaches the file (ADR-0022)', () => {
 			{ id: 'a', resource: { x: 10, y: 20 }, geo: { lng: 4.1, lat: 52.1 } },
 			{ id: 'b', resource: { x: 30, y: 40 }, geo: { lng: 4.2, lat: 52.2 } },
 			{ id: 'c', resource: { x: 50, y: 60 }, geo: { lng: 4.3, lat: 52.3 } },
-			// The pending half: clicked on the Historical Map, not yet matched on the Base Map.
+			// The pending half: clicked on the Map Image, not yet matched on the Base Map.
 			{ id: 'pending', resource: { x: 70, y: 80 }, geo: null }
 		];
 
@@ -800,7 +800,7 @@ describe('the write path checks its own output', () => {
 		};
 
 		expect(() => serialiseAlignment(alignment)).toThrow(AlignmentUnwritableError);
-		// The message says which Historical Map and that nothing was saved, because the user's next
+		// The message says which Map Image and that nothing was saved, because the user's next
 		// question is whether they have lost the Control Points they just placed. They have not: the
 		// last good file is still on disk, which is the whole reason this refuses rather than writes.
 		expect(() => serialiseAlignment(alignment)).toThrow(/floride-1657/);
@@ -844,10 +844,10 @@ describe('an Alignment that cannot be read is refused, not half-read', () => {
 		// no pixel dimensions — and every coordinate in the file is in image pixels.
 		expect(() =>
 			parseAlignment(bytes(JSON.stringify(document)), { imageId: 'floride-1657' })
-		).toThrow(/how large the Historical Map image is/);
+		).toThrow(/how large the Map Image is/);
 	});
 
-	it('names the Historical Map in the message, since one Project has several', () => {
+	it('names the Map Image in the message, since one Project has several', () => {
 		expect(() => parseAlignment(bytes('nope'), { imageId: 'floride-1657' })).toThrow(
 			/floride-1657/
 		);
@@ -855,7 +855,7 @@ describe('an Alignment that cannot be read is refused, not half-read', () => {
 
 	it('takes the image identity from the path and not from the document', () => {
 		// A file copied under a different name must describe the image its path names, or a Project
-		// silently aligns the wrong Historical Map — which is a misplaced map, not an error.
+		// silently aligns the wrong Map Image — which is a misplaced map, not an error.
 		const alignment = parseAlignment(fixture('floride-1657'), { imageId: 'a-different-image' });
 		expect(alignment.imageId).toBe('a-different-image');
 	});

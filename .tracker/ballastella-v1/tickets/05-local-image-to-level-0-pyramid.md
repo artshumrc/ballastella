@@ -112,7 +112,7 @@ structural rather than a defect in this work: see the last section.
 
 New code: `packages/core/src/tiler/` — `pyramid.ts` (what a pyramid *is*), `image-header.ts`,
 `image-manifest.ts`, `decode-ceiling.ts`, `ingest.ts` (the job), `decode-and-crop-tiler.ts`,
-`streaming-tiler.ts`; `apps/editor/src/lib/ingest/libvips-loader.ts`; the Historical Maps section
+`streaming-tiler.ts`; `apps/editor/src/lib/ingest/libvips-loader.ts`; the Map Images section
 of `ProjectView.svelte`; `e2e/editor-image-ingest.e2e.ts`.
 
 ### The measured `createImageBitmap` decode ceiling

@@ -52,7 +52,7 @@ const of = (...annotations: Annotation[]): AnnotationCollection => ({ annotation
 describe('what does not move the key', () => {
 	test('a title, which is typed a character at a time', () => {
 		// The regression this exists for: the collection itself used to be the key, so every keystroke
-		// rebuilt every layer in the stack, Historical Maps included.
+		// rebuilt every layer in the stack, Map Images included.
 		expect(annotationDrawKey(of(pin('a', { title: 'The' })))).toBe(
 			annotationDrawKey(of(pin('a', { title: 'The old mill' })))
 		);

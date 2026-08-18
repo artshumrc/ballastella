@@ -2,15 +2,15 @@
 
 ## What to build
 
-`editor-workspace.e2e.ts` (41 tests) and `editor-project-screen.e2e.ts` (20) between them assert a great deal about **what a dialog says and what a list shows** — the Historical Maps a Workspace holds with their labels and sizes, which Projects use each map, what the delete confirmation says when a map is in use, what an empty Workspace says and which action it names.
+`editor-workspace.e2e.ts` (41 tests) and `editor-project-screen.e2e.ts` (20) between them assert a great deal about **what a dialog says and what a list shows** — the Map Images a Workspace holds with their labels and sizes, which Projects use each map, what the delete confirmation says when a map is in use, what an empty Workspace says and which action it names.
 
 Split them: the document-and-arithmetic claims to Seam 1, the rendering-and-focus claims to the component seam, the storage and navigation claims stay.
 
 ## Where to start
 
-- `e2e/editor-workspace.e2e.ts` — the Historical Maps listing block ("lists every Historical Map with its label, its size, and how many files that is", "names the Projects that use each map, and says plainly when none do", "refuses to delete a map two Projects use, naming both, and keeps the pyramid", "will not call a map unused, or delete it, because a Project is from a newer version", "a Workspace with no Historical Maps says so, and names the next action").
+- `e2e/editor-workspace.e2e.ts` — the Map Images listing block ("lists every Map Image with its label, its size, and how many files that is", "names the Projects that use each map, and says plainly when none do", "refuses to delete a map two Projects use, naming both, and keeps the pyramid", "will not call a map unused, or delete it, because a Project is from a newer version", "a Workspace with no Map Images says so, and names the next action").
 - `e2e/editor-project-screen.e2e.ts` — profile it first; it was never measured during the investigation.
-- `packages/core/src/project/workspace.ts` / `workspace.test.ts`, `workspace-size.ts` / `workspace-size.test.ts`, `historical-maps.ts` / `historical-maps.test.ts`, and `used-by` in the editor — the "which Projects use this map" question already has a home.
+- `packages/core/src/project/workspace.ts` / `workspace.test.ts`, `workspace-size.ts` / `workspace-size.test.ts`, `map-images.ts` / `map-images.test.ts`, and `used-by` in the editor — the "which Projects use this map" question already has a home.
 - `apps/editor/src/lib/alignment/used-by.test.ts` — an existing Node test of exactly this shape.
 
 ## Contract

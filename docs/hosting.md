@@ -255,7 +255,7 @@ button ([ADR-0032](adr/0032-publish-means-the-remote.md)).
 ### Read this before your first publish: everything there is public
 
 The Remote is a public repository, and everything in it can be read by anyone who has the address —
-every Project, every Historical Map, every annotation.
+every Project, every Map Image, every annotation.
 
 **A Project you keep off the Front Page is still readable by anyone with the link.** The Front Page
 is the site's front door, listing the Projects a Reader arriving there is offered; taking a Project
@@ -395,9 +395,9 @@ all — and the editor tells you which before it sends a byte.
 Publishing in stages — adding and publishing part of your work at a time — helps only where each
 stage fits inside the budget on its own.
 
-**There is a case that has no answer today.** The smallest thing you can add is one Historical Map,
+**There is a case that has no answer today.** The smallest thing you can add is one Map Image,
 and a freshly tiled one is thousands of tiles: an image at the largest size the editor will take is
-roughly 11 000 of them. A single Historical Map that large is more than one hour's budget in one
+roughly 11 000 of them. A single Map Image that large is more than one hour's budget in one
 indivisible step, and no order of publishing makes it smaller — so **a Workspace holding one may not
 be publishable to GitHub at all as things stand.** This is a known, recorded gap awaiting a decision
 rather than something to work around; see "Known gaps" below.
@@ -407,7 +407,7 @@ rather than something to work around; see "Known gaps" below.
 | Limit | Roughly | Driven by |
 | --- | --- | --- |
 | Total bytes | **1 GB** for the whole site | offline Base Map tiles, ~150 kB each |
-| Total files | **40 000** | Historical Map pyramids, which are thousands of small tiles each |
+| Total files | **40 000** | Map Image pyramids, which are thousands of small tiles each |
 | Requests an hour | **5 000** | a first publish, which sends every file once |
 
 The first two are properties of your Workspace; the third is a property of the hour you are in. You
@@ -464,10 +464,10 @@ is inert everywhere else — harmless, and worth keeping in case the folder late
   within that service's published policy, and a fork inherits it until it repoints
   `packages/core/src/places/service.ts`.
 - **A publish stopped by the hourly request budget starts again from the beginning, and a large
-  Historical Map may therefore not be publishable at all** (part 2, "The hourly request budget").
+  Map Image may therefore not be publishable at all** (part 2, "The hourly request budget").
   What was uploaded before the stop is in no commit, so the next attempt sends it again and nothing
   resumes. Publishing in stages is the remedy where the work divides into stages that each fit inside
-  5 000 requests; a single freshly tiled Historical Map is roughly 11 000 tiles at the largest size
+  5 000 requests; a single freshly tiled Map Image is roughly 11 000 tiles at the largest size
   the editor accepts, does not divide, and has no path to a GitHub Remote today. That is an open
   question awaiting a human decision in this epic's tracker, not an oversight — and the alternative,
   moving the branch to a half-uploaded commit, would break the promise that a Published Site never

@@ -44,7 +44,7 @@
 	// pass: no `ontypename`/`oncommit`, no `onmove`, no `ondelete`, no `problemAction`.
 	//
 	// `referencedImageIds` is withheld for a different reason, and it is not a safety one: where a
-	// Historical Map's tiles are held is the author's publishing decision, and a Reader cannot copy a
+	// Map Image's tiles are held is the author's publishing decision, and a Reader cannot copy a
 	// pyramid or repoint a service. The badge stays in the editor, where the fact is actionable (SPEC
 	// stories 20 and 21). {@link needsNetwork} below is not that badge and stays: it names what will not
 	// draw without a connection, which is a thing a Reader meets.
@@ -69,7 +69,7 @@
 		cachedTilePath,
 		legacyCachedTilePath,
 		createStoreImageFetch,
-		historicalMapTilesUnavailableNotice,
+		mapImageTilesUnavailableNotice,
 		imageInfoPath,
 		parseProjectFile,
 		parsePublishedSite,
@@ -157,7 +157,7 @@
 	 */
 	const openDirectory = $derived(hydrated ? page.url.searchParams.get('p') : null);
 
-	/** Which Historical Map is being read as a document, or `null` for the map (SPEC story 85). */
+	/** Which Map Image is being read as a document, or `null` for the map (SPEC story 85). */
 	const unwarpedLayerId = $derived(hydrated ? page.url.searchParams.get('unwarped') : null);
 
 	let site = $state<PublishedSite | null>(null);
@@ -379,7 +379,7 @@
 	 *
 	 * Hiding a Layer changes the map and nothing near the control that changed it, so without this a
 	 * screen-reader user toggles a Layer and is told only that a checkbox is unchecked — not that a
-	 * Historical Map has left the map (SPEC story 22).
+	 * Map Image has left the map (SPEC story 22).
 	 *
 	 * **On the page rather than inside the card**, which is the choice this ticket was given between:
 	 * the card announces the one change it makes on its own — a reorder — and every other announcement
@@ -526,7 +526,7 @@
 	}
 
 	/**
-	 * The most recent refusal of a Historical Map's tiles, or `null` while they are arriving.
+	 * The most recent refusal of a Map Image's tiles, or `null` while they are arriving.
 	 *
 	 * ⚠ **Not a one-way flag**, and that shape is the failure this ticket was told to avoid: the
 	 * previous epic left an alert sitting over a working map because nothing ever took it down.
@@ -555,7 +555,7 @@
 	} | null>(null);
 
 	/**
-	 * Where an aligned Historical Map's tiles are read from (ADR-0011).
+	 * Where an aligned Map Image's tiles are read from (ADR-0011).
 	 *
 	 * The same shim the editor gives MapLibre, over the HTTP store rather than over OPFS — which is
 	 * ADR-0001's abstraction paying out and the reason there is no second tile path here. A local copy's
@@ -564,7 +564,7 @@
 	 * the library that holds it.
 	 *
 	 * No longer per-Project, because the pyramids are not: one shim serves every Project of the site, and
-	 * two Projects drawing the same Historical Map draw the same bytes.
+	 * two Projects drawing the same Map Image draw the same bytes.
 	 */
 	const fetchTile = $derived(
 		createStoreImageFetch({
@@ -578,9 +578,9 @@
 	);
 
 	/**
-	 * What to say when a Historical Map's tiles stopped arriving, or `null`.
+	 * What to say when a Map Image's tiles stopped arriving, or `null`.
 	 *
-	 * ⚠ **The sentence is `historicalMapTilesUnavailableNotice`'s, not this template's**, and that is
+	 * ⚠ **The sentence is `mapImageTilesUnavailableNotice`'s, not this template's**, and that is
 	 * the contract rather than a convenience: the editor renders the same function's output for the
 	 * same failure (ticket 05), so the two deployments cannot drift into describing one outage two
 	 * ways at the same person. The same arrangement as {@link archiveUnavailable} above, for the same
@@ -602,7 +602,7 @@
 		const named = layers.find(
 			(layer): layer is MapLayer => layer.kind === 'map' && layer.imageId === tileFailure?.imageId
 		);
-		return historicalMapTilesUnavailableNotice(tileFailure.failure, named?.name ?? null);
+		return mapImageTilesUnavailableNotice(tileFailure.failure, named?.name ?? null);
 	});
 
 	/** The stack as the map takes it: top first, each Layer with its documents in hand. */
@@ -664,7 +664,7 @@
 				layer.kind === 'map'
 					? {
 							status: 'refused',
-							reason: 'This Historical Map has not been aligned, so it is not drawn.'
+							reason: 'This Map Image has not been aligned, so it is not drawn.'
 						}
 					: { status: 'refused', reason: 'This Layer has no Annotations in it.' };
 		}
@@ -677,7 +677,7 @@
 	);
 
 	/**
-	 * Which Layers still fetch their Historical Map from the library that holds it (SPEC story 29).
+	 * Which Layers still fetch their Map Image from the library that holds it (SPEC story 29).
 	 *
 	 * Said out loud on the page rather than only warned about at publish time, because the Reader is the
 	 * person who meets the consequence: on a train, or after the library reorganises, those Layers draw
@@ -692,7 +692,7 @@
 	);
 
 	/**
-	 * The Historical Maps this site does not hold its own tiles for, by image id.
+	 * The Map Images this site does not hold its own tiles for, by image id.
 	 *
 	 * Out of `documents`, which is where the observation was made — see `readMapLayer`. A Layer whose
 	 * documents have not arrived yet is in neither state and is absent, so nothing claims a map needs the
@@ -780,7 +780,7 @@
 	 * Whether this site carries the Base Map's own files (ADR-0020, SPEC stories 88 and 89).
 	 *
 	 * Read out of the site record, because including them is opt-in at publish time: they are about 4.9 MB
-	 * against the same hosting budget as the scholar's Historical Maps, and a scholar publishing to a
+	 * against the same hosting budget as the scholar's Map Images, and a scholar publishing to a
 	 * network-connected audience reasonably leaves them out.
 	 *
 	 * **Absent means absent, and the map waits rather than guessing** — see {@link siteRecordKnown}. This
@@ -1077,7 +1077,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Reading a Historical Map as a document (SPEC story 85)
+	// Reading a Map Image as a document (SPEC story 85)
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/** The map Layer being read unwarped, or `null`. */
@@ -1100,7 +1100,7 @@
 		const { imageId } = layer;
 		void (async () => {
 			if (imageId === '') {
-				unwarpedError = 'This site does not record where this Historical Map’s image is.';
+				unwarpedError = 'This site does not record where this Map Image’s image is.';
 				return;
 			}
 			try {
@@ -1117,7 +1117,7 @@
 					// is to say so plainly rather than misrender, and this is that case.
 					unwarped = null;
 					unwarpedError =
-						'This Historical Map cannot be opened on its own from this site yet. Its image was ' +
+						'This Map Image cannot be opened on its own from this site yet. Its image was ' +
 						'tiled without a web address, so nothing here can fetch the sheet. The scholar who ' +
 						'published this site can fix it by publishing again and giving Ballastella the address ' +
 						'the site is at, which turns the map into a citable IIIF endpoint. It is still shown ' +
@@ -1131,7 +1131,7 @@
 				unwarped = null;
 				unwarpedError =
 					cause instanceof PathNotFoundError
-						? 'The image behind this Historical Map is not on this site, so it cannot be read as a document.'
+						? 'The image behind this Map Image is not on this site, so it cannot be read as a document.'
 						: cause instanceof Error
 							? cause.message
 							: String(cause);
@@ -1159,7 +1159,7 @@
 	});
 
 	/**
-	 * Open a Historical Map as a document, and come back (SPEC story 85).
+	 * Open a Map Image as a document, and come back (SPEC story 85).
 	 *
 	 * Query only, on the one route ADR-0008 chose: a second route would be a second prerendered
 	 * directory, which `VIEWER_FILE_PATHS` would have to claim before publishing would write it.
@@ -1274,7 +1274,7 @@
 		-->
 		<p class="max-w-prose">
 			These are the Projects published from one Ballastella Workspace. A Reader can look at the work
-			— the aligned Historical Maps and the Annotations written over them — and cannot change it.
+			— the aligned Map Images and the Annotations written over them — and cannot change it.
 			Published with
 			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
 		</p>
@@ -1351,7 +1351,7 @@
 		{:else}
 			{#if unwarpedLayerId !== null}
 				<!--
-					Reading one Historical Map on its own. A separate branch rather than a panel beside the
+					Reading one Map Image on its own. A separate branch rather than a panel beside the
 					map, deliberately: two tile viewers over one WebGL-bearing page is a phone running out of
 					memory, and a Reader who asked to read the sheet is not looking at the geography.
 
@@ -1367,7 +1367,7 @@
 					</div>
 				{:else if unwarpedLayer === null}
 					<p class="mt-4" data-testid="unwarped-problem">
-						This Project has no Historical Map with that name.
+						This Project has no Map Image with that name.
 					</p>
 				{:else if unwarpedSource === null}
 					<p class="mt-4">Opening the sheet…</p>
@@ -1431,7 +1431,7 @@
 						/>
 
 						<!--
-							A Historical Map's tiles stopped arriving (ticket 04, SPEC stories 14–18).
+							A Map Image's tiles stopped arriving (ticket 04, SPEC stories 14–18).
 
 							⚠ **This text appears and disappears, so it is the `comes-and-goes` shape and not a
 							permanently-mounted region.** The two are not interchangeable: a standing live region
@@ -1447,8 +1447,8 @@
 						-->
 						<MapNotice
 							shape="comes-and-goes"
-							heading="A Historical Map stopped drawing"
-							testid="historical-map-tiles-unavailable"
+							heading="A Map Image stopped drawing"
+							testid="map-image-tiles-unavailable"
 							text={tilesUnavailable}
 						/>
 
@@ -1492,7 +1492,7 @@
 
 						{#if needsNetwork.length > 0}
 							<!--
-								Which Historical Maps will not draw without a connection, named.
+								Which Map Images will not draw without a connection, named.
 
 								**Not the per-Layer badge ticket 05 removed.** That said where a Layer's tiles are
 								held, which is the author's publishing decision and nothing a Reader can act on;
@@ -1505,9 +1505,7 @@
 								class="text-sm text-warning"
 								testid="project-needs-network"
 							>
-								{needsNetwork.length === 1
-									? 'One Historical Map'
-									: `${needsNetwork.length} Historical Maps`}
+								{needsNetwork.length === 1 ? 'One Map Image' : `${needsNetwork.length} Map Images`}
 								here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather
 								than in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a
 								network connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
@@ -1726,12 +1724,12 @@
 {/snippet}
 
 <!--
-	What is inside a Historical Map Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
+	What is inside a Map Image Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
 
 	**A snippet rather than a callback prop on the card**, for the reason `ProjectScreen`'s own
 	`mapContents` gives: what this button does is a navigation on this app's one route, and the shared
 	card knows nothing about routes. It is also the whole of the difference between the two apps'
-	Historical Map cards — the editor's slot holds Align and the library the tiles came from, and this
+	Map Image cards — the editor's slot holds Align and the library the tiles came from, and this
 	one holds the only thing a Reader can do to a sheet.
 
 	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here

@@ -3,9 +3,9 @@
 // Seven places used to normalise this themselves, in two variants — some stripping a trailing
 // `/info.json` and a trailing slash, some only the slash — and the two can disagree. That matters
 // more than tidiness, because this string is not only a URL: `generateId(uri)` hashes it into the
-// Historical Map's identity and into the key `annotations.allmaps.org` is queried on (ADR-0015). A
-// service reached as `…/sheet/`, as `…/sheet/info.json`, and as `…/sheet` must be *one* Historical
-// Map with *one* community lookup, or the same map added twice is two Layers that cannot be told
+// Map Image's identity and into the key `annotations.allmaps.org` is queried on (ADR-0015). A
+// service reached as `…/sheet/`, as `…/sheet/info.json`, and as `…/sheet` must be *one* Map
+// Image with *one* community lookup, or the same map added twice is two Layers that cannot be told
 // apart and an existing Alignment is silently not found.
 //
 // So it is one function, used by every site that has an address in hand: the pasted URL, the `id`

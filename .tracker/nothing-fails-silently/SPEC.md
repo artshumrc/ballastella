@@ -6,7 +6,7 @@ A scholar's confidence in Ballastella rests on one thing: that work they can see
 
 **An edit can be reported as saved and never written.** A `commit` can resolve successfully while its bytes stay in memory and reach the store never. The save indicator does read "Unsaved" — so the scholar is not actively lied to — but it reads Unsaved *forever, for no reason*, with no error, no retry, and no explanation. The next edit to the same file destroys the stranded bytes. If it was the last edit of a burst, it is gone permanently. There is nothing the scholar can do, because there is nothing they can see to act on.
 
-**A Historical Map's tiles can stop being fetchable mid-session, and the app answers with an uncaught error.** A Reader whose connection goes while a map is drawn, or an author whose Library stops answering, gets an exception thrown into the void from inside the render layer. The screen does not change. Nothing is said. Whether the map they are looking at is complete, stale, or half-drawn is not knowable from the interface.
+**A Map Image's tiles can stop being fetchable mid-session, and the app answers with an uncaught error.** A Reader whose connection goes while a map is drawn, or an author whose Library stops answering, gets an exception thrown into the void from inside the render layer. The screen does not change. Nothing is said. Whether the map they are looking at is complete, stale, or half-drawn is not knowable from the interface.
 
 **And one failure of exactly this shape is unexplained.** A test observed three Control Points on screen and two on disk, once, and it has never reproduced. The screen was ahead of the disk. That is the same symptom as the first problem, and the first problem is *not* the cause — it was ruled out by timeline. So there is a second route to "the screen and the disk disagree" that nobody has found.
 
@@ -38,7 +38,7 @@ Concretely, from the scholar's and the Reader's side:
 
 - An edit that cannot be written is held in the journal and comes back on restart, so no failure to write costs the scholar work. If they try to leave with something unwritten, the browser's own warning stops them. "Unsaved" stops being a state the app can sit in silently — but the answer is *durability*, not narration.
 - A save indicator that reads anything other than "Saved" is always accompanied by a reason. There is no state in which the app knows something is wrong and shows only a word.
-- A Historical Map whose tiles stop arriving is reported to the person looking at it — in both the editor and the published viewer, in the same words — rather than being left to the console. A Reader is told it is not their work that failed and that their Annotations are unaffected.
+- A Map Image whose tiles stop arriving is reported to the person looking at it — in both the editor and the published viewer, in the same words — rather than being left to the console. A Reader is told it is not their work that failed and that their Annotations are unaffected.
 - The one unexplained disagreement between screen and disk is either explained with evidence or recorded as still open with the search narrowed. It is not closed by attaching it to the nearest plausible cause.
 
 ## User Stories
@@ -53,10 +53,10 @@ Concretely, from the scholar's and the Reader's side:
 8. As a scholar, I want a save that reports success to mean the bytes reached storage, so that "Saved" is a fact rather than a hope.
 9. As a scholar, I want the app to recover on its own when a write becomes possible again, so that I do not have to know to make another edit to un-stick it.
 10. As a scholar working offline, I want a failed write to be distinguished from a refused one, so that I am not told my connection is at fault when it is my storage, or the reverse.
-11. As a scholar, I want a Historical Map whose tiles stop arriving to say so on the screen, so that I do not mistake a half-drawn map for the real alignment.
+11. As a scholar, I want a Map Image whose tiles stop arriving to say so on the screen, so that I do not mistake a half-drawn map for the real alignment.
 12. As a scholar aligning a referenced map, I want to be told when the Library stops answering, so that I do not place Control Points against a stale or partial image.
 13. As a scholar, I want the tiles that already arrived to keep being drawn when later ones fail, so that I lose the newest detail rather than the whole map.
-14. As a Reader, I want a published site to tell me when a Historical Map's tiles cannot be fetched, so that I know the gap is the site's and not my understanding.
+14. As a Reader, I want a published site to tell me when a Map Image's tiles cannot be fetched, so that I know the gap is the site's and not my understanding.
 15. As a Reader, I want that message to say my Annotations and the author's work are unaffected, so that I do not think the whole page is broken.
 16. As a Reader, I want that message to say whether it is my connection or the site's server, so that I know whether reconnecting will help.
 17. As a Reader, I want the message to go away by itself when the tiles start arriving again, so that I am not left with a warning over a working map.
@@ -151,10 +151,10 @@ Three existing seams, no new ones.
 
 - **The `forceRedraw` teardown defect in the viewer's IIIF component.** Root-caused, and recorded as a note in that package's own repository. It is a first-party upstream fix plus a version bump here, not work for this epic.
 - **Changing what the Base Map catalog points at.** Settled: the demo tiles stay, and this is not to be re-raised.
-- **The Base Map's own unreachable-archive notice.** Already delivered, in both deployments. This epic covers Historical Map tiles, which is a different failure with a different remedy.
+- **The Base Map's own unreachable-archive notice.** Already delivered, in both deployments. This epic covers Map Image tiles, which is a different failure with a different remedy.
 - **Redesigning the Write-Ahead Journal**, the debounce policy, or the one-writer-per-path rule. The gap inside that rule is in scope; the rule is not.
 - **Assertions that cannot fail, elsewhere in the suite.** Two are recorded — a deep-zoom check whose subject is already true before the gesture, and a decision left unguarded by a removal. Both are real and neither is a silent failure; they belong to a test-integrity effort, not this one.
-- **Offline-first behaviour for Historical Map tiles.** Telling a Reader that tiles stopped arriving is in scope; making them available offline is a separate, larger question.
+- **Offline-first behaviour for Map Image tiles.** Telling a Reader that tiles stopped arriving is in scope; making them available offline is a separate, larger question.
 - **Reporting on failures across tabs.** A second tab's stranded write is not this epic's problem.
 
 ## Further Notes

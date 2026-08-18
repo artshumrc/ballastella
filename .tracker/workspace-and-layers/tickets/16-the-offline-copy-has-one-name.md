@@ -6,7 +6,7 @@ Nothing a user can see changes. The code stops calling an Offline Copy a "mirror
 
 [CONTEXT.md](../../../CONTEXT.md)'s **Offline Copy** entry reads:
 
-> A referenced historical map whose tiles have been fetched into the workspace, so it no longer needs the network and survives the library reorganising. The address it came from is kept, so it can still be cited. The user-facing verb is "make an offline copy".
+> A referenced map image whose tiles have been fetched into the workspace, so it no longer needs the network and survives the library reorganising. The address it came from is kept, so it can still be cited. The user-facing verb is "make an offline copy".
 > _Avoid_: mirror, cache, download, localise
 
 [CONTRIBUTING.md](../../../CONTRIBUTING.md) makes that binding: "The code and the UI are required to use those words." The code does not. `mirror` is the spelling throughout — a module, a component, a job, several barrel exports, and the `mirrored` half of a returned pair.
@@ -24,7 +24,7 @@ grep -rn "mirror\|Mirror\|cache\|localise\|localize\|downloadCopy" packages/*/sr
 Known sites at the time of writing:
 
 - `packages/core/src/remote-iiif/mirror.ts` — `planMirror`, `estimateMirrorBytes`, `mirrorRemoteImage`, and the module name itself.
-- `packages/core/src/project/historical-maps.ts` — `partitionByLocalCopy` returns `{ referenced, mirrored }`. Ticket 08 moved this here and left the vocabulary alone deliberately.
+- `packages/core/src/project/map-images.ts` — `partitionByLocalCopy` returns `{ referenced, mirrored }`. Ticket 08 moved this here and left the vocabulary alone deliberately.
 - `apps/editor/src/lib/remote-iiif/MirrorMap.svelte` and `mirror-map.svelte.ts`.
 - `packages/core/src/index.ts` — whatever of the above is exported.
 - `e2e/editor-mirroring.e2e.ts`, and test names and `data-testid`s throughout.
@@ -40,7 +40,7 @@ Known sites at the time of writing:
 
 **`cache` survives only where it names something that really is an HTTP cache** — the Cache API, a service-worker cache, a `Cache-Control` header. Those are not Offline Copies and must not be renamed into one. This is the distinction that makes the grep above need judgement rather than `sed`.
 
-**`cache` also survives for the Base Map tile cache, and that is not a loophole (ADR-0025, ticket 11).** These are Base Map tiles pulled out of a Protomaps archive so a Project's reference map draws with the network off. They are **not** an Offline Copy: an Offline Copy is of a *Historical Map* — the scholar's own source, fetched from a IIIF host, listed per Layer, and owned by the Project. Renaming the tile cache into that vocabulary would collide two different things in one word, which is the failure this ticket exists to undo rather than repeat. ADR-0025 says "cache" throughout and ticket 11 built to it.
+**`cache` also survives for the Base Map tile cache, and that is not a loophole (ADR-0025, ticket 11).** These are Base Map tiles pulled out of a Protomaps archive so a Project's reference map draws with the network off. They are **not** an Offline Copy: an Offline Copy is of a *Map Image* — the scholar's own source, fetched from a IIIF host, listed per Layer, and owned by the Project. Renaming the tile cache into that vocabulary would collide two different things in one word, which is the failure this ticket exists to undo rather than repeat. ADR-0025 says "cache" throughout and ticket 11 built to it.
 
 The sites, all added after this ticket was written:
 

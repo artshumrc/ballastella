@@ -13,7 +13,7 @@
 // app's own prose rather than this component's, and are asserted where they are written.
 //
 // ⚠ **`apps/editor/src/lib/components/project-hub.dom.test.ts` did not move here**, and is not this
-// file under another name. Everything in it is about the Hub's Historical Maps section and the
+// file under another name. Everything in it is about the Hub's Map Images section and the
 // wording of the Front Page choice — the editor's own surfaces, mounted through an `EditorSession`
 // that nothing in this package may import.
 //

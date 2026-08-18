@@ -1,7 +1,7 @@
 // Driving the Layer sidebar, where one Layer at a time opens in place (ticket 05).
 //
 // **Why every suite needs this and did not before.** A Layer row used to show everything about the
-// Layer at once — the Align link, the library a referenced Historical Map's tiles come from, the
+// Layer at once — the Align link, the library a referenced Map Image's tiles come from, the
 // drawing tools — so a test could reach any of it straight after the row appeared. Since ticket 05 a
 // closed row shows the Layer's name, its visibility, its position controls and whatever it is
 // warning about, and the rest is behind the row's disclosure. So the step this file adds is a real
@@ -53,12 +53,12 @@ export async function closeLayerRow(page: Page, at: number | Locator = 0): Promi
 }
 
 /**
- * Open a Historical Map Layer and follow its Align link (SPEC story 37).
+ * Open a Map Image Layer and follow its Align link (SPEC story 37).
  *
- * The commonest two-step in the suite: nineteen specs went straight to `align-historical-map`, and
+ * The commonest two-step in the suite: nineteen specs went straight to `align-map-image`, and
  * every one of them now has to open the Layer that holds it first.
  */
 export async function alignFromLayer(page: Page, at: number | Locator = 0): Promise<void> {
 	const row = await openLayerRow(page, at);
-	await row.getByTestId('align-historical-map').click();
+	await row.getByTestId('align-map-image').click();
 }

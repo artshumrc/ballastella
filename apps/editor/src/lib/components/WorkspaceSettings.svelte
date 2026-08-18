@@ -416,7 +416,7 @@
 			<h3 class="font-semibold">Your Workspaces</h3>
 			<p class="mt-1 text-sm opacity-70">
 				Switch between them from the Workspace button on the bar. Deleting one takes its Projects,
-				Historical Maps, and Alignments with it.
+				Map Images, and Alignments with it.
 			</p>
 			{#if deletable.length === 0}
 				<p class="mt-3 text-sm opacity-70" data-testid="no-other-workspaces">
@@ -459,8 +459,8 @@
 -->
 <ModalDialog bind:open={confirmOpen} title="Delete this Workspace?">
 	<p class="max-w-prose">
-		“{confirming?.name}” and everything in it — every Project, every Historical Map, every Alignment
-		— will be deleted from this browser. This cannot be undone.
+		“{confirming?.name}” and everything in it — every Project, every Map Image, every Alignment —
+		will be deleted from this browser. This cannot be undone.
 	</p>
 	<p class="mt-3 text-sm" data-testid="delete-workspace-size">
 		{#if confirming?.size}

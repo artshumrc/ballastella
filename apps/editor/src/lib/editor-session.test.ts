@@ -2,7 +2,7 @@
 //
 // The session takes a `ProjectStore`, so an in-memory one is the whole of what a test needs — which
 // is what makes this the second thing worth having a Node seam for. What is asserted here is the
-// pair of failure paths behind the "Add a Historical Map" dialog: a Workspace whose `images/`
+// pair of failure paths behind the "Add a Map Image" dialog: a Workspace whose `images/`
 // cannot be walked, and a map whose record does not say how big it is. Both are refusals, both are
 // a sentence a user reads, and neither has a gesture in the interface that produces it on demand.
 
@@ -103,7 +103,7 @@ async function openOn(store: ImagesGoAway): Promise<EditorSession> {
 
 let session: EditorSession;
 
-describe('the picker behind “Add a Historical Map”', () => {
+describe('the picker behind “Add a Map Image”', () => {
 	beforeEach(async () => {
 		session = await openOn(new ImagesGoAway());
 	});
@@ -126,7 +126,7 @@ describe('the picker behind “Add a Historical Map”', () => {
 		// │ THE HUB CAN AFFORD THE UNREACHABLE VERDICT; A DIALOG ON AN OPEN PROJECT CANNOT.       │
 		// └───────────────────────────────────────────────────────────────────────────────────────┘
 		//
-		// `refreshHistoricalMaps` sets `status = 'unreachable'` on any throw, which blanks the whole
+		// `refreshMapImages` sets `status = 'unreachable'` on any throw, which blanks the whole
 		// editor and offers the Workspace-recovery affordance. That is right for the hub, where the
 		// Workspace *is* the screen. The dialog calls this walk on every open, so a transient
 		// failure reading `images/` used to blank a scholar's open Project because they pressed a
@@ -136,12 +136,12 @@ describe('the picker behind “Add a Historical Map”', () => {
 		expect(failing.status).toBe('ready');
 		store.failing = true;
 
-		await failing.refreshAddableHistoricalMaps();
+		await failing.refreshAddableMapImages();
 
 		expect(failing.status).toBe('ready');
 		expect(failing.openProject).not.toBeNull();
 		expect(failing.addMapError).toContain('could not be looked through');
-		expect(failing.historicalMapsLoading).toBe(false);
+		expect(failing.mapImagesLoading).toBe(false);
 	});
 
 	it('still takes the hub’s own walk to the unreachable state', async () => {
@@ -151,7 +151,7 @@ describe('the picker behind “Add a Historical Map”', () => {
 		const failing = await openOn(store);
 		store.failing = true;
 
-		await failing.refreshHistoricalMaps();
+		await failing.refreshMapImages();
 
 		expect(failing.status).toBe('unreachable');
 		expect(failing.unreachableDetail).toContain('could not be read');
@@ -521,14 +521,14 @@ describe('deleting a Project, at the unit seam', () => {
 	});
 
 	/**
-	 * ⚠ **A held copy has to go with the Historical Map it belongs to** (round 6, finding B).
+	 * ⚠ **A held copy has to go with the Map Image it belongs to** (round 6, finding B).
 	 *
 	 * `alignments/<id>.json` is a *sibling* of `images/<id>/`, which is why `#forgetJournalled` needs a
 	 * second call at all — and that second call was `forget`, which sweeps no held copy and, worse,
 	 * means "the store has taken these bytes". A copy declined for a deleted map's Alignment outlived
 	 * the map and was reported at every startup for ever, with a remedy about a file that is gone.
 	 */
-	it('takes a declined Alignment copy with the Historical Map it belonged to', async () => {
+	it('takes a declined Alignment copy with the Map Image it belonged to', async () => {
 		const { session, storage, store } = await sessionWithJournal();
 		const image = { width: 400, height: 300 };
 		const onDisk = serialiseAlignment(newAlignment('floride-1657', image));
@@ -544,7 +544,7 @@ describe('deleting a Project, at the unit seam', () => {
 		);
 		expect(readHeldCopies(storage, WORKSPACE).copies).toHaveLength(1);
 
-		await session.deleteHistoricalMap('floride-1657');
+		await session.deleteMapImage('floride-1657');
 
 		expect(readHeldCopies(storage, WORKSPACE).copies).toEqual([]);
 	});
@@ -575,14 +575,14 @@ describe('deleting a Project, at the unit seam', () => {
 /**
  * ⚠ **THE LAST "DESTROY SYNCHRONOUSLY, JUSTIFY ASYNCHRONOUSLY" PAIR IN THE APPLICATION.**
  *
- * `deleteHistoricalMap` had `deleteProject`'s exact inversion and a **wider** window: its first
- * `await` is `historicalMapUsage`, a walk of every Project in the Workspace, where `deleteProject`'s
+ * `deleteMapImage` had `deleteProject`'s exact inversion and a **wider** window: its first
+ * `await` is `mapImageUsage`, a walk of every Project in the Workspace, where `deleteProject`'s
  * was a single `store.list` — and that one lost 4 runs in 20. The synchronous half was the
  * destructive one (the journal sweep, which holds the user's unsaved Alignment edit) and the
  * asynchronous half was the one a reload cuts. A reload in between lost the edit **and** left the map
  * in place: data loss with no deletion to justify it.
  */
-describe('deleting a Historical Map, at the unit seam', () => {
+describe('deleting a Map Image, at the unit seam', () => {
 	const WORKSPACE = 'opfs:My Workspace';
 	const IMAGE = 'amsterdam-plate-1';
 
@@ -638,10 +638,10 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		const store = new MemoryProjectStore();
 		const { session, storage } = await sessionOverAMap(store);
 		journalTheAlignment(storage);
-		// A page that stops running continuations, stalled on `historicalMapUsage`'s first walk.
+		// A page that stops running continuations, stalled on `mapImageUsage`'s first walk.
 		store.list = () => new Promise<never>(() => undefined);
 
-		void session.deleteHistoricalMap(IMAGE);
+		void session.deleteMapImage(IMAGE);
 
 		// Synchronously, in the same turn: nothing has been deleted, so nothing has been given up.
 		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([
@@ -665,10 +665,10 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		await session.flush();
 		journalTheAlignment(storage);
 
-		const deleted = await session.deleteHistoricalMap(IMAGE);
+		const deleted = await session.deleteMapImage(IMAGE);
 
 		expect(deleted).toBe(false);
-		expect(session.historicalMapError).not.toBe('');
+		expect(session.mapImageError).not.toBe('');
 		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([
 			alignmentPath(IMAGE)
 		]);
@@ -680,8 +680,8 @@ describe('deleting a Historical Map, at the unit seam', () => {
 	 * the hole item 2 of review 2 closed for the pyramid was left open on the one path where the
 	 * unsaved specimen *is* the Alignment. Its journal entry was forgotten and the bytes it is
 	 * written from were not, leaving `capture()` to re-journal it at `pagehide` and `flush()` to
-	 * write it outright: `alignments/<id>.json` recreated for a Historical Map that is gone, which is
-	 * the orphan `deleteHistoricalMap` exists to prevent.
+	 * write it outright: `alignments/<id>.json` recreated for a Map Image that is gone, which is
+	 * the orphan `deleteMapImage` exists to prevent.
 	 *
 	 * The test that missed it asserted only that the journal was empty, which the sweep's other half
 	 * already made true.
@@ -704,7 +704,7 @@ describe('deleting a Historical Map, at the unit seam', () => {
 			alignmentPath(IMAGE)
 		]);
 
-		expect(await session.deleteHistoricalMap(IMAGE)).toBe(true);
+		expect(await session.deleteMapImage(IMAGE)).toBe(true);
 		// Rule 3's synchronous half, exactly as `installFlushOnHide` fires it at `pagehide`. It
 		// re-journals whatever `Autosave` still holds pending, which is the route the sweep's other
 		// half was left open on: with the journal emptied and the bytes kept, this line put the
@@ -722,7 +722,7 @@ describe('deleting a Historical Map, at the unit seam', () => {
 	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
 	 * *after* the deletion — so a write in flight when Delete is pressed lands on top of a map that
 	 * has gone. Round 4 closed that for `alignments/<id>.json` and left `images/<id>/` wide open with
-	 * no sentence saying why the two were different. They are not: `deleteHistoricalMap` removes both
+	 * no sentence saying why the two were different. They are not: `deleteMapImage` removes both
 	 * and `#forgetJournalled` sweeps both, so the argument covers both or neither.
 	 *
 	 * ⚠ **One prefix per test, and that is not tidiness.** Written as one test holding both writes,
@@ -741,14 +741,14 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		void session.writeAlignment(newAlignment(IMAGE, { width: 10, height: 10 }));
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		const deletion = session.deleteHistoricalMap(IMAGE);
+		const deletion = session.deleteMapImage(IMAGE);
 		// A whole macrotask, so every await the deletion could run has run. Without the wait it is
 		// finished by here and the write lands on a directory the deletion has already emptied.
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		land();
 
 		expect(await deletion).toBe(true);
-		// An orphaned placement for a map that is gone is the one leftover `deleteHistoricalMap`
+		// An orphaned placement for a map that is gone is the one leftover `deleteMapImage`
 		// exists to prevent — a later import would deduplicate a colleague's copy against it.
 		expect(await store.list('')).toEqual([projectFilePath(DIRECTORY)]);
 	});
@@ -794,7 +794,7 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		const deletion = session.deleteHistoricalMap(service.imageId);
+		const deletion = session.deleteMapImage(service.imageId);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		land();
 
@@ -806,7 +806,7 @@ describe('deleting a Historical Map, at the unit seam', () => {
 
 	/**
 	 * The third arm of the conditional sweep, and the one no test constructed: a deletion that got
-	 * part way. `HistoricalMapPartlyDeletedError` is the only failure that means bytes are gone, and
+	 * part way. `MapImagePartlyDeletedError` is the only failure that means bytes are gone, and
 	 * bytes being gone is the whole of what licenses throwing the journalled copies away — so the arm
 	 * that acts on it has to be exercised, or "conditional" is a claim about one branch.
 	 */
@@ -827,9 +827,9 @@ describe('deleting a Historical Map, at the unit seam', () => {
 			return remove(path);
 		};
 
-		expect(await session.deleteHistoricalMap(IMAGE)).toBe(false);
+		expect(await session.deleteMapImage(IMAGE)).toBe(false);
 
-		expect(session.historicalMapError).toContain('only partly deleted');
+		expect(session.mapImageError).toContain('only partly deleted');
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
 	});
 
@@ -842,7 +842,7 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		await store.write(alignmentPath(IMAGE) as StorePath, new TextEncoder().encode('{}'));
 		journalTheAlignment(storage);
 
-		expect(await session.deleteHistoricalMap(IMAGE)).toBe(true);
+		expect(await session.deleteMapImage(IMAGE)).toBe(true);
 
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
 	});
@@ -1089,7 +1089,7 @@ describe('the record of what is on disk for an Alignment', () => {
 	 * `restoreAlignmentChangedElsewhere` reads the pending warning at entry and then waits behind
 	 * whatever is already writing the file. The save it waits behind can raise a *different* warning
 	 * — a second colleague write, and the field is not keyed by image, so it can even be about another
-	 * Historical Map. Clearing it unconditionally at the end throws away an alert nobody has seen, and
+	 * Map Image. Clearing it unconditionally at the end throws away an alert nobody has seen, and
 	 * that alert is the one thing on the screen a user cannot find out any other way: nothing moved,
 	 * nothing failed, and the indicator says "Saved".
 	 */

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Adding a Historical Map from a IIIF URL (SPEC stories 16, 17, 18, 19, 20, 24, 25, 26).
+	// Adding a Map Image from a IIIF URL (SPEC stories 16, 17, 18, 19, 20, 24, 25, 26).
 	//
 	// The whole flow is keyboard-operable without anything special being done for it, and that is the
 	// point of the elements chosen: the URL is an `<input>` in a `<form>`, so Enter submits; the
@@ -27,6 +27,12 @@
 		/**
 		 * The Layer is written, and what else the caller has to say about it.
 		 *
+		 * **`layer` is `null` when the address turned out to be a plain image file.** That path is a
+		 * download followed by the same tiling job a picked file goes through, so at the moment this
+		 * panel is finished with there is no Layer yet — `EditorSession.ingestImage` makes it when the
+		 * pyramid is cut, and the progress is on its card. The surface still has to close, which is what
+		 * this call is for.
+		 *
 		 * **`notice` travels with the Layer** because the surface this panel lives in closes on a
 		 * successful add (ticket 06), and a message rendered here would be removed in the same frame it
 		 * appeared in — which is indistinguishable from one that never happened, for a screen reader
@@ -34,18 +40,25 @@
 		 * `OfflineCopyJob.completed` already has and for the same reason. `''` when there is nothing to
 		 * say, which is the ordinary case.
 		 */
-		onadded?: (added: { layer: MapLayer; notice: string }) => void;
+		onadded?: (added: { layer: MapLayer | null; notice: string }) => void;
 	} = $props();
 
 	const job = new AddRemoteMap(() => session);
 
-	const busy = $derived(job.step === 'reading' || job.step === 'checking' || job.step === 'adding');
+	const busy = $derived(
+		job.step === 'reading' ||
+			job.step === 'checking' ||
+			job.step === 'downloading' ||
+			job.step === 'adding'
+	);
 
 	/** What the announced region says, so a screen-reader user hears the same thing the page shows. */
 	const status = $derived.by(() => {
 		if (job.step === 'reading') return 'Reading that address…';
 		if (job.step === 'checking')
 			return 'Checking that the library allows Ballastella to read this image…';
+		if (job.step === 'downloading')
+			return 'That address is an image file rather than a IIIF resource. Copying it into this Workspace…';
 		if (job.step === 'adding') return 'Adding the Layer…';
 		if (job.service) {
 			const found = job.communityCount;
@@ -63,9 +76,26 @@
 		return '';
 	});
 
+	/**
+	 * Look up an address — the pasted one, or a Collection item the user opened.
+	 *
+	 * Both go through here so that both can end in an image file: a Collection is a list of URLs
+	 * somebody else wrote, and nothing says every one of them names a Manifest. When one turns out to
+	 * be an image, it has been downloaded and handed to the tiler by the time this returns, and there
+	 * is nothing left in this panel to look at — so the surface closes exactly as it does when a file
+	 * is picked, and the progress is on the new Layer's card.
+	 */
+	const look = async (url?: string) => {
+		await job.read(url);
+		if (job.downloaded !== '') {
+			job.downloaded = '';
+			onadded?.({ layer: null, notice: '' });
+		}
+	};
+
 	const submit = async (event: SubmitEvent) => {
 		event.preventDefault();
-		await job.read();
+		await look();
 	};
 
 	const add = async () => {
@@ -75,11 +105,11 @@
 </script>
 
 <section class="mt-10" aria-labelledby="add-remote-heading">
-	<h3 id="add-remote-heading" class="text-lg font-semibold">Add a Historical Map from a library</h3>
+	<h3 id="add-remote-heading" class="text-lg font-semibold">Add a Map Image from a library</h3>
 
 	<form class="mt-4 flex max-w-2xl flex-wrap items-end gap-2" onsubmit={submit}>
 		<label class="floating-label grow">
-			<span>IIIF Manifest, Collection, or image address</span>
+			<span>IIIF Manifest, Collection, image service, or image file address</span>
 			<input
 				class="input w-full"
 				type="url"
@@ -233,7 +263,7 @@
 								type="button"
 								data-testid="remote-item"
 								disabled={busy}
-								onclick={() => job.read(item.uri)}
+								onclick={() => look(item.uri)}
 							>
 								{item.label}
 								<span class="opacity-60">({item.kind})</span>

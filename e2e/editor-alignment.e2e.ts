@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
-import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
+import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
 import { alignFromLayer } from './support/layers';
 import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import { readStoredJsonOrNull } from './support/stored-file';
@@ -132,21 +132,21 @@ async function createProject(page: Page, name: string): Promise<void> {
  */
 async function openProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('link', { name }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 }
 
 /** How long a freshly ingested pyramid may take to decode every tile of its first view. */
 const TILES_READY_MS = 30_000;
 
-/** Bring in one Historical Map and wait for its pyramid and both panes to be ready. */
+/** Bring in one Map Image and wait for its pyramid and both panes to be ready. */
 async function ingestAndOpen(page: Page): Promise<string> {
-	await pickHistoricalMapFile(page, {
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
 	// The image id off the Layer the map arrived with (ADR-0023). Ticket 04 removed the Project's
-	// separate list of image ids: the Layer already says which Historical Map it draws, and two
+	// separate list of image ids: the Layer already says which Map Image it draws, and two
 	// renderings of one fact is one of them going stale.
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
@@ -154,7 +154,7 @@ async function ingestAndOpen(page: Page): Promise<string> {
 
 	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
 	// longer a scroll; since ticket 05 the link that goes there is inside the Layer's own row. The id is
-	// read above, before the click: the Historical Maps list is on the Project page and this leaves it.
+	// read above, before the click: the Map Images list is on the Project page and this leaves it.
 	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
@@ -164,11 +164,9 @@ async function ingestAndOpen(page: Page): Promise<string> {
 	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
 	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
 	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
-	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-		'data-tiles-loaded',
-		'true',
-		{ timeout: TILES_READY_MS }
-	);
+	await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+		timeout: TILES_READY_MS
+	});
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
@@ -201,7 +199,7 @@ declare global {
  *
  * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
  * produced — so this counts tiles that made it all the way through the ADR-0011 shim rather than
- * tiles that were merely asked for. It is the honest signal for "the Historical Map renders warped":
+ * tiles that were merely asked for. It is the honest signal for "the Map Image renders warped":
  * the failure this path used to have was an error `@allmaps/render` logged and swallowed, so a check
  * for an absence of console errors went green while the map rendered blank.
  */
@@ -215,7 +213,7 @@ const warpedTiles = async (page: Page): Promise<number> =>
 		return (warped.layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
 	});
 
-const historicalMap = (page: Page) => page.getByTestId('image-pane');
+const mapImage = (page: Page) => page.getByTestId('image-pane');
 const baseMap = (page: Page) => page.getByTestId('base-map-pane');
 
 /**
@@ -228,7 +226,7 @@ const baseMap = (page: Page) => page.getByTestId('base-map-pane');
  * descendants.
  */
 const imagePoints = (page: Page) =>
-	historicalMap(page).locator('[data-testid="pane-overlay-point-control-point"]');
+	mapImage(page).locator('[data-testid="pane-overlay-point-control-point"]');
 
 const basePoints = (page: Page) =>
 	baseMap(page).locator('[data-testid="pane-overlay-point-control-point"]');
@@ -244,14 +242,14 @@ async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * Make one complete pair: a click on the Historical Map, then one on the Base Map.
+ * Make one complete pair: a click on the Map Image, then one on the Base Map.
  *
  * Waits for the pending state in between, which is what makes this click-then-click rather than
  * two clicks that happen to arrive in order.
  */
 async function makePair(page: Page, fx: number, fy: number): Promise<void> {
 	const before = await rows(page).count();
-	await clickAt(historicalMap(page), fx, fy);
+	await clickAt(mapImage(page), fx, fy);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 	await clickAt(baseMap(page), fx, fy);
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
@@ -296,8 +294,8 @@ const waitForStored = async (page: Page, imageId: string, count: number): Promis
 /**
  * The Alignment as it sits in OPFS, or `null` when there is no such file.
  *
- * At the **Workspace** root and taking no Project directory (ADR-0023): one Alignment per Historical
- * Map, shared by every Project that draws it.
+ * At the **Workspace** root and taking no Project directory (ADR-0023): one Alignment per Map
+ * Image, shared by every Project that draws it.
  */
 const storedAlignment = (page: Page, imageId: string) =>
 	page.evaluate(async (imageId) => {
@@ -321,18 +319,16 @@ async function start(page: Page): Promise<string> {
 }
 
 test.describe('Control Point pairing', () => {
-	test('clicking the Historical Map then the Base Map creates one numbered pair', async ({
-		page
-	}) => {
+	test('clicking the Map Image then the Base Map creates one numbered pair', async ({ page }) => {
 		await start(page);
 
 		await expect(imagePoints(page)).toHaveCount(0);
 		await expect(basePoints(page)).toHaveCount(0);
 
-		await clickAt(historicalMap(page), 0.35, 0.4);
+		await clickAt(mapImage(page), 0.35, 0.4);
 
-		// ADR-0022 contract 1: the pending half is visible and labelled. One point on the Historical
-		// Map, marked pending, and nothing on the Base Map — a pair does not exist yet.
+		// ADR-0022 contract 1: the pending half is visible and labelled. One point on the Map
+		// Image, marked pending, and nothing on the Base Map — a pair does not exist yet.
 		await expect(imagePoints(page)).toHaveCount(1);
 		await expect(imagePoints(page).first()).toHaveAttribute('data-pending', 'true');
 		await expect(basePoints(page)).toHaveCount(0);
@@ -411,7 +407,7 @@ test.describe('Control Point pairing', () => {
 		const afterPairs = await storedAlignment(page, imageId);
 		expect(afterPairs).not.toBeNull();
 
-		await clickAt(historicalMap(page), 0.8, 0.7);
+		await clickAt(mapImage(page), 0.8, 0.7);
 		await expect(imagePoints(page)).toHaveCount(3);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 
@@ -432,7 +428,7 @@ test.describe('Control Point pairing', () => {
 	/**
 	 * A mis-started pair costs nothing — **and "nothing" is counted, not inferred**.
 	 *
-	 * There is an `alignments/<id>.json` here from the moment the Historical Map was added: the starter
+	 * There is an `alignments/<id>.json` here from the moment the Map Image was added: the starter
 	 * Alignment, zero Control Points, the whole sheet as the Resource Mask (ADR-0023). So the old
 	 * assertion — no file at all — has nothing left to say, and byte-identity replaced it.
 	 *
@@ -446,7 +442,7 @@ test.describe('Control Point pairing', () => {
 		page
 	}) => {
 		const imageId = await start(page);
-		// The starter Alignment adding the Historical Map wrote: zero Control Points, over the whole
+		// The starter Alignment adding the Map Image wrote: zero Control Points, over the whole
 		// sheet (ADR-0023). It is the file this test now measures *against* — before ticket 02 there
 		// was no file at all here, and "no file" was the assertion.
 		const starter = await storedAlignment(page, imageId);
@@ -456,7 +452,7 @@ test.describe('Control Point pairing', () => {
 		// not the add that preceded it.
 		await watchWrites(page);
 
-		await clickAt(historicalMap(page), 0.4, 0.4);
+		await clickAt(mapImage(page), 0.4, 0.4);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
@@ -735,7 +731,7 @@ test.describe('Control Point pairing', () => {
 		const half = imagePoints(page).first();
 		await half.focus();
 		await expect(half).toBeFocused();
-		await expect(half).toHaveAttribute('aria-label', /Control Point 1, Historical Map half/);
+		await expect(half).toHaveAttribute('aria-label', /Control Point 1, Map Image half/);
 
 		// Arrow keys move it, and one key-hold is one write — the keyboard's version of pointer-up.
 		const before = await half.boundingBox();
@@ -772,14 +768,14 @@ test.describe('Control Point pairing', () => {
 
 		// And the pending half is cancellable by keyboard from either pane, which is contract 1's
 		// "cancellable with Escape" rather than "clickable on a button".
-		await clickAt(historicalMap(page), 0.5, 0.5);
+		await clickAt(mapImage(page), 0.5, 0.5);
 		await expect(status).toHaveAttribute('data-pending', 'resource');
 		await page.keyboard.press('Escape');
 		await expect(status).toHaveAttribute('data-pending', '');
 	});
 });
 
-test.describe('the warped Historical Map', () => {
+test.describe('the warped Map Image', () => {
 	test('appears over the Base Map on the third pair, and not before', async ({ page }) => {
 		await start(page);
 
@@ -853,7 +849,7 @@ test.describe('the warped Historical Map', () => {
 		await expectWarpedDrawn(page);
 
 		// Back below the minimum. The map has to come off rather than stay drawn from a solve that is
-		// no longer supported by the Control Points on screen — which would be a Historical Map placed
+		// no longer supported by the Control Points on screen — which would be a Map Image placed
 		// by points the user has deleted.
 		await page.getByTestId('control-point-delete').first().click();
 		await expect(rows(page)).toHaveCount(2);
@@ -934,7 +930,7 @@ test.describe('the Alignment on disk', () => {
 		// This is the case ADR-0022 warns about: autosave fires constantly, so a naive serialiser
 		// would fail on the first click of every pair.
 		await waitForStored(page, imageId, 3);
-		await clickAt(historicalMap(page), 0.85, 0.2);
+		await clickAt(mapImage(page), 0.85, 0.2);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await expect(imagePoints(page)).toHaveCount(4);
 
@@ -974,7 +970,7 @@ test.describe('the Alignment on disk', () => {
 		await waitForStored(page, imageId, 3);
 
 		// A reload of the alignment route itself: the route is addressed by `?p=` and `?layer=`, so it
-		// comes back on the same Historical Map without going through the Project page (ticket 03).
+		// comes back on the same Map Image without going through the Project page (ticket 03).
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		await expect(page.getByTestId('image-pane')).toBeVisible();
@@ -1000,7 +996,7 @@ test.describe('the Alignment on disk', () => {
 		await expectWarpedDrawn(page);
 		expect(
 			await warpedTiles(page),
-			'the Historical Map did not render warped after a reload'
+			'the Map Image did not render warped after a reload'
 		).toBeGreaterThan(0);
 	});
 

@@ -2,7 +2,7 @@
 
 ## What to build
 
-A per-image action that copies a referenced remote Historical Map into the Project as local tiles, so the work survives the host reorganising or disappearing, works offline, and can be published as a genuinely self-contained site.
+A per-image action that copies a referenced remote Map Image into the Project as local tiles, so the work survives the host reorganising or disappearing, works offline, and can be published as a genuinely self-contained site.
 
 The user sees the source's rights statement at the moment they choose to copy, and is warned when copying will be expensive for the host.
 
@@ -138,7 +138,7 @@ the truth is the one that lets someone walk off the cliff unwarned.
 1. **Two defects in the Layers pane, neither caused by this ticket, both found by trying to measure the
    same thing twice.** Recorded in `drawTheStack`'s comment in `e2e/editor-mirroring.e2e.ts`.
    - A **client-side navigation** to `/layers` leaves the stack undrawn — `window.ballastellaLayerStack`
-     is never set at all — whenever the Project page had a local Historical Map on it. Reproduced with a
+     is never set at all — whenever the Project page had a local Map Image on it. Reproduced with a
      plain ingested PNG and no remote IIIF anywhere. Every existing test of that pane uses `page.goto`,
      which is why it has not been seen.
    - A **fresh page load** of `/layers` draws a `'referenced'` Layer with `service: ''`: the stack is

@@ -1,5 +1,5 @@
 // One real ingest, captured once and written straight into OPFS for every test that needs a
-// Project with a Historical Map already on disk.
+// Project with a Map Image already on disk.
 //
 // ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
 // │ WHY: SIXTY-THREE TESTS EACH BUILT THE SAME PYRAMID, THROUGH THE INTERFACE, IN A BROWSER.     │
@@ -40,7 +40,7 @@
 // changed build discards it.
 //
 // ⚠ **A test whose subject IS the ingest must not use this.** `editor-image-ingest.e2e.ts` and the
-// ingest half of `editor-add-historical-map.e2e.ts` drive `pickHistoricalMapFile` directly and
+// ingest half of `editor-add-map-image.e2e.ts` drive `pickMapImageFile` directly and
 // should go on doing so — they are the tests that keep the recording honest, and if they are ever
 // deleted this module starts asserting that a pyramid captured in 2026 still loads rather than that
 // this build can make one.
@@ -68,7 +68,7 @@ const buildStampFile = path.join(cacheDirectory, 'build-stamp.json');
 export type WorkspaceSnapshot = {
 	/** The image id the ingest minted. An Alignment's file name. */
 	readonly imageId: string;
-	/** The id of the Layer the Historical Map arrived with (ADR-0023). */
+	/** The id of the Layer the Map Image arrived with (ADR-0023). */
 	readonly layerId: string;
 	/** Workspace-relative path to base64 bytes, in the order they were walked. */
 	readonly files: readonly (readonly [string, string])[];

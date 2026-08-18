@@ -2,9 +2,9 @@
 
 ## What to build
 
-Aligning a Historical Map moves out of the Project page and onto a route of its own: a split screen with the sheet on one side and the world on the other, reached by a button and left by a button.
+Aligning a Map Image moves out of the Project page and onto a route of its own: a split screen with the sheet on one side and the world on the other, reached by a button and left by a button.
 
-Demonstrable end to end: from the Project page, click Align on a Historical Map; the alignment view opens at `/align/?p=<project>&layer=<layer-id>`; place Control Points, refine the mask, choose how the map is stretched; click back and land on the Project you came from with the work saved.
+Demonstrable end to end: from the Project page, click Align on a Map Image; the alignment view opens at `/align/?p=<project>&layer=<layer-id>`; place Control Points, refine the mask, choose how the map is stretched; click back and land on the Project you came from with the work saved.
 
 The distortion overlay, its measure choice, and the bent grid move behind a single "Check this alignment" disclosure in the same slice. The fold warning stays always on.
 
@@ -36,7 +36,7 @@ The distortion overlay, its measure choice, and the bent grid move behind a sing
 ## Out of scope
 
 - **Do not rewrite `AlignmentWorkspace`.** Move it and give it a route. Pairing, mask editing, undo, and the two panes all work; changing them here means debugging someone else's slice.
-- **Do not delete `ProjectView` or `/base-map/`.** Ticket 04. In this slice `ProjectView` keeps its Historical Maps list and its per-map buttons, and gains an Align button that navigates. That entry point is deliberately temporary.
+- **Do not delete `ProjectView` or `/base-map/`.** Ticket 04. In this slice `ProjectView` keeps its Map Images list and its per-map buttons, and gains an Align button that navigates. That entry point is deliberately temporary.
 - **Do not move the Align button to a Layer card.** There are no Layer cards on this screen yet. Ticket 05.
 - **Do not build the remote-map pane.** Ticket 07. This route aligns only what it can align today.
 - **Do not add a Base Map switcher to this route** if that means a third place the author default can be written. Keep whichever single switcher `AlignmentWorkspace` already carries and do not add another.
@@ -96,10 +96,10 @@ review required to survive rather than be deleted as tombstone fallout:
 | --- | --- | --- |
 | opening the view is not a write | `loadAlignment` calls `writeAlignment` after reading | `opening the alignment view wrote an Alignment`, 1 write recorded |
 | story 36 against this route | the route adds one Layer on mount | `storedProjectFile` no longer byte-identical |
-| a mis-started pair costs nothing | `clickHistoricalMap` saves for a pending half | 1 write recorded — **and byte-identity stayed green**, which is exactly why the count is there |
+| a mis-started pair costs nothing | `clickMapImage` saves for a pending half | 1 write recorded — **and byte-identity stayed green**, which is exactly why the count is there |
 | an Alignment write never touches the stack | `writeAlignment` rewrites `project.json` after committing | `updatedAt` moved, in undo's byte-identity test |
 | Align is a link, not a busy button | `<a>` changed back to `<button>` | `toHaveRole('link')` received `"button"` |
-| no Layer means no Align control | the link rendered whatever `mapLayerFor` returned | `align-historical-map` count 1, expected 0 |
+| no Layer means no Align control | the link rendered whatever `mapLayerFor` returned | `align-map-image` count 1, expected 0 |
 | `host.unsupported` | the branch deleted | `No storage for a Workspace` not found |
 | `WorkspaceRecovery` | the branch made unreachable | `Workspace not reachable` not found |
 | "Starting…" | the text emptied | the prerendered `align.html` no longer contains it |
@@ -129,7 +129,7 @@ mutation step rather than an anecdote about it.
 ## Implementation notes
 
 **Align is a plain link, and opening the alignment view writes nothing.** The route is keyed by Layer
-id, and since ticket 02 a Historical Map that is in a Project already has its Layer — adding the map
+id, and since ticket 02 a Map Image that is in a Project already has its Layer — adding the map
 made it, along with its starter Alignment — so the `?layer=` the route needs exists before the user
 reaches for it. `EditorSession.mapLayerFor` is the lookup that finds it: synchronous, read-only, and
 the same one `#addMapLayer` consults to decide whether this Project already draws a map, so there is
@@ -150,7 +150,7 @@ shape the lint rule already recognises. **Ticket 18 still owns the general seam*
 shared Alignment, and a fence — because nothing here stops the *next* caller inventing the same
 overwrite; what is done here is the removal of this ticket's instance.
 
-**A Historical Map with no Layer in this Project is a named state, not a missing control.**
+**A Map Image with no Layer in this Project is a named state, not a missing control.**
 `session.images` is the Workspace's list (ADR-0023), so a Project can be shown a map it does not draw;
 and a Project whose starter Alignment failed to write has the pyramid without the Layer. Both render a
 sentence where the Align link would be, because "there is no button" is indistinguishable from a page
@@ -172,7 +172,7 @@ dragged Control Point cannot pull the earth out from under the pointer. Ticket 0
 is a second caller of the same prop.
 
 **Closing "Check this alignment" resets the distortion view.** Not in the contract, but the alternative
-is a Historical Map left colourised with the only control that turns it off no longer on the page. The
+is a Map Image left colourised with the only control that turns it off no longer on the page. The
 cost is that reopening starts from the default rather than the last measure.
 
 **The header's way-back link is inside `{#if session !== null}`.** SvelteKit throws on
@@ -194,7 +194,7 @@ inline drag in `editor-alignment-refinement.e2e.ts` now takes the same precautio
 ## Review remediation
 
 The alignment workspace now invalidates its asynchronous generation when route teardown destroys it
-and refuses a pane callback that arrives afterwards. Without both guards, a delayed Historical Map
+and refuses a pane callback that arrives afterwards. Without both guards, a delayed Map Image
 pane could replace module-level `live` with a pairing no longer on screen: Undo restored the file but
 left the visible replacement pairing unchanged. The regression delays one `info.json` read, destroys
 that route, opens a replacement, and asserts Undo restores both the stored Alignment and its rendered
@@ -214,6 +214,6 @@ Mutation checks were run separately and reverted afterwards:
 | closing the disclosure resets its working view | stop resetting `distortion` on close | the rendered overlay checkbox was still checked after reopening |
 
 Two review findings remain deliberately outside this ticket. Naming every Project that uses the
-shared Historical Map is story 56 and belongs to ticket 07. The cross-Project shared-Alignment case is
+shared Map Image is story 56 and belongs to ticket 07. The cross-Project shared-Alignment case is
 the invariant and coverage ticket 18 was created to own; restoring it here would pre-implement that
 later ticket.

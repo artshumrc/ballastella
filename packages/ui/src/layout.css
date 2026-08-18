@@ -22,7 +22,7 @@
    The ink of a Layer kind's line, in the card header of the Layer stack.
 
    A Layer card's header carries a 10% wash of its kind's own colour, and the kind line on it — the
-   glyph and the words "Historical Map" / "Annotations" — is set in that colour, so the two kinds
+   glyph and the words "Map Image" / "Annotations" — is set in that colour, so the two kinds
    differ before anything is read. `layer-kind-style.ts` is where the pair is chosen and why —
    and where everything else in a card takes it from; these are the same two tokens, mixed.
 

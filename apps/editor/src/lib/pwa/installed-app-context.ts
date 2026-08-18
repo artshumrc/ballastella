@@ -31,7 +31,7 @@ import type { InstalledApp } from './installed-app.svelte.js';
  * and two answers to "is there a connection" is how a pane and a Layer card come to disagree in
  * front of a scholar.
  *
- * This became worth having in ticket 07: `HistoricalMapPane` reads `.online` in its load effect now
+ * This became worth having in ticket 07: `MapImagePane` reads `.online` in its load effect now
  * — on the component that ticket deliberately made reusable — so what used to be a harmless
  * `undefined` became `Cannot read properties of undefined (reading 'online')` thrown from inside an
  * effect, naming nothing.

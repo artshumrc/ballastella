@@ -28,7 +28,7 @@
 		type Annotation,
 		type DistortionView,
 		type FetchFn,
-		type HistoricalMapSource,
+		type MapImageSource,
 		type OpeningViewFit,
 		type Place
 	} from '@ballastella/core';
@@ -107,12 +107,12 @@
 		 * The Alignment to draw warped over the geography, or `null` for none.
 		 *
 		 * Ticket 06 exercised `@allmaps/maplibre` on a bare dev route because no Alignment existed
-		 * yet; this is where a warped Historical Map actually belongs — over the earth it has been
+		 * yet; this is where a warped Map Image actually belongs — over the earth it has been
 		 * aligned onto — and that route is gone.
 		 */
 		alignment?: Alignment | null;
 		/**
-		 * Where {@link alignment}'s Historical Map is served from, or `null` when the caller cannot say.
+		 * Where {@link alignment}'s Map Image is served from, or `null` when the caller cannot say.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────────
 		 * ⚠ **WITHOUT THIS, A REFERENCED MAP DRAWS NOTHING AND NOTHING SAYS SO** (ticket 07).
@@ -125,13 +125,13 @@
 		 *
 		 * The stack path (`drawLayerStack`) has always carried the service; only the single-Alignment
 		 * path did not, because at the time nothing that used it could observe the answer. The
-		 * alignment route can — `EditorSession.historicalMapSource` — and it is the same value that
+		 * alignment route can — `EditorSession.mapImageSource` — and it is the same value that
 		 * decides the pane's tile base and the Alignment's `resource.id`, so the three cannot disagree.
 		 *
 		 * `null` keeps ticket 08's behaviour exactly: `referenced: false`, which is right for any caller
 		 * that genuinely cannot observe it, since refusing on a guess would refuse every local copy.
 		 */
-		alignmentSource?: HistoricalMapSource | null;
+		alignmentSource?: MapImageSource | null;
 		/**
 		 * How opaque the warped {@link alignment} is drawn, `0` to `1`.
 		 *
@@ -166,7 +166,7 @@
 		 */
 		openingFit?: OpeningViewFit | null;
 		/**
-		 * What the warped Historical Map is colourised with, and whether the graticule is drawn.
+		 * What the warped Map Image is colourised with, and whether the graticule is drawn.
 		 *
 		 * A working view rather than a property of the work, so it is a prop and **not** persisted
 		 * (ADR-0013): a Published Site could otherwise load colourised, and a Reader would have no way
@@ -175,7 +175,7 @@
 		 */
 		distortion?: DistortionView;
 		/**
-		 * Where the aligned Historical Map's tiles are read from (ADR-0011). Required for anything to
+		 * Where the aligned Map Image's tiles are read from (ADR-0011). Required for anything to
 		 * be drawn warped, since a locally stored pyramid has no URL.
 		 */
 		fetchTile?: FetchFn;
@@ -220,7 +220,7 @@
 		 * `null` means nothing is being drawn — no Alignment, or the layer has just been taken off.
 		 * Reported rather than left to the page to infer, because the page cannot see the layer's
 		 * lifecycle: an Alignment that drops back below the minimum Control Point count removes the
-		 * layer here, and without this the page would go on claiming the Historical Map was drawn from
+		 * layer here, and without this the page would go on claiming the Map Image was drawn from
 		 * points the user had just deleted.
 		 */
 		onwarped?: (render: WarpedRender | null) => void;
@@ -762,7 +762,7 @@
 	// The identity-guarded "once, and never under the user's drag" contract survives in `applyOpeningFit`.
 
 	/**
-	 * The drawn warped Historical Map, for the in-place updates below.
+	 * The drawn warped Map Image, for the in-place updates below.
 	 *
 	 * `$state.raw` and set from inside the effect that owns the layer, so that anything short of
 	 * "there is no Alignment at all" can reach the same map rather than provoking a rebuild.
@@ -787,7 +787,7 @@
 	 * premise: `gcps`, `resourceMask` and `transformationType` are map options upstream applies in
 	 * place. And it silently stopped the distortion overlay colourising, because a map *built* with a
 	 * `distortionMeasure` is never coloured by it (see `reassertDistortionMeasure`). So a student who
-	 * switched on "Colour the Historical Map by how much it is stretched" and then changed the
+	 * switched on "Colour the Map Image by how much it is stretched" and then changed the
 	 * transformation type watched the map redraw uncoloured, with the checkbox still checked and
 	 * nothing thrown.
 	 */
@@ -818,7 +818,7 @@
 	const warpedService = $derived(warpedAddress.service);
 
 	/**
-	 * The warped Historical Map (ADR-0011's `fetchFn` injection point).
+	 * The warped Map Image (ADR-0011's `fetchFn` injection point).
 	 *
 	 * Added once the style has loaded, because `WarpedMapLayer.onAdd` needs the map's own WebGL2
 	 * context. Built and taken off with {@link hasAlignment} and nothing else; what the map is drawn
@@ -1033,7 +1033,7 @@
 	 * **Not a rebuild, for the same reason opacity is not** — and for a sharper one. An Annotation's
 	 * title is typed a character at a time, every keystroke writes the file, and every write hands
 	 * this component a new collection. While the collection was part of {@link stackStructure}, that
-	 * tore down and re-added *every layer in the stack* per keystroke, Historical Maps included, so
+	 * tore down and re-added *every layer in the stack* per keystroke, Map Images included, so
 	 * typing a title made the whole map thrash and refetch tiles. The structure key now carries only
 	 * `annotationDrawKey` — which MapLibre layers the contents need — so a rename, a recolour, or a
 	 * moved vertex lands here instead, and a first dashed line still rebuilds because it needs a
@@ -1121,7 +1121,7 @@
 	 * *first*. The cost was far beyond a noisy console: an exception thrown while Svelte is destroying
 	 * one page abandons the rest of that synchronous flush — including the *mount* of the page being
 	 * navigated to. Clicking through from the Project page to the Layers pane, once the Project page had
-	 * a local Historical Map and therefore a warped layer to take off, produced a Layers pane containing
+	 * a local Map Image and therefore a warped layer to take off, produced a Layers pane containing
 	 * no MapLibre map at all: no Base Map, no Layer stack, and nothing logged beyond one `TypeError` from
 	 * a page the user had already left. A flag saying "the map has gone, do not ask it" fixed the two
 	 * teardowns that existed and left every future one to remember it; putting the removal last means

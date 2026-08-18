@@ -1,11 +1,11 @@
 /**
- * The sentence a Reader or a scholar is shown when a Historical Map's tiles stop arriving.
+ * The sentence a Reader or a scholar is shown when a Map Image's tiles stop arriving.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THIS IS HERE AND NOT WRITTEN OUT IN EACH SPEC
  *
  * Exactly the arrangement `support/base-map-notice.ts` arrived at, and for the reason recorded
- * there. `historicalMapTilesUnavailableNotice` in `@ballastella/core` composes one sentence and
+ * there. `mapImageTilesUnavailableNotice` in `@ballastella/core` composes one sentence and
  * **both applications render that same function's output** — the published viewer at ticket 04, the
  * editor at ticket 05 — so that one outage is not described two ways at the same person. A contract
  * between two applications is only real if something fails when it breaks, and the way that contract
@@ -58,7 +58,7 @@ const WHEN_IT_ANSWERS_AGAIN =
  */
 export function tilesUnavailableNotice(mapName: string, where: string): string {
 	return (
-		`The Historical Map “${mapName}” stopped drawing, because ${where} could not be reached. ` +
+		`The Map Image “${mapName}” stopped drawing, because ${where} could not be reached. ` +
 		`${SAFE} That is either your connection or that server, and there is no way to tell which ` +
 		`from here. ${WHEN_IT_ANSWERS_AGAIN}`
 	);
@@ -72,7 +72,7 @@ export function tilesUnavailableNotice(mapName: string, where: string): string {
  */
 export function tilesServerErrorNotice(mapName: string, where: string, status: number): string {
 	return (
-		`The Historical Map “${mapName}” stopped drawing, because ${where} answered ${status}. ` +
+		`The Map Image “${mapName}” stopped drawing, because ${where} answered ${status}. ` +
 		`${SAFE} The server answered, so your own connection is working and it is that server that ` +
 		`is failing. ${WHEN_IT_ANSWERS_AGAIN}`
 	);

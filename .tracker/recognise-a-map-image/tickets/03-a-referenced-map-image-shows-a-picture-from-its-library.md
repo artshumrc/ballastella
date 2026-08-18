@@ -1,10 +1,10 @@
-# A referenced Historical Map shows a picture from its Library
+# A referenced Map Image shows a picture from its Library
 
 ## What to build
 
-A Historical Map whose tiles are on a Library's server shows a picture too, fetched from that Library —
+A Map Image whose tiles are on a Library's server shows a picture too, fetched from that Library —
 one small request, not a download of the sheet. After this ticket the hub and the picker show a picture
-for every Historical Map in the Workspace, however its tiles are held.
+for every Map Image in the Workspace, however its tiles are held.
 
 The picture is the same thing it is for a Workspace-held map: **the single tile at the coarsest level of
 the pyramid.** The one input the Workspace does not currently record is the Library service's tile side,
@@ -30,7 +30,7 @@ so `remote.json` starts carrying it.
 - `packages/core/src/remote-iiif/service-uri.ts` — `canonicalServiceUri`. Already applied by
   `referencedImage()`, so a parsed record's `service` is canonical. **Do not re-normalise it and do not
   hand-trim slashes.**
-- The resolver ticket 01 added in `packages/core/src/project/historical-maps.ts`, and the
+- The resolver ticket 01 added in `packages/core/src/project/map-images.ts`, and the
   `MapThumbnail` component it added.
 - `e2e/support/iiif-hosts.ts` — `requestedSize` and the `library.test` route. **The fixture already
   serves what this ticket needs**: it parses the full `{region}/{size}/0/default.jpg` form — four numbers
@@ -118,14 +118,14 @@ Covers SPEC stories **9, 10, 12, 19, 24, 31**.
       round-trip preserves it.
 - [x] A malformed or absent `tileSize` parses as `0` and does **not** throw — the map is still readable
       and still listed.
-- [x] Adding a Historical Map from a Library writes the service's declared tile side into `remote.json`.
-- [x] `listWorkspaceHistoricalMaps` sets `thumbnail` to the coarsest-tile URL on the Library's canonical
+- [x] Adding a Map Image from a Library writes the service's declared tile side into `remote.json`.
+- [x] `listWorkspaceMapImages` sets `thumbnail` to the coarsest-tile URL on the Library's canonical
       service URI for a referenced map, and `null` when `tileSize`, `width`, or `height` is `0`.
 - [x] The existing test asserting `remote.json`'s exact serialised text is **extended** to cover the new
       field, not loosened, and passes.
-- [x] On the hub, a referenced Historical Map served by `library.test` shows a picture that has actually
+- [x] On the hub, a referenced Map Image served by `library.test` shows a picture that has actually
       decoded: `naturalWidth > 0`.
-- [x] A referenced Historical Map whose record has no `tileSize` shows the glyph and no broken image.
+- [x] A referenced Map Image whose record has no `tileSize` shows the glyph and no broken image.
 - [x] The referenced picture's element carries `loading="lazy"`; the Workspace-held one does not.
 - [x] `pnpm precommit` passes.
 - [x] A mutation record is written into this ticket (see below).
@@ -135,8 +135,8 @@ pnpm --filter @ballastella/core test --project node -t "tileSize"
 pnpm --filter @ballastella/core test --project node -t "thumbnail"
 pnpm --filter @ballastella/core test --project node -t "referenced"
 
-pnpm test:e2e editor-historical-map-thumbnails.e2e.ts
-pnpm test:e2e editor-add-historical-map.e2e.ts
+pnpm test:e2e editor-map-image-thumbnails.e2e.ts
+pnpm test:e2e editor-add-map-image.e2e.ts
 
 pnpm precommit
 ```
@@ -147,8 +147,8 @@ Success is exit code 0 from each. Read exit codes directly; no `grep`, and no `-
 
 | Criterion | Mutation | Result |
 | --- | --- | --- |
-| the referenced picture actually decoded | `referencedThumbnail` builds `wholeImageDerivative(width, height, tileSize * 2)`, so a 700 × 500 sheet on 256-pixel tiles is named at the scale factor a 512-tile service would have — `/0,0,700,500/350,250/…` | **red**, as required, and *not* by the request failing. `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a Historical Map referenced from a Library shows a picture drawn from that Library* failed on both attempts at `.toEqual({ width: 175, height: 125 })` with `Received { height: 250, width: 350 }`, after `Timeout 20000ms exceeded while waiting on the predicate`. **The fixture host serves whatever size is asked for** (`requestedSize(url)` then `gradientPng(size.width, size.height)`, `e2e/support/iiif-hosts.ts`), so the wrong scale factor yielded real decodable bytes at the wrong size — a plausible-looking picture, not an empty box. `toBeVisible`, the `loading="lazy"` assertion, `naturalWidth > 0`, and any comparison of `src` against a locally computed string would all have stayed green: the exact `toEqual` on `naturalWidth`/`naturalHeight` is the only thing that goes red, which is why it must not be relaxed. The three other tests passed. |
-| geometry is read, not assumed | `referencedThumbnail` reads `record.tileSize \|\| PYRAMID_TILE_SIZE`, i.e. the 256 that is right for almost every Library | **red twice, in both seams.** `pnpm --filter @ballastella/core test --project node -t "thumbnail"` → 1 failed, 10 passed: *is nothing at all for a referenced map whose record carries no tileSize, as a record written before the field existed* — `Expected: null`, `Received: "https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/250,188/0/default.jpg"`. And `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a referenced Historical Map whose record has no tile side keeps the glyph* failed on both attempts at `expect(glyph).toBeVisible()` — `element(s) not found`: the glyph had been replaced by an `<img>` pointing at a guessed address, which is the broken box the criterion forbids. Every record that does carry a tile side stayed green, which is the trap: the guess is right almost always. |
+| the referenced picture actually decoded | `referencedThumbnail` builds `wholeImageDerivative(width, height, tileSize * 2)`, so a 700 × 500 sheet on 256-pixel tiles is named at the scale factor a 512-tile service would have — `/0,0,700,500/350,250/…` | **red**, as required, and *not* by the request failing. `pnpm test:e2e editor-map-image-thumbnails.e2e.ts` → *a Map Image referenced from a Library shows a picture drawn from that Library* failed on both attempts at `.toEqual({ width: 175, height: 125 })` with `Received { height: 250, width: 350 }`, after `Timeout 20000ms exceeded while waiting on the predicate`. **The fixture host serves whatever size is asked for** (`requestedSize(url)` then `gradientPng(size.width, size.height)`, `e2e/support/iiif-hosts.ts`), so the wrong scale factor yielded real decodable bytes at the wrong size — a plausible-looking picture, not an empty box. `toBeVisible`, the `loading="lazy"` assertion, `naturalWidth > 0`, and any comparison of `src` against a locally computed string would all have stayed green: the exact `toEqual` on `naturalWidth`/`naturalHeight` is the only thing that goes red, which is why it must not be relaxed. The three other tests passed. |
+| geometry is read, not assumed | `referencedThumbnail` reads `record.tileSize \|\| PYRAMID_TILE_SIZE`, i.e. the 256 that is right for almost every Library | **red twice, in both seams.** `pnpm --filter @ballastella/core test --project node -t "thumbnail"` → 1 failed, 10 passed: *is nothing at all for a referenced map whose record carries no tileSize, as a record written before the field existed* — `Expected: null`, `Received: "https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/250,188/0/default.jpg"`. And `pnpm test:e2e editor-map-image-thumbnails.e2e.ts` → *a referenced Map Image whose record has no tile side keeps the glyph* failed on both attempts at `expect(glyph).toBeVisible()` — `element(s) not found`: the glyph had been replaced by an `<img>` pointing at a guessed address, which is the broken box the criterion forbids. Every record that does carry a tile side stayed green, which is the trap: the guess is right almost always. |
 | the tile side reaches the record | `addReferencedMap` writes `tileSize: 0` instead of `service.tileSize`, the state of this code before the ticket | **red**. `pnpm test:e2e editor-remote-iiif.e2e.ts -g "gives a referenced image the id Allmaps keys it on"` → failed on both attempts at `expect(record.tileSize).toBe(256)` — `Expected: 256`, `Received: 0`. Nothing else in that spec noticed, which is the point of asserting the field where the record is read back off disk: a record missing it parses, lists, aligns and copies exactly as before, and costs only the picture. |
 
 ⚠ **`loading="lazy"` will hang this assertion if the card is below the fold**, because the request never

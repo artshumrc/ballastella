@@ -180,11 +180,11 @@ ticket 06 delivers are unaffected.
 ### Deviations and things worth knowing
 
 - **`ProjectView` now hosts the image pane**, so story 31 is delivered on the user's own Project page
-  rather than on a dev route. The Historical Maps list became one button per map; the existing
+  rather than on a dev route. The Map Images list became one button per map; the existing
   ingest e2e still counts them as list items and reads the id from the button text, unchanged.
 - **A dev route `/warped`** exercises `@allmaps/maplibre`'s injection point, in the same spirit as
   ticket 03's `/image-pane`. **Ticket 07 should absorb it into the Base Map pane** — a warped
-  Historical Map belongs over geography, not on a bare map — and delete it.
+  Map Image belongs over geography, not on a bare map — and delete it.
 - **`window.ballastellaServedTiles`** is a new browser-test handle, on the same terms as ticket 04's
   `ballastellaBaseMap`. It exists because this slice makes tiles **unobservable from outside the
   page**: up to ticket 05 "tiles at every scale factor load" was asserted on Playwright's `response`
@@ -196,7 +196,7 @@ ticket 06 delivers are unaffected.
   deliberate reuse for the same reason both sides use `getTileImageRequest`: a reader that computed
   paths itself could drift from the writer.
 - **Three of the new browser tests first failed on the test's own assumptions**, and the comments say
-  so where it would otherwise be rediscovered: Historical Maps list in image-id order rather than
+  so where it would otherwise be rediscovered: Map Images list in image-id order rather than
   insertion order; a Project is selected client-side, so the hub's list items are still on screen for
   a moment after the click; and full-resolution map zoom is derived from the pyramid (13 here, 14 for
   ticket 03's fixture).
@@ -303,5 +303,5 @@ correct; the evidence for it was not.
   surface depends on what that consumer is. **A human should decide** whether the criterion is
   reworded to "throwable with a message naming the override" — which is what is asserted, and is
   ADR-0004's own framing of "fails loudly" — or whether a surface is built for it. Note that the same
-  gap has a working precedent in this slice: `historical-map-failure` surfaces a refused pyramid with
+  gap has a working precedent in this slice: `map-image-failure` surfaces a refused pyramid with
   `role="alert"`, so the mechanism exists if the criterion is kept as written.

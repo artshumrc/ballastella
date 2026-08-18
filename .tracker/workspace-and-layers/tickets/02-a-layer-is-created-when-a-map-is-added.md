@@ -2,11 +2,11 @@
 
 ## What to build
 
-Adding a Historical Map to a Project puts a Layer in the stack immediately, marked as not yet aligned. Today a local map produces no Layer until the first Control Point is placed, while a remote map gets one at add time — two behaviours for one act, and neither is what the interface needs.
+Adding a Map Image to a Project puts a Layer in the stack immediately, marked as not yet aligned. Today a local map produces no Layer until the first Control Point is placed, while a remote map gets one at add time — two behaviours for one act, and neither is what the interface needs.
 
-Demonstrable end to end: add a Historical Map from a file, and a Layer appears in the stack straight away, saying it has not been aligned yet. Place two Control Points and the warning clears. Remove the Layer, add the same map again, and it comes back — which today it silently does not.
+Demonstrable end to end: add a Map Image from a file, and a Layer appears in the stack straight away, saying it has not been aligned yet. Place two Control Points and the warning clears. Remove the Layer, add the same map again, and it comes back — which today it silently does not.
 
-Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-the-workspace.md)'s consequences on Layer creation and the starter Alignment before starting.
+Read [ADR-0023](../../../docs/adr/0023-map-images-and-alignments-live-in-the-workspace.md)'s consequences on Layer creation and the starter Alignment before starting.
 
 ## Where to start
 
@@ -18,13 +18,13 @@ Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-th
 
 ## Contract
 
-**A map Layer is created by exactly one thing: the user adding a Historical Map to a Project.** An Alignment write must never create a Layer. Delete `#ensureMapLayer` and `#placingMapLayers` (its in-flight race guard) entirely.
+**A map Layer is created by exactly one thing: the user adding a Map Image to a Project.** An Alignment write must never create a Layer. Delete `#ensureMapLayer` and `#placingMapLayers` (its in-flight race guard) entirely.
 
 **Delete `ProjectFile.removedMapLayers`.** It existed only to stop an Alignment write resurrecting a deleted Layer. With Layers created by explicit gesture alone, nothing can resurrect one. The parser must not carry the field forward and must not choke on a `project.json` that happens to contain it.
 
 > **From the review of ticket 01:** this is already broken on the *referenced* path, not only the local one — `addReferencedMap` writes `alignments/<image-id>.json` only when a community Alignment was chosen, while `layerReferences` in `import-project-zip.ts` requires it for every map Layer, so such a Project exports a zip this build then refuses to import. Fixing it here covers both paths; a test that only adds a map from a file will not see it.
 
-**A starter Alignment is written when a Historical Map is added.** `newAlignment(imageId, image)` — zero Control Points, Resource Mask covering the whole sheet. Without it, an unaligned Layer references a file that does not exist and `assertReferencesPresent` makes the Project un-exportable and un-publishable, which is the trap this contract exists to close. This does not offend ADR-0010: that rule forbids writing when *merely opening* a Project, and adding a map is an explicit act.
+**A starter Alignment is written when a Map Image is added.** `newAlignment(imageId, image)` — zero Control Points, Resource Mask covering the whole sheet. Without it, an unaligned Layer references a file that does not exist and `assertReferencesPresent` makes the Project un-exportable and un-publishable, which is the trap this contract exists to close. This does not offend ADR-0010: that rule forbids writing when *merely opening* a Project, and adding a map is an explicit act.
 
 **"Not aligned" is derived, never stored.** The test is `controlPoints.length < MINIMUM_CONTROL_POINTS`, which `canSolve` already computes. Do not add a boolean field. A partially aligned map — one or two points, below the solvable minimum — must warn, which a boolean set at creation would get wrong.
 
@@ -42,12 +42,12 @@ Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-th
 
 ## Acceptance criteria
 
-- [ ] Adding a Historical Map from a file produces a map Layer in `project.json` before any Control Point exists.
-- [ ] Adding a Historical Map writes `alignments/<image-id>.json` with zero Control Points and a full-sheet Resource Mask.
+- [ ] Adding a Map Image from a file produces a map Layer in `project.json` before any Control Point exists.
+- [ ] Adding a Map Image writes `alignments/<image-id>.json` with zero Control Points and a full-sheet Resource Mask.
 - [ ] Placing one Control Point does not create, rename, or reorder any Layer.
 - [ ] Deleting a map Layer and then placing or moving a Control Point on that map does not recreate the Layer.
-- [ ] Deleting a map Layer, reloading, and adding the same Historical Map to the Project again produces a Layer.
-- [ ] Adding a Historical Map already in the Project leaves the stack unchanged — same Layer id, same order, same name.
+- [ ] Deleting a map Layer, reloading, and adding the same Map Image to the Project again produces a Layer.
+- [ ] Adding a Map Image already in the Project leaves the stack unchanged — same Layer id, same order, same name.
 - [ ] A Layer with fewer than `MINIMUM_CONTROL_POINTS` reports itself as not aligned, including when hidden.
 - [ ] A Project holding an unaligned map Layer exports to a zip and imports back without a missing-reference refusal.
 - [ ] `removedMapLayers`, `#ensureMapLayer`, and `#placingMapLayers` appear nowhere in `packages/` or `apps/`.
@@ -78,7 +78,7 @@ For each criterion above, break the behaviour and confirm the test goes red befo
 Ten things worth knowing. One is a deviation from an acceptance criterion as literally written — the
 `removedMapLayers` grep, fourth from last.
 
-**The list of the Workspace's Historical Maps is now refreshed *after* the Layer is written, not
+**The list of the Workspace's Map Images is now refreshed *after* the Layer is written, not
 before.** `ingestImage` used to set `images` the moment the pyramid was complete; the add now has a
 second half — the starter Alignment and the Layer — and listing the map before that half finished made
 it look added while the file input beside it was still disabled. Picking a second file inside that
@@ -97,7 +97,7 @@ which is the safe direction of that trade.
 written when there is no file at all, or when the file is still byte-identical to the starter this
 build writes — nothing has happened to it, so replacing it discards nothing. Otherwise the existing
 Alignment is kept and `AddRemoteMap` says so, in terms that name the reason: the Layer was added, the
-import did not happen, and a Historical Map has one Alignment shared by every Project that draws it.
+import did not happen, and a Map Image has one Alignment shared by every Project that draws it.
 Byte-identity rather than `controlPoints.length === 0`, because the Resource Mask is editable without
 placing a Control Point and a count would read a cropped sheet as untouched.
 

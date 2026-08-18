@@ -3,14 +3,14 @@
 	import {
 		describeBytes,
 		parseRemoteReference,
-		unusedHistoricalMaps,
+		unusedMapImages,
 		type ProjectSummary,
-		type WorkspaceHistoricalMap
+		type WorkspaceMapImage
 	} from '@ballastella/core';
 	import { ProjectCardList } from '@ballastella/ui';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
-	import MapThumbnail from '../historical-maps/MapThumbnail.svelte';
+	import MapThumbnail from '../map-images/MapThumbnail.svelte';
 	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
 
@@ -47,7 +47,7 @@
 	 *
 	 * ⚠ **This is not an import, and the difference is the whole of ticket 14.** A bundle opens into a
 	 * *new Review Workspace* and there is no path that merges it into the Workspace this hub is
-	 * showing: under ADR-0023 there is one Alignment per Historical Map in a Workspace, so merging
+	 * showing: under ADR-0023 there is one Alignment per Map Image in a Workspace, so merging
 	 * would either overwrite an Alignment several of the user's own Projects are drawn by, or be
 	 * refused (ADR-0024). So there is no collision to ask about and no folder name to choose —
 	 * the two questions the old import dialog existed to ask — and adding either back would be
@@ -264,7 +264,7 @@
 		}
 	};
 
-	// ── The Workspace's Historical Maps (SPEC stories 63–65, 98) ────────────────────────────────
+	// ── The Workspace's Map Images (SPEC stories 63–65, 98) ────────────────────────────────
 	//
 	// On the hub rather than inside a Project for the same reason Publish is: a pyramid belongs to the
 	// **Workspace** and is drawn by any number of Projects (ADR-0023), so "what does this Workspace
@@ -276,10 +276,10 @@
 	// the Project that will draw it.
 
 	/** The map whose deletion is being confirmed, or `null`. */
-	let deletingMap = $state<WorkspaceHistoricalMap | null>(null);
+	let deletingMap = $state<WorkspaceMapImage | null>(null);
 
-	/** What just happened to a Historical Map, for the live region. `''` when nothing has. */
-	let historicalMapMessage = $state('');
+	/** What just happened to a Map Image, for the live region. `''` when nothing has. */
+	let mapImageMessage = $state('');
 
 	// Walked when the hub appears and again whenever the Project list changes, because the Project
 	// documents are where used-by is read from — a Project deleted here can be the last one that drew a
@@ -287,17 +287,15 @@
 	// this weighs every file under `images/`.
 	$effect(() => {
 		void session.projects;
-		void session.refreshHistoricalMaps();
+		void session.refreshMapImages();
 	});
 
-	const historicalMapsBytes = $derived(
-		session.historicalMaps.reduce((sum, map) => sum + map.bytes, 0)
-	);
+	const mapImagesBytes = $derived(session.mapImages.reduce((sum, map) => sum + map.bytes, 0));
 	// Core's figure, not a second one derived here. This is the sentence the ticket exists for — "of
 	// which 340 MB is used by no Project" — and publishing's hosting warning states the same number
-	// from `unusedHistoricalMapBytes`; two reductions spelling it out separately is how one screen ends
+	// from `unusedMapImageBytes`; two reductions spelling it out separately is how one screen ends
 	// up quoting two totals for one Workspace.
-	const unused = $derived(unusedHistoricalMaps(session.historicalMaps));
+	const unused = $derived(unusedMapImages(session.mapImages));
 
 	/**
 	 * The ADR-0011 shim each card's picture reads its tile through (ADR-0030).
@@ -308,13 +306,13 @@
 	const fetchTile = $derived(session.imageServiceFetch());
 
 	/** Where a map's tiles are, in the words the list uses. Visible text, never a colour or a title. */
-	const whereTilesAre = (map: WorkspaceHistoricalMap): string =>
+	const whereTilesAre = (map: WorkspaceMapImage): string =>
 		map.tiles === 'in-workspace'
 			? 'Tiles in this Workspace'
 			: `Tiles on ${map.library || 'a Library’s server'}`;
 
 	/** How many files a map is, beside what it weighs: 3 files and 31 000 files are different news. */
-	const fileCount = (map: WorkspaceHistoricalMap): string =>
+	const fileCount = (map: WorkspaceMapImage): string =>
 		`${map.files} ${map.files === 1 ? 'file' : 'files'}`;
 
 	/**
@@ -324,7 +322,7 @@
 	 * "used by", which would claim something unknown, and it is emphatically not left out — a map whose
 	 * only user is a Project from next year's build must not be described as one nothing uses.
 	 */
-	const usedBy = (map: WorkspaceHistoricalMap): string => {
+	const usedBy = (map: WorkspaceMapImage): string => {
 		const unreadable = map.mightBeUsedBy.map((project) => project.name).join(', ');
 		const caveat = unreadable
 			? ` ${map.mightBeUsedBy.length === 1 ? 'It' : 'They'} may also be drawn by ${unreadable}, made with a newer version of Ballastella, which this one cannot read.`
@@ -350,9 +348,9 @@
 	 * moment of the deletion, so what the dialog says about the Projects is the list's account and what
 	 * happens next is the Workspace's.
 	 */
-	const askToDelete = (map: WorkspaceHistoricalMap) => {
-		historicalMapMessage = '';
-		session.dismissHistoricalMapError();
+	const askToDelete = (map: WorkspaceMapImage) => {
+		mapImageMessage = '';
+		session.dismissMapImageError();
 		deletingMap = map;
 	};
 
@@ -371,15 +369,15 @@
 		if (!map) return;
 		// Through core either way: the list on screen may be a moment old, and whether a map is in use is
 		// decided from the Projects' own documents at the moment of the deletion rather than from it.
-		const deleted = await session.deleteHistoricalMap(map.imageId);
-		historicalMapMessage = deleted
+		const deleted = await session.deleteMapImage(map.imageId);
+		mapImageMessage = deleted
 			? `Deleted ${map.label || map.imageId}, reclaiming ${describeBytes(map.bytes)}.`
 			: '';
 	};
 
 	// ── The offline Base Map cache (ADR-0025) ───────────────────────────────────────────────────
 	//
-	// Beside the Historical Maps and for the same reason: it is Workspace-level, it is the other thing
+	// Beside the Map Images and for the same reason: it is Workspace-level, it is the other thing
 	// in here that can be several hundred megabytes, and "what does this Workspace hold, and what can
 	// I reclaim" is a question about the Workspace. Clearing it makes every Project report itself not
 	// available offline — which needs no code here, because that claim is computed from these files.
@@ -406,7 +404,7 @@
 	 */
 	let cacheStatusLine: HTMLElement | null = $state(null);
 
-	// Re-read whenever the Project list changes, alongside the Historical Maps walk: this is one
+	// Re-read whenever the Project list changes, alongside the Map Images walk: this is one
 	// `list` of `base-map/tiles/` and a `size` per tile, never a `read`.
 	$effect(() => {
 		void session.projects;
@@ -694,8 +692,8 @@
 		<p class="mt-6">Looking for your Projects…</p>
 	{:else if session.projects.length === 0}
 		<p class="mt-6">
-			No Projects yet. A Project holds the Historical Maps you are working with, the Alignments you
-			make, and the Annotations you write.
+			No Projects yet. A Project holds the Map Images you are working with, the Alignments you make,
+			and the Annotations you write.
 		</p>
 	{:else}
 		<!--
@@ -711,10 +709,10 @@
      because a list of nothing under a "not reachable" banner reads as "your maps are gone". -->
 {#if session.status !== 'unreachable'}
 	<section class="mt-10">
-		<h2 class="text-2xl font-semibold">Historical Maps</h2>
+		<h2 class="text-2xl font-semibold">Map Images</h2>
 		<p class="mt-1 text-sm opacity-70">
-			Every Historical Map in this Workspace. A map is prepared once and any number of Projects can
-			draw it, so these are shared: deleting one takes it out of the Workspace entirely.
+			Every Map Image in this Workspace. A map is prepared once and any number of Projects can draw
+			it, so these are shared: deleting one takes it out of the Workspace entirely.
 		</p>
 
 		<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
@@ -726,30 +724,30 @@
 		     and `UndoControl` all say so). A second `role="status"` makes `getByRole('status')` a strict
 		     mode violation, which is what pushed two existing tests off the role and onto attribute
 		     locators that stay green with the live region deleted. -->
-		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="historical-map-status">
-			{historicalMapMessage}
+		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="map-image-status">
+			{mapImageMessage}
 		</p>
 
-		{#if session.historicalMapError}
+		{#if session.mapImageError}
 			<!-- SPEC story 64: the refusal, naming the Projects that would break. A warning beside the
 			     list rather than a dialog over it — nothing has happened, and every other map stays
 			     reachable. -->
 			<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
-				<p data-testid="historical-map-refused">{session.historicalMapError}</p>
+				<p data-testid="map-image-refused">{session.mapImageError}</p>
 			</div>
 		{/if}
 
-		{#if session.historicalMapsLoading && session.historicalMaps.length === 0}
+		{#if session.mapImagesLoading && session.mapImages.length === 0}
 			<p class="mt-4">Looking at what this Workspace holds…</p>
-		{:else if session.historicalMaps.length === 0}
-			<p class="mt-4" data-testid="no-historical-maps">
-				No Historical Maps yet. Open a Project and add one from there — a map is added inside the
-				Project that will draw it first, and every other Project can then use the same map.
+		{:else if session.mapImages.length === 0}
+			<p class="mt-4" data-testid="no-map-images">
+				No Map Images yet. Open a Project and add one from there — a map is added inside the Project
+				that will draw it first, and every other Project can then use the same map.
 			</p>
 		{:else}
 			<ul class="mt-4 flex flex-col gap-3">
-				{#each session.historicalMaps as map (map.imageId)}
-					<li class="card bg-base-100 card-border" data-testid="historical-map">
+				{#each session.mapImages as map (map.imageId)}
+					<li class="card bg-base-100 card-border" data-testid="map-image">
 						<div class="card-body flex-row flex-wrap items-center justify-between gap-4">
 							<!-- A picture of the sheet, before the text and inside the same row (ADR-0030). It
 							     is what lets a scholar tell eleven scans of the same city apart without
@@ -778,10 +776,10 @@
 					</li>
 				{/each}
 			</ul>
-			<p class="mt-3 text-sm opacity-70" data-testid="historical-maps-total">
-				{session.historicalMaps.length}
-				{session.historicalMaps.length === 1 ? 'Historical Map' : 'Historical Maps'}, {describeBytes(
-					historicalMapsBytes
+			<p class="mt-3 text-sm opacity-70" data-testid="map-images-total">
+				{session.mapImages.length}
+				{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}, {describeBytes(
+					mapImagesBytes
 				)} in all{unused.maps.length > 0
 					? `, of which ${describeBytes(unused.bytes)} is used by no Project`
 					: ''}.
@@ -789,7 +787,7 @@
 		{/if}
 
 		<!--
-			The offline Base Map, listed beside the Historical Maps and reclaimable from here (ADR-0025).
+			The offline Base Map, listed beside the Map Images and reclaimable from here (ADR-0025).
 			Visible text and a real button, never a badge or an icon (SPEC story 111).
 		-->
 		<h3 class="mt-8 text-xl font-semibold">Offline Base Map</h3>
@@ -840,7 +838,7 @@
 	</p>
 	<p class="mt-3 text-sm opacity-70" data-testid="clear-cache-consequence">
 		Every Project in this Workspace will stop being available offline and will need a network
-		connection to draw its Base Map. Nothing else is touched: your Historical Maps, Alignments, and
+		connection to draw its Base Map. Nothing else is touched: your Map Images, Alignments, and
 		Annotations are not part of this, and any Project can be made available offline again.
 	</p>
 	{#snippet actions()}
@@ -851,7 +849,7 @@
 
 <ModalDialog
 	bind:open={() => deletingMap !== null, (open) => !open && (deletingMap = null)}
-	title="Delete Historical Map"
+	title="Delete Map Image"
 >
 	<p>
 		Delete <strong>{deletingMap?.label || deletingMap?.imageId}</strong> and reclaim
@@ -874,7 +872,7 @@
 	</p>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (deletingMap = null)}>Cancel</button>
-		<button class="btn btn-error" onclick={removeMap}>Delete Historical Map</button>
+		<button class="btn btn-error" onclick={removeMap}>Delete Map Image</button>
 	{/snippet}
 </ModalDialog>
 
@@ -1004,12 +1002,12 @@
 	</label>
 	<p class="mt-3 text-sm opacity-70" data-testid="review-remote-consequence">
 		This opens into a separate <strong>review copy</strong> — a throwaway Workspace holding only that
-		Project and the Historical Maps and Alignments it uses. It has to be a public repository, and you
-		do not need a GitHub account or a token. Nothing in this Workspace is changed, nothing from the review
-		copy can be brought back into it, and a review copy is never published.
+		Project and the Map Images and Alignments it uses. It has to be a public repository, and you do not
+		need a GitHub account or a token. Nothing in this Workspace is changed, nothing from the review copy
+		can be brought back into it, and a review copy is never published.
 	</p>
 	{#if storage?.transfer && reviewBusy}
-		<!-- Per-file progress, announced: a Historical Map's pyramid is thousands of files over real
+		<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real
 		     minutes, and this is one of the places a scholar waits on something they cannot see
 		     (workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
 		     without interrupting — the hub's own live region is `aria-live="polite"` and this dialog is
@@ -1065,7 +1063,7 @@
 	bind:open={() => deleting !== null, (open) => !open && (deleting = null)}
 	title="Delete Project"
 >
-	<!-- ADR-0023: a Historical Map's pyramid and its Alignment belong to the **Workspace** and are
+	<!-- ADR-0023: a Map Image's pyramid and its Alignment belong to the **Workspace** and are
 	     shared, so deleting a Project never deletes them. This said the opposite, a few lines above a
 	     list that says so plainly. Wording only — what `deleteProject` removes is unchanged. -->
 	<p>
@@ -1073,8 +1071,8 @@
 		it. This cannot be undone.
 	</p>
 	<p class="mt-3 text-sm opacity-70">
-		The Historical Maps it drew stay in the Workspace, with their Alignments, because other Projects
-		may use them. Delete those from the Historical Maps list if you no longer want them.
+		The Map Images it drew stay in the Workspace, with their Alignments, because other Projects may
+		use them. Delete those from the Map Images list if you no longer want them.
 	</p>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (deleting = null)}>Cancel</button>

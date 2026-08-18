@@ -2,11 +2,11 @@
 
 ## What to build
 
-The sidebar becomes a list of Layers where one Layer at a time opens in place to reveal what is inside it. A Historical Map Layer opens to show whether it is aligned and a button to align it. An Annotation Layer opens to show its drawing tools and its Annotations.
+The sidebar becomes a list of Layers where one Layer at a time opens in place to reveal what is inside it. A Map Image Layer opens to show whether it is aligned and a button to align it. An Annotation Layer opens to show its drawing tools and its Annotations.
 
 One idea, applied twice — a Project is a stack of Layers, and a Layer opens to reveal its contents. That is what makes the structure teach itself.
 
-Demonstrable end to end: open a Project with a Historical Map and an Annotation Layer; the sidebar shows two rows; click the map row and it opens showing an orange "not aligned yet" state and an Align button; click the annotation row and the map row closes while the drawing tools appear.
+Demonstrable end to end: open a Project with a Map Image and an Annotation Layer; the sidebar shows two rows; click the map row and it opens showing an orange "not aligned yet" state and an Align button; click the annotation row and the map row closes while the drawing tools appear.
 
 ## Where to start
 
@@ -34,7 +34,7 @@ Demonstrable end to end: open a Project with a Historical Map and an Annotation 
 
 ## Out of scope
 
-- **Do not build the add-a-Historical-Map flow.** Ticket 06. The existing add affordances stay wherever ticket 04 left them.
+- **Do not build the add-a-Map-Image flow.** Ticket 06. The existing add affordances stay wherever ticket 04 left them.
 - **Do not change annotation drawing, styling, or storage behaviour.** Only where the controls appear changes. The style controls, the simplestyle properties, `stroke-dasharray` as a tuple with solid being its absence — all untouched.
 - **Do not add a second selection concept.** "Open" and "chosen for drawing" are one thing.
 - **Do not persist which Layer is open**, not in `project.json` and not in `localStorage`.
@@ -235,7 +235,7 @@ re-derivation is this:
   under "Not done" below as the one that would make a unit seam worth having. A `.svelte.ts` class
   beside `AnnotationDrawing` takes it, and the `annotationContents` snippet collapses to forwarding
   one object.
-- **The Historical Maps section is 95 lines** and is 06's own subject, so it is not counted above.
+- **The Map Images section is 95 lines** and is 06's own subject, so it is not counted above.
 - What is left after both is the document-loading chain (`documentKey`, `documents`, `drawn`,
   `outcomes`, `notAligned`), the opening view, and the offline-availability block. Those are three
   separate subjects and none of them is this ticket's.

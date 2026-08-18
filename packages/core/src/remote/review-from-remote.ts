@@ -7,7 +7,7 @@
 // `open-project-bundle.ts` reads a Project out of a tar into a throwaway Workspace of its own; this
 // reads one out of somebody's Remote into the same kind of Workspace. What arrives is unbound,
 // unpublishable, and carries the banner that says so, because the reason has not changed with the
-// transport: under ADR-0023 there is one Alignment per Historical Map in a Workspace, so importing a
+// transport: under ADR-0023 there is one Alignment per Map Image in a Workspace, so importing a
 // colleague's Project into the user's own would either overwrite an Alignment two of their own
 // Projects are drawn by, or be refused (ADR-0024, "Why handoff cannot merge"). A new way to *fetch*
 // the Project does not make a third answer available.
@@ -27,7 +27,7 @@
 //
 //   1. **The unit is one Project's closure, not the owned namespace.** From the tree it takes
 //      `<dir>/**`, and — by reading that Project's Layers — the `images/<id>/**` and
-//      `alignments/<id>.json` those Layers name. A Workspace-shared Historical Map no Layer of this
+//      `alignments/<id>.json` those Layers name. A Workspace-shared Map Image no Layer of this
 //      Project references does not travel, which is the same rule `export-project-bundle.ts` applies
 //      and the whole difference between a handoff and a backup. That closure is *inside* the owned
 //      namespace by construction, so `isOwnedPath` is not applied as a filter here: every path it
@@ -418,7 +418,7 @@ type Closure = {
  *
  * **The same closure `export-project-bundle.ts` gathers, asked of a tree instead of a store**, which
  * is what makes a Project reviewed from a Remote hold what the same Project handed over as a bundle
- * would. One `images/<id>/` per referenced Historical Map rather than the whole of `images/`,
+ * would. One `images/<id>/` per referenced Map Image rather than the whole of `images/`,
  * because a Workspace holds a shared pool (ADR-0023) and a reviewer has no business receiving a
  * pyramid no Layer of the Project they were sent points at.
  *
@@ -432,7 +432,7 @@ type Closure = {
  * with what did not, and {@link reviewFromRemote} says so in the notice.
  *
  * **One pass over the tree**, bucketed by what each path is under, rather than a scan per referenced
- * Historical Map. A Project with fifty maps would otherwise walk a fifty-thousand-file listing fifty
+ * Map Image. A Project with fifty maps would otherwise walk a fifty-thousand-file listing fifty
  * times to find the same thing each time.
  *
  * `project.json` is not among these: it has been read already and is written last.
@@ -486,7 +486,7 @@ function gather(blobs: readonly RemoteBlob[], directory: string, project: Projec
 			}
 		}
 
-		// A map Layer is the only kind asked about a Historical Map. A kind this build has never heard
+		// A map Layer is the only kind asked about a Map Image. A kind this build has never heard
 		// of is not, because this build cannot know that a foreign kind's `imageId` names one at all —
 		// the same judgement `open-project-bundle.ts` makes about the same field.
 		if (layer.kind !== 'map' || layer.imageId === '') continue;
@@ -513,7 +513,7 @@ function gather(blobs: readonly RemoteBlob[], directory: string, project: Projec
 		if (taken.has(layer.imageId)) continue;
 		taken.add(layer.imageId);
 		wanted.push(...files);
-		// ⚠ **An Alignment is wanted and never required.** A Historical Map added to a Project is a
+		// ⚠ **An Alignment is wanted and never required.** A Map Image added to a Project is a
 		// Layer from that moment, aligned or not (ADR-0023), so a Project in that ordinary state has no
 		// `alignments/<id>.json` at all and its absence is not a missing reference.
 		const alignment = byPath.get(alignmentPath(layer.imageId));
@@ -539,7 +539,7 @@ function unmetSentence(unmet: readonly UnmetReference[]): string {
 	const said: string[] = [];
 	if (images.length > 0) {
 		said.push(
-			`${images.length} ${images.length === 1 ? 'Layer names a Historical Map' : 'Layers name Historical Maps'} ` +
+			`${images.length} ${images.length === 1 ? 'Layer names a Map Image' : 'Layers name Map Images'} ` +
 				`the Remote does not hold, so ${images.length === 1 ? 'it will' : 'they will'} draw nothing: ` +
 				`${images.map(describe).join(', ')}`
 		);
@@ -735,7 +735,7 @@ function truncatedMessage(listed: number, remote: Named): string {
 	return (
 		`GitHub could only list the first ${listed} files in ${describeRemote(remote)}, so this ` +
 		`Review cannot know what the rest of them are. Opening it anyway would hand you a review copy ` +
-		`with most of a Historical Map silently missing — a Project that opens and draws a map full of ` +
+		`with most of a Map Image silently missing — a Project that opens and draws a map full of ` +
 		`holes — so nothing has been read. That repository has to hold fewer files before a Project in ` +
 		`it can be reviewed.`
 	);

@@ -53,7 +53,7 @@ record is named for.
 
 `POST /git/blobs` is one request per file, because the tree API's inline `content` field is UTF-8 only
 and tiles are JPEG. A user token gets 5,000 REST requests an hour, so a first Publish of one 48 MP map
-is roughly 1,020 requests and a large one roughly 3,700 — front-loaded once per Historical Map, not
+is roughly 1,020 requests and a large one roughly 3,700 — front-loaded once per Map Image, not
 once per save, because subsequent Publishes touch only the documents that changed.
 
 `GET /git/trees/{ref}?recursive=1` **truncates at 100,000 entries or a 7 MB response**, which for this

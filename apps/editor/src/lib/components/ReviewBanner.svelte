@@ -26,7 +26,7 @@
 	//
 	// Back to your own Workspace, and discard this one. There is deliberately **no** "keep this", "copy
 	// to my Workspace", "save a copy", or "promote". ADR-0024 calls that the fence that makes the rest
-	// coherent: under ADR-0023 there is one Alignment per Historical Map in a Workspace, so copying a
+	// coherent: under ADR-0023 there is one Alignment per Map Image in a Workspace, so copying a
 	// reviewed Project into the user's own is the collision the whole design exists to avoid, arriving
 	// through a convenience. A scholar who wants a colleague's map in their own research adds the map
 	// themselves.
@@ -156,8 +156,8 @@
 	>
 		<p>
 			Discard <strong>{storage.name}</strong>, the review copy holding {subject}? Everything in it
-			goes: the Project, its Annotations, and the Historical Maps and Alignments the bundle carried.
-			This cannot be undone.
+			goes: the Project, its Annotations, and the Map Images and Alignments the bundle carried. This
+			cannot be undone.
 		</p>
 		<p class="mt-3 text-sm opacity-70" data-testid="discard-review-consequence">
 			Nothing of your own is touched. The file you were sent is not changed either, so you can open

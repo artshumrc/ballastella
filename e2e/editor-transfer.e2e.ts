@@ -253,7 +253,7 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 					geojsonRef: 'annotations/warehouses.geojson',
 					defaultStyle: {}
 				},
-				// A map Layer, because since ADR-0023 an export gathers the Workspace Historical Maps a
+				// A map Layer, because since ADR-0023 an export gathers the Workspace Map Images a
 				// Project's **Layers reference**. Without this the bundle would legitimately hold no
 				// `images/`, and every assertion below about a self-contained archive would be vacuous.
 				{
@@ -417,7 +417,7 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 	// A bundle carries the Project it names and the shared material *that Project's Layers reference*,
 	// and not the Workspace's other maps. That is the whole difference between a handoff and a backup,
 	// so it is asserted at the seam where a real Workspace holds both.
-	test('leaves the Workspace’s other Historical Maps out of it', async ({ page }) => {
+	test('leaves the Workspace’s other Map Images out of it', async ({ page }) => {
 		await seedProject(page, 'amsterdam-1625', projectFiles());
 		await seedProject(page, 'the-canal-ring', {
 			'project.json': projectJson({ name: 'The Canal Ring', layers: [] }),

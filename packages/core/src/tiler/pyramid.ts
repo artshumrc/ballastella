@@ -80,7 +80,7 @@ export type PlannedTile = {
 	 * `region / scaleFactor` — 106.375 rather than the served 107 — which is only the right
 	 * placement if the file's full extent is the region's full extent. A tiler that instead
 	 * scaled by exactly 1 / scaleFactor and padded the leftover fraction, or that scaled to
-	 * `floor` and padded, would leave every ragged tile in every Historical Map stretched by up
+	 * `floor` and padded, would leave every ragged tile in every Map Image stretched by up
 	 * to 0.6% at the right and bottom margins: sub-pixel, systematic, in the margins, and
 	 * invisible to any test that only checks coordinates. Both tilers assert this property
 	 * directly rather than inheriting it.
@@ -193,7 +193,7 @@ export function planPyramid(info: unknown, directory: StorePath): PlannedTile[] 
 /**
  * The pixel dimensions a stored `info.json` declares, or `null` when it declares none.
  *
- * **What it is for**: adding a Historical Map that is already in the Workspace to another Project
+ * **What it is for**: adding a Map Image that is already in the Workspace to another Project
  * (ticket 06). That gesture writes no pyramid and copies no bytes, but it still has to be able to
  * give the map a starter Alignment if it has none — and a starter Alignment's Resource Mask is the
  * whole sheet, so it needs the sheet's size. The one record of that size, for a map whose tiles are

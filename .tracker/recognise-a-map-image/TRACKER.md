@@ -1,14 +1,14 @@
-# Tracker for recognise-a-historical-map
+# Tracker for recognise-a-map-image
 
 ## Purpose
 
-A scholar can recognise each of their Historical Maps by looking at it, on the Workspace hub and in the
+A scholar can recognise each of their Map Images by looking at it, on the Workspace hub and in the
 picker for a map they already have. The picture is **the coarsest single tile of the pyramid the map
 already has** — so nothing is generated, no file is written, no ingest step is added, and every map
 already in a Workspace gains a picture with no action from its owner.
 
 Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md). The decisions are in
-[ADR-0030](../../docs/adr/0030-a-historical-maps-thumbnail-is-its-coarsest-pyramid-tile.md), written
+[ADR-0030](../../docs/adr/0030-a-map-images-thumbnail-is-its-coarsest-pyramid-tile.md), written
 before any ticket, and it is the reference for every "why is it like that" question below.
 
 ## Current status
@@ -69,7 +69,7 @@ likely to be re-opened by an implementer acting reasonably:
   available", accepted knowingly. Do not add a spinner, a skeleton, or a message.
 - **`CONTEXT.md` stays unchanged.** A thumbnail has no user-facing word — it is a silent picture with an
   empty `alt` — so the glossary has nothing to protect, and it is a role rather than a new artifact.
-- **The published viewer gets nothing.** Its hub lists Projects and never Historical Maps. This will look
+- **The published viewer gets nothing.** Its hub lists Projects and never Map Images. This will look
   like an oversight. It is not.
 
 ## Standing constraints
@@ -144,7 +144,7 @@ the one with no network in it.
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-a-workspace-held-historical-map-shows-its-picture.md](./tickets/01-a-workspace-held-historical-map-shows-its-picture.md) | Completed | — |
+| 01 | [01-a-workspace-held-map-image-shows-its-picture.md](./tickets/01-a-workspace-held-map-image-shows-its-picture.md) | Completed | — |
 | 02 | [02-the-picker-shows-the-same-pictures.md](./tickets/02-the-picker-shows-the-same-pictures.md) | Completed | 01 |
-| 03 | [03-a-referenced-historical-map-shows-a-picture-from-its-library.md](./tickets/03-a-referenced-historical-map-shows-a-picture-from-its-library.md) | Completed | 01 |
+| 03 | [03-a-referenced-map-image-shows-a-picture-from-its-library.md](./tickets/03-a-referenced-map-image-shows-a-picture-from-its-library.md) | Completed | 01 |
 | 04 | [04-an-offline-copy-moves-the-picture-into-the-workspace.md](./tickets/04-an-offline-copy-moves-the-picture-into-the-workspace.md) | Completed | 03 |

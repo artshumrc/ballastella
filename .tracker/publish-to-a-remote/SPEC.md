@@ -74,7 +74,7 @@ data plane directly in both cases (ADR-0031).
 11. As a scholar, I want to be warned when publishing will need more requests than GitHub allows in an
     hour, so that a first publish spanning several hours is something I chose.
 12. As a scholar, I want publishing to be refused legibly when my Workspace holds more files than the
-    API can list, so that I am never given a site with most of a Historical Map silently missing.
+    API can list, so that I am never given a site with most of a Map Image silently missing.
 13. As a scholar, I want per-file progress while publishing, so that a long upload is visibly working
     rather than apparently hung.
 14. As a scholar, I want to know how much of GitHub's hourly budget is left as it runs, so that a stop
@@ -87,7 +87,7 @@ data plane directly in both cases (ADR-0031).
     silently move my cited address back to a `github.io` URL.
 18. As a scholar, I want a Project I deleted to disappear from my published site along with its tiles,
     so that bytes I believe I removed are not still counted against my hosting limit.
-19. As a scholar, I want a Historical Map I deleted to have its pyramid removed from the Remote, so that
+19. As a scholar, I want a Map Image I deleted to have its pyramid removed from the Remote, so that
     the shared pool of maps is reclaimed there as it is here.
 20. As a scholar, I want publishing refused when the Remote holds a change I have never seen, so that my
     other machine's work is not overwritten without a word.
@@ -270,7 +270,7 @@ the two kinds of content load them oppositely (ADR-0033):
 | Axis | Ceiling | Driven by |
 | --- | --- | --- |
 | Bytes | `STATIC_HOSTING_LIMIT_BYTES` | offline Base Map tiles, ~152 kB each |
-| Files | ~40,000, tree truncation | Historical Map pyramids |
+| Files | ~40,000, tree truncation | Map Image pyramids |
 | Requests | 5,000/hour | new blobs on a first publish |
 
 The rate-limit headers are exposed to the browser, so the remaining budget is read rather than inferred.

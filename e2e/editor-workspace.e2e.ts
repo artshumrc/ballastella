@@ -315,21 +315,21 @@ test.describe('the Project hub', () => {
 });
 
 /**
- * The Workspace's Historical Maps, on the hub (SPEC stories 63, 64, 65, 98).
+ * The Workspace's Map Images, on the hub (SPEC stories 63, 64, 65, 98).
  *
  * Everything asserted here is a browser behaviour the core suite cannot see: the list reaching a
  * screen, the refusal reaching a screen instead of a dialog, `<dialog>`'s Escape and focus
  * restoration on the confirmation, and the whole of it working from the keyboard. What the *files*
  * do — which are deleted, which survive a refusal, what the used-by walk reads — is
- * `packages/core/src/project/historical-maps.test.ts`.
+ * `packages/core/src/project/map-images.test.ts`.
  *
  * **What each card *says* about a map** — the size and file count, where the tiles are, and the
  * used-by sentence in each of its shapes including ADR-0010's — is composed by `ProjectHub` from a
- * `WorkspaceHistoricalMap` record and nothing else, and is asserted against the component in
+ * `WorkspaceMapImage` record and nothing else, and is asserted against the component in
  * `apps/editor/src/lib/components/project-hub.dom.test.ts`. What stays here is the wiring: that
  * those records are the Workspace's own.
  */
-test.describe('the Workspace’s Historical Maps', () => {
+test.describe('the Workspace’s Map Images', () => {
 	const manifest = (label: string) => JSON.stringify({ label: { none: [label] } });
 	const projectWith = (name: string, imageIds: readonly string[]) =>
 		JSON.stringify({
@@ -365,7 +365,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 				`images/${imageId}/0,0,256,256/256,256/0/default.jpg`,
 				'x'.repeat(50_000)
 			);
-			// alignment-write-is-the-fixture: the Historical Maps this spec lists and deletes, seeded rather than added through the UI
+			// alignment-write-is-the-fixture: the Map Images this spec lists and deletes, seeded rather than added through the UI
 			await seedFile(page, `alignments/${imageId}.json`, '{}');
 		}
 		// A fourth whose tiles are on a Library's server: a `remote.json` and no `info.json`.
@@ -384,14 +384,14 @@ test.describe('the Workspace’s Historical Maps', () => {
 	};
 
 	const entry = (page: Page, label: string) =>
-		page.getByTestId('historical-map').filter({ hasText: label });
+		page.getByTestId('map-image').filter({ hasText: label });
 
 	test.beforeEach(async ({ page }) => {
 		await page.goto('./');
 		await emptyWorkspace(page);
 		await seedWorkspace(page);
 		await page.reload();
-		await expect(page.getByTestId('historical-map')).toHaveCount(4);
+		await expect(page.getByTestId('map-image')).toHaveCount(4);
 	});
 
 	/**
@@ -407,7 +407,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 	 * `remote.json` naming its Library, and a used-by walk over two Projects — so a component that
 	 * renders perfectly against props it is never given still fails here.
 	 */
-	test('lists the Workspace’s own Historical Maps, weighed and attributed from what is on disk', async ({
+	test('lists the Workspace’s own Map Images, weighed and attributed from what is on disk', async ({
 		page
 	}) => {
 		// Four files of seeded pyramid, weighed by the store rather than by the list.
@@ -422,18 +422,18 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(entry(page, 'A map nobody kept')).toContainText('No Project uses this map.');
 	});
 
-	test('deleting a Project keeps the Workspace’s Historical Maps, and the dialog says so', async ({
+	test('deleting a Project keeps the Workspace’s Map Images, and the dialog says so', async ({
 		page
 	}) => {
-		// The Delete Project dialog used to say "Its Historical Maps, Alignments, and Annotations go
+		// The Delete Project dialog used to say "Its Map Images, Alignments, and Annotations go
 		// with it", a few sections above a list stating the opposite. ADR-0023 made it false — a pyramid
 		// and its Alignment belong to the **Workspace** and are shared — so this is the wording catching
 		// up with the behaviour, which is unchanged and asserted below rather than described.
 		await page.getByRole('button', { name: 'Delete Boston 1775' }).click();
 
 		const dialog = page.getByRole('dialog', { name: 'Delete Project' });
-		await expect(dialog).toContainText('The Historical Maps it drew stay in the Workspace');
-		await expect(dialog).not.toContainText('Its Historical Maps');
+		await expect(dialog).toContainText('The Map Images it drew stay in the Workspace');
+		await expect(dialog).not.toContainText('Its Map Images');
 		await page.getByRole('button', { name: 'Delete Project' }).click();
 
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
@@ -457,9 +457,9 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(page.getByTestId('delete-map-consequence')).toContainText(
 			'deleting it will be refused'
 		);
-		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 
-		const refusal = page.getByTestId('historical-map-refused');
+		const refusal = page.getByTestId('map-image-refused');
 		await expect(refusal).toContainText('Amsterdam 1625');
 		await expect(refusal).toContainText('Boston 1775');
 		// The claim that must not pass vacuously: the tiles are still on the disk, not merely that a
@@ -486,15 +486,15 @@ test.describe('the Workspace’s Historical Maps', () => {
 			.getByRole('button', { name: /^Delete/ })
 			.click();
 
-		// A dialog, not a deletion. The old code reached `deleteHistoricalMap` here and the pyramid was
+		// A dialog, not a deletion. The old code reached `deleteMapImage` here and the pyramid was
 		// gone before this line ran.
-		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
 		await expect(dialog).toBeVisible();
 		expect(await everyPath(page)).toEqual(before);
 
 		// And confirming does delete it, because the decision is core's and taken from the Projects'
 		// documents now rather than from the list.
-		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 		await expect(entry(page, 'Bonner’s Boston')).toHaveCount(0);
 		expect((await everyPath(page)).filter((path) => path.startsWith('images/solo/'))).toEqual([]);
 	});
@@ -503,7 +503,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 		page
 	}) => {
 		// ADR-0010 refuses to open a `formatVersion: 2` Project *because it is intact* — its Layer stack
-		// is right there and certainly names Historical Maps. Reading that refusal as "this Project uses
+		// is right there and certainly names Map Images. Reading that refusal as "this Project uses
 		// nothing" is how a scholar is offered a delete button for a map their next release still draws,
 		// on the same screen that has just told them the Project cannot be opened.
 		await emptyWorkspace(page);
@@ -528,9 +528,9 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await entry(page, 'A map nobody kept')
 			.getByRole('button', { name: /^Delete/ })
 			.click();
-		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 
-		await expect(page.getByTestId('historical-map-refused')).toContainText('from-the-future');
+		await expect(page.getByTestId('map-image-refused')).toContainText('from-the-future');
 		// Not merely that a sentence appeared: the pyramid is untouched.
 		expect(await everyPath(page)).toEqual(before);
 	});
@@ -538,26 +538,26 @@ test.describe('the Workspace’s Historical Maps', () => {
 	test('deletes a map no Project uses, with its remote.json and its Alignment, and the total drops', async ({
 		page
 	}) => {
-		const total = page.getByTestId('historical-maps-total');
+		const total = page.getByTestId('map-images-total');
 		// Three pyramids of 50 kB and one referenced map, whose `remote.json` is a few hundred bytes
 		// because its tiles are on somebody else's disk — which is the point of the figure.
-		await expect(total).toContainText('4 Historical Maps');
+		await expect(total).toContainText('4 Map Images');
 		await expect(total).toContainText('150 kB in all');
 		await expect(total).toContainText('50 kB is used by no Project');
 
 		await entry(page, 'A map nobody kept')
 			.getByRole('button', { name: /^Delete/ })
 			.click();
-		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 
-		await expect(page.getByTestId('historical-map')).toHaveCount(3);
-		await expect(total).toContainText('3 Historical Maps');
+		await expect(page.getByTestId('map-image')).toHaveCount(3);
+		await expect(total).toContainText('3 Map Images');
 		await expect(total).toContainText('100 kB in all');
 		// Announced, not merely rendered (SPEC story 112) — so the region's own `aria-live` is asserted
 		// beside its text. Without that this claim sat on a `data-testid` and was vacuous: a `<p>` with
 		// the live attribute stripped would have passed it while announcing nothing. `aria-live` rather
 		// than `role="status"` because the transfer line above already owns that role on this page.
-		const announcement = page.getByTestId('historical-map-status');
+		const announcement = page.getByTestId('map-image-status');
 		await expect(announcement).toHaveAttribute('aria-live', 'polite');
 		await expect(announcement).toContainText('Deleted A map nobody kept, reclaiming 50 kB');
 
@@ -576,7 +576,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
 		await trigger.click();
 
-		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
 		await expect(dialog).toBeVisible();
 		// It names the map and what deleting it reclaims, because it cannot be undone.
 		await expect(dialog).toContainText('A map nobody kept');
@@ -591,7 +591,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(dialog).toBeHidden();
 		await expect(trigger).toBeFocused();
 		// Escape cancelled rather than confirmed.
-		await expect(page.getByTestId('historical-map')).toHaveCount(4);
+		await expect(page.getByTestId('map-image')).toHaveCount(4);
 	});
 
 	test('is fully operable from the keyboard', async ({ page }) => {
@@ -610,11 +610,11 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(trigger).toBeFocused();
 		await page.keyboard.press('Enter');
 
-		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
 		await expect(dialog).toBeVisible();
 		// And on into the dialog's own actions, without ever touching a pointer. `showModal()` traps
 		// focus inside the dialog, so tabbing from here cannot leave it.
-		const confirm = page.getByRole('button', { name: 'Delete Historical Map' });
+		const confirm = page.getByRole('button', { name: 'Delete Map Image' });
 		for (
 			let tab = 0;
 			tab < 10 && !(await confirm.evaluate((node) => node === document.activeElement));
@@ -625,20 +625,16 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(confirm).toBeFocused();
 		await page.keyboard.press('Enter');
 
-		await expect(page.getByTestId('historical-map')).toHaveCount(3);
+		await expect(page.getByTestId('map-image')).toHaveCount(3);
 		await expect(entry(page, 'A map nobody kept')).toHaveCount(0);
 	});
 
-	test('a Workspace with no Historical Maps says so, and names the next action', async ({
-		page
-	}) => {
+	test('a Workspace with no Map Images says so, and names the next action', async ({ page }) => {
 		await emptyWorkspace(page);
 		await page.reload();
 
-		await expect(page.getByTestId('no-historical-maps')).toContainText(
-			'Open a Project and add one'
-		);
-		await expect(page.getByTestId('historical-map')).toHaveCount(0);
+		await expect(page.getByTestId('no-map-images')).toContainText('Open a Project and add one');
+		await expect(page.getByTestId('map-image')).toHaveCount(0);
 	});
 });
 

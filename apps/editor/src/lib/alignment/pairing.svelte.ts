@@ -1,6 +1,6 @@
 // Control Point pairing: the core act of the application (ADR-0022).
 //
-// A user clicks a feature on the Historical Map, clicks the same place on the earth, and a numbered
+// A user clicks a feature on the Map Image, clicks the same place on the earth, and a numbered
 // pair appears. **The pairing is ours** — neither `terra-draw` nor any other drawing library has a
 // concept of linked points across two maps, which is ADR-0022's contract 4 and the reason this file
 // exists rather than a configuration of somebody else's editor.
@@ -41,9 +41,9 @@ import {
 export type PendingHalf = 'resource' | 'geo';
 
 /**
- * One Historical Map's Control Point pairing, as the user makes it.
+ * One Map Image's Control Point pairing, as the user makes it.
  *
- * Constructed per Historical Map. Switching maps builds a new one rather than resetting this one,
+ * Constructed per Map Image. Switching maps builds a new one rather than resetting this one,
  * so a pending half cannot survive into a different image's coordinate space.
  */
 export class AlignmentPairing {
@@ -59,7 +59,7 @@ export class AlignmentPairing {
 	selectedId = $state<string | null>(null);
 
 	/**
-	 * How the Historical Map is stretched (ADR-0013). Part of the Alignment, so it is held here
+	 * How the Map Image is stretched (ADR-0013). Part of the Alignment, so it is held here
 	 * beside the Control Points rather than in a component: changing it must not be able to disturb
 	 * them, and holding both in one object is what makes that structural.
 	 */
@@ -118,7 +118,7 @@ export class AlignmentPairing {
 			message:
 				half === 'resource'
 					? 'Waiting for the matching place on the Base Map. Press Escape to cancel this Control Point.'
-					: 'Waiting for the matching feature on the Historical Map. Press Escape to cancel this Control Point.'
+					: 'Waiting for the matching feature on the Map Image. Press Escape to cancel this Control Point.'
 		};
 	});
 
@@ -140,7 +140,7 @@ export class AlignmentPairing {
 	}
 
 	/**
-	 * Choose how the Historical Map is stretched (ADR-0013).
+	 * Choose how the Map Image is stretched (ADR-0013).
 	 *
 	 * **Nothing else changes.** The Control Points are the user's actual labour and the transformation
 	 * is a lens over them, so the obvious implementation — reset on change — destroys work. Here that
@@ -194,7 +194,7 @@ export class AlignmentPairing {
 	}
 
 	/**
-	 * A click landed on the Historical Map, at an image pixel.
+	 * A click landed on the Map Image, at an image pixel.
 	 *
 	 * Completes a pending earth half, or starts a new pair. Deliberately **not** "place a point and
 	 * link it later", and deliberately never auto-paired by order: ADR-0022 rejects the latter as
@@ -202,7 +202,7 @@ export class AlignmentPairing {
 	 * placement silently shifts every later pairing and the only symptom is a warp that is
 	 * inexplicably wrong.
 	 */
-	clickHistoricalMap(resource: ResourcePoint): void {
+	clickMapImage(resource: ResourcePoint): void {
 		this.#click('resource', resource);
 	}
 

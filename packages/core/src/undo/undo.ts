@@ -41,7 +41,7 @@ import type { Bytes } from '../store/project-store.js';
  */
 export interface ControlPointMovedUndo {
 	readonly kind: 'control-point-moved';
-	/** Which Historical Map's Alignment this pair belongs to, so an undo cannot cross images. */
+	/** Which Map Image's Alignment this pair belongs to, so an undo cannot cross images. */
 	readonly imageId: string;
 	readonly pointId: string;
 	/** As the user read it when they moved it — 1-based, derived from position (ADR-0022). */
@@ -114,7 +114,7 @@ export interface LayerDeletedUndo {
 export type UndoRecord =
 	ControlPointMovedUndo | ControlPointDeletedUndo | AnnotationDeletedUndo | LayerDeletedUndo;
 
-/** Whether this record is about a Control Point, and so belongs to one Historical Map. */
+/** Whether this record is about a Control Point, and so belongs to one Map Image. */
 export const isControlPointUndo = (
 	record: UndoRecord
 ): record is ControlPointMovedUndo | ControlPointDeletedUndo =>
@@ -193,7 +193,7 @@ export function restoreControlPoint(
  *
  * **A map Layer answers `''`, and that is ADR-0023 rather than an omission.** Its Alignment and its
  * pyramid belong to the Workspace and are shared by every Project that references the image, so
- * deleting the Layer must leave both alone — SPEC story 67: removing a Layer leaves the Historical Map
+ * deleting the Layer must leave both alone — SPEC story 67: removing a Layer leaves the Map Image
  * available. Returning `alignments/<id>.json` here would make one Project's delete button destroy
  * another Project's map.
  *
@@ -282,7 +282,7 @@ export class UndoSlot {
 	/**
 	 * Forget the record when `stale` says it no longer applies.
 	 *
-	 * The case it exists for: a Control Point undo belongs to the Historical Map it was made on, and
+	 * The case it exists for: a Control Point undo belongs to the Map Image it was made on, and
 	 * once the user is aligning a different one, an affordance offering to move a point they cannot see
 	 * is worse than no affordance at all.
 	 */

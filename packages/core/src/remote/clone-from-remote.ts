@@ -56,7 +56,7 @@
 //
 // ⚠ **Unlike a restore, a failure does not discard what has been written**, and that is the one
 // deliberate divergence. A Clone is as expensive as a first publish — thousands of files for one
-// Historical Map — so throwing the partial Workspace away would make every interruption cost the
+// Map Image — so throwing the partial Workspace away would make every interruption cost the
 // whole download again. What makes keeping it safe is {@link cloneFromRemote}'s resume: every file
 // already present whose blob SHA matches the tree's is skipped, so running it again against the same
 // destination finishes the job rather than repeating it. Every refusal but `'incomplete'` happens
@@ -342,7 +342,7 @@ export async function cloneFromRemote(
 				? ''
 				: ` ${declined.length} ${declined.length === 1 ? 'Alignment' : 'Alignments'} on the ` +
 					`Remote ${declined.length === 1 ? 'was' : 'were'} not downloaded, because this ` +
-					`Workspace already had one for the same Historical Map: ${declined.join(', ')}.`)
+					`Workspace already had one for the same Map Image: ${declined.join(', ')}.`)
 	};
 }
 
@@ -552,7 +552,7 @@ function truncatedMessage(listed: number, remote: CloneReference): string {
 	return (
 		`GitHub could only list the first ${listed} files in ${describeRemote(remote)}, so this Clone ` +
 		`cannot know what the rest of them are. Downloading anyway would hand you a Workspace with ` +
-		`most of a Historical Map silently missing — a Project that opens and draws a map full of ` +
+		`most of a Map Image silently missing — a Project that opens and draws a map full of ` +
 		`holes — so nothing has been downloaded. That repository has to hold fewer files before it ` +
 		`can be cloned.`
 	);

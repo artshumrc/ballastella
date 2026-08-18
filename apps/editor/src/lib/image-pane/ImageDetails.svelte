@@ -8,7 +8,7 @@
 	 * one pyramid's dimensions with another's zoom.
 	 */
 	export type ImageReadout = {
-		/** The Historical Map on screen — the readout's own claim about which pyramid this describes. */
+		/** The Map Image on screen — the readout's own claim about which pyramid this describes. */
 		readonly imageId: string;
 		readonly pane: ImagePane;
 		readonly mapZoom: number;
@@ -48,8 +48,8 @@
 		type="button"
 		class="btn btn-ghost btn-xs"
 		aria-expanded={showing}
-		aria-controls={showing ? 'historical-map-details' : undefined}
-		data-testid="historical-map-details-toggle"
+		aria-controls={showing ? 'map-image-details' : undefined}
+		data-testid="map-image-details-toggle"
 		onclick={() => (showing = !showing)}
 	>
 		{showing ? 'Hide image details' : 'Image details'}
@@ -57,9 +57,9 @@
 
 	{#if showing}
 		<dl
-			id="historical-map-details"
+			id="map-image-details"
 			class="mt-2 grid gap-x-4 text-sm"
-			data-testid="historical-map-pyramid"
+			data-testid="map-image-pyramid"
 			data-image-id={imageId}
 			data-width={pane.image.width}
 			data-height={pane.image.height}
@@ -71,11 +71,11 @@
 			</dd>
 			<dt class="font-medium">Zoom</dt>
 			<dd>
-				<span data-testid="historical-map-zoom">{mapZoom.toFixed(4)}</span>
+				<span data-testid="map-image-zoom">{mapZoom.toFixed(4)}</span>
 				of {pane.projection.fullResolutionMapZoom} at full resolution
 			</dd>
 			<dt class="font-medium">Pointer</dt>
-			<dd data-testid="historical-map-pointer">{pointer ? pixel(pointer) : '—'}</dd>
+			<dd data-testid="map-image-pointer">{pointer ? pixel(pointer) : '—'}</dd>
 		</dl>
 	{/if}
 </div>

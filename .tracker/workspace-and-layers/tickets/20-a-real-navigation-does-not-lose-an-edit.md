@@ -43,7 +43,7 @@ CONTRIBUTING is explicit that the record is the only evidence anyone has. Every 
 | remove the newer-`formatVersion` refusal | **RED** | story 114 |
 | never `forget` after a successful write | **RED** | |
 | remove `record` on quota failure keeping the stored entry | **RED** | 3 core tests (added after review) |
-| remove the `size`-based evidence in `hasHistoricalMap` | **RED** | 3 core tests (added after review) |
+| remove the `size`-based evidence in `hasMapImage` | **RED** | 3 core tests (added after review) |
 | remove the `recovered` gate from `/align` | see note | no test reaches that route with a pending edit; the gate is argued from the hub's measured failure |
 | remove the journal write from `Autosave.queue` | **GREEN** | `capture()` on `pagehide` picks the same bytes up |
 | remove `autosave.capture()` from the `pagehide` listener | **GREEN** | `queue` had already journalled them |
@@ -63,7 +63,7 @@ The e2e comment block in `editor-workspace.e2e.ts` carries this table too, besid
 Recorded because each is a case where the reasoning in the code was wrong rather than merely thin.
 
 1. **`capture()` could destroy the entry it exists to protect.** The over-quota policy removed the previous entry, on the argument that an older entry is worse than none. False in two cases: `capture()` re-records *identical* bytes on `pagehide`, so a quota that filled in between would delete a complete valid rescue; and the argument assumed the store write would still happen, which is false precisely when an entry is still journalled. The policy is now **never remove**, plus "do not report a refusal when what is stored is already these exact bytes". Pinned by three tests.
-2. **An empty listing was read as "gone".** The Project branch of `missingOwner` said "unreadable is not absent"; the Historical-Map branches read any empty `store.list()` as a deletion and then discarded the bytes permanently. Both branches now demand the same evidence — `PathNotFoundError` from two named files — and the precondition runs inside the loop, so one unanswerable entry no longer abandons the rest. A map's own record is exempt for the same reason `project.json` is.
+2. **An empty listing was read as "gone".** The Project branch of `missingOwner` said "unreadable is not absent"; the Map-Image branches read any empty `store.list()` as a deletion and then discarded the bytes permanently. Both branches now demand the same evidence — `PathNotFoundError` from two named files — and the precondition runs inside the loop, so one unanswerable entry no longer abandons the rest. A map's own record is exempt for the same reason `project.json` is.
 3. **The `recovered` gate was on one of two routes.** `/align?p=…&layer=…` is bookmarkable and is where Alignments are written; it was ungated, which is the defect the gate exists for on the route where it costs most. ADR-0017 had already claimed *every* route waited, so the claim is now enumerated rather than sweeping.
 4. **The internal Workspace key reached the screen** — "finished saving in `opfs:Marking 2026`". `workspaceKeyLabel` now renders it as the user's own Workspace name.
 5. **ADR-0001's "not a store" bullet was inaccurate** in the direction that hides unbounded growth: failed writes are kept on purpose and an unopened Workspace's entries persist. Corrected there and in CONTEXT.md.
@@ -86,7 +86,7 @@ Recorded because each is a case where the reasoning in the code was wrong rather
 
 ### The one flaky test, classified rather than waved through
 
-`viewer-reader.e2e.ts › a Historical Map read unwarped › opens over HTTP by link, and the navigation throws nothing` failed once in the full suite and passed on retry.
+`viewer-reader.e2e.ts › a Map Image read unwarped › opens over HTTP by link, and the navigation throws nothing` failed once in the full suite and passed on retry.
 
 `pnpm flake:check --against main e2e/viewer-reader.e2e.ts` returned **SUSPECT**, not "consistent with flake" — green in isolation on both sides, so the full-suite red was unexplained and the tool says in as many words not to report it as a known flake without looking. So it was looked at.
 

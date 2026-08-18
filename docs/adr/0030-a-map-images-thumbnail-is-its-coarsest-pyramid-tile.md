@@ -1,6 +1,6 @@
-# A Historical Map's thumbnail is its coarsest pyramid tile
+# A Map Image's thumbnail is its coarsest pyramid tile
 
-The Workspace hub and the "already in this Workspace" picker show each Historical Map as a picture.
+The Workspace hub and the "already in this Workspace" picker show each Map Image as a picture.
 That picture is the **single tile at the coarsest level of the map's pyramid** — the derivative that
 already exists — and **no thumbnail file is written anywhere**. The same rule covers a referenced map,
 which is why `remote.json` now records the service's tile size.
@@ -14,7 +14,7 @@ URL — it is what a Presentation manifest's painting body points at, because `/
 something a level-0 service serves. `pyramid.test.ts`'s *"paints a body URL that the pyramid actually
 contains"* pins that the two agree.
 
-So the thumbnail predates the feature. Every Historical Map in every Workspace already has one, which
+So the thumbnail predates the feature. Every Map Image in every Workspace already has one, which
 is why there is no backfill, no ingest change, and no second copy of bytes charged against ADR-0008's
 ~1 GB budget.
 

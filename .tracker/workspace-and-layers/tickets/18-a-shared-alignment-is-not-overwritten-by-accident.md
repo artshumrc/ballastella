@@ -19,7 +19,7 @@ Ticket 01's fence for Project-rooted paths exists because "the failure mode is n
 - `packages/core/src/alignment/alignment.ts` — `alignmentPath`, and whatever `serialiseAlignment` / `serialiseReferencedAlignment` do today.
 - `apps/editor/src/lib/editor-session.svelte.ts` — `writeAlignment`, `#writeStarterAlignment`, `#hasAlignment`, `addReferencedMap`, and (if it still exists after ticket 03's reconciliation) `ensureMapLayerFor`.
 - `scripts/check-workspace-rooted-paths.mjs` — the house pattern for a fence, including its positive control and its inline opt-out. Read it before writing a new one.
-- `docs/adr/0023-*` and CONTEXT.md's **Align / Alignment** entry: "There is exactly one alignment per historical map, belonging to the workspace and shared by every project that uses that map."
+- `docs/adr/0023-*` and CONTEXT.md's **Align / Alignment** entry: "There is exactly one alignment per map image, belonging to the workspace and shared by every project that uses that map."
 
 ## Contract
 
@@ -45,7 +45,7 @@ A caller that cannot say which one it means is a caller that has not decided.
 
 ## Acceptance criteria
 
-1. Aligning a Historical Map in Project A, placing Control Points, then adding the same map to Project B and accepting a community Alignment **does not destroy A's Control Points**. Whatever happens instead is visible to the user.
+1. Aligning a Map Image in Project A, placing Control Points, then adding the same map to Project B and accepting a community Alignment **does not destroy A's Control Points**. Whatever happens instead is visible to the user.
 2. Opening the Align route for a map already aligned in another Project **writes nothing at all** — asserted by counting writes, not by byte-identity, which cannot tell an idempotent rewrite from no write.
 3. A Georeference Annotation carrying a field this build does not model survives a read-and-write cycle, or the write is refused with a message saying why.
 4. `grep` finds exactly one module building a path under `alignments/`; the fence reports the count and the exemptions on success.

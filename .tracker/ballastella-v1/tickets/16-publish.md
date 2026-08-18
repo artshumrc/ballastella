@@ -4,7 +4,7 @@
 
 A user clicks Publish. An `index.html` and a read-only viewer bundle are written into their Workspace, next to the data already there. That folder, pushed to GitHub Pages or uploaded to any static host, is a working website — at a domain root or in a subdirectory, without reconfiguration.
 
-Optionally, the user supplies a canonical URL and their Historical Maps become real, citable IIIF endpoints.
+Optionally, the user supplies a canonical URL and their Map Images become real, citable IIIF endpoints.
 
 **Fulfills** — [SPEC.md](../SPEC.md) user stories 78, 79, 80, 81, 88, 89, 90, 92, 99, and 101. Story 82's hub page is written here; its Reader behaviour is ticket 17. With ticket 13: 87 and 93. With ticket 15: 15. With ticket 09: 29.
 
@@ -26,7 +26,7 @@ workspace/
 └── boston-1775/          ← untouched
 ```
 
-The alternative — exporting to a separate directory containing the viewer *and a copy of the data* — was rejected on tile bytes: a single large Historical Map is hundreds of megabytes to gigabytes of pyramid, and copying it on every publish is slowest precisely in OPFS, the most constrained backend (ADR-0006).
+The alternative — exporting to a separate directory containing the viewer *and a copy of the data* — was rejected on tile bytes: a single large Map Image is hundreds of megabytes to gigabytes of pyramid, and copying it on every publish is slowest precisely in OPFS, the most constrained backend (ADR-0006).
 
 **`paths.relative: true`** was set in ticket 01 and this ticket proves it: `paths.base` is baked at build time, but at build time we cannot know whether the user publishes to `username.github.io/some-repo/` or to a domain root. **Both must work from one build.**
 

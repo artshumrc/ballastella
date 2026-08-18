@@ -2,7 +2,7 @@
 
 ## What to build
 
-A deep-zoomable view of a Historical Map inside a MapLibre map, where the coordinate system is **image pixels** rather than geography.
+A deep-zoomable view of a Map Image inside a MapLibre map, where the coordinate system is **image pixels** rather than geography.
 
 The user sees one pane containing a committed fixture level-0 pyramid, and can pan and zoom it smoothly to full resolution. Clicking reports the image pixel coordinate under the cursor.
 
@@ -127,7 +127,7 @@ fixture, and it never enters the round-trip.
   at the coarsest level's own zoom instead. The cost is that the image can be panned out of
   view; "Fit whole map" is the remedy. Worth revisiting when the pane carries a real scan.
 - **The pane lives at its own route, `/image-pane`, not on the editor's home page.** It shows a
-  fixture, not the user's Historical Map, so it is a development surface; and tickets 02 and 04
+  fixture, not the user's Map Image, so it is a development surface; and tickets 02 and 04
   were editing the home page in parallel.
 - **`playwright.config.ts`'s `testMatch` widened to `editor*.e2e.ts` / `viewer*.e2e.ts`**, so a
   slice with a lot of browser behaviour owns its own file rather than everything accumulating in
@@ -207,7 +207,7 @@ review proved this is right by decoding all 29 committed tiles: every ragged til
 JPEG noise floor (~25 MSE) against IIIF's exact-resize semantics and 20–45× above it against
 resize-and-pad. **The risk is entirely forward.** If ticket 05's tiler resizes by exactly
 1 / scaleFactor and pads to whole pixels, or resizes to the rounded `size`, every ragged tile in
-every real Historical Map is stretched by up to 0.6% at the right and bottom margins: sub-pixel,
+every real Map Image is stretched by up to 0.6% at the right and bottom margins: sub-pixel,
 systematic, in the margins, and invisible to every test in this slice, because the coordinates
 would all still be right. The docstring now states that `placement` binds the writer as much as
 the reader. **Ticket 05 must assert it, not inherit it.**

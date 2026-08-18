@@ -7,7 +7,7 @@
 	"services": [
 		{
 			"name": "loc-gmd-map",
-			"note": "Library of Congress, Geography and Map Division — a real historical map sheet (loc.gov/item/2022594752).",
+			"note": "Library of Congress, Geography and Map Division — a real map sheet from a library (loc.gov/item/2022594752).",
 			"fetchedFrom": "https://tile.loc.gov/image-services/iiif/service:gmd:gmdtitlecolfold:ma:-0:27:ma-027:ma-027-00001/info.json",
 			"status": 200,
 			"observedHeaders": {

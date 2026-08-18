@@ -12,13 +12,13 @@ Three consequences, in the order a user meets them.
 
 **And coordinates are nowhere in the interface.** A scholar cannot read back where a Pin they placed actually sits.
 
-The thread is that the modern world's own index of itself — the thing every consumer map application has had for twenty years — is missing, from a tool whose entire premise is relating a Historical Map *to that world*.
+The thread is that the modern world's own index of itself — the thing every consumer map application has had for twenty years — is missing, from a tool whose entire premise is relating a Map Image *to that world*.
 
 ### The workflow this is designed against
 
 Described by a stakeholder, and it determines the shape of everything below.
 
-> They look up an address as a starting point. They notice the result is in the middle of a river. So they adjust it by hand against the Base Map, or against a Historical Map layered over it, until it sits where the place really is.
+> They look up an address as a starting point. They notice the result is in the middle of a river. So they adjust it by hand against the Base Map, or against a Map Image layered over it, until it sits where the place really is.
 
 **The lookup is step one and the cheap one. Correcting it is the scholarship.** A modern address resolved against modern data lands where the modern address is; a scholar working on 1625 wants the wharf, the parish boundary, the house that is now a car park. The answering service is not expected to be right, and a design treating its answer as authoritative would be designing against the actual use.
 
@@ -28,7 +28,7 @@ A scholar types a place name and presses Enter. They see the candidate Places, a
 
 On the Base Map pane, that frames the map on it — a city fills the pane, a house address frames tight. Because that pane is shared, the feature appears while annotating **and** while aligning.
 
-On an Annotation Layer, choosing a candidate frames the map on it **and** drops a Pin there, titled with what the scholar typed, selected, and immediately draggable through the vertex editing that already exists. They drag it out of the river and onto the quay, reading against a Historical Map if they have one.
+On an Annotation Layer, choosing a candidate frames the map on it **and** drops a Pin there, titled with what the scholar typed, selected, and immediately draggable through the vertex editing that already exists. They drag it out of the river and onto the quay, reading against a Map Image if they have one.
 
 Nothing about the lookup survives in their files. The Pin is an ordinary Annotation — the same bytes a hand-drawn one would have produced.
 
@@ -40,12 +40,12 @@ The answering service is deployment configuration carrying its own attribution, 
 2. As a scholar, I want the map framed on the place rather than centred at a guessed zoom, so that a city fills the pane and a house address does not.
 3. As a scholar, I want to see the candidate Places and pick one, so that a search for "Springfield" does not silently choose a state I did not mean.
 4. As a scholar, I want each candidate labelled well enough to tell them apart, so that choosing between twelve Springfields is possible rather than a guess.
-5. As a scholar aligning a Historical Map, I want the same lookup on the alignment screen, so that finding the modern half of a Control Point is not the slow part of placing one.
+5. As a scholar aligning a Map Image, I want the same lookup on the alignment screen, so that finding the modern half of a Control Point is not the slow part of placing one.
 6. As a scholar, I want to place a Pin at an address I looked up, so that I do not have to know where it falls on screen.
 7. As a scholar, I want that Pin's title pre-filled with what I typed, so that I am not deleting a service's punctuation before I can write my own label.
 8. As a scholar, I want the Pin selected as soon as it is placed, so that retitling it does not begin with hunting for it.
 9. As a scholar, I want a Pin placed from a lookup to be draggable immediately, so that correcting a result that landed in a river is one gesture rather than a delete and a redraw.
-10. As a scholar, I want to correct it against a Historical Map layered over the Base Map, so that I can put it where the place *was* rather than where the modern address is.
+10. As a scholar, I want to correct it against a Map Image layered over the Base Map, so that I can put it where the place *was* rather than where the modern address is.
 11. As a scholar, I want to move that Pin by keyboard, so that a precise correction does not require a steady hand on a trackpad.
 12. As a scholar, I want the map to move to a Pin I just placed, so that a result on another continent is not dropped somewhere I can neither see nor fix.
 13. As a scholar, I want a placed Pin to be an ordinary Annotation, so that nothing in my published work records that I used a search box.
@@ -154,7 +154,7 @@ Everything a scholar does. Three of this epic's load-bearing claims are only hon
 - **Placing produces exactly one store write**, asserted by counting.
 - **A Pin from a lookup is byte-identical to a drawn one** with the same title, asserted by producing both and comparing the written files. This is the epic's central claim and it is directly checkable.
 
-Also here: candidates appearing and being chosen; framing on both screens, asserted on the alignment screen rather than assumed from the shared component; all four outcomes as visible text; keyboard reach of every candidate without a pointer; attribution present while candidates are shown and absent when they are not; and a Pin draggable **with a Historical Map Layer visible above the Base Map**, which is the stakeholder's actual gesture.
+Also here: candidates appearing and being chosen; framing on both screens, asserted on the alignment screen rather than assumed from the shared component; all four outcomes as visible text; keyboard reach of every candidate without a pointer; attribution present while candidates are shown and absent when they are not; and a Pin draggable **with a Map Image Layer visible above the Base Map**, which is the stakeholder's actual gesture.
 
 Prior art: the existing Base Map specs for driving that pane against a routed fixture, and the annotation specs for driving a drawing gesture and asserting the bytes it wrote.
 
@@ -205,6 +205,6 @@ Each of these is **declined rather than deferred**, and the reasons are in ADR-0
 
 **This is the one control in the editor that cannot work offline.** The editor is otherwise an installable app that works without a connection. The feature stays enabled and explains itself rather than disabling and implying a diagnosis it cannot make.
 
-**The correction gesture needs no new code.** Annotation vertices are already focusable, draggable, arrow-key-movable DOM buttons rendered above the map canvas, so a Pin stays operable with a warped Historical Map drawn beneath it. The stakeholder's central gesture is machinery that already shipped.
+**The correction gesture needs no new code.** Annotation vertices are already focusable, draggable, arrow-key-movable DOM buttons rendered above the map canvas, so a Pin stays operable with a warped Map Image drawn beneath it. The stakeholder's central gesture is machinery that already shipped.
 
 **Two services are now independently repointable**, each carrying its own attribution, so a fork changing one and not the other stays correct.

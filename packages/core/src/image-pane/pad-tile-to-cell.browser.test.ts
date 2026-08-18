@@ -7,8 +7,8 @@
 // It exists because the assertion it replaces read the wrong thing. The browser suite asserted
 // ragged placement out of `window.ballastellaServedTiles` — the app's own log of the `placement` it
 // was *handed* — so replacing `placement.width` with the served width inside the drawing code left
-// the log identical and the suite green, while every horizontally ragged tile of every Historical
-// Map came out stretched. And the one committed fixture geometry could not have caught it anyway:
+// the log identical and the suite green, while every horizontally ragged tile of every Map
+// Image came out stretched. And the one committed fixture geometry could not have caught it anyway:
 // 700 × 500 yields nine tiles whose every region divides by its scale factor, so `placement` is
 // integral everywhere and the two numbers are the same number.
 //
@@ -84,7 +84,7 @@ describe('padTileToCell', () => {
 		// A sharp white-to-black edge 30 served columns in and 100 served rows down. Under the
 		// fractional placement it lands at 30 × 37.5/38 = 29.605 and 100 × 162.5/163 = 99.693; drawn
 		// at the served size it would land at exactly 30 and 100. Four tenths of a pixel and three
-		// tenths of a pixel — sub-pixel, systematic, at the margins of every Historical Map, which is
+		// tenths of a pixel — sub-pixel, systematic, at the margins of every Map Image, which is
 		// exactly the drift SPEC ranks as the project's first risk.
 		const whiteWidth = 30;
 		const whiteHeight = 100;

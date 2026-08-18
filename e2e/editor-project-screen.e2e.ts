@@ -13,7 +13,7 @@ import {
 	readProjectFile
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { addHistoricalMapFromFile } from './support/historical-maps.js';
+import { addMapImageFromFile } from './support/map-images.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 
@@ -56,9 +56,9 @@ async function openProject(page: Page): Promise<void> {
 	);
 }
 
-/** Add a Historical Map from a file, and return once its Layer is in the stack. */
-async function addHistoricalMap(page: Page): Promise<void> {
-	await addHistoricalMapFromFile(page, {
+/** Add a Map Image from a file, and return once its Layer is in the stack. */
+async function addMapImage(page: Page): Promise<void> {
+	await addMapImageFromFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(280, 200)
@@ -169,7 +169,7 @@ test.describe('the Project screen', () => {
 		await openProject(page);
 		// A Layer, so the stack is a stack: `LayerList` renders its empty state rather than an `<ol>`
 		// when there is nothing in it, and the claim here is about the two columns *with work in them*.
-		await addHistoricalMap(page);
+		await addMapImage(page);
 
 		const sidebar = page.getByTestId('layer-sidebar');
 		const map = page.getByTestId('project-map');
@@ -193,7 +193,7 @@ test.describe('the Project screen', () => {
 	test('every control on it is reachable by keyboard', async ({ page }) => {
 		await freshWorkspace(page);
 		await openProject(page);
-		await addHistoricalMap(page);
+		await addMapImage(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
 		// **With a Layer open**, because since ticket 05 the drawing tools, the Annotation list and the
@@ -274,12 +274,12 @@ test.describe('the Project screen', () => {
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'false');
 	});
 
-	test('Align on a Historical Map Layer goes to /align/, and coming back reopens the Project', async ({
+	test('Align on a Map Image Layer goes to /align/, and coming back reopens the Project', async ({
 		page
 	}) => {
 		await freshWorkspace(page);
 		await openProject(page);
-		await addHistoricalMap(page);
+		await addMapImage(page);
 
 		const row = page.getByTestId('layer-row').first();
 		await expect(row).toHaveAttribute('data-layer-kind', 'map');
@@ -326,7 +326,7 @@ test.describe('the Layer stack and the Base Map are not pages of their own', () 
 
 		// The Project.
 		await openProject(page);
-		await addHistoricalMap(page);
+		await addMapImage(page);
 		expect((await hrefs(page)).filter((href) => gone.test(href))).toEqual([]);
 
 		// And the alignment route.
@@ -377,7 +377,7 @@ test.describe('the navigation bar', () => {
 
 		await openProject(page);
 		await assertBar('the Project screen');
-		await addHistoricalMap(page);
+		await addMapImage(page);
 
 		await alignFromLayer(page);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
@@ -520,9 +520,9 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 		await expect(page.getByRole('status')).toHaveCount(1);
 		await expect(page.getByRole('status')).toHaveAttribute('data-save-state');
 
-		// The Project screen, with a Historical Map on it.
+		// The Project screen, with a Map Image on it.
 		await openProject(page);
-		await addHistoricalMap(page);
+		await addMapImage(page);
 		await expect(page.getByRole('status')).toHaveCount(1);
 
 		// **Offline**, which is where the second one was: the Base Map notice. It still has to be

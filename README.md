@@ -1,8 +1,8 @@
 # Ballastella
 
-A browser-based tool for placing historical map images onto the modern world and annotating them, where a scholar's work lives as ordinary files they own rather than rows in someone else's database.
+A browser-based tool for placing map images onto the modern world and annotating them, where a scholar's work lives as ordinary files they own rather than rows in someone else's database.
 
-A **ballastella** — also Jacob's staff — is a graduated pole with a sliding crosspiece, used from the fourteenth century to measure the angular height of a star above the horizon and so establish one's position. It is the ancestor of the sextant. The name was chosen because a Control Point pair is a sighting: the user observes a feature on a historical map, observes the same feature on the earth, and the correspondence yields a position.
+A **ballastella** — also Jacob's staff — is a graduated pole with a sliding crosspiece, used from the fourteenth century to measure the angular height of a star above the horizon and so establish one's position. It is the ancestor of the sextant. The name was chosen because a Control Point pair is a sighting: the user observes a feature on a map image, observes the same feature on the earth, and the correspondence yields a position.
 
 ## Status
 
@@ -23,11 +23,11 @@ Your users then publish their own work from their own folders to repositories th
 
 ## The idea
 
-A historian has a photograph or scan of a historical map and wants to show where its places actually are on the earth, then write about them — labelling sites, tracing routes, outlining regions — and publish the result so colleagues and students can explore it.
+A historian has a Map Image — a photograph or scan of an old map — and wants to show where its places actually are on the earth, then write about them — labelling sites, tracing routes, outlining regions — and publish the result so colleagues and students can explore it.
 
 Today that requires either specialist GIS software with a steep learning curve and no publishing story, or a hosted platform that takes custody of the work: the scholarship becomes a row in someone else's database, the output lives on someone else's domain, and nothing is portable.
 
-Ballastella is a browser application at a stable address that reads and writes **a folder the user owns**. A user picks a Workspace directory once. Inside it, each Project is a directory holding its Historical Maps as level-0 IIIF tiles, its Alignments as IIIF Georeference Annotations, and its Annotations as GeoJSON — plain files in open formats, written as the user works.
+Ballastella is a browser application at a stable address that reads and writes **a folder the user owns**. A user picks a Workspace directory once. Inside it, each Project is a directory holding its Map Images as level-0 IIIF tiles, its Alignments as IIIF Georeference Annotations, and its Annotations as GeoJSON — plain files in open formats, written as the user works.
 
 Publishing writes a read-only viewer into the workspace. That workspace, pushed to any static host, *is* the website. No server, no build pipeline, no account.
 

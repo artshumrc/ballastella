@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A notice beside the map: the Base Map's archive did not answer, a Historical Map's tiles stopped
+	// A notice beside the map: the Base Map's archive did not answer, a Map Image's tiles stopped
 	// arriving, this Layer could not be reached (SPEC stories 17, 22, 70).
 	//
 	// Both apps say the same things about a map that is not drawing, and both already take the
@@ -40,7 +40,7 @@
 	//
 	// Every sentence arrives from the consumer, and the four that matter are core's:
 	// `baseMapFallbackNotice`, `baseMapUnavailableNotice`, `baseMapNotPublishedNotice` and
-	// `historicalMapTilesUnavailableNotice`. A sentence written in here would be published by both
+	// `mapImageTilesUnavailableNotice`. A sentence written in here would be published by both
 	// apps to two different users, which is precisely how a Reader ends up being told to press a
 	// button their app does not have.
 

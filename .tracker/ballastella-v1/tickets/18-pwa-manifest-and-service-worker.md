@@ -41,9 +41,9 @@ ADR-0011 rejected a service worker serving the project store at a virtual path, 
 
 ### Offline verification
 
-With the app installed, an OPFS workspace, a mirrored Historical Map, and a bundled pmtiles Base Map, the editor must load and be fully usable **with the network disabled**: open a Project, view the aligned map, place Control Points, draw Annotations, and save.
+With the app installed, an OPFS workspace, a mirrored Map Image, and a bundled pmtiles Base Map, the editor must load and be fully usable **with the network disabled**: open a Project, view the aligned map, place Control Points, draw Annotations, and save.
 
-A referenced Historical Map naturally cannot render offline. It must say so, naming the host, and must not break the rest of the Project (the degradation contract from ticket 17).
+A referenced Map Image naturally cannot render offline. It must say so, naming the host, and must not break the rest of the Project (the degradation contract from ticket 17).
 
 ## Out of scope
 
@@ -61,8 +61,8 @@ A referenced Historical Map naturally cannot render offline. It must say so, nam
 - [x] `skipWaiting` is not used
 - [x] A new service worker version does **not** activate silently; an update prompt appears and reload is user-initiated
 - [x] After the prompt is dismissed without reloading, the old version continues serving
-- [x] With the network disabled, the installed editor loads and a Project with a mirrored Historical Map and a bundled Base Map is fully usable: Control Points can be placed, Annotations drawn, and changes saved — **and the bundled Base Map is only usable because this ticket's own Out of scope was read narrowly. See [The bundled Base Map](#the-bundled-base-map-is-cached-and-that-needs-a-second-opinion).**
-- [x] Offline, a **referenced** Historical Map shows a message naming its host and does not break the rest of the Project — with one limit of the test harness recorded below
+- [x] With the network disabled, the installed editor loads and a Project with a mirrored Map Image and a bundled Base Map is fully usable: Control Points can be placed, Annotations drawn, and changes saved — **and the bundled Base Map is only usable because this ticket's own Out of scope was read narrowly. See [The bundled Base Map](#the-bundled-base-map-is-cached-and-that-needs-a-second-opinion).**
+- [x] Offline, a **referenced** Map Image shows a message naming its host and does not break the rest of the Project — with one limit of the test harness recorded below
 - [x] The service worker does not intercept or serve `ProjectStore` reads
 - [~] Installing the app makes the File System Access permission persist across sessions without re-prompting on Chrome 122+ — **not asserted, and not assertable here.** Installing needs a real user gesture in a real browser profile, and the persistent grant is a Chrome behaviour rather than one of ours: no Playwright context can install a PWA, and the folder suite already has to stub `showDirectoryPicker` because it opens an operating-system dialog. What is shipped is the offer, in the one place the question is asked, and it is asserted; the grant behind it needs a human on a real Chrome.
 - [x] The update prompt is reachable and operable by keyboard and announced to assistive technology
@@ -91,7 +91,7 @@ Success: all exit 0 and both `grep`/`test` checks print their OK line. The offli
 
 `e2e/editor-pwa.e2e.ts`, in a real Chromium, with `context.setOffline(true)` and then a whole
 working session: a Project opened, its own pyramid decoded and drawn, three Control Point pairs
-placed by clicking two MapLibre canvases, a fourth added, the warped Historical Map rendered over the
+placed by clicking two MapLibre canvases, a fourth added, the warped Map Image rendered over the
 bundled Base Map, and an Annotation drawn on the Layers pane — with the Georeference Annotation and
 the GeoJSON **read back out of OPFS** to prove they landed. `deployment.requests` is then read to
 confirm the server heard nothing the app asked for across the whole session, which is what separates
@@ -135,7 +135,7 @@ achievable at all.
 Measured with the archive left out: the MapLibre style never finishes loading, because a vector source
 whose metadata never arrives is never `loaded()`, so `Map#isStyleLoaded()` stays false and `load` never
 fires. `BaseMapPane` attaches the warped layer on `once('load')` and `drawLayerStack` is gated on
-`isStyleLoaded()`, so **the warped Historical Map and the whole Layer stack — and therefore Annotation
+`isStyleLoaded()`, so **the warped Map Image and the whole Layer stack — and therefore Annotation
 drawing — are simply absent offline.** Control Point pairing survives, because a click on a canvas is a
 coordinate whether or not a tile arrived. Leaving it out costs two of the four things Offline
 verification names.
@@ -219,13 +219,13 @@ build's two caches remain.
 - **`navigator.onLine` cannot be driven across a reload in Playwright.** The emulation fires `offline`
   and flips `navigator.onLine` on a running page, but a page *loaded* while it is in force reports
   `true` — where a genuinely disconnected machine reports `false`. Both feed the same one signal, so the
-  referenced-Historical-Map notice is asserted on the live transition, and the reload that follows
-  asserts the half that matters most anyway: a Project holding a referenced Historical Map still opens
+  referenced-Map-Image notice is asserted on the live transition, and the reload that follows
+  asserts the half that matters most anyway: a Project holding a referenced Map Image still opens
   and still works offline.
 - **The first load of any visit is uncontrolled**, deliberately, because claiming a live client is the
   mid-alignment takeover story 9 rules out. So offline works from the second load onward — which for an
   installed application is its first launch, and for a browser tab is the first reload.
-- **`wasm-vips` is not precached**, so preparing a *new* Historical Map needs the network on first use.
+- **`wasm-vips` is not precached**, so preparing a *new* Map Image needs the network on first use.
   ADR-0019 keeps the 5 MB module behind a dynamic import so it does not land in every page load;
   precaching it would reimpose that cost — twice, since Vite emits it for the worker as well — on
   everybody who installs the app.

@@ -11,7 +11,7 @@ import { type Locator, type Page, type Response } from '@playwright/test';
 // drift is precisely what a screenshot would miss.
 //
 // Of the tests below, the two that establish something a round trip cannot are "renders the
-// fixture Historical Map and reports the pixel under the cursor" — clicking a point drawn by
+// fixture Map Image and reports the pixel under the cursor" — clicking a point drawn by
 // `resourceToSynthetic` and requiring the click to come back as that point's own pixel, which
 // composes MapLibre's project and unproject in opposite directions — and "pans by the distance
 // the pointer moved", which pins the scale against a physical distance. The zoom-stability test
@@ -102,7 +102,7 @@ const openPane = async (page: Page) => {
 
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 
-test('renders the fixture Historical Map with zoom at the bottom-left, and reports the pixel under the cursor', async ({
+test('renders the fixture Map Image with zoom at the bottom-left, and reports the pixel under the cursor', async ({
 	page
 }) => {
 	await openPane(page);

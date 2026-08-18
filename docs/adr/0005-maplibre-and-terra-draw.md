@@ -4,7 +4,7 @@
 >
 > **Also amended by [ADR-0025](./0025-no-base-map-ships-offline-is-per-project-and-opt-in.md):** no bundled pmtiles extract ships. The offline Base Map is a per-Project, opt-in tile cache.
 
-Both the base-map pane and the image pane are MapLibre GL maps. Drawing and editing goes through the app's own `overlayPoints` seam — **not** through `terra-draw`, which the amendment below explains and which was originally specified here. Rendering of aligned historical maps uses `@allmaps/maplibre`.
+Both the base-map pane and the image pane are MapLibre GL maps. Drawing and editing goes through the app's own `overlayPoints` seam — **not** through `terra-draw`, which the amendment below explains and which was originally specified here. Rendering of aligned map images uses `@allmaps/maplibre`.
 
 The original plan was Leaflet + `leaflet-geoman-free`, and that was reasonable on the information available. Three findings changed it.
 

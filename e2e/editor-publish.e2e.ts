@@ -13,7 +13,7 @@ import {
 	type GitHubHosts,
 	type GitHubHostsOptions
 } from './support/github-hosts.js';
-import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
+import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
 import { alignFromLayer } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
@@ -154,7 +154,7 @@ async function siteRecord(page: Page): Promise<Record<string, unknown>> {
 const sha256 = (base64: string) =>
 	createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
 
-/** A Project with a Historical Map, an Alignment, an Annotation Layer, and a pyramid. */
+/** A Project with a Map Image, an Alignment, an Annotation Layer, and a pyramid. */
 const projectFiles = (
 	directory: string,
 	fields: { name: string; referenced?: boolean; onFrontPage?: boolean }
@@ -199,7 +199,7 @@ const projectFiles = (
 	'alignments/aaa.json': '{"type":"Annotation","id":"aaa"}',
 	...(fields.referenced
 		? {
-				// A referenced Historical Map has no `info.json` of ours: `remote.json` beside a missing one is
+				// A referenced Map Image has no `info.json` of ours: `remote.json` beside a missing one is
 				// what says the tiles are on a Library's server (ADR-0023), and nothing in `project.json` does.
 				'images/aaa/remote.json': `${JSON.stringify(
 					{
@@ -270,7 +270,7 @@ async function publish(page: Page, options: { baseMap?: boolean; canonicalUrl?: 
 	if (wanted) await expect(stated).toBeVisible();
 	else await expect(stated).toBeHidden();
 	if (options.canonicalUrl) {
-		await dialog.getByLabel(/Address your Historical Maps/).fill(options.canonicalUrl);
+		await dialog.getByLabel(/Address your Map Images/).fill(options.canonicalUrl);
 	}
 	await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 	// Generous, because publishing fetches every file of the bundle and writes it into OPFS: real work,
@@ -550,7 +550,7 @@ test.describe('publishing a Workspace', () => {
 
 		const dialog = await openPublishDialog(page);
 		await dialog.getByRole('checkbox').uncheck();
-		await dialog.getByLabel(/Address your Historical Maps/).fill('scholar.example');
+		await dialog.getByLabel(/Address your Map Images/).fill('scholar.example');
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
 		const refusal = dialog.getByRole('alert');
@@ -615,7 +615,7 @@ test.describe('publishing a Workspace', () => {
 		await expect(page.getByTestId('publish-progress')).toHaveText('');
 	});
 
-	test('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async ({
+	test('warns that a referenced Map Image leaves a Reader with no network seeing nothing', async ({
 		page
 	}) => {
 		await openWorkspace(
@@ -640,7 +640,7 @@ test.describe('publishing a Workspace', () => {
 
 		await expect(page.getByTestId('project-needs-network')).toContainText('Blaeu’s plan');
 		// **One expected 404, and it is named rather than filtered out of the way.** A published site has no
-		// directory listing, so the viewer asks whether a Historical Map has an `info.json` of its own and
+		// directory listing, so the viewer asks whether a Map Image has an `info.json` of its own and
 		// reads the answer off the status (ADR-0023) — a referenced map has none, and that is how the site
 		// learns its tiles are on a Library's server. Every *other* failed request is still fatal here.
 		expect(root.failures).toEqual([{ path: `/images/${'aaa'}/info.json`, status: 404 }]);
@@ -651,7 +651,7 @@ test.describe('publishing a Workspace', () => {
 	// the Workspace past it", which asserts the same two strings and a third this could not — the byte
 	// figure — against arithmetic rather than against a browser's storage quota. The claim that a
 	// planning warning reaches the dialog at all is kept at Seam 2 by the two tests either side of this
-	// one: "states the Base Map's size before adding it" and "warns that a referenced Historical Map
+	// one: "states the Base Map's size before adding it" and "warns that a referenced Map Image
 	// leaves a Reader with no network seeing nothing".
 	//
 	// Retiring it also retires the only precondition in this suite the machine can fail: the fixture was
@@ -675,7 +675,7 @@ test.describe('publishing a Workspace', () => {
 		// from a port of its own, so a `takeWorkspace` after the `goto` reads an empty Workspace and every
 		// byte-identity assertion below passes vacuously. That is exactly how this test first passed.
 		const after = await takeWorkspace(page);
-		// The first Project's own files **and** the shared Historical Map it draws (ADR-0023). Scoped to
+		// The first Project's own files **and** the shared Map Image it draws (ADR-0023). Scoped to
 		// `amsterdam-1625/` alone this would be two files — `project.json` and one GeoJSON — and the claim
 		// "publishing wrote nothing of the user's" would stop covering the pyramid, which is most of it.
 		const amsterdam = Object.keys(firstProject).filter(
@@ -787,8 +787,8 @@ test.describe('publishing a Workspace', () => {
 		await created.getByLabel('Project name').fill('Amsterdam 1625');
 		await created.getByRole('button', { name: 'Create' }).click();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
-		await pickHistoricalMapFile(page, {
+		await expect(addMapImageButton(page)).toBeVisible();
+		await pickMapImageFile(page, {
 			name: 'amsterdam.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(600, 400)
@@ -818,7 +818,7 @@ test.describe('publishing a Workspace', () => {
 		const info = JSON.parse(
 			Buffer.from(taken[`images/${imageId}/info.json`]!, 'base64').toString('utf8')
 		);
-		// **No Project directory in the address** (ADR-0023). A Historical Map is shared, so it answers at
+		// **No Project directory in the address** (ADR-0023). A Map Image is shared, so it answers at
 		// one citable endpoint however many Projects draw it — and a stamp naming one of them would 404 for
 		// every tile the moment that Project was renamed or deleted.
 		expect(info.id).toBe(`https://scholar.example/atlas/images/${imageId}`);
@@ -843,7 +843,7 @@ test.describe('publishing a Workspace', () => {
 		page.on('request', (request) => requested.push(request.url()));
 		await page.reload();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await alignFromLayer(page);
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
@@ -1180,7 +1180,7 @@ test.describe('publishing to a Remote', () => {
 	test('refuses a truncated tree, quoting the file count, and sends nothing', async ({ page }) => {
 		// The real endpoint truncates at 100 000 entries or a 7 MB response and **answers 200**, so a
 		// publish that did not look would upload everything again and then commit a tree missing most
-		// of a Historical Map — a silently incomplete site on a scholar's own address.
+		// of a Map Image — a silently incomplete site on a scholar's own address.
 		const github = await start(page, {
 			hosts: {
 				repositories: [
@@ -1205,7 +1205,7 @@ test.describe('publishing to a Remote', () => {
 		// folder would tell a scholar to delete files they do not have.
 		const refusal = dialog.getByTestId('publish-upload-problem');
 		await expect(refusal).toContainText('first 2 files');
-		await expect(refusal).toContainText('deleting Historical Maps no Project uses');
+		await expect(refusal).toContainText('deleting Map Images no Project uses');
 		expect(github.blobPosts()).toBe(0);
 		expect(github.files(OWNER, REPOSITORY)).toEqual(before);
 
@@ -1333,7 +1333,7 @@ test.describe('publishing to a Remote', () => {
 		const dialog = await signIn(page);
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
-		await dialog.getByLabel(/Address your Historical Maps/).fill('scholar.example');
+		await dialog.getByLabel(/Address your Map Images/).fill('scholar.example');
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
 		await expect(dialog.getByRole('alert').first()).toContainText('Nothing has been changed.');

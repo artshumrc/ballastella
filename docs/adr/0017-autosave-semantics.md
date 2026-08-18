@@ -68,7 +68,7 @@ Nothing is reported as restored that was not written — the mistake ticket 13 s
 
 - An entry that **does not parse** is discarded and named. There is nothing recoverable in it, and keeping it would make the notice permanent.
 - An entry from a **newer `formatVersion`** is refused and **left exactly where it is** (SPEC story 114), with a message naming where to get that version. Discarding it would turn "refused" into "silently damaged". The version lives in the value rather than in the key precisely so this build can see such an entry at all.
-- An entry naming a **Project or Historical Map that is no longer in the Workspace** is not written, and is named. Deleting a Project also empties the journal of it at the time, which is the only thing that can tell a re-created directory of the same name from the original.
+- An entry naming a **Project or Map Image that is no longer in the Workspace** is not written, and is named. Deleting a Project also empties the journal of it at the time, which is the only thing that can tell a re-created directory of the same name from the original.
 - A write that **fails** is named and its entry is **kept**, so an unplugged drive costs a delay rather than the edit.
 
 ### What it does not change

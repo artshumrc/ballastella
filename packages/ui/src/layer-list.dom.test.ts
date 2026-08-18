@@ -864,7 +864,7 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 
 		expect(one('layer-visible')).not.toBeInTheDocument();
 		// The closed card is otherwise intact — the kind line is what a card is scanned by.
-		expect(one('layer-kind')).toHaveTextContent('Historical Map');
+		expect(one('layer-kind')).toHaveTextContent('Map Image');
 	});
 
 	test('draws the tiles badge only with referencedImageIds', () => {
@@ -878,8 +878,8 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 		takeDown();
 		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
 
-		// Not an empty badge and not the other half of the sentence: no badge. Where a Historical
-		// Map's tiles are held is the author's decision, and a consumer whose user cannot act on it
+		// Not an empty badge and not the other half of the sentence: no badge. Where a Map
+		// Image's tiles are held is the author's decision, and a consumer whose user cannot act on it
 		// has no reason to say it (SPEC story 20).
 		expect(one('layer-image-mode')).not.toBeInTheDocument();
 	});
@@ -996,7 +996,7 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 		// **And it is still the same card**, which is the half that stops this from being satisfied by a
 		// component that rendered nothing at all. A Reader gets the kind line, the name, the tint's own
 		// header, the disclosure that opens the card, the visibility toggle and the opacity slider.
-		expect(one('layer-kind')).toHaveTextContent('Historical Map');
+		expect(one('layer-kind')).toHaveTextContent('Map Image');
 		expect(one('layer-name-text')).toHaveTextContent('La Floride');
 		expect(one('layer-header')).toBeInTheDocument();
 		expect(one('layer-visible')).toBeInTheDocument();
@@ -1006,13 +1006,13 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 
 	test('tells a Reader an empty Project is empty, and leaves the instructions to the editor', () => {
 		// ⚠ **The regression this pair exists for.** The empty state used to be the editor's guidance
-		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Historical
-		// Map* and mentioned "this Workspace" — two controls and a concept a published site does not have
+		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Map
+		// Image* and mentioned "this Workspace" — two controls and a concept a published site does not have
 		// (SPEC story 19). The fact is shared; the instructions are the consumer's markup.
 		//
 		// A marker rather than the editor's own words, because `packages/ui` may not import from `apps/`
 		// (ADR-0034) and a sentence spelled out here would be this file agreeing with itself. The words
-		// are held against the buttons they name by `e2e/editor-add-historical-map.e2e.ts`'s "the empty
+		// are held against the buttons they name by `e2e/editor-add-map-image.e2e.ts`'s "the empty
 		// Project names the button that fills it".
 		offering(
 			{ ...editorProps(), noLayersGuidance: marker<[]>('supplied-no-layers-guidance') },

@@ -217,7 +217,7 @@ export class DirectoryHandleStore extends TempFileWriteStore {
  * That is not a listing failure, it is a listing of a Workspace that changed underneath. Every
  * caller here already treats an absent path as absent — `#file` and `deletePath` both swallow the
  * same `NotFoundError` — and the only one that did not was the *walk*, which meant one vanished
- * directory made `store.list('')` throw. `EditorSession.refreshHistoricalMaps` reads that as the
+ * directory made `store.list('')` throw. `EditorSession.refreshMapImages` reads that as the
  * Workspace being unreachable and replaces the hub with "your Workspace cannot be reached", so a
  * colleague's sync deleting one file told a scholar their work was gone.
  *

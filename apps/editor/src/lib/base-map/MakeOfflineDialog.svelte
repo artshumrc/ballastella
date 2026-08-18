@@ -55,7 +55,7 @@
 >
 	<p class="max-w-prose text-sm">
 		Ballastella can keep the modern reference map for the area your work covers in this Workspace,
-		so this Project draws with no network connection at all. Your Historical Maps, Alignments, and
+		so this Project draws with no network connection at all. Your Map Images, Alignments, and
 		Annotations already work offline; the Base Map is the part that does not.
 	</p>
 

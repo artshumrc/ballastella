@@ -516,7 +516,7 @@
 				</div>
 			</form>
 			<!--
-				Per-file progress, announced. A Historical Map's pyramid is thousands of files over real
+				Per-file progress, announced. A Map Image's pyramid is thousands of files over real
 				minutes, and this is one of the places a scholar is waiting on something they cannot see
 				(workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
 				without interrupting, which is CONTRIBUTING's mandated method for exactly this.

@@ -32,7 +32,7 @@ import {
 const bytes = (text: string) => new TextEncoder().encode(text);
 
 /**
- * A Workspace holding one Historical Map's `info.json` and one tile, at the Workspace root.
+ * A Workspace holding one Map Image's `info.json` and one tile, at the Workspace root.
  *
  * **No Project directory anywhere in these paths, and that is the point of ADR-0023.** A pyramid is
  * shared, so `images/<id>/…` *is* the path. It also holds a Project directory with a decoy pyramid
@@ -218,7 +218,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	// The half a Project-rooted shim got right by accident and this one gets right on purpose: two
-	// Projects drawing the same Historical Map draw the same bytes, from the same place, through one
+	// Projects drawing the same Map Image draw the same bytes, from the same place, through one
 	// function. Under the old rooting each Project needed its own copy of the pyramid to draw at all.
 	it('serves the same bytes to callers working in different Projects', async () => {
 		const store = await storeWithTile();
@@ -726,7 +726,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('carries the cause into statusText, because two editor sentences are built from it', async () => {
-		// `HistoricalMapPane.svelte` renders `${status} ${statusText}` at a scholar under ADR-0008, and
+		// `MapImagePane.svelte` renders `${status} ${statusText}` at a scholar under ADR-0008, and
 		// `tile-protocol.ts` throws it. Answering with a bare status turned `“abc123” could not be
 		// opened: the quota was exceeded` into `… (500 )` — the cause lost and a dangling space left.
 		const { fetchImage } = outcomesOf(

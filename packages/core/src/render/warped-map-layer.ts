@@ -1,6 +1,6 @@
 // Warped rendering's half of the injection layer (ADR-0011).
 //
-// **In `core` rather than in either app, because both draw the same warped Historical Maps.** The
+// **In `core` rather than in either app, because both draw the same warped Map Images.** The
 // editor draws one being aligned and a Project's whole stack; the Published Site draws that same
 // stack for a Reader (ticket 17). Two copies of the rules below would be two answers to "what
 // document and which options does upstream get?" — and every one of the three upstream defects
@@ -8,7 +8,7 @@
 // edited and the other rendered blank. `apps/viewer` therefore imports this rather than reimplementing
 // it, which is the same argument ADR-0019 makes for `renderAnnotationPopup` and `toRenderCollection`.
 //
-// `@allmaps/maplibre` renders a Historical Map onto the Base Map from a IIIF Georeference
+// `@allmaps/maplibre` renders a Map Image onto the Base Map from a IIIF Georeference
 // Annotation, and it reaches the image's tiles by building URLs from the `id` in `info.json` —
 // which for a locally ingested pyramid is the `https://unset.invalid/<image-id>` placeholder
 // (ADR-0004). There is no seam inside `WarpedMapLayer` at which `Image#uri` could be overridden,
@@ -97,7 +97,7 @@ export type WarpedRender =
 	| { readonly status: 'refused'; readonly reason: string };
 
 /**
- * Every option a warped Historical Map is given, beyond the document itself.
+ * Every option a warped Map Image is given, beyond the document itself.
  *
  * **The Alignment's own three fields are here, and that is the whole of why editing one does not
  * rebuild the layer.** `gcps`, `resourceMask` and `transformationType` are map options that win over
@@ -173,7 +173,7 @@ export function showAlignment(
 		/**
 		 * How to colourise it. Defaults to nothing colourised, which is the right default for any caller
 		 * that has no distortion view of its own — a Layer of the stack, for instance, where the overlay
-		 * belongs to the Alignment being edited rather than to every Historical Map on the map.
+		 * belongs to the Alignment being edited rather than to every Map Image on the map.
 		 *
 		 * Note that the *other* options this fills in are not display settings and are applied
 		 * regardless: the Alignment's own `gcps`, `resourceMask` and `transformationType` — without the
@@ -182,7 +182,7 @@ export function showAlignment(
 		 */
 		distortion?: DistortionView;
 		/**
-		 * Whether this Historical Map's tiles are on somebody else's server rather than in the Workspace.
+		 * Whether this Map Image's tiles are on somebody else's server rather than in the Workspace.
 		 *
 		 * **An observation, not a stored field** (ADR-0023): the image directory has an `info.json` of
 		 * ours, or it has only a `remote.json`. `MapLayer` used to carry an `imageMode` claiming it, and
@@ -192,7 +192,7 @@ export function showAlignment(
 		 * from a blank Layer into a refusal the page can print. Left out, that pairing is undetectable
 		 * here and the Layer draws nothing with nothing said, which is the state this whole option exists
 		 * to end. Defaults to `false` because a caller that cannot observe the answer is the alignment
-		 * pane drawing one Historical Map, and refusing on a guess would refuse every local copy.
+		 * pane drawing one Map Image, and refusing on a guess would refuse every local copy.
 		 */
 		referenced?: boolean;
 		/**
@@ -210,7 +210,7 @@ export function showAlignment(
 		return {
 			status: 'refused',
 			reason:
-				`This Historical Map is referenced rather than copied into this Workspace, and the record ` +
+				`This Map Image is referenced rather than copied into this Workspace, and the record ` +
 				`of where it is served from (${referencedImagePath(alignment.imageId)}) could not be ` +
 				`read — so there is nowhere to fetch its tiles from. Nothing is drawn, rather than an ` +
 				`empty Layer reported as drawn.`

@@ -246,8 +246,8 @@ Worth recording because of *how* it was found, which is the pattern the tracker 
 
 Because `line-dasharray` is not a data-driven paint property, an Annotation Layer needs one MapLibre
 line layer per dash pattern — so this slice took a Layer from ticket 09's three MapLibre layers to
-**five**. Every one of those is per-frame work on the same thread that decodes a warped Historical
-Map's tiles through the ADR-0011 shim.
+**five**. Every one of those is per-frame work on the same thread that decodes a warped Map
+Image's tiles through the ADR-0011 shim.
 
 The symptom was **ticket 09's** test going red, not one of ours:
 `editor-layers.e2e.ts` "an Annotation Layer above a map Layer draws above it" asserts
@@ -267,7 +267,7 @@ not:
 
 - **Established.** It fails on `warpedTiles > 0` alone — zero tiles in the tile cache after the
   three seconds the helper allows. The two sibling tests in the same describe pass, and both assert
-  `data-drawn` is 2, so the warped Historical Map *is* being drawn; only its tiles are late. Every one
+  `data-drawn` is 2, so the warped Map Image *is* being drawn; only its tiles are late. Every one
   of this slice's 31 Annotation tests passes in the same run, including the ones that assert what
   MapLibre painted. Reducing the MapLibre layer count changed nothing.
 - **Not established: whether this slice caused it.** The decisive experiment — running that one test

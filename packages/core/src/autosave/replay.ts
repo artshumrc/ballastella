@@ -136,8 +136,8 @@ export type ReplaySkipReason =
 	 * Project exist.
 	 */
 	| 'project-deleted'
-	/** The Historical Map it belongs to is no longer in this Workspace. */
-	| 'no-such-historical-map'
+	/** The Map Image it belongs to is no longer in this Workspace. */
+	| 'no-such-map-image'
 	/**
 	 * The store already holds exactly these bytes, so there is nothing to put back (ticket 07).
 	 *
@@ -471,7 +471,7 @@ type ReplayVerdict = 'write' | 'already-in-the-store' | 'cannot-tell-which-is-ne
  * ⚠ **Only `PathNotFoundError` is read as "nothing".** Anything else is a Workspace that could not
  * answer — an unplugged drive, a permission that lapsed — and it is rethrown so the entry becomes a
  * reported `failed` that is kept and tried again, rather than an absence that licenses a write. That
- * is the direction `hasHistoricalMap` and `missingOwner` both take, for the same reason.
+ * is the direction `hasMapImage` and `missingOwner` both take, for the same reason.
  */
 async function currentBytes(store: ProjectStore, path: StorePath): Promise<Bytes | null> {
 	try {
@@ -570,7 +570,7 @@ async function writePlain(store: ProjectStore, path: StorePath, bytes: Bytes): P
 	await store.write(path, bytes);
 }
 
-/** The Historical Map an `images/<image-id>/…` path belongs to, or `null`. */
+/** The Map Image an `images/<image-id>/…` path belongs to, or `null`. */
 function imageIdUnder(path: StorePath): string | null {
 	const segments = path.split('/');
 	if (segments[0] !== IMAGE_DIRECTORY || segments.length < 3) return null;
@@ -579,7 +579,7 @@ function imageIdUnder(path: StorePath): string | null {
 }
 
 /**
- * Whether this Workspace still holds a Historical Map, on the **same evidence standard** the
+ * Whether this Workspace still holds a Map Image, on the **same evidence standard** the
  * Project check below uses.
  *
  * ⚠ **This was an empty `store.list()`, and that is not evidence of absence.** Review found the
@@ -597,12 +597,12 @@ function imageIdUnder(path: StorePath): string | null {
  *
  * The listing is kept as a **last resort under the same rule**, because the two named files are not
  * the only way a map can be present: an ingest interrupted between its tiles and its `info.json`
- * leaves a directory that `Workspace.#historicalMapIds` counts and neither named file evidences. So
+ * leaves a directory that `Workspace.#mapImageIds` counts and neither named file evidences. So
  * a non-empty listing also means present — and a listing that *rejects* means present too, which is
  * the half the original spelling got wrong. Only every check answering "definitely not there" is
  * absence.
  */
-async function hasHistoricalMap(store: ProjectStore, imageId: string): Promise<boolean> {
+async function hasMapImage(store: ProjectStore, imageId: string): Promise<boolean> {
 	for (const path of [imageInfoPath(imageId), referencedImagePath(imageId)]) {
 		try {
 			await store.size(path);
@@ -620,7 +620,7 @@ async function hasHistoricalMap(store: ProjectStore, imageId: string): Promise<b
 }
 
 /**
- * The Historical Map an `alignments/<image-id>.json` path names, or `null` for anything else.
+ * The Map Image an `alignments/<image-id>.json` path names, or `null` for anything else.
  *
  * Deliberately as narrow as `hoistedImageId`'s Alignment half: exactly two segments, a non-empty
  * stem, and a `.json` suffix. Anything looser would route a path this application never writes into
@@ -714,23 +714,23 @@ async function missingOwner(
 
 	const imageId = alignmentImageId(path) ?? imageIdUnder(path);
 	if (imageId !== null) {
-		// A Historical Map's *own* evidence files are exempt, for exactly the reason
+		// A Map Image's *own* evidence files are exempt, for exactly the reason
 		// `<project>/project.json` is: writing one is what makes the map exist, so an interrupted add
 		// has nothing to point at yet and requiring it would discard the only copy. The deletion path
-		// (`EditorSession.deleteHistoricalMap`) empties the journal of the map at the time, which is
+		// (`EditorSession.deleteMapImage`) empties the journal of the map at the time, which is
 		// the layer that covers what this exemption opens — the same two-layer split as a Project.
 		if (path === imageInfoPath(imageId) || path === referencedImagePath(imageId)) return null;
-		// An Alignment, or a Historical Map's own record, belongs to a map in this Workspace
+		// An Alignment, or a Map Image's own record, belongs to a map in this Workspace
 		// (ADR-0023). If the map has gone, putting the file back leaves one describing nothing, which
 		// every size total counts and every backup carries.
-		return (await hasHistoricalMap(store, imageId))
+		return (await hasMapImage(store, imageId))
 			? null
 			: {
 					path,
-					reason: 'no-such-historical-map',
+					reason: 'no-such-map-image',
 					copy: null,
 					detail:
-						`An unsaved change to “${path}” was not put back, because the Historical Map it ` +
+						`An unsaved change to “${path}” was not put back, because the Map Image it ` +
 						`belongs to is no longer in this Workspace.`
 				};
 	}

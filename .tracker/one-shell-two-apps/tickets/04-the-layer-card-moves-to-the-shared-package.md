@@ -56,7 +56,7 @@ consumer's stylesheet is the drift ticket 02 established this rule against. Left
 `apps/editor/src/routes/layout.css` it was the exact defect ADR-0034 exists to prevent: Tailwind
 emits the *utility* `.text-[var(--layer-problem-ink)]` into both apps' stylesheets the moment the
 component is in the shared package, but the *declaration* went into the editor's alone — so the
-first non-editor consumer to render a Historical Map with no Alignment would draw the triangle in
+first non-editor consumer to render a Map Image with no Alignment would draw the triangle in
 the inherited `base-content` instead of the mixed ink at 5:1, with nothing erroring and a grep for
 the class still passing. Verify by grepping the built CSS of **both** apps for the declaration
 `--layer-problem-ink:`, not for the utility.

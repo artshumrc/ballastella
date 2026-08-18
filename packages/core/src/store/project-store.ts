@@ -19,7 +19,7 @@ export type StorePath = string;
 declare const alignmentPathBrand: unique symbol;
 
 /**
- * The path of one Historical Map's Alignment in the Workspace (ADR-0023).
+ * The path of one Map Image's Alignment in the Workspace (ADR-0023).
  *
  * Produced by `alignmentPath` alone. It is assignable to {@link StorePath}, so **reads, `list`,
  * `size`, and `delete` take it unchanged** — reading an Alignment is the ordinary thing to do with

@@ -66,7 +66,7 @@ import {
  * The file is not an Alignment — truncated, not JSON, or not a Georeference Annotation.
  *
  * Refused rather than half-read, and for the same reason `ProjectFileUnreadableError` is: a
- * partially understood Alignment is a Historical Map placed somewhere wrong, which is worse than
+ * partially understood Alignment is a Map Image placed somewhere wrong, which is worse than
  * one that will not open, because nothing says it happened.
  */
 export class AlignmentUnreadableError extends Error {
@@ -136,7 +136,7 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
 ];
 
 /**
- * Where the document says this Historical Map's image is served from.
+ * Where the document says this Map Image's image is served from.
  *
  * **The only thing that differs between a local copy and a referenced remote image** (ticket 14),
  * and it is an argument here rather than a rewrite performed elsewhere because CONTEXT.md confines
@@ -146,8 +146,8 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
  */
 export type AlignmentAddress = {
 	/**
-	 * The remote image service URI a `'referenced'` Historical Map's tiles come from, canonical
-	 * (no trailing slash, no `/info.json`). Omit — or pass `''` — for a Historical Map whose pyramid
+	 * The remote image service URI a `'referenced'` Map Image's tiles come from, canonical
+	 * (no trailing slash, no `/info.json`). Omit — or pass `''` — for a Map Image whose pyramid
 	 * is in the Project.
 	 *
 	 * **Omitting it writes the ADR-0004 placeholder, which for a referenced image is a blank map.**
@@ -167,7 +167,7 @@ export type AlignmentAddress = {
  * serialised annotation. It is here, in the one module that owns the format's vocabulary, so that
  * the renderer's caller can pass an `Alignment` and never assemble a `GeoreferencedMap` of its own
  * — two places building this object is how the *stored* Alignment and the *rendered* one come to
- * disagree, which is a Historical Map drawn somewhere other than where it was saved.
+ * disagree, which is a Map Image drawn somewhere other than where it was saved.
  *
  * **Named for what the caller wants, not for what the format calls it.** CONTEXT.md confines
  * `GeoreferencedMap` to the module that reads and writes the format, and this function is exported
@@ -219,7 +219,7 @@ export type RendererControlPoint = { resource: [number, number]; geo: [number, n
  * **Exported because the renderer needs them twice and must not be told two different things.** The
  * document built by {@link toRendererDocument} carries them, and so does the `gcps` *map option* that
  * moves them afterwards without rebuilding the layer — see `warped-map-layer.ts`. Two call sites
- * writing `[point.resource.x, point.resource.y]` for themselves is how a Historical Map comes to be
+ * writing `[point.resource.x, point.resource.y]` for themselves is how a Map Image comes to be
  * drawn from coordinates that are not the ones in the file.
  */
 export function toRendererControlPoints(alignment: Alignment): RendererControlPoint[] {
@@ -505,7 +505,7 @@ function toPlainDecimal(value: number): string {
 /**
  * Read an Alignment from a IIIF Georeference Annotation.
  *
- * `imageId` is the authority on which Historical Map this aligns, because the Alignment's
+ * `imageId` is the authority on which Map Image this aligns, because the Alignment's
  * identity is its path. The document's `resource.id` is not consulted for identity — a file
  * copied under a different name would otherwise claim the image it used to describe.
  */
@@ -543,10 +543,7 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 		// leaves us with no pixel dimensions — and every coordinate in the file is in image pixels,
 		// so without them the Resource Mask cannot be defaulted and the renderer cannot place
 		// anything. Refused with the reason rather than guessed at.
-		throw new AlignmentUnreadableError(
-			imageId,
-			'it does not say how large the Historical Map image is'
-		);
+		throw new AlignmentUnreadableError(imageId, 'it does not say how large the Map Image is');
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────

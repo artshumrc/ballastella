@@ -94,7 +94,7 @@ export interface WorkspaceBackup {
  * identical archives. That is what lets the round-trip test assert *lossless* rather than *plausible*.
  *
  * **It does not read `project.json`, or interpret anything.** Unlike the Project-level exporter, which reads
- * each Project's Layer stack to gather the shared Historical Maps that Project references, a
+ * each Project's Layer stack to gather the shared Map Images that Project references, a
  * Workspace backup is the whole Workspace: every file, whatever references it. So there is nothing to
  * parse, nothing to be defeated by a `project.json` that will not parse, and no way for a Project from
  * a newer version of the app to be anything other than backed up — which is precisely the Project a

@@ -13,21 +13,21 @@ import { buildImageManifest } from '../tiler/image-manifest.js';
 import { buildImageInfo, serialiseJson } from '../tiler/pyramid.js';
 import { imageDirectory, imageInfoPath, imageManifestPath } from './image-files.js';
 import {
-	HistoricalMapInUseError,
-	HistoricalMapPartlyDeletedError,
-	deleteHistoricalMap,
-	historicalMapUsage,
-	listWorkspaceHistoricalMaps,
+	MapImageInUseError,
+	MapImagePartlyDeletedError,
+	deleteMapImage,
+	mapImageUsage,
+	listWorkspaceMapImages,
 	partitionByOfflineCopy,
-	referencedHistoricalMaps,
+	referencedMapImages,
 	tileLocation,
-	unusedHistoricalMapBytes,
-	unusedHistoricalMaps
-} from './historical-maps.js';
+	unusedMapImageBytes,
+	unusedMapImages
+} from './map-images.js';
 import { newMapLayer, newAnnotationLayer } from './layer.js';
 import { newProjectFile, projectFilePath, serialiseProjectFile } from './project-file.js';
 
-// SPEC's Seam 1. "Which Historical Maps does this Workspace hold, who uses them, and what happens
+// SPEC's Seam 1. "Which Map Images does this Workspace hold, who uses them, and what happens
 // when one is deleted" is a question about which files exist, so the in-memory store is not standing
 // in for anything: the folder is the product.
 
@@ -59,7 +59,7 @@ async function seedLocalMap(
 const tilePath = (imageId: string): string =>
 	`${imageDirectory(imageId)}/0,0,256,256/256,256/0/default.jpg`;
 
-/** A Historical Map whose tiles are on a Library's server: a `remote.json` and nothing else. */
+/** A Map Image whose tiles are on a Library's server: a `remote.json` and nothing else. */
 async function seedReferencedMap(
 	store: MemoryProjectStore,
 	imageId: string,
@@ -95,7 +95,7 @@ async function seedProject(
 	);
 }
 
-describe('where a Historical Map’s tiles are', () => {
+describe('where a Map Image’s tiles are', () => {
 	// ADR-0023's rule, and this is now its only implementation. It used to have five: `publish.ts`,
 	// `partitionByOfflineCopy`, the viewer's 404 probe, and a derived set in each app's page. The rule
 	// itself is what they disagreed about most cheaply, so it is the thing that got one home.
@@ -116,18 +116,18 @@ describe('where a Historical Map’s tiles are', () => {
 
 	it('is nothing at all for a directory holding neither', () => {
 		// The tiles of an interrupted ingest. `info.json` is written last precisely so this is not yet a
-		// Historical Map, and nothing may list it, delete it, or count it.
+		// Map Image, and nothing may list it, delete it, or count it.
 		expect(tileLocation({ infoJson: false, remoteJson: false })).toBeNull();
 	});
 });
 
-describe('listWorkspaceHistoricalMaps', () => {
-	it('lists every Historical Map in the Workspace with its label, its size, and how many files that is', async () => {
+describe('listWorkspaceMapImages', () => {
+	it('lists every Map Image in the Workspace with its label, its size, and how many files that is', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Amsterdam 1625.tif', 40_000);
 		await seedReferencedMap(store, 'bbb2', 'Plan de Paris');
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		expect(maps.map((map) => map.imageId)).toEqual(['aaa1', 'bbb2']);
 		expect(maps[0]?.label).toBe('Amsterdam 1625.tif');
@@ -149,7 +149,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 		await seedLocalMap(store, 'aaa1', 'Amsterdam 1625.tif');
 		await seedAlignmentFixture(store, 'aaa1', 120);
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		expect(maps[0]?.files).toBe(4);
 	});
@@ -164,7 +164,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 			'https://iiif.bnf.example/iiif/3/btv1b'
 		);
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		// `library`, never `host`: CONTEXT.md reserves Library for the institution whose server a
 		// referenced map's tiles stay on, and lists "host" among the words that must not stand for it.
@@ -179,7 +179,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 		await seedProject(store, 'boston-1775', 'Boston 1775', ['aaa1']);
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 		const shared = maps.find((map) => map.imageId === 'aaa1');
 		const unused = maps.find((map) => map.imageId === 'ccc3');
 
@@ -195,7 +195,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 		await seedLocalMap(store, 'aaa1', 'Shared map');
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1', 'aaa1']);
 
-		const [map] = await listWorkspaceHistoricalMaps(store);
+		const [map] = await listWorkspaceMapImages(store);
 
 		expect(map?.usedBy).toEqual([{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }]);
 	});
@@ -211,7 +211,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 		const read = vi.spyOn(store, 'read');
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		// Not "nothing is read": the Projects' documents are how used-by is answered, and one small
 		// record per map is how it is named. What must never be opened is the pyramid — a tile or the
@@ -232,11 +232,11 @@ describe('listWorkspaceHistoricalMaps', () => {
 		expect(maps.every((map) => map.bytes > 0)).toBe(true);
 	});
 
-	it('ignores an image directory that is neither: a half-written ingest is not a Historical Map', async () => {
+	it('ignores an image directory that is neither: a half-written ingest is not a Map Image', async () => {
 		const store = new MemoryProjectStore();
 		await store.write('images/half/0,0,256,256/256,256/0/default.jpg', bytes(4096));
 
-		expect(await listWorkspaceHistoricalMaps(store)).toEqual([]);
+		expect(await listWorkspaceMapImages(store)).toEqual([]);
 	});
 });
 
@@ -248,7 +248,7 @@ describe('listWorkspaceHistoricalMaps', () => {
  * The 1200 × 851 sheet is the ADR's own worked example: its coarsest level is scale factor 8, so the
  * whole sheet is one 150 × 107 tile.
  */
-describe('a Historical Map’s thumbnail', () => {
+describe('a Map Image’s thumbnail', () => {
 	/** A Workspace-held map whose `info.json` really carries geometry, and its manifest. */
 	async function seedPyramid(
 		store: MemoryProjectStore,
@@ -269,7 +269,7 @@ describe('a Historical Map’s thumbnail', () => {
 	}
 
 	const thumbnailOf = async (store: MemoryProjectStore, imageId: string) =>
-		(await listWorkspaceHistoricalMaps(store)).find((map) => map.imageId === imageId)?.thumbnail;
+		(await listWorkspaceMapImages(store)).find((map) => map.imageId === imageId)?.thumbnail;
 
 	it('is the coarsest tile of a Workspace-held map’s own pyramid', async () => {
 		const store = new MemoryProjectStore();
@@ -385,7 +385,7 @@ describe('a Historical Map’s thumbnail', () => {
 			serialiseJson({ service: 'https://iiif.bnf.example/iiif/3/btv1b', ...geometry })
 		);
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		// Still listed, and still with its Library named: this is the reclaim list.
 		expect(maps.map((map) => map.imageId)).toEqual(['bbb2']);
@@ -420,20 +420,20 @@ describe('a Historical Map’s thumbnail', () => {
 		await store.write(imageInfoPath('aaa1'), new TextEncoder().encode('{ not json'));
 		await store.write(imageInfoPath('bbb2'), serialiseJson({ id: 'https://unset.invalid/bbb2' }));
 
-		const maps = await listWorkspaceHistoricalMaps(store);
+		const maps = await listWorkspaceMapImages(store);
 
 		expect(maps.map((map) => map.imageId)).toEqual(['aaa1', 'bbb2']);
 		expect(maps.map((map) => map.thumbnail)).toEqual([null, null]);
 	});
 });
 
-describe('historicalMapUsage', () => {
+describe('mapImageUsage', () => {
 	it('skips a Project whose document will not parse rather than failing the list', async () => {
 		const store = new MemoryProjectStore();
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 		await store.write('broken/project.json', new TextEncoder().encode('{ not json'));
 
-		const usage = await historicalMapUsage(store);
+		const usage = await mapImageUsage(store);
 
 		expect([...usage.byMap]).toEqual([
 			['aaa1', [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }]]
@@ -454,14 +454,14 @@ describe('historicalMapUsage', () => {
 			})
 		);
 
-		expect((await historicalMapUsage(store)).byMap.size).toBe(0);
+		expect((await mapImageUsage(store)).byMap.size).toBe(0);
 	});
 
 	it('reports a Project from a newer version rather than skipping it', async () => {
 		const store = new MemoryProjectStore();
 		await seedFutureProject(store, 'from-the-future');
 
-		const usage = await historicalMapUsage(store);
+		const usage = await mapImageUsage(store);
 
 		expect(usage.byMap.size).toBe(0);
 		// Named by its directory, exactly as `listProjects` names the same Project on the hub.
@@ -476,7 +476,7 @@ describe('historicalMapUsage', () => {
  *
  * `formatVersion: 2` is refused by `parseProjectFile` *because the file is intact* — SPEC story 114
  * wants refusal rather than partial loading. Its Layer stack is right there and certainly names
- * Historical Maps; this build simply cannot say which.
+ * Map Images; this build simply cannot say which.
  */
 async function seedFutureProject(store: MemoryProjectStore, directory: string): Promise<void> {
 	await store.write(
@@ -492,16 +492,16 @@ async function seedFutureProject(store: MemoryProjectStore, directory: string): 
 	);
 }
 
-// The whole of this describe is one defect: a Historical Map drawn only by a Project from a newer
+// The whole of this describe is one defect: a Map Image drawn only by a Project from a newer
 // build was reported as "No Project uses this map" and offered for deletion, on the same hub that had
 // just said that Project could not be opened. Swallowing every parse failure alike is what did it.
-describe('a Historical Map whose only user is a Project from a newer version', () => {
+describe('a Map Image whose only user is a Project from a newer version', () => {
 	it('is not reported as unused, and names the Project that cannot be read', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Might be in use', 100_000);
 		await seedFutureProject(store, 'from-the-future');
 
-		const [map] = await listWorkspaceHistoricalMaps(store);
+		const [map] = await listWorkspaceMapImages(store);
 
 		expect(map?.usedBy).toEqual([]);
 		expect(map?.mightBeUsedBy).toEqual([{ directory: 'from-the-future', name: 'from-the-future' }]);
@@ -514,13 +514,13 @@ describe('a Historical Map whose only user is a Project from a newer version', (
 		await seedFutureProject(store, 'from-the-future');
 		const before = [...store.snapshot().keys()];
 
-		const refusal = await deleteHistoricalMap(store, 'aaa1', { label: 'Might be in use' }).catch(
+		const refusal = await deleteMapImage(store, 'aaa1', { label: 'Might be in use' }).catch(
 			(cause: unknown) => cause
 		);
 
-		expect(refusal).toBeInstanceOf(HistoricalMapInUseError);
-		expect((refusal as HistoricalMapInUseError).message).toContain('from-the-future');
-		expect((refusal as HistoricalMapInUseError).message).toContain('newer version of Ballastella');
+		expect(refusal).toBeInstanceOf(MapImageInUseError);
+		expect((refusal as MapImageInUseError).message).toContain('from-the-future');
+		expect((refusal as MapImageInUseError).message).toContain('newer version of Ballastella');
 		// The claim that must not pass vacuously: the tiles and the Alignment are still on disk. A
 		// refusal that deleted anyway would satisfy the two assertions above it.
 		expect([...store.snapshot().keys()]).toEqual(before);
@@ -533,7 +533,7 @@ describe('a Historical Map whose only user is a Project from a newer version', (
 
 		// Publishing's warning would otherwise invite the user to reclaim half a gigabyte that a Project
 		// they cannot open today is drawing.
-		expect(await unusedHistoricalMapBytes(store)).toEqual({ bytes: 0, maps: 0 });
+		expect(await unusedMapImageBytes(store)).toEqual({ bytes: 0, maps: 0 });
 	});
 
 	it('still lets a map a readable Project has stopped using be deleted, when nothing is unreadable', async () => {
@@ -543,13 +543,13 @@ describe('a Historical Map whose only user is a Project from a newer version', (
 		await seedLocalMap(store, 'aaa1', 'Going', 100_000);
 		await store.write('broken/project.json', new TextEncoder().encode('{ not json'));
 
-		await deleteHistoricalMap(store, 'aaa1');
+		await deleteMapImage(store, 'aaa1');
 
-		expect(await listWorkspaceHistoricalMaps(store)).toEqual([]);
+		expect(await listWorkspaceMapImages(store)).toEqual([]);
 	});
 });
 
-describe('referencedHistoricalMaps', () => {
+describe('referencedMapImages', () => {
 	it('is the maps whose tiles are on somebody else’s server, and only those', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Mine');
@@ -558,11 +558,11 @@ describe('referencedHistoricalMaps', () => {
 		await seedLocalMap(store, 'ccc3', 'Copied');
 		await seedReferencedMap(store, 'ccc3', 'Copied');
 
-		expect([...(await referencedHistoricalMaps(store))]).toEqual(['bbb2']);
+		expect([...(await referencedMapImages(store))]).toEqual(['bbb2']);
 	});
 });
 
-describe('deleting a Historical Map', () => {
+describe('deleting a Map Image', () => {
 	it('is refused when two Projects use it, and the refusal names both', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Shared map');
@@ -571,12 +571,12 @@ describe('deleting a Historical Map', () => {
 		await seedProject(store, 'boston-1775', 'Boston 1775', ['aaa1']);
 		const before = [...store.snapshot().keys()];
 
-		const refusal = await deleteHistoricalMap(store, 'aaa1').catch((cause: unknown) => cause);
+		const refusal = await deleteMapImage(store, 'aaa1').catch((cause: unknown) => cause);
 
-		expect(refusal).toBeInstanceOf(HistoricalMapInUseError);
-		expect((refusal as HistoricalMapInUseError).message).toContain('Amsterdam 1625');
-		expect((refusal as HistoricalMapInUseError).message).toContain('Boston 1775');
-		expect((refusal as HistoricalMapInUseError).projects.map((p) => p.directory)).toEqual([
+		expect(refusal).toBeInstanceOf(MapImageInUseError);
+		expect((refusal as MapImageInUseError).message).toContain('Amsterdam 1625');
+		expect((refusal as MapImageInUseError).message).toContain('Boston 1775');
+		expect((refusal as MapImageInUseError).projects.map((p) => p.directory)).toEqual([
 			'amsterdam-1625',
 			'boston-1775'
 		]);
@@ -595,7 +595,7 @@ describe('deleting a Historical Map', () => {
 		await seedAlignmentFixture(store, 'bbb2', 120);
 		await seedProject(store, 'boston-1775', 'Boston 1775', ['bbb2']);
 
-		await deleteHistoricalMap(store, 'aaa1');
+		await deleteMapImage(store, 'aaa1');
 
 		expect([...store.snapshot().keys()].sort()).toEqual(
 			[
@@ -613,9 +613,9 @@ describe('deleting a Historical Map', () => {
 		await seedLocalMap(store, 'aaa1', 'Was used');
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', []);
 
-		await deleteHistoricalMap(store, 'aaa1');
+		await deleteMapImage(store, 'aaa1');
 
-		expect(await listWorkspaceHistoricalMaps(store)).toEqual([]);
+		expect(await listWorkspaceMapImages(store)).toEqual([]);
 	});
 
 	// A `delete` can refuse anywhere in the sequence — a lock, a folder grant revoked mid-way, a disk
@@ -640,17 +640,17 @@ describe('deleting a Historical Map', () => {
 			// the ordering claim. Written last by the ingest, deleted last here.
 			refuseOn(store, 3);
 
-			const failure = await deleteHistoricalMap(store, 'aaa1', { label: 'Half gone' }).catch(
+			const failure = await deleteMapImage(store, 'aaa1', { label: 'Half gone' }).catch(
 				(cause: unknown) => cause
 			);
 
-			expect(failure).toBeInstanceOf(HistoricalMapPartlyDeletedError);
+			expect(failure).toBeInstanceOf(MapImagePartlyDeletedError);
 			expect((failure as Error).message).toContain('only partly deleted');
 			expect((failure as Error).message).toContain('The Workspace is locked');
 			// The claim that must not pass vacuously: the map is still *listed*, holding the bytes it
 			// still holds. Deleting `info.json` first would have left the same tiles on disk with nothing
 			// in the Workspace admitting they exist.
-			const listed = await listWorkspaceHistoricalMaps(store);
+			const listed = await listWorkspaceMapImages(store);
 			expect(listed.map((map) => map.imageId)).toEqual(['aaa1']);
 			expect(listed[0]?.bytes).toBeGreaterThan(0);
 		});
@@ -661,7 +661,7 @@ describe('deleting a Historical Map', () => {
 			await seedAlignmentFixture(store, 'aaa1', 120);
 			refuseOn(store, 3);
 
-			await deleteHistoricalMap(store, 'aaa1').catch(() => undefined);
+			await deleteMapImage(store, 'aaa1').catch(() => undefined);
 
 			// `alignments/<id>.json` is what a later import deduplicates against, so a leftover would make
 			// a colleague's copy of this map arrive without its own placement.
@@ -675,12 +675,12 @@ describe('deleting a Historical Map', () => {
 			const before = [...store.snapshot().keys()];
 			refuseOn(store, 1);
 
-			const failure = await deleteHistoricalMap(store, 'aaa1', { label: 'Untouched' }).catch(
+			const failure = await deleteMapImage(store, 'aaa1', { label: 'Untouched' }).catch(
 				(cause: unknown) => cause
 			);
 
 			// No half state to describe, so "partly deleted" would be its own false story.
-			expect(failure).not.toBeInstanceOf(HistoricalMapPartlyDeletedError);
+			expect(failure).not.toBeInstanceOf(MapImagePartlyDeletedError);
 			expect((failure as Error).message).toBe('The Workspace is locked');
 			expect([...store.snapshot().keys()]).toEqual(before);
 		});
@@ -688,8 +688,8 @@ describe('deleting a Historical Map', () => {
 		/**
 		 * ⚠ **The exit that falsified the caller's rule** (ticket 21, review 3). The abandoned-write
 		 * sweep used to run **after** every file had been deleted, so a rejection from it left the map
-		 * entirely gone and threw something that is neither {@link HistoricalMapInUseError} nor
-		 * {@link HistoricalMapPartlyDeletedError} — and `EditorSession.deleteHistoricalMap` sweeps its
+		 * entirely gone and threw something that is neither {@link MapImageInUseError} nor
+		 * {@link MapImagePartlyDeletedError} — and `EditorSession.deleteMapImage` sweeps its
 		 * journal on exactly that discrimination, so the map's journalled bytes survived a map that
 		 * did not. Wrapping it in a `PartlyDeleted` would have been the opposite lie: that error tells
 		 * the user the map "is still listed and deleting it again will finish the job".
@@ -707,11 +707,11 @@ describe('deleting a Historical Map', () => {
 				new Error('The folder grant was revoked')
 			);
 
-			const failure = await deleteHistoricalMap(store, 'aaa1', { label: 'Untouched' }).catch(
+			const failure = await deleteMapImage(store, 'aaa1', { label: 'Untouched' }).catch(
 				(cause: unknown) => cause
 			);
 
-			expect(failure).not.toBeInstanceOf(HistoricalMapPartlyDeletedError);
+			expect(failure).not.toBeInstanceOf(MapImagePartlyDeletedError);
 			expect((failure as Error).message).toBe('The folder grant was revoked');
 			expect([...store.snapshot().keys()]).toEqual(before);
 		});
@@ -730,14 +730,14 @@ describe('deleting a Historical Map', () => {
 				new TextEncoder().encode('half a document')
 			);
 
-			await deleteHistoricalMap(store, 'aaa1');
+			await deleteMapImage(store, 'aaa1');
 
 			expect([...store.snapshot().keys()]).toEqual([]);
 		});
 	});
 });
 
-describe('unusedHistoricalMaps', () => {
+describe('unusedMapImages', () => {
 	// One definition of the ticket's headline figure. The hub used to reduce this itself, so the
 	// reclaim list and publishing's hosting warning were two answers to one question.
 	const map = (imageId: string, bytes: number, users: number, unreadable = 0) => ({
@@ -751,25 +751,25 @@ describe('unusedHistoricalMaps', () => {
 	});
 
 	it('is the maps nothing draws, and what they weigh together', () => {
-		const unused = unusedHistoricalMaps([map('aaa1', 100, 1), map('bbb2', 500, 0)]);
+		const unused = unusedMapImages([map('aaa1', 100, 1), map('bbb2', 500, 0)]);
 
 		expect(unused.maps.map((entry) => entry.imageId)).toEqual(['bbb2']);
 		expect(unused.bytes).toBe(500);
 	});
 
 	it('counts a map a Project this build cannot read might draw as used', () => {
-		expect(unusedHistoricalMaps([map('aaa1', 500, 0, 1)])).toEqual({ maps: [], bytes: 0 });
+		expect(unusedMapImages([map('aaa1', 500, 0, 1)])).toEqual({ maps: [], bytes: 0 });
 	});
 });
 
-describe('unusedHistoricalMapBytes', () => {
+describe('unusedMapImageBytes', () => {
 	it('weighs the maps no Project uses, and only those', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Used', 100_000);
 		await seedLocalMap(store, 'bbb2', 'Unused', 500_000);
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 
-		const unused = await unusedHistoricalMapBytes(store);
+		const unused = await unusedMapImageBytes(store);
 
 		expect(unused.maps).toBe(1);
 		expect(unused.bytes).toBeGreaterThan(500_000);
@@ -781,7 +781,7 @@ describe('unusedHistoricalMapBytes', () => {
 		await seedLocalMap(store, 'aaa1', 'Used', 100_000);
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 
-		expect(await unusedHistoricalMapBytes(store)).toEqual({ bytes: 0, maps: 0 });
+		expect(await unusedMapImageBytes(store)).toEqual({ bytes: 0, maps: 0 });
 	});
 
 	it('opens nothing but the Projects’ own documents', async () => {
@@ -790,14 +790,14 @@ describe('unusedHistoricalMapBytes', () => {
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', []);
 		const read = vi.spyOn(store, 'read');
 
-		await unusedHistoricalMapBytes(store);
+		await unusedMapImageBytes(store);
 
 		expect(read.mock.calls.map(([path]) => path)).toEqual(['amsterdam-1625/project.json']);
 	});
 });
 
 describe('partitionByOfflineCopy', () => {
-	// Moved here from `referenced-image.ts` so that it and `referencedHistoricalMaps` answer through
+	// Moved here from `referenced-image.ts` so that it and `referencedMapImages` answer through
 	// one rule rather than two. Its behaviour is unchanged, and `referenced-image.test.ts` still
 	// asserts it end to end from the records on disk.
 	const record = (imageId: string) =>

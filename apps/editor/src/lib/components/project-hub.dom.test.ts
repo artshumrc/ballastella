@@ -1,4 +1,4 @@
-// What the Workspace hub renders: the Historical Maps list, and the Front Page choice beside each
+// What the Workspace hub renders: the Map Images list, and the Front Page choice beside each
 // Project.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -7,7 +7,7 @@
 // From `e2e/editor-workspace.e2e.ts`: three tests that each seeded four pyramids and two Projects
 // into OPFS, booted the built editor, and then read a sentence out of a `<li>` — the label and the
 // size, where the tiles are, and which Projects draw the map. Every one of those sentences is
-// composed from a `WorkspaceHistoricalMap` record and nothing else, so none of the scenery was
+// composed from a `WorkspaceMapImage` record and nothing else, so none of the scenery was
 // load-bearing. From `e2e/editor-project-screen.e2e.ts`: the Front Page wording matrix, which is
 // four forbidden words and one required phrase over a two-valued state.
 //
@@ -18,9 +18,9 @@
 //   listing test in `e2e/editor-workspace.e2e.ts`, which is what keeps this file from being a test
 //   of its own fixtures.
 // - **That deleting reaches the Workspace, and that a refusal leaves the pyramid alone.** Bytes on
-//   disk; `e2e/`'s, and `packages/core/src/project/historical-maps.test.ts`'s.
+//   disk; `e2e/`'s, and `packages/core/src/project/map-images.test.ts`'s.
 // - **Whether a map is used, and by which Projects.** A pure question over the Projects' own
-//   documents, answered by `historicalMapUsage` and asserted at Seam 1 — including ADR-0010's
+//   documents, answered by `mapImageUsage` and asserted at Seam 1 — including ADR-0010's
 //   newer-version case. What is asserted here is only the *sentence* the hub composes from the
 //   answer.
 // - **That the confirmation is a real `<dialog>` opened with `showModal()`.** ADR-0016's claim is
@@ -30,16 +30,13 @@
 // Everything is addressed by position and read straight off the document, per
 // `layer-list.dom.test.ts`.
 
-import type { ProjectSummary, WorkspaceHistoricalMap } from '@ballastella/core';
+import type { ProjectSummary, WorkspaceMapImage } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import ProjectHubHarness from './ProjectHubHarness.svelte';
 
-const map = (
-	imageId: string,
-	over: Partial<WorkspaceHistoricalMap> = {}
-): WorkspaceHistoricalMap => ({
+const map = (imageId: string, over: Partial<WorkspaceMapImage> = {}): WorkspaceMapImage => ({
 	imageId,
 	label: '',
 	tiles: 'in-workspace',
@@ -70,16 +67,16 @@ afterEach(() => {
 });
 
 const hub = (props: {
-	historicalMaps?: readonly WorkspaceHistoricalMap[];
+	mapImages?: readonly WorkspaceMapImage[];
 	projects?: readonly ProjectSummary[];
 }): void => {
 	mounted = mount(ProjectHubHarness, { target: document.body, props });
 	flushSync();
 };
 
-/** Every Historical Map card, in the order the hub renders them. */
+/** Every Map Image card, in the order the hub renders them. */
 const cards = (): HTMLElement[] => [
-	...document.querySelectorAll<HTMLElement>('[data-testid="historical-map"]')
+	...document.querySelectorAll<HTMLElement>('[data-testid="map-image"]')
 ];
 
 const text = (element: Element | null): string =>
@@ -91,12 +88,12 @@ const at = (testId: string): HTMLElement => {
 	return found;
 };
 
-describe('what a Historical Map card says about the map', () => {
+describe('what a Map Image card says about the map', () => {
 	// The file count beside the byte total, because "50 kB in 4 files" and "50 kB in 31 000 files"
 	// are different news for a scholar deciding what to publish.
 	test('names it, weighs it, and says how many files that is', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', { label: 'Blaeu’s plan of Amsterdam' }),
 				map('remote-one', { label: 'Plan de Paris', bytes: 400, files: 1 })
 			]
@@ -115,12 +112,12 @@ describe('what a Historical Map card says about the map', () => {
 	// A map whose records carry no label at all still has to be identifiable and deletable, so the
 	// folder name stands in for the name rather than leaving an empty heading.
 	test('falls back to the folder name when neither record gives it one', () => {
-		hub({ historicalMaps: [map('untitled-scan')] });
+		hub({ mapImages: [map('untitled-scan')] });
 
-		expect(text(document.querySelector('[data-testid="historical-map"] h3'))).toBe('untitled-scan');
+		expect(text(document.querySelector('[data-testid="map-image"] h3'))).toBe('untitled-scan');
 		// And the delete button is named for it, so a screen-reader user reading a column of them is
 		// told which map each one destroys.
-		expect(document.querySelector('[data-testid="historical-map"] button')).toHaveAccessibleName(
+		expect(document.querySelector('[data-testid="map-image"] button')).toHaveAccessibleName(
 			'Delete untitled-scan'
 		);
 	});
@@ -129,7 +126,7 @@ describe('what a Historical Map card says about the map', () => {
 	// decides whether a Layer draws anything on a train.
 	test('says whether the tiles are here or names the Library they are on', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', { label: 'Blaeu’s plan of Amsterdam' }),
 				map('remote-one', {
 					label: 'Plan de Paris',
@@ -146,7 +143,7 @@ describe('what a Historical Map card says about the map', () => {
 	// A referenced map whose record does not name a host still has to say that the tiles are
 	// somebody else's, because that is the half of the sentence the user acts on.
 	test('still says the tiles are elsewhere when the Library has no name', () => {
-		hub({ historicalMaps: [map('remote-one', { tiles: 'referenced' })] });
+		hub({ mapImages: [map('remote-one', { tiles: 'referenced' })] });
 
 		expect(text(cards()[0])).toContain('Tiles on a Library’s server');
 	});
@@ -155,7 +152,7 @@ describe('what a Historical Map card says about the map', () => {
 describe('which Projects draw a map, in the words the list uses (SPEC story 63)', () => {
 	test('names them, and says plainly when none do', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', {
 					label: 'Blaeu’s plan of Amsterdam',
 					usedBy: [
@@ -180,13 +177,13 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 	});
 
 	// ⚠ **ADR-0010's case, and the interesting one.** A `formatVersion: 2` Project is refused
-	// *because it is intact* — its Layer stack is right there and certainly names Historical Maps.
+	// *because it is intact* — its Layer stack is right there and certainly names Map Images.
 	// Reading that refusal as "this Project uses nothing" is how a scholar is offered a delete button
 	// for a map their next release still draws. So the sentence never calls such a map unused, and it
 	// never claims to know that the Project draws it either.
 	test('says a Project this build cannot read may draw it, rather than calling it unused', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('orphan', {
 					label: 'A map nobody kept',
 					mightBeUsedBy: [{ directory: 'from-the-future', name: 'from-the-future' }]
@@ -206,7 +203,7 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 	// unreadable one is named separately and in its own words rather than folded into the list.
 	test('keeps the unreadable Project separate from the ones it can vouch for', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', {
 					usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
 					mightBeUsedBy: [
@@ -225,7 +222,7 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 
 	test('says “It” of a single unreadable Project and “They” of several', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', {
 					usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
 					mightBeUsedBy: [{ directory: 'from-the-future', name: 'Tomorrow' }]
@@ -239,18 +236,18 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 
 describe('what the Workspace holds in total', () => {
 	// The reclaim figure is the sentence the list exists for — "of which 50 kB is used by no
-	// Project" — and it is core's `unusedHistoricalMaps`, not a second reduction over the same list.
+	// Project" — and it is core's `unusedMapImages`, not a second reduction over the same list.
 	test('counts the maps, weighs them, and says how much of it nothing draws', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] }),
 				map('solo', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] }),
 				map('orphan')
 			]
 		});
 
-		expect(text(at('historical-maps-total'))).toBe(
-			'3 Historical Maps, 150 kB in all, of which 50 kB is used by no Project.'
+		expect(text(at('map-images-total'))).toBe(
+			'3 Map Images, 150 kB in all, of which 50 kB is used by no Project.'
 		);
 	});
 
@@ -258,39 +255,39 @@ describe('what the Workspace holds in total', () => {
 	// as an invitation to go looking for something that is not there.
 	test('says nothing about reclaiming when every map is in use', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('shared', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] })
 			]
 		});
 
-		expect(text(at('historical-maps-total'))).toBe('1 Historical Map, 50 kB in all.');
+		expect(text(at('map-images-total'))).toBe('1 Map Image, 50 kB in all.');
 	});
 
 	// A map a Project this build cannot read might draw is not reclaimable, so it must not be
 	// counted in the figure that invites the user to delete something.
 	test('does not offer a map an unreadable Project might draw as reclaimable', () => {
 		hub({
-			historicalMaps: [
+			mapImages: [
 				map('orphan', {
 					mightBeUsedBy: [{ directory: 'from-the-future', name: 'Tomorrow' }]
 				})
 			]
 		});
 
-		expect(text(at('historical-maps-total'))).toBe('1 Historical Map, 50 kB in all.');
+		expect(text(at('map-images-total'))).toBe('1 Map Image, 50 kB in all.');
 	});
 });
 
 // A Workspace with nothing in it has to say so and name the action that would change it — the hub
-// has no "add a Historical Map" of its own, because a map is added inside the Project that draws it
+// has no "add a Map Image" of its own, because a map is added inside the Project that draws it
 // first, so an empty state that only said "nothing here" would leave the user with no next move.
-test('a Workspace with no Historical Maps says so, and names the next action', () => {
-	hub({ historicalMaps: [] });
+test('a Workspace with no Map Images says so, and names the next action', () => {
+	hub({ mapImages: [] });
 
 	expect(cards()).toHaveLength(0);
-	expect(text(at('no-historical-maps'))).toContain('Open a Project and add one from there');
+	expect(text(at('no-map-images'))).toContain('Open a Project and add one from there');
 	// And no total, because there is no total to state.
-	expect(document.querySelector('[data-testid="historical-maps-total"]')).toBeNull();
+	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
 });
 
 /**

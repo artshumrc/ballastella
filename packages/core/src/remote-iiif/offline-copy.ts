@@ -1,4 +1,4 @@
-// "Make an offline copy": a referenced remote Historical Map turned into a pyramid of our own
+// "Make an offline copy": a referenced remote Map Image turned into a pyramid of our own
 // (ADR-0007, SPEC stories 27 and 28).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -240,17 +240,17 @@ export function planOfflineCopy(
 	// the streaming tiler", which is no longer true of any deployment and was never true of this
 	// one; it closes v1 ticket 15's `[~]` criterion by removing the route it was hedging about.
 	if (pixels > maxIngestPixels) {
-		// One word for the thing throughout (CONTEXT.md, *Historical Map*: avoid map, image, scan,
-		// source). This sentence used to say "this map … this Historical Map" in one breath.
+		// One word for the thing throughout (CONTEXT.md, *Map Image*: avoid map, image, scan,
+		// source). This sentence used to say "this map … this Map Image" in one breath.
 		refusal =
-			`At ${megapixels(pixels)} megapixels this Historical Map is past the ` +
+			`At ${megapixels(pixels)} megapixels this Map Image is past the ` +
 			`${megapixels(maxIngestPixels)} megapixels a browser will decode in one piece, and an ` +
 			`offline copy has to be held whole before it can be cut into tiles` +
 			(path === 'assembled'
 				? ` — ${host} serves only pre-cut tiles${cappedBy === '' ? '' : ` and ${cappedBy}`}, so ` +
 					`the copy would have to be reassembled at full resolution first`
 				: '') +
-			`. Nothing has been copied and this Historical Map still works, read from ${host}. To hold ` +
+			`. Nothing has been copied and this Map Image still works, read from ${host}. To hold ` +
 			`it offline, ask whoever runs ${host} for the original file and prepare a IIIF pyramid from ` +
 			`it outside the browser.`;
 	}
@@ -361,7 +361,7 @@ const FETCH_SHARE = 0.3;
 export type MakeOfflineCopyOptions = {
 	readonly store: ProjectStore;
 	readonly service: RemoteImageService;
-	/** What to call this Historical Map. The library's label, normally. */
+	/** What to call this Map Image. The library's label, normally. */
 	readonly label?: string;
 	/** How the network is reached. The ADR-0011 shim passes a remote host straight through. */
 	readonly fetch: FetchFn;
@@ -411,7 +411,7 @@ export type AssembleImage = (
 ) => Promise<Blob>;
 
 /**
- * Copy a referenced remote Historical Map into the Workspace as local tiles.
+ * Copy a referenced remote Map Image into the Workspace as local tiles.
  *
  * **Writes nothing until the pixels are in hand**, and then writes only through
  * `ingestImageFile` — so a copy that fails or is cancelled leaves the Workspace exactly as it was, the
@@ -487,7 +487,7 @@ export async function makeOfflineCopy(options: MakeOfflineCopyOptions): Promise<
 				reason:
 					`The ${pieces.length} tiles ${host} served could not be put back together into one ` +
 					`${plan.width}×${plan.height} image: ${message(cause)}. Nothing has been copied and this ` +
-					`Historical Map still works, read from ${host}.`
+					`Map Image still works, read from ${host}.`
 			});
 		}
 	}
@@ -578,7 +578,7 @@ const servedWrongSizeReason = (context: {
 	`Ballastella refuses that rather than copying it: every Control Point, and every alignment anyone ` +
 	`has published for this image, is measured in the pixels the service declared — so a copy at a ` +
 	`different size would put the whole map in the wrong place while looking perfectly fine. Nothing ` +
-	`has been copied and this Historical Map still works, read from ${context.host}.`;
+	`has been copied and this Map Image still works, read from ${context.host}.`;
 
 /** Remove a pyramid this function wrote and then refused. Best effort; nothing reads it either way. */
 async function removePyramid(store: ProjectStore, directory: string): Promise<void> {
@@ -631,7 +631,7 @@ async function fetchBounded(
 			throw refuse(
 				`${host} answered ${response.status}${
 					response.statusText ? ` ${response.statusText}` : ''
-				} for ${url}. Nothing has been copied, and this Historical Map still works read from ${host}.`
+				} for ${url}. Nothing has been copied, and this Map Image still works read from ${host}.`
 			);
 		}
 

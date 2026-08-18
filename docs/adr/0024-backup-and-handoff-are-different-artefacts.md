@@ -3,7 +3,7 @@
 Transfer serves two unrelated purposes, and one file format was serving neither well. They are now separate:
 
 - **Backup and restore, and moving between computers: a tar of the whole Workspace.** This is how a user on Firefox, Safari, or an iPad keeps their work safe, because File System Access — and therefore "just copy the folder" — exists on none of them.
-- **Handoff: a tar of one Project, self-contained**, holding `project.json`, its Annotations, and the Historical Maps and Alignments its Layers reference. It can be opened **only** in a Review Workspace, never merged into the recipient's own.
+- **Handoff: a tar of one Project, self-contained**, holding `project.json`, its Annotations, and the Map Images and Alignments its Layers reference. It can be opened **only** in a Review Workspace, never merged into the recipient's own.
 
 ## Why not a zip
 
@@ -21,7 +21,7 @@ Writing our own zip64 central directory was rejected. It is archive-format code 
 
 ## Why handoff cannot merge
 
-A handoff bundle carries `alignments/<image-id>.json`, and under [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md) there is exactly one Alignment per Historical Map in a Workspace. Importing a colleague's bundle into your own Workspace would therefore either overwrite an Alignment two of your own Projects depend on, or be refused — and the propagation risk ADR-0023 accepts is one a user takes on for *their own* edits, not one that should arrive inside someone else's file.
+A handoff bundle carries `alignments/<image-id>.json`, and under [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md) there is exactly one Alignment per Map Image in a Workspace. Importing a colleague's bundle into your own Workspace would therefore either overwrite an Alignment two of your own Projects depend on, or be refused — and the propagation risk ADR-0023 accepts is one a user takes on for *their own* edits, not one that should arrive inside someone else's file.
 
 So a bundle opens into a **Review Workspace**: a named, throwaway Workspace holding exactly that one Project. Several may exist at once, named after what was opened, so a teacher marking thirty submissions can switch between them freely and two students' conflicting Alignments of the same sheet never meet.
 

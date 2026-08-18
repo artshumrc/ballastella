@@ -107,7 +107,7 @@ catalog:
   # never asks Allmaps anything.
   '@allmaps/stdlib': 1.0.0-beta.41
 
-  # triiiceratops: unwarped viewing — a Historical Map read as a document (ADR-0018, ticket 14).
+  # triiiceratops: unwarped viewing — a Map Image read as a document (ADR-0018, ticket 14).
   # Manifest and Collection browsing and canvas selection are **not** its: they are the editor's own
   # list, over `@allmaps/iiif-parser`, in `AddRemoteMap.svelte`.
   # Imported from its `./svelte` export as an ordinary Svelte component,
@@ -122,7 +122,7 @@ catalog:
   #
   # **`apps/viewer` alone, as of ticket 15.** It was both apps from ticket 17; the editor's unwarped
   # view is deleted and the dependency went with it, so a change to this pin can now only reach a
-  # Published Site. The Reader's half is story 85 and it stays: a Historical Map viewed on its own,
+  # Published Site. The Reader's half is story 85 and it stays: a Map Image viewed on its own,
   # unwarped, read as a document.
   #
   # The editor's copy was removed because it could only ever serve *referenced* maps. A locally
@@ -140,7 +140,7 @@ catalog:
   # two MapLibre copies in one page is a broken map rather than a warning.
   #
   # A dependency of `@ballastella/core` as of ticket 17, not of either app: both draw the same warped
-  # Historical Maps, and `core/src/render/` is where that stopped being two copies of the same rules.
+  # Map Images, and `core/src/render/` is where that stopped being two copies of the same rules.
   '@allmaps/maplibre': 1.0.0-beta.43
 
   # UI (ADR-0016: daisyUI is the only UI dependency)
@@ -155,7 +155,7 @@ catalog:
   # compiled artefact — nothing THIRD-PARTY-NOTICES needs to record.
   #
   # A glyph is never alone with meaning (SPEC story 111): a kind icon sits beside the words
-  # "Historical Map", and an icon-only button keeps a visible or `sr-only` label. An icon that
+  # "Map Image", and an icon-only button keeps a visible or `sr-only` label. An icon that
   # would need a tooltip to be understood is the wrong icon.
   #
   # `apps/editor` and `packages/ui`. The shared package took it when the Layer card moved there:

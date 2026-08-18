@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ADR-0023: a Historical Map's pyramid and its Alignment live at the **Workspace** root, shared by
+// ADR-0023: a Map Image's pyramid and its Alignment live at the **Workspace** root, shared by
 // every Project. No module may resolve either of them relative to a Project directory.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -310,15 +310,13 @@ for (const absolute of files) {
 }
 
 if (violations.length > 0) {
-	console.error(
-		`\nA Historical Map or Alignment path is built from a Project directory (ADR-0023).\n`
-	);
+	console.error(`\nA Map Image or Alignment path is built from a Project directory (ADR-0023).\n`);
 	for (const violation of violations) {
 		console.error(`  ${violation.file}:${violation.line}  ${violation.why}`);
 		console.error(`    ${violation.text}`);
 	}
 	console.error(
-		'\nHistorical Maps and Alignments live at the Workspace root and are shared by every Project.\n' +
+		'\nMap Images and Alignments live at the Workspace root and are shared by every Project.\n' +
 			'`imageDirectory`, `imageInfoPath`, `imageManifestPath`, `referencedImagePath`, and\n' +
 			'`alignmentPath` each already return the complete store path — use one on its own.\n\n' +
 			'This is fenced rather than reviewed because getting it wrong does not raise an error: the\n' +

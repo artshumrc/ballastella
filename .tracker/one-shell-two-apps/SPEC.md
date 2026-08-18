@@ -8,7 +8,7 @@ The editor's Project screen is a Base Map with a sidebar of Layer cards: each ca
 
 **The two apps are not one interface with a part removed; they are two implementations of the same idea.** `ReaderLayerControls` and `LayerList` are separate files, arrived at separately. So are the Hub and the Front Page, which render the same `card bg-base-100 card-border` markup twice. So is the Base Map switcher. The kind-ink `color-mix` variables and the overlay-point styles exist in the editor's `layout.css` and nowhere else, which is why a published Layer card has no tint to lose. Every sentence the two apps share is spelled twice, and the ones that have already drifted are the ones nobody noticed drifting.
 
-**The viewer tells a Reader things they cannot act on.** Each Historical Map Layer carries a badge reading *Held on another server — needs the network* or *In this site — no network needed*. Where the tiles live is the author's decision, taken at publish time. A Reader cannot copy a pyramid, cannot repoint a service, and cannot make the badge say the other thing. It is a true fact addressed to the wrong person.
+**The viewer tells a Reader things they cannot act on.** Each Map Image Layer carries a badge reading *Held on another server — needs the network* or *In this site — no network needed*. Where the tiles live is the author's decision, taken at publish time. A Reader cannot copy a pyramid, cannot repoint a service, and cannot make the badge say the other thing. It is a true fact addressed to the wrong person.
 
 **And inside the editor, an Annotation's details are detached from the Annotation.** Selecting a row in an Annotation Layer's list opens an editor panel *below the list* — a box headed "The west quay" sitting under a list in which "The west quay" is one of four rows, with nothing joining the two. With four Annotations and a 24 rem column, which row the panel belongs to is inferred rather than seen, and the panel is far enough down that the row and its own contents are often not on screen together.
 
@@ -42,17 +42,17 @@ The editor's Project screen is a Base Map with a sidebar of Layer cards: each ca
 
 ### The Layer stack, in both apps
 
-10. As a Reader, I want each Layer to be a card in its kind's own colour, so that a Historical Map and an Annotation Layer differ before I have read a word.
+10. As a Reader, I want each Layer to be a card in its kind's own colour, so that a Map Image and an Annotation Layer differ before I have read a word.
 11. As a Reader, I want a Layer card to open in place to reveal what is inside it, so that the sidebar is a stack rather than a wall.
 12. As a Reader, I want only one Layer card open at a time, so that the column does not become a scroll.
 13. As a Reader, I want the top of the list to draw over everything below it, said in words on the screen, so that the order means something I can check.
 14. As a Reader, I want to show and hide a Layer, so that I can see what is underneath.
-15. As a Reader, I want to fade a Historical Map, so that I can compare it against the modern map beneath.
+15. As a Reader, I want to fade a Map Image, so that I can compare it against the modern map beneath.
 16. As a Reader, I want a hidden Layer's card drained of its colour and marked "Hidden" in words, so that I can find the Layer that has gone missing without relying on colour alone.
 17. As a Reader, I want to be told plainly when a Layer could not be drawn and why, so that a blank patch of map has an explanation beside it.
 18. As a Reader, I want a Layer of a kind this viewer does not understand to say so and be left alone, so that a site published by a newer version still opens.
 19. As a Reader, I want never to be shown a control that would change the author's work, so that I cannot break something I am only reading.
-20. As a Reader, I want no badge telling me where a Historical Map's tiles are held, so that I am not given a fact I have no way to act on.
+20. As a Reader, I want no badge telling me where a Map Image's tiles are held, so that I am not given a fact I have no way to act on.
 21. As a scholar, I want that badge kept in the editor, so that the one person who can make an offline copy is still told when one is wanted.
 22. As a Reader, I want my visibility and opacity changes announced, so that a change to the map is legible without seeing the canvas.
 23. As a Reader, I want my changes to live for the length of my visit and be written nowhere, so that I cannot be blamed for altering a published record.

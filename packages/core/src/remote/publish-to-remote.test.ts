@@ -352,7 +352,7 @@ describe('a second publish', () => {
 
 	it('posts one blob for two paths holding the same bytes', async () => {
 		// Every blank pyramid tile is byte-identical to every other, so this is the ordinary case for a
-		// Historical Map with margins — and a blob posted twice spends two of the one hourly budget
+		// Map Image with margins — and a blob posted twice spends two of the one hourly budget
 		// ADR-0033 singles out.
 		const store = await seeded({
 			'index.html': '<!doctype html>',
@@ -460,7 +460,7 @@ describe('the owned namespace (ADR-0033)', () => {
 				// (ADR-0008), so this is how the Remote — not the Workspace — recognises it as ours.
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}',
 				'florida-1657/annotations/notes.json': '{"type":"FeatureCollection"}',
-				// Its Historical Map, at the Workspace root because a pyramid is shared (ADR-0023).
+				// Its Map Image, at the Workspace root because a pyramid is shared (ADR-0023).
 				'images/moll/info.json': '{"id":"https://unset.invalid/moll"}',
 				'images/moll/0,0,256,256/256,256/0/default.jpg': 'jpeg-bytes',
 				// alignment-write-is-the-fixture: the deleted map's Alignment as it still stands on the Remote, whose removal is the assertion

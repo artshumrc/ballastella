@@ -13,7 +13,7 @@ import {
 	singleCanvas
 } from './support/iiif-hosts.js';
 import { openLayerRow } from './support/layers.js';
-import { ensureAddHistoricalMapOpen } from './support/historical-maps.js';
+import { ensureAddMapImageOpen } from './support/map-images.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -120,7 +120,7 @@ const writeJson = (page: Page, directory: string, path: string, body: unknown): 
  * Give a second Project a map Layer over an image the Workspace already holds.
  *
  * Written onto the disk rather than driven through the UI because the affordance for it — "choose a
- * Historical Map you already have" — is a later ticket. What is being demonstrated is the storage
+ * Map Image you already have" — is a later ticket. What is being demonstrated is the storage
  * property ADR-0023 exists for: one pyramid, one Alignment, two Projects that both draw them.
  */
 async function projectOverSameImage(
@@ -224,9 +224,9 @@ async function seedWorkspaceBytes(page: Page, bytes: number): Promise<void> {
 	}, bytes);
 }
 
-/** Add one referenced Historical Map from a bare image service URL. */
+/** Add one referenced Map Image from a bare image service URL. */
 async function addReferenced(page: Page, host: string, name = 'florida'): Promise<void> {
-	await ensureAddHistoricalMapOpen(page);
+	await ensureAddMapImageOpen(page);
 	await page.getByTestId('remote-url').fill(`${service(host, name)}/info.json`);
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible();
@@ -235,7 +235,7 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 }
 
 /**
- * Wait until a referenced Historical Map is on the Project screen, and leave its Layer open.
+ * Wait until a referenced Map Image is on the Project screen, and leave its Layer open.
  *
  * Since ticket 05 the library a referenced map's tiles come from — and the "Make an offline copy"
  * offer beside it — are *inside* the Layer that fetches them, so seeing either is opening the row.
@@ -307,7 +307,7 @@ function watchRequests(page: Page): {
 }
 
 /**
- * The hub's picture of the one Historical Map in the Workspace, or `null` while there is no `<img>`.
+ * The hub's picture of the one Map Image in the Workspace, or `null` while there is no `<img>`.
  *
  * `src` verbatim rather than reduced to a scheme, so the caller can say *which* source it came from —
  * the whole of what this ticket is about. `naturalWidth`/`naturalHeight` rather than a bounding box:
@@ -322,7 +322,7 @@ const hubPicture = (
 	decoded: { width: number; height: number };
 } | null> =>
 	page
-		.getByTestId('historical-map')
+		.getByTestId('map-image')
 		.getByTestId('map-thumbnail-image')
 		.evaluate((element) => {
 			const image = element as HTMLImageElement;
@@ -352,10 +352,10 @@ const hubPicture = (
  * defects survived so long is that every test used one route or the other and never both.
  *
  *   `'link'` — a client-side navigation. **Left the stack undrawn once the Project page had a local
- *     Historical Map on it**: the pane being left removed its map and then asked it for a layer, and the
+ *     Map Image on it**: the pane being left removed its map and then asked it for a layer, and the
  *     exception abandoned the mount of the pane being navigated to. Its regression test is
  *     `editor-layers.e2e.ts`, "draws the stack when the pane is reached by the link from the Project
- *     page", which needs a local Historical Map and so belongs there rather than here.
+ *     page", which needs a local Map Image and so belongs there rather than here.
  *
  *   `'load'` — a fresh page load. **A `'referenced'` Layer drew nothing**: the stack was built before
  *     `remote.json` had been read, so the Layer was handed `service: ''` and asked the injection shim
@@ -429,7 +429,7 @@ test.describe('making an offline copy', () => {
 		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 
-		await ensureAddHistoricalMapOpen(page);
+		await ensureAddMapImageOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
@@ -865,7 +865,7 @@ test.describe('making an offline copy', () => {
 	});
 });
 
-test.describe('a copied Historical Map, once it is copied', () => {
+test.describe('a copied Map Image, once it is copied', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -895,7 +895,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await openNewProject(page);
 
 		// A community Alignment, so the Layer has three Control Points and can actually be drawn.
-		await ensureAddHistoricalMapOpen(page);
+		await ensureAddMapImageOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
@@ -978,7 +978,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		// element itself and lazily, and the listener really does see the request.
 		const beforeCopy = watchRequests(page);
 		await page.getByRole('link', { name: 'Back to all Projects' }).click();
-		await expect(page.getByTestId('historical-map')).toHaveCount(1);
+		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// The picture is `loading="lazy"` while it comes from the library, so a card below the fold would
 		// never fire its request and the poll would sit on a decoded 0 × 0 until it timed out.
 		await page.getByTestId('map-thumbnail-image').scrollIntoViewIfNeeded();
@@ -1007,7 +1007,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		// over bytes read out of the Workspace, and nothing was asked of the library to draw it.
 		const afterCopy = watchRequests(page);
 		await page.getByRole('link', { name: 'Back to all Projects' }).click();
-		await expect(page.getByTestId('historical-map')).toHaveCount(1);
+		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// `blob:` is the assertion the ticket turns on. `loading` is gone with it — ADR-0030's deliberate
 		// asymmetry, and the one *observable* difference between the two code paths — and the decoded size
 		// is unchanged, which is the continuity a scholar is promised: only the network dependency went.
@@ -1092,7 +1092,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			await page.reload();
 			const copiedRow = await expectOfflineCopyLayer(page);
 			await expect(copiedRow.getByTestId('referenced-image-host')).toHaveCount(0);
-			// It is one of the Project's own Historical Maps now — one Layer, drawing local tiles — and
+			// It is one of the Project's own Map Images now — one Layer, drawing local tiles — and
 			// the source URI is still on it. The Layer stack *is* that list since ticket 04.
 			await expect(page.getByTestId('layer-row')).toHaveCount(1);
 			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
@@ -1106,7 +1106,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			// The pane drew the copy, tile by tile, out of the Project — with no network at all. The pane
 			// is `/align/` since ticket 03, and reaching it offline is part of what that asserts.
 			const imageId = generateId(service('images.test', 'florida'));
-			await copiedRow.getByTestId('align-historical-map').click();
+			await copiedRow.getByTestId('align-map-image').click();
 			await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 			await expect
 				.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
@@ -1146,7 +1146,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);
-		await ensureAddHistoricalMapOpen(page);
+		await ensureAddMapImageOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();

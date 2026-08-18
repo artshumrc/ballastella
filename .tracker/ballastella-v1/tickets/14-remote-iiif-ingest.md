@@ -4,7 +4,7 @@
 
 A user pastes a IIIF URL — a Manifest, a Collection, or a bare image service — browses what is inside it, reads its metadata and rights, and picks the canvas that is the map. It becomes a Layer in their Project, referenced rather than copied.
 
-If the Allmaps community has already aligned that map, they are offered the chance to import that Alignment instead of starting from scratch. They can also view any Historical Map on its own, unwarped, as a document rather than as geography.
+If the Allmaps community has already aligned that map, they are offered the chance to import that Alignment instead of starting from scratch. They can also view any Map Image on its own, unwarped, as a document rather than as geography.
 
 **Fulfills** — [SPEC.md](../SPEC.md) user stories 16, 17, 18, 19, 20, 24, 25, 26, and 48. Sets `imageMode: 'referenced'`, the other half of what story 29 needs.
 
@@ -75,7 +75,7 @@ A referenced remote image produces a `kind: 'map'` Layer with **`imageMode: 'ref
 - [~] A multi-canvas Manifest can be navigated and a canvas selected — **selection is this app's own list of canvas buttons, not triiiceratops'.** See "triiiceratops owns unwarped viewing, not selection" below.
 - [x] Metadata, rights, and attribution are shown during selection
 - [x] Only an image service **URI** crosses from triiiceratops to the alignment path — asserted at the boundary, with no parsed object passed (`imageServiceUriCrossingBoundary`, asserted against a real parsed `Canvas`)
-- [~] A Historical Map can be viewed unwarped in triiiceratops — **done for a remote resource; blocked upstream for a locally ingested pyramid.** See "the `ProjectStore` `TileSource` has nowhere to be passed" below.
+- [~] A Map Image can be viewed unwarped in triiiceratops — **done for a remote resource; blocked upstream for a locally ingested pyramid.** See "the `ProjectStore` `TileSource` has nowhere to be passed" below.
 - [x] A resource whose host omits CORS headers is rejected at add time with a message naming the host — and the rejection is triggered by the **tile** probe as well as the `info.json` probe
 - [x] A remote image's id equals `generateId(uri)` for its URI
 - [x] When the Allmaps API reports existing annotations, the count is shown and importing one produces a working Alignment
@@ -168,7 +168,7 @@ offline copy", which re-cuts the pyramid with the tiler ticket 05 *does* assert 
 
 ### How a remote image is distinguished from a local one
 
-`HistoricalMapSource` in `referenced-image.ts` is a discriminated union on ticket 09's `imageMode`,
+`MapImageSource` in `referenced-image.ts` is a discriminated union on ticket 09's `imageMode`,
 and `tileBaseFor` is the single expression that turns it into ticket 03's `ImagePaneTileBase`:
 `{ storedImageId }` for a local copy, the real service URI for a referenced one. Only a referenced
 source carries a `service`, so "referenced, address unknown" is unrepresentable.

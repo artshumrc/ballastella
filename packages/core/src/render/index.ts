@@ -1,4 +1,4 @@
-// Drawing a Project onto a MapLibre map: the Layer stack, warped Historical Maps, Annotation popups,
+// Drawing a Project onto a MapLibre map: the Layer stack, warped Map Images, Annotation popups,
 // and the `pmtiles://` protocol the Base Map is read through.
 //
 // **This directory exists because two apps draw the same picture.** The editor draws a Project's stack

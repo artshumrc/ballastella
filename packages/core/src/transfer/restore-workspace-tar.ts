@@ -27,7 +27,7 @@ import {
  * recovering from damage is the exact moment the damaged Workspace has to survive, because a user
  * cannot know what the backup predates until they have looked at both. Merging would be the
  * Alignment-collision problem in another hat — under ADR-0023 there is exactly one Alignment per
- * Historical Map in a Workspace, so merging a backup either overwrites an Alignment that several of
+ * Map Image in a Workspace, so merging a backup either overwrites an Alignment that several of
  * the user's own Projects are drawn by, or refuses.
  *
  * `discard` is what makes "nothing has been restored" true rather than aspirational. Because the
@@ -103,7 +103,7 @@ export interface WorkspaceRestore {
 	 * Paths the archive carried that were deliberately **not** written, and are not counted above.
 	 *
 	 * Empty for every restore into a new Workspace, which is every restore today. It is not empty for
-	 * a destination that already holds an Alignment for a Historical Map the backup also has, because
+	 * a destination that already holds an Alignment for a Map Image the backup also has, because
 	 * ADR-0023 makes the one already there the safe one to keep. Reported rather than swallowed: a
 	 * transfer that says it delivered more than it did is the failure this format change escaped.
 	 */
@@ -248,7 +248,7 @@ export async function restoreWorkspaceTar(
 					: ` ${outcome.declined.length} ${
 							outcome.declined.length === 1 ? 'Alignment' : 'Alignments'
 						} in the backup ${outcome.declined.length === 1 ? 'was' : 'were'} not restored, ` +
-						`because this Workspace already had one for the same Historical Map: ` +
+						`because this Workspace already had one for the same Map Image: ` +
 						`${outcome.declined.join(', ')}.`)
 		};
 	} catch (cause) {

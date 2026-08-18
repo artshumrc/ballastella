@@ -2,7 +2,7 @@
 
 > **Amended by [ADR-0008](./0008-projects-live-in-a-workspace.md):** the published site root is the *workspace*, and a project is a directory inside it. Everything below still holds — publishing is additive and copies no data — but `index.html` and the viewer bundle live at the workspace root and are shared by every project.
 >
-> **Amended again by [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md):** the directory tree below is out of date. A project directory holds `project.json` and `annotations/` only — `images/` and `alignments/` live at the **workspace** root and are shared by every project, so that one historical map has one place on the earth however many projects use it.
+> **Amended again by [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md):** the directory tree below is out of date. A project directory holds `project.json` and `annotations/` only — `images/` and `alignments/` live at the **workspace** root and are shared by every project, so that one map image has one place on the earth however many projects use it.
 >
 > **Amended again by [ADR-0027](./0027-no-streaming-tiler-in-v1.md):** there are no `wasm-vips` chunks. The consequence below still holds for `terra-draw` and the tiler — a separate, lean viewer build is still the mechanism, and this is still the reason for it — but the dependency it names largest is gone from the repository, and the editor's own build is 10.3 MB smaller for it.
 
@@ -20,7 +20,7 @@ my-project/
 └── index.html + viewer bundle # written by publish, removable, enumerable
 ```
 
-The alternative — exporting to a separate output directory containing the viewer *and a copy of the data* — was rejected on tile bytes. A single large historical map is hundreds of megabytes to gigabytes of pyramid, and copying it on every publish is slow, and slowest precisely in OPFS, which is the constrained backend. Additive publishing is what makes the "publishing is almost an accident" claim actually true rather than aspirational. Loading the viewer from a CDN was rejected because it trades the entire offline story for a few hundred kilobytes.
+The alternative — exporting to a separate output directory containing the viewer *and a copy of the data* — was rejected on tile bytes. A single large map image is hundreds of megabytes to gigabytes of pyramid, and copying it on every publish is slow, and slowest precisely in OPFS, which is the constrained backend. Additive publishing is what makes the "publishing is almost an accident" claim actually true rather than aspirational. Loading the viewer from a CDN was rejected because it trades the entire offline story for a few hundred kilobytes.
 
 ## Consequences
 

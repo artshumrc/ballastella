@@ -9,19 +9,19 @@
  *
  * **A module rather than a `const` in `LayerList.svelte`, because the card is not all in one file.**
  * What a card *contains* is supplied as snippets by `ProjectScreen.svelte` — the Align link for a
- * Historical Map, `AnnotationTools` and the Inspector's faces for an Annotation Layer — so those files
+ * Map Image, `AnnotationTools` and the Inspector's faces for an Annotation Layer — so those files
  * draw controls that have to be the same colour as the header above them. They used to say
  * `btn-secondary` and cite this table in a comment, which is a mapping kept in two places and only
  * one of them checked by anything.
  *
  * **Why `accent` and `info`.** The pair is a decision of the project's rather than of this file's:
- * `accent` goes to Historical Maps and `info` to Annotations — a teal and a blue in the stock themes,
+ * `accent` goes to Map Images and `info` to Annotations — a teal and a blue in the stock themes,
  * though the theme is free to make them anything, and neither reads as a demotion of the other, which
  * is the one property a pair for two peer kinds must have.
  *
  * **A kind's colour is the colour of everything in its card**, which is the part worth being careful
  * about, because it is where a colour can start making a second claim. `primary` stays the action
- * colour *outside* the cards — "Add a Historical Map" below the stack, the dialogs — so a button in a
+ * colour *outside* the cards — "Add a Map Image" below the stack, the dialogs — so a button in a
  * card is the card's colour and a button on the screen around it is the app's.
  *
  * Two overlaps come with `info`, both deliberately accepted:

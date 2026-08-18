@@ -57,7 +57,7 @@ through the shared renderer. There is no `{@html}` in the viewer and this ticket
 ## Out of scope
 
 - **Do not touch the Workspace switcher, Workspace settings, or the transfer flows.**
-- **Do not change the Hub's Historical Maps section** or anything below the Project list.
+- **Do not change the Hub's Map Images section** or anything below the Project list.
 - **Do not change what publishing writes.**
 - **Do not add a Project detail pane.** That was Ledger's idea and Ledger was not chosen.
 - **Do not reorder or re-sort the Projects.**
@@ -151,7 +151,7 @@ bytes, which is the shared card plus the restored paragraph.
 ### Three things a reader of this ticket should know
 
 **`apps/editor/src/lib/components/project-hub.dom.test.ts` did not move**, and the box above is left
-unticked rather than claimed. Everything in it is about the Hub's Historical Maps section and the
+unticked rather than claimed. Everything in it is about the Hub's Map Images section and the
 wording of the Front Page choice — both explicitly out of scope here — and it mounts `ProjectHub`
 through an `EditorSession`, `$app/paths` and `$lib`, none of which `packages/ui` may import
 (`scripts/check-ui-package-imports.mjs`). What moved is the *card*, so the seam that moved with it is

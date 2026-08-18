@@ -257,7 +257,7 @@ describe('the HTTP ProjectStore adapter', () => {
 			// The point of the abstraction paying out a third time (ADR-0001): the very same
 			// `createStoreImageFetch` that resolves a pyramid out of OPFS resolves one out of a Published
 			// Site, with no second code path. Asserted structurally here; asserted end to end by
-			// `e2e/viewer.e2e.ts`, where a real warped Historical Map draws over HTTP.
+			// `e2e/viewer.e2e.ts`, where a real warped Map Image draws over HTTP.
 			const { createStoreImageFetch } = await import('../injection/store-image-fetch.js');
 			const store = createHttpProjectStore({
 				resolve: (path) => `https://scholar.example/atlas/${path}`,

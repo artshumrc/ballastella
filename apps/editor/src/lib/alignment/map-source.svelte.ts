@@ -1,4 +1,4 @@
-// Where a Historical Map is served from, derived so that an unrelated Workspace change is not a
+// Where a Map Image is served from, derived so that an unrelated Workspace change is not a
 // reason to rebuild a live pane (ticket 07).
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -14,9 +14,9 @@
 //
 // The mechanism is Svelte's, and it is not subtle once stated. A `$derived` holding an **object**
 // takes a new identity whenever it recomputes, and identity is what decides whether a dependent
-// effect re-runs. `EditorSession.historicalMapSource` builds a fresh object on every call and reads
+// effect re-runs. `EditorSession.mapImageSource` builds a fresh object on every call and reads
 // two `$state` arrays behind it, so a derived holding its result changed identity whenever anything
-// in those arrays changed — a Historical Map added in another Project's dialog, a Workspace refresh,
+// in those arrays changed — a Map Image added in another Project's dialog, a Workspace refresh,
 // a map copied offline elsewhere. Deriving the **service string** first fixes it at the root: a
 // string compares by value, so the object below is rebuilt only when the address or the image really
 // changed, which is exactly when both panes should be rebuilt and never otherwise.
@@ -28,16 +28,16 @@
 // Out here, the same guards are ordinary functions over signals, and `map-source.svelte.test.ts`
 // counts how many times a dependent effect runs. That test is red for the collapsed form of either.
 
-import type { HistoricalMapSource } from '@ballastella/core';
+import type { MapImageSource } from '@ballastella/core';
 
 /** A read of a signal, passed as a thunk so the caller's `$state` or prop stays the source. */
 type Read<T> = () => T;
 
 /**
- * Where one Historical Map's tiles are, as the alignment surface hands it to both panes.
+ * Where one Map Image's tiles are, as the alignment surface hands it to both panes.
  *
  * Resolved once and handed down, because the component that reads this is also the one that writes
- * the Alignment, and the two answers have to be the same one: `session.historicalMapSource` is what
+ * the Alignment, and the two answers have to be the same one: `session.mapImageSource` is what
  * `#alignmentAddressFor` reads, so the sheet in the pane and the `resource.id` in the file cannot
  * name different servers. A pane that resolved this for itself would be a second lookup, and the two
  * drifting is a Library map drawn correctly and written unresolvable.
@@ -46,13 +46,13 @@ type Read<T> = () => T;
  * offline, and from that moment the pane should read the Workspace's own pyramid rather than the
  * Library's.
  *
- * @param lookUp the session's `historicalMapSource`, as a function, so this module needs nothing of
+ * @param lookUp the session's `mapImageSource`, as a function, so this module needs nothing of
  *   `EditorSession` but the one question — and a test needs no session at all.
  */
-export function historicalMapSourceOf(
-	lookUp: (imageId: string) => HistoricalMapSource,
+export function mapImageSourceOf(
+	lookUp: (imageId: string) => MapImageSource,
 	imageId: Read<string>
-): { readonly current: HistoricalMapSource } {
+): { readonly current: MapImageSource } {
 	// ⚠ **A primitive first, and that is the whole guard.** See the module header.
 	const service = $derived.by(() => {
 		const found = lookUp(imageId());
@@ -61,7 +61,7 @@ export function historicalMapSourceOf(
 
 	// Stable for the same reason: a `$derived` recomputes only when *its* dependencies change, and
 	// these are a string and an id.
-	const current = $derived<HistoricalMapSource>(
+	const current = $derived<MapImageSource>(
 		service === ''
 			? { imageMode: 'offline-copy', imageId: imageId() }
 			: { imageMode: 'referenced', imageId: imageId(), service }
@@ -85,9 +85,9 @@ export function historicalMapSourceOf(
  * wrong: an object here would tear the warped layer off the map and build another whenever anything
  * upstream of the source changed, however unrelated.
  *
- * @param source the alignment's `HistoricalMapSource`, or `null` while there is nothing to draw.
+ * @param source the alignment's `MapImageSource`, or `null` while there is nothing to draw.
  */
-export function warpedAddressOf(source: Read<HistoricalMapSource | null | undefined>): {
+export function warpedAddressOf(source: Read<MapImageSource | null | undefined>): {
 	readonly referenced: boolean;
 	readonly service: string;
 } {

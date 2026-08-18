@@ -22,10 +22,10 @@ import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/
 /**
  * The Workspace directories that are not Projects and never can be (ADR-0023).
  *
- * `images/` holds every Historical Map's pyramid and `alignments/` holds every Alignment — both shared
+ * `images/` holds every Map Image's pyramid and `alignments/` holds every Alignment — both shared
  * by every Project — and `base-map/` is the opt-in offline tile cache (ADR-0025). A Project landing on
  * one of those names would put `project.json` and `annotations/` inside the pool of shared material,
- * and deleting that Project would take every Project's Historical Maps with it.
+ * and deleting that Project would take every Project's Map Images with it.
  *
  * Refused at **creation**, which is the point. `claimedByPublishing` refuses a colliding name at
  * *publish* time, and by then the Project exists and holds a semester's work; the only remedy on offer
@@ -59,7 +59,7 @@ export class ReservedDirectoryNameError extends Error {
 	constructor(directory: string, displayName: string) {
 		super(
 			`“${displayName}” would go in a folder called “${directory}”, and this Workspace keeps its ` +
-				`shared Historical Maps, Alignments, and Base Map tiles in ` +
+				`shared Map Images, Alignments, and Base Map tiles in ` +
 				`${RESERVED_DIRECTORY_NAMES.map((name) => `“${name}”`).join(', ')} — so “${directory}” is ` +
 				`reserved and cannot be a Project. Choose another name. Nothing has been created.`
 		);
@@ -713,7 +713,7 @@ export class Workspace {
 	 * Remove every byte under `directory`, **with `project.json` last**.
 	 *
 	 * ⚠ **The order is chosen for the interruption, not for the success** — the same reasoning
-	 * `deleteHistoricalMap` states for its own order. `project.json` is the whole of the evidence
+	 * `deleteMapImage` states for its own order. `project.json` is the whole of the evidence
 	 * {@link finishInterruptedDeletions} checks before it will remove anything, so removing it first
 	 * would leave a torn-down deletion with a record it can no longer justify and files it may no
 	 * longer take. Last, the invariant is simple: **while an interrupted deletion has anything left
@@ -845,16 +845,16 @@ export class Workspace {
 }
 
 /**
- * The Historical Map an archive entry belongs to, when the entry is shared Workspace material —
+ * The Map Image an archive entry belongs to, when the entry is shared Workspace material —
  * `null` when it is one of the Project's own files (ADR-0023).
  *
  * An archive is rooted at the Project and its paths did not change, so this is the whole of the
- * hoist: `images/<id>/…` and `alignments/<id>.json` name a Historical Map that belongs to the
+ * hoist: `images/<id>/…` and `alignments/<id>.json` name a Map Image that belongs to the
  * Workspace, and everything else — `project.json`, `annotations/…` — belongs inside the Project
  * directory.
  *
  * Deliberately narrow about what counts. `images/<id>` with nothing after it is a directory entry
- * rather than a file; `alignments/nested/thing.json` names no Historical Map this app would write.
+ * rather than a file; `alignments/nested/thing.json` names no Map Image this app would write.
  * Both answer `null`, so they land inside the Project directory as ordinary files rather than being
  * hoisted somewhere their name does not describe — which is the reading that cannot put an archive's
  * bytes at a Workspace path it did not ask for.

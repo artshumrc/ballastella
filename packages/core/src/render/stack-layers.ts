@@ -59,7 +59,7 @@ export interface DrawnMapLayer {
 	 */
 	readonly service?: string;
 	/**
-	 * Whether this Layer's Historical Map is served from somebody else's server, as observed from the
+	 * Whether this Layer's Map Image is served from somebody else's server, as observed from the
 	 * files beside it in the Workspace (ADR-0023).
 	 *
 	 * Passed through to `showAlignment`, which refuses a referenced Layer with no address rather than
@@ -83,7 +83,7 @@ export interface DrawnAnnotationLayer {
 export type DrawnLayer = DrawnMapLayer | DrawnAnnotationLayer;
 
 /**
- * Whether this entry is an aligned Historical Map.
+ * Whether this entry is an aligned Map Image.
  *
  * Narrowed on the field only a map entry has, rather than on a `kind` copied up from the Layer
  * inside: a second copy of the discriminator is a second thing that can disagree with the first, and
@@ -117,7 +117,7 @@ export interface StackRender {
 	 * Separate from the build for the same reason as {@link setOpacity}, and for a sharper one: an
 	 * Annotation's title is typed a character at a time, each keystroke writes the file, and each
 	 * write hands the page a new collection. Rebuilding on that tore down and re-added **every layer
-	 * in the stack**, Historical Maps included, once per keystroke — so typing a title made the whole
+	 * in the stack**, Map Images included, once per keystroke — so typing a title made the whole
 	 * map thrash and refetch tiles. Nothing about the *structure* changed; only the data in one
 	 * source did, and this is that.
 	 *
@@ -255,7 +255,7 @@ const SELECTED_HALO = 3;
  *
  * **Only the layers this Layer's contents need are added**, which is why `present` is a parameter
  * rather than this returning all five every time. Every MapLibre layer is per-frame work on the same
- * thread that decodes a warped Historical Map's tiles, and an Annotation Layer of pins was otherwise
+ * thread that decodes a warped Map Image's tiles, and an Annotation Layer of pins was otherwise
  * paying for three line layers that could never match anything. It is not only tidiness: ticket 09's
  * `warpedTiles` assertion allows three seconds for tiles to arrive *and decode*, and the unconditional
  * five were enough to push it past that on a loaded machine — a real slowdown that happened to show up
@@ -502,7 +502,7 @@ export type StackBuiltListener = (
 export function drawLayerStack(options: {
 	map: MapLibreMap;
 	layers: readonly DrawnLayer[];
-	/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
+	/** Where an aligned Map Image's tiles are read from (ADR-0011). */
 	fetchTile: FetchFn;
 	onBuilt?: StackBuiltListener;
 }): StackRender {

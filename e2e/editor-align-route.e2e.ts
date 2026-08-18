@@ -11,7 +11,7 @@ import {
 	clickAt,
 	emptyWorkspace,
 	gradientPng,
-	historicalMap,
+	mapImage,
 	makePair,
 	makePairs,
 	rows,
@@ -24,7 +24,7 @@ import {
 	expectWarpedDrawn
 } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
-import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
+import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
 import { alignFromLayer, openLayerRow } from './support/layers';
 
 /**
@@ -60,7 +60,7 @@ const checkToggle = (page: Page) => page.getByTestId('check-alignment-toggle');
 const distortionControls = (page: Page) => page.getByTestId('distortion-controls');
 const foldWarning = (page: Page) => page.getByTestId('fold-warning');
 
-/** A Project with one Historical Map, on the Project page, not yet aligned. */
+/** A Project with one Map Image, on the Project page, not yet aligned. */
 async function projectWithMap(page: Page): Promise<void> {
 	await page.goto('/');
 	await emptyWorkspace(page);
@@ -70,8 +70,8 @@ async function projectWithMap(page: Page): Promise<void> {
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
-	await pickHistoricalMapFile(page, {
+	await expect(addMapImageButton(page)).toBeVisible();
+	await pickMapImageFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
@@ -93,7 +93,7 @@ const layerParam = (page: Page): string => new URL(page.url()).searchParams.get(
  * supposed to produce it is exactly the thing that can be wrong: `grow` and `flex-1` differ only in
  * their flex *basis*, both read as "share the row", and on this repository's own mockups the first
  * of them produced panes of 308 px and 378 px because the Base Map's heading carries two more
- * controls than the Historical Map's. An assertion on the markup would have passed on that layout.
+ * controls than the Map Image's. An assertion on the markup would have passed on that layout.
  *
  * Three widths rather than one. Two above the breakpoint, because a difference proportional to the
  * content is invisible at whichever single width the difference happens to be small at; and one
@@ -106,7 +106,7 @@ const layerParam = (page: Page): string => new URL(page.url()).searchParams.get(
 async function expectEqualPanesAndDockedColumn(page: Page, width: number): Promise<void> {
 	await page.setViewportSize({ width, height: 900 });
 
-	const sheet = page.locator('section[aria-labelledby="historical-map-pane-heading"]');
+	const sheet = page.locator('section[aria-labelledby="map-image-pane-heading"]');
 	const earth = page.locator('section[aria-labelledby="base-map-pane-heading"]');
 	const column = page.getByTestId('alignment-sidebar');
 
@@ -174,7 +174,7 @@ async function expectEqualPanesAndDockedColumn(page: Page, width: number): Promi
 		box.y < columnBox!.y + columnBox!.height - 0.5;
 	expect(
 		overlaps(sheetBox!),
-		`the Control Point column overlaps the Historical Map pane at ${width} px`
+		`the Control Point column overlaps the Map Image pane at ${width} px`
 	).toBe(false);
 	expect(
 		overlaps(earthBox!),
@@ -210,13 +210,13 @@ test.describe('the alignment route', () => {
 		test.setTimeout(90_000);
 		await projectWithMap(page);
 
-		// Nothing has been aligned, and the Layer is nonetheless already there: adding the Historical Map
+		// Nothing has been aligned, and the Layer is nonetheless already there: adding the Map Image
 		// is what put it in the stack (ADR-0023). So Align is a plain link whose `href` was knowable
 		// before the click, which is what the URL assertions below are really measuring.
 		// Opened first, because Align is inside the Layer it aligns (ticket 05).
 		const row = await openLayerRow(page);
-		await expect(row.getByTestId('align-historical-map')).toHaveRole('link');
-		await row.getByTestId('align-historical-map').click();
+		await expect(row.getByTestId('align-map-image')).toHaveRole('link');
+		await row.getByTestId('align-map-image').click();
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 		const url = new URL(page.url());
@@ -242,13 +242,11 @@ test.describe('the alignment route', () => {
 		expect(stored.layers[0]?.imageId).not.toBe(layerId);
 
 		// Both panes, side by side, and a Control Point placed across them.
-		await expect(historicalMap(page)).toBeVisible();
+		await expect(mapImage(page)).toBeVisible();
 		await expect(baseMap(page)).toBeVisible();
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: 30_000 }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: 30_000
+		});
 		await makePair(page, [0.3, 0.3]);
 		await expect(rows(page)).toHaveCount(1);
 
@@ -332,23 +330,23 @@ test.describe('the alignment route', () => {
 		).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
 
-		// 4. A `layer` this Project has no Historical Map Layer for — the state ticket 03 adds, and the
+		// 4. A `layer` this Project has no Map Image Layer for — the state ticket 03 adds, and the
 		//    one that used to be an empty split screen.
 		await page.goto(`/align?p=${PROJECT_DIRECTORY}&layer=not-a-layer-in-this-project`);
 		await expect(page.getByTestId('layer-missing')).toBeVisible();
 		await expect(page.getByTestId('layer-missing')).toContainText('not-a-layer-in-this-project');
 		// Neither pane is on the page: this is a named state and not a workspace with nothing in it.
-		await expect(historicalMap(page)).toHaveCount(0);
+		await expect(mapImage(page)).toHaveCount(0);
 		await expect(baseMap(page)).toHaveCount(0);
 		await backLink(page).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		// 5. No `?layer=`, with a perfectly good Project.
 		await page.goto(`/align?p=${PROJECT_DIRECTORY}`);
 		await expect(page.getByTestId('no-layer')).toBeVisible();
-		await expect(historicalMap(page)).toHaveCount(0);
+		await expect(mapImage(page)).toHaveCount(0);
 		await backLink(page).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		expect(thrown, 'a bad address must not throw').toEqual([]);
 	});
@@ -379,7 +377,7 @@ test.describe('the alignment route', () => {
 		await expect(page.getByText('not offering storage for a Workspace')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
 		// Not a blank split screen behind the message.
-		await expect(historicalMap(page)).toHaveCount(0);
+		await expect(mapImage(page)).toHaveCount(0);
 
 		// 2. **A Workspace that cannot be reached** — the folder moved, renamed, or deleted. `storage`
 		//    exists and `getDirectory` is a function, so this is not state 1; it is the read failing.
@@ -439,7 +437,7 @@ test.describe('the alignment route', () => {
 	 * cannot tell "no write" from "a rewrite of the same content", and it is the write itself that is
 	 * the defect here.
 	 *
-	 * It also carries SPEC story 36 — one Layer per Historical Map per Project — against the gesture
+	 * It also carries SPEC story 36 — one Layer per Map Image per Project — against the gesture
 	 * ticket 03 adds, which is the one gesture that could newly break it: `project.json` byte-identical
 	 * across a round trip through the route says no Layer was created, renamed, or reordered by it.
 	 */
@@ -477,11 +475,9 @@ test.describe('the alignment route', () => {
 		await watchWrites(page);
 		await alignFromLayer(page);
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: 30_000 }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: 30_000
+		});
 		await expect(baseMap(page)).toBeVisible();
 		await noWritesAfter();
 
@@ -489,16 +485,14 @@ test.describe('the alignment route', () => {
 		//    that runs the whole route from nothing rather than from a client-side navigation.
 		await page.reload();
 		await watchWrites(page);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: 30_000 }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: 30_000
+		});
 		await expect(baseMap(page)).toBeVisible();
 		await noWritesAfter();
 
 		await backLink(page).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await page.waitForTimeout(1000);
 
 		// The bytes agree with the counter, on both documents. `project.json` is SPEC story 36 against
@@ -543,15 +537,13 @@ test.describe('the alignment route', () => {
 		const written = await storedAlignment(page, imageId);
 
 		await backLink(page).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
-		await expect(historicalMap(page)).toHaveCount(0);
+		await expect(addMapImageButton(page)).toBeVisible();
+		await expect(mapImage(page)).toHaveCount(0);
 
 		await alignFromLayer(page);
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
-			'data-tiles-loaded',
-			'true',
-			{ timeout: 30_000 }
-		);
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
+			timeout: 30_000
+		});
 		await expect(rows(page)).toHaveCount(1);
 		// The same pair, not merely one pair: the coordinates are what the file holds.
 		expect(await storedAlignment(page, imageId)).toBe(written);
@@ -581,7 +573,7 @@ test.describe('the alignment route', () => {
 		expect(placed).toEqual(opened);
 
 		await backLink(page).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		await alignFromLayer(page);
 		await expect(rows(page)).toHaveCount(2);
 
@@ -644,7 +636,7 @@ test.describe('“Check this alignment”', () => {
 		// green on a control that was merely missing its testid.
 		await expect(checkToggle(page)).toHaveAttribute('aria-expanded', 'false');
 		const overlay = page.getByRole('checkbox', {
-			name: 'Colour the Historical Map by how much it is stretched'
+			name: 'Colour the Map Image by how much it is stretched'
 		});
 		const grid = page.getByRole('checkbox', { name: 'Draw a grid, bent by the Alignment' });
 		const measure = page.getByRole('combobox', { name: 'What the colours show' });
@@ -781,7 +773,7 @@ test.describe('the route from the keyboard', () => {
 		// And it works when it is reached: activating it by keyboard lands on the Project.
 		await backLink(page).focus();
 		await page.keyboard.press('Enter');
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 		expect(new URL(page.url()).searchParams.get('p')).toBe(PROJECT_DIRECTORY);
 	});
 
@@ -802,7 +794,7 @@ test.describe('the route from the keyboard', () => {
 		await toggle.click();
 		const explainer = page.getByTestId('align-explainer');
 		await expect(explainer).toBeVisible();
-		await expect(explainer).toContainText('Click a feature on the Historical Map');
+		await expect(explainer).toContainText('Click a feature on the Map Image');
 		await expect(explainer).not.toHaveAttribute('title', /.+/);
 
 		// The transformation guidance is text in the accessibility tree, bound to the control by
@@ -829,7 +821,7 @@ test.describe('the route from the keyboard', () => {
 	test('cancels a pending Control Point with Escape', async ({ page }) => {
 		test.setTimeout(90_000);
 		await start(page);
-		await clickAt(historicalMap(page), 0.4, 0.4);
+		await clickAt(mapImage(page), 0.4, 0.4);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await backLink(page).focus();
 		await page.keyboard.press('Escape');

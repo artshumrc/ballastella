@@ -65,8 +65,8 @@ export async function fitToProjectContent(
  * The fit the alignment view opens on: the Alignment's Control Points, or the Project around it.
  *
  * The Project is read **only when the Alignment has nothing of its own to land on**, which is the
- * first time a Historical Map is opened. Reading it unconditionally would walk every Layer's
- * documents on every switch between Historical Maps for an answer that is then discarded — and
+ * first time a Map Image is opened. Reading it unconditionally would walk every Layer's
+ * documents on every switch between Map Images for an answer that is then discarded — and
  * `alignmentOpeningBounds` never looks at the content it is given once there is a Control Point.
  */
 export async function fitToAlignment(

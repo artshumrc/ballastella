@@ -1,9 +1,9 @@
-// Where one Historical Map's tiles come from — and the one function that answers it.
+// Where one Map Image's tiles come from — and the one function that answers it.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE DISTINCTION, AND WHY IT IS A UNION RATHER THAN A NULLABLE FIELD
 //
-// A Workspace Historical Map is a local copy or it is `'referenced'`. Those two are not variations on
+// A Workspace Map Image is a local copy or it is `'referenced'`. Those two are not variations on
 // a theme; they are different answers to "what URL do this image's tiles have", and getting them the
 // wrong way round is silent:
 //
@@ -51,17 +51,17 @@ import { imageServiceId, serialiseJson } from '../tiler/pyramid.js';
 import { canonicalServiceUri } from './service-uri.js';
 
 /**
- * One Historical Map of the Workspace, said in terms of where its bytes are.
+ * One Map Image of the Workspace, said in terms of where its bytes are.
  *
  * A discriminated union, so the two cases carry different fields: only a referenced image has a
  * `service`, and there is no way to hold a referenced image without one. That is the point —
  * "referenced, address unknown" is a Layer that draws nothing, and it is unrepresentable here.
  *
- * **In memory only.** ADR-0023 deleted the stored `imageMode`: which case a Historical Map is in is
- * read off the files beside it — see `tileLocation` in `project/historical-maps.ts` — so this type
+ * **In memory only.** ADR-0023 deleted the stored `imageMode`: which case a Map Image is in is
+ * read off the files beside it — see `tileLocation` in `project/map-images.ts` — so this type
  * describes an observation rather than a claim a `project.json` could get wrong.
  */
-export type HistoricalMapSource =
+export type MapImageSource =
 	| { readonly imageMode: 'offline-copy'; readonly imageId: string }
 	| {
 			readonly imageMode: 'referenced';
@@ -71,24 +71,24 @@ export type HistoricalMapSource =
 	  };
 
 /**
- * Where this Historical Map's tiles are served from, in the form ticket 03's reader takes.
+ * Where this Map Image's tiles are served from, in the form ticket 03's reader takes.
  *
  * **The whole distinction, in one expression**, so that the rule lives in one place rather than one
  * per pane — and the `ImagePaneTileBase` union means the answer cannot be mistaken for the other
  * kind downstream.
  *
- * **Every consumer now, which it was not before ticket 07.** `HistoricalMapPane.svelte` used to build
- * `{ storedImageId }` for itself, so the pane the Alignment workspace draws a Historical Map in always
+ * **Every consumer now, which it was not before ticket 07.** `MapImagePane.svelte` used to build
+ * `{ storedImageId }` for itself, so the pane the Alignment workspace draws a Map Image in always
  * reached into the Workspace's own pyramids — correct for a local copy, and for a referenced image an
  * ask to the injection layer for a pyramid that is not there. It takes {@link ImagePaneSource} as a
- * prop now and decides nothing, which is what makes aligning a referenced Historical Map work.
+ * prop now and decides nothing, which is what makes aligning a referenced Map Image work.
  */
-export function tileBaseFor(source: HistoricalMapSource): ImagePaneTileBase {
+export function tileBaseFor(source: MapImageSource): ImagePaneTileBase {
 	return source.imageMode === 'referenced' ? source.service : { storedImageId: source.imageId };
 }
 
 /**
- * Everything a pane needs to read one Historical Map: where its tiles are, and where the `info.json`
+ * Everything a pane needs to read one Map Image: where its tiles are, and where the `info.json`
  * describing them is.
  *
  * **Two fields rather than one, because they are fetched by different mechanisms** and only their
@@ -98,10 +98,10 @@ export function tileBaseFor(source: HistoricalMapSource): ImagePaneTileBase {
  * out of the store — which is why it is not simply "the tile base with `/info.json` on the end" at
  * the call site, where the placeholder would look like a mistake.
  *
- * **Derived together, from one `HistoricalMapSource`, so they cannot disagree.** A pane given a
+ * **Derived together, from one `MapImageSource`, so they cannot disagree.** A pane given a
  * Library's tile base and the store's `info.json` would draw a stranger's tiles under our own
  * pyramid's geometry: every coordinate in the resulting Alignment wrong, and nothing raising. That is
- * the failure this pair exists to make unconstructible — which is also why `HistoricalMapPane` takes
+ * the failure this pair exists to make unconstructible — which is also why `MapImagePane` takes
  * this whole value and never assembles one from an `imageId`.
  */
 export type ImagePaneSource = {
@@ -111,7 +111,7 @@ export type ImagePaneSource = {
 };
 
 /**
- * {@link ImagePaneSource} for one Historical Map. The one place the pair is built.
+ * {@link ImagePaneSource} for one Map Image. The one place the pair is built.
  *
  * **Both fields come off `base`**, rather than `tiles` coming from {@link tileBaseFor} and `infoUrl`
  * being built separately. That is not tidiness: `tileBaseFor` passes `service` through verbatim while
@@ -120,7 +120,7 @@ export type ImagePaneSource = {
  * strip the slash, so it drew correctly and the disagreement was invisible — which is the shape of
  * defect this whole pair exists to make unconstructible, found by the test that asserts they agree.
  */
-export function imagePaneSourceFor(source: HistoricalMapSource): ImagePaneSource {
+export function imagePaneSourceFor(source: MapImageSource): ImagePaneSource {
 	if (source.imageMode !== 'referenced') {
 		return {
 			tiles: { storedImageId: source.imageId },
@@ -132,15 +132,14 @@ export function imagePaneSourceFor(source: HistoricalMapSource): ImagePaneSource
 }
 
 /**
- * Whether this Historical Map's tiles are on somebody else's server.
+ * Whether this Map Image's tiles are on somebody else's server.
  *
  * No production caller: every place that asks reads `imageMode` directly, or asks
  * `tileLocation` what is on disk, which is the better question. Kept only because it
  * is part of the package's published surface; a follow-up that drops it from `index.ts` should drop
  * it from here in the same change.
  */
-export const isReferenced = (source: HistoricalMapSource): boolean =>
-	source.imageMode === 'referenced';
+export const isReferenced = (source: MapImageSource): boolean => source.imageMode === 'referenced';
 
 /** The file name of the record beside a referenced image. */
 export const REFERENCED_IMAGE_FILE = 'remote.json';
@@ -155,7 +154,7 @@ export const referencedImagePath = (imageId: string): StorePath =>
 	`${imageDirectory(imageId)}/${REFERENCED_IMAGE_FILE}`;
 
 /**
- * What the Workspace records about a Historical Map it references rather than holds.
+ * What the Workspace records about a Map Image it references rather than holds.
  *
  * Everything here except `service` is provenance a scholar needs and cannot recover once the
  * remote resource is out of reach: which Manifest it was in, what the library called it, and what
@@ -241,7 +240,7 @@ export class ReferencedImageUnreadableError extends Error {
 	constructor(imageId: string, reason: string) {
 		super(
 			`The record of where “${imageId}” is served from could not be read: ${reason}. This ` +
-				`Historical Map is referenced rather than copied into this Project, so without it there ` +
+				`Map Image is referenced rather than copied into this Project, so without it there ` +
 				`is nowhere to fetch its tiles from.`
 		);
 		this.name = 'ReferencedImageUnreadableError';
@@ -306,12 +305,12 @@ export function parseReferencedImage(
 }
 
 /**
- * Every referenced Historical Map **in the Workspace**, read from the records beside them (ADR-0023).
+ * Every referenced Map Image **in the Workspace**, read from the records beside them (ADR-0023).
  *
  * The companion of `listIngestedImages`, which looks for `info.json` under the same `images/` root.
  * A referenced image has no `info.json` of ours — its tiles and its description are both on somebody
- * else's server — so the two lists start out disjoint and together they are the Workspace's Historical
- * Maps.
+ * else's server — so the two lists start out disjoint and together they are the Workspace's Map
+ * Images.
  *
  * **They stop being disjoint the moment an offline copy is made, and that is making an offline copy working rather
  * than a defect.** A copy writes a pyramid into the same directory and deliberately leaves this record
@@ -337,7 +336,7 @@ export async function listReferencedImages(store: {
 	for (const path of paths) {
 		if (!path.endsWith(`/${REFERENCED_IMAGE_FILE}`)) continue;
 		const imageId = path.slice(prefix.length, -`/${REFERENCED_IMAGE_FILE}`.length);
-		// A nested `images/<id>/…/remote.json` is not a Historical Map; only the top level is.
+		// A nested `images/<id>/…/remote.json` is not a Map Image; only the top level is.
 		if (imageId === '' || imageId.includes('/')) continue;
 		try {
 			images.push(parseReferencedImage(await store.read(path), { imageId }));
@@ -350,19 +349,19 @@ export async function listReferencedImages(store: {
 }
 
 /** The source this record describes, for {@link tileBaseFor}. */
-export const sourceOf = (image: ReferencedImage): HistoricalMapSource => ({
+export const sourceOf = (image: ReferencedImage): MapImageSource => ({
 	imageMode: 'referenced',
 	imageId: image.imageId,
 	service: image.service
 });
 
-// `partitionByOfflineCopy` used to be here, and is now `project/historical-maps.ts`'s — beside
+// `partitionByOfflineCopy` used to be here, and is now `project/map-images.ts`'s — beside
 // `tileLocation`, which is the single implementation of "referenced or local copy?" it and
-// `referencedHistoricalMaps` now share. It was one of five readings of that rule; see that module's
+// `referencedMapImages` now share. It was one of five readings of that rule; see that module's
 // header for the other four and for why the split had to be a module rather than a comment.
 
 /**
- * The document a renderer takes for a referenced Historical Map: the Alignment, addressed at the
+ * The document a renderer takes for a referenced Map Image: the Alignment, addressed at the
  * remote service rather than at the ADR-0004 placeholder.
  *
  * That substitution is exactly ADR-0004's own rule applied to the other case — the address is

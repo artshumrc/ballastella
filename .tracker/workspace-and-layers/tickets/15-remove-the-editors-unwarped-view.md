@@ -4,15 +4,15 @@
 
 The editor's "View unwarped" affordance goes, and `triiiceratops` comes out of the editor's dependencies. The **published viewer keeps** its unwarped view — that is a reader feature and stays exactly as it is.
 
-Demonstrable end to end: no "View unwarped" control anywhere in the editor; the editor's built bundle contains no OpenSeadragon; a published site still opens a Historical Map as a document.
+Demonstrable end to end: no "View unwarped" control anywhere in the editor; the editor's built bundle contains no OpenSeadragon; a published site still opens a Map Image as a document.
 
 ## Why this is a reduction and not a loss
 
 The affordance works for **referenced remote maps only**, and the code says why: `triiiceratops` 1.0.0-rc.35 offers no way to accept a custom OpenSeadragon `TileSource`, so a locally ingested pyramid — which has no URL — cannot be shown. `storedPyramidTileSource` exists in core and is tested, and there is nowhere to pass it.
 
-So a user with two Historical Maps, one from a file and one from a library, sees "View unwarped" on one and not the other **for reasons they cannot possibly infer**. That is the opposite of an interface that documents itself.
+So a user with two Map Images, one from a file and one from a library, sees "View unwarped" on one and not the other **for reasons they cannot possibly infer**. That is the opposite of an interface that documents itself.
 
-And since ticket 07, the alignment view deep-zooms **any** Historical Map, local or remote, in the same pane. "Look closely at this sheet" is now answered uniformly. That is why this ticket is blocked by ticket 07 rather than standing alone.
+And since ticket 07, the alignment view deep-zooms **any** Map Image, local or remote, in the same pane. "Look closely at this sheet" is now answered uniformly. That is why this ticket is blocked by ticket 07 rather than standing alone.
 
 ## Where to start
 
@@ -51,12 +51,12 @@ And since ticket 07, the alignment view deep-zooms **any** Historical Map, local
 - [ ] No "View unwarped" control exists anywhere in the editor.
 - [ ] `triiiceratops` appears in no `dependencies` block under `apps/editor` and in no editor source file.
 - [ ] The editor's built output contains no OpenSeadragon.
-- [ ] A published site still opens a Historical Map as a document, and `e2e/viewer-reader.e2e.ts` passes with no change to its assertions.
+- [ ] A published site still opens a Map Image as a document, and `e2e/viewer-reader.e2e.ts` passes with no change to its assertions.
 - [ ] `storedPyramidTileSource` is either deleted or carries a comment naming the upstream gap it waits on — not silently orphaned.
 - [ ] ADR-0018 carries an amendment note scoping it to the viewer.
 - [ ] `THIRD-PARTY-NOTICES.md` matches what is actually redistributed.
 - [ ] The editor's bundle is smaller, with the before-and-after figures recorded.
-- [ ] The alignment view still deep-zooms both a Workspace-held and a referenced Historical Map.
+- [ ] The alignment view still deep-zooms both a Workspace-held and a referenced Map Image.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check

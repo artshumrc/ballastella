@@ -19,7 +19,7 @@ Both are recorded in full in [TRACKER.md](./TRACKER.md); this is the short form.
 ### 1a. A publish that needs more than one hour's requests never finishes
 
 GitHub allows 5 000 requests an hour. A publish needing more **stops**, and because nothing resumes,
-the next attempt re-uploads the same files and stops in the same place. One Historical Map at the
+the next attempt re-uploads the same files and stops in the same place. One Map Image at the
 largest size the editor accepts is roughly 11 000 tiles, and that does not divide — so **a Workspace
 holding one may not be publishable to GitHub at all.**
 

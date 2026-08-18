@@ -5,14 +5,14 @@ import zlib from 'node:zlib';
 import { waitForStoredLayers } from './support/saved';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
-	addHistoricalMapButton,
-	addHistoricalMapFromFile,
-	addHistoricalMapIsOpen,
+	addMapImageButton,
+	addMapImageFromFile,
+	addMapImageIsOpen,
 	expectNothingPreparing,
-	openAddHistoricalMap,
-	pickHistoricalMapFile,
+	openAddMapImage,
+	pickMapImageFile,
 	preparingCard
-} from './support/historical-maps.js';
+} from './support/map-images.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -204,7 +204,7 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.click();
 }
 
-test.describe('adding a Historical Map from a file', () => {
+test.describe('adding a Map Image from a file', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -219,14 +219,14 @@ test.describe('adding a Historical Map from a file', () => {
 
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 
 		await recordAnnouncements(page);
 
-		// The picker is reached from the one "Add a Historical Map" affordance and by its label, which
+		// The picker is reached from the one "Add a Map Image" affordance and by its label, which
 		// is what a screen-reader user and a keyboard user both have to go on (ADR-0016).
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
@@ -235,7 +235,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// 700 × 500 at 256-pixel tiles: 3 × 2 at scale factor 1, 2 × 1 at 2, and 1 at 4.
 		const expectedTiles = 9;
 		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeHidden();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeHidden();
 
 		// SPEC story 23: the tool said what it was doing, in a live region, with real numbers.
 		// (`announcements` sees every live region on the page, so the save indicator's own "Saved" is
@@ -300,14 +300,14 @@ test.describe('adding a Historical Map from a file', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'notes.txt',
 			mimeType: 'text/plain',
 			buffer: Buffer.from('this is not a map')
 		});
 
 		await expect(page.getByRole('alert')).toContainText('could not be read as an image');
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 
 		// The whole Workspace: an ingest that failed must leave no pyramid at the root either.
 		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
@@ -334,9 +334,9 @@ test.describe('adding a Historical Map from a file', () => {
 		// long enough that the second pick lands inside the window without a sleep.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(2600, 2600)
@@ -348,8 +348,8 @@ test.describe('adding a Historical Map from a file', () => {
 		// Reopened, because picking a file closes the dialog. What the user meets on the way back in is
 		// the input disabled and a line saying why — which is the half of this that stops the refusal
 		// below ever being reached by a human.
-		const dialog = await openAddHistoricalMap(page);
-		const input = dialog.getByLabel('Add a Historical Map from a file');
+		const dialog = await openAddMapImage(page);
+		const input = dialog.getByLabel('Add a Map Image from a file');
 		await expect(input).toBeDisabled();
 		await expect(dialog.getByTestId('ingest-busy')).toContainText('la-floride.png');
 
@@ -363,7 +363,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// scholar looking for a bug. In the sidebar rather than in the dialog, and the dialog has
 		// already closed itself: picking a file is what closes it, which is why the refusal cannot
 		// live in there.
-		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
+		await expect.poll(() => addMapImageIsOpen(page)).toBe(false);
 		const refusal = page.getByRole('alert');
 		await expect(refusal).toContainText('“second.png” was not added');
 		await expect(refusal).toContainText('“la-floride.png” is still being prepared');
@@ -389,10 +389,10 @@ test.describe('adding a Historical Map from a file', () => {
 		// 2600 × 2600 is 171 tiles: long enough that the card is genuinely on screen to be read.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		await recordAnnouncements(page);
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(2600, 2600)
@@ -452,30 +452,30 @@ test.describe('adding a Historical Map from a file', () => {
 		// ⚠ **The clearing is asserted directly, and it has to be.** Playwright's `setInputFiles`
 		// dispatches `change` whether or not the value it is setting differs, so the *consequence* of
 		// not clearing — a second pick that does nothing — cannot be reproduced from a browser test at
-		// all. Measured: deleting `input.value = ''` from `AddHistoricalMap.svelte` leaves the
+		// all. Measured: deleting `input.value = ''` from `AddMapImage.svelte` leaves the
 		// two-Layer half of this test green. So the mechanism is what is asserted, beside the outcome
 		// it exists for.
 		//
-		// Two *Historical Maps*, not one: a local image id is random (ADR-0015), so the same file
+		// Two *Map Images*, not one: a local image id is random (ADR-0015), so the same file
 		// picked twice is two maps in the Workspace and two Layers in the Project. That is deliberate
 		// — the deduplicating case is a remote resource, whose id is derived from its address.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		const file = {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(280, 200)
 		};
-		await addHistoricalMapFromFile(page, file);
+		await addMapImageFromFile(page, file);
 
 		// The input is holding nothing, so the same file is a *change* the next time it is picked.
-		const dialog = await openAddHistoricalMap(page);
+		const dialog = await openAddMapImage(page);
 		await expect(dialog.getByTestId('add-from-file')).toHaveValue('');
 		await page.keyboard.press('Escape');
 
-		await addHistoricalMapFromFile(page, file, { layers: 2 });
+		await addMapImageFromFile(page, file, { layers: 2 });
 
 		const ids = await page
 			.getByTestId('layer-row')
@@ -497,9 +497,9 @@ test.describe('adding a Historical Map from a file', () => {
 		// enough not to dominate the suite.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(2600, 2600)
@@ -527,7 +527,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// And the Project is as it was — asserted on the files and on the document, not on the absence
 		// of an error. The tiles already written are removed, which matters because a Workspace is a
 		// folder in git or Dropbox (ADR-0008) and litter in it is the user's problem.
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 		expect(
 			(await readJson(page, 'amsterdam-1625', 'project.json')) as { layers: unknown[] }
@@ -549,10 +549,10 @@ test.describe('adding a Historical Map from a file', () => {
 
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
 		// 30000 × 20000 is 600 megapixels, above the 528 megapixel cap in both measured engines.
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'archival-master.png',
 			mimeType: 'image/png',
 			buffer: pngHeaderOnly(30_000, 20_000)
@@ -573,7 +573,7 @@ test.describe('adding a Historical Map from a file', () => {
 
 		// Nothing added, and nothing fetched: the decision is made from the header, so no decoder is
 		// ever reached and no WebAssembly module is fetched to find out.
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 		expect(requested.filter((url) => /\.wasm$/i.test(url))).toEqual([]);
 	});
@@ -597,9 +597,9 @@ test.describe('adding a Historical Map from a file', () => {
 		// ingest is 6,270 tiles and minutes of work.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await expect(addMapImageButton(page)).toBeVisible();
 
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'archival-master.png',
 			mimeType: 'image/png',
 			buffer: pngHeaderOnly(20_000, 15_000)
@@ -615,7 +615,7 @@ test.describe('adding a Historical Map from a file', () => {
 	test('shows an image that was already in the Project when it is opened', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await pickHistoricalMapFile(page, {
+		await pickMapImageFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)

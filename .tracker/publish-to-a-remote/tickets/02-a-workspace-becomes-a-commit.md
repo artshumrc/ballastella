@@ -9,7 +9,7 @@ ref moves.
 
 The plan is the interesting half. It reports what will be sent — files and bytes — and warns on **three**
 budgets, because the two kinds of content load them oppositely (ADR-0033): offline Base Map tiles are
-file-cheap and byte-heavy at ~152 kB each; Historical Map pyramids are the reverse. It **refuses** rather
+file-cheap and byte-heavy at ~152 kB each; Map Image pyramids are the reverse. It **refuses** rather
 than warns when the Remote's tree came back truncated.
 
 The commit's tree mirrors the Workspace inside an owned namespace and preserves everything outside it, so

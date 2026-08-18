@@ -2,7 +2,7 @@
 	import { AlignmentPairing } from './pairing.svelte.js';
 
 	/**
-	 * The newest pairing built for a Historical Map, which is the one an undo has to act on.
+	 * The newest pairing built for a Map Image, which is the one an undo has to act on.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THIS IS MODULE STATE AND NOT A CAPTURED INSTANCE
@@ -22,14 +22,14 @@
 	 * Not cleared when the component is destroyed, and that is the point: `UndoControl` is mounted on the
 	 * Layers pane too, so a Control Point undo can be pressed with no workspace on screen, and this is
 	 * the pairing it acts on there — the newest one for that image, which is the one that made the edit.
-	 * It is only ever consulted for a record naming this same Historical Map, so a leftover entry for a
+	 * It is only ever consulted for a record naming this same Map Image, so a leftover entry for a
 	 * map nobody is aligning cannot be reached — an image id is a random identifier (ADR-0015).
 	 */
 	let live: { readonly imageId: string; readonly pairing: AlignmentPairing } | null = null;
 </script>
 
 <script lang="ts">
-	// The Historical Map beside the Base Map, and the pairing between them (SPEC stories 30 and 32–37).
+	// The Map Image beside the Base Map, and the pairing between them (SPEC stories 30 and 32–37).
 	//
 	// This is the core act of the application: click a feature on the map, click the same place on
 	// the earth, and a numbered Control Point pair appears. Both panes are on one page, which is why
@@ -64,13 +64,13 @@
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import { fitToAlignment } from '$lib/base-map/opening-view';
-	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
+	import MapImagePane from '$lib/image-pane/MapImagePane.svelte';
 	import ImageDetails, { type ImageReadout } from '$lib/image-pane/ImageDetails.svelte';
 	import type { PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import DistortionControls from './DistortionControls.svelte';
-	import { historicalMapSourceOf } from './map-source.svelte.js';
+	import { mapImageSourceOf } from './map-source.svelte.js';
 	import TransformationPicker from './TransformationPicker.svelte';
 	import { describeAlignmentUsers } from './used-by.js';
 
@@ -82,7 +82,7 @@
 		baseMapId
 	}: {
 		session: EditorSession;
-		/** Which Historical Map of the open Project is being aligned. */
+		/** Which Map Image of the open Project is being aligned. */
 		imageId: string;
 		/** What the author called it, for the sentence saying what this screen is (SPEC story 112). */
 		mapName: string;
@@ -93,10 +93,10 @@
 	} = $props();
 
 	/**
-	 * Where the Historical Map being aligned is served from (ticket 07).
+	 * Where the Map Image being aligned is served from (ticket 07).
 	 *
 	 * **Resolved here and handed down**, because this is the component that also writes the
-	 * Alignment, and the two answers have to be the same one: `session.historicalMapSource` is what
+	 * Alignment, and the two answers have to be the same one: `session.mapImageSource` is what
 	 * `#alignmentAddressFor` reads, so the sheet in the pane and the `resource.id` in the file cannot
 	 * name different servers. A pane that resolved this for itself would be a second lookup, and the
 	 * two drifting is a Library map drawn correctly and written unresolvable.
@@ -110,8 +110,8 @@
 	 * panes on every unrelated Workspace read, and does it invisibly — the module and
 	 * `map-source.svelte.test.ts` between them carry the mechanism and the evidence.
 	 */
-	const held = historicalMapSourceOf(
-		(wanted) => session.historicalMapSource(wanted),
+	const held = mapImageSourceOf(
+		(wanted) => session.mapImageSource(wanted),
 		() => imageId
 	);
 	const mapSource = $derived(held.current);
@@ -119,7 +119,7 @@
 	const paneSource = $derived(imagePaneSourceFor(mapSource));
 
 	/**
-	 * Which Projects draw the Historical Map being aligned (SPEC story 56).
+	 * Which Projects draw the Map Image being aligned (SPEC story 56).
 	 *
 	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 	 * │ THE SENTENCE BELONGS ON THIS SCREEN, NOT ONLY ON THE HUB.                                  │
@@ -181,7 +181,7 @@
 	let warped = $state<WarpedRender | null>(null);
 
 	/**
-	 * How the warped Historical Map is drawn (ADR-0013).
+	 * How the warped Map Image is drawn (ADR-0013).
 	 *
 	 * **Held here and nowhere else.** It is a working view, not a property of the work, so it is
 	 * never written to `project.json` and never reaches `EditorSession` — persisted it would become
@@ -191,7 +191,7 @@
 	let distortion = $state<DistortionView>(DEFAULT_DISTORTION_VIEW);
 
 	/**
-	 * How opaque the warped Historical Map is drawn over the Base Map, `0` to `1`.
+	 * How opaque the warped Map Image is drawn over the Base Map, `0` to `1`.
 	 *
 	 * ⚠ **Half, not all, and this is why the control exists.** Three Control Points solve an Alignment,
 	 * and the moment one solves the sheet is drawn over exactly the geography it was solved against — so
@@ -205,7 +205,7 @@
 	 */
 	let overlayOpacity = $state(0.5);
 
-	/** The Historical Map pane's pyramid and view readout, shown in this screen's sidebar. */
+	/** The Map Image pane's pyramid and view readout, shown in this screen's sidebar. */
 	let readout = $state.raw<ImageReadout | null>(null);
 
 	/**
@@ -239,7 +239,7 @@
 	 * Open or close the disclosure, and **put the drawing back as it was when it closes**.
 	 *
 	 * Without the second half, switching the overlay on and then closing the disclosure leaves the
-	 * Historical Map colourised with the only control that turns it off no longer on the page — which is
+	 * Map Image colourised with the only control that turns it off no longer on the page — which is
 	 * a map a user cannot get back, and reads as the colours being what the Alignment now *is*. Closing
 	 * "Check this alignment" means the checking is over, so the check's drawing goes with it.
 	 *
@@ -279,8 +279,8 @@
 
 	/**
 	 * Bumped by every load, so a read that resolves late knows it has been superseded — the same
-	 * guard `EditorSession.open` and `HistoricalMapPane` both need, and for the same reason: the
-	 * user can pick another Historical Map while this one's Alignment is in flight.
+	 * guard `EditorSession.open` and `MapImagePane` both need, and for the same reason: the
+	 * user can pick another Map Image while this one's Alignment is in flight.
 	 */
 	let generation = 0;
 	let destroyed = false;
@@ -292,7 +292,7 @@
 		generation += 1;
 	});
 
-	// Cleared as soon as the Historical Map changes, before its pyramid has been read. Control Points
+	// Cleared as soon as the Map Image changes, before its pyramid has been read. Control Points
 	// from the previous Alignment left drawn over a different image are a coordinate claim about the
 	// wrong map, which is the one failure this component must never have.
 	$effect(() => {
@@ -316,13 +316,13 @@
 	});
 
 	/**
-	 * Where the Base Map pane is framed when this Historical Map is opened (ADR-0026).
+	 * Where the Base Map pane is framed when this Map Image is opened (ADR-0026).
 	 *
 	 * On the Alignment's own Control Points when it has any, so that reopening a half-finished
 	 * Alignment lands where the work was left instead of somewhere that has to be navigated away from
 	 * every time; on the Project's content when it has none.
 	 *
-	 * **Once per Historical Map opened, and never in response to an edit.** Refitting as Control Points
+	 * **Once per Map Image opened, and never in response to an edit.** Refitting as Control Points
 	 * are placed would move the earth under the very gesture that is placing them, which is the worst
 	 * place in the application for it to happen — see {@link framedImage}.
 	 */
@@ -334,13 +334,13 @@
 	 * The Project screen and the viewer both publish one, and this pane moves the Base Map on open
 	 * exactly as they do — so a user who cannot see the canvas was the only one not told that it had
 	 * moved, and not told *why* when the Alignment is new and it did not. Its own vocabulary rather
-	 * than core's {@link OpeningViewOutcome}, because what it frames on is one Historical Map's Control
+	 * than core's {@link OpeningViewOutcome}, because what it frames on is one Map Image's Control
 	 * Points and that is a different sentence.
 	 */
 	let openingOutcome = $state<'pending' | 'control-points' | 'content' | 'default'>('pending');
 
 	/**
-	 * The Historical Map the pane has already been framed for.
+	 * The Map Image the pane has already been framed for.
 	 *
 	 * A plain `let`: it is written by the code that reads it, and a reactive one would make the fit its
 	 * own dependency and then refit on every placed pair.
@@ -348,7 +348,7 @@
 	let framedImage = '';
 
 	/**
-	 * The pyramid currently on screen **and which Historical Map it is of**.
+	 * The pyramid currently on screen **and which Map Image it is of**.
 	 *
 	 * Driven by the pane rather than read here, because the image's pixel dimensions have to be
 	 * exactly the ones being drawn: the Resource Mask defaults to that rectangle, and a second
@@ -369,7 +369,7 @@
 	let livePane: { readonly imageId: string; readonly pane: ImagePane } | undefined;
 
 	/**
-	 * Read this Historical Map's Alignment again, discarding the pairing on screen.
+	 * Read this Map Image's Alignment again, discarding the pairing on screen.
 	 *
 	 * One caller: putting back a version somebody else wrote. Re-reading rather than reconstructing
 	 * from the displaced bytes, so the screen shows what is on disk — and so `readAlignment` resets
@@ -415,12 +415,12 @@
 	};
 
 	/**
-	 * Frame the Base Map pane on this Historical Map's Alignment, once (ADR-0026).
+	 * Frame the Base Map pane on this Map Image's Alignment, once (ADR-0026).
 	 *
 	 * Guarded twice, and both guards earn their place. {@link framedImage} is what makes it *once per
-	 * Historical Map* — `loadAlignment` runs again whenever the pyramid is re-read, and a second fit
+	 * Map Image* — `loadAlignment` runs again whenever the pyramid is re-read, and a second fit
 	 * would put the map back where the Alignment starts after the user had panned. `generation` is the
-	 * usual stale-read guard: the user can pick another Historical Map while this read is in flight,
+	 * usual stale-read guard: the user can pick another Map Image while this read is in flight,
 	 * and framing the new one on the old one's Control Points is a coordinate claim about the wrong map.
 	 */
 	const frameOn = (wanted: string, alignment: Alignment, mine: number): void => {
@@ -628,7 +628,7 @@
 	const fold = $derived(pairing ? detectFold(pairing.alignment) : null);
 
 	/** How a Control Point half is described to assistive technology and on hover. */
-	const halfLabel = (ordinal: number | undefined, side: 'Historical Map' | 'Base Map'): string =>
+	const halfLabel = (ordinal: number | undefined, side: 'Map Image' | 'Base Map'): string =>
 		ordinal === undefined
 			? `Control Point waiting for its other half, on the ${side}`
 			: `Control Point ${ordinal}, ${side} half. Arrow keys move it, Delete removes the pair.`;
@@ -642,7 +642,7 @@
 			point: point.resource,
 			kind: 'control-point',
 			ordinal: point.ordinal,
-			label: halfLabel(point.ordinal, 'Historical Map'),
+			label: halfLabel(point.ordinal, 'Map Image'),
 			selected: point.id === current.selectedId,
 			onselect: () => current.toggleSelected(point.id),
 			ondelete: () => {
@@ -664,7 +664,7 @@
 				point: waiting.resource,
 				kind: 'control-point',
 				pending: true,
-				label: halfLabel(undefined, 'Historical Map'),
+				label: halfLabel(undefined, 'Map Image'),
 				selected: true,
 				// Movable, but nothing is saved: a pending half is UI state only (ADR-0022 contract 2).
 				onmoveend: (to) => current.moveResource(waiting.id, to),
@@ -793,14 +793,14 @@
 		return points;
 	});
 
-	const clickHistoricalMap = (point: ResourcePoint): void => {
+	const clickMapImage = (point: ResourcePoint): void => {
 		const current = pairing;
 		if (!current) return;
 		const completing = current.pending?.half === 'geo';
-		current.clickHistoricalMap(point);
+		current.clickMapImage(point);
 		// Written only when a pair actually came into existence. Placing the *first* half writes
 		// nothing at all, which is what makes Escape leave no trace on disk. **Not "no file"** — since
-		// ADR-0023 there has been an `alignments/<id>.json` from the moment the Historical Map was
+		// ADR-0023 there has been an `alignments/<id>.json` from the moment the Map Image was
 		// added, so what a mis-started pair must not do is *touch* it: no write, not even one whose
 		// bytes would come out the same. In a Workspace kept in git or Dropbox a rewrite is a change to
 		// sync whatever it says, which is why the test beside this counts writes and not only bytes.
@@ -890,7 +890,7 @@
 				row, so neither can be widened by what is written above it. `grow` leaves the basis `auto`,
 				which measures each pane's own content first and hands out only the *remainder* equally —
 				and on this screen the two panes' contents differ, because the Base Map's heading carries a
-				Base Map switcher and an opacity slider and the Historical Map's carries a checkbox. Drawn
+				Base Map switcher and an opacity slider and the Map Image's carries a checkbox. Drawn
 				that way on this repository's own mockups the pair measured 308 px and 378 px.
 
 				That is not a preference. Neither the sheet nor the earth may be privileged by the layout:
@@ -899,10 +899,10 @@
 				the rendered boxes at 768 px, 1120 px and 1440 px rather than reading the class name.
 			-->
 			<section
-				aria-labelledby="historical-map-pane-heading"
+				aria-labelledby="map-image-pane-heading"
 				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
 			>
-				<h4 id="historical-map-pane-heading" class="mb-2 text-sm font-semibold">Historical Map</h4>
+				<h4 id="map-image-pane-heading" class="mb-2 text-sm font-semibold">Map Image</h4>
 				<!--
 					The same pane story 31 already delivers, now carrying Control Points. It loads the
 					pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
@@ -961,15 +961,15 @@
 					{/if}
 				{/snippet}
 
-				<HistoricalMapPane
+				<MapImagePane
 					{imageId}
 					source={paneSource}
 					{fetchTile}
 					frameClass="mt-3 h-[45dvh] lg:h-auto lg:min-h-64 lg:grow"
-					label="Historical Map, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
+					label="Map Image, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
 					overlayPoints={imagePoints}
 					maskRing={pairing?.resourceMask ?? []}
-					onclickpoint={clickHistoricalMap}
+					onclickpoint={clickMapImage}
 					onpane={(pane) => loadAlignment(imageId, pane)}
 					onreadout={(current) => (readout = current)}
 					controls={cropControls}
@@ -1130,8 +1130,8 @@
 					/>
 				</div>
 				<!--
-					Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Historical
-					Map moves this pane, and a WebGL canvas announces nothing — so without this the one person
+					Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Map
+					Image moves this pane, and a WebGL canvas announces nothing — so without this the one person
 					who cannot see it happen is the one person not told it happened.
 
 					`sr-only`, because that person is the only one it tells anything: a sighted author watched the
@@ -1146,7 +1146,7 @@
 					data-opening-view={openingOutcome}
 				>
 					{#if openingOutcome === 'control-points'}
-						Framed on this Historical Map’s Control Points, where the work was left.
+						Framed on this Map Image’s Control Points, where the work was left.
 					{:else if openingOutcome === 'content'}
 						No Control Points yet, so the Base Map is framed on this Project’s own content.
 					{:else if openingOutcome === 'default'}
@@ -1183,7 +1183,7 @@
 				What this screen is, in words, behind a disclosure (SPEC story 112).
 
 				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
-				*for*, and "Historical Map" beside "Base Map" does not tell a screen-reader user that clicking
+				*for*, and "Map Image" beside "Base Map" does not tell a screen-reader user that clicking
 				one and then the other is the gesture. Visible text and not a tooltip (ADR-0016).
 
 				Closed by default, because a scholar who has placed a Control Point before does not need to be
@@ -1207,9 +1207,9 @@
 						class="mt-2 max-w-prose text-sm opacity-70"
 						data-testid="align-explainer"
 					>
-						{mapName} beside the Base Map. Click a feature on the Historical Map and then the same place
-						on the earth to make a Control Point pair; with enough pairs the Historical Map is drawn over
-						the Base Map. Your work saves as you go.
+						{mapName} beside the Base Map. Click a feature on the Map Image and then the same place on
+						the earth to make a Control Point pair; with enough pairs the Map Image is drawn over the
+						Base Map. Your work saves as you go.
 					</p>
 				{/if}
 			</div>
@@ -1234,11 +1234,11 @@
 					{#if pending}
 						<span class="font-medium text-warning">{pending.message}</span>
 					{:else if controlPoints.length === 0}
-						Click a feature on the Historical Map, then the same place on the Base Map, to make your
+						Click a feature on the Map Image, then the same place on the Base Map, to make your
 						first Control Point.
 					{:else if controlPoints.length < needed}
-						{controlPoints.length} of {needed} Control Points. The Historical Map appears over the Base
-						Map once there are {needed}.
+						{controlPoints.length} of {needed} Control Points. The Map Image appears over the Base Map
+						once there are {needed}.
 					{:else}
 						{controlPoints.length} Control Points.
 					{/if}
@@ -1284,10 +1284,10 @@
 					data-testid="alignment-changed-elsewhere"
 				>
 					<p class="max-w-prose">
-						Somebody else changed this Historical Map’s Alignment while you had it open — through a
-						Workspace shared with this one — and your edit has just been saved over theirs. A
-						Historical Map has one Alignment, shared by every Project that draws it, so there is
-						only ever one file to change.
+						Somebody else changed this Map Image’s Alignment while you had it open — through a
+						Workspace shared with this one — and your edit has just been saved over theirs. A Map
+						Image has one Alignment, shared by every Project that draws it, so there is only ever
+						one file to change.
 					</p>
 					<div class="flex flex-wrap gap-2">
 						<button
@@ -1308,7 +1308,7 @@
 								// re-read and the effect above both handle that correctly on their own; the
 								// *sentence* did not, and it is the half that speaks. Without this, a navigation
 								// landing inside one store write announced "their version is back — the list below
-								// is what is on disk now" over a different Historical Map's Control Points, and
+								// is what is on disk now" over a different Map Image's Control Points, and
 								// took focus to say it.
 								const answering = imageId;
 								try {
@@ -1361,7 +1361,7 @@
 		What the answer above did, and where focus lands when the alert that asked removes itself.
 
 		Always rendered and empty when there is nothing to say — the rule every live region in this app
-		follows, and the one the offline notice in `HistoricalMapPane` had to be reshaped to obey: a
+		follows, and the one the offline notice in `MapImagePane` had to be reshaped to obey: a
 		region inserted together with its first text is not reliably announced.
 	-->
 			<p
@@ -1473,13 +1473,13 @@
 				data-warped-status={warped?.status ?? ''}
 			>
 				{#if warped?.status === 'drawn'}
-					The Historical Map is being drawn over the Base Map from {controlPoints.length} Control Points.
+					The Map Image is being drawn over the Base Map from {controlPoints.length} Control Points.
 				{:else if warped?.status === 'refused'}
-					The Historical Map could not be drawn over the Base Map: {warped.reason}
+					The Map Image could not be drawn over the Base Map: {warped.reason}
 				{:else if controlPoints.length < needed}
 					{needed - controlPoints.length} more Control {needed - controlPoints.length === 1
 						? 'Point'
-						: 'Points'} and the Historical Map will be drawn over the Base Map.
+						: 'Points'} and the Map Image will be drawn over the Base Map.
 				{/if}
 			</p>
 
@@ -1563,7 +1563,7 @@
 			<!--
 			Which Projects this Alignment belongs to (SPEC story 56, ADR-0023).
 
-			One Alignment per Historical Map, shared by every Project that draws the map — so this is the
+			One Alignment per Map Image, shared by every Project that draws the map — so this is the
 			scope of every gesture on this screen, and a scholar refining a placement here is moving every
 			Project named in it, published ones included. Visible text and not a tooltip (ADR-0016), and
 			`aria-live="polite"` because it arrives after the screen does: the Workspace's `project.json`
@@ -1572,7 +1572,7 @@
 			⚠ **Last in this column, and never above the panes — that is a measurement rather than a
 			preference.** It reads as the scope of what is about to happen, so it was written above the
 			pairing prompt first, and prose above the panes pushed the panes down: at the browser suite's
-			window size that put the Historical Map's Control Point handles below the fold, and
+			window size that put the Map Image's Control Point handles below the fold, and
 			`editor-alignment.e2e.ts`'s drag test went red with zero writes — the pointer was moved to
 			coordinates outside the viewport, so the gesture never started. A scholar on a laptop felt the
 			same thing as scrolling to reach the sheet.

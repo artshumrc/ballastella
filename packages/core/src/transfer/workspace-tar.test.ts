@@ -60,7 +60,7 @@ const projectJson = (overrides: Record<string, unknown> = {}): string =>
 	)}\n`;
 
 /**
- * A Workspace with **two Projects sharing one Historical Map**, which is the shape the first
+ * A Workspace with **two Projects sharing one Map Image**, which is the shape the first
  * acceptance criterion names and the shape ADR-0023 made possible: one map prepared and aligned
  * once, used by any number of Projects.
  */
@@ -158,7 +158,7 @@ function destination(name = 'Restored'): {
 }
 
 describe('a Workspace backs up to one tar', () => {
-	it('carries two Projects and the Historical Map they share', async () => {
+	it('carries two Projects and the Map Image they share', async () => {
 		const store = seed(twoProjectsOneMap());
 		const backup = await exportWorkspaceTar(store, 'Marking 2026');
 

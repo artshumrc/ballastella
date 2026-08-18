@@ -7,7 +7,7 @@
 ## What to build
 
 Both apps say the same things about a map that is not drawing — the Base Map's archive did not
-answer, a Historical Map's tiles stopped arriving, this Layer could not be reached — and both already
+answer, a Map Image's tiles stopped arriving, this Layer could not be reached — and both already
 take the *sentence* from core so the two deployments cannot describe one outage two ways. What is
 still written twice is the **presentation**: the alert boxes, the `role="alert"` versus `aria-live`
 decisions, and the `sr-only` running commentary about what is on the map and where it is looking.
@@ -20,7 +20,7 @@ Make that one component, so a notice cannot be an alert in one app and a live re
   and `base-map-unavailable` blocks, and the `sr-only` div holding `stack-status`, `opening-view`,
   `offline-availability` and `offline-done`.
 - `apps/viewer/src/routes/+page.svelte` — `base-map-notice`, `base-map-not-published`,
-  `base-map-unavailable`, `historical-map-tiles-unavailable`, `project-needs-network`,
+  `base-map-unavailable`, `map-image-tiles-unavailable`, `project-needs-network`,
   `layer-unreachable`, and its own `sr-only` div with `stack-status` and `opening-view`.
 - Read the long comments on both sides before changing anything. They record a decision that must
   survive: an element **inserted** with its text already in it is `role="alert"`, because an
@@ -34,7 +34,7 @@ Make that one component, so a notice cannot be an alert in one app and a live re
 ## Contract
 
 **The sentences stay core's.** `baseMapFallbackNotice`, `baseMapUnavailableNotice`,
-`baseMapNotPublishedNotice` and `historicalMapTilesUnavailableNotice` are already the one source of
+`baseMapNotPublishedNotice` and `mapImageTilesUnavailableNotice` are already the one source of
 each; this ticket must not add a second sentence in a template. If a new sentence is wanted, it
 belongs in core.
 
@@ -59,7 +59,7 @@ machine-checkable statement of what the map is showing.
 *how* a notice is presented, not *which* ones exist.
 
 **The `project-needs-network` paragraph stays.** It is not the per-Layer badge ticket 05 removed: it
-names Historical Maps that will not draw without a connection, which is a fact a Reader on a train
+names Map Images that will not draw without a connection, which is a fact a Reader on a train
 can act on by knowing.
 
 ### User Stories
@@ -118,7 +118,7 @@ the defect the viewer's own comment says is currently shipping.
 **Two components, and the notices are one of them.** `packages/ui/src/MapNotice.svelte` is every
 notice on both map panes: `base-map-notice`, `base-map-offline`, `referenced-offline` and
 `base-map-unavailable` in the editor, and `base-map-notice`, `base-map-not-published`,
-`base-map-unavailable`, `historical-map-tiles-unavailable`, `project-needs-network` and
+`base-map-unavailable`, `map-image-tiles-unavailable`, `project-needs-network` and
 `layer-unreachable` in the viewer. `packages/ui/src/MapCommentary.svelte` is the `sr-only` running
 commentary — `stack-status` and `opening-view`, with `data-drawn` and `data-opening-view` on them —
 which the ticket's opening paragraph names alongside the alert boxes as the other half of what was
@@ -161,7 +161,7 @@ arrival path a Reader meets. Both go red against the un-hoisted template.
 
 **What each sentence's source is.** The four core sentences are untouched and still come from
 `baseMapFallbackNotice`, `baseMapUnavailableNotice`, `baseMapNotPublishedNotice` and
-`historicalMapTilesUnavailableNotice`; `opening-view` still renders `openingViewSentence`, now called
+`mapImageTilesUnavailableNotice`; `opening-view` still renders `openingViewSentence`, now called
 inside `MapCommentary` rather than in each app. `MapNotice` composes **no prose at all** — headings,
 sentences and bodies all arrive from the consumer. The empty-stack sentence stayed two sentences
 because the two differ in wording and changing wording is out of scope: "Nothing is on the map yet."

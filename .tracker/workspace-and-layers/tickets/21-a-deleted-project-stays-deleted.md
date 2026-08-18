@@ -143,7 +143,7 @@ The destructive step now has a precondition of its own, and it is the same evide
   `updatedAt` out of the summary the hub was rendering.
 - `#removeEverythingIn` removes `project.json` **last**, so an interrupted deletion always still has
   its evidence. Ordered for the interruption rather than for the success, exactly as
-  `deleteHistoricalMap` documents for its own order.
+  `deleteMapImage` documents for its own order.
 - `finishInterruptedDeletions` reads the manifest and removes nothing unless it still says what the
   record says. A reserved name is refused; a record with no `was` is refused; a manifest that will
   not read is refused; anything that does not match is refused and **named**. The record is kept, not
@@ -155,14 +155,14 @@ the same hazard the review named — `#claim` fires from `createProject` and `du
 never from *opening* an existing Project, so a Project reopened and edited after a failed deletion
 could be removed under the user at a later startup. Its `updatedAt` has moved, so it is refused.
 
-### 2. `deleteHistoricalMap` had the same inversion, and worse
+### 2. `deleteMapImage` had the same inversion, and worse
 
-Its first `await` is `historicalMapUsage` — a walk of every Project in the Workspace, a far wider
+Its first `await` is `mapImageUsage` — a walk of every Project in the Workspace, a far wider
 window than the single `store.list` that lost 4 runs in 20 — and it destroyed the journal
 *synchronously* and did the deletion *asynchronously*. A reload in between lost the user's unsaved
 Alignment edit **and** left the map in place: data loss with no deletion to justify it. The sweep is
-now after the `await`, and **conditional**: `HistoricalMapPartlyDeletedError` is the only failure that
-means bytes are gone, and `HistoricalMapInUseError` is a refusal taken before anything is deleted, so
+now after the `await`, and **conditional**: `MapImagePartlyDeletedError` is the only failure that
+means bytes are gone, and `MapImageInUseError` is a refusal taken before anything is deleted, so
 sweeping on it would be the same loss by the opposite mistake. Three unit-seam tests.
 
 The *ordering* of the deletion itself is unchanged and not claimed fixed: it is deliberately arranged
@@ -213,7 +213,7 @@ startup the deletion has finished and its record has been dropped.
 
 No ordering fixes this — `pagehide` can fire at any point after the click — so the source is swept
 instead: `Autosave.abandon(prefix)` drops the pending bytes, the timers and the journal entries
-together, and `deleteProject` and `deleteHistoricalMap` both go through it. Pinned at both seams.
+together, and `deleteProject` and `deleteMapImage` both go through it. Pinned at both seams.
 
 With that closed, the honest description of the layer stands and the ticket's original wording was
 overstated: `finishInterruptedDeletions` runs before the replay and forgets each directory it
@@ -233,7 +233,7 @@ Every mutation below was applied, run, and restored.
 | M9 | drop the reserved-name guard | **RED** | `refuses to finish a deletion naming one of the Workspace's own directories` |
 | M10 | drop the answer `record()` gives | **RED** | `says so when the browser will not write the deletion down` |
 | M11 | `abandon` forgets the journal only, as before | **RED** | 3 in `autosave.test.ts`, and `gives up the pending bytes too` at the editor seam |
-| M12 | sweep the Historical Map's journal before the `await` again | **RED** | 2 in `editor-session.test.ts` |
+| M12 | sweep the Map Image's journal before the `await` again | **RED** | 2 in `editor-session.test.ts` |
 | M13 | sweep it unconditionally in the `catch` | **RED** | `keeps the unsaved Alignment when the deletion is refused` |
 | M14 | never set `deletionReport` | **RED** | e2e `says at startup which Project it finished deleting` |
 | M15 | `#removeWorkspace` discards the journal only | **RED** | e2e `takes the Workspace's unfinished deletions with it` |
@@ -275,7 +275,7 @@ runs, which is why the full suite took 23 minutes. Nothing went flaky under it; 
   asserted against the file list.
 - ~~**`FinishedDeletions.unfinished` is returned but not rendered.**~~ Done in round 2: all three
   lists are rendered in `RecoveredEdits` (SPEC stories 111, 112).
-- **`deleteHistoricalMap` was given the inversion fix and not the write-ahead record.** The
+- **`deleteMapImage` was given the inversion fix and not the write-ahead record.** The
   "destroy synchronously, justify asynchronously" pair is closed and pinned. What it still does not
   have is `DeletedProjects`' own protection — a gesture written down so a torn-down page's deletion
   is finished at the next startup. Its partial-failure design already leaves a half-deleted map
@@ -359,7 +359,7 @@ from opening a Project. It is no longer described as an identity check anywhere.
   is dropped silently, which is the `was === null` case the round-2 text admitted had no remedy
   ("delete it again if it is still here" — there was nothing to delete). Every refusal that survives
   now names a Project that is present in the list, and the gesture that ends it is one click.
-- **(g)** `deleteHistoricalMap` swept its abandoned writes **after** every file was deleted, so a
+- **(g)** `deleteMapImage` swept its abandoned writes **after** every file was deleted, so a
   rejection there left the map entirely gone and threw something that is neither `InUse` nor
   `PartlyDeleted` — falsifying the rule the caller sweeps its journal by. Wrapping it in a
   `PartlyDeleted` would have been the opposite lie ("it is still listed, and deleting it again will
@@ -391,7 +391,7 @@ the synchronous record and **before** the removal, so the guarantee this whole t
 untouched: if the page dies during that await, the record is written and the next startup finishes
 the job.
 
-The same window is **not** closed for `deleteHistoricalMap`, deliberately: its sweep runs after the
+The same window is **not** closed for `deleteMapImage`, deliberately: its sweep runs after the
 deletion, so waiting there buys nothing, and closing it properly means abandoning *before* the
 deletion — which is the "destroy synchronously, justify asynchronously" inversion round 2 removed
 from that exact method. It is named in the code and left open rather than traded for the larger
@@ -426,7 +426,7 @@ Every mutation below was applied, run, and restored.
 | M24 | `abandon` answers nothing about the write it could not stop | **RED** | `answers with a promise for the write it could not stop` |
 | M24b | `abandon` drops the entry of a path being written to | **RED** | `leaves a path being written to one writer, even after abandoning it` |
 | M25 | `#forgetJournalled` abandons `images/<id>/` only, as before | **RED** | `gives up the Alignment's pending bytes, not only its journal entry` |
-| M26 | `deleteHistoricalMap` sweeps its abandoned writes last again | **RED** | 2 in `historical-maps.test.ts` |
+| M26 | `deleteMapImage` sweeps its abandoned writes last again | **RED** | 2 in `map-images.test.ts` |
 | M27 | `decode` ignores `formatVersion` again | **RED** | `reads a record written to another format as no evidence` |
 | M28 | `deletionsAreNoteworthy` reads `finished` only | **RED** | 2: the refused arm and the unfinished arm |
 | M29 | `EditorSession` claims `'this-browser'` for every Workspace | **RED** | e2e `will not finish a deletion on its own in a folder, and says so` |
@@ -464,7 +464,7 @@ these runs. Nothing went flaky under it; the retry budget was 0.00% on both runs
   hold "opening writes nothing at all", ADR-0008 makes the folder the product (zipped, cloned,
   committed), and a sync client copies the nonce with everything else, so two copies of a folder
   would share it anyway and the identity would be false. Rejected on both counts.
-- **`deleteHistoricalMap`'s in-flight write window** — see the adjudication above.
+- **`deleteMapImage`'s in-flight write window** — see the adjudication above.
 - **A "forget this deletion" control beside a refusal** was still not built. With (f) closed, every
   surviving refusal names a Project that is in the list, so the control already exists: it is Delete.
 - **`TRACKER.md` was not edited**, as instructed.
@@ -473,7 +473,7 @@ these runs. Nothing went flaky under it; the retry budget was 0.00% on both runs
 
 A focused re-review traced every construction path and confirmed the design: no reachable
 wrong-folder recursive delete remains, all three of round 2's doors are shut, and the `abandon`
-plumbing, the synchronous guarantee, `formatVersion` validation and the `historical-maps` reordering
+plumbing, the synchronous guarantee, `formatVersion` validation and the `map-images` reordering
 all hold. Five things were left.
 
 ### 1. The round's headline claim was a sentence in a comment
@@ -525,7 +525,7 @@ planted temporary file rather than dropped: `#adopt` sweeping the whole Workspac
 because of the order somebody happens to call it in" is the argument `#claim`'s comment had to stop
 making.
 
-### 5. The reason for leaving `deleteHistoricalMap`'s window open was not sound
+### 5. The reason for leaving `deleteMapImage`'s window open was not sound
 
 The round-3 comment said closing it meant reintroducing the inversion review 2 removed. **That is
 wrong, and it proved too much** — `Workspace.deleteProject` does abandon-before-removal two files
@@ -535,7 +535,7 @@ destroying it.
 
 And there was a third option. `Autosave.settled(prefix)` is `abandon`'s half that destroys nothing:
 it waits for the store to be quiet under a prefix, drops no pending bytes, clears no timers and
-touches no journal entry. It is awaited before `deleteHistoricalMap`, so an Alignment write in flight
+touches no journal entry. It is awaited before `deleteMapImage`, so an Alignment write in flight
 cannot land after the deletion removed `alignments/<id>.json` — the orphaned placement that function
 exists to prevent. `#forgetJournalled` runs unchanged, after.
 
@@ -603,7 +603,7 @@ budget was 0.00% on both runs.
   that a merely slow OPFS write is waited for, short enough that a write which is never going to
   settle costs a pause rather than the gesture. It is injectable, so the bound itself is tested
   rather than only its happy path.
-- **`deleteHistoricalMap` still has no write-ahead record of its own**, unchanged from round 2's
+- **`deleteMapImage` still has no write-ahead record of its own**, unchanged from round 2's
   note: its partial-failure design leaves a half-deleted map listed and finishable, and giving it the
   full `DeletedProjects` treatment is its own ticket.
 - **`TRACKER.md` was not edited**, as instructed.
@@ -635,7 +635,7 @@ build the in-flight state, and saying otherwise would be round 4's error repeate
 
 ### 2. The same window was wide open for `images/<id>/`, with no sentence at all
 
-`deleteHistoricalMap` removes the pyramid, `image-info.json` and `remote.json` as well as the
+`deleteMapImage` removes the pyramid, `image-info.json` and `remote.json` as well as the
 Alignment, and `#forgetJournalled` sweeps both prefixes for exactly the reason the Alignment needs
 it. The wait covered one of them. It covers both now, through `#quietBeforeDeleting`, which mirrors
 `#forgetJournalled` line for line.
@@ -649,8 +649,8 @@ Found by running the mutation, not by reading.
 
 - **`settled`'s prefix filter was asserted by nothing.** Deleting `path.startsWith(prefix) &&` left
   both tests green — one had a single matching file and the other had none. Unfiltered, one stuck
-  write in a Project nobody is looking at would put the whole two-second bound on every Historical
-  Map deletion, with nothing to say why.
+  write in a Project nobody is looking at would put the whole two-second bound on every Map
+  Image deletion, with nothing to say why.
 - **The shipped `?? 2000` was asserted by nothing.** Every assertion injected its own bound, so a
   default of zero passed — and zero is not cosmetic: every `deleteProject` with any write in flight
   would answer `false`, keep its record, and produce a startup refusal for a deletion that had in
@@ -711,7 +711,7 @@ went flaky under it; the retry budget was 0.00% on both.
 - **`settled`'s widening is not claimed to fix a reachable orphan**, and M45 is recorded GREEN. See
   §1: today's only caller sees `commit`, and the pending half is pinned against this class directly
   rather than at the editor seam, because the editor seam cannot build it.
-- **`deleteHistoricalMap` still has no write-ahead record of its own**, unchanged from rounds 2 and
+- **`deleteMapImage` still has no write-ahead record of its own**, unchanged from rounds 2 and
   4: its partial-failure design leaves a half-deleted map listed and finishable, and giving it the
   full `DeletedProjects` treatment is its own ticket.
 - **`TRACKER.md` was not edited**, as instructed.

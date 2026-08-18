@@ -1,4 +1,4 @@
-// Making an offline copy of one referenced Historical Map: the state of that job, from the button to
+// Making an offline copy of one referenced Map Image: the state of that job, from the button to
 // the Layer that stops saying `'referenced'` (SPEC stories 27 and 28, ADR-0007).
 //
 // A class of its own beside `AddRemoteMap`, and for the same reason: none of what happens before the

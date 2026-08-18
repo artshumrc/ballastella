@@ -254,7 +254,7 @@ export async function probeRemoteImageService(
 				// tile get the same sentence here. What differs between them is `declined` — see below.
 				crossOrigin: (detail) =>
 					`${host} serves its image descriptions to other websites but not its image ` +
-					`tiles${detail}. Ballastella draws a Historical Map by uploading tiles into the ` +
+					`tiles${detail}. Ballastella draws a Map Image by uploading tiles into the ` +
 					`graphics card, which the browser only permits for a response marked readable ` +
 					`cross-origin — so this map would appear completely blank with nothing to say why. ` +
 					`Nothing has been added. The tile that was refused is ${tileUrl}.`,

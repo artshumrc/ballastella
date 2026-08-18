@@ -251,7 +251,7 @@ describe('replayJournal', () => {
 			);
 		});
 
-		it('does not put an Alignment back for a Historical Map that has gone', async () => {
+		it('does not put an Alignment back for a Map Image that has gone', async () => {
 			journal.record('alignments/floride-1657.json', utf8.encode('{}'));
 
 			const report = await replayJournal(storage, store, 'Marking 2026');
@@ -260,23 +260,23 @@ describe('replayJournal', () => {
 			expect(report.skipped).toEqual([
 				{
 					path: 'alignments/floride-1657.json',
-					reason: 'no-such-historical-map',
+					reason: 'no-such-map-image',
 					copy: null,
-					detail: expect.stringContaining('Historical Map')
+					detail: expect.stringContaining('Map Image')
 				}
 			]);
 			expect(await store.list('')).toEqual([]);
 		});
 
-		it('does not put a Historical Map’s tiles back when the map has gone', async () => {
+		it('does not put a Map Image’s tiles back when the map has gone', async () => {
 			journal.record('images/floride-1657/8/0_0.jpg', utf8.encode('tile'));
 
 			expect((await replayJournal(storage, store, 'Marking 2026')).skipped).toEqual([
 				{
 					path: 'images/floride-1657/8/0_0.jpg',
-					reason: 'no-such-historical-map',
+					reason: 'no-such-map-image',
 					copy: null,
-					detail: expect.stringContaining('Historical Map')
+					detail: expect.stringContaining('Map Image')
 				}
 			]);
 		});
@@ -292,8 +292,8 @@ describe('replayJournal', () => {
 		});
 
 		it('keeps an Alignment entry for a map evidenced only by a half-written pyramid', async () => {
-			// An ingest interrupted between its tiles and its `info.json`. `Workspace.#historicalMapIds`
-			// counts that directory as a Historical Map, so this check must too — neither named file is
+			// An ingest interrupted between its tiles and its `info.json`. `Workspace.#mapImageIds`
+			// counts that directory as a Map Image, so this check must too — neither named file is
 			// there yet.
 			await store.write('images/floride-1657/8/0_0.jpg', utf8.encode('tile'));
 			journal.record('alignments/floride-1657.json', utf8.encode('{}'));
@@ -303,7 +303,7 @@ describe('replayJournal', () => {
 			]);
 		});
 
-		it('treats a Workspace that cannot answer about a Historical Map as one that still has it', async () => {
+		it('treats a Workspace that cannot answer about a Map Image as one that still has it', async () => {
 			// ⚠ The asymmetry review found: the Project branch below said "unreadable is not absent" and
 			// erred toward keeping the entry, while this one read *any* empty listing as a deletion and
 			// then discarded the unsaved bytes for ever. Both branches now demand the same evidence —
@@ -319,7 +319,7 @@ describe('replayJournal', () => {
 		});
 
 		it('keeps an Alignment entry whose map is evidenced only by a remote record', async () => {
-			// A referenced Historical Map has no `info.json` — its pyramid is on a Library's server —
+			// A referenced Map Image has no `info.json` — its pyramid is on a Library's server —
 			// so a check that only knew about the pyramid would call it deleted.
 			await store.write('images/floride-1657/remote.json', utf8.encode('{}'));
 			journal.record('alignments/floride-1657.json', utf8.encode('{}'));
@@ -416,7 +416,7 @@ describe('replayJournal', () => {
 
 			const report = await replayJournal(storage, store, 'Marking 2026');
 
-			// It names no Historical Map this application writes, so it is an ordinary file in a
+			// It names no Map Image this application writes, so it is an ordinary file in a
 			// Workspace directory — the same reading `hoistedImageId` takes — and it has no Project
 			// manifest to be checked against.
 			expect(report.restored).toEqual(['alignments/nested/thing.json']);

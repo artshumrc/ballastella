@@ -9,7 +9,7 @@
 // That size is {@link ImagePaneTile.placement} — `region / scaleFactor`, 106.375 for a tile served
 // at 107 — and **not** the size the tile was served at. IIIF rounds a served tile up to whole
 // pixels; using the rounded number leaves a systematic sub-pixel stretch at every ragged margin of
-// every Historical Map, which reads as imprecision rather than as a bug. It is the silent-drift
+// every Map Image, which reads as imprecision rather than as a bug. It is the silent-drift
 // failure SPEC ranks first among the project's risks.
 //
 // ## Chromium rounds a fractional `drawImage` destination, so asking for one is not enough

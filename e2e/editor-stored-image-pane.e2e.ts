@@ -3,10 +3,10 @@ import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
-	addHistoricalMapButton,
+	addMapImageButton,
 	expectNothingPreparing,
-	pickHistoricalMapFile
-} from './support/historical-maps.js';
+	pickMapImageFile
+} from './support/map-images.js';
 import { alignFromLayer } from './support/layers';
 import { showPaneDetails } from './support/alignment-workspace.js';
 
@@ -21,7 +21,7 @@ import { showPaneDetails } from './support/alignment-workspace.js';
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2 for the injection layer: the user's own Historical Map, deep-zoomed in the
+ * SPEC's Seam 2 for the injection layer: the user's own Map Image, deep-zoomed in the
  * running app, with every byte coming out of real OPFS (SPEC story 31, and story 8's mechanism).
  *
  * **This suite is the only place the no-network claim can be made.** The routing rule itself is
@@ -169,17 +169,17 @@ async function createProject(page: Page, name: string): Promise<void> {
  *
  * The wait is load-bearing rather than tidiness: a Project is selected client-side from `?p=`
  * (ADR-0008), so for a moment after the click the hub is still rendered — and the hub lists
- * Projects as list items, which is the same role the Historical Maps are counted by below.
+ * Projects as list items, which is the same role the Map Images are counted by below.
  */
 async function openProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('link', { name }).click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 }
 
 /**
- * Every Historical Map this Project draws, by image id.
+ * Every Map Image this Project draws, by image id.
  *
- * Read off the Layer rows since ticket 04: a Historical Map arrives with its Layer (ADR-0023), and
+ * Read off the Layer rows since ticket 04: a Map Image arrives with its Layer (ADR-0023), and
  * the separate list of image ids on the Project page is gone.
  */
 const listedImageIds = async (page: Page): Promise<string[]> =>
@@ -194,7 +194,7 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
 /**
  * Ingest one image, wait for its pyramid to be complete, and return **its** image id.
  *
- * The id is found by difference rather than by position. Historical Maps are listed in the order
+ * The id is found by difference rather than by position. Map Images are listed in the order
  * `ProjectStore.list` returns them, which is sorted by path and therefore by id — an id minted by
  * `generateRandomId()`, so the map just added is in a random place in the list. Taking the last
  * entry passed roughly half the time, which is the worst possible kind of test.
@@ -223,20 +223,20 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  */
 async function ingest(page: Page, width: number, height: number, name: string): Promise<string> {
 	const before = await listedImageIds(page);
-	await pickHistoricalMapFile(page, {
+	await pickMapImageFile(page, {
 		name,
 		mimeType: 'image/png',
 		buffer: gradientPng(width, height)
 	});
 	await expect(page.getByTestId('layer-row')).toHaveCount(before.length + 1, { timeout: 30_000 });
 	// And then the settled state: the preparing card leaves the stack when `session.ingest` is
-	// cleared, which is the last thing the ingest does. Until then this Historical Map is on screen
+	// cleared, which is the last thing the ingest does. Until then this Map Image is on screen
 	// but the gesture that adds the next one has nowhere to land — since ticket 06 it is refused in
 	// words rather than dropped, and this wait is what keeps the refusal off a test that means to add
 	// two maps.
 	await expectNothingPreparing(page, 30_000);
 	const added = (await listedImageIds(page)).filter((id) => !before.includes(id));
-	expect(added, `expected exactly one new Historical Map after ingesting ${name}`).toHaveLength(1);
+	expect(added, `expected exactly one new Map Image after ingesting ${name}`).toHaveLength(1);
 	return added[0]!;
 }
 
@@ -244,8 +244,8 @@ async function ingest(page: Page, width: number, height: number, name: string): 
  * Press Align **on a Layer** and land on the pane, which is `/align/?p=…&layer=…`.
  *
  * Ticket 04 moved Align onto the Layer that needs it and deleted the Project page's separate list of
- * image ids with its per-map selector buttons — there is one door per Historical Map now, and it is
- * on the Historical Map. Naming the image is therefore choosing a row rather than pressing a
+ * image ids with its per-map selector buttons — there is one door per Map Image now, and it is
+ * on the Map Image. Naming the image is therefore choosing a row rather than pressing a
  * selector and then a shared button; with no name given, the first Layer in the stack is taken.
  */
 async function openPane(page: Page, imageId?: string): Promise<void> {
@@ -258,10 +258,10 @@ async function openPane(page: Page, imageId?: string): Promise<void> {
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 }
 
-/** Back to the Project, where the Layers — and their Historical Maps — are. */
+/** Back to the Project, where the Layers — and their Map Images — are. */
 async function backToProject(page: Page): Promise<void> {
 	await page.getByTestId('back-to-project').click();
-	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await expect(addMapImageButton(page)).toBeVisible();
 }
 
 /**
@@ -273,18 +273,17 @@ async function backToProject(page: Page): Promise<void> {
  * a measurement of the machine rather than of the pane.
  */
 const waitForTiles = (page: Page, timeout?: number) =>
-	expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
+	expect(page.getByTestId('map-image-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
 		'true',
 		timeout === undefined ? undefined : { timeout }
 	);
 
-const pyramidReadout = (page: Page) => page.getByTestId('historical-map-pyramid');
+const pyramidReadout = (page: Page) => page.getByTestId('map-image-pyramid');
 
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 
-const mapZoom = async (page: Page) =>
-	Number(await page.getByTestId('historical-map-zoom').innerText());
+const mapZoom = async (page: Page) => Number(await page.getByTestId('map-image-zoom').innerText());
 
 /**
  * Every request the page made, so the two negatives can be asserted. Attached before the first
@@ -296,7 +295,7 @@ function recordRequests(page: Page): string[] {
 	return requested;
 }
 
-test.describe('a Historical Map read from the Project', () => {
+test.describe('a Map Image read from the Project', () => {
 	test('deep-zooms the user’s own pyramid with nothing fetched from the network', async ({
 		page
 	}) => {
@@ -407,7 +406,7 @@ test.describe('a Historical Map read from the Project', () => {
 		expect(requested.filter((url) => url.includes('/fixtures/'))).toEqual([]);
 	});
 
-	test('renders the correct pyramid for each of two Historical Maps in one Project', async ({
+	test('renders the correct pyramid for each of two Map Images in one Project', async ({
 		page
 	}) => {
 		// **A budget, not a race** (ticket 17). This is the only test in the suite that ingests two
@@ -446,7 +445,7 @@ test.describe('a Historical Map read from the Project', () => {
 		);
 
 		/**
-		 * Pick a Historical Map and require the pane to be showing *that whole pyramid* — its
+		 * Pick a Map Image and require the pane to be showing *that whole pyramid* — its
 		 * dimensions, its number of levels, and tiles addressed under its own image id.
 		 *
 		 * The tile check is the one with teeth. A pane repointed rather than rebuilt would keep the
@@ -461,7 +460,7 @@ test.describe('a Historical Map read from the Project', () => {
 			levels: number
 		) => {
 			await clearServedTiles(page);
-			// Choosing between this Project's Historical Maps is choosing a Layer, and aligning one is a
+			// Choosing between this Project's Map Images is choosing a Layer, and aligning one is a
 			// route, so the switch is a round trip rather than a click. What is being defended is
 			// unchanged and is if anything harder to fake: the pane is *rebuilt* on the way back, so a
 			// source that had been repointed rather than replaced has nowhere to hide.
@@ -469,7 +468,7 @@ test.describe('a Historical Map read from the Project', () => {
 			await openPane(page, imageId);
 			await waitForTiles(page);
 			// Reopened deliberately: the disclosure's state is the component's, and this round trip
-			// destroys the pane. Switching Historical Maps *without* leaving the route does not close it,
+			// destroys the pane. Switching Map Images *without* leaving the route does not close it,
 			// which is the case the pane's own comment settles.
 			await showPaneDetails(page);
 			await expect(pyramidReadout(page)).toHaveAttribute('data-image-id', imageId);
@@ -600,8 +599,8 @@ test.describe('a Historical Map read from the Project', () => {
 		// happened to be is one event that the map may receive before it has settled.
 		await page.mouse.move(box.x + box.width / 2 - 20, box.y + box.height / 2 - 20);
 		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-		await expect(page.getByTestId('historical-map-pointer')).not.toHaveText('—');
-		const [x, y] = (await page.getByTestId('historical-map-pointer').innerText())
+		await expect(page.getByTestId('map-image-pointer')).not.toHaveText('—');
+		const [x, y] = (await page.getByTestId('map-image-pointer').innerText())
 			.split(',')
 			.map((part) => Number(part.trim()));
 		expect(x).toBeGreaterThanOrEqual(0);
@@ -610,7 +609,7 @@ test.describe('a Historical Map read from the Project', () => {
 		expect(y).toBeLessThanOrEqual(500);
 
 		// The status region says whether the view is settled, and says it out loud (story 96).
-		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute('aria-live', 'polite');
+		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('aria-live', 'polite');
 	});
 
 	test('surfaces a pyramid it refuses to draw, instead of a blank map', async ({ page }) => {
@@ -646,7 +645,7 @@ test.describe('a Historical Map read from the Project', () => {
 
 		await page.reload();
 
-		const failure = page.getByTestId('historical-map-failure');
+		const failure = page.getByTestId('map-image-failure');
 		await expect(failure).toBeVisible();
 		// Announced, and it names what is wrong rather than that something went wrong.
 		await expect(failure).toHaveAttribute('role', 'alert');

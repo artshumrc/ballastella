@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A Historical Map read as a document rather than as geography (SPEC story 85).
+	// A Map Image read as a document rather than as geography (SPEC story 85).
 	//
 	// triiiceratops, imported from its **`./svelte` export as an ordinary Svelte component** and never as
 	// the web component (ADR-0018): Svelte 5 is a declared peer, the integration hands in objects rather
@@ -34,7 +34,7 @@
 		manifest,
 		onclose
 	}: {
-		/** What the Reader sees this Historical Map called: the Layer's name (SPEC story 54). */
+		/** What the Reader sees this Map Image called: the Layer's name (SPEC story 54). */
 		label: string;
 		/**
 		 * The key the Manifest is cached under.
@@ -99,7 +99,7 @@
 	{#if viewerError}
 		<div role="alert" class="mt-3 alert max-w-prose alert-warning">
 			<p data-testid="unwarped-error">
-				This Historical Map could not be shown: {viewerError}
+				This Map Image could not be shown: {viewerError}
 			</p>
 		</div>
 	{/if}

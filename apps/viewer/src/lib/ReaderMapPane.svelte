@@ -28,7 +28,7 @@
 	//
 	// In the editor that produced a page containing no map at all, with nothing logged beyond one
 	// `TypeError` from a page the user had already left. This pane matters more, not less: a Reader
-	// navigating between the Project view and a Historical Map read unwarped crosses exactly that
+	// navigating between the Project view and a Map Image read unwarped crosses exactly that
 	// boundary, and a Published Site has no console anyone is watching. {@link removed} is the answer, and
 	// `e2e/viewer-reader.e2e.ts` puts a `pageerror` assertion on every navigation.
 
@@ -103,7 +103,7 @@
 		 * sprites (ADR-0020, SPEC story 88).
 		 *
 		 * `false` is an ordinary, supported state: including them is opt-in at publish time because they are
-		 * about 4.9 MB against the same hosting budget as the scholar's Historical Maps. What must not happen
+		 * about 4.9 MB against the same hosting budget as the scholar's Map Images. What must not happen
 		 * is the site asking for them anyway — a bundled entry's `archive` is a **site-relative path**, so on
 		 * a site published without them every tile, glyph, and sprite request is a 404 and the Reader gets a
 		 * blank map with nothing to explain it. See {@link styleFor}.
@@ -143,10 +143,10 @@
 		 * which is what a Project with nothing on the earth opens on.
 		 */
 		openingFit?: OpeningViewFit | null;
-		/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
+		/** Where an aligned Map Image's tiles are read from (ADR-0011). */
 		fetchTile: FetchFn;
 		/**
-		 * Whether some of a Historical Map's bytes were refused and have not come back.
+		 * Whether some of a Map Image's bytes were refused and have not come back.
 		 *
 		 * ⚠ **Whether, not which, and not each refusal** — the page's own notice state, passed down
 		 * because the map is here and the outcomes are there. While it is `true` this pane paints
@@ -308,8 +308,8 @@
 				version: 8,
 				sources: {},
 				// No `glyphs` and no `sprite`: both are site-relative templates, and asking for them is the
-				// other half of the same 404. Nothing the Layer stack draws needs either — a warped Historical
-				// Map is custom WebGL, and Annotations are circles, lines, and fills.
+				// other half of the same 404. Nothing the Layer stack draws needs either — a warped Map
+				// Image is custom WebGL, and Annotations are circles, lines, and fills.
 				layers: [
 					{
 						// daisyUI's stock `base-100` for each theme, written out. A MapLibre paint value is
@@ -529,7 +529,7 @@
 	});
 
 	/**
-	 * Give the renderer frames to notice with while a Historical Map's bytes are missing.
+	 * Give the renderer frames to notice with while a Map Image's bytes are missing.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHAT A READER SITTING PERFECTLY STILL USED TO GET
@@ -728,7 +728,7 @@
 	 * **Not a rebuild, for the same reason opacity is not** — and for a sharper one. An Annotation's
 	 * title is typed a character at a time, every keystroke writes the file, and every write hands
 	 * this component a new collection. While the collection was part of {@link stackStructure}, that
-	 * tore down and re-added *every layer in the stack* per keystroke, Historical Maps included, so
+	 * tore down and re-added *every layer in the stack* per keystroke, Map Images included, so
 	 * typing a title made the whole map thrash and refetch tiles. The structure key now carries only
 	 * `annotationDrawKey` — which MapLibre layers the contents need — so a rename, a recolour, or a
 	 * moved vertex lands here instead, and a first dashed line still rebuilds because it needs a
