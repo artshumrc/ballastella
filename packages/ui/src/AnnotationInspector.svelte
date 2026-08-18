@@ -292,10 +292,14 @@
 		it"** (the-annotation-inspector stories 9, 21). What keeps the panel inside the consumer's cap is a
 		box up the tree; what keeps the words reachable once it binds is this one class. The note on the
 		`<section>` separates the two and says why neither needs a `min-h-0`.
+
+		The `pt-2` is that clipping's other half: a `floating-label` sits its caption astride the field's
+		top border, above the field's own box, so the first field in a face would have its label sheared
+		off by this element's edge without a strip of padding to rise into.
 	-->
 	<div
 		id={FACE_ID}
-		class="overflow-y-auto px-3 pb-3"
+		class="overflow-y-auto px-3 pt-2 pb-3"
 		role={style ? 'tabpanel' : undefined}
 		aria-labelledby={style ? (face === 'style' ? STYLE_TAB_ID : TEXT_TAB_ID) : undefined}
 		data-testid="annotation-inspector-face"
