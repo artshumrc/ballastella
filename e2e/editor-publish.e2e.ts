@@ -892,8 +892,8 @@ test.describe('publishing a Workspace', () => {
 			(window as unknown as { __labels?: string[] }).__labels = seen;
 		});
 
-		// A debounced edit, which is the only kind that passes through all three states: renaming is
-		// behind the Project settings dialog since ticket 04, and follows the ordinary autosave rules.
+		// A debounced edit, which is the only kind that passes through all three states: renaming is in
+		// the Project settings dialog and follows the ordinary autosave rules.
 		await (await projectNameField(page)).fill('Amsterdam 1626');
 
 		await expect

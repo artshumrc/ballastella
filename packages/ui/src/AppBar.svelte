@@ -34,6 +34,7 @@
 	// a published site is what most people will ever see.
 
 	import { otherTheme, type Theme } from '@ballastella/core';
+	import Pencil from '@lucide/svelte/icons/pencil';
 	import type { Snippet } from 'svelte';
 
 	import MenuPopover from './MenuPopover.svelte';
@@ -108,15 +109,59 @@
 	{@render start?.()}
 
 	<!--
-		Which screen this is, and the way off it — whatever the screen said it was, and nothing when a
-		screen says nothing.
+		Which screen this is and its way up the hierarchy — whatever the screen said, and nothing when a
+		screen says nothing. Editor work screens use breadcrumbs; published sites retain their compact
+		heading and back-link presentation.
 
 		A real `<h1>`: the bar is before the page's own content, so this is the first heading a screen
 		reader reaches. The link is spelled out here rather than handed over finished because
 		`svelte/no-navigation-without-resolve` checks the literal start of an `href` — hence `WayBack`
 		carrying a Project directory rather than a URL.
 	-->
-	{#if pageChrome.heading !== ''}
+	{#if pageChrome.breadcrumbs.length > 0}
+		<nav class="breadcrumbs min-w-0 py-0 text-sm" aria-label="Breadcrumb" data-testid="page-chrome">
+			<ul>
+				{#each pageChrome.breadcrumbs as crumb (crumb)}
+					<li class="min-w-0">
+						{#if crumb.destination}
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved by the app. -->
+							<a
+								class="link truncate link-hover"
+								data-testid={crumb.testid}
+								href={crumb.destination.project === undefined
+									? homeHref
+									: `${homeHref}?p=${encodeURIComponent(crumb.destination.project)}`}
+							>
+								{crumb.label}
+							</a>
+						{:else}
+							<div class="flex min-w-0 items-center gap-1">
+								<h1
+									class="min-w-0 truncate text-base font-bold"
+									data-testid={crumb.testid ?? 'page-heading'}
+									aria-current="page"
+								>
+									{crumb.label}
+								</h1>
+								{#if crumb.action}
+									<button
+										type="button"
+										class="btn shrink-0 btn-ghost btn-xs"
+										data-testid={crumb.action.testid}
+										aria-label={crumb.action.label}
+										onclick={crumb.action.onClick}
+									>
+										<Pencil size={14} aria-hidden="true" />
+										Edit
+									</button>
+								{/if}
+							</div>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</nav>
+	{:else if pageChrome.heading !== ''}
 		<div class="flex min-w-0 items-center gap-3" data-testid="page-chrome">
 			<h1 class="truncate text-base font-bold" data-testid="page-heading">
 				{pageChrome.heading}

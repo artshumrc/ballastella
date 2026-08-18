@@ -434,7 +434,7 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// since ticket 04 deleted `/base-map`: it is the app's one other entry route, and it is
 				// the one SPEC story 8 is actually about — a scholar with no wifi placing Control Points.
 				await page.goto(`${site.url}align?p=nothing-here&layer=none`);
-				await expect(page.getByRole('heading', { level: 1, name: 'Align' })).toBeVisible();
+				await expect(page.getByRole('heading', { level: 1, name: /^Align(?::|$)/ })).toBeVisible();
 
 				// 3. The link route: a client-side navigation from that page back to the hub. Driven from
 				// the second entry route rather than the first, because a class of navigation bug in this
@@ -448,7 +448,7 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// served at `/align/` resolves its own relative `./_app/…` references to nothing.
 				await page.goto(`${site.url}align/?p=nothing-here&layer=none`);
 				await expect(page).toHaveURL(`${site.url}align?p=nothing-here&layer=none`);
-				await expect(page.getByRole('heading', { level: 1, name: 'Align' })).toBeVisible();
+				await expect(page.getByRole('heading', { level: 1, name: /^Align(?::|$)/ })).toBeVisible();
 
 				// The network was genuinely absent: the server heard nothing the app asked for after the
 				// switch. This is what separates "served from the cache" from "the offline flag did not
@@ -944,16 +944,16 @@ test.describe('a working session that reaches other people’s servers', () => {
 		await makePair(page, [0.4, 0.4]);
 		await waitForStored(page, imageId, 1);
 
-		// And the Base Map this deployment's catalog marks as needing the network — chosen *by that
-		// marking* rather than by its id, because ADR-0020 makes the catalog a fork's to replace and a
-		// test naming an entry would be one more thing a fork had to change.
+		// And the Base Map this deployment's catalog marks as needing the network — chosen from its
+		// metadata rather than by id, because ADR-0020 makes the catalog a fork's to replace and a test
+		// naming an entry would be one more thing a fork had to change.
 		await page.goto(`${site.url}?p=${project}`);
 		const switcher = page.getByRole('combobox', { name: 'Base Map' });
 		// Located rather than read out of an `evaluateAll`, which does not auto-wait: straight after
 		// `goto` that ran against the options the client had not rendered yet, found none, and failed
 		// claiming the catalog offers no such entry. On a slower machine it would have failed; on a
 		// faster one it would have passed. A locator retries until the catalog is on the page.
-		const remote = switcher.locator('option', { hasText: /needs network/i });
+		const remote = switcher.locator('option[data-needs-network="true"]');
 		await expect(remote, 'this catalog offers no Base Map that needs the network').not.toHaveCount(
 			0
 		);

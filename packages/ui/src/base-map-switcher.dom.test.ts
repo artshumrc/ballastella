@@ -68,6 +68,8 @@ const render = (props: {
 	catalog: BaseMapCatalog;
 	onSelect: (id: string) => void;
 	labelSrOnly?: boolean;
+	showNetworkRequirement?: boolean;
+	fullWidth?: boolean;
 	class?: string;
 }) => {
 	mounted = mount(BaseMapSwitcher, { target: document.body, props });
@@ -100,6 +102,21 @@ test('marks an entry that needs the network in the option text a Reader can read
 		'Harbour charts',
 		'Parish roads',
 		'Satellite — needs network'
+	]);
+});
+
+test('can leave network requirements out of an editor selector', () => {
+	const select = render({
+		entryId: 'parish-roads',
+		catalog: CATALOG,
+		onSelect: () => {},
+		showNetworkRequirement: false
+	});
+
+	expect([...select.options].map((option) => option.textContent)).toEqual([
+		'Harbour charts',
+		'Parish roads',
+		'Satellite'
 	]);
 });
 
@@ -176,4 +193,16 @@ test('wears the width its caller asked for, on top of the classes it owns', () =
 	});
 
 	expect(select.className).toBe('select-bordered select w-full max-w-xs');
+});
+
+test('can use its intrinsic width instead of filling a compact toolbar', () => {
+	const select = render({
+		entryId: 'parish-roads',
+		catalog: CATALOG,
+		onSelect: () => {},
+		fullWidth: false
+	});
+
+	expect(select).toHaveClass('w-fit');
+	expect(select).not.toHaveClass('w-full');
 });

@@ -1089,9 +1089,9 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 		await expect
 			.poll(() => completedPyramid(page), { timeout: 30_000, intervals: [50] })
 			.not.toBeNull();
-		// Renaming is behind the Project settings dialog since ticket 04. Opening it is two clicks
-		// inside the same window — the delayed `manifest.json` read is what holds the window open, and
-		// it is three seconds wide.
+		// Renaming is in the Project settings dialog. The breadcrumb edit button opens it inside the same
+		// window — the delayed `manifest.json` read is what holds the window open, and it is three seconds
+		// wide.
 		const name = await projectNameField(page);
 		await name.fill('Amsterdam, 1625');
 		await name.blur();
@@ -1927,7 +1927,7 @@ test.describe('leaving the Project screen and coming back', () => {
 
 		await alignFromLayer(page, rows(page).first());
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 
 		await page.getByTestId('back-to-project').click();
 

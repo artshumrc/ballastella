@@ -219,7 +219,7 @@ export async function start(page: Page): Promise<string> {
 	// is gone. The route is a contract with its own tests; using it is not going behind the app's
 	// back.
 	await page.goto(`/align/?p=${PROJECT_DIRECTORY}&layer=${snapshot.layerId}`);
-	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
@@ -249,12 +249,12 @@ export async function openAlignment(page: Page, at = 0): Promise<void> {
 	const row = await openLayerRow(page, at);
 	await row.getByTestId('align-map-image').click();
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
-	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 }
 
 /** After a reload, the same wait `start` ends on. */
 export async function waitForSurface(page: Page): Promise<void> {
-	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and

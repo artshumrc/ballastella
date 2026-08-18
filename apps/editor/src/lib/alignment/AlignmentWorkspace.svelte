@@ -60,6 +60,8 @@
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
 	import { BaseMapSwitcher, LeaderLine, type Box } from '@ballastella/ui';
+	import Check from '@lucide/svelte/icons/check';
+	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
@@ -79,7 +81,8 @@
 		imageId,
 		mapName,
 		fetchTile,
-		baseMapId
+		baseMapId,
+		projectDirectory
 	}: {
 		session: EditorSession;
 		/** Which Map Image of the open Project is being aligned. */
@@ -90,6 +93,8 @@
 		fetchTile: FetchFn;
 		/** The Base Map to show beneath, chosen by the author (ADR-0020). */
 		baseMapId: string;
+		/** The Project this Alignment was opened from. */
+		projectDirectory: string;
 	} = $props();
 
 	/**
@@ -1606,6 +1611,15 @@
 			{#if readout}
 				<ImageDetails {...readout} />
 			{/if}
+
+			<a
+				class="btn mt-auto w-full shrink-0 btn-lg btn-primary"
+				href="{resolve('/')}?p={encodeURIComponent(projectDirectory)}"
+				data-testid="alignment-done"
+			>
+				<Check class="size-5" aria-hidden="true" />
+				Done
+			</a>
 		</div>
 
 		<!--

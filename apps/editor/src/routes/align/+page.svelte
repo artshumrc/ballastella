@@ -96,30 +96,26 @@
 	 */
 	const projectQuery = $derived(encodeURIComponent(openDirectory ?? ''));
 
-	/**
-	 * This screen's name and its way out, on the app's navigation bar.
-	 *
-	 * ⚠ **Both were a header strip of this route's own, and this screen is the reason there is a slot
-	 * on the bar instead** — a second header above two live map panes is 60 pixels of chrome charged to
-	 * the one thing on the page that needs the height.
-	 *
-	 * The way back is behind the same session guard the link was: ADR-0008 has this route pick its
-	 * subject client-side and SvelteKit throws on `url.searchParams` during a prerender, so `?p=` is
-	 * read only once there is a browser. With no Project named it lands on the hub, which is still
-	 * somewhere — a dead control on an error page is worse than an imprecise one.
-	 */
+	/** This Map Image's location in the Workspace hierarchy, shown in the persistent bar. */
 	$effect(() => {
-		pageChrome.show(
-			'Align',
-			session === null
-				? null
-				: {
-						label: 'Back to this Project',
-						project: openDirectory ?? '',
-						testid: 'back-to-project'
-					}
-		);
-		return () => pageChrome.clear('Align');
+		const project = session?.openProject;
+		const directory = openDirectory;
+		const currentLayer = layer;
+		const breadcrumbs = [
+			{ label: 'Projects', destination: {}, testid: 'all-projects' },
+			...(directory === null
+				? []
+				: [
+						{
+							label: project?.name || directory,
+							destination: { project: directory },
+							testid: 'back-to-project'
+						}
+					]),
+			{ label: currentLayer === null ? 'Align' : `Align: ${currentLayer.name}` }
+		];
+		pageChrome.showBreadcrumbs('editor-align', breadcrumbs);
+		return () => pageChrome.clear('editor-align');
 	});
 </script>
 
@@ -215,6 +211,7 @@
 				mapName={layer.name}
 				{fetchTile}
 				baseMapId={resolution.entry.id}
+				projectDirectory={openDirectory}
 			/>
 		{/if}
 	</div>

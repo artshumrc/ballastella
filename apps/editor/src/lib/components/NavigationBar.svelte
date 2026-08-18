@@ -15,11 +15,11 @@
 	// question a user has *while* doing something else, which is what makes a persistent bar the right
 	// place for them rather than a panel that comes and goes.
 	//
-	// **Project-specific controls are still excluded**: the Project name, the Base Map switcher, and
-	// Project settings all belong to the Project screen, because on the hub they would have to either
-	// disappear or lie.
+	// **Project-specific controls are still excluded**: the Base Map switcher and Project settings
+	// belong to the Project screen. The Project name appears only as location in the breadcrumb, not as
+	// a control owned by this component.
 	//
-	// The screen's own name and way back arrive through the shell's page-chrome slot — one generic
+	// The screen's hierarchy and way back arrive through the shell's page-chrome slot — one generic
 	// slot a route fills, not a switch on the route. Ticket 04 read the rule more strictly and had each such
 	// route carry its own header strip beneath this bar; on `/align`, with two live map panes, that was
 	// a second header costing height the maps needed.
@@ -474,7 +474,7 @@
 	The editor's own controls, at the far end of the bar.
 
 	Two things that used to be written out here are the shell's now, and neither has moved on screen:
-	which screen this is and the way off it (the page-chrome slot, filled by whichever route is on),
+	which screen this is and its ancestors (the page-chrome slot, filled by whichever route is on),
 	and the theme control, which is the one thing both apps offer outright.
 -->
 {#snippet end()}

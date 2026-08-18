@@ -277,8 +277,8 @@ test.describe('the alignment route', () => {
 		// The route wears the application's own bar rather than a header strip of its own: where you
 		// are, the way back, and — because they are on every screen — the save indicator and undo.
 		const bar = page.getByTestId('navigation-bar');
-		await expect(bar.getByTestId('page-heading')).toHaveText('Align');
-		await expect(bar.getByTestId('back-to-project')).toBeVisible();
+		await expect(bar.getByTestId('page-heading')).toHaveText(/^Align:/);
+		await expect(bar.getByTestId('back-to-project')).toHaveText('Amsterdam 1625');
 		await expect(bar.getByTestId('save-slot')).toBeVisible();
 		await expect(bar.getByTestId('undo-slot')).toBeAttached();
 
@@ -290,6 +290,13 @@ test.describe('the alignment route', () => {
 		await makePair(page, [0.3, 0.6]);
 		await expect(page.getByTestId('overlay-opacity-controls')).toBeVisible();
 		await expectEqualPanesAndDockedColumn(page, 1440);
+
+		const done = page.getByTestId('alignment-done');
+		await expect(done).toBeVisible();
+		await expect(done).toHaveRole('link');
+		await done.click();
+		await expect(page).toHaveURL(new RegExp(`\\?p=${PROJECT_DIRECTORY}$`));
+		await expect(addMapImageButton(page)).toBeVisible();
 	});
 
 	/**
@@ -716,7 +723,7 @@ test.describe('“Check this alignment”', () => {
 		expect(stored).not.toContain('checking');
 
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 		await expect(checkToggle(page)).toHaveAttribute('aria-expanded', 'false');
 		await expect(distortionControls(page)).toHaveCount(0);
 	});

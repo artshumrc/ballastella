@@ -68,10 +68,10 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 
 /** The deployment catalog, as an author reads it in the switcher. */
 const CATALOG_OPTIONS = [
-	{ value: 'streets', text: 'Streets — needs network' },
-	{ value: 'physical', text: 'Physical geography — needs network' },
-	{ value: 'muted', text: 'Muted, high contrast — needs network' },
-	{ value: 'streets-worldwide', text: 'Streets, worldwide — needs network' }
+	{ value: 'streets', text: 'Streets' },
+	{ value: 'physical', text: 'Physical geography' },
+	{ value: 'muted', text: 'Muted, high contrast' },
+	{ value: 'streets-worldwide', text: 'Streets, worldwide' }
 ];
 
 // By role, not by label: MapLibre gives the canvas the accessible name "Base Map" too, which is
@@ -336,13 +336,17 @@ test.describe('the Base Map pane', () => {
 		expect([...archiveUrls]).toHaveLength(1);
 	});
 
-	test('offers the deployment catalog through a native select, marking what needs network', async ({
+	test('offers the deployment catalog through a native select without network disclaimers', async ({
 		page
 	}) => {
 		await openPane(page);
 
 		const select = switcher(page);
 		await expect(select).toHaveJSProperty('tagName', 'SELECT');
+		const box = await select.boundingBox();
+		if (box === null) throw new Error('the Base Map selector is not laid out');
+		// The widest label is well below this threshold; a full-width selector used to be 20rem.
+		expect(box.width).toBeLessThan(250);
 
 		const options = await select.locator('option').evaluateAll((elements) =>
 			elements.map((element) => ({
@@ -359,15 +363,18 @@ test.describe('the Base Map pane', () => {
 		await openPane(page);
 
 		// Every control is reachable, in the order the bar puts them. **The Workspace switcher is the
-		// first tab stop since ticket 12** — it was a label and is now a button — then the theme
-		// toggle, then Publish, then the Base Map switcher: ticket 04 moved the theme onto the app's
-		// navigation bar and the publish-to-a-remote epic put Publish beside the save indicator, and
-		// the bar is above the Project and therefore before it in the document. Choosing *within* a
-		// focused `<select>` is the browser's own arrow-key handling — which is exactly why ADR-0016
-		// mandates a native `<select>` here — and headless Chromium does not run its native popup, so
-		// this asserts the reach and the element, and leaves the popup to the platform.
+		// first tab stop since ticket 12** — it was a label and is now a button — followed by the
+		// breadcrumb link, the Project-name edit action, the theme toggle, Publish, and the Base Map
+		// switcher. Choosing *within* a focused `<select>` is the browser's own arrow-key handling —
+		// which is exactly why ADR-0016 mandates a native `<select>` here — and headless Chromium does
+		// not run its native popup, so this asserts the reach and the element, and leaves the popup to
+		// the platform.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('all-projects')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('edit-project-name')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
@@ -859,6 +866,7 @@ async function openProjectScreen(page: Page, directory: string = PROJECT_DIRECTO
 
 /** Fetch the tiles this Project's extent needs, through the dialog, exactly as a user would. */
 async function makeAvailableOffline(page: Page): Promise<void> {
+	await page.getByTestId('edit-project-name').click();
 	await page.getByTestId('make-offline').click();
 	await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
 	await page.getByTestId('offline-start').click();

@@ -972,7 +972,7 @@ test.describe('the Alignment on disk', () => {
 		// A reload of the alignment route itself: the route is addressed by `?p=` and `?layer=`, so it
 		// comes back on the same Map Image without going through the Project page (ticket 03).
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 		await expect(page.getByTestId('image-pane')).toBeVisible();
 
 		// The pairs come back, on both panes, with the same numbers in the same order.

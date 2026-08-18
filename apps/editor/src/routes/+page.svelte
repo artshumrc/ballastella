@@ -285,8 +285,8 @@
 {:else}
 	<!--
 		The Project fills the screen instead of sitting in a centred column, because the map is the
-		thing being studied and a `max-w-4xl` map is the smaller share of a display. No `<h1>` here:
-		the Project's own name is the heading, and it is inside the screen.
+		thing being studied and a `max-w-4xl` map is the smaller share of a display. Its `<h1>` is the
+		current item in the persistent breadcrumb.
 	-->
 	<main class="h-full">
 		<ProjectScreen {session} {storage} {openDirectory} offerAbove={returnLink !== null} />

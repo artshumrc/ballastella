@@ -16,6 +16,8 @@
 		catalog,
 		onSelect,
 		labelSrOnly = false,
+		showNetworkRequirement = true,
+		fullWidth = true,
 		class: width
 	}: {
 		entryId: string;
@@ -30,6 +32,10 @@
 		 * and ADR-0016 keeps that out of a `title`.
 		 */
 		labelSrOnly?: boolean;
+		/** Whether option labels state that the entry needs a network connection. */
+		showNetworkRequirement?: boolean;
+		/** Whether the select fills its caller's available width. */
+		fullWidth?: boolean;
 		/**
 		 * How wide the select is, in the caller's own terms.
 		 *
@@ -48,22 +54,23 @@
 	the platform's own keyboard handling — which on a phone is the OS picker, and this is the one
 	control in the interface with a real mobile requirement.
 
-	The needs-network marking is in each option's **visible text** (`baseMapOptions` composes it), not
-	a tooltip and not colour: daisyUI renders tooltips via CSS `::before` where no screen reader
-	announces them, and a Reader offline needs to know *before* choosing — otherwise they pick
-	satellite imagery and get a blank map with no explanation (ADR-0020).
+	The published reader keeps the needs-network marking in visible option text, rather than in a tooltip
+	or colour. The editor can suppress that repeated caveat because its Project settings contain the
+	offline-management action and its map surface reports an unavailable Base Map.
 -->
 <label class={labelSrOnly ? 'sr-only' : 'label'} for="base-map-switcher">
 	<span class="label-text">Base Map</span>
 </label>
 <select
 	id="base-map-switcher"
-	class={['select-bordered select w-full', width]}
+	class={['select-bordered select', fullWidth ? 'w-full' : 'w-fit', width]}
 	data-testid="base-map-switcher"
 	value={entryId}
 	onchange={(event) => onSelect(event.currentTarget.value)}
 >
 	{#each options as option (option.id)}
-		<option value={option.id} data-needs-network={option.needsNetwork}>{option.text}</option>
+		<option value={option.id} data-needs-network={option.needsNetwork}
+			>{showNetworkRequirement ? option.text : option.label}</option
+		>
 	{/each}
 </select>

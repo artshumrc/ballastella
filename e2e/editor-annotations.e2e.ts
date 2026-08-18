@@ -616,6 +616,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// **And nor is the Escape that closed a dialog.** `MakeOfflineDialog` is one of the two on this
 		// screen the handler holds no flag for, so it stands for the class: a `<dialog>` consumes
 		// Escape and keeps it propagating, and the row behind it was never what the user was dismissing.
+		await page.getByTestId('edit-project-name').click();
 		await page.getByTestId('make-offline').click();
 		await expect(page.locator('dialog[open]')).toHaveCount(1);
 		await page.keyboard.press('Escape');

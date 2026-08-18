@@ -108,6 +108,47 @@ test('builds the way off a screen against the app’s own root, under the route�
 	expect(back).toHaveAttribute('href', './?p=amsterdam%201625');
 });
 
+test('renders a linked hierarchy ending in the current page heading', () => {
+	render();
+
+	pageChrome.showBreadcrumbs('editor-align', [
+		{ label: 'Projects', destination: {}, testid: 'all-projects' },
+		{
+			label: 'Amsterdam 1625',
+			destination: { project: 'amsterdam 1625' },
+			testid: 'back-to-project'
+		},
+		{ label: 'Align: Harbor chart' }
+	]);
+	flushSync();
+
+	expect(testid('page-chrome')).toHaveAccessibleName('Breadcrumb');
+	expect(testid('all-projects')).toHaveAttribute('href', './');
+	expect(testid('back-to-project')).toHaveAttribute('href', './?p=amsterdam%201625');
+	expect(testid('back-to-project')).toHaveTextContent('Amsterdam 1625');
+	expect(testid('page-heading')).toHaveTextContent('Align: Harbor chart');
+	expect(testid('page-heading')).toHaveAttribute('aria-current', 'page');
+});
+
+test('renders a current-page action beside its breadcrumb label', () => {
+	const edit = vi.fn();
+	render();
+
+	pageChrome.showBreadcrumbs('editor-project', [
+		{ label: 'Projects', destination: {} },
+		{
+			label: 'Amsterdam 1625',
+			action: { label: 'Edit Project name', testid: 'edit-project-name', onClick: edit }
+		}
+	]);
+	flushSync();
+
+	const button = testid('edit-project-name')!;
+	expect(button).toHaveAccessibleName('Edit Project name');
+	button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	expect(edit).toHaveBeenCalledTimes(1);
+});
+
 test('keeps the arriving screen’s heading when the screen being left gives the slot back', () => {
 	// ⚠ **The mutation this file exists to catch.** Svelte runs the arriving route's effects before the
 	// leaving route's teardown, so `clear()` compares before it empties — and without the comparison

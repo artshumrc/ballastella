@@ -5,15 +5,12 @@ import { PROJECT_DIRECTORY } from './annotations';
 /**
  * Reaching the Project's own settings (ticket 04).
  *
- * The Project name, its folder and its last-saved time used to be three fields on a page of their
- * own. They are now behind a menu on the Project screen, in a `<dialog>` opened with `showModal()`
- * (ADR-0016) — one editable value and two read-only ones did not need a page. Every suite that used
- * to type into the name field in passing goes through here, so the two extra clicks are written
- * once rather than twenty times.
+ * The Project name, its folder and its last-saved time live in a `<dialog>` opened from the edit
+ * button beside the breadcrumb (ADR-0016). Every suite that types into the name field goes through
+ * here so the path is written once rather than twenty times.
  */
 export async function openProjectSettings(page: Page): Promise<Locator> {
-	await page.getByTestId('project-menu-button').click();
-	await page.getByTestId('open-project-settings').click();
+	await page.getByTestId('edit-project-name').click();
 	const dialog = page.getByRole('dialog', { name: 'Project settings' });
 	await expect(dialog).toBeVisible();
 	return dialog;

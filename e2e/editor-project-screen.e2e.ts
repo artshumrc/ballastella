@@ -206,11 +206,9 @@ test.describe('the Project screen', () => {
 		// DOM rather than listed here, so a control added to the screen later is covered without anybody
 		// remembering to add it.
 		//
-		// **The settings dialog and the Project menu are deliberately outside that subtree** and are
-		// therefore outside this walk: both render into the top layer, and a modal dialog's whole point
-		// is that the rest of the page is inert while it is up, so one tab order cannot cover both. They
-		// have keyboard tests of their own — the dialog's Escape-and-focus test below, and the menu's
-		// Escape test above, which both drive it from the keyboard.
+		// The settings dialog is deliberately outside that subtree and therefore outside this walk: a
+		// modal dialog makes the rest of the page inert while it is up, so one tab order cannot cover both.
+		// Its Escape-and-focus behaviour has a keyboard test below.
 		const wanted = await page.evaluate(() => {
 			const inside = document.querySelector('[data-testid="project-screen"]')!;
 			return [...inside.querySelectorAll('a[href], button, input, select, textarea')]
@@ -243,12 +241,11 @@ test.describe('the Project screen', () => {
 		expect([...wanted].filter((id) => !reached.has(id))).toEqual([]);
 	});
 
-	test('Escape that closes the Project menu does not abandon a part-drawn shape', async ({
+	test('Escape that closes the Project-name editor does not abandon a part-drawn shape', async ({
 		page
 	}) => {
-		// Escape dismisses a popover natively **and keeps propagating**, so the window handler that
-		// abandons a drawing gesture hears the keypress that only closed the menu. The dialog already
-		// had a guard for exactly this; the menu is new in this ticket and did not.
+		// A dialog's native Escape also propagates, so the window handler must not abandon a drawing
+		// gesture while the name editor is closing.
 		await freshWorkspace(page);
 		await openProject(page);
 		await page.getByTestId('add-annotation-layer').click();
@@ -262,14 +259,14 @@ test.describe('the Project screen', () => {
 		const drawingStatus = page.getByTestId('annotation-status');
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
 
-		// Open the menu and press Escape. The menu closes; the two vertices stay.
-		await page.getByTestId('project-menu-button').click();
-		await expect(page.getByTestId('open-project-settings')).toBeVisible();
+		// Open the editor and press Escape. The dialog closes; the two vertices stay.
+		await page.getByTestId('edit-project-name').click();
+		await expect(page.getByRole('dialog', { name: 'Project settings' })).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('open-project-settings')).toBeHidden();
+		await expect(page.getByRole('dialog', { name: 'Project settings' })).toBeHidden();
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
 
-		// And Escape still cancels when the menu is not in the way, so the guard did not swallow it.
+		// And Escape still cancels when the dialog is not in the way, so the guard did not swallow it.
 		await page.keyboard.press('Escape');
 		await expect(drawingStatus).toHaveAttribute('data-drawing', 'false');
 	});
@@ -286,7 +283,7 @@ test.describe('the Project screen', () => {
 		await alignFromLayer(page, row);
 
 		await expect(page).toHaveURL(/\/align\/?\?p=amsterdam-1625&layer=[^&]+/);
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 
 		await page.getByTestId('back-to-project').click();
 
@@ -331,7 +328,7 @@ test.describe('the Layer stack and the Base Map are not pages of their own', () 
 
 		// And the alignment route.
 		await alignFromLayer(page);
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 		expect((await hrefs(page)).filter((href) => gone.test(href))).toEqual([]);
 	});
 
@@ -360,16 +357,13 @@ test.describe('the navigation bar', () => {
 			await expect(bar.getByTestId('theme-toggle')).toHaveCount(1);
 			await expect(bar.getByTestId('undo-slot')).toHaveCount(1);
 			await expect(bar.getByTestId('save-slot')).toHaveCount(1);
-			// And nothing about *a Project*: the name, the Base Map switcher and the settings menu belong
-			// to the screen that has a Project. The screen's own name and way back are a different thing —
-			// generic, set by whichever route is on, and asserted below.
-			await expect(bar.getByTestId('project-name')).toHaveCount(0);
-			await expect(bar.getByTestId('project-menu-button')).toHaveCount(0);
+			// Base Map selection remains on the Project screen rather than moving into the global bar.
 			await expect(bar.getByRole('combobox', { name: 'Base Map' })).toHaveCount(0);
 		};
 
 		await freshWorkspace(page);
 		await assertBar('the hub');
+		await expect(bar.getByTestId('page-chrome')).toHaveCount(0);
 		// Browser storage is the silent default, and the bar names the **Workspace** rather than the
 		// backing (ticket 12): with several named Workspaces on one backing, "Browser storage" would
 		// identify nothing, and from ticket 14 a throwaway Review Workspace is browser-backed too.
@@ -377,26 +371,29 @@ test.describe('the navigation bar', () => {
 
 		await openProject(page);
 		await assertBar('the Project screen');
+		await expect(bar.getByTestId('project-name')).toHaveText(PROJECT_NAME);
+		await expect(bar.getByTestId('edit-project-name')).toHaveAccessibleName('Edit Project name');
+		await expect(bar.getByTestId('all-projects')).toHaveText('Projects');
 		await addMapImage(page);
 
 		await alignFromLayer(page);
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align:/ })).toBeVisible();
 		await assertBar('the alignment route');
 
-		// The alignment route's name and its way out are **on the bar**, not in a header strip of its
+		// The alignment route's hierarchy is **on the bar**, not in a header strip of its
 		// own: that strip cost 60 pixels above two live map panes, which is the one screen with no height
 		// to spare. The heading is the document's `<h1>` and the bar is before the page content, so it is
 		// still the first heading a screen reader reaches.
 		const chrome = bar.getByTestId('page-chrome');
-		await expect(chrome.getByTestId('page-heading')).toHaveText('Align');
-		await expect(chrome.getByTestId('back-to-project')).toBeVisible();
+		await expect(chrome.getByTestId('page-heading')).toHaveText(/^Align:/);
+		await expect(chrome.getByTestId('back-to-project')).toHaveText(PROJECT_NAME);
 		await expect(page.locator('h1')).toHaveCount(1);
 
 		// And it is given back on the way out, rather than following the user to a screen it is not
 		// about — the failure a route-specific bar has, and the reason the slot is cleared by its holder.
 		await chrome.getByTestId('back-to-project').click();
 		await expect(page.getByTestId('project-screen')).toBeVisible();
-		await expect(bar.getByTestId('page-chrome')).toHaveCount(0);
+		await expect(bar.getByTestId('project-name')).toHaveText(PROJECT_NAME);
 	});
 
 	test('holds the app’s only theme toggle', async ({ page }) => {
@@ -537,7 +534,7 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 
 		// And the alignment route.
 		await alignFromLayer(page);
-		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 		await expect(page.getByRole('status')).toHaveCount(1);
 	});
 
@@ -580,9 +577,8 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 		await freshWorkspace(page);
 		await openProject(page);
 
-		const menu = page.getByTestId('project-menu-button');
-		await menu.click();
-		await page.getByTestId('open-project-settings').click();
+		const edit = page.getByTestId('edit-project-name');
+		await edit.click();
 
 		const dialog = page.getByRole('dialog', { name: 'Project settings' });
 		await expect(dialog).toBeVisible();
@@ -594,7 +590,7 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 			'the settings dialog was not opened with showModal()'
 		).toBe(true);
 
-		// The folder and the last-saved time, read-only, beside the one editable field.
+		// The folder and the last-saved time remain available beside the rename and offline controls.
 		await expect(dialog.getByTestId('project-folder')).toHaveText(PROJECT_DIRECTORY);
 		await expect(dialog.getByTestId('project-updated-at')).not.toBeEmpty();
 		await expect(dialog.getByLabel('Project name')).toHaveValue(PROJECT_NAME);
@@ -602,7 +598,7 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
 		// Back where the user was, which is the half of ADR-0016 a hand-rolled modal always drops.
-		await expect(menu).toBeFocused();
+		await expect(edit).toBeFocused();
 	});
 
 	test('focusing the name field and tabbing away writes nothing', async ({ page }) => {

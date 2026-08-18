@@ -39,4 +39,4 @@ export { default as MenuPopover } from './MenuPopover.svelte';
 export { default as ProjectCardList } from './ProjectCardList.svelte';
 export { KIND_STYLE } from './layer-kind-style';
 export { TOOL_ICONS, iconForGeometry } from './shape-icons';
-export { pageChrome, type WayBack } from './page-chrome.svelte.js';
+export { pageChrome, type Breadcrumb, type WayBack } from './page-chrome.svelte.js';

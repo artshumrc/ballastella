@@ -754,9 +754,8 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		// sees every change, so what is asserted below is a record of what the indicator actually did.
 		const saveStates = await recordSaveStates(page);
 
-		// Renaming is behind the Project settings dialog since ticket 04 — one editable field did not
-		// need a page of its own. The autosave rules it follows are unchanged, which is what this
-		// asserts.
+		// Renaming is in the Project settings dialog, opened from the breadcrumb edit button. The autosave
+		// rules it follows are unchanged, which is what this asserts.
 		const field = await projectNameField(page);
 		await field.fill('Amsterdam 1626');
 

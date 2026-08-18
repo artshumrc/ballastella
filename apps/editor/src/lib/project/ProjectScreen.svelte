@@ -28,9 +28,9 @@
 	// page as the hub, choosing its subject client-side — so the thing that renders it has to be
 	// mountable from `routes/+page.svelte`, which is where the `?p=` branch already is.
 	//
-	// **The navigation bar is not here.** The theme toggle, the save indicator, the undo control and
-	// the Workspace's name are true on every screen and live in the root layout. What is here is what
-	// is true of *this Project*: its name, its Base Map, and its settings.
+	// **The navigation bar is not here.** The Workspace and Project hierarchy, theme toggle, save
+	// indicator and undo control live in the root layout. What is here is what can be done to *this
+	// Project*: choosing its Base Map and opening its settings.
 
 	import { resolve } from '$app/paths';
 	import {
@@ -66,6 +66,7 @@
 		LeaderLine,
 		MapCommentary,
 		MapNotice,
+		pageChrome,
 		type Box
 	} from '@ballastella/ui';
 	import { tick, untrack } from 'svelte';
@@ -78,7 +79,6 @@
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
 	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
-	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import AddMapImage from '$lib/map-images/AddMapImage.svelte';
@@ -109,6 +109,22 @@
 
 	/** Nothing to show, and a reason worth naming, rather than a screen that says "Opening…" for ever. */
 	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
+
+	$effect(() => {
+		pageChrome.showBreadcrumbs('editor-project', [
+			{ label: 'Projects', destination: {}, testid: 'all-projects' },
+			{
+				label: session.openProject?.name || openDirectory,
+				testid: 'project-name',
+				action: {
+					label: 'Edit Project name',
+					testid: 'edit-project-name',
+					onClick: openSettings
+				}
+			}
+		]);
+		return () => pageChrome.clear('editor-project');
+	});
 
 	const resolution = $derived(
 		session.openProject ? resolveBaseMap(session.openProject.baseMap) : null
@@ -822,34 +838,27 @@
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Project settings, and the menu it opens from (SPEC stories 10, 11)
+	// Project settings (SPEC stories 10, 11)
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * The Project's own settings, in a `<dialog>`.
 	 *
 	 * ADR-0016 mandates `<dialog>` + `showModal()` — Escape, the focus trap and focus restoration come
-	 * with it — and {@link ModalDialog} is where that decision was made once. A whole page for one
-	 * editable field and two read-only ones was the thing this ticket removes.
+	 * with it — and {@link ModalDialog} is where that decision was made once. The name and secondary
+	 * offline action do not need a screen of their own.
 	 */
 	let settingsOpen = $state(false);
 
-	/** The Project menu the dialog opens from, and the thing that knows whether it is showing. */
-	let menu = $state<MenuPopover | undefined>();
-
-	/**
-	 * Open Project settings from the menu.
-	 *
-	 * The popover is dismissed and focus is put **back on the menu button** before the dialog opens,
-	 * rather than left on the menu item — which is what `MenuPopover.dismiss()` does. `ModalDialog`
-	 * records `document.activeElement` at the moment it calls `showModal()` and restores it on close,
-	 * so whatever has focus then is where the user lands afterwards, and the menu item is inside a
-	 * popover that no longer exists by then. The menu button is the control the user reached for, it
-	 * is still on screen, and it is where they can open the menu again.
-	 */
 	function openSettings(): void {
-		menu?.dismiss();
 		settingsOpen = true;
+	}
+
+	/** Close settings before the offline dialog opens, leaving one modal focus trap at a time. */
+	async function makeProjectOffline(): Promise<void> {
+		settingsOpen = false;
+		await tick();
+		await offline.ask(resolution!.entry, layers);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -973,22 +982,15 @@
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while a dialog, the Project menu, or the Inspector's own fields have the keypress.** Each of
-	them consumes Escape itself — a `<dialog>` closes, a popover light-dismisses, the Inspector's title
-	field leaves itself — and every one of them keeps the keypress propagating afterwards, so acting on it
-	here as well would abandon a drawing gesture the user cannot even see, or take away the panel they
-	were typing in.
+	**Not while a dialog or the Inspector's own fields have the keypress.** Each consumes Escape itself —
+	a `<dialog>` closes and the Inspector's title field leaves itself — and each keeps the keypress
+	propagating afterwards, so acting on it here as well would abandon a drawing gesture the user cannot
+	even see, or take away the panel they were typing in.
 -->
 <svelte:window
 	onkeydown={(event) => {
 		if (event.key !== 'Escape' || settingsOpen || addingMap) return;
-		// **Asked of the element, not of a flag**, for all three of the guards below.
-		//
-		// `MenuPopover.isOpen()` reads `:popover-open`, which is true throughout the keypress that
-		// dismisses it and false on the very next one — a reactive copy of the same fact lags one flush
-		// behind, and that lag swallowed the Escape a user pressed *after* closing the menu, which is
-		// the cancel they actually meant.
-		//
+		// An open dialog is asked of the document rather than mirrored in flags.
 		// An open `<dialog>` is asked of the document because this screen mounts dialogs it holds no
 		// flag for — `MakeOfflineDialog` and `OfflineCopyDialog` — and a list of flags is a list that
 		// the next dialog silently fails to join. Escape's close request is the keypress's *default
@@ -1004,7 +1006,6 @@
 		// rather than by asking it to stop propagating — the ordering of Escape's jobs on this screen is
 		// this handler's to know — and the row in the sidebar is deliberately outside it, so Escape with
 		// the row itself focused still deselects.
-		if (menu?.isOpen()) return;
 		if (document.querySelector('dialog[open]') !== null) return;
 		const inspector = document.getElementById(ANNOTATION_INSPECTOR_ID);
 		if (inspector !== null && event.target instanceof Node && inspector.contains(event.target))
@@ -1057,10 +1058,6 @@
 	-->
 	<div class="flex min-h-0 flex-col lg:h-full" data-testid="project-screen">
 		<div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2">
-			<!-- The Project's name, read-only here: renaming it is what the settings dialog is for.
-			     `<h1>` because on this screen the Project is the page. -->
-			<h1 class="text-lg font-semibold" data-testid="project-name">{session.openProject.name}</h1>
-
 			<!-- The one Base Map switcher in the app that writes this Project's author default
 			     (ADR-0020). On the Project screen, because that is whose choice it is.
 
@@ -1070,22 +1067,10 @@
 			<BaseMapSwitcher
 				entryId={resolution.entry.id}
 				catalog={BASE_MAP_CATALOG}
-				class="max-w-xs"
+				showNetworkRequirement={false}
+				fullWidth={false}
 				onSelect={(id) => session.chooseBaseMap(id)}
 			/>
-
-			<!--
-				The Project menu (ADR-0016: the Popover API, never `<details>` and never a CSS-focus
-				dropdown). One item today; ticket 12 and the transfer tickets add theirs beside it, which
-				is the reason it is a menu rather than a button that goes straight to the dialog.
-			-->
-			<MenuPopover bind:this={menu} label="Project…" testid="project-menu-button">
-				<li>
-					<button type="button" data-testid="open-project-settings" onclick={openSettings}>
-						Project settings…
-					</button>
-				</li>
-			</MenuPopover>
 
 			<!--
 				ADR-0026's explicit control, and it is a button with words on it rather than an icon with a
@@ -1100,19 +1085,6 @@
 				onclick={() => void fitToProject()}
 			>
 				Fit to this Project
-			</button>
-
-			<!--
-				ADR-0025's opt-in. A button with words on it, and it opens a dialog rather than starting
-				anything: the tile count and the megabytes come first, always (SPEC stories 70, 71).
-			-->
-			<button
-				type="button"
-				class="btn btn-sm"
-				data-testid="make-offline"
-				onclick={() => void offline.ask(resolution.entry, layers)}
-			>
-				Make this Project available offline
 			</button>
 
 			<!--
@@ -1568,9 +1540,9 @@
 	<AddMapImage {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
 
 	<!--
-		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
-		to find their files and trust that they are current. A dialog rather than a page, because a page
-		for three values is the navigation this ticket exists to remove.
+		Project settings (SPEC stories 10, 11): the Project's name, folder, last-saved time, and the
+		secondary Base Map offline action. A dialog rather than a page keeps those occasional tasks out of
+		the map workspace.
 	-->
 	<ModalDialog bind:open={settingsOpen} title="Project settings">
 		<!--
@@ -1601,6 +1573,22 @@
 				>
 			</dd>
 		</dl>
+
+		<section class="mt-6 border-t border-base-300 pt-4">
+			<h3 class="font-medium">Base Map offline</h3>
+			<p class="mt-1 max-w-prose text-sm">
+				Store the Base Map tiles for this Project in this Workspace for use without a network
+				connection.
+			</p>
+			<button
+				type="button"
+				class="btn mt-3 btn-sm"
+				data-testid="make-offline"
+				onclick={() => void makeProjectOffline()}
+			>
+				Make this Project available offline
+			</button>
+		</section>
 
 		{#snippet actions()}
 			<button type="button" class="btn btn-sm" onclick={() => (settingsOpen = false)}>Close</button>
