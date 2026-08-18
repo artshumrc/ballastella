@@ -115,10 +115,6 @@
 	let replacing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
-	/**
-	 * Whether the deployment's Base Map display assets (glyphs and sprites) travel with the site.
-	 */
-	let includeBaseMap = $state(true);
 	/** The address the user wants their Map Images to answer at, or `''` (SPEC story 92). */
 	let canonicalUrl = $state('');
 
@@ -282,27 +278,12 @@
 		try {
 			const bundle = await loadViewerBundle();
 			const record = await active.readPublishedSite();
-			// Offered back rather than asked for again, exactly as the address below is: a site published
-			// without the Base Map's labels is one whose author has already answered this, and a box that
-			// reverted to "on" every time the dialog opened would re-add five megabytes to their site
-			// whenever they published a typo fix.
-			//
-			// ⚠ **`baseMapAssetsRequested` and never `baseMapAssetsBundled`.** The second says what was
-			// *written*, and a deployment with no Base Map archive writes `false` whatever the box said —
-			// so read as the answer it leaves a site first published from such a deployment unticked
-			// forever, on every deployment that does have the archive, with no place names on its
-			// geography and nothing on screen saying why. A record written before the answer was kept
-			// falls back to the old reading, which is the best there is for a record that never carried
-			// it.
-			const wanted = record?.baseMapAssetsRequested ?? true;
 			const planned = await active.planPublish({
 				bundle,
-				includeBaseMap: wanted,
 				editorUrl: deploymentRoot()
 			});
 			if (mine !== planning) return;
 			site = record;
-			includeBaseMap = wanted;
 			plan = planned;
 			staleness =
 				record === null
@@ -321,29 +302,6 @@
 		if (mine !== planning) return;
 		await forecastUpload(plan?.files ?? [], mine);
 	}
-
-	/** Re-plan when the Base Map choice changes, so the stated size is the one being agreed to. */
-	const chooseBaseMap = async (wanted: boolean) => {
-		includeBaseMap = wanted;
-		if (!open) return;
-		const mine = ++planning;
-		try {
-			const planned = await session.planPublish({
-				bundle: await loadViewerBundle(),
-				includeBaseMap: wanted,
-				editorUrl: deploymentRoot()
-			});
-			if (mine !== planning) return;
-			plan = planned;
-		} catch (cause) {
-			if (mine === planning) failure = messageOf(cause);
-			return;
-		}
-		// **And the upload forecast with it**, because the answer moves all three budgets: the Base
-		// Map's glyphs are five megabytes and a few hundred blobs, and a request warning that did not
-		// follow the checkbox would be a warning about a publish nobody is about to make.
-		await forecastUpload(plan?.files ?? [], mine);
-	};
 
 	/** Supply the credential from here, rather than sending the user off to another dialog. */
 	const signIn = async (event: SubmitEvent) => {
@@ -380,8 +338,8 @@
 	 * Whether the Published Site in this Workspace already says exactly what publishing would write.
 	 *
 	 * Staleness covers the viewer's version and every Project fact the record carries (ADR-0032); the
-	 * two Base Map flags are the rest of it, and they are read off the *plan* rather than off the
-	 * checkbox because a deployment with no Base Map assets writes `false` whatever the box says.
+	 * two Base Map flags are the rest of it, and they are read off the plan so the comparison describes
+	 * the files this publish will actually write.
 	 * Every other difference is a difference in the Workspace's own files, which
 	 * {@link RemotePublishPlan.unchanged} sees.
 	 */
@@ -396,10 +354,9 @@
 	/**
 	 * Whether pressing the button would change nothing anywhere (SPEC story 15).
 	 *
-	 * The Remote holding this Workspace already is most of it, and the rest is the two things the
-	 * dialog itself can still be asked for: a Base Map choice the site does not carry, and an address
-	 * that has been typed over. Said rather than left as a publish that uploads one file — the site
-	 * record's timestamp — and reports success.
+	 * The Remote holding this Workspace already is most of it, and the rest is an address that has been
+	 * typed over. Said rather than left as a publish that uploads one file — the site record's timestamp
+	 * — and reports success.
 	 */
 	const nothingToDo = $derived(
 		upload?.unchanged === true &&
@@ -874,22 +831,6 @@
 				{/if}
 			{/if}
 		</section>
-
-		<label class="mt-4 flex items-start gap-3">
-			<input
-				type="checkbox"
-				class="checkbox mt-1"
-				checked={includeBaseMap}
-				onchange={(event) => chooseBaseMap(event.currentTarget.checked)}
-			/>
-			<span>
-				Include Base Map labels and symbols
-				<span class="block text-sm opacity-70">
-					The Base Map tiles still need a network connection; no tile archive ships with
-					Ballastella.
-				</span>
-			</span>
-		</label>
 
 		<label class="floating-label mt-6">
 			<span>Address your Map Images will be published at (optional)</span>

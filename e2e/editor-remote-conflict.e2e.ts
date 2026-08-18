@@ -67,7 +67,6 @@ const siteRecord = (projects: { directory: string; name: string }[]): string =>
 		baseMap: { entries: [] },
 		baseMapBundled: false,
 		baseMapAssetsBundled: false,
-		baseMapAssetsRequested: false,
 		baseMapCaches: []
 	});
 
@@ -151,12 +150,11 @@ async function signIn(page: Page) {
 /**
  * Confirm the dialog and wait for the Remote to be named in the result.
  *
- * The Base Map's own files are left out throughout: five megabytes of glyphs through `page.route`
- * say nothing about a conflict, and `base-map/` is inside the owned namespace either way.
+ * The Base Map's own files are included throughout: `base-map/` is inside the owned namespace and
+ * does not affect the conflict being exercised.
  */
 async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promise<void> {
-	await dialog.getByRole('checkbox').uncheck();
-	await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+	await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 	await dialog.getByRole('button', { name: /^Publish/ }).click();
 	await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
 		timeout: 120_000

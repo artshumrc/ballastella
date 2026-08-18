@@ -2275,9 +2275,9 @@ test.describe('a Published Site that is not entirely well', () => {
 	test('says so when the site carries no copy of the Base Map’s labels and symbols', async ({
 		page
 	}) => {
-		// ADR-0020's opt-in, from the Reader's side (SPEC stories 88 and 89): including the Base Map's
-		// own glyphs and sprites is a choice a scholar makes at publish time, and a great many sites
-		// will not have it.
+		// Legacy Published Sites may not carry the Base Map's own glyphs and sprites. New publishes
+		// include them, but the Reader still has to explain this older state rather than silently
+		// dropping every place name.
 		//
 		// Since ticket 10 this state looks different from the way it used to. Every catalog entry now
 		// reads a remote archive, so the geography still draws — and what a site without those files

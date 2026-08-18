@@ -142,25 +142,10 @@ export type PublishedSite = {
 	 * independently true and the Reader meets different failures: without *tiles* the geography is
 	 * absent, and without *glyphs* the geography draws with no place names at all (ADR-0025's 820 KB).
 	 * `ReaderMapPane` drops `glyphs`, `sprite`, and every symbol layer when this is false, and the two
-	 * sentences beside the map say which of the two happened.
+	 * sentences beside the map say which of the two happened. New publishes always include these files;
+	 * false remains meaningful for legacy sites.
 	 */
 	readonly baseMapAssetsBundled: boolean;
-	/**
-	 * Whether the **author asked** for the labels, whatever the deployment was able to write.
-	 *
-	 * ⚠ **{@link baseMapAssetsBundled} is not a record of the answer, and it was read as one.** It
-	 * says what was written, and this deployment writes `false` whenever it has no Base Map archive of
-	 * its own — see {@link planPublish} — so a site first published from such a deployment carries the
-	 * same `false` as one whose author deliberately left the labels out. The publish dialog offers the
-	 * last answer back rather than asking again, and with only the one field it cannot: the site comes
-	 * back unticked forever, on every deployment that *does* have the archive, with no place names on
-	 * its geography and nothing on screen to say why.
-	 *
-	 * So the answer is recorded beside what came of it. A record written before this field falls back
-	 * to that field, which is the old reading and the best available for a record that never carried
-	 * the answer at all.
-	 */
-	readonly baseMapAssetsRequested: boolean;
 	/**
 	 * Which archives this site carries cached tiles for, and how deep each goes. Empty for none.
 	 *
@@ -292,14 +277,6 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			typeof record.baseMapAssetsBundled === 'boolean'
 				? record.baseMapAssetsBundled
 				: record.baseMapBundled === true,
-		// A record written before the answer was kept says only what was written, which is what the
-		// dialog used to read it as. The same tolerance, for the same reason, as the field above.
-		baseMapAssetsRequested:
-			typeof record.baseMapAssetsRequested === 'boolean'
-				? record.baseMapAssetsRequested
-				: typeof record.baseMapAssetsBundled === 'boolean'
-					? record.baseMapAssetsBundled
-					: record.baseMapBundled === true,
 		baseMapCaches: parseBaseMapCaches(record.baseMapCaches, record.baseMapMaxZoom)
 	};
 }
@@ -460,16 +437,8 @@ export type PublishPlan = {
 	 * site will need a network connection (SPEC story 99) before the user pushes it.
 	 */
 	readonly baseMapBundled: boolean;
-	/** Whether glyphs and sprites are being written. The dialog's checkbox decides this one. */
+	/** Whether this deployment has Base Map glyphs and sprites to write. */
 	readonly baseMapAssetsBundled: boolean;
-	/**
-	 * What the checkbox said, whether or not this deployment has anything to write for it.
-	 *
-	 * The two differ on a deployment with no Base Map archive, and telling them apart is the whole of
-	 * {@link PublishedSite.baseMapAssetsRequested} — the record has to carry the answer rather than
-	 * only what came of it.
-	 */
-	readonly baseMapAssetsRequested: boolean;
 	/** How many tiles every cache holds and what they weigh, for the sentence about the site. */
 	readonly baseMapTiles: BaseMapCacheSize;
 	/**
@@ -512,8 +481,6 @@ export type PlanPublishOptions = {
 	readonly bundle: ViewerBundle;
 	/** The Projects, as the Workspace lists them — most recently touched first (ADR-0008). */
 	readonly projects: readonly ProjectSummary[];
-	/** Write the Base Map's own files too, so the site works with no network (SPEC story 88). */
-	readonly includeBaseMap: boolean;
 	/** This deployment's catalog. Injected so the tests can drive a different one (ADR-0020). */
 	readonly catalog?: BaseMapCatalog;
 	/**
@@ -538,7 +505,7 @@ export async function planPublish(
 	store: ProjectStore,
 	options: PlanPublishOptions
 ): Promise<PublishPlan> {
-	const { bundle, projects, includeBaseMap } = options;
+	const { bundle, projects } = options;
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	// Through the record's own reader, so the plan carries exactly what a Reader will read back — and
 	// an address the reader would refuse is `''` here rather than a link that never appears.
@@ -565,7 +532,7 @@ export async function planPublish(
 	const baseMapTiles = totalBaseMapCacheSize(caches);
 	const publishedCaches = publishableCaches(caches);
 
-	const baseMap = includeBaseMap ? bundle.baseMap : [];
+	const baseMap = bundle.baseMap;
 	// The record is weighed with a plausible length rather than skipped: it is a file publishing
 	// writes, and a plan whose byte total omitted one of its own files would be wrong in the
 	// direction that matters at the cliff.
@@ -581,8 +548,7 @@ export async function planPublish(
 				projects: listed,
 				catalog,
 				baseMapBundled: baseMapTiles.tiles > 0,
-				baseMapAssetsBundled: includeBaseMap,
-				baseMapAssetsRequested: includeBaseMap,
+				baseMapAssetsBundled: baseMap.length > 0,
 				baseMapCaches: publishedCaches
 			})
 		).byteLength
@@ -605,7 +571,7 @@ export async function planPublish(
 		warnings.push({ kind: 'referenced-images', message: referencedWarning(referenced) });
 	}
 
-	if (includeBaseMap && baseMap.length > 0) {
+	if (baseMap.length > 0) {
 		warnings.push({
 			kind: 'base-map-size',
 			message:
@@ -636,8 +602,7 @@ export async function planPublish(
 		workspace,
 		unusedMapImages,
 		baseMapBundled: baseMapTiles.tiles > 0,
-		baseMapAssetsBundled: includeBaseMap && baseMap.length > 0,
-		baseMapAssetsRequested: includeBaseMap,
+		baseMapAssetsBundled: baseMap.length > 0,
 		baseMapTiles,
 		baseMapCaches: publishedCaches,
 		baseMap: catalog,
@@ -878,7 +843,6 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		catalog: plan.baseMap,
 		baseMapBundled: plan.baseMapBundled,
 		baseMapAssetsBundled: plan.baseMapAssetsBundled,
-		baseMapAssetsRequested: plan.baseMapAssetsRequested,
 		baseMapCaches: plan.baseMapCaches
 	});
 	await store.write(PUBLISHED_SITE_RECORD_NAME, serialisePublishedSite(site));
@@ -895,11 +859,10 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 /**
  * Remove the files a previous publish wrote that this one does not.
  *
- * The case this exists for is the Base Map. Publish with it, then publish without it, and ~5 MB of
- * `base-map/` stays in the Workspace while the record written beside it says `baseMapBundled: false`
- * — the folder and the site's own account of itself disagreeing about what the site is. A Reader is
- * unaffected, because nothing points at those files; the user is not, because the folder **is** the
- * product (ADR-0006) and they are about to push it.
+ * The case this exists for is the Base Map. The recorded viewer directory can contain files from a
+ * previous build, while the record written beside it describes the current site. A Reader is
+ * unaffected by superseded files, because nothing points at them; the user is not, because the folder
+ * **is** the product (ADR-0006) and they are about to push it.
  *
  * **Only paths `VIEWER_FILE_PATHS` records are so much as listed.** That is the whole of the safety
  * argument: the sweep cannot reach a Project directory because it never asks about one, and a
@@ -910,14 +873,11 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
  * the working folder. Sweeping it would be a change to that decision rather than a repair of this
  * one.
  *
- * ⚠ **`base-map/tiles/` is left alone too, and that one is not a preference.** `base-map/` is a
+ * ⚠ **`base-map/tiles/` is left alone too.** `base-map/` is a
  * recorded viewer directory because of its glyphs and sprites, and since ADR-0025 the opt-in offline
- * tile cache lives inside it — bytes a user deliberately asked for, fetched from somebody else's
- * server, and never written by publishing. Without this guard, publishing once with the Base Map
- * checkbox off would delete every one of them: no dialog, no message, and the Project silently stops
- * being available offline. It is the same shape as the loss this function was written to *avoid*, in
- * the opposite direction. `publish.test.ts` asserts the cache survives a publish that omits the Base
- * Map, because nothing else in the codebase would notice.
+ * tile cache lives inside it — bytes fetched from somebody else's server and never written by
+ * publishing. Without this guard, refreshing the published display assets would delete every cached
+ * tile and the Project would silently stop being available offline.
  */
 async function removeSupersededFiles(
 	store: ProjectStore,
@@ -946,7 +906,6 @@ const siteRecord = (fields: {
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
 	baseMapAssetsBundled: boolean;
-	baseMapAssetsRequested: boolean;
 	baseMapCaches: readonly PublishedBaseMapCache[];
 }): PublishedSite => ({
 	formatVersion: PUBLISHED_SITE_FORMAT_VERSION,
@@ -957,7 +916,6 @@ const siteRecord = (fields: {
 	baseMap: fields.catalog,
 	baseMapBundled: fields.baseMapBundled,
 	baseMapAssetsBundled: fields.baseMapAssetsBundled,
-	baseMapAssetsRequested: fields.baseMapAssetsRequested,
 	baseMapCaches: fields.baseMapCaches
 });
 

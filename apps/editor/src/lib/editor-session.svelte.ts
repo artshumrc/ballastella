@@ -2350,7 +2350,6 @@ export class EditorSession {
 	 */
 	async planPublish(options: {
 		bundle: ViewerBundle;
-		includeBaseMap: boolean;
 		/**
 		 * This deployment's own address, which the site records so its Front Page can lead back here
 		 * (SPEC story 55).
@@ -2364,7 +2363,6 @@ export class EditorSession {
 		return planPublish(this.#store, {
 			bundle: options.bundle,
 			projects: await this.#workspace.listProjects(),
-			includeBaseMap: options.includeBaseMap,
 			editorUrl: options.editorUrl
 		});
 	}

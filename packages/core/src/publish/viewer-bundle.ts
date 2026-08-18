@@ -51,8 +51,8 @@ export type ViewerBundle = {
 	/** The viewer itself. Always written. */
 	readonly files: readonly ViewerBundleFile[];
 	/**
-	 * The Base Map extract, its glyphs, and its sprites — written only when the user asks for a
-	 * Published Site that works with no network at all (ADR-0020, SPEC stories 88 and 89).
+	 * The Base Map's glyphs and sprites, written with every Published Site so labels and symbols are
+	 * available independently of the tile source (ADR-0020, SPEC stories 88 and 89).
 	 */
 	readonly baseMap: readonly ViewerBundleFile[];
 };

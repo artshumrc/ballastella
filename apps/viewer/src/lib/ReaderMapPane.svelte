@@ -99,14 +99,13 @@
 		 */
 		catalog: BaseMapCatalog;
 		/**
-		 * Whether this site carries the Base Map's own files — the pmtiles archive, its glyphs, and its
-		 * sprites (ADR-0020, SPEC story 88).
+		 * Whether this site carries the Base Map's display assets — its glyphs and sprites (ADR-0020,
+		 * SPEC story 88). Tile availability is reported separately by {@link cachedBaseMap}.
 		 *
-		 * `false` is an ordinary, supported state: including them is opt-in at publish time because they are
-		 * about 4.9 MB against the same hosting budget as the scholar's Map Images. What must not happen
-		 * is the site asking for them anyway — a bundled entry's `archive` is a **site-relative path**, so on
-		 * a site published without them every tile, glyph, and sprite request is a 404 and the Reader gets a
-		 * blank map with nothing to explain it. See {@link styleFor}.
+		 * `false` remains an ordinary, supported state for legacy sites that were published without the
+		 * display assets. What must not happen is the site asking for them anyway — a bundled entry's
+		 * `archive` is a **site-relative path**, so on such a site every tile, glyph, and sprite request is a
+		 * 404 and the Reader gets a blank map with nothing to explain it. See {@link styleFor}.
 		 */
 		bundledBaseMapAvailable: boolean;
 		/**

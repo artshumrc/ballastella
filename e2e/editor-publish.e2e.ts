@@ -255,20 +255,11 @@ async function openPublishDialog(page: Page) {
 /**
  * Publish, and wait for the announced result.
  *
- * The Base Map checkbox is set explicitly rather than left alone, because the dialog remembers the
- * last answer within a session — so a second publish in one test inherits the first one's choice.
  */
-async function publish(page: Page, options: { baseMap?: boolean; canonicalUrl?: string } = {}) {
+async function publish(page: Page, options: { canonicalUrl?: string } = {}) {
 	const dialog = await openPublishDialog(page);
-	const wanted = options.baseMap === true;
-	const includeBaseMap = dialog.getByRole('checkbox');
-	if (wanted) await includeBaseMap.check();
-	else await includeBaseMap.uncheck();
-	// The stated size follows the answer, so waiting for it is waiting for the re-planned figure the
-	// button is about to act on rather than for a timeout.
 	const stated = dialog.locator('[data-warning="base-map-size"]');
-	if (wanted) await expect(stated).toBeVisible();
-	else await expect(stated).toBeHidden();
+	await expect(stated).toBeVisible();
 	if (options.canonicalUrl) {
 		await dialog.getByLabel(/Address your Map Images/).fill(options.canonicalUrl);
 	}
@@ -393,7 +384,7 @@ test.describe('publishing a Workspace', () => {
 		// folder* rather than to our build output — the case the CI fence deliberately does not cover,
 		// because it greps `apps/*/build` and the thing that ships to a Reader is this.
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		await publish(page, { baseMap: true });
+		await publish(page);
 
 		const taken = await takeWorkspace(page);
 		const offenders: string[] = [];
@@ -445,8 +436,6 @@ test.describe('publishing a Workspace', () => {
 			'The site will carry 2 Projects, 1 of them on the front page.'
 		);
 
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
 		await expect(page.getByTestId('publish-status')).toContainText(
@@ -455,29 +444,16 @@ test.describe('publishing a Workspace', () => {
 		);
 	});
 
-	test('states the Base Map’s size before adding it, and adds those files only when asked', async ({
-		page
-	}) => {
+	test('states the Base Map’s size before publishing, and adds those files', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
 		const dialog = await openPublishDialog(page);
 		// The display assets' size is on screen before publishing spends it.
 		await expect(dialog.locator('[data-warning="base-map-size"]')).toContainText(/[0-9.]+ (kB|MB)/);
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
 		});
-
-		expect(
-			Object.keys(await takeWorkspace(page)).filter((path) => path.startsWith('base-map/'))
-		).toEqual([]);
-		// A site with the Base Map left out still says so in its own record, which is what ticket 17's
-		// switcher has to read to know whether an offline Base Map is there at all (ADR-0020).
-		expect(await siteRecord(page)).toMatchObject({ baseMapBundled: false });
-
-		await publish(page, { baseMap: true });
 
 		const withBaseMap = Object.keys(await takeWorkspace(page)).filter((path) =>
 			path.startsWith('base-map/')
@@ -486,25 +462,7 @@ test.describe('publishing a Workspace', () => {
 		expect(withBaseMap.some((path) => path.endsWith('.pmtiles'))).toBe(false);
 	});
 
-	// "removes a Base Map it published before, when the next publish leaves it out" was asked here and
-	// is now asked in `packages/core/src/publish/publish.test.ts` as "removes a Base Map it published
-	// before, when this publish leaves it out" — the same four claims (the sweep, `baseMapBundled`,
-	// `index.html` surviving it, and the Projects beside it byte-identical) against the store the sweep
-	// actually walks, plus the one this could not reach at all: "leaves the offline tile cache alone
-	// when this publish omits the Base Map".
-
-	/**
-	 * Which `baseMapAssetsBundled: false` means the author said no, and which means nobody was asked.
-	 *
-	 * ⚠ **That field says what was *written***, and a deployment with no Base Map archive writes
-	 * `false` whatever the box said. Read back as the answer, a site first published from such a
-	 * deployment comes back unticked forever — on every deployment that does have the archive, with no
-	 * place names on its geography and nothing on screen saying why. So the record carries the answer
-	 * beside what came of it, and it is the answer that is offered back.
-	 */
-	test('offers the Base Map answer back, not what the last deployment managed to write', async ({
-		page
-	}) => {
+	test('always publishes Base Map assets for a legacy site', async ({ page }) => {
 		const publishedSite = (fields: Record<string, unknown>) => ({
 			'ballastella-site.json': `${JSON.stringify(
 				{
@@ -520,22 +478,20 @@ test.describe('publishing a Workspace', () => {
 			)}\n`
 		});
 
-		// Asked for and not written, which is what a deployment with no Base Map archive records. The
-		// labels are offered again here, where there is an archive to write them from.
+		// A legacy record may say the display assets were absent; the next publish repairs the site.
 		await openWorkspace(page, {
 			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-			...publishedSite({ baseMapAssetsBundled: false, baseMapAssetsRequested: true })
+			...publishedSite({ baseMapAssetsBundled: false })
 		});
-		await expect((await openPublishDialog(page)).getByRole('checkbox')).toBeChecked();
-		await page.keyboard.press('Escape');
-
-		// And an author who said no is not asked again: a box that reverted to "on" would re-add five
-		// megabytes to their site every time they published a typo fix.
-		await openWorkspace(page, {
-			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-			...publishedSite({ baseMapAssetsBundled: false, baseMapAssetsRequested: false })
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 30_000
 		});
-		await expect((await openPublishDialog(page)).getByRole('checkbox')).not.toBeChecked();
+		expect(
+			Object.keys(await takeWorkspace(page)).some((path) => path.startsWith('base-map/'))
+		).toBe(true);
 	});
 
 	test('refuses a mistyped address before it writes a thing, which is what its refusal claims', async ({
@@ -549,7 +505,6 @@ test.describe('publishing a Workspace', () => {
 		const before = await takeWorkspace(page);
 
 		const dialog = await openPublishDialog(page);
-		await dialog.getByRole('checkbox').uncheck();
 		await dialog.getByLabel(/Address your Map Images/).fill('scholar.example');
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
@@ -569,7 +524,6 @@ test.describe('publishing a Workspace', () => {
 	}) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 		const dialog = await openPublishDialog(page);
-		await dialog.getByRole('checkbox').uncheck();
 
 		// `showModal()` makes every node outside the open `<dialog>` inert, and an inert live region is
 		// not a quiet one — it is never announced. So *where* the region sits is the accessibility
@@ -629,7 +583,6 @@ test.describe('publishing a Workspace', () => {
 		await expect(warning).toContainText('Blaeu’s plan, from the library');
 		await expect(warning).toContainText('no network');
 		// And the Reader is told too, on the site itself (SPEC story 29).
-		await dialog.getByRole('checkbox').uncheck();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
@@ -881,7 +834,6 @@ test.describe('publishing a Workspace', () => {
 
 		await page.keyboard.press('Enter');
 		await expect(dialog.getByText('read-only viewer')).toBeVisible();
-		await dialog.getByRole('checkbox').uncheck();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).press('Enter');
 
 		// The outcome is announced rather than only drawn (SPEC story 96).
@@ -1022,14 +974,11 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * Confirm, and wait for the outcome to be announced.
 	 *
-	 * The Base Map's own files are left out throughout this describe: they are five megabytes of
-	 * glyphs and sprites whose journey through `page.route` says nothing about the transport, and
-	 * `base-map/` is inside the owned namespace either way (ADR-0033) — which
-	 * `publish-to-remote.test.ts` asserts on the bytes.
+	 * The Base Map's own files are included throughout this describe: `base-map/` is inside the owned
+	 * namespace either way (ADR-0033), and the remote tests assert on the resulting bytes.
 	 */
 	async function publishToRemote(page: Page, dialog: ReturnType<Page['getByRole']>) {
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
 			timeout: 120_000
@@ -1142,8 +1091,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		const github = await start(page);
 		const dialog = await signIn(page);
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 		// Slow every GitHub request down so the progress line is on screen long enough to assert rather
 		// than long enough to be lucky. Installed *after* the fake's own handler, so it is consulted
 		// first and falls back to it — the delay is the whole of what this adds.
@@ -1269,8 +1217,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		const github = await start(page);
 		const dialog = await signIn(page);
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
 		const stated = await dialog.locator('[data-budget="files"]').innerText();
@@ -1302,8 +1249,7 @@ test.describe('publishing to a Remote', () => {
 		const before = github.files(OWNER, REPOSITORY);
 		const commit = github.head(OWNER, REPOSITORY);
 		const dialog = await signIn(page);
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
@@ -1359,7 +1305,6 @@ test.describe('publishing to a Remote', () => {
 		// Nothing was asked of GitHub, and the local publish is still there and still works — a user
 		// with no Remote is not blocked by an epic about Remotes.
 		expect(github.requests).toEqual([]);
-		await dialog.getByRole('checkbox').uncheck();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
@@ -1383,8 +1328,7 @@ test.describe('publishing to a Remote', () => {
 
 		const dialog = await openPublishDialog(page);
 		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
-		await dialog.getByRole('checkbox').uncheck();
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
 		// The label says so as well, before it is pressed: "Publish" beside a token field is the one
 		// control here that reads as putting the work on the web without doing it.
 		await dialog.getByRole('button', { name: 'Publish into this Workspace only' }).click();

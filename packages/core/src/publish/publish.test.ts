@@ -45,8 +45,7 @@ const ARCHIVE = 'https://example.test/v4.pmtiles';
  *
  * Small and fictional on purpose: the real chunk names are content hashes that change on every
  * viewer edit, so a test naming them would be a test about the bundler. What matters here is the
- * shape — an `index.html`, hashed assets under `_app/`, and a Base Map set that is written only on
- * request.
+ * shape — an `index.html`, hashed assets under `_app/`, and a Base Map set written with the viewer.
  */
 const bundle: ViewerBundle = {
 	version: 'v1-abcdef0123456789',
@@ -96,11 +95,10 @@ describe('planning a publish', () => {
 		await workspace.createProject('Amsterdam 1625');
 	});
 
-	const plan = async (options: { includeBaseMap?: boolean } = {}): Promise<PublishPlan> =>
+	const plan = async (): Promise<PublishPlan> =>
 		planPublish(store, {
 			bundle,
-			projects: await workspace.listProjects(),
-			includeBaseMap: options.includeBaseMap ?? false
+			projects: await workspace.listProjects()
 		});
 
 	it('names every Project the site will carry, by folder, display name, and front-page choice', async () => {
@@ -115,7 +113,7 @@ describe('planning a publish', () => {
 	it('writes nothing while planning, because two of its warnings are questions', async () => {
 		const before = await store.list('');
 
-		await plan({ includeBaseMap: true });
+		await plan();
 
 		expect(await store.list('')).toEqual(before);
 	});
@@ -139,18 +137,14 @@ describe('planning a publish', () => {
 		expect(planned.workspace.files).toBe(2);
 	});
 
-	it('states the Base Map’s size before it is added, and leaves it out otherwise', async () => {
-		const without = await plan();
-		const withBaseMap = await plan({ includeBaseMap: true });
+	it('states the Base Map’s size before it is added', async () => {
+		const planned = await plan();
 
-		expect(without.files.map((file) => file.path)).not.toContain('base-map/extract.pmtiles');
-		expect(without.warnings.map((warning) => warning.kind)).not.toContain('base-map-size');
-
-		const stated = withBaseMap.warnings.find((warning) => warning.kind === 'base-map-size');
+		const stated = planned.warnings.find((warning) => warning.kind === 'base-map-size');
 		expect(stated?.message).toContain('4.1 MB');
 		expect(stated?.message).toContain('3 more files');
-		expect(withBaseMap.bytes).toBeGreaterThan(4_000_000);
-		expect(withBaseMap.files.map((file) => file.path)).toContain('base-map/extract.pmtiles');
+		expect(planned.bytes).toBeGreaterThan(4_000_000);
+		expect(planned.files.map((file) => file.path)).toContain('base-map/extract.pmtiles');
 	});
 
 	it('warns that a referenced Map Image leaves a Reader with no network seeing nothing', async () => {
@@ -191,7 +185,7 @@ describe('planning a publish', () => {
 			layers: [newMapLayer({ id: 'l1', name: 'My own scan', imageId: 'mine' })]
 		});
 
-		expect((await plan()).warnings).toEqual([]);
+		expect((await plan()).warnings.map((warning) => warning.kind)).toEqual(['base-map-size']);
 	});
 
 	// A copy keeps its `remote.json` for the citation (ADR-0007), so being in both lists means the tiles
@@ -219,9 +213,7 @@ describe('planning a publish', () => {
 		// sentence, not the walk.
 		await store.write('images/x/big.jpg', new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000));
 
-		const warning = (await plan({ includeBaseMap: true })).warnings.find(
-			(entry) => entry.kind === 'hosting-limit'
-		);
+		const warning = (await plan()).warnings.find((entry) => entry.kind === 'hosting-limit');
 
 		expect(warning?.message).toContain('1.0 GB');
 		expect(warning?.message).toContain('GitHub Pages');
@@ -238,7 +230,7 @@ describe('planning a publish', () => {
 			new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000)
 		);
 
-		const planned = await plan({ includeBaseMap: true });
+		const planned = await plan();
 		const warning = planned.warnings.find((entry) => entry.kind === 'hosting-limit');
 
 		expect(planned.unusedMapImages.maps).toBe(1);
@@ -258,7 +250,7 @@ describe('planning a publish', () => {
 			layers: [newMapLayer({ id: 'l1', name: 'Mine', imageId: 'mine' })]
 		});
 
-		const planned = await plan({ includeBaseMap: true });
+		const planned = await plan();
 
 		expect(planned.unusedMapImages).toEqual({ bytes: 0, maps: 0 });
 		// The warning is still there — the cliff is still crossed — so this is not passing because the
@@ -271,16 +263,13 @@ describe('planning a publish', () => {
 	it('says nothing about the hosting limit for a Workspace nowhere near it', async () => {
 		await store.write('images/x/small.jpg', new Uint8Array(1000));
 
-		expect((await plan({ includeBaseMap: true })).warnings.map((entry) => entry.kind)).toEqual([
-			'base-map-size'
-		]);
+		expect((await plan()).warnings.map((entry) => entry.kind)).toEqual(['base-map-size']);
 	});
 
 	it('carries this deployment’s Base Map catalog, so the site keeps working when it changes', async () => {
 		const planned = await planPublish(store, {
 			bundle,
 			projects: await workspace.listProjects(),
-			includeBaseMap: false,
 			catalog: FORKED_CATALOG
 		});
 
@@ -323,15 +312,12 @@ describe('publishing', () => {
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 	});
 
-	const publish = async (
-		options: { includeBaseMap?: boolean; at?: string; editorUrl?: string } = {}
-	) =>
+	const publish = async (options: { at?: string; editorUrl?: string } = {}) =>
 		publishSite({
 			store,
 			plan: await planPublish(store, {
 				bundle,
 				projects: await workspace.listProjects(),
-				includeBaseMap: options.includeBaseMap ?? false,
 				...(options.editorUrl === undefined ? {} : { editorUrl: options.editorUrl })
 			}),
 			readAsset: asset,
@@ -356,6 +342,9 @@ describe('publishing', () => {
 				'_app/version.json',
 				'alignments/x.json',
 				'amsterdam-1625/project.json',
+				'base-map/extract.pmtiles',
+				'base-map/fonts/Noto Sans Regular/0-255.pbf',
+				'base-map/sprites/light.png',
 				'ballastella-site.json',
 				'images/x/0,0,256,256/256,256/0/default.jpg',
 				'images/x/info.json',
@@ -374,7 +363,7 @@ describe('publishing', () => {
 		// addressed at a Project.
 		const write = vi.spyOn(store, 'write');
 
-		await publish({ includeBaseMap: true });
+		await publish();
 
 		expect(
 			write.mock.calls.map(([path]) => path).filter((path) => path.includes('/project.json'))
@@ -389,7 +378,7 @@ describe('publishing', () => {
 	it('modifies no Project data, asserted on the bytes of every Project file', async () => {
 		const before = await snapshot('amsterdam-1625/');
 
-		await publish({ includeBaseMap: true });
+		await publish();
 
 		expect(await snapshot('amsterdam-1625/')).toEqual(before);
 	});
@@ -404,8 +393,7 @@ describe('publishing', () => {
 			store,
 			plan: await planPublish(store, {
 				bundle,
-				projects: await workspace.listProjects(),
-				includeBaseMap: true
+				projects: await workspace.listProjects()
 			}),
 			readAsset: asset
 		});
@@ -426,7 +414,7 @@ describe('publishing', () => {
 		// either, which is what a scholar reading their own folder would look at.
 		const tile = decode(await store.read('images/x/0,0,256,256/256,256/0/default.jpg'));
 
-		await publish({ includeBaseMap: true });
+		await publish();
 
 		const carrying: string[] = [];
 		for (const path of await store.list('')) {
@@ -436,7 +424,7 @@ describe('publishing', () => {
 	});
 
 	it('records exactly the paths it writes, so the data-only zip can exclude them', async () => {
-		await publish({ includeBaseMap: true });
+		await publish();
 
 		// Everything that is not the user's data. Since ADR-0023 that means the Project's own directory *and*
 		// the shared `images/` and `alignments/` at the Workspace root — publishing must claim none of them.
@@ -470,8 +458,7 @@ describe('publishing', () => {
 					{ path: 'viewer-extras/x.js', source: 'viewer-bundle/viewer-extras/x.js', bytes: 10 }
 				]
 			},
-			projects: await workspace.listProjects(),
-			includeBaseMap: false
+			projects: await workspace.listProjects()
 		});
 
 		await expect(publishSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
@@ -583,11 +570,9 @@ describe('publishing', () => {
 		expect(record.publishedAt).toBe('2026-03-04T05:06:07.000Z');
 	});
 
-	it('removes a Base Map it published before, when this publish leaves it out', async () => {
-		// The order the folder gets wrong: with, then without. Publishing only ever wrote, so ~5 MB of
-		// `base-map/` stayed behind while the record beside it said `baseMapBundled: false` — the
-		// Workspace and the site's own account of itself disagreeing about what the site is.
-		await publish({ includeBaseMap: true });
+	it('includes Base Map display assets on every publish', async () => {
+		// Re-publishing must keep the display assets beside the viewer and the site record.
+		await publish();
 		expect(await store.list('base-map/')).toEqual([
 			'base-map/extract.pmtiles',
 			'base-map/fonts/Noto Sans Regular/0-255.pbf',
@@ -595,44 +580,54 @@ describe('publishing', () => {
 		]);
 		const project = await snapshot('amsterdam-1625/');
 
-		await publish({ includeBaseMap: false });
+		await publish();
 
-		expect(await store.list('base-map/')).toEqual([]);
-		expect(parsePublishedSite(await store.read('ballastella-site.json')).baseMapBundled).toBe(
-			false
+		expect(await store.list('base-map/')).toEqual([
+			'base-map/extract.pmtiles',
+			'base-map/fonts/Noto Sans Regular/0-255.pbf',
+			'base-map/sprites/light.png'
+		]);
+		expect(parsePublishedSite(await store.read('ballastella-site.json')).baseMapAssetsBundled).toBe(
+			true
 		);
 		// The sweep never leaves the recorded list, so the Projects beside it are byte-identical.
 		expect(await snapshot('amsterdam-1625/')).toEqual(project);
 		expect(decode(await store.read('index.html'))).toBe('bytes of viewer-bundle/index.html');
 	});
 
-	it('leaves the offline tile cache alone when this publish omits the Base Map', async () => {
+	it('leaves the offline tile cache alone when publishing display assets', async () => {
 		// ⚠ The one thing the sweep above must not reach. `base-map/` is a recorded viewer directory,
 		// and since ADR-0025 the opt-in tile cache lives inside it — bytes a user asked for and fetched
-		// from somebody else's server. Publishing once with the checkbox off used to delete every one of
-		// them silently, and the Project would simply stop being available offline with nothing said.
+		// from somebody else's server. Publishing must never delete them, or the Project would silently
+		// stop being available offline.
 		const first = cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 });
 		await store.write(first, new Uint8Array([1, 2, 3]));
 		await store.write(cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 }), new Uint8Array([4, 5]));
 
-		await publish({ includeBaseMap: true });
-		await publish({ includeBaseMap: false });
+		await publish();
+		await publish();
 
 		expect(await store.list('base-map/')).toEqual(
-			[first, cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 })].sort()
+			[
+				'base-map/extract.pmtiles',
+				'base-map/fonts/Noto Sans Regular/0-255.pbf',
+				'base-map/sprites/light.png',
+				first,
+				cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 })
+			].sort()
 		);
 		expect([...(await store.read(first))]).toEqual([1, 2, 3]);
 	});
 
-	it('records a Workspace carrying cached tiles as having its Base Map, whatever the checkbox said', async () => {
+	it('records a Workspace carrying cached tiles as having its Base Map', async () => {
 		// ADR-0025's change of meaning: `baseMapBundled` is now an observation of the folder, and
 		// publishing copies nothing to make it true — the tiles are already in the published root. The
-		// glyphs and sprites are the separate, chosen half.
+		// glyphs and sprites are the separate display-asset half.
 		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
-		await publish({ includeBaseMap: false });
+		await publish();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapBundled).toBe(true);
-		expect(record.baseMapAssetsBundled).toBe(false);
+		expect(record.baseMapAssetsBundled).toBe(true);
 	});
 
 	it('names which archives it carries tiles for, because the viewer cannot list a directory', async () => {
@@ -646,7 +641,7 @@ describe('publishing', () => {
 		await store.write(cachedTilePath(other, { z: 0, x: 0, y: 0 }), new Uint8Array([2]));
 		await writeCachedTileSource(store, { archive: other, maxZoom: 11 });
 
-		await publish({ includeBaseMap: false });
+		await publish();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(
@@ -686,7 +681,7 @@ describe('publishing', () => {
 		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1]));
 		await store.write('base-map/tiles/11/1054/675.mvt', new Uint8Array([2]));
 
-		await publish({ includeBaseMap: false });
+		await publish();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapCaches).toEqual([{ archive: null, maxZoom: 11 }]);
@@ -698,7 +693,7 @@ describe('publishing', () => {
 		// honest thing to say about them, and attaching them to a guessed entry is worse than silence.
 		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
 
-		await publish({ includeBaseMap: false });
+		await publish();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapCaches).toEqual([]);
@@ -707,46 +702,22 @@ describe('publishing', () => {
 	});
 
 	it('records the glyphs and sprites separately from the tiles', async () => {
-		await publish({ includeBaseMap: true });
+		await publish();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		// No tiles cached, so the geography still needs the network; the labels do not.
 		expect(record.baseMapBundled).toBe(false);
 		expect(record.baseMapAssetsBundled).toBe(true);
-		expect(record.baseMapAssetsRequested).toBe(true);
 	});
 
-	/**
-	 * ⚠ **The answer, kept apart from what came of it.**
-	 *
-	 * A deployment with no Base Map archive writes `baseMapAssetsBundled: false` whatever the box
-	 * said, so that field cannot be read as the author's answer — and the publish dialog reads it back
-	 * to offer the last answer again. Read as one, a site first published from such a deployment comes
-	 * back unticked forever on every deployment that *does* have the archive: a Published Site whose
-	 * geography has no place names on it, and nothing on screen saying why.
-	 */
-	it('records that the labels were asked for even where there were none to write', async () => {
-		const withoutBaseMap = await planPublish(store, {
+	it('records no display assets when the deployment bundle has none', async () => {
+		const withoutAssets = await planPublish(store, {
 			bundle: { ...bundle, baseMap: [] },
-			projects: await workspace.listProjects(),
-			includeBaseMap: true
+			projects: await workspace.listProjects()
 		});
-		await publishSite({ store, plan: withoutBaseMap, readAsset: asset });
+		await publishSite({ store, plan: withoutAssets, readAsset: asset });
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
-		expect([record.baseMapAssetsBundled, record.baseMapAssetsRequested]).toEqual([false, true]);
-	});
-
-	// A record written before the answer was kept says only what was written, which is the reading the
-	// dialog had before and the best there is for a record that never carried the answer.
-	it('reads a record with no answer in it as what that record could say', async () => {
-		await store.write(
-			'ballastella-site.json',
-			encode(JSON.stringify({ projects: [], baseMapBundled: true, baseMapAssetsBundled: true }))
-		);
-
-		const record = await readPublishedSite(store);
-
-		expect(record?.baseMapAssetsRequested).toBe(true);
+		expect(record.baseMapAssetsBundled).toBe(false);
 	});
 
 	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
@@ -788,8 +759,7 @@ describe('publishing', () => {
 			store,
 			plan: await planPublish(store, {
 				bundle,
-				projects: await workspace.listProjects(),
-				includeBaseMap: false
+				projects: await workspace.listProjects()
 			}),
 			readAsset: asset,
 			onProgress: (progress) => seen.push(progress)
@@ -797,13 +767,13 @@ describe('publishing', () => {
 
 		const last = seen.at(-1);
 		expect(last).toEqual({
-			files: bundle.files.length + AUTHORED,
-			totalFiles: bundle.files.length + AUTHORED,
+			files: bundle.files.length + bundle.baseMap.length + AUTHORED,
+			totalFiles: bundle.files.length + bundle.baseMap.length + AUTHORED,
 			path: 'ballastella-site.json'
 		});
 		expect(seen[0]).toEqual({
 			files: 0,
-			totalFiles: bundle.files.length + AUTHORED,
+			totalFiles: bundle.files.length + bundle.baseMap.length + AUTHORED,
 			path: null
 		});
 		// The record stays last, so "the site is complete" still means the record landed.
@@ -836,7 +806,7 @@ describe('publishing', () => {
 			...file,
 			layers: [newMapLayer({ id: 'l1', name: 'Blaeu’s plan', imageId: 'x' })]
 		});
-		await publish({ includeBaseMap: true });
+		await publish();
 
 		const paths: string[] = [];
 		const entries = (await exportProjectBundle(store, 'amsterdam-1625')).body.pipeThrough(
@@ -866,7 +836,6 @@ describe('telling the author a Published Site is behind', () => {
 		baseMap: FORKED_CATALOG,
 		baseMapBundled: false,
 		baseMapAssetsBundled: false,
-		baseMapAssetsRequested: false,
 		baseMapCaches: []
 	};
 	const summary = (directory: string, name: string, onFrontPage = true) => ({
@@ -1024,8 +993,7 @@ describe('stamping a canonical URL', () => {
 			store,
 			plan: await planPublish(store, {
 				bundle,
-				projects: await workspace.listProjects(),
-				includeBaseMap: true
+				projects: await workspace.listProjects()
 			}),
 			readAsset: asset
 		});

@@ -779,9 +779,9 @@
 	/**
 	 * Whether this site carries the Base Map's own files (ADR-0020, SPEC stories 88 and 89).
 	 *
-	 * Read out of the site record, because including them is opt-in at publish time: they are about 4.9 MB
-	 * against the same hosting budget as the scholar's Map Images, and a scholar publishing to a
-	 * network-connected audience reasonably leaves them out.
+	 * Read out of the site record so legacy sites published without them still degrade honestly. New
+	 * publishes always carry the assets, despite their roughly 4.9 MB cost against the same hosting
+	 * budget as the scholar's Map Images.
 	 *
 	 * **Absent means absent, and the map waits rather than guessing** — see {@link siteRecordKnown}. This
 	 * used to default to `true` while the record was still being read, on the reasoning that no record at

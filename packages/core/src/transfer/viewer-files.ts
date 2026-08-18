@@ -70,9 +70,9 @@ export const VIEWER_FILE_PATHS: readonly string[] = [
 	// fetched over HTTP makes publishing depend on the *authoring* host serving a dotfile, and
 	// plenty do not.
 	JEKYLL_OFF_MARKER,
-	// The Base Map extract, its glyphs, and its sprites, written only for a site that has to work
-	// with no network at all (ADR-0020, SPEC story 88). Recorded whether or not this Workspace has
-	// them, for the same reason `_app/` is recorded as a directory.
+	// The Base Map's glyphs and sprites, written with every Published Site. Recorded whether or not
+	// this Workspace has them, for the same reason `_app/` is recorded as a directory; legacy sites
+	// may still carry no display assets.
 	'base-map/',
 	'index.html',
 	'robots.txt'

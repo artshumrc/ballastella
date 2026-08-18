@@ -153,9 +153,10 @@ export function baseMapOptions(
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THIS IS HERE RATHER THAN IN THE VIEWER'S PAGE, AND WHY IT TAKES THE SITE'S STATE
  *
- * Including the Base Map's glyphs, sprites, and tiles is a choice a scholar makes at publish time
- * (ADR-0020's opt-in, SPEC stories 88 and 89), so a great many sites will be short of them and every
- * one of those Readers meets whatever this returns. It lived in `+page.svelte` as a nested ternary
+ * Older Published Sites may not carry the Base Map's glyphs and sprites, so every Reader of one of
+ * those sites meets whatever this returns. New publishes always carry the display assets; the
+ * legacy state remains here as a readable degradation rather than a reason to break old sites. It
+ * lived in `+page.svelte` as a nested ternary
  * and was **false in a reachable row twice over** — first claiming "the geography, the Map
  * Images, and the Annotations are all here" while the archive was refusing, then, once that was fixed,
  * still claiming "only the Map Images and Annotations are drawn" for a site that carries its own

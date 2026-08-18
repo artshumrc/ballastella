@@ -325,7 +325,6 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 			baseMap: { entries: [] },
 			baseMapBundled: false,
 			baseMapAssetsBundled: false,
-			baseMapAssetsRequested: false,
 			baseMapCaches: []
 		});
 
