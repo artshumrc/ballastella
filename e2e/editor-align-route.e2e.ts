@@ -247,6 +247,14 @@ test.describe('the alignment route', () => {
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
 			timeout: 30_000
 		});
+		await expect(
+			mapImage(page).getByRole('button', { name: 'Zoom out one level', exact: true })
+		).toHaveCount(0);
+		await expect(
+			mapImage(page).getByRole('button', { name: 'Zoom in one level', exact: true })
+		).toHaveCount(0);
+		await expect(mapImage(page).locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();
+		await expect(mapImage(page).locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
 		await makePair(page, [0.3, 0.3]);
 		await expect(rows(page)).toHaveCount(1);
 

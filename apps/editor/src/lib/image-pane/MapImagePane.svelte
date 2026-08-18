@@ -343,8 +343,6 @@
 			<button class="btn btn-sm" onclick={() => paneView?.zoomToFullResolution()}>
 				Zoom to full resolution
 			</button>
-			<button class="btn btn-sm" onclick={() => paneView?.zoomBy(-1)}>Zoom out one level</button>
-			<button class="btn btn-sm" onclick={() => paneView?.zoomBy(1)}>Zoom in one level</button>
 		</div>
 
 		{@render controls?.()}
