@@ -1044,12 +1044,18 @@
 	</div>
 {:else if session.openProject && resolution}
 	<!--
-		`h-full`, and the root layout is what gives it a full screen to be `h-full` of. The map is the
+		`lg:h-full`, and the root layout is what gives it a full screen to be `h-full` of. The map is the
 		thing the scholar is studying, so it gets the height the bar and this header do not take —
 		computed by the layout rather than by arithmetic on a `calc()` that goes wrong the moment the
 		bar wraps to two lines.
+
+		⚠ **Only from `lg`.** Below it the two columns stack (see the container further down), and a
+		screen pinned to the viewport's height would then have to squeeze both of them into it. The
+		stacked screen is as tall as its own content and the route's own scroller — the `min-h-0 grow
+		overflow-y-auto` box in `routes/+layout.svelte` — is what scrolls it, which is what "an ordinary
+		block in a page that scrolls as a whole" means here (the-annotation-inspector story 60).
 	-->
-	<div class="flex h-full min-h-0 flex-col" data-testid="project-screen">
+	<div class="flex min-h-0 flex-col lg:h-full" data-testid="project-screen">
 		<div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2">
 			<!-- The Project's name, read-only here: renaming it is what the settings dialog is for.
 			     `<h1>` because on this screen the Project is the page. -->
@@ -1130,11 +1136,199 @@
 			the sidebar and the map together, which is the whole reason it is a child of this element
 			rather than of either column. Nothing else here positions itself against it.
 		-->
-		<div class="relative flex min-h-0 grow">
+		<!--
+			┌───────────────────────────────────────────────────────────────────────────────────────────┐
+			│ TWO COLUMNS FROM `lg`, A STACK BELOW IT — AND `lg` IS NOT THIS SCREEN'S OWN NUMBER.        │
+			└───────────────────────────────────────────────────────────────────────────────────────────┘
+			It is the one the viewer's Project grid and the alignment route's panes already use, adopted
+			rather than chosen so that both applications stack at the same width: one width to learn, and
+			`leaderPath`'s refusal on a stacked layout then begins in both at the same place
+			(the-annotation-inspector story 60).
+
+			**The map column is first in the DOM, so stacked the map sits above the Layer stack**, which
+			becomes an ordinary block in a page that scrolls as a whole. The map is first because the
+			Inspector is a sheet *over the map*: with the stack first, a 390 px phone puts the pane — and so
+			the sheet a tap on a mark opens — about 428 px down a 739 px scroller, which leaves the panel
+			describing the selection to be scrolled to. Measured at 390 × 844.
+
+			⚠ **`lg:order-first` on the sidebar, so above this width visual order and DOM order differ.**
+			That is the cost, and it is real: a keyboard user at the wide width tabs the map column before
+			the sidebar that sits to its left. The alignment route avoided `order` by putting its sidebar on
+			the right of its panes instead — see the note above its own container — and that route is worth
+			reading before changing this one. Moving *this* sidebar across the screen on a desktop was
+			judged the larger harm, so `order` is the accepted cost here.
+		-->
+		<div class="relative flex min-h-0 grow flex-col lg:flex-row">
 			<!--
-				The sidebar is a **fixed column** and the map takes what is left, which is the whole of
-				"the map gets the larger share of the screen": a proportional sidebar grows with the
-				display, and on a large one that is a wall of controls beside a map that gained nothing.
+				No `relative` here since ticket 15. It established the containing block for the unwarped
+				view's `absolute inset-0` overlay, which was this subtree's only absolutely positioned
+				child; nothing else here positions itself against it, and MapLibre's own container carries
+				`position: relative` from `maplibre-gl.css`.
+			-->
+			<div class="flex min-h-0 grow flex-col">
+				{#if !installedApp.online}
+					<!--
+						Both notices in this block come and go with the connection, so both are `alert`s —
+						`MapNotice` makes that choice from `shape`, and its header records why an `aria-live`
+						region inside an `{#if}` is a notice a screen-reader user never hears.
+
+						`variant="info"` because nothing is broken: everything in the Workspace still works.
+					-->
+					<MapNotice
+						shape="comes-and-goes"
+						variant="info"
+						class="m-2"
+						heading="The Base Map needs a connection"
+						testid="base-map-offline"
+					>
+						<p>
+							There is no network connection, so the Base Map cannot load yet. Everything in your
+							Workspace still works: you can add a Historical Map now and place it when the
+							connection is back.
+						</p>
+					</MapNotice>
+
+					{#if referencedLayers.length > 0}
+						<!--
+							The one honest exception to the offline claim, said rather than left as a blank pane.
+							Naming the host is the whole point: "this Historical Map is not here" is unactionable,
+							and "nothing can be fetched from gallica.bnf.fr while you are offline" tells an author
+							both why and what to do about it before their next trip to the archive.
+						-->
+						<MapNotice shape="comes-and-goes" class="m-2" testid="referenced-offline">
+							<p>
+								There is no connection, so nothing can be fetched from {unreachableHosts.join(
+									', '
+								)}. These Historical Maps stay blank until there is one. Everything else in this
+								Project — its own Historical Maps, its Alignments, and its Annotations — is
+								unaffected and still saves.
+							</p>
+						</MapNotice>
+					{/if}
+				{/if}
+
+				<!--
+					The archive answered nothing while the connection is fine (ticket 20). It comes and goes
+					with the outage, so it is an `alert` and it is not on the page at all while the archive is
+					answering; `MapNotice` decides both from `shape` and renders nothing for an empty sentence.
+
+					It is the same alert whether the Base Map is remote or this site's own; what differs is
+					the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than the template's,
+					so the two deployments cannot drift into saying different things.
+				-->
+				<MapNotice
+					shape="comes-and-goes"
+					class="m-2"
+					heading="The Base Map did not load"
+					testid="base-map-unavailable"
+					text={unavailableNotice}
+				/>
+
+				<!--
+					⚠ **A height of its own below `lg`, because there is no longer a screen's worth to take
+					a share of.** Stacked, this box's parent is as tall as its content, so `grow` alone
+					resolves against nothing and the pane collapses to zero — which is the same failure as
+					the fixed 24 rem sidebar taking the window, one column over.
+
+					`26rem` rather than a viewport fraction: a fraction of a phone in landscape is a pane
+					too short to hold the Inspector's sheet and its identity header and tab strip together,
+					and the answer to a display too short for that is the page scrolling rather than the
+					pane squeezing further — the floor the alignment route's panes already argue for.
+				-->
+				<div
+					bind:this={mapColumn}
+					class="h-[26rem] shrink-0 overflow-hidden lg:h-auto lg:min-h-0 lg:grow"
+					data-testid="project-map"
+				>
+					<BaseMapPane
+						bind:this={baseMapPane}
+						selectedAnnotationId={annotations.selectedAnnotationId}
+						entryId={resolution.entry.id}
+						{cachedBaseMap}
+						layers={drawn}
+						{openingFit}
+						overlayPoints={annotations.annotationPoints}
+						{fetchTile}
+						onbasemapstatus={(status) => {
+							baseMapStatus = status;
+						}}
+						onclickpoint={(point) => void annotations.placePoint(point)}
+						onclickannotation={(hit) => {
+							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
+							// and the Annotation underneath is not what the user is pointing at.
+							if (drawing.tool !== 'select') return;
+							// **Opens that Layer's card and the Annotation's own row**, which is where an
+							// Annotation is read (ticket 07) — so a click on the canvas is answered in the
+							// sidebar rather than by a bubble over the shape it is describing.
+							// `openFromMap` rather than `openLayer`, which clears the selection — and a
+							// selection is precisely what this is making. Nothing is part-drawn here: the
+							// guard above is that guarantee.
+							annotations.openFromMap(hit.layerId, hit.annotationId);
+						}}
+						onfinishshape={() => void annotations.finishShape()}
+						onstack={(reported) => (rendered = reported)}
+						overlay={mapOverlay}
+					/>
+				</div>
+
+				<!--
+					The map's running commentary, announced but not drawn, from the component both apps
+					render. Sighted authors read the same facts off the map itself and off the "Make
+					available offline" button above, which is only offered while something in this Project
+					still is not offline — so on screen this was four lines of restatement eating the Base
+					Map's vertical space.
+
+					The two lines below are the editor's own: they are the ones a Reader is not given,
+					because making an offline copy is one button away here and nowhere at all there.
+				-->
+				<MapCommentary
+					layerCount={layers.length}
+					{drawnCount}
+					{openingOutcome}
+					{refitted}
+					{emptyStackNote}
+				>
+					<!--
+						Whether this Project works with no network, in words (SPEC stories 73, 112). Visible text
+						rather than a badge, and announced, because it is the fact a scholar checks before they
+						travel — and because "available offline" is computed from the files each time this is
+						read, so it can never be a label that outlived the tiles behind it.
+
+						`data-offline` carries the three states the sentence distinguishes: `yes`, `no`, and
+						`unknown` for a Base Map that could not be reached to be asked about.
+					-->
+					<p
+						class="min-h-6 text-sm text-base-content/70"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-availability"
+						data-offline={offlineReady === null ? 'unknown' : offlineReady ? 'yes' : 'no'}
+						data-cache-serving={cachedBaseMap === null ? 'no' : 'yes'}
+					>
+						{offlineSummary}
+					</p>
+					<!--
+						Held outside the dialog's own tree so its completion announcement survives the dialog
+						closing — the same reason `OfflineCopyJob.completed` lives on the job.
+					-->
+					<p
+						class="min-h-6 text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-done"
+					>
+						{offline.completed}
+					</p>
+				</MapCommentary>
+			</div>
+
+			<!--
+				From `lg` the sidebar is a **fixed column** and the map takes what is left, which is the
+				whole of "the map gets the larger share of the screen": a proportional sidebar grows with
+				the display, and on a large one that is a wall of controls beside a map that gained
+				nothing. Below `lg` there is no column to be fixed: it is a block the width of the screen,
+				scrolling with the page rather than inside itself, and the border that separated it from
+				the map moves to the edge that now faces the map.
 
 				**`base-300`, so that the Layer cards on it are objects.** A card is `base-100`, and
 				daisyUI's scale runs in opposite directions in the two themes — 100% → 98% → 95% in light,
@@ -1155,7 +1349,7 @@
 			-->
 			<div
 				bind:this={layerSidebar}
-				class="w-96 shrink-0 overflow-y-auto border-r border-base-content/10 bg-base-300 p-4"
+				class="shrink-0 border-t border-base-content/10 bg-base-300 p-4 lg:order-first lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-r"
 				data-testid="layer-sidebar"
 			>
 				<LayerList
@@ -1336,154 +1530,6 @@
 						{/each}
 					</div>
 				{/if}
-			</div>
-
-			<!--
-				No `relative` here since ticket 15. It established the containing block for the unwarped
-				view's `absolute inset-0` overlay, which was this subtree's only absolutely positioned
-				child; nothing else here positions itself against it, and MapLibre's own container carries
-				`position: relative` from `maplibre-gl.css`.
-			-->
-			<div class="flex min-h-0 grow flex-col">
-				{#if !installedApp.online}
-					<!--
-						Both notices in this block come and go with the connection, so both are `alert`s —
-						`MapNotice` makes that choice from `shape`, and its header records why an `aria-live`
-						region inside an `{#if}` is a notice a screen-reader user never hears.
-
-						`variant="info"` because nothing is broken: everything in the Workspace still works.
-					-->
-					<MapNotice
-						shape="comes-and-goes"
-						variant="info"
-						class="m-2"
-						heading="The Base Map needs a connection"
-						testid="base-map-offline"
-					>
-						<p>
-							There is no network connection, so the Base Map cannot load yet. Everything in your
-							Workspace still works: you can add a Historical Map now and place it when the
-							connection is back.
-						</p>
-					</MapNotice>
-
-					{#if referencedLayers.length > 0}
-						<!--
-							The one honest exception to the offline claim, said rather than left as a blank pane.
-							Naming the host is the whole point: "this Historical Map is not here" is unactionable,
-							and "nothing can be fetched from gallica.bnf.fr while you are offline" tells an author
-							both why and what to do about it before their next trip to the archive.
-						-->
-						<MapNotice shape="comes-and-goes" class="m-2" testid="referenced-offline">
-							<p>
-								There is no connection, so nothing can be fetched from {unreachableHosts.join(
-									', '
-								)}. These Historical Maps stay blank until there is one. Everything else in this
-								Project — its own Historical Maps, its Alignments, and its Annotations — is
-								unaffected and still saves.
-							</p>
-						</MapNotice>
-					{/if}
-				{/if}
-
-				<!--
-					The archive answered nothing while the connection is fine (ticket 20). It comes and goes
-					with the outage, so it is an `alert` and it is not on the page at all while the archive is
-					answering; `MapNotice` decides both from `shape` and renders nothing for an empty sentence.
-
-					It is the same alert whether the Base Map is remote or this site's own; what differs is
-					the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than the template's,
-					so the two deployments cannot drift into saying different things.
-				-->
-				<MapNotice
-					shape="comes-and-goes"
-					class="m-2"
-					heading="The Base Map did not load"
-					testid="base-map-unavailable"
-					text={unavailableNotice}
-				/>
-
-				<div bind:this={mapColumn} class="min-h-0 grow overflow-hidden" data-testid="project-map">
-					<BaseMapPane
-						bind:this={baseMapPane}
-						selectedAnnotationId={annotations.selectedAnnotationId}
-						entryId={resolution.entry.id}
-						{cachedBaseMap}
-						layers={drawn}
-						{openingFit}
-						overlayPoints={annotations.annotationPoints}
-						{fetchTile}
-						onbasemapstatus={(status) => {
-							baseMapStatus = status;
-						}}
-						onclickpoint={(point) => void annotations.placePoint(point)}
-						onclickannotation={(hit) => {
-							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
-							// and the Annotation underneath is not what the user is pointing at.
-							if (drawing.tool !== 'select') return;
-							// **Opens that Layer's card and the Annotation's own row**, which is where an
-							// Annotation is read (ticket 07) — so a click on the canvas is answered in the
-							// sidebar rather than by a bubble over the shape it is describing.
-							// `openFromMap` rather than `openLayer`, which clears the selection — and a
-							// selection is precisely what this is making. Nothing is part-drawn here: the
-							// guard above is that guarantee.
-							annotations.openFromMap(hit.layerId, hit.annotationId);
-						}}
-						onfinishshape={() => void annotations.finishShape()}
-						onstack={(reported) => (rendered = reported)}
-						overlay={mapOverlay}
-					/>
-				</div>
-
-				<!--
-					The map's running commentary, announced but not drawn, from the component both apps
-					render. Sighted authors read the same facts off the map itself and off the "Make
-					available offline" button above, which is only offered while something in this Project
-					still is not offline — so on screen this was four lines of restatement eating the Base
-					Map's vertical space.
-
-					The two lines below are the editor's own: they are the ones a Reader is not given,
-					because making an offline copy is one button away here and nowhere at all there.
-				-->
-				<MapCommentary
-					layerCount={layers.length}
-					{drawnCount}
-					{openingOutcome}
-					{refitted}
-					{emptyStackNote}
-				>
-					<!--
-						Whether this Project works with no network, in words (SPEC stories 73, 112). Visible text
-						rather than a badge, and announced, because it is the fact a scholar checks before they
-						travel — and because "available offline" is computed from the files each time this is
-						read, so it can never be a label that outlived the tiles behind it.
-
-						`data-offline` carries the three states the sentence distinguishes: `yes`, `no`, and
-						`unknown` for a Base Map that could not be reached to be asked about.
-					-->
-					<p
-						class="min-h-6 text-sm text-base-content/70"
-						aria-live="polite"
-						aria-atomic="true"
-						data-testid="offline-availability"
-						data-offline={offlineReady === null ? 'unknown' : offlineReady ? 'yes' : 'no'}
-						data-cache-serving={cachedBaseMap === null ? 'no' : 'yes'}
-					>
-						{offlineSummary}
-					</p>
-					<!--
-						Held outside the dialog's own tree so its completion announcement survives the dialog
-						closing — the same reason `OfflineCopyJob.completed` lives on the job.
-					-->
-					<p
-						class="min-h-6 text-sm"
-						aria-live="polite"
-						aria-atomic="true"
-						data-testid="offline-done"
-					>
-						{offline.completed}
-					</p>
-				</MapCommentary>
 			</div>
 
 			<!--
@@ -1888,10 +1934,49 @@
 	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
 	narrow pane, and the map still visible below it and beside it (stories 15, 17).
 
+	⚠ **Below `lg` it is a sheet across the bottom of the pane instead**, because a panel docked to a
+	corner has no corner to dock to on a phone (the-annotation-inspector story 61). It is the same
+	`AnnotationInspector` with the same props: where it sits is the consumer's, which is why the
+	component takes no `variant` and sets no `position` of its own.
+
+	⚠ **`bottom-[6.25rem]`, and the number is the pane's bottom furniture rather than a taste.** A sheet
+	spanning the width crosses the whole of the pane's bottom edge, and two things live there: the
+	attribution at the bottom-right, which is an ODbL condition, and **MapLibre's zoom control at the
+	bottom-left, which is where the dock decision moved it precisely so that it could never be under the
+	Inspector** (the-annotation-inspector stories 18, 22). `z-index: 7` puts the sheet *over* both, so on
+	a phone neither is reachable unless the sheet's own inset leaves them alone — measured at 390 × 844
+	before this inset existed: the zoom-in button 100% covered, and `elementFromPoint` at its centre
+	answering with a paragraph of the description. The bottom-left control block measures 97 px — three 29 px buttons plus
+	MapLibre's own 10 px margin — so 6.25 rem clears it, and clears the 20 px attribution with it. One
+	inset, both conditions; the desktop's `max-height` is the same rule read on the other axis.
+
+	⚠ **`max-h-[60%]` rather than the desktop's near-full cap, because the sheet has to leave map above
+	it that the camera can put the mark in.** `keepAnnotationClear` answers a sheet with a reservation on
+	the y axis, and a reservation can only move a mark into pane the sheet is not on. Measured on the
+	26 rem pane at 390 × 844: at 60% the sheet leaves 66 px above it and the mark lands 41 px clear; at
+	the desktop's 70% it leaves 25 px, and the mark lands 8.8 px clear — inside the 16 px comfort margin
+	that same function calls "behind the panel", so a mark it had just moved is one it would move again.
+	A Pin, whose mark box is 30 px tall where a shape's anchor is a point, cannot be got clear at 70% at
+	all. `BaseMapPane`'s `keepAnnotationClear` has the arithmetic. The cap is also what keeps the map
+	visible above the sheet (the-annotation-inspector story 17) and what gives the face something to
+	scroll inside.
+
 	⚠ **The `max-height` is what keeps the Base Map's attribution clear** (the-annotation-inspector
 	story 21). The attribution is an ODbL condition rather than decoration, and it sits at the pane's
 	bottom-right — under this panel's own column. 3 rem leaves room for it and for the panel's own 0.5 rem
 	inset, so a long description scrolls inside the panel rather than the panel growing over the licence.
+
+	⚠ **KNOWN LIMIT, above `lg` only: a short window clips the Style face out of the panel, and the tab
+	strip stays pressable while it does.** The identity header and the tab strip are `shrink-0`, so once
+	this cap falls below their combined height the face is what gives, and it gives all the way to
+	nothing. Below `lg` the pane is a fixed `h-[26rem]`, so no phone reaches it; above `lg` the pane still
+	tracks the window, and measured with the Style face open: 1024 × 340 leaves 19 px of face, 1024 × 300
+	leaves −20 px clipped to zero with the Style tab still pressing, and 1024 × 260 clips the tab strip
+	itself. Recorded rather than fixed because the repair is a decision this epic did not take — a floor
+	on the pane's height, or a face that scrolls the header with it — and a laptop that short is not a
+	display this application is for. **Recorded rather than asserted**, deliberately: an assertion that
+	held the face to 19 px would be a test of the defect, and would go red on the repair rather than on a
+	regression.
 
 	⚠ **`flex` is what passes that cap on to the panel, and the direction is not the load-bearing half.** A
 	`max-height` on this box constrains nothing inside it on its own: the panel has to be made *sizable
@@ -1925,7 +2010,7 @@
 {#snippet mapOverlay()}
 	{#if annotations.selectedAnnotation}
 		<div
-			class="absolute top-2 right-2 z-[7] flex max-h-[calc(100%-3rem)] w-80 max-w-[calc(100%-1rem)] flex-col"
+			class="absolute top-auto right-2 bottom-[6.25rem] left-2 z-[7] flex max-h-[60%] flex-col lg:top-2 lg:bottom-auto lg:left-auto lg:max-h-[calc(100%-3rem)] lg:w-80 lg:max-w-[calc(100%-1rem)]"
 		>
 			<AnnotationInspector
 				annotation={annotations.selectedAnnotation}

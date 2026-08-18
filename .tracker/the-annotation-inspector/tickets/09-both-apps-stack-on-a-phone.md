@@ -59,6 +59,15 @@ panel on a desktop is unaffected — and neither is asserted anywhere yet.
   `leaderPath`'s refusal then begins in both apps at the same place.
 - **Below it**: the map sits above, the Layer stack below as an ordinary block in a page that scrolls as a
   whole, and the Inspector becomes a **sheet anchored to the bottom** over the map.
+
+  The map is first because the Inspector is a sheet *over the map*: with the stack first, a 390 px
+  phone puts the pane — and so the sheet a tap on a mark opens — about 428 px down a 739 px scroller,
+  so the panel describing the selection has to be scrolled to. The map column is therefore first in
+  the markup, and the sidebar keeps its place on the left at `lg` with `order-first`. That is the one
+  cost: `order` makes visual order differ from DOM order at the wide width, which the alignment route
+  avoided by putting its sidebar on the right instead. Moving this sidebar across the screen was
+  judged the larger harm.
+
 - **The sheet is the same `AnnotationInspector`**, positioned differently by its consumer. Do not build a
   second component, and do not add a `variant` or `asSheet` prop — where it sits is the consumer's, which
   is why the component does not position itself.

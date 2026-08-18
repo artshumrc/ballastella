@@ -544,13 +544,20 @@
 	const MARK_COMFORT = 16;
 
 	/**
-	 * The most of the pane's width that may be reserved for something docked over it.
+	 * The most that may be reserved along an axis for something docked over the pane: enough that the
+	 * mark's own box still lands `MARK_COMFORT` inside the pane's far edge.
 	 *
-	 * Past half the pane there is no region left to centre a mark in, and MapLibre would be asked to fit
-	 * one into a strip of a few pixels. A guard rather than a layout: it binds only on a pane narrower
-	 * than about 700 px, which is a pane the phone layout is the answer for rather than this.
+	 * A reservation is spent as an `offset` from the camera's centre, so an unbounded one pushes the mark
+	 * off the far side of the pane — which is the phone sheet's case rather than a hypothetical: a sheet
+	 * covering three-quarters of the pane asks for three-quarters of it back. When this binds, the mark
+	 * lands exactly its own height plus `MARK_COMFORT` inside the near edge, which is the best the
+	 * geometry allows.
+	 *
+	 * On a desktop pane it does not bind: the docked panel asks for 344 px of an 896 px pane, and the cap
+	 * there is 834 px.
 	 */
-	const MOST_RESERVABLE = 0.5;
+	const mostReservable = (extent: number, markExtent: number) =>
+		Math.max(extent - markExtent - 2 * MARK_COMFORT, 0);
 
 	/**
 	 * How long the camera takes to bring a mark out from under the panel.
@@ -593,8 +600,9 @@
 	 * **The reservation is the panel's column, and the occlusion test is the panel's box.** Those are
 	 * deliberately different rectangles. A mark below the panel's bottom edge is not hidden — the map is
 	 * visible there and that is the point of docking over it rather than beside it — so it must not
-	 * provoke a move; but the reservation is one number and cannot describe a corner, so once a move is
-	 * warranted the whole column is what gets reserved.
+	 * provoke a move; but the reservation is one number on one axis and cannot describe a corner, so once
+	 * a move is warranted the whole column — or, for the phone's sheet, the whole band — is what gets
+	 * reserved.
 	 *
 	 * **Nothing is focused here.** The camera moves and whatever holds the keyboard keeps it, which is
 	 * what lets this run for a selection made on the canvas without taking the pointer's place.
@@ -625,10 +633,44 @@
 			mark.top <= occluder.bottom + MARK_COMFORT;
 		if (onThePane && !behindThePanel) return;
 
-		const reserved =
-			occluder === null
-				? 0
-				: Math.min(pane.right - occluder.left + MARK_COMFORT, pane.width * MOST_RESERVABLE);
+		// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+		// │ WHICH AXIS THE RESERVATION IS ON IS READ OFF THE TWO BOXES, NOT OFF A BREAKPOINT.          │
+		// └───────────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// The docked panel is a column inset from the pane's right edge, so the region left for the mark is
+		// *beside* it and the reservation is on x. A phone's sheet spans the pane's width, so there is no
+		// strip beside it to put anything in and the region left is *above* it: the reservation is on y
+		// instead (the-annotation-inspector ticket 09's contract, "a sheet at the bottom is a reservation
+		// on the y axis instead of the x").
+		//
+		// ⚠ **Reading the geometry rather than a media query is what keeps this one rule.** This component
+		// is not told which layout rendered the panel — the consumer positions it, which is the whole
+		// reason `AnnotationInspector` takes no `variant` — and a duplicate of the breakpoint here would be
+		// a second place for the two to disagree. What is asked is whether a strip of pane wide enough for
+		// the mark survives to the left of the occluder; a sheet leaves 8 px of it and the docked panel
+		// leaves some 568.
+		//
+		// **Both branches assume the occluder is against the far edge of its axis** — the panel at the
+		// right, the sheet at the bottom — which is what makes both offsets negative. That is the dock
+		// decision rather than an omission: nothing in either app puts the Inspector at the left or the
+		// top.
+		const markWidth = mark.right - mark.left;
+		const markHeight = mark.bottom - mark.top;
+		const reserved = { x: 0, y: 0 };
+		if (occluder !== null) {
+			const roomBesideIt = occluder.left - pane.left;
+			if (roomBesideIt >= markWidth + 2 * MARK_COMFORT) {
+				reserved.x = Math.min(
+					pane.right - occluder.left + MARK_COMFORT,
+					mostReservable(pane.width, markWidth)
+				);
+			} else {
+				reserved.y = Math.min(
+					pane.bottom - occluder.top + MARK_COMFORT,
+					mostReservable(pane.height, markHeight)
+				);
+			}
+		}
 		current.easeTo({
 			// The middle of the mark's own box, so a Pin is centred on the pin rather than on the ground
 			// it stands on. Container coordinates, which is what `unproject` takes and what
@@ -651,10 +693,10 @@
 			// keyboard landed half a reservation left of the crosshair for the rest of the session.
 			// MapLibre also stops an in-flight ease the moment a handler activates, which with `padding`
 			// leaves it frozen at whatever fraction it had reached when the user grabbed the map. `offset`
-			// says "put this point off-centre by this much, for this one move" and leaves nothing behind:
-			// negative x, because the reserved column is on the right and the mark belongs in the middle of
-			// what is left.
-			offset: [-reserved / 2, 0],
+			// says "put this point off-centre by this much, for this one move" and leaves nothing behind.
+			// Negative on whichever axis was reserved, because the occluder is against that axis's far edge
+			// and the mark belongs in the middle of what is left.
+			offset: [-reserved.x / 2, -reserved.y / 2],
 			duration: RESERVATION_EASE_MS
 		});
 	}

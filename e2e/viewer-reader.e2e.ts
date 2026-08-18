@@ -512,6 +512,21 @@ const TAPPED_ANNOTATION_ID = '11111111-1111-4111-8111-111111111111';
 const ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 
 /**
+ * The narrowest viewport at which a Project's stack and its map are still two columns, in CSS pixels.
+ *
+ * Tailwind's `lg`, which this page's Project grid has always used and which the editor's Project
+ * screen adopted — so both applications stack at the same width and `leaderPath`'s refusal on a
+ * stacked layout begins in both at the same place.
+ *
+ * ⚠ **Written out here and again in `e2e/editor-annotations.e2e.ts`, deliberately.** The Playwright
+ * project resolves nothing from the applications or from their stylesheet, and the claim "the same
+ * width that stacks one stacks the other" *is* the two copies being asserted independently against
+ * the two built apps; one shared constant would only prove that both tests read one number. Named on
+ * both sides so each can be found from the other.
+ */
+const STACKS_BELOW = 1024;
+
+/**
  * The host that archive is fetched from — what an outage notice names at a Reader.
  *
  * Derived rather than written a second time, so a repoint of the catalog is one edit here instead
@@ -3466,7 +3481,9 @@ test.describe('a Reader on a phone', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('tapping an Annotation selects its row and reads it in the Inspector', async ({ page }) => {
+	test('tapping an Annotation reads it in a sheet at the bottom of the map, with the same subtraction and no leader', async ({
+		page
+	}) => {
 		// **The phone is why the popup retired** (ticket 07). A 375 px screen has no room for a bubble
 		// over the pin *and* the words in it — so a tap that opened a popup put the Annotation in one
 		// place and the row that names it in another. One destination, and it is the Inspector docked
@@ -3495,7 +3512,12 @@ test.describe('a Reader on a phone', () => {
 					),
 					annotation({
 						title: 'The east warehouse',
-						description: 'Rebuilt in **1663** after the fire, and rebuilt again a century later.'
+						// Long enough that the sheet stands at its cap, which is the only state in which "the
+						// body scrolls inside it" and "it does not cover the attribution" can fail.
+						description: `Rebuilt in **1663** after the fire, and rebuilt again a century later.\n\n${Array.from(
+							{ length: 20 },
+							(_, at) => `Paragraph ${at + 1}: the quay, the warehouses, and the survey of 1625.`
+						).join('\n\n')}`
 					})
 				]
 			})
@@ -3526,9 +3548,184 @@ test.describe('a Reader on a phone', () => {
 		).toBe(1);
 
 		// And the panel is inside the viewport horizontally, which is what "readable" means at 375 px.
-		const box = (await page.getByTestId('annotation-inspector').boundingBox())!;
-		expect(box.width).toBeLessThanOrEqual(375);
-		expect(box.x).toBeGreaterThanOrEqual(-1);
+		const sheet = (await page.getByTestId('annotation-inspector').boundingBox())!;
+		expect(sheet.width).toBeLessThanOrEqual(375);
+		expect(sheet.x).toBeGreaterThanOrEqual(-1);
+
+		// ── AND IT IS A SHEET ACROSS THE BOTTOM OF THE PANE ─────────────────────────────────
+		//
+		// The-annotation-inspector story 61.
+		//
+		// The same `AnnotationInspector` the desktop docks to the top-right, positioned differently by
+		// the page that renders it — there is no `variant` and no `asSheet`, so what changes at this
+		// width is a class list and nothing about the component.
+		const pane = page.getByTestId('reader-map-pane');
+		const paneBox = (await pane.boundingBox())!;
+		expect(sheet.x, 'the sheet does not reach the pane’s left edge').toBeLessThan(paneBox.x + 16);
+		expect(sheet.x + sheet.width, 'the sheet does not reach the pane’s right edge').toBeGreaterThan(
+			paneBox.x + paneBox.width - 16
+		);
+		// **8 rem, because the sheet's bottom inset is the pane's bottom furniture** — 6.25 rem of it, to
+		// clear MapLibre's bottom-left control block and the attribution, both asserted below. Anchored to
+		// the bottom is still what this fails for: a sheet docked to the top or centred in the pane at this
+		// cap ends more than 8 rem short of the bottom edge.
+		expect(
+			sheet.y + sheet.height,
+			'the sheet is not anchored to the bottom of the pane'
+		).toBeGreaterThan(paneBox.y + paneBox.height - 128);
+		// And the map is still the map above it, which is what stops the sheet being a second screen.
+		expect(sheet.y, 'the sheet took the whole pane').toBeGreaterThan(paneBox.y + 24);
+
+		// **The attribution is a licence condition** (ODbL) and the sheet is across the axis it sits on,
+		// which is the whole reason the bottom inset exists.
+		const attribution = page.locator('.maplibregl-ctrl-attrib');
+		await expect(attribution).toBeVisible();
+		const licence = (await attribution.boundingBox())!;
+		expect(sheet.y + sheet.height, 'the sheet covered the Base Map’s attribution').toBeLessThan(
+			licence.y
+		);
+
+		// ── AND MAPLIBRE'S ZOOM CONTROL IS STILL TAPPABLE UNDER IT ──────────────────────────
+		//
+		// ⚠ **The-annotation-inspector story 18, and a sheet is the layout that reinstates the fault it
+		// names.** The sheet is `z-index: 7` and `layout.css` pins MapLibre's control corners to 6, so a
+		// full-width band across the pane's bottom edge covers the zoom control the dock decision moved to
+		// the bottom-left *precisely* so that it could never be under the Inspector. Measured on this
+		// published site at 375 px with a 2 rem inset: the zoom-in button 100% overlapped, and
+		// `elementFromPoint` at its centre answering with a paragraph of the description.
+		//
+		// **`elementFromPoint` at the button's centre is the assertion that can actually fail**, because
+		// what the story is about is whether the button can be pressed. The overlap is asserted beside it so
+		// that a sheet clearing the centre and covering the corners cannot pass, and the button is then
+		// really pressed and the zoom really read.
+		// ⚠ **Scrolled to first, because `elementFromPoint` is viewport arithmetic.** At 375 px the pane's
+		// bottom edge is below the fold, and a point below the window answers `null` — which would fail this
+		// whether the sheet covered the button or not.
+		await page.locator('.maplibregl-ctrl-zoom-in').scrollIntoViewIfNeeded();
+		expect(
+			await page.evaluate(() => {
+				const button = document.querySelector('.maplibregl-ctrl-zoom-in')!;
+				const band = document.getElementById('annotation-inspector')!.getBoundingClientRect();
+				const box = button.getBoundingClientRect();
+				const at = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+				const across = Math.max(0, Math.min(box.right, band.right) - Math.max(box.left, band.left));
+				const down = Math.max(0, Math.min(box.bottom, band.bottom) - Math.max(box.top, band.top));
+				return {
+					topmost:
+						at === null
+							? 'nothing'
+							: at.closest('.maplibregl-ctrl') === null
+								? at.tagName
+								: 'the zoom control',
+					overlapped: Math.round(across * down)
+				};
+			}),
+			'the sheet is over MapLibre’s zoom control'
+		).toEqual({ topmost: 'the zoom control', overlapped: 0 });
+		const zoomedTo = () => page.evaluate(() => window.ballastellaReaderMap!.map.getZoom());
+		const beforeZooming = await zoomedTo();
+		await page.locator('.maplibregl-ctrl-zoom-in').click();
+		await expect.poll(zoomedTo, 'the zoom control did not zoom').toBeGreaterThan(beforeZooming);
+
+		// **And the prose is read inside it rather than growing it**, with the identity header holding
+		// its place: a sheet that scrolled as a whole would take the one thing naming the Annotation off
+		// the top of itself. Scrolled by the wheel over the sheet, which is what gives that teeth.
+		//
+		// ⚠ **A short wheel.** At this width the map is below the fold and the page itself scrolls, so a
+		// wheel longer than the face has left to give would chain out of the sheet and move the whole
+		// page — taking the header with it, and failing the second half of this for a reason that is not
+		// the sheet's.
+		expect(
+			await reading.evaluate((element) => ({
+				scrolls: element.scrollHeight > element.clientHeight,
+				overflow: getComputedStyle(element).overflowY
+			})),
+			'the description is not scrolling inside the sheet'
+		).toEqual({ scrolls: true, overflow: 'auto' });
+		//
+		// ⚠ **The header is measured against the sheet rather than against the window.** At this width
+		// everything is inside a page that scrolls and that a live region can lengthen, so a header
+		// measured against the viewport moves for reasons that have nothing to do with what the sheet
+		// did. What the claim is about is the header holding its place *in the sheet*: a sheet that
+		// scrolled as a whole would take it up past its own top edge, and this goes negative when it
+		// does.
+		const headerOffset = () =>
+			page
+				.getByTestId('annotation-inspector')
+				.evaluate((element) =>
+					Math.round(
+						element
+							.querySelector('[data-testid="annotation-inspector-header"]')!
+							.getBoundingClientRect().top - element.getBoundingClientRect().top
+					)
+				);
+		//
+		// ⚠ **The header assertion below corroborates rather than falsifies on its own.** Every mutation
+		// that makes the sheet scroll as a whole instead of the description scrolling inside it trips the
+		// two-value check above first, because the description then has nothing to scroll. It is kept because
+		// it is the claim in the terms a Reader meets it in — the Annotation's name stays on the screen while
+		// the prose moves — and it is what would notice a future sheet that scrolled itself.
+		await reading.hover();
+		const restingHeader = await headerOffset();
+		await page.mouse.wheel(0, 120);
+		await expect.poll(() => reading.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+		expect(await headerOffset(), 'the sheet scrolled its own header away').toBe(restingHeader);
+
+		// ── AND THE SUBTRACTION IS UNCHANGED ON A PHONE ─────────────────────────────────────
+		//
+		// The-annotation-inspector story 63.
+		//
+		// ⚠ **Not a phone branch restating it.** This app passes no `style` snippet and no callbacks at
+		// any width, so the strip and the two controls are absent here for the one reason they are
+		// absent on a desktop. If a narrow layout ever had to say any of this again, the design would
+		// have been abandoned — which is what these four counts would fail to notice and
+		// `expectNothingEditable` would.
+		await expect(page.getByTestId('annotation-inspector-tabs')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-inspector-tab-style')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-edit-text')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-delete')).toHaveCount(0);
+		// The stack too, with the Annotation Layer's card open, which is where a drag handle, a rename,
+		// a reorder and a Layer delete would be.
+		await expectNothingEditable(page);
+
+		// ── AND NO LEADER IS DRAWN, BECAUSE `leaderPath` REFUSED ────────────────────────────
+		//
+		// The-annotation-inspector story 62.
+		//
+		// ⚠ **Not "the line is invisible".** A media query hiding the element would satisfy any
+		// assertion about what can be seen; the contract asks that the *function* declines, so the
+		// polyline carries no `points` at all. The layer is asserted still rendered and still displayed,
+		// which is what stops this passing for the wrong reason.
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
+		expect(await leaderPoints(page)).toBeNull();
+		expect(
+			await leaderLayer(page).evaluate((element) => ({
+				points: element.querySelector('polyline')!.getAttribute('points'),
+				display: getComputedStyle(element).display
+			})),
+			'the leader was hidden by CSS rather than refused by leaderPath'
+		).toEqual({ points: null, display: 'block' });
+
+		// ── AND THE WIDTH AT WHICH THIS BEGINS IS THE EDITOR'S ──────────────────────────────
+		//
+		// One pixel apart, so this fails for the breakpoint moving rather than for a phone being narrow.
+		// `e2e/editor-annotations.e2e.ts` makes the same two measurements against the built editor and
+		// its own copy of the number; the two independent runs are the whole of "the same viewport width
+		// that stacks one stacks the other".
+		// The stack's own live region stands in for the column it is in: the column itself carries no
+		// testid, and what is being measured is whether the stack's horizontal range and the map's
+		// overlap — which is `leaderPath`'s own test, and which a full-width child answers as its parent
+		// does.
+		const columnsOverlap = async (): Promise<boolean> => {
+			const column = (await page.getByTestId('layer-view-status').boundingBox())!;
+			const map = (await pane.boundingBox())!;
+			return column.x < map.x + map.width && map.x < column.x + column.width;
+		};
+		await page.setViewportSize({ width: STACKS_BELOW, height: 900 });
+		await expect.poll(columnsOverlap, 'two columns at the breakpoint').toBe(false);
+		await page.setViewportSize({ width: STACKS_BELOW - 1, height: 900 });
+		await expect.poll(columnsOverlap, 'still two columns one pixel below it').toBe(true);
+
 		expect(seen.failures).toEqual([]);
 	});
 });

@@ -130,7 +130,7 @@ const SIMPLESTYLE_NAMES = new Set([
 ]);
 
 test.describe('drawing (SPEC stories 57, 58, 59)', () => {
-	test('a pin, a line, and a shape are drawn and land in the Annotation Layer’s own file', async ({
+	test('a pin, a line, and a shape are drawn and land in the Annotation Layer’s own file, with the polygon’s ring closed (RFC 7946 §3.1.6)', async ({
 		page
 	}) => {
 		const failures = watchFailures(page);
@@ -154,26 +154,23 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			.toEqual(['Point', 'LineString', 'Polygon']);
 		// And they are in *this* Layer's file, which is the criterion — not in some other Layer's.
 		expect((await projectJson(page)).layers[0].geojsonRef).toBe(`annotations/${layerId}.geojson`);
-		expect(failures).toEqual([]);
-	});
 
-	test('a polygon’s ring is closed, which is what other tools require', async ({ page }) => {
+		// ── AND THE POLYGON'S RING IS CLOSED, WHICH IS WHAT OTHER TOOLS REQUIRE ──────────────
+		//
 		// RFC 7946 §3.1.6: a Polygon's ring is a LinearRing and its first and last positions must be
 		// identical. An open ring is drawn happily by geojson.io and refused by PostGIS and shapely, so
 		// it would break exactly the portability claim ADR-0009 is for. The user never places the closing
 		// vertex, so nothing but the writer can.
-		const layerId = await startAnnotating(page);
-		await drawShape(page, 'polygon', [
-			[0.4, 0.4],
-			[0.7, 0.4],
-			[0.55, 0.7]
-		]);
-
-		const ring = (await storedAnnotations(page, layerId)).features[0]?.geometry
-			?.coordinates as number[][][];
-
+		//
+		// Asserted here rather than in a test of its own: this test already draws the polygon and reads
+		// the collection it landed in, so the claim needed nothing but two more assertions on bytes
+		// already in hand. What the ring does after a *reshape* is a different writer and stays its own
+		// test — "a polygon reshaped by a vertex stays a closed ring", below.
+		const ring = stored.features[2]?.geometry?.coordinates as number[][][];
 		expect(ring[0]).toHaveLength(4);
 		expect(ring[0]?.at(0)).toEqual(ring[0]?.at(-1));
+
+		expect(failures).toEqual([]);
 	});
 
 	test('all three appear on the map, each painted by the layer for its geometry', async ({
@@ -1510,6 +1507,466 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 			underTheCrosshair.lat,
 			6
 		);
+		expect(failures).toEqual([]);
+	});
+});
+
+/**
+ * The narrowest viewport at which the Project screen is still two columns, in CSS pixels.
+ *
+ * Tailwind's `lg`, which the viewer's Project grid and the alignment route's panes already used and
+ * which `ProjectScreen` adopts — so both applications stack at the same width and `leaderPath`'s
+ * refusal on a stacked layout begins in both at the same place.
+ *
+ * ⚠ **Written out here and again in `e2e/viewer-reader.e2e.ts`, deliberately**, for the reason
+ * {@link MARK_CLEARANCE} gives: this Playwright project resolves nothing from the applications or
+ * from their stylesheet. The claim "the same width that stacks one stacks the other" is the two
+ * copies being asserted independently against the two built apps; a single shared constant would
+ * only prove that both tests read one number. Named on both sides so each can be found from the
+ * other.
+ */
+const STACKS_BELOW = 1024;
+
+test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => {
+	/**
+	 * The Project screen has never had a breakpoint: a 24 rem sidebar and whatever was left. At 390 px
+	 * that is the whole window given to the stack and nothing at all to the map.
+	 *
+	 * **One test, and the folding is the Seam 2 budget** (`scripts/check-seam-2-size.mjs`): the three
+	 * stories are one layout — the screen stacks, and *because* it stacks the panel has no corner to
+	 * dock to and the leader has no two columns to run between. Every one of them is a claim about
+	 * rendered geometry, which Seam 1c cannot hold at all: it has no `offsetWidth`, no scroll
+	 * geometry, and no attribution (the-annotation-inspector story 73).
+	 *
+	 * **Driven by resizing rather than by a Playwright project**, which is what the ticket's scope
+	 * refuses: a project per viewport multiplies every spec in the suite. Resizing also buys the
+	 * comparison the desktop assertions here are for — the same run measures both sides of the
+	 * breakpoint, so "unchanged on a desktop" is asserted against the same Project rather than
+	 * inferred from another test.
+	 */
+	test('the screen stacks, the Inspector becomes a sheet at the bottom, and no leader is drawn', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		const layerId = await startAnnotating(page);
+		// **A polygon rather than a pin**, because the Style face is the taller of the two only for a
+		// geometry that has a fill and a line: a Pin's face is a colour row and a size row, and measuring
+		// the cap against it would be measuring the cap against the shorter face twice.
+		await drawShape(page, 'polygon', [
+			[0.35, 0.3],
+			[0.65, 0.3],
+			[0.5, 0.55]
+		]);
+		await selectAnnotation(page);
+		await editAnnotationText(page);
+		// Long enough that the sheet stands at its cap, which is the only state in which "the body
+		// scrolls inside it" and "it does not cover the attribution" can fail.
+		await page
+			.getByTestId('annotation-description')
+			.fill(
+				Array.from(
+					{ length: 20 },
+					(_, at) => `Paragraph ${at + 1}: the quay, the warehouses, and the survey of 1625.`
+				).join('\n\n')
+			);
+		await page.getByTestId('annotation-text-done').click();
+		await expect(page.getByTestId('annotation-description-text')).toContainText('Paragraph 20');
+
+		const sidebar = page.getByTestId('layer-sidebar');
+		const map = page.getByTestId('project-map');
+		const attribution = page.locator('.maplibregl-ctrl-attrib');
+
+		/** Whether the two columns overlap horizontally, which is exactly `leaderPath`'s own test. */
+		const columnsOverlap = async (): Promise<boolean> => {
+			const column = (await sidebar.boundingBox())!;
+			const pane = (await map.boundingBox())!;
+			return column.x < pane.x + pane.width && pane.x < column.x + column.width;
+		};
+
+		/**
+		 * Where the sidebar sits across the screen, and whether it is also the first of the two in the
+		 * document — which is the sequential focus order, and the one thing `order` cannot change.
+		 */
+		const columnsAcross = async () => {
+			const column = (await sidebar.boundingBox())!;
+			const pane = (await map.boundingBox())!;
+			return {
+				sidebarIsLeft: column.x + column.width <= pane.x + 1,
+				sidebarIsFirstInTheDocument: await page.evaluate(
+					() =>
+						(document
+							.querySelector('[data-testid="layer-sidebar"]')!
+							.compareDocumentPosition(document.querySelector('[data-testid="project-map"]')!) &
+							Node.DOCUMENT_POSITION_FOLLOWING) !==
+						0
+				)
+			};
+		};
+
+		// ── THE BREAKPOINT, FROM BOTH SIDES ────────────────────────────────────────────────
+		//
+		// One pixel apart, so this fails for the breakpoint moving rather than for a phone being narrow.
+		await page.setViewportSize({ width: STACKS_BELOW, height: 900 });
+		await expect.poll(columnsOverlap, 'two columns at the breakpoint').toBe(false);
+		// ⚠ **And the sidebar is the left-hand one, which is what `lg:order-first` buys and what it
+		// costs.** The map column is first in the document so that stacked it sits above the stack, so
+		// above this width the two orders disagree: the sidebar is on the left and the keyboard still
+		// reaches the map column before it. Asserted as it is rather than as would be preferred — a
+		// keyboard order this markup does not produce is not a claim this test gets to make.
+		//
+		// The document order is one fact and it is asserted here only, because this is the width where it
+		// costs something. Stacked, the two orders agree, and that they do is what the map sitting above
+		// the stack — asserted below in the pixels a thumb meets — already says.
+		expect(
+			await columnsAcross(),
+			'the sidebar is not the left-hand column above the breakpoint'
+		).toEqual({ sidebarIsLeft: true, sidebarIsFirstInTheDocument: false });
+		// And on a desktop the leader is still drawn, which is the other half of "unchanged above it".
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		await page.setViewportSize({ width: STACKS_BELOW - 1, height: 900 });
+		await expect.poll(columnsOverlap, 'still two columns one pixel below it').toBe(true);
+
+		// ── AT A PHONE'S OWN SIZE, BOTH HALVES OF THE SCREEN ARE USABLE ─────────────────────
+		//
+		// The-annotation-inspector story 60.
+		await page.setViewportSize({ width: 390, height: 844 });
+		const column = (await sidebar.boundingBox())!;
+		const pane = (await map.boundingBox())!;
+
+		// **Not a 24 rem column but the width of the screen.** `w-96` is 384 px whatever the window is, so
+		// "wider than 384" would say this too — and would say it with 6 px to spare at this viewport, then
+		// go red at a 384 px-wide phone on a layout behaving perfectly. The claim is the whole width, which
+		// is a number this test already knows and which no fixed column of any size can satisfy.
+		expect(column.width, 'the sidebar is not the width of the screen').toBe(
+			page.viewportSize()!.width
+		);
+		// And the map got something rather than nothing, which is the fault story 60 names.
+		expect(pane.width).toBeGreaterThan(0);
+		expect(pane.height).toBeGreaterThan(0);
+		// **The map is the first thing on the screen and the stack is beneath it**, because the Inspector is
+		// a sheet over the map: a stack above it puts the sheet below the fold.
+		expect(pane.y + pane.height, 'the map is not above the stack').toBeLessThanOrEqual(
+			column.y + 1
+		);
+		// ⚠ **And nothing had to be scrolled to reach it, which is the user-visible point of the map being
+		// first.** With the Layer stack first this pane began about 428 px down a 739 px scroller, so the
+		// sheet a tap on a mark opens was below the fold and the panel describing the selection had to be
+		// scrolled to; every measurement below — `boundingBox()` answers in viewport coordinates — named a
+		// spot no gesture could reach until the pane had been scrolled into view. So the whole pane is
+		// asserted to be inside the window with nothing on the page scrolled, which is what makes the rest
+		// of this a measurement of what a thumb meets.
+		expect(
+			await map.evaluate((element) => {
+				const box = element.getBoundingClientRect();
+				let scrolled = 0;
+				for (let node = element.parentElement; node !== null; node = node.parentElement)
+					scrolled += node.scrollTop;
+				return { inTheWindow: box.top >= 0 && box.bottom <= window.innerHeight, scrolled };
+			}),
+			'the map has to be scrolled to before it can be touched'
+		).toEqual({ inTheWindow: true, scrolled: 0 });
+		// Both are really usable rather than merely boxed: a live canvas, and the stack with the
+		// Annotation's own row in it.
+		await expect(map.locator('canvas.maplibregl-canvas')).toBeVisible();
+		await expect(sidebar.getByTestId('annotation-row')).toHaveCount(1);
+
+		// ── THE PANEL IS A SHEET ACROSS THE BOTTOM OF THE PANE ──────────────────────────────
+		//
+		// The-annotation-inspector story 61.
+		const sheet = (await inspector(page).boundingBox())!;
+		expect(sheet.x, 'the sheet does not reach the pane’s left edge').toBeLessThan(pane.x + 16);
+		expect(sheet.x + sheet.width, 'the sheet does not reach the pane’s right edge').toBeGreaterThan(
+			pane.x + pane.width - 16
+		);
+		// **8 rem, because the sheet's bottom inset is the pane's bottom furniture** — 6.25 rem of it, to
+		// clear MapLibre's bottom-left control block and the attribution, both asserted below. Anchored to
+		// the bottom is still what this fails for: a sheet docked to the top or centred in the pane at this
+		// cap ends more than 8 rem short of the bottom edge.
+		expect(
+			sheet.y + sheet.height,
+			'the sheet is not anchored to the bottom of the pane'
+		).toBeGreaterThan(pane.y + pane.height - 128);
+		// And the map is still the map above it, which is what stops the sheet being a second screen.
+		expect(sheet.y, 'the sheet took the whole pane').toBeGreaterThan(pane.y + 24);
+
+		// **The attribution is a licence condition** (ODbL) and the sheet is across the axis it sits on,
+		// which is the whole reason the bottom inset exists.
+		await expect(attribution).toBeVisible();
+		const licence = (await attribution.boundingBox())!;
+		expect(sheet.y + sheet.height, 'the sheet covered the Base Map’s attribution').toBeLessThan(
+			licence.y
+		);
+
+		// ── AND MAPLIBRE'S ZOOM CONTROL IS STILL TAPPABLE UNDER IT ──────────────────────────
+		//
+		// ⚠ **The-annotation-inspector story 18, and a sheet is the layout that reinstates the fault it
+		// names.** The sheet is `z-index: 7` and `layout.css` pins MapLibre's control corners to 6, so a
+		// full-width band across the pane's bottom edge covers the zoom control the dock decision moved to
+		// the bottom-left *precisely* so that it could never be under the Inspector. Measured at 390 × 844
+		// with a 2 rem inset: the zoom-in button 100% overlapped, and `elementFromPoint` at its centre
+		// answering with a paragraph of the description — "I never have to dismiss a panel to zoom" gone,
+		// on the one layout where dismissing costs the most.
+		//
+		// **`elementFromPoint` at the button's centre is the assertion that can actually fail**, because
+		// what the story is about is whether the button can be pressed. The overlap is asserted beside it so
+		// that a sheet clearing the centre and covering the corners cannot pass, and the button is then
+		// really pressed and the zoom really read — the three together are the claim in the terms a thumb
+		// meets it in.
+		expect(
+			await page.evaluate(() => {
+				const button = document.querySelector('.maplibregl-ctrl-zoom-in')!;
+				const band = document.getElementById('annotation-inspector')!.getBoundingClientRect();
+				const box = button.getBoundingClientRect();
+				const at = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+				const across = Math.max(0, Math.min(box.right, band.right) - Math.max(box.left, band.left));
+				const down = Math.max(0, Math.min(box.bottom, band.bottom) - Math.max(box.top, band.top));
+				return {
+					topmost:
+						at === null
+							? 'nothing'
+							: at.closest('.maplibregl-ctrl') === null
+								? at.tagName
+								: 'the zoom control',
+					overlapped: Math.round(across * down)
+				};
+			}),
+			'the sheet is over MapLibre’s zoom control'
+		).toEqual({ topmost: 'the zoom control', overlapped: 0 });
+		const zoomedTo = () =>
+			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack!.map.getZoom());
+		const beforeZooming = await zoomedTo();
+		await page.locator('.maplibregl-ctrl-zoom-in').click();
+		await expect.poll(zoomedTo, 'the zoom control did not zoom').toBeGreaterThan(beforeZooming);
+
+		// ── AND THE SELECTED MARK IS BROUGHT OUT FROM UNDER THE SHEET, ON THE Y AXIS ────────
+		//
+		// ⚠ **The-annotation-inspector story 19 on the other axis, which is the whole difference a sheet
+		// makes.** The docked panel is a column inset from the pane's right edge, so `keepAnnotationClear`
+		// reserves *width* and the mark moves sideways into the strip beside it. A sheet spans the pane's
+		// width and there is no such strip: a reservation computed from the occluder's left edge clamps to
+		// half the pane and shoves the mark sideways for nothing. Measured at 390 × 844 before this was
+		// fixed, the mark landed at x 97 — exactly half the pane less half the reservation — and was still
+		// fully inside the sheet's box, and re-selecting moved it no further.
+		//
+		// **Measured in the pane's own pixels rather than the viewport's**, which every camera assertion on
+		// a stacked screen has to be: pressing a row in the stack scrolls the page to reach it, so a mark
+		// and a sheet read in viewport coordinates on either side of a selection are read against two
+		// different page offsets.
+		//
+		// The map is panned rather than the Annotation, so the mark under the sheet is exactly the one whose
+		// description is on the screen above. `unproject(project(mark) + centre − target)` is the shift that
+		// puts a coordinate at a chosen screen point: Web Mercator is linear at a fixed zoom.
+		const ring = (await storedAnnotations(page, layerId)).features[0]!.geometry
+			?.coordinates as number[][][];
+		/**
+		 * The point the mark is drawn at: `annotationAnchor`'s middle of the shape's extent.
+		 *
+		 * Computed here rather than imported, for the reason {@link MARK_CLEARANCE} gives — this project
+		 * resolves nothing from the applications — and a shape's anchor is the one geometry rule simple
+		 * enough to restate: the middle of the ring's bounding box.
+		 */
+		const anchor: [number, number] = [
+			(Math.min(...ring[0]!.map(([lng]) => lng!)) + Math.max(...ring[0]!.map(([lng]) => lng!))) / 2,
+			(Math.min(...ring[0]!.map(([, lat]) => lat!)) +
+				Math.max(...ring[0]!.map(([, lat]) => lat!))) /
+				2
+		];
+		/** Where the mark lands in the pane's own pixels, against the camera as it is now. */
+		const markOnPane = () =>
+			page.evaluate(
+				(at) =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.project(
+						at as [number, number]
+					),
+				anchor
+			);
+		/** The sheet's box in the pane's own pixels, read as the difference of two viewport boxes. */
+		const sheetOnPane = async () => {
+			const shown = (await inspector(page).boundingBox())!;
+			const box = (await map.boundingBox())!;
+			return {
+				left: shown.x - box.x,
+				top: shown.y - box.y,
+				right: shown.x - box.x + shown.width,
+				bottom: shown.y - box.y + shown.height
+			};
+		};
+		const inside = (
+			box: { left: number; top: number; right: number; bottom: number },
+			at: { x: number; y: number }
+		) => at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom;
+		const band = await sheetOnPane();
+		await page.getByTestId('annotation-inspector-close').click();
+		await expect(inspector(page)).toHaveCount(0);
+		await page.evaluate(
+			async ([at, wanted]) => {
+				const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+				const from = map.project(at as [number, number]);
+				const middle = map.project([map.getCenter().lng, map.getCenter().lat]);
+				const to = wanted as { x: number; y: number };
+				const moved = map.unproject([from.x + middle.x - to.x, from.y + middle.y - to.y]);
+				map.setCenter([moved.lng, moved.lat]);
+				await Promise.race([
+					new Promise<void>((resolve) => map.once('idle', () => resolve())),
+					new Promise<void>((resolve) => setTimeout(resolve, 3000))
+				]);
+			},
+			[anchor, { x: (band.left + band.right) / 2, y: (band.top + band.bottom) / 2 }] as const
+		);
+		// The precondition, stated rather than assumed: with the sheet back this mark would be under it.
+		const under = await markOnPane();
+		expect(
+			inside(band, under),
+			'the mark is not where the sheet will be, so this asserts nothing'
+		).toBe(true);
+		await selectAnnotation(page, 0);
+		// Settled rather than sampled: the answer is where the camera *stopped*.
+		await expect
+			.poll(() =>
+				page.evaluate(() =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.isMoving()
+				)
+			)
+			.toBe(false);
+		const cleared = await markOnPane();
+		const standing = await sheetOnPane();
+		expect(inside(standing, cleared), 'the selected mark is still behind the sheet').toBe(false);
+		// ⚠ **Clear by `keepAnnotationClear`'s own 16 px comfort rather than by a pixel**, which is what
+		// makes the sheet's `max-h` load-bearing rather than incidental. That margin is the function's
+		// definition of "behind the panel": a mark that clears the sheet's edge by less than it is one the
+		// same function would move again, so a geometry that leaves it clear by 9 px has not satisfied the
+		// rule — it has landed just outside the rectangle. This is the assertion the desktop's 70% cap fails
+		// on a phone and 60% passes, and a Pin — whose mark box is 30 px tall where a shape's anchor is a
+		// point — cannot be got clear at 70% at all.
+		expect(
+			cleared.y,
+			'the mark was not brought comfortably up into the map above the sheet'
+		).toBeLessThan(standing.top - 16);
+		// **And it did not travel sideways to get there**, which is what a reservation on the x axis does
+		// with a sheet: the mark's own column is untouched, because the sheet leaves no column to move into.
+		expect(
+			Math.round(Math.abs(cleared.x - under.x)),
+			'the mark was moved sideways for a sheet that spans the pane'
+		).toBeLessThan(4);
+
+		// ── AND BOTH FACES SCROLL INSIDE IT AT THE CAP ──────────────────────────────────────
+		//
+		// ⚠ **The Style face as well as the Text one**, which ticket 07 left for this ticket: it is the
+		// taller of the two — some twenty-five controls — and it had never been measured against a cap.
+		const face = page.getByTestId('annotation-inspector-face');
+		/**
+		 * How far the identity header sits below the top of the sheet, in pixels.
+		 *
+		 * ⚠ **Relative to the sheet rather than to the viewport**, which the docked panel's own scroll
+		 * test can afford to be and this one cannot: everything on a stacked screen is inside a page
+		 * that scrolls and that a live region can lengthen, so a header measured against the window
+		 * moves for reasons that have nothing to do with what the sheet did. What the claim is about is
+		 * the header holding its place *in the sheet* — a sheet that scrolled as a whole would take it
+		 * up past its own top edge, and this goes negative when it does.
+		 */
+		const headerOffset = () =>
+			inspector(page).evaluate((element) =>
+				Math.round(
+					element
+						.querySelector('[data-testid="annotation-inspector-header"]')!
+						.getBoundingClientRect().top - element.getBoundingClientRect().top
+				)
+			);
+		for (const which of ['text', 'style'] as const) {
+			await openFace(page, which);
+			expect(
+				await face.evaluate((element) => ({
+					scrolls: element.scrollHeight > element.clientHeight,
+					overflow: getComputedStyle(element).overflowY
+				})),
+				`the ${which} face is not scrolling inside the sheet`
+			).toEqual({ scrolls: true, overflow: 'auto' });
+			// Scrolled by the wheel over the sheet, so a sheet that scrolled *as a whole* would answer by
+			// taking its own identity header off the top of itself.
+			//
+			// ⚠ **The resting header is read after the pointer is placed, not before.** `hover()` scrolls
+			// its own target into view, and on this layout the sheet is in a page that scrolls — so a
+			// reading taken first is a reading of the sheet at a different page offset, and the second
+			// half of this would fail by the height the page moved rather than by anything the sheet did.
+			//
+			// ⚠ **A short wheel, unlike the desktop test's**, for the same reason: a wheel longer than the
+			// face has left to give chains out of the sheet and takes the whole page with it.
+			//
+			// ⚠ **The header assertion below corroborates rather than falsifies on its own.** Every mutation
+			// that makes the sheet scroll as a whole instead of the face scrolling inside it — dropping the
+			// `max-height`, dropping the `flex`, moving `overflow-y` off the face — trips the two-value check
+			// above first, because the face then has nothing to scroll. It is kept because it is the claim
+			// stated in the terms a scholar meets it in (the Annotation's name stays on the screen while the
+			// prose moves), and it is the assertion that would notice a *future* sheet that scrolled itself.
+			await face.hover();
+			const resting = await headerOffset();
+			await page.mouse.wheel(0, 120);
+			await expect.poll(() => face.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+			expect(await headerOffset(), `the ${which} face scrolled the sheet’s header away`).toBe(
+				resting
+			);
+		}
+
+		// ── AND NO LEADER IS DRAWN, BECAUSE `leaderPath` REFUSED ────────────────────────────
+		//
+		// The-annotation-inspector story 62.
+		//
+		// ⚠ **Not "the line is invisible".** A media query hiding the element would satisfy any
+		// assertion about what can be seen; what the contract asks is that the *function* declines, so
+		// the polyline carries no `points` at all. The layer itself is asserted still rendered and still
+		// displayed, which is what stops this passing for the wrong reason.
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
+		expect(await leaderPoints(page)).toBeNull();
+		expect(
+			await leaderLayer(page).evaluate((element) => ({
+				points: element.querySelector('polyline')!.getAttribute('points'),
+				display: getComputedStyle(element).display
+			})),
+			'the leader was hidden by CSS rather than refused by leaderPath'
+		).toEqual({ points: null, display: 'block' });
+
+		// ── AND A PHONE IN LANDSCAPE STILL REACHES THE STYLE FACE ───────────────────────────
+		//
+		// ⚠ **What this holds is the pane's fixed `h-[26rem]`, not a phone in landscape.** The fault ticket
+		// 07 left here is a *short pane*: the identity header and the tab strip are `shrink-0`, so once the
+		// sheet's cap falls below their combined height the face is clipped to nothing while the Style tab
+		// goes on pressing. No viewport below `lg` can produce one — the pane is `h-[26rem]` there, measured
+		// at 416 px from 320 × 320 to 1023 × 400, so this reads a comfortable 176 px against its 24 px
+		// floor. What the floor therefore guards is the pane's fixed height, which is the choice worth
+		// holding: a fraction of a phone in landscape is exactly the short pane that clips the face.
+		// Measured — `h-[10rem]` in place of `h-[26rem]` takes this test red, at the sheet's own anchoring
+		// above rather than here, because a pane shorter than the sheet's cap and its bottom inset together
+		// fails the geometry before the face has anything to report.
+		//
+		// **The residual survives above `lg`, where the pane still tracks the window**, and it is recorded
+		// as a known limit in `ProjectScreen.svelte`'s note above the `max-height` — with the measurements,
+		// and with why an assertion there would be a test of the defect rather than of a regression.
+		//
+		// ⚠ **Measured as the part of the face that is inside the sheet, not as the face's own box.**
+		// `boundingBox()` answers with the layout rectangle whatever an ancestor clips, and the sheet
+		// clips with `overflow-hidden` — so a face laid out entirely below the sheet's bottom edge
+		// reports its full height and nothing of it is on the screen. The intersection is what a scholar
+		// can actually see, and 24 px is a row of controls rather than a hairline.
+		await page.setViewportSize({ width: 844, height: 390 });
+		await openFace(page, 'text');
+		await openFace(page, 'style');
+		const showing = () =>
+			inspector(page).evaluate((element) => {
+				const sheetBox = element.getBoundingClientRect();
+				// The face's own box, not a control inside it: a control's rectangle moves with the face's
+				// `scrollTop`, so it would report a row scrolled off the top as though the sheet were short.
+				const faceBox = element
+					.querySelector('[data-testid="annotation-inspector-face"]')!
+					.getBoundingClientRect();
+				return Math.round(
+					Math.min(faceBox.bottom, sheetBox.bottom) - Math.max(faceBox.top, sheetBox.top)
+				);
+			});
+		expect(
+			await showing(),
+			'the Style face is clipped out of the sheet on a short pane'
+		).toBeGreaterThan(24);
+
 		expect(failures).toEqual([]);
 	});
 });

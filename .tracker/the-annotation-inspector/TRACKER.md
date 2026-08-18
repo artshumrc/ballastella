@@ -21,9 +21,9 @@ the ADR that replaces that reasoning, and it blocks the two tickets that perform
 
 ## Current Status
 
-Overall status: `In Progress`
+Overall status: `Completed`
 
-Current ticket: 09
+Current ticket: — (all nine complete)
 
 Last updated: 2026-08-17
 
@@ -39,7 +39,7 @@ Last updated: 2026-08-17
 | 06 | [06-an-author-reads-and-writes-in-the-inspector.md](./tickets/06-an-author-reads-and-writes-in-the-inspector.md) | Completed | 01, 02, 03, 04, 05 |
 | 07 | [07-the-inspector-never-hides-the-mark.md](./tickets/07-the-inspector-never-hides-the-mark.md) | Completed | 06 |
 | 08 | [08-a-reader-reads-in-the-same-inspector.md](./tickets/08-a-reader-reads-in-the-same-inspector.md) | Completed | 06 |
-| 09 | [09-both-apps-stack-on-a-phone.md](./tickets/09-both-apps-stack-on-a-phone.md) | In Progress | 06, 08 |
+| 09 | [09-both-apps-stack-on-a-phone.md](./tickets/09-both-apps-stack-on-a-phone.md) | Completed | 06, 08 |
 
 ## Notes on the shape of this epic
 

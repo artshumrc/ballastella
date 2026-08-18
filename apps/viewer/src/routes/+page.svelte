@@ -1658,6 +1658,28 @@
 	dock carries, including the `max-height` that keeps the Base Map's attribution clear and the `flex`
 	that passes that cap on to the panel — `ProjectScreen`'s own note has the measurements behind both.
 
+	⚠ **Below `lg` — the width at which this page's own grid already becomes one column — it is a sheet
+	across the bottom of the pane instead**, because a panel docked to a corner has no corner to dock to
+	on a phone (the-annotation-inspector story 61). The same component with the same props: where it
+	sits is this page's, which is why nothing about the sheet is a flag passed into it.
+
+	⚠ **The bottom inset carries the zoom control as well as the attribution.** A sheet spanning the
+	pane's width crosses the whole of its bottom edge, and `z-index: 7` puts the sheet over MapLibre's
+	control corners — so on a phone the zoom control the dock decision moved to the bottom-left, so that
+	it could never be under the Inspector, is under it after all unless this inset leaves it alone.
+	Measured on a 375 px published site before the inset existed: the zoom-in button 100% covered, and
+	`elementFromPoint` at its centre answering with a paragraph of the description. The same 6.25 rem
+	inset and the same 60% cap as the editor's sheet, and `ProjectScreen`'s note has the arithmetic
+	behind both numbers.
+
+	⚠ **KNOWN LIMIT: this pane reserves nothing in the camera, so a mark under the sheet stays under it.**
+	`keepAnnotationClear` is the editor's `BaseMapPane` — it has never existed here, on a desktop either —
+	and a Reader's way out is the sheet's own dismiss control, which is the same way out a Reader has had
+	since the panel docked. Giving the Reader the same reservation means one of two costs, neither of them
+	this ticket's: duplicating the function in `ReaderMapPane`, which is a second place for the geometry to
+	drift, or lifting it into `@ballastella/core/render` beside `annotationMarkBox`, which puts a camera
+	move into a package that today only computes.
+
 	⚠ **`z-index: 7` is load-bearing.** The leader is 5 and `layout.css` forces MapLibre's four control
 	corners to 6 so the leader cannot be drawn across them; all three are compared in one stacking
 	context, because `.maplibregl-map` opens none. 7 is one clear of the controls, which keeps the
@@ -1666,7 +1688,7 @@
 {#snippet mapOverlay()}
 	{#if openAnnotation}
 		<div
-			class="absolute top-2 right-2 z-[7] flex max-h-[calc(100%-3rem)] w-80 max-w-[calc(100%-1rem)] flex-col"
+			class="absolute top-auto right-2 bottom-[6.25rem] left-2 z-[7] flex max-h-[60%] flex-col lg:top-2 lg:bottom-auto lg:left-auto lg:max-h-[calc(100%-3rem)] lg:w-80 lg:max-w-[calc(100%-1rem)]"
 		>
 			<AnnotationInspector
 				annotation={openAnnotation}

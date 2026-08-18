@@ -51,6 +51,7 @@ export interface StackMap {
 	getCanvas(): HTMLCanvasElement;
 	setCenter(lngLat: [number, number]): void;
 	setZoom(zoom: number): void;
+	getZoom(): number;
 	once(event: string, listener: () => void): unknown;
 	isMoving(): boolean;
 	/** What `StackRender.setSelectedAnnotation` wrote onto a feature, keyed by source and feature id. */
