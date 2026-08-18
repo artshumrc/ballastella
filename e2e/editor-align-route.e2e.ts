@@ -130,6 +130,19 @@ async function expectEqualPanesAndDockedColumn(page: Page, width: number): Promi
 	const widths = await measure();
 	expect(widths.sheet, `both panes collapsed at ${width} px`).toBeGreaterThan(200);
 
+	if (width >= 1024) {
+		const [sheetFrame, earthFrame] = await Promise.all([
+			sheet.getByTestId('image-pane').boundingBox(),
+			page.getByTestId('base-map-pane').boundingBox()
+		]);
+		expect(sheetFrame).not.toBeNull();
+		expect(earthFrame).not.toBeNull();
+		expect(
+			Math.abs(sheetFrame!.y - earthFrame!.y),
+			`the Map Image and Base Map panes are not top-aligned at ${width} px`
+		).toBeLessThanOrEqual(0.5);
+	}
+
 	// ─── The column is solid, and it is in the flow rather than over it ──────────────────────────
 	const paint = await column.evaluate((element) => {
 		const style = getComputedStyle(element);
@@ -244,6 +257,7 @@ test.describe('the alignment route', () => {
 		// Both panes, side by side, and a Control Point placed across them.
 		await expect(mapImage(page)).toBeVisible();
 		await expect(baseMap(page)).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Map Image: la-floride.png' })).toBeVisible();
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
 			timeout: 30_000
 		});
@@ -270,6 +284,11 @@ test.describe('the alignment route', () => {
 
 		await expectEqualPanesAndDockedColumn(page, 768);
 		await expectEqualPanesAndDockedColumn(page, 1120);
+		await expectEqualPanesAndDockedColumn(page, 1440);
+
+		await makePair(page, [0.6, 0.3]);
+		await makePair(page, [0.3, 0.6]);
+		await expect(page.getByTestId('overlay-opacity-controls')).toBeVisible();
 		await expectEqualPanesAndDockedColumn(page, 1440);
 	});
 

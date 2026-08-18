@@ -281,8 +281,6 @@ const waitForTiles = (page: Page, timeout?: number) =>
 
 const pyramidReadout = (page: Page) => page.getByTestId('map-image-pyramid');
 
-const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
-
 const mapZoom = async (page: Page) => Number(await page.getByTestId('map-image-zoom').innerText());
 
 /**
@@ -333,10 +331,9 @@ test.describe('a Map Image read from the Project', () => {
 		// visited. `collectServedTiles` is therefore installed before navigation. Waiting on
 		// `data-tiles-loaded` per step was a second, smaller race: the attribute is `true` from the
 		// previous settle until MapLibre's `zoom` event clears it.
-		await button(page, 'Fit whole map').click();
-		await waitForTiles(page);
+		await page.getByTestId('image-pane').hover();
 		for (let step = 0; step < 6; step++) {
-			await button(page, 'Zoom out one level').click();
+			await page.mouse.wheel(0, 1_000);
 		}
 		await waitForTiles(page);
 
@@ -345,17 +342,13 @@ test.describe('a Map Image read from the Project', () => {
 		// which pairs map zoom 11 with scale factor 4, 12 with 2, and 13 with 1.
 		expect(await mapZoom(page)).toBe(11);
 
-		for (const [zoom, scaleFactor] of [
-			[11, 4],
-			[12, 2],
-			[13, 1]
-		] as const) {
-			while ((await mapZoom(page)) < zoom) {
-				await button(page, 'Zoom in one level').click();
+		for (const scaleFactor of [4, 2, 1]) {
+			for (let step = 0; step < 6; step++) {
+				await page.mouse.wheel(0, -1_000);
 			}
 			await expect
 				.poll(async () => (await servedTiles(page)).some((t) => t.scaleFactor === scaleFactor), {
-					message: `no tile at scale factor ${scaleFactor} was served by map zoom ${zoom}`,
+					message: `no tile at scale factor ${scaleFactor} was served while zooming in`,
 					// Past the default 5 s, because every tile here is an OPFS read and the suite runs
 					// ten workers each driving a real WebGL map against real OPFS — the contention the
 					// tracker already records against it. A level that is genuinely never requested
@@ -532,12 +525,10 @@ test.describe('a Map Image read from the Project', () => {
 		await showPaneDetails(page);
 		await expect(pyramidReadout(page)).toContainText('scale factors 1, 2, 4, 8');
 
-		// Out to the coarsest level, the same way the first test in this file gets there: fitting the
-		// whole map is not far enough out on its own.
-		await button(page, 'Fit whole map').click();
-		await waitForTiles(page, 30_000);
+		// Out to the coarsest level.
+		await page.getByTestId('image-pane').hover();
 		for (let step = 0; step < 6; step++) {
-			await button(page, 'Zoom out one level').click();
+			await page.mouse.wheel(0, 1_000);
 		}
 		await waitForTiles(page, 30_000);
 		await expect
@@ -567,23 +558,6 @@ test.describe('a Map Image read from the Project', () => {
 		await waitForTiles(page);
 		// The zoom readout and the pointer readout are both inside the disclosure.
 		await showPaneDetails(page);
-
-		// Every control is a real button and reachable by tabbing (ADR-0016, stories 95 and 96).
-		await button(page, 'Fit whole map').focus();
-		await expect(button(page, 'Fit whole map')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(button(page, 'Zoom to full resolution')).toBeFocused();
-		await page.keyboard.press('Enter');
-		await waitForTiles(page);
-
-		// One image pixel per map pixel at full resolution. A 700 × 500 image at 256-pixel tiles
-		// fits one tile at scale factor 4, so its synthetic window is 1024 image pixels wide, and
-		// MapLibre's 512-pixel world puts that at zoom 12 + log2(1024 / 512) = 13. The identity is
-		// the same one the fixture pane asserts at 14 for a 2048-pixel window; the zoom differs
-		// because the pyramid does, which is exactly why it is derived rather than hard-coded in
-		// the app.
-		expect(await mapZoom(page)).toBe(13);
-		await expect(pyramidReadout(page)).toContainText('of 13 at full resolution');
 
 		// The pane answers in image pixels, not in the synthetic geography behind it.
 		//

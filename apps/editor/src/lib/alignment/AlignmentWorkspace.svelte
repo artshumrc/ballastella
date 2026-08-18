@@ -902,7 +902,6 @@
 				aria-labelledby="map-image-pane-heading"
 				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
 			>
-				<h4 id="map-image-pane-heading" class="mb-2 text-sm font-semibold">Map Image</h4>
 				<!--
 					The same pane story 31 already delivers, now carrying Control Points. It loads the
 					pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
@@ -915,57 +914,60 @@
 					too small to aim a Control Point at, so the page scrolls instead of squeezing further.
 				-->
 				{#snippet cropControls()}
-					<!--
-						Crop: the Resource Mask's handles, on or off.
+					<div class="flex flex-1 items-center justify-evenly">
+						<h4 id="map-image-pane-heading" class="text-sm font-semibold">Map Image: {mapName}</h4>
+						<!--
+							Crop: the Resource Mask's handles, on or off.
 
-						**In the pane's own control row**, because it acts on the sheet in that pane exactly as "Fit
-						whole map" does — it was a row of its own underneath, one line high, on the screen with two
-						live panes competing for height. **"Crop" rather than "Outline the part of the sheet that is
-						the map"**: the sentence was the label, and a sentence-long label in a row of verbs reads as
-						prose rather than as a control. What it does is still said in full — in the summary under the
-						pane, which is where the gestures and the corner count already are.
-					-->
-					{#if pairing}
-						<label class="label cursor-pointer gap-2 text-sm">
-							<input
-								type="checkbox"
-								class="toggle toggle-sm"
-								checked={editingMask}
-								data-testid="mask-edit-toggle"
-								onchange={(event) => {
-									editingMask = event.currentTarget.checked;
-									maskStatus = null;
-								}}
-							/>
-							Crop
-						</label>
+							**In the pane's own control row**, because it acts on the sheet in that pane — it was a row of
+							its own underneath, one line high, on the screen with two
+							live panes competing for height. **"Crop" rather than "Outline the part of the sheet that is
+							the map"**: the sentence was the label, and a sentence-long label in a row of verbs reads as
+							prose rather than as a control. What it does is still said in full — in the summary under the
+							pane, which is where the gestures and the corner count already are.
+						-->
+						{#if pairing}
+							<label class="label cursor-pointer gap-2 text-sm">
+								<input
+									type="checkbox"
+									class="toggle toggle-sm"
+									checked={editingMask}
+									data-testid="mask-edit-toggle"
+									onchange={(event) => {
+										editingMask = event.currentTarget.checked;
+										maskStatus = null;
+									}}
+								/>
+								Crop
+							</label>
 
-						{#if editingMask}
-							<button
-								class="btn btn-ghost btn-sm"
-								data-testid="mask-reset"
-								onclick={() => {
-									const current = pairing;
-									if (!current) return;
-									current.resetMask();
-									maskDone(
-										'The whole sheet is the map again, with ' +
-											`${current.resourceMask.length} Resource Mask corners.`
-									);
-									save(current);
-								}}
-							>
-								Show the whole sheet again
-							</button>
+							{#if editingMask}
+								<button
+									class="btn btn-ghost btn-sm"
+									data-testid="mask-reset"
+									onclick={() => {
+										const current = pairing;
+										if (!current) return;
+										current.resetMask();
+										maskDone(
+											'The whole sheet is the map again, with ' +
+												`${current.resourceMask.length} Resource Mask corners.`
+										);
+										save(current);
+									}}
+								>
+									Show the whole sheet again
+								</button>
+							{/if}
 						{/if}
-					{/if}
+					</div>
 				{/snippet}
 
 				<MapImagePane
 					{imageId}
 					source={paneSource}
 					{fetchTile}
-					frameClass="mt-3 h-[45dvh] lg:h-auto lg:min-h-64 lg:grow"
+					frameClass="{solvable ? 'mt-3' : 'mt-2'} h-[45dvh] lg:h-auto lg:min-h-64 lg:grow"
 					label="Map Image, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
 					overlayPoints={imagePoints}
 					maskRing={pairing?.resourceMask ?? []}
@@ -1055,18 +1057,18 @@
 					It writes through `session.chooseBaseMap`, the same one every other switcher calls, so the
 					choice is the Project's author default (ADR-0020) rather than a third copy of that state.
 				-->
-				<div class="mb-2 flex flex-wrap items-end justify-between gap-3">
+				<div class="mb-2 flex flex-wrap items-center justify-evenly lg:flex-nowrap">
 					<h4 id="base-map-pane-heading" class="text-sm font-semibold">Base Map</h4>
 					<!--
 						The switcher's own label is `sr-only` here, and only here: the heading to its left already
 						says "Base Map", so on screen it was the word twice and a line of height for the second one.
 						The `<select>` keeps its accessible name.
 					-->
-					<div class="max-w-xs grow">
+					<div class="w-80 max-w-full">
 						<BaseMapSwitcher
 							entryId={baseMapId}
 							catalog={BASE_MAP_CATALOG}
-							class="max-w-xs"
+							class="w-full"
 							labelSrOnly
 							onSelect={(id) => session.chooseBaseMap(id)}
 						/>
@@ -1079,8 +1081,8 @@
 						warped, and a slider over an empty Base Map is a control with no referent.
 					-->
 					{#if solvable}
-						<div data-testid="overlay-opacity-controls">
-							<label class="label" for="overlay-opacity">
+						<div class="w-44" data-testid="overlay-opacity-controls">
+							<label class="block text-center" for="overlay-opacity">
 								<span class="label-text">Opacity</span>
 							</label>
 							<div class="flex items-center gap-2">
@@ -1110,7 +1112,7 @@
 						</div>
 					{/if}
 				</div>
-				<!-- The same height contract as the sheet beside it — see `frameClass` above. -->
+				<!-- The Map Image frame reserves this header's height, keeping the canvases top-aligned. -->
 				<div
 					bind:this={baseMapFrame}
 					class="h-[45dvh] overflow-hidden rounded border border-base-300 lg:h-auto lg:min-h-64 lg:grow"

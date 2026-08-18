@@ -479,7 +479,7 @@
 			case 'map':
 				return 'Map Image';
 			case 'annotation':
-				return 'Annotations';
+				return 'Annotation Layer';
 			case 'foreign':
 				return `Not shown by this version (${layer.declaredKind || 'unknown kind'})`;
 		}

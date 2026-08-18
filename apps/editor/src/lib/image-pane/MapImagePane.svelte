@@ -108,8 +108,8 @@
 		/**
 		 * Extra controls for the pane's own row — the screen's, not the pane's.
 		 *
-		 * The alignment screen puts Crop here: it acts on the sheet in this pane, so it belongs beside
-		 * "Fit whole map" rather than on a row of its own beneath it.
+		 * The alignment screen puts Crop here: it acts on the sheet in this pane, so it belongs on the
+		 * pane's control row rather than on a row of its own beneath it.
 		 */
 		controls?: Snippet;
 	} = $props();
@@ -117,7 +117,6 @@
 	let pane: ImagePane | undefined = $state.raw();
 	let shownImageId = $state('');
 	let failure = $state('');
-	let paneView: ReturnType<typeof ImagePaneView> | undefined = $state.raw();
 	let tilesLoaded = $state(false);
 	let mapZoom = $state(0);
 	let pointer = $state<{ x: number; y: number } | undefined>();
@@ -330,24 +329,9 @@
 		{/if}
 	</div>
 
-	<!--
-		One row for everything done *to this pane*: the view controls, whatever the screen adds through
-		{@link controls}, and whether the view has settled.
-
-		The alternative — and what this was — is a stack of rows under the canvas, each a line high, on
-		the screen with two live map panes competing for the height.
-	-->
-	<div class="flex flex-wrap items-center gap-2">
-		<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Map Image view">
-			<button class="btn btn-sm" onclick={() => paneView?.fitImage()}>Fit whole map</button>
-			<button class="btn btn-sm" onclick={() => paneView?.zoomToFullResolution()}>
-				Zoom to full resolution
-			</button>
-		</div>
-
+	<!-- One row for the screen's pane controls and whether the view has settled. -->
+	<div class="flex h-10 flex-wrap items-center gap-2">
 		{@render controls?.()}
-
-		<div class="grow"></div>
 
 		<!--
 			Whether the view has settled (SPEC story 96) — **a spinner while it has not, and nothing at all
@@ -386,7 +370,6 @@
 		-->
 		{#key shownImageId}
 			<ImagePaneView
-				bind:this={paneView}
 				{pane}
 				paneId={shownImageId}
 				{fetchTile}

@@ -225,7 +225,8 @@ for (const [what, host] of [
 		// `1,0` is neither — and `/256,256/` alone, which a *coarser* level also produces the moment a
 		// 512-pixel region is asked for at scale factor 2. Both would have gone green over a pane that
 		// never left its overview.
-		await page.getByRole('button', { name: 'Zoom to full resolution' }).click();
+		await page.getByTestId('image-pane').hover();
+		await page.mouse.wheel(0, -1_000);
 		await expect
 			.poll(() => tileRequests.filter(atFullResolution).length, { timeout: 30_000 })
 			.toBeGreaterThan(0);

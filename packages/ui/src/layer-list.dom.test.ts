@@ -924,6 +924,7 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 		offering({}, { layers, openLayerId: 'l-notes' });
 
 		expect(one('supplied-annotation-contents')).not.toBeInTheDocument();
+		expect(one('layer-kind')).toHaveTextContent('Annotation Layer');
 		expect(one('layer-contents')).toBeInTheDocument();
 	});
 });
