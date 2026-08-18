@@ -85,6 +85,7 @@
 		onstack,
 		onbasemapstatus,
 		selectedAnnotationId = null,
+		controls,
 		overlay
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
@@ -199,6 +200,8 @@
 		 * the row, the map and the leader all read the one value.
 		 */
 		selectedAnnotationId?: string | null;
+		/** Page-owned controls positioned over this pane. */
+		controls?: Snippet;
 		/**
 		 * What the page draws *over* this pane, inside the pane's own positioned container.
 		 *
@@ -770,5 +773,8 @@
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="reader-map-pane"></div>
+	<div class="absolute top-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+		{@render controls?.()}
+	</div>
 	{@render overlay?.()}
 </div>

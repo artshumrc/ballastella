@@ -1276,6 +1276,14 @@ test.describe('exploring a Project', () => {
 		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
 		await expect(readerPane.locator('.maplibregl-ctrl-top-right .maplibregl-ctrl')).toHaveCount(0);
 
+		// The reader wears the editor's Project workspace: a fixed layer sidebar at the left and a map
+		// that takes the remaining viewport, rather than a centred card with a capped map.
+		const sidebarBox = (await page.getByTestId('layer-sidebar').boundingBox())!;
+		const mapBox = (await readerPane.boundingBox())!;
+		expect(mapBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width - 1);
+		expect(mapBox.width).toBeGreaterThan(sidebarBox.width);
+		expect(mapBox.height).toBeGreaterThan(sidebarBox.width);
+
 		const order = await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder());
 		const mapLayerAt = order.findIndex((id) => id === `ballastella-layer-${MAP_LAYER_ID}`);
 		const annotationAt = order.findIndex((id) =>
@@ -4114,7 +4122,7 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		expect(at.zoom).toBeCloseTo(parked.zoom, 6);
 
 		// The explicit control, with words on it, is what covers everything the once-only fit does not.
-		await page.getByRole('button', { name: 'Fit to this Project' }).click();
+		await page.getByRole('button', { name: 'Fit project' }).click();
 		await expect
 			.poll(async () => (await readerViewport(page)).lat)
 			.toBeCloseTo(BOSTON_CENTRE.lat, 3);

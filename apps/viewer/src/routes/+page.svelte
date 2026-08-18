@@ -109,6 +109,7 @@
 		pageChrome,
 		type Box
 	} from '@ballastella/ui';
+	import Scan from '@lucide/svelte/icons/scan';
 	import { onMount, tick, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
@@ -1019,8 +1020,8 @@
 	// "which pin is this row about" — the question the retired map popup used to answer — and gets it
 	// drawn from the same code, so the two apps cannot disagree about where it goes.
 	//
-	// Below `lg` the grid is one column and the map sits under the stack: `LeaderLine` measures that
-	// and draws nothing, which is story 46 without a breakpoint being written down twice.
+	// Below `lg` the stack sits below the map: `LeaderLine` measures that and draws nothing, which is
+	// story 46 without a breakpoint being written down twice.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/** The map pane, for the one thing this page asks of its camera. */
@@ -1221,12 +1222,7 @@
 	}}
 />
 
-<!--
-	`max-w-*` with `mx-auto`, and horizontal padding that shrinks: at 375 px the `p-8` this page used to
-	carry spent 43% of the viewport on margins. Nothing here has a fixed width, so the page never scrolls
-	sideways (ticket 17's criterion, and SPEC story 84 — a phone is where most Readers arrive).
--->
-<main class="mx-auto max-w-6xl p-4 sm:p-8">
+<main class="flex min-h-0 flex-col lg:h-full">
 	<!--
 		Why the Base Map on screen is not the one the Project asked for (ADR-0020), and what this site
 		was published without.
@@ -1242,7 +1238,7 @@
 		Here they are in the prerendered HTML, empty, and the sentence arriving is a change.
 
 		{@link showingTheMap} keeps *when* they speak unchanged: a Project's map, and nowhere else.
-		`max-w-prose` because this column is the page's full width rather than the switcher's 22rem.
+		`max-w-prose` keeps the sentence readable without constraining the map workspace below.
 	-->
 	<MapNotice
 		shape="always-present"
@@ -1261,7 +1257,8 @@
 	/>
 
 	{#if openDirectory === null}
-		<!--
+		<div class="mx-auto w-full max-w-6xl p-4 sm:p-8">
+			<!--
 			The site's own sentence about itself, as ordinary markup.
 
 			It was Markdown put through `renderAnnotationPopup` and `{@html}`-ed, which made this page's
@@ -1272,14 +1269,14 @@
 			`{@html}` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
 			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 		-->
-		<p class="max-w-prose">
-			These are the Projects published from one Ballastella Workspace. A Reader can look at the work
-			— the aligned Map Images and the Annotations written over them — and cannot change it.
-			Published with
-			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
-		</p>
+			<p class="max-w-prose">
+				These are the Projects published from one Ballastella Workspace. A Reader can look at the
+				work — the aligned Map Images and the Annotations written over them — and cannot change it.
+				Published with
+				<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
+			</p>
 
-		<!--
+			<!--
 			⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
 			way back to the editor, and it survived that paragraph's move into the navigation bar: a
 			student with no GitHub account is exactly the Reader who will not follow a link that looks
@@ -1292,22 +1289,22 @@
 			Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
 			drift into a page that offers the link without the sentence or the sentence without the link.
 		-->
-		{#if cloneLink !== null}
-			<p class="mt-4 max-w-prose" data-testid="no-account-needed">
-				Opening this Workspace in Ballastella takes a copy of all of it onto your own computer. You
-				do not need an account, and nothing published here is changed.
-			</p>
-		{/if}
+			{#if cloneLink !== null}
+				<p class="mt-4 max-w-prose" data-testid="no-account-needed">
+					Opening this Workspace in Ballastella takes a copy of all of it onto your own computer.
+					You do not need an account, and nothing published here is changed.
+				</p>
+			{/if}
 
-		{#if siteError}
-			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
-				<h2 class="font-semibold">This site has no list of Projects</h2>
-				<p data-testid="site-problem">{siteError}</p>
-			</div>
-		{:else if site === null}
-			<p class="mt-8">Looking for the Projects on this site…</p>
-		{:else if frontPage.length === 0}
-			<!--
+			{#if siteError}
+				<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
+					<h2 class="font-semibold">This site has no list of Projects</h2>
+					<p data-testid="site-problem">{siteError}</p>
+				</div>
+			{:else if site === null}
+				<p class="mt-8">Looking for the Projects on this site…</p>
+			{:else if frontPage.length === 0}
+				<!--
 				Two different facts, and they must not share a sentence (ADR-0032). "No Projects on it yet"
 				is true of a site nothing has been published to, and reads as *the files are missing* — which
 				would send the author of a site whose Projects are all off the Front Page looking for work
@@ -1315,16 +1312,16 @@
 				repeats the one thing the editor's control promised them: the Projects are still here, and a
 				link still opens one.
 			-->
-			{#if site.projects.length === 0}
-				<p class="mt-8" data-testid="no-projects-yet">This site has no Projects on it yet.</p>
+				{#if site.projects.length === 0}
+					<p class="mt-8" data-testid="no-projects-yet">This site has no Projects on it yet.</p>
+				{:else}
+					<p class="mt-8 max-w-prose" data-testid="none-on-front-page">
+						None of this site’s Projects are on the front page. They are still published — anyone
+						with a link to one can open it.
+					</p>
+				{/if}
 			{:else}
-				<p class="mt-8 max-w-prose" data-testid="none-on-front-page">
-					None of this site’s Projects are on the front page. They are still published — anyone with
-					a link to one can open it.
-				</p>
-			{/if}
-		{:else}
-			<!--
+				<!--
 				The same list of cards the editor's Hub renders, from the one component (SPEC stories 8 and
 				53) — so publishing does not reformat a scholar's Projects into something else.
 
@@ -1336,8 +1333,9 @@
 				and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
 				published site (ADR-0009).
 			-->
-			<ProjectCardList class="mt-8" testid="published-projects" projects={frontPageCards} />
-		{/if}
+				<ProjectCardList class="mt-8" testid="published-projects" projects={frontPageCards} />
+			{/if}
+		</div>
 	{:else}
 		{#if projectError}
 			<div role="alert" class="alert flex-col items-start alert-warning">
@@ -1380,85 +1378,67 @@
 					/>
 				{/if}
 			{:else}
-				<!--
-					One column on a phone and two from `lg` up. The controls come **first** in the DOM so that
-					tabbing reaches them before MapLibre's canvas and its zoom buttons, and on a narrow screen
-					they are what a Reader sees under the heading rather than below a full-height map.
-				-->
-				<!--
-					`relative` establishes the containing block the leader's own layer is `inset-0` of — it
-					spans the stack and the map together, which is why it is a child of this element rather
-					than of either column.
-				-->
-				<div class="relative mt-4 grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
-					<div bind:this={layerColumn} class="flex flex-col gap-4">
-						<!--
-							The label sits above the select here, so the pair is a column of its own inside the
-							controls column — the gap between them is the switcher's, not the 1rem the surrounding
-							stack puts between its children.
+				<div class="flex min-h-0 grow flex-col" data-testid="project-screen">
+					<div class="relative flex min-h-0 grow flex-col lg:flex-row">
+						<div class="flex min-h-0 grow flex-col">
+							<MapNotice
+								shape="comes-and-goes"
+								heading="The Base Map did not load"
+								testid="base-map-unavailable"
+								text={archiveUnavailable}
+							/>
 
-							`w-full sm:w-56` because at 375 px a fixed-width control is what pushes a page into
-							horizontal scroll.
-						-->
-						<div class="flex flex-col">
-							<BaseMapSwitcher
-								entryId={baseMap.entry.id}
-								{catalog}
-								class="sm:w-56"
-								onSelect={(id) => chooseBaseMap(id)}
+							<MapNotice
+								shape="comes-and-goes"
+								heading="A Map Image stopped drawing"
+								testid="map-image-tiles-unavailable"
+								text={tilesUnavailable}
+							/>
+
+							<div
+								bind:this={mapColumn}
+								class="h-[26rem] shrink-0 overflow-hidden lg:h-auto lg:min-h-0 lg:grow"
+							>
+								{#if siteRecordKnown}
+									<ReaderMapPane
+										bind:this={readerMapPane}
+										selectedAnnotationId={openAnnotationId}
+										entryId={baseMap.entry.id}
+										{catalog}
+										{bundledBaseMapAvailable}
+										{cachedBaseMap}
+										layers={drawn}
+										{openingFit}
+										{fetchTile}
+										tilesMissing={tileFailure !== null}
+										onclickannotation={(hit) => {
+											openLayerId = hit.layerId;
+											selected = hit;
+										}}
+										onstack={(reported) => (rendered = reported)}
+										onbasemapstatus={(status) => {
+											baseMapUnavailable = status === 'unavailable';
+										}}
+										controls={mapControls}
+										overlay={mapOverlay}
+									/>
+								{/if}
+							</div>
+
+							<MapCommentary
+								layerCount={layers.length}
+								{drawnCount}
+								{openingOutcome}
+								{refitted}
+								{emptyStackNote}
 							/>
 						</div>
 
-						<!--
-							The archive answered nothing while the connection is fine (ticket 22). It comes and
-							goes with the outage, so `MapNotice` makes it an `alert` and renders nothing at all
-							while the archive is answering — the two at the top of the page are the other shape, and
-							the component's header carries the rule and the reason it is not each call site's.
-
-							It is the same alert whether the Base Map is somebody else's or this site's own; what
-							differs is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than
-							this template's, so the editor and the viewer cannot drift apart.
-
-							Above the map in the DOM, because the controls come first here deliberately (see the
-							grid comment): the account of why the rectangle is empty should be read before the
-							rectangle, not found underneath it.
-						-->
-						<MapNotice
-							shape="comes-and-goes"
-							heading="The Base Map did not load"
-							testid="base-map-unavailable"
-							text={archiveUnavailable}
-						/>
-
-						<!--
-							A Map Image's tiles stopped arriving (ticket 04, SPEC stories 14–18).
-
-							⚠ **This text appears and disappears, so it is the `comes-and-goes` shape and not a
-							permanently-mounted region.** The two are not interchangeable: a standing live region
-							is the right mechanism for text that *changes* between two things worth hearing, and
-							an empty one announces nothing on the way in. The heading makes the alert a landmark
-							a Reader can be sent to.
-
-							Beside the Base Map notices and above the map, because the account of why part of
-							the rectangle is missing should be read before the rectangle rather than found
-							underneath it. Distinct from `base-map-unavailable` deliberately — that is the
-							modern reference map underneath the work, this is the work itself, and the remedies
-							differ. The two are not mutually exclusive and both can be up at once.
-						-->
-						<MapNotice
-							shape="comes-and-goes"
-							heading="A Map Image stopped drawing"
-							testid="map-image-tiles-unavailable"
-							text={tilesUnavailable}
-						/>
-
-						<!--
-							The Layer stack, as the shared card (SPEC stories 1, 10–19). `base-300` under
-							`base-100` cards for the reason `LayerList`'s header measures: on the page's own
-							surface a `base-100` card has only its hairline to separate it, which is invisible in
-							light and a smudge in dark. The editor's `layer-sidebar` is the same pairing.
-						-->
-						<div class="rounded-lg bg-base-300 p-3">
+						<div
+							bind:this={layerColumn}
+							class="shrink-0 border-t border-base-content/10 bg-base-300 p-4 lg:order-first lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-r"
+							data-testid="layer-sidebar"
+						>
 							<!--
 								What the Reader's last change did, in words. Above the stack rather than under it,
 								because a live region a Reader may have to scroll to find is one they will not read
@@ -1488,124 +1468,43 @@
 								{mapContents}
 								{annotationContents}
 							/>
-						</div>
+							{#if needsNetwork.length > 0}
+								<MapNotice
+									shape="comes-and-goes"
+									variant="plain"
+									class="mt-4 text-sm text-warning"
+									testid="project-needs-network"
+								>
+									{needsNetwork.length === 1
+										? 'One Map Image'
+										: `${needsNetwork.length} Map Images`}
+									here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather
+									than in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a
+									network connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
+								</MapNotice>
+							{/if}
 
-						{#if needsNetwork.length > 0}
-							<!--
-								Which Map Images will not draw without a connection, named.
-
-								**Not the per-Layer badge ticket 05 removed.** That said where a Layer's tiles are
-								held, which is the author's publishing decision and nothing a Reader can act on;
-								this names the maps that go blank on a train, which is a fact a Reader acts on by
-								knowing. It comes and goes with the Project, so it is the `alert` shape.
-							-->
-							<MapNotice
-								shape="comes-and-goes"
-								variant="plain"
-								class="text-sm text-warning"
-								testid="project-needs-network"
-							>
-								{needsNetwork.length === 1 ? 'One Map Image' : `${needsNetwork.length} Map Images`}
-								here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather
-								than in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a
-								network connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
-							</MapNotice>
-						{/if}
-
-						{#if unreachable.length > 0}
-							<MapNotice shape="comes-and-goes" heading="Some of this Project could not be reached">
-								{#each unreachable as failure (failure.name)}
-									<p data-testid="layer-unreachable">{failure.reason}</p>
-								{/each}
-							</MapNotice>
-						{/if}
-					</div>
-
-					<div>
-						<!--
-							ADR-0026's explicit control, with words on it rather than an icon and a tooltip (SPEC
-							story 111). It is what the once-only automatic fit gives up: a Reader who has panned
-							away, or hidden half the stack, comes back with this.
-						-->
-						<div class="mb-2 flex flex-wrap items-center justify-end gap-2">
-							<button
-								type="button"
-								class="btn btn-sm"
-								data-testid="fit-to-project"
-								onclick={() => fitToProject()}
-							>
-								Fit to this Project
-							</button>
-						</div>
-						<!--
-							A viewport-relative height on a phone and a fixed one from `sm` up. `36rem` of map on
-							a 667 px-tall phone leaves the controls below the fold and nothing above it.
-						-->
-						<div
-							bind:this={mapColumn}
-							class="h-[60vh] overflow-hidden rounded border border-base-300 sm:h-[32rem] lg:h-[36rem]"
-						>
-							{#if siteRecordKnown}
-								<ReaderMapPane
-									bind:this={readerMapPane}
-									selectedAnnotationId={openAnnotationId}
-									entryId={baseMap.entry.id}
-									{catalog}
-									{bundledBaseMapAvailable}
-									{cachedBaseMap}
-									layers={drawn}
-									{openingFit}
-									{fetchTile}
-									tilesMissing={tileFailure !== null}
-									onclickannotation={(hit) => {
-										// **The pin selects the Annotation, and opens its Layer's card with it.** The
-										// Inspector arrives over the pane the tap landed on, so the words are where
-										// the Reader is already looking; the card is opened as well because a row
-										// inside a closed card is not on the screen, and the selected row is what
-										// the leader points at (ticket 07, ADR-0035).
-										openLayerId = hit.layerId;
-										selected = hit;
-									}}
-									onstack={(reported) => (rendered = reported)}
-									onbasemapstatus={(status) => {
-										baseMapUnavailable = status === 'unavailable';
-									}}
-									overlay={mapOverlay}
-								/>
+							{#if unreachable.length > 0}
+								<MapNotice
+									shape="comes-and-goes"
+									heading="Some of this Project could not be reached"
+									class="mt-4"
+								>
+									{#each unreachable as failure (failure.name)}
+										<p data-testid="layer-unreachable">{failure.reason}</p>
+									{/each}
+								</MapNotice>
 							{/if}
 						</div>
-						<!--
-							The map's running commentary, announced but not drawn, from the component both apps
-							render. A sighted Reader reads both facts off the map itself and off the Layer list
-							beside it, so on screen these two lines were restatement taking room the Base Map
-							wants.
 
-							**A Reader is handed no extra lines**, and that is the whole of the difference from
-							the editor's commentary: what is available offline and what a copy finished doing are
-							announcements for the one person who can make one.
-						-->
-						<MapCommentary
-							layerCount={layers.length}
-							{drawnCount}
-							{openingOutcome}
-							{refitted}
-							{emptyStackNote}
+						<LeaderLine
+							mark={selectedMark}
+							row={selectedRow}
+							canvas={() => mapColumn}
+							sidebar={() => layerColumn}
+							watch={(redraw) => readerMapPane?.onCameraMove(redraw) ?? (() => {})}
 						/>
 					</div>
-
-					<!--
-						The leader, last so that it paints over both columns. ⚠ It says nothing a Reader is not
-						already told: the number is on the mark and on the row, and `aria-expanded` says which
-						row is open — so it is `aria-hidden`, takes no pointer events, and its absence on a
-						phone costs nothing.
-					-->
-					<LeaderLine
-						mark={selectedMark}
-						row={selectedRow}
-						canvas={() => mapColumn}
-						sidebar={() => layerColumn}
-						watch={(redraw) => readerMapPane?.onCameraMove(redraw) ?? (() => {})}
-					/>
 				</div>
 			{/if}
 		{/if}
@@ -1619,6 +1518,26 @@
 		because an author can add something and a Reader cannot.
 	-->
 	This Project has nothing on the map.
+{/snippet}
+
+{#snippet mapControls()}
+	<BaseMapSwitcher
+		entryId={baseMap.entry.id}
+		{catalog}
+		labelSrOnly={true}
+		fullWidth={false}
+		class="select-sm"
+		onSelect={(id) => chooseBaseMap(id)}
+	/>
+	<button
+		type="button"
+		class="btn btn-sm"
+		data-testid="fit-to-project"
+		onclick={() => fitToProject()}
+	>
+		<Scan size={16} aria-hidden="true" />
+		Fit project
+	</button>
 {/snippet}
 
 <!--
@@ -1656,7 +1575,7 @@
 	dock carries, including the `max-height` that keeps the Base Map's attribution clear and the `flex`
 	that passes that cap on to the panel — `ProjectScreen`'s own note has the measurements behind both.
 
-	⚠ **Below `lg` — the width at which this page's own grid already becomes one column — it is a sheet
+	⚠ **Below `lg` — the width at which this page's workspace stacks — it is a sheet
 	across the bottom of the pane instead**, because a panel docked to a corner has no corner to dock to
 	on a phone (the-annotation-inspector story 61). The same component with the same props: where it
 	sits is this page's, which is why nothing about the sheet is a flag passed into it.

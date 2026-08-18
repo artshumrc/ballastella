@@ -240,6 +240,9 @@ importers:
       '@ballastella/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@lucide/svelte':
+        specifier: 'catalog:'
+        version: 0.552.0(svelte@5.56.8(@typescript-eslint/types@8.66.0))
       dompurify:
         specifier: 'catalog:'
         version: 3.4.13
