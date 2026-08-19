@@ -74,8 +74,6 @@
 		duplicateProject: async () => {},
 		deleteProject: async () => {},
 		exportProject: async () => {},
-		baseMapCacheSize: async () => ({ tiles: 0, bytes: 0 }),
-		clearBaseMapCache: async () => 0,
 		// A Map Image's picture is its own coarsest tile, read through the ADR-0011 shim. No
 		// fixture here carries a `thumbnail`, so this is never called; it exists so the hub can ask.
 		imageServiceFetch: () => async () => new Response(null, { status: 404 })

@@ -1137,7 +1137,7 @@ test.describe('making a Project available offline', () => {
 		await expect(page.locator('.maplibregl-ctrl-attrib')).toContainText('OpenStreetMap');
 	});
 
-	test('is cleared from the hub, and the Projects then report themselves not available offline', async ({
+	test('is not listed on the hub, while the Project remains available offline', async ({
 		page
 	}) => {
 		await openProjectScreen(page);
@@ -1145,23 +1145,20 @@ test.describe('making a Project available offline', () => {
 
 		// ⚠ **This walk is what holds the harness's copy of `baseMapArchiveKey` to the application's** —
 		// see {@link cachedTilePaths}. It is asserted non-empty here rather than only emptied below,
-		// because `toEqual([])` is satisfied by a directory the app never wrote to. It used to be
-		// "writes a tile file for every zoom", which is at Seam 1 now; the fence is not.
+		// because `toEqual([])` is satisfied by a directory the app never wrote to. The fence checks
+		// that the application wrote the expected tile files.
 		expect(await cachedTilePaths(page)).toHaveLength(23);
 
 		await page.goto(HUB);
-		const summary = page.getByTestId('base-map-cache');
-		await expect(summary).toContainText('23 tiles');
-		await expect(summary).toContainText(/[0-9.]+ MB/);
+		await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Map Images' })).toBeVisible();
+		await expect(page.getByText('Offline Base Map')).toHaveCount(0);
+		await expect(page.getByTestId('clear-base-map-cache')).toHaveCount(0);
 
-		await page.getByTestId('clear-base-map-cache').click();
-		await page.getByRole('button', { name: 'Remove the offline Base Map' }).last().click();
-		await expect(page.getByTestId('base-map-cache-status')).toContainText('Removed 23');
-
-		expect(await cachedTilePaths(page)).toEqual([]);
+		expect(await cachedTilePaths(page)).toHaveLength(23);
 
 		await openProjectScreen(page);
-		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'no');
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
 	});
 });
 
