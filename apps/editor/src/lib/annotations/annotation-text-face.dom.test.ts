@@ -26,6 +26,7 @@
 // Nothing about a file can fail at this seam, because there is no file.
 
 import { type AnnotationGeometry } from '@ballastella/core';
+import type { DetachedWindowAPI } from 'happy-dom';
 import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -33,12 +34,31 @@ import AnnotationTextFaceHarness from './AnnotationTextFaceHarness.svelte';
 
 const POINT = { type: 'Point', coordinates: [0, 0] } as unknown as AnnotationGeometry;
 
+const LINE = {
+	type: 'LineString',
+	coordinates: [
+		[0, 0],
+		[1, 1]
+	]
+} as unknown as AnnotationGeometry;
+
+/**
+ * What this DOM reports about the person using it — here, whether they have asked for less motion.
+ *
+ * happy-dom answers `prefers-reduced-motion` from these settings, so the component's own media query
+ * is reading a real `matchMedia` rather than a stub. The settings belong to the window, which is why
+ * {@link afterEach} puts them back.
+ */
+const device = (): DetachedWindowAPI['settings']['device'] =>
+	(window as unknown as { happyDOM: DetachedWindowAPI }).happyDOM.settings.device;
+
 let mounted: Record<string, unknown> | undefined;
 
 afterEach(() => {
 	if (mounted) unmount(mounted);
 	mounted = undefined;
 	document.body.innerHTML = '';
+	device().prefersReducedMotion = 'no-preference';
 });
 
 const face = (props: ComponentProps<typeof AnnotationTextFaceHarness>): void => {
@@ -277,5 +297,184 @@ describe('deleting the Annotation being read (the-annotation-inspector story 31)
 		// And no dialog was raised to ask about it, which is the whole of ADR-0014's bargain: the way
 		// back is undo rather than a question in front of every deliberate delete.
 		expect(document.querySelector('dialog')).toBeNull();
+	});
+});
+
+describe('a Label’s text face is one field, and the words in it are what draws', () => {
+	// ⚠ **The Label is spelled as a properties bag, not as a flag on the harness.** `marker-symbol` is
+	// the discriminator a file carries and `isLabel` is the one reading of it (write-on-the-map story
+	// 47), so a face driven by anything else here would go green against a component that had stopped
+	// asking the Annotation what it is.
+	//
+	// **The absences have their Pin control in the same test.** "No description control" and "no *Edit
+	// text*" are absences, and an absence asserted alone goes quietly green the day the face stops
+	// rendering at all — or the day it starts withholding those controls from every kind.
+
+	const LABEL = { 'marker-symbol': 'label' };
+
+	const field = (): HTMLInputElement => one('annotation-title') as HTMLInputElement;
+
+	test('one field captioned for what it draws, and neither a description control nor an Edit text gate', () => {
+		face({ geometry: POINT, properties: { ...LABEL, title: 'Zuiderzee' } });
+
+		// A field on arrival, with the words in it — nothing to press to get there, which is what makes
+		// placing a Label and typing one gesture rather than three (story 11).
+		expect(field()).toHaveValue('Zuiderzee');
+		// Captioned as the Label's text rather than as a title, so that what is being typed and what
+		// appears on the map are plainly the same thing.
+		expect(field().closest('label')?.querySelector('span')).toHaveTextContent('Label text');
+		expect(all('annotation-edit-text')).toHaveLength(0);
+		expect(all('annotation-text-done')).toHaveLength(0);
+		// Neither the textarea nor the rendered prose: a Label with no description has nothing below its
+		// field at all, and `AnnotationDescription` answers "No description." when asked — which here
+		// would be an answer to a question this face does not offer (story 12).
+		expect(all('annotation-description')).toHaveLength(0);
+		expect(all('annotation-description-text')).toHaveLength(0);
+
+		// ── AND THE PIN CONTROL, WHICH IS WHAT MAKES THE FOUR ABSENCES ABOVE MEAN ANYTHING ──
+		//
+		// **Carrying a `marker-symbol` of its own**, because simplestyle's field is *what this marker
+		// shows at its point* and `'label'` is one reading of it rather than a flag: a face that branched
+		// on the key being present would be green against a bare `{ title }` and would turn every
+		// symbolled Pin in a stranger's file into a Label.
+		takeDown();
+		face({ geometry: POINT, properties: { 'marker-symbol': 'harbor', title: 'Zuiderzee' } });
+
+		expect(one('annotation-edit-text')).toBeInTheDocument();
+		expect(one('annotation-description-text')).toBeInTheDocument();
+		expect(all('annotation-title')).toHaveLength(0);
+	});
+
+	test('and a Line that carries the discriminator is still a Line', () => {
+		// ⚠ **The reading the whole face turns on.** `isLabel` requires a Point *and* the symbol, because
+		// `marker-symbol` on a LineString means nothing in simplestyle and a stranger's file may carry
+		// one anyway. A face that asked only about the properties — `isLabelFeature`, which exists for the
+		// renderer, which holds no Annotation — would hand this route the one-field surface and take away
+		// both its description and its *Edit text* gate. Every other case in this file is a Point, so this
+		// is the only place that can fail.
+		face({ geometry: LINE, properties: { ...LABEL, description: 'The west quay.' } });
+
+		expect(one('annotation-edit-text')).toBeInTheDocument();
+		expect(one('annotation-description-text')).toBeInTheDocument();
+		expect(all('annotation-title')).toHaveLength(0);
+		expect(all('annotation-label-empty')).toHaveLength(0);
+	});
+
+	test('a description a stranger’s file carries is still rendered, below the field and read-only', () => {
+		// Nothing in a file is hidden because this app offers no control for it (story 13). Writing it
+		// back untouched is `setText`'s and `geojson.ts`'s; what is this face's is that it is on screen.
+		face({
+			geometry: POINT,
+			properties: { ...LABEL, title: 'Zuiderzee', description: 'Drained in 1932.' }
+		});
+
+		expect(one('annotation-description-text')).toBeInTheDocument();
+		// Read-only: the shared rendering, and no textarea offering to change it.
+		expect(all('annotation-description')).toHaveLength(0);
+		// Below the field rather than above it, so the thing that draws is what a reader meets first.
+		const parts = [...one('annotation-text-face')!.children];
+		expect(parts.indexOf(one('annotation-description-text')!)).toBeGreaterThan(
+			parts.findIndex((part) => part.contains(field()))
+		);
+	});
+
+	test('an empty Label says it draws nothing, and says it to a screen reader', async () => {
+		// An Annotation placed and not finished is invisible on the map and indistinguishable from one
+		// that was never placed, so the face says so in ordinary text — not a tooltip and not a toast
+		// (story 15, CONTRIBUTING).
+		face({ geometry: POINT, properties: LABEL });
+
+		const sentence = one('annotation-label-empty');
+		expect(sentence).toHaveTextContent('draws nothing');
+		// Associated with the field, which is the whole of "reaches assistive technology": a paragraph
+		// merely near the input is read as unrelated prose, or not at all.
+		expect(sentence?.id).toBeTruthy();
+		expect(field()).toHaveAttribute('aria-describedby', sentence!.id);
+
+		// ── AND IT GOES THE MOMENT THERE ARE WORDS ──────────────────────────────────────────
+		await typeInto(field(), 'Ee');
+
+		expect(all('annotation-label-empty')).toHaveLength(0);
+		expect(one('annotation-title')).not.toHaveAttribute('aria-describedby');
+	});
+
+	test('and a Label of nothing but whitespace still says it', () => {
+		// ⚠ **The half `!== ''` misses.** MapLibre's shaping trims each line before it measures anything,
+		// so a title of one space draws no words and no chip either — `stack-layers.ts`'s
+		// `TITLE_WITHOUT_WHITESPACE` is the renderer saying exactly that. A face that called a space
+		// "words" would withdraw this sentence at the moment it became true.
+		face({ geometry: POINT, properties: { ...LABEL, title: '   ' } });
+
+		expect(one('annotation-label-empty')).toBeInTheDocument();
+	});
+
+	test('typing a whole sentence reports every character and never resets the field', async () => {
+		// The `shown` guard, from the Label's side. `annotation` is a fresh object after every save,
+		// which is after every keystroke — and this field is the whole of the face, so a guard that
+		// compared objects rather than ids would take the keyboard out of it mid-word.
+		const typed = vi.fn();
+		face({ geometry: POINT, properties: LABEL, ontext: typed });
+		field().focus();
+
+		await typeInto(field(), 'Zuiderzee');
+
+		// Read fresh off the document: had the face re-rendered the field, the handle above would still
+		// answer with the value the departed node was holding.
+		expect(one('annotation-title')).toHaveValue('Zuiderzee');
+		expect(one('annotation-title')).toHaveFocus();
+		expect(typed).toHaveBeenCalledTimes('Zuiderzee'.length);
+		expect(typed).toHaveBeenLastCalledWith({ title: 'Zuiderzee' });
+	});
+
+	test('a Label just placed arrives with the keyboard in the field, and the offer is spent', async () => {
+		// Placing a Label is placing a Pin — one click, and the Inspector opens with the keyboard where
+		// the words go (story 4). The offer is taken up once and then withdrawn, because this face is
+		// unmounted and mounted again whenever the Style face shows, and a `titling` still standing
+		// would drag the keyboard back out of whatever an author had moved on to.
+		const titled = vi.fn();
+		face({ geometry: POINT, properties: LABEL, titling: true, ontitled: titled });
+		await settle();
+
+		expect(field()).toHaveFocus();
+		expect(titled).toHaveBeenCalledTimes(1);
+	});
+
+	test('clearing the words reports an empty string, which is what removes the property', async () => {
+		// The report is this face's whole part in story 17: `setText` removes a property it is handed
+		// `''` for, and that a cleared Label leaves no `"title": ""` in the file is asserted over the
+		// bytes in `packages/core/src/annotation/annotation.test.ts`. What would break the chain here is
+		// a face that reported nothing on a clear, or reported `undefined` — which `setText` reads as
+		// "leave it alone".
+		const typed = vi.fn();
+		face({ geometry: POINT, properties: { ...LABEL, title: 'Ee' }, ontext: typed });
+
+		field().value = '';
+		field().dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+
+		expect(typed).toHaveBeenLastCalledWith({ title: '' });
+		// And the face answers the emptying at once rather than on the next selection.
+		expect(one('annotation-label-empty')).toBeInTheDocument();
+	});
+
+	test('a Label is revealed by the arrival the Inspector already has, at zero when less motion is asked for', () => {
+		// ⚠ **This is the Inspector's own number, read with a Label selected — and that is all it is.**
+		// `data-reveal-ms` is `prefersReducedMotion.current ? 0 : 220` and depends on nothing about the
+		// Annotation, so these two cannot catch a `transition:` added to the Label branch; the reveal
+		// itself is `packages/ui/src/annotation-inspector.dom.test.ts`'s and is not re-proved here. What
+		// they do say is the thing worth saying: a Label gets that reveal rather than one of its own, so
+		// the setting means one thing everywhere (story 65). There is no paint and no Web Animations clock
+		// at this seam either — see `vitest-setup/web-animations.ts`.
+		device().prefersReducedMotion = 'reduce';
+		face({ geometry: POINT, properties: LABEL });
+
+		expect(one('annotation-inspector')).toHaveAttribute('data-reveal-ms', '0');
+	});
+
+	test('and at the application’s own 220 ms when it has not been', () => {
+		// The other half, without which a reveal hard-coded to zero would satisfy the test above for ever.
+		face({ geometry: POINT, properties: LABEL });
+
+		expect(one('annotation-inspector')).toHaveAttribute('data-reveal-ms', '220');
 	});
 });

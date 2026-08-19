@@ -40,6 +40,7 @@
 		geometry,
 		properties: initialProperties = {},
 		titling = false,
+		ontext,
 		ontitled,
 		oncommit,
 		ondelete
@@ -50,6 +51,15 @@
 		properties?: Record<string, unknown>;
 		/** Whether this Annotation has just been drawn, so its title is a field already. */
 		titling?: boolean;
+		/**
+		 * What the face reported was typed, *before* the harness merges it.
+		 *
+		 * The merge below is the round trip and cannot see the difference between "cleared" and "never
+		 * set" — a title of `''` merged in is a title of `''` — while what `setText` is handed is exactly
+		 * what decides whether the property is removed (write-on-the-map story 17). So a test that cares
+		 * about the report reads it here; the file's own answer is `annotation.test.ts`'s.
+		 */
+		ontext?: (typed: { title?: string; description?: string }) => void;
 		/** The face reports that the title field has the keyboard, so the offer is spent. */
 		ontitled?: () => void;
 		oncommit?: () => void;
@@ -68,7 +78,10 @@
 	<AnnotationTextFace
 		annotation={shown}
 		{titling}
-		ontext={(typed) => (properties = { ...properties, ...typed })}
+		ontext={(typed) => {
+			ontext?.(typed);
+			properties = { ...properties, ...typed };
+		}}
 		ontitled={() => ontitled?.()}
 		oncommit={() => oncommit?.()}
 		ondelete={() => ondelete?.()}

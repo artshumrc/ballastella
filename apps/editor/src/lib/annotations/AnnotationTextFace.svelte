@@ -23,8 +23,23 @@
 	// as a thing with content, which is this panel's half of the split; the card's footer would put two
 	// deletes of different scope in one card. It stays undoable and has no confirmation dialog
 	// (ADR-0014).
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// **A LABEL IS THE ONE KIND WHOSE WORDS ARE A FIELD ON ARRIVAL** (write-on-the-map stories 11, 12,
+	// 15, 17).
+	//
+	// For a Pin, a Line or a Shape the words are prose to *read* and *Edit text* turns them into a
+	// form. For a Label the single field **is** the Annotation's content and the thing drawn on the
+	// map, so a gate in front of it would make placing one and typing into "click, press Edit, type"
+	// where story 4 asks for one gesture. It is therefore a field always, and there is no description
+	// control beside it: a surface offering two kinds of prose would make an author choose which one
+	// draws.
+	//
+	// **A description a stranger's file already carries is still rendered**, read-only, below the
+	// field — nothing in a file is hidden because this app offers no control for it — and `setText`
+	// writes it back untouched.
 
-	import { type Annotation } from '@ballastella/core';
+	import { isLabel, type Annotation } from '@ballastella/core';
 	import { AnnotationDescription } from '@ballastella/ui';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -70,6 +85,27 @@
 
 	const geometryKind = $derived(annotation.geometry?.type ?? null);
 
+	/** Whether this Annotation's words are the thing drawn on the map, rather than a title beside it. */
+	const label = $derived(isLabel(annotation));
+
+	/**
+	 * Whether this Label's words would draw anything.
+	 *
+	 * **Whitespace, not `!== ''`.** MapLibre's shaping trims each line before it measures anything, so a
+	 * title of one space draws nothing at all — `stack-layers.ts`'s `TITLE_WITHOUT_WHITESPACE` is the
+	 * renderer saying so per feature — and a face that called a lone space "words" would withdraw the
+	 * sentence at exactly the moment it became true.
+	 *
+	 * `trim` is deliberately the *broader* test rather than that expression's four characters: it also
+	 * takes out a non-breaking space, which MapLibre does shape. Warning about a Label made of one
+	 * invisible character is the harmless direction to be wrong in; staying silent about one that draws
+	 * nothing is not.
+	 */
+	const drawsNothing = $derived((properties.title ?? '').trim() === '');
+
+	/** Names the empty-Label sentence so the field can point at it (`aria-describedby`). */
+	const emptyLabelId = $props.id();
+
 	/**
 	 * Whether the title and description are fields rather than text.
 	 *
@@ -107,7 +143,8 @@
 
 	/** Turn the text into fields, and put the keyboard in the first of them. */
 	const editText = async (): Promise<void> => {
-		editingText = true;
+		// A Label's field is never gated, so there is nothing to reveal — only a keyboard to place.
+		if (!label) editingText = true;
 		await tick();
 		titleField?.focus();
 		titleField?.select();
@@ -136,7 +173,55 @@
 	data-testid="annotation-text-face"
 	data-annotation-id={annotation.id}
 >
-	{#if editingText}
+	{#if label}
+		<!--
+			**One field, captioned for what it does.** "Label text" rather than "Title" because what is
+			being typed and what appears on the map are the same thing; the identity header a few pixels
+			above still owns the *name*, which is why nothing here draws `annotationName` a second time.
+
+			Clearing it leaves no `"title": ""` behind — `setText` removes the property on an empty string,
+			so a Label somebody emptied is not an empty label in another tool (story 17).
+		-->
+		<label class="floating-label">
+			<span>Label text</span>
+			<input
+				bind:this={titleField}
+				class="input w-full input-sm"
+				value={properties.title ?? ''}
+				data-testid="annotation-title"
+				aria-describedby={drawsNothing ? emptyLabelId : undefined}
+				oninput={(event) => ontext({ title: event.currentTarget.value })}
+				onkeydown={(event) => {
+					if (event.key === 'Escape') event.currentTarget.blur();
+				}}
+				onchange={() => oncommit()}
+				onblur={() => oncommit()}
+			/>
+		</label>
+
+		{#if drawsNothing}
+			<!--
+				**Ordinary text in the face, associated with the field** — not a tooltip and not a toast,
+				because a tooltip is not an information channel (CONTRIBUTING). An Annotation placed and not
+				finished is otherwise invisible on the map and indistinguishable from one that was never
+				placed (story 15).
+			-->
+			<p id={emptyLabelId} class="text-sm opacity-70" data-testid="annotation-label-empty">
+				This Label draws nothing on the map until it has words.
+			</p>
+		{/if}
+
+		{#if properties.description}
+			<!--
+				**Rendered, read-only, and only when there is one.** This app offers a Label no description
+				control, but a Label that arrived from another tool carrying prose must still show it —
+				opening a stranger's file never hides what is in it (story 13). Rendered when it exists
+				rather than always, because `AnnotationDescription` says "No description." for the absent
+				case, which here would be an answer to a question nobody can ask.
+			-->
+			<AnnotationDescription {annotation} />
+		{/if}
+	{:else if editingText}
 		<label class="floating-label">
 			<span>Title</span>
 			<input
@@ -193,6 +278,9 @@
 		the two controls act on is different — one on the fields, one on the Annotation — so the delete is
 		not something the fields can take away: a shape drawn a moment ago opens with its title as a
 		field, and that is exactly the Annotation somebody is most likely to have drawn by accident.
+
+		A Label has neither of the pair — its field is not gated, so there is nothing to open and nothing
+		to finish — and the delete is the whole row.
 	-->
 	<div class="flex items-center gap-2">
 		{#if editingText}
@@ -204,7 +292,7 @@
 			>
 				Done
 			</button>
-		{:else}
+		{:else if !label}
 			<button
 				type="button"
 				class="btn btn-sm"
