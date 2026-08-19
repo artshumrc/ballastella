@@ -10,6 +10,14 @@ import {
 	expectNothingPreparing,
 	pickMapImageFile
 } from './support/map-images.js';
+import {
+	centreOnAmsterdam,
+	editAnnotationText,
+	paintProperty,
+	renderedAnnotationLayers,
+	selectAnnotation,
+	waitForPaintedAnnotations
+} from './support/annotations.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 import { countFileReads, countFileWrites, fileReads, fileWrites } from './support/store-traffic.js';
@@ -2288,5 +2296,128 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 			before.split(`"${openId}"`).length - 1,
 			'the open Layer id appears more than once, so something beside the Layer itself names it'
 		).toBe(1);
+	});
+});
+
+test.describe('a Label obeys its Annotation Layer (write-on-the-map stories 44-46)', () => {
+	/**
+	 * MapLibre alone can show that hiding the Layer removes its paint; only a Map Image has an opacity
+	 * slider, so its change is the neighbouring control that must not disturb Annotation paint.
+	 */
+	test('counts with every kind, follows visibility, and is untouched by a Map Image opacity change', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		const [annotationLayerId, mapLayerId] = (await rowIds(page)) as [string, string];
+		await writeProjectFile(
+			page,
+			directory,
+			`annotations/${annotationLayerId}.geojson`,
+			JSON.stringify({
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						id: 'pin',
+						properties: { title: 'The harbour' },
+						geometry: { type: 'Point', coordinates: [4.76, 52.43] }
+					},
+					{
+						type: 'Feature',
+						id: 'label',
+						properties: {
+							'marker-symbol': 'label',
+							'marker-color': '#d32f2f',
+							fill: '#1976d2'
+						},
+						geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+					},
+					{
+						type: 'Feature',
+						id: 'line',
+						properties: { title: 'The route' },
+						geometry: {
+							type: 'LineString',
+							coordinates: [
+								[4.82, 52.32],
+								[4.98, 52.34]
+							]
+						}
+					},
+					{
+						type: 'Feature',
+						id: 'shape',
+						properties: { title: 'The parish' },
+						geometry: {
+							type: 'Polygon',
+							coordinates: [
+								[
+									[4.78, 52.48],
+									[4.88, 52.48],
+									[4.83, 52.42],
+									[4.78, 52.48]
+								]
+							]
+						}
+					}
+				]
+			})
+		);
+
+		await openLayers(page, directory, { drawn: 2 });
+		await centreOnAmsterdam(page);
+		await waitForPaintedAnnotations(page, ['pin', 'line', 'shape']);
+
+		const annotationRow = page.locator(
+			`[data-testid="layer-row"][data-layer-id="${annotationLayerId}"]`
+		);
+		await openLayerRow(page, annotationRow);
+		await expect(page.locator('#annotation-list-caption')).toHaveText('4 Annotations');
+		await expect(
+			annotationRow.getByTestId('layer-contents').getByTestId('layer-opacity')
+		).toHaveCount(0);
+
+		await selectAnnotation(page, 1);
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').fill('Zuiderzee');
+		await page.getByTestId('annotation-title').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.locator('#annotation-list-caption')).toHaveText('4 Annotations');
+		await waitForPaintedAnnotations(page, ['label']);
+
+		const mapRow = page.locator(`[data-testid="layer-row"][data-layer-id="${mapLayerId}"]`);
+		const mapContents = await openLayerRow(page, mapRow);
+		await expect(mapContents.getByTestId('layer-opacity')).toHaveCount(1);
+		const labelBucket = `ballastella-layer-${annotationLayerId}-label`;
+		const pointBucket = `ballastella-layer-${annotationLayerId}-point`;
+		const beforeLabelOpacity = await paintProperty(page, labelBucket, 'icon-opacity');
+		const beforePointOpacity = await paintProperty(page, pointBucket, 'icon-opacity');
+		expect(beforeLabelOpacity).not.toBeNull();
+		// Pins carry no opacity: an Annotation Layer either shows them or hides them.
+		expect(beforePointOpacity).toBeNull();
+
+		await mapContents.getByTestId('layer-opacity').fill('0.35');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		expect(await warpedOpacity(page, mapLayerId)).toBeCloseTo(0.35, 5);
+
+		await waitForPaintedAnnotations(page, ['pin', 'line', 'shape', 'label']);
+		expect(await paintProperty(page, labelBucket, 'icon-opacity')).toEqual(beforeLabelOpacity);
+		expect(await paintProperty(page, pointBucket, 'icon-opacity')).toEqual(beforePointOpacity);
+
+		await annotationRow.getByTestId('layer-visible').uncheck();
+		await expect
+			.poll(async () => {
+				const painted = await renderedAnnotationLayers(page);
+				return ['pin', 'label', 'line', 'shape'].filter((id) => id in painted);
+			})
+			.toEqual([]);
+
+		await annotationRow.getByTestId('layer-visible').check();
+		await waitForPaintedAnnotations(page, ['pin', 'label', 'line', 'shape']);
 	});
 });
