@@ -32,6 +32,7 @@ import {
 	styleForNewLabel,
 	removeAnnotation,
 	insertAnnotationAt,
+	moveAnnotation,
 	setGeometry,
 	setLineStyle,
 	setStyle,
@@ -152,6 +153,25 @@ export class AnnotationEditing {
 	 * from here, because it is this screen that knows which Layer the record named.
 	 */
 	undoRefusal = $state('');
+
+	/**
+	 * Why an Annotation could not be moved into another Layer, or `''`.
+	 *
+	 * Separate from {@link undoRefusal} because it is a different sentence about a different gesture,
+	 * and the two are said in different places on the screen. The one thing that can refuse a move is
+	 * a target Layer whose file will not read — see {@link moveAnnotationToLayer}, which will not
+	 * write a Layer holding one Annotation over a Layer holding twenty.
+	 */
+	moveRefusal = $state('');
+
+	/**
+	 * Where the last Annotation to change Layers went, or `''`.
+	 *
+	 * Announced rather than drawn: the screen already shows the move by opening the target Layer with
+	 * the Annotation selected in it, and what a screen-reader user gets from that alone is a sidebar
+	 * that has silently rearranged itself.
+	 */
+	moveNotice = $state('');
 
 	/**
 	 * The open Layer, when it is an Annotation Layer. `null` when nothing is open, when a map or a
@@ -518,6 +538,85 @@ export class AnnotationEditing {
 				coordinates: [[...positions, positions[0] ?? moved], ...geometry.coordinates.slice(1)]
 			};
 		}
+	}
+
+	/**
+	 * The Annotation Layers an Annotation in the open one could be moved into.
+	 *
+	 * Every Annotation Layer but the open one, which is the Layer the Annotation is already in — a
+	 * picker offering it would be offering a move to where the Annotation already is.
+	 */
+	get moveTargets(): readonly { id: string; name: string }[] {
+		return this.#annotationLayers
+			.filter((layer) => layer.id !== this.openLayerId)
+			.map((layer) => ({ id: layer.id, name: layer.name }));
+	}
+
+	/**
+	 * Move an Annotation to a position in the open Layer's collection.
+	 *
+	 * The order of a `FeatureCollection` is the order its shapes draw in, so this is the gesture that
+	 * decides which of two overlapping Annotations is on top — the same thing the Layer stack decides
+	 * one level up (ADR-0002). One write, at the end of the gesture, which is ADR-0017 rule 1: a drag
+	 * reports where it was dropped and not where it passed over.
+	 */
+	async moveAnnotationTo(id: string, toIndex: number): Promise<void> {
+		const collection = this.#activeCollection;
+		if (!collection) return;
+		await this.commitAnnotations(moveAnnotation(collection, id, toIndex));
+	}
+
+	/**
+	 * Move an Annotation out of the open Layer and into another one.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * TWO FILES, AND THE ORDER THEY ARE WRITTEN IN
+	 *
+	 * This is the one Annotation gesture that touches two documents, so there is a moment between the
+	 * two writes and the question is what a failure in that moment leaves behind. The Annotation is
+	 * put into its new Layer **first** and taken out of the old one second: a failure between them
+	 * leaves the Annotation in both Layers, which a scholar can see and delete, where the other order
+	 * leaves it in neither and the work is simply gone. It is the discipline `addAnnotationLayer` and
+	 * the ingest chain both follow — the document whose loss is not recoverable goes last.
+	 *
+	 * The target's collection is **read** when it is not already in memory rather than assumed empty.
+	 * `documents` holds the Layers the map is given, so a hidden Layer is absent from it, and assuming
+	 * would write a file holding one Annotation over a file holding twenty.
+	 *
+	 * The sidebar follows the Annotation: the target Layer is opened and the Annotation selected in
+	 * it, so the user watches where their work went instead of being told. That is `restoreDeleted`'s
+	 * rule, and it matters more here — the row simply vanishing from the list it was in is exactly
+	 * what a move nobody meant to make would look like.
+	 */
+	async moveAnnotationToLayer(id: string, toLayerId: string): Promise<void> {
+		this.moveRefusal = '';
+		this.moveNotice = '';
+		const from = this.#activeLayer;
+		const collection = this.#activeCollection;
+		const to = this.#annotationLayers.find((layer) => layer.id === toLayerId);
+		if (!from || !collection || !to || to.id === from.id) return;
+		const annotation = findAnnotation(collection, id);
+		if (!annotation) return;
+
+		let target = this.#edges.documents()[to.id] as AnnotationCollection | undefined;
+		if (target === undefined) {
+			try {
+				target = await this.#edges.session().readAnnotations(to);
+			} catch (cause) {
+				this.moveRefusal =
+					`The Annotation was not moved: ${to.name || 'the Annotation Layer'} could not be read. ` +
+					`${cause instanceof Error ? cause.message : String(cause)}`;
+				return;
+			}
+		}
+
+		await this.commitAnnotationsIn(to, addAnnotation(target, annotation));
+		await this.commitAnnotationsIn(from, removeAnnotation(collection, id));
+		this.openLayerId = to.id;
+		this.selectAnnotation(id);
+		this.moveNotice =
+			`${annotation.properties.title || 'The Annotation'} moved to ` +
+			`${to.name || 'an untitled Annotation Layer'}.`;
 	}
 
 	/**

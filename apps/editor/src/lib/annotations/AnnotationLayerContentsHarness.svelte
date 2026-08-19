@@ -82,4 +82,5 @@
 		onselect?.(id);
 		selectedId = id;
 	}}
+	onmove={() => {}}
 />

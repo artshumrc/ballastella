@@ -1302,6 +1302,8 @@
 					onshow={(id, visible) => session.showLayer(id, visible)}
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
+					ondropannotation={(annotationId, layerId) =>
+						void annotations.moveAnnotationToLayer(annotationId, layerId)}
 					ondelete={(id) => (deletingLayerId = id)}
 					{noLayersGuidance}
 					{foreignLayerNote}
@@ -1378,6 +1380,30 @@
 					data-testid="undo-refused"
 				>
 					{annotations.undoRefusal}
+				</p>
+
+				<!--
+					Why an Annotation did not move into the Layer it was dropped on. Beside the undo's refusal
+					rather than folded into it: they are two gestures, and a sentence that could be about
+					either is a sentence a scholar has to work out.
+				-->
+				<p
+					class="mt-2 max-w-prose text-sm text-warning"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="annotation-move-refused"
+				>
+					{annotations.moveRefusal}
+				</p>
+
+				<!--
+					And where one that did move went. Announced rather than drawn, because the screen already
+					shows it: the target Layer opens with the Annotation selected in it. What a screen-reader
+					user gets from that is a stack that has silently rearranged itself, which is the same
+					problem the Layer stack's own move announcement solves.
+				-->
+				<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="annotation-moved">
+					{annotations.moveNotice}
 				</p>
 
 				<!--
@@ -1886,6 +1912,7 @@
 		oncancel={() => drawing.cancel()}
 		onundovertex={() => drawing.undoVertex()}
 		onselect={(id) => annotations.selectAnnotation(id)}
+		onmove={(id, toIndex) => void annotations.moveAnnotationTo(id, toIndex)}
 	/>
 {/snippet}
 
@@ -1906,6 +1933,11 @@
 		ontitled={() => (annotations.titlingId = null)}
 		oncommit={() => void annotations.commitAnnotationEdit()}
 		ondelete={() => void deleteSelectedAnnotation()}
+		index={annotations.selectedIndex}
+		count={annotations.activeCollection?.annotations.length ?? 0}
+		moveTargets={annotations.moveTargets}
+		onmove={(toIndex) => void annotations.moveAnnotationTo(annotation.id, toIndex)}
+		onmovetolayer={(layerId) => void annotations.moveAnnotationToLayer(annotation.id, layerId)}
 	/>
 {/snippet}
 

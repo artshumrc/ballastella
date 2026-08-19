@@ -15,7 +15,7 @@
 	// supplies markers for `mapContents`: whether and where the list renders a snippet is this
 	// component's and is asserted here; what a consumer puts inside one is that consumer's.
 
-	import type { Annotation } from '@ballastella/core';
+	import { moveAnnotation, type Annotation } from '@ballastella/core';
 	import { untrack } from 'svelte';
 
 	import AnnotationList from './AnnotationList.svelte';
@@ -25,6 +25,7 @@
 		openId: initialOpenId = null,
 		withTools = false,
 		withGuidance = false,
+		withMoving = false,
 		onopen
 	}: {
 		annotations: readonly Annotation[] | null;
@@ -33,6 +34,12 @@
 		withTools?: boolean;
 		/** Whether this consumer has anything to say about an empty Layer. A Reader is told nothing. */
 		withGuidance?: boolean;
+		/**
+		 * Whether this consumer can reorder. A published site cannot, so a row it renders has neither
+		 * the handle nor the buttons — which is a claim of its own and needs the prop to be absent
+		 * rather than passed as `undefined`.
+		 */
+		withMoving?: boolean;
 		/** Reported as well as applied, so a test can assert what the component asked for. */
 		onopen?: (id: string | null) => void;
 	} = $props();
@@ -83,4 +90,13 @@
 	}}
 	{...withTools ? { tools } : {}}
 	{...withGuidance ? { noAnnotationsGuidance } : {}}
+	{...withMoving
+		? {
+				// `moveAnnotation` is `core`'s own — the ordering rules are its and have their own unit
+				// tests — so what this harness supplies is a real consumer, not a second implementation.
+				onmove: (id: string, toIndex: number) => {
+					shown = moveAnnotation({ annotations: shown ?? [] }, id, toIndex).annotations;
+				}
+			}
+		: {}}
 />

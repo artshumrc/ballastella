@@ -300,6 +300,88 @@ describe('deleting the Annotation being read (the-annotation-inspector story 31)
 	});
 });
 
+describe('where the Annotation sits, and which Layer it is in (ADR-0016)', () => {
+	// ⚠ **These controls are the *contract*, and the drag handle on the row is the convenience.**
+	// ADR-0016 will not have a drag be the only way to change something whose order is load-bearing
+	// (ADR-0002), and the row could not carry the buttons: it holds one button and nothing opens in it
+	// (the-annotation-inspector stories 10, 69), so a control strip unfolding under the selected row is
+	// exactly the growth that claim exists to prevent. That they are *here* is what this asserts; what
+	// a move does to the two files is `annotation-editing.svelte.test.ts`'s.
+
+	test('the two Move buttons ask for the neighbouring position and report nothing else', async () => {
+		const moved = vi.fn();
+		face({ geometry: POINT, index: 1, count: 3, onmove: moved });
+
+		await press(one('annotation-move-up')!);
+		expect(moved).toHaveBeenLastCalledWith(0);
+
+		await press(one('annotation-move-down')!);
+		expect(moved).toHaveBeenLastCalledWith(2);
+	});
+
+	test('an end of the collection is a disabled button rather than a refusal', () => {
+		// "The first Annotation cannot go higher" is information a screen reader gets for free from the
+		// markup, which is why it is `disabled` rather than a press that quietly does nothing.
+		face({ geometry: POINT, index: 0, count: 2 });
+		expect(one('annotation-move-up')).toBeDisabled();
+		expect(one('annotation-move-down')).not.toBeDisabled();
+
+		takeDown();
+		face({ geometry: POINT, index: 1, count: 2 });
+		expect(one('annotation-move-up')).not.toBeDisabled();
+		expect(one('annotation-move-down')).toBeDisabled();
+	});
+
+	test('the only Annotation in a Layer is offered no reordering at all', () => {
+		// Two disabled buttons is a row that can do nothing, and a Project with one Layer holding one
+		// Annotation is where it would sit for ever.
+		face({ geometry: POINT, index: 0, count: 1 });
+
+		expect(one('annotation-move-up')).toBeNull();
+		expect(one('annotation-move-down')).toBeNull();
+		expect(one('annotation-move-to-layer')).toBeNull();
+	});
+
+	test('the Layer picker offers the other Layers, moves on a choice, and goes back to its placeholder', async () => {
+		// **The placeholder is the resting state.** The Layer this Annotation is in is not among the
+		// choices, so a picker showing one of the *others* as selected would be claiming the move has
+		// already happened — and by the time it has, this panel is describing an Annotation in a
+		// different Layer.
+		const movedToLayer = vi.fn();
+		face({
+			geometry: POINT,
+			index: 0,
+			count: 1,
+			moveTargets: [
+				{ id: 'l-2', name: 'The routes' },
+				{ id: 'l-3', name: '' }
+			],
+			onmovetolayer: movedToLayer
+		});
+
+		const picker = one('annotation-move-to-layer') as HTMLSelectElement;
+		expect([...picker.options].map((option) => option.textContent?.trim())).toEqual([
+			'Move to Layer…',
+			'The routes',
+			'Untitled Layer'
+		]);
+
+		picker.value = 'l-2';
+		picker.dispatchEvent(new Event('change', { bubbles: true }));
+		await settle();
+
+		expect(movedToLayer).toHaveBeenCalledWith('l-2');
+		expect(picker.value).toBe('');
+	});
+
+	test('a Project with one Annotation Layer offers no picker', () => {
+		face({ geometry: POINT, index: 0, count: 3 });
+
+		expect(one('annotation-move-to-layer')).toBeNull();
+		expect(one('annotation-move-up')).toBeInTheDocument();
+	});
+});
+
 describe('a Label’s text face is one field, and the words in it are what draws', () => {
 	// ⚠ **The Label is spelled as a properties bag, not as a flag on the harness.** `marker-symbol` is
 	// the discriminator a file carries and `isLabel` is the one reading of it (write-on-the-map story

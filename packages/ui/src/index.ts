@@ -25,6 +25,9 @@ export { default as AnnotationInspector } from './AnnotationInspector.svelte';
 // The id a row's `aria-controls` names, so the two spellings cannot drift apart. Its own module rather
 // than the component's `<script module>`: see the header of `annotation-inspector-id.ts`.
 export { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
+// The drag format that tells an Annotation being dragged from a Layer being dragged, shared by the two
+// lists that accept the drop: see its header.
+export { ANNOTATION_DRAG_TYPE } from './annotation-drag.js';
 export { default as AnnotationList } from './AnnotationList.svelte';
 export { default as AnnotationRow } from './AnnotationRow.svelte';
 export { default as AppBar } from './AppBar.svelte';

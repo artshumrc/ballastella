@@ -129,6 +129,8 @@
 
 	import type { DrawnOutcome } from '@ballastella/core/render';
 
+	import { ANNOTATION_DRAG_TYPE } from './annotation-drag.js';
+
 	import { KIND_STYLE } from './layer-kind-style';
 
 	let {
@@ -142,6 +144,7 @@
 		onshow,
 		ondragopacity,
 		onmove,
+		ondropannotation,
 		ondelete,
 		noLayersGuidance,
 		foreignLayerNote,
@@ -194,6 +197,20 @@
 		 * ADR-0016's pair go together, because the contract and its convenience are one affordance.
 		 */
 		onmove?: (id: string, toIndex: number) => void;
+		/**
+		 * An Annotation was dropped on this Layer's card: move it out of the Layer it is in and into
+		 * this one, which moves it between two GeoJSON files.
+		 *
+		 * **The pointer half of a move between Layers; the keyboard half is the picker on the selected
+		 * Annotation's row** (ADR-0016). Without this callback a card refuses the drop outright rather
+		 * than lighting up for one it cannot perform — the same rule the three Layer drop handlers
+		 * follow with `onmove`.
+		 *
+		 * The Annotation is not named to this component beyond its id, and does not need to be: the
+		 * Layer it is leaving is the open one (see the drop handler), so the consumer already knows
+		 * where it is coming from.
+		 */
+		ondropannotation?: (annotationId: string, layerId: string) => void;
 		/**
 		 * Delete the Layer **and the file it draws** (SPEC story 49, ticket 11). Without it, no Delete.
 		 *
@@ -335,6 +352,29 @@
 
 	/** Each Layer's card, so a drag can carry a picture of the card rather than of the handle. */
 	const card: Record<string, HTMLLIElement | undefined> = {};
+
+	/**
+	 * Whether what is being dragged is an Annotation rather than a Layer.
+	 *
+	 * Read during `dragover`, where the drag-and-drop protected mode makes `getData` return the empty
+	 * string and `types` is the only thing a target may look at — which is why the fact is carried by
+	 * the presence of a format at all. See `annotation-drag.ts`.
+	 */
+	const isAnnotationDrag = (event: DragEvent): boolean =>
+		Boolean(event.dataTransfer?.types.includes(ANNOTATION_DRAG_TYPE));
+
+	/**
+	 * Whether an Annotation dropped on this Layer's card would go anywhere.
+	 *
+	 * Three conditions, and the third is the one worth saying out loud: **the open Layer is the Layer
+	 * the Annotation is already in**. Only an open Annotation Layer renders its contents, so the row
+	 * being dragged can only have come from that card — which means this component can refuse a move
+	 * to the Layer an Annotation is already in without being told which Layer that is. A drop inside
+	 * the open card is the *reorder*, and it has already been handled by the row it landed on by the
+	 * time it bubbles to here.
+	 */
+	const takesAnnotation = (layer: Layer): boolean =>
+		Boolean(ondropannotation) && layer.kind === 'annotation' && layer.id !== openLayerId;
 
 	/**
 	 * Drag the *card*, not the handle.
@@ -650,13 +690,17 @@
 					data-image-id={layer.kind === 'map' ? layer.imageId : undefined}
 					data-drop-target={over === layer.id && dragging !== layer.id ? 'true' : 'false'}
 					animate:flip={moveAnimation}
-					ondragover={onmove &&
+					ondragover={(onmove || ondropannotation) &&
 						((event) => {
+							// Two kinds of thing can be over this card, and each has its own answer to "would a
+							// drop here do anything": a Layer if this list reorders at all, an Annotation only if
+							// this card is a Layer it could actually move into.
+							if (isAnnotationDrag(event) ? !takesAnnotation(layer) : !onmove) return;
 							// Without this the drop never fires: the default action of `dragover` is to refuse.
 							event.preventDefault();
 							over = layer.id;
 						})}
-					ondragleave={onmove &&
+					ondragleave={(onmove || ondropannotation) &&
 						((event) => {
 							// **Only when the pointer has really left this card.** `dragleave` fires on every
 							// descendant and bubbles, so crossing from the card's padding onto the name, the kind
@@ -674,13 +718,22 @@
 							if (entered instanceof Node && event.currentTarget.contains(entered)) return;
 							if (over === layer.id) over = '';
 						})}
-					ondrop={onmove &&
+					ondrop={(onmove || ondropannotation) &&
 						((event) => {
 							event.preventDefault();
-							const id = event.dataTransfer?.getData('text/plain') || dragging;
+							// **The Annotation format first**, because an Annotation being dragged carries its id
+							// in `text/plain` as well — that is what a drag deposits in any text field it is
+							// dropped on — and reading that first would hand an Annotation's id to `moveLayer`.
+							const annotationId = event.dataTransfer?.getData(ANNOTATION_DRAG_TYPE);
+							const id = annotationId || event.dataTransfer?.getData('text/plain') || dragging;
 							over = '';
 							dragging = '';
-							if (!id || id === layer.id) return;
+							if (!id) return;
+							if (annotationId) {
+								if (takesAnnotation(layer)) ondropannotation?.(annotationId, layer.id);
+								return;
+							}
+							if (!onmove || id === layer.id) return;
 							const from = layers.findIndex((other) => other.id === id);
 							move(id, layers[from]?.name ?? '', index);
 						})}

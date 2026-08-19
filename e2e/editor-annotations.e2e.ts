@@ -4199,3 +4199,84 @@ test.describe('a Label author journey uses only the keyboard (write-on-the-map s
 		expect(failures).toEqual([]);
 	});
 });
+
+test.describe('reordering an Annotation, and moving one between Layers', () => {
+	// ⚠ **Seam 2 or nowhere, and that was measured rather than assumed.** happy-dom's `DragEvent` is
+	// not a `MouseEvent` and its constructor drops `dataTransfer` entirely — which is the member every
+	// claim here turns on, since what tells an Annotation being dragged from a Layer being dragged is
+	// the *format* the drag carries (`packages/ui/src/annotation-drag.ts`). A dispatched plain `Event`
+	// at Seam 1c can prove a row highlights; it cannot prove a drop moved the right thing into the
+	// right file, because the fake gets wrong exactly the member the decision reads.
+	//
+	// The arithmetic underneath is asserted where it costs nothing: `moveAnnotation`'s ordering and
+	// clamping in `packages/core/src/annotation/annotation.test.ts`, and the two-file write order,
+	// the hidden-Layer read and the refusal in
+	// `apps/editor/src/lib/annotations/annotation-editing.svelte.test.ts`. **One browser test**, for
+	// the two gestures that only exist in a browser.
+	test('drags a row onto another row, and onto another Layer’s card', async ({ page }) => {
+		const failures = watchFailures(page);
+		const first = await startAnnotating(page);
+		await drawPin(page, 0.3, 0.3);
+		await drawPin(page, 0.5, 0.3);
+		await drawPin(page, 0.7, 0.3);
+		await chooseTool(page, 'select');
+		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
+
+		const ids = (await storedAnnotations(page, first)).features.map((one) => one.id);
+
+		// ── THE REORDER, FROM THE HANDLE ────────────────────────────────────────────────────
+		//
+		// The handle is the drag *source* and the row is only the drop target: a pointer drag beginning
+		// anywhere inside a `draggable` element is claimed by the drag machinery rather than by the
+		// button under the cursor, which is why the whole row is not `draggable`.
+		const rows = page.getByTestId('annotation-row-item');
+		await rows.nth(2).getByTestId('annotation-drag-handle').dragTo(rows.nth(0));
+
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		expect((await storedAnnotations(page, first)).features.map((one) => one.id)).toEqual([
+			ids[2],
+			ids[0],
+			ids[1]
+		]);
+		// The ordinals are the collection's positions, so the list renumbers itself and nothing writes
+		// them (ADR-0002).
+		expect(await page.getByTestId('annotation-row-ordinal').allTextContents()).toEqual([
+			'1',
+			'2',
+			'3'
+		]);
+
+		// ── AND THE MOVE INTO ANOTHER LAYER, ONTO ITS CARD ──────────────────────────────────
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		// **The one that is not the Layer already open**, rather than a position in `project.json`: a new
+		// Layer goes to the top of the stack, so an index here would name whichever end this build
+		// happens to add at.
+		const second =
+			(await annotationLayerId(page, 0)) === first
+				? await annotationLayerId(page, 1)
+				: await annotationLayerId(page, 0);
+
+		// The card the row is dropped on is a *collapsed* one, which is the whole gesture: the only open
+		// Annotation Layer is the one the row is already in.
+		const target = page.locator(`[data-testid="layer-row"][data-layer-id="${second}"]`);
+		await rows.nth(0).getByTestId('annotation-drag-handle').dragTo(target);
+
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect
+			.poll(async () => (await storedAnnotations(page, second)).features.map((one) => one.id))
+			.toEqual([ids[2]]);
+		expect((await storedAnnotations(page, first)).features.map((one) => one.id)).toEqual([
+			ids[0],
+			ids[1]
+		]);
+
+		// The sidebar followed the Annotation: the Layer it went into is open, with it selected, so the
+		// scholar watches where their work went rather than being told.
+		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-moved')).toContainText('moved to');
+
+		expect(failures).toEqual([]);
+	});
+});

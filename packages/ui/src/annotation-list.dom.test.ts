@@ -325,7 +325,7 @@ describe('the row selects and opens nothing (the-annotation-inspector stories 10
 		// the same length however much any one Annotation has to say. **Asserted as the row's own
 		// children rather than as the absence of a `data-testid`**, because a renamed id is exactly how
 		// an absence assertion goes quietly green — there is no snippet left to pass, so the only
-		// honest form of "nothing opens" is that the `<li>` holds one element and it is the button.
+		// honest form of "nothing opens" is to read what the `<li>` actually holds.
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
@@ -335,8 +335,41 @@ describe('the row selects and opens nothing (the-annotation-inspector stories 10
 
 		await press(nth('annotation-row', 0));
 
-		const item = nth('annotation-row-item', 0);
-		expect([...item.children]).toEqual([nth('annotation-row', 0)]);
+		// One element under the `<li>`, holding the button and nothing beside it.
+		const row = nth('annotation-row-item', 0).children[0];
+		expect([...(row?.children ?? [])]).toEqual([nth('annotation-row', 0)]);
+	});
+
+	test('a reordering consumer adds the handle and still opens nothing', async () => {
+		// The drag handle is the one thing a row gains, it is on **every** row rather than on the
+		// selected one, and it is not a region: a control strip unfolding under the chosen Annotation is
+		// exactly the growth stories 10 and 69 exist to prevent, which is why the Move buttons are in
+		// the Inspector instead.
+		list({
+			annotations: [
+				annotation({ id: 'a-1', title: 'One' }),
+				annotation({ id: 'a-2', title: 'Two' })
+			],
+			withMoving: true
+		});
+
+		expect(all('annotation-drag-handle')).toHaveLength(2);
+
+		await press(nth('annotation-row', 0));
+
+		const row = nth('annotation-row-item', 0).children[0];
+		expect([...(row?.children ?? [])]).toEqual([
+			nth('annotation-drag-handle', 0),
+			nth('annotation-row', 0)
+		]);
+	});
+
+	test('a consumer that cannot reorder gets no handle', () => {
+		// A published site, which passes no `onmove`: the order of a Layer's shapes is the author's
+		// decision, and a Reader is offered no way to touch it.
+		list({ annotations: [annotation({ id: 'a-1', title: 'One' })] });
+
+		expect(one('annotation-drag-handle')).toBeNull();
 	});
 
 	test('selecting a second Annotation deselects the first', async () => {

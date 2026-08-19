@@ -516,6 +516,7 @@ export {
 	isLabel,
 	isLabelFeature,
 	lineStyleOf,
+	moveAnnotation,
 	newAnnotation,
 	removeAnnotation,
 	resolveStyle,

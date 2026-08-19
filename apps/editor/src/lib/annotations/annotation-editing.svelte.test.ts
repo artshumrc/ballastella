@@ -888,3 +888,114 @@ describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', () => {
 		expect(utf8(serialiseAnnotations(written(it_)))).toBe(original);
 	});
 });
+
+describe('moving an Annotation', () => {
+	it('reorders it inside its own Layer in one write', () => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [pin('a1'), pin('a2'), pin('a3')] });
+		it_.annotations.openLayer('one');
+
+		void it_.annotations.moveAnnotationTo('a3', 0);
+
+		expect(it_.session.writes).toHaveLength(1);
+		expect(it_.session.writes[0]?.collection.annotations.map((one) => one.id)).toEqual([
+			'a3',
+			'a1',
+			'a2'
+		]);
+	});
+
+	it('writes nothing when the move changes nothing', () => {
+		// The identity guard in `moveAnnotation` reaching `commitAnnotationsIn`'s: a drop back where it
+		// came from must not rewrite a scholar's file with a fresh `updatedAt` (ADR-0010).
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [pin('a1'), pin('a2')] });
+		it_.annotations.openLayer('one');
+
+		void it_.annotations.moveAnnotationTo('a1', 0);
+
+		expect(it_.session.writes).toEqual([]);
+	});
+
+	it('writes the target Layer before the Layer the Annotation is leaving', async () => {
+		// **The order is the whole claim.** A failure between the two writes leaves the Annotation in
+		// both Layers, which a scholar can see and delete; the other order leaves it in neither and the
+		// work is gone.
+		const from = layerNamed('from');
+		const to = layerNamed('to');
+		const it_ = screen([from, to]);
+		it_.put(from, { annotations: [pin('a1'), pin('a2')] });
+		it_.put(to, { annotations: [pin('b1')] });
+		it_.annotations.openLayer('from');
+
+		await it_.annotations.moveAnnotationToLayer('a2', 'to');
+
+		expect(it_.session.writes.map((write) => write.layerId)).toEqual(['to', 'from']);
+		expect(it_.session.writes[0]?.collection.annotations.map((one) => one.id)).toEqual([
+			'b1',
+			'a2'
+		]);
+		expect(it_.session.writes[1]?.collection.annotations.map((one) => one.id)).toEqual(['a1']);
+	});
+
+	it('opens the Layer it went into and selects it there', async () => {
+		// The sidebar follows the Annotation rather than the other way round, which is `restoreDeleted`'s
+		// rule: a row simply vanishing from the list it was in is what a move nobody meant to make looks
+		// like.
+		const from = layerNamed('from');
+		const to = layerNamed('to', 'The routes');
+		const it_ = screen([from, to]);
+		it_.put(from, { annotations: [pin('a1')] });
+		it_.put(to, { annotations: [] });
+		it_.annotations.openLayer('from');
+
+		await it_.annotations.moveAnnotationToLayer('a1', 'to');
+
+		expect(it_.annotations.openLayerId).toBe('to');
+		expect(it_.annotations.selectedAnnotationId).toBe('a1');
+		expect(it_.annotations.moveNotice).toContain('The routes');
+	});
+
+	it('reads a hidden target Layer rather than assuming it is empty', async () => {
+		// `documents` holds the Layers the map is given, so a hidden one is absent from it. Assuming
+		// empty would write a file holding one Annotation over a file holding twenty.
+		const from = layerNamed('from');
+		const to = layerNamed('to');
+		const it_ = screen([from, to]);
+		it_.put(from, { annotations: [pin('a1')] });
+		it_.session.onDisk.set('to', { annotations: [pin('b1'), pin('b2')] });
+		it_.annotations.openLayer('from');
+
+		await it_.annotations.moveAnnotationToLayer('a1', 'to');
+
+		expect(it_.session.writes[0]?.collection.annotations.map((one) => one.id)).toEqual([
+			'b1',
+			'b2',
+			'a1'
+		]);
+	});
+
+	it('refuses, and writes nothing at all, when the target Layer cannot be read', async () => {
+		const from = layerNamed('from');
+		const to = layerNamed('to', 'The routes');
+		const it_ = screen([from, to]);
+		it_.put(from, { annotations: [pin('a1')] });
+		it_.session.unreadable.add('to');
+		it_.annotations.openLayer('from');
+
+		await it_.annotations.moveAnnotationToLayer('a1', 'to');
+
+		expect(it_.session.writes).toEqual([]);
+		expect(it_.annotations.moveRefusal).toContain('The routes');
+		expect(it_.annotations.openLayerId).toBe('from');
+	});
+
+	it('offers every Annotation Layer but the one on screen as somewhere to move to', () => {
+		const it_ = screen([layerNamed('one'), layerNamed('two'), layerNamed('three')]);
+		it_.annotations.openLayer('two');
+
+		expect(it_.annotations.moveTargets.map((target) => target.id)).toEqual(['one', 'three']);
+	});
+});

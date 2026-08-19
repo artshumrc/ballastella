@@ -27,6 +27,7 @@ import {
 	isLabelFeature,
 	lineStyleOf,
 	newAnnotation,
+	moveAnnotation,
 	removeAnnotation,
 	resolveStyle,
 	setGeometry,
@@ -154,6 +155,45 @@ describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(removeAnnotation(before, 'nobody')).toBe(before);
 		expect(setText(before, 'nobody', { title: 'x' })).toBe(before);
 		expect(setStyle(before, 'nobody', { stroke: '#000000' })).toBe(before);
+	});
+});
+
+describe('reordering the Annotations in one Layer', () => {
+	const idsOf = (collection: AnnotationCollection) =>
+		collection.annotations.map((annotation) => annotation.id);
+
+	test('an Annotation moves to the position it was dropped on', () => {
+		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
+
+		expect(idsOf(moveAnnotation(before, 'a3', 0))).toEqual(['a3', 'a1', 'a2']);
+		expect(idsOf(moveAnnotation(before, 'a1', 2))).toEqual(['a2', 'a3', 'a1']);
+		expect(idsOf(moveAnnotation(before, 'a2', 0))).toEqual(['a2', 'a1', 'a3']);
+	});
+
+	test('a position outside the collection is clamped, so an end stop is not an exception', () => {
+		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
+
+		expect(idsOf(moveAnnotation(before, 'a2', -1))).toEqual(['a2', 'a1', 'a3']);
+		expect(idsOf(moveAnnotation(before, 'a2', 99))).toEqual(['a1', 'a3', 'a2']);
+	});
+
+	test('a move that changes nothing is the same collection, so nothing is written', () => {
+		// Identity, not equality: the caller writes only when the collection changed, which is what
+		// keeps an untouched file byte-identical.
+		const before = collectionOf(pin('a1'), pin('a2'));
+
+		expect(moveAnnotation(before, 'a1', 0)).toBe(before);
+		expect(moveAnnotation(before, 'a2', 5)).toBe(before);
+		expect(moveAnnotation(before, 'nobody', 0)).toBe(before);
+	});
+
+	test('the Annotations that moved are the same objects, so no property is rewritten', () => {
+		const before = collectionOf(pin('a1'), pin('a2'));
+
+		const after = moveAnnotation(before, 'a2', 0);
+
+		expect(after.annotations[0]).toBe(before.annotations[1]);
+		expect(after.annotations[1]).toBe(before.annotations[0]);
 	});
 });
 

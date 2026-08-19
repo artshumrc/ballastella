@@ -19,12 +19,14 @@
 	import type { Annotation } from '@ballastella/core';
 	import type { Snippet } from 'svelte';
 
+	import { annotationName } from './annotation-name.js';
 	import AnnotationRow from './AnnotationRow.svelte';
 
 	let {
 		annotations,
 		openId,
 		onopen,
+		onmove,
 		tools,
 		noAnnotationsGuidance
 	}: {
@@ -42,6 +44,17 @@
 		/** The open row, which is the selected Annotation — one fact, so one value. */
 		openId: string | null;
 		onopen: (id: string | null) => void;
+		/**
+		 * Move an Annotation to a position in this collection — what a row dropped on a row asks for.
+		 * Without it the rows carry no handle and accept no drop, which is what a published site gets:
+		 * the order of a Layer's shapes is the author's decision, and a Reader is not offered it.
+		 *
+		 * ⚠ **This is the drag alone, and it is the convenience rather than the contract.** ADR-0016
+		 * requires a keyboard path for a reorder, and it is not in this list: the row holds one button
+		 * and nothing opens in it (the-annotation-inspector stories 10, 69), so the Move buttons are in
+		 * the Annotation Inspector, beside the Delete that acts on the same Annotation.
+		 */
+		onmove?: (id: string, toIndex: number) => void;
 		/** Whatever this consumer offers above the list. Editor only; a Reader is offered none of it. */
 		tools?: Snippet;
 		/**
@@ -52,6 +65,43 @@
 		 */
 		noAnnotationsGuidance?: Snippet;
 	} = $props();
+
+	/**
+	 * The Annotation being dragged and the row a drop would land on, both `''` for neither.
+	 *
+	 * Held here rather than in a row because both are facts about the list: exactly one row is being
+	 * dragged and exactly one is the target, and a row holding its own copy of either would be a
+	 * second answer to a question the list has already answered.
+	 */
+	let dragging = $state('');
+	let over = $state('');
+
+	/**
+	 * What the last reorder did, announced.
+	 *
+	 * A move changes nothing that has focus and nothing that is visible near the pointer, so without
+	 * this a screen-reader user presses "Move up" and is told nothing at all. `aria-live` rather than
+	 * `role="status"`, because the save indicator already owns that role on this page — the same
+	 * reasoning, and the same shape, as the Layer stack's own announcement one level up.
+	 */
+	let moved = $state('');
+
+	/**
+	 * Report the move and say what it did.
+	 *
+	 * The position announced is the one that was *asked for*, clamped to the collection, rather than
+	 * one read back afterwards: the consumer owns the collection and hands it back as a prop, so
+	 * reading the new position here would mean announcing whatever had arrived by the time this ran.
+	 */
+	const move = (id: string, toIndex: number): void => {
+		const list = annotations ?? [];
+		const from = list.findIndex((annotation) => annotation.id === id);
+		const annotation = list[from];
+		if (!onmove || !annotation) return;
+		const to = Math.min(list.length - 1, Math.max(0, toIndex));
+		onmove(id, toIndex);
+		moved = `${annotationName(annotation, from)} moved to ${to + 1} of ${list.length}`;
+	};
 </script>
 
 <!--
@@ -63,6 +113,15 @@
 -->
 <section aria-label="Annotations" class="flex flex-col gap-3">
 	{@render tools?.()}
+
+	<!--
+		Where the last Annotation went, for somebody who cannot see it travel. Always rendered, because a
+		live region is announced when its text *changes* rather than when the element carrying it is
+		inserted.
+	-->
+	<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="annotation-move-status">
+		{moved}
+	</p>
 
 	{#if annotations === null}
 		<!--
@@ -116,7 +175,15 @@
 				data-testid="annotation-list"
 			>
 				{#each annotations as annotation, index (annotation.id)}
-					<AnnotationRow {annotation} {index} open={annotation.id === openId} {onopen} />
+					<AnnotationRow
+						{annotation}
+						{index}
+						open={annotation.id === openId}
+						{onopen}
+						bind:dragging
+						bind:over
+						{...onmove ? { onmove: move } : {}}
+					/>
 				{/each}
 			</ol>
 		</div>

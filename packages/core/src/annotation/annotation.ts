@@ -638,6 +638,34 @@ export function insertAnnotationAt(
 	};
 }
 
+/**
+ * Move an Annotation to `toIndex` in its collection.
+ *
+ * The order of a `FeatureCollection` is the order its Annotations draw in and the order the sidebar
+ * lists them in, so this is the one gesture that decides which of two overlapping shapes is on top.
+ * Out-of-range indices are clamped rather than refused, for the reason {@link moveLayer} clamps
+ * them: both the drag and the two buttons ask for a position, and "the first Annotation cannot go
+ * higher" is a disabled button rather than an exception.
+ *
+ * Returns the collection it was given when nothing moved, so a caller can tell a no-op by identity
+ * and leave an untouched `annotations/*.geojson` byte-identical.
+ */
+export function moveAnnotation(
+	collection: AnnotationCollection,
+	id: string,
+	toIndex: number
+): AnnotationCollection {
+	const from = collection.annotations.findIndex((annotation) => annotation.id === id);
+	if (from === -1) return collection;
+	const to = Math.min(collection.annotations.length - 1, Math.max(0, toIndex));
+	if (to === from) return collection;
+	const annotations = [...collection.annotations];
+	const [moved] = annotations.splice(from, 1);
+	if (moved === undefined) return collection;
+	annotations.splice(to, 0, moved);
+	return { ...collection, annotations };
+}
+
 /** `collection` with `change` applied to the one Annotation with this id. */
 function replace(
 	collection: AnnotationCollection,

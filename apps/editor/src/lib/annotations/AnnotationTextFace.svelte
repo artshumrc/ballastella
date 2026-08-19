@@ -24,6 +24,11 @@
 	// deletes of different scope in one card. It stays undoable and has no confirmation dialog
 	// (ADR-0014).
 	//
+	// **So are the two Move buttons and the Layer picker**, for the same reason and one more: the row
+	// in the sidebar carries a drag handle, and ADR-0016 will not let a drag be the only way to reorder
+	// anything whose order is load-bearing. See the block they are in for why the row could not hold
+	// them.
+	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 	// **A LABEL IS THE ONE KIND WHOSE WORDS ARE A FIELD ON ARRIVAL** (write-on-the-map stories 11, 12,
 	// 15, 17).
@@ -41,6 +46,8 @@
 
 	import { isLabel, type Annotation } from '@ballastella/core';
 	import { AnnotationDescription } from '@ballastella/ui';
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { tick } from 'svelte';
@@ -51,7 +58,12 @@
 		ontext,
 		ontitled,
 		oncommit,
-		ondelete
+		ondelete,
+		index,
+		count,
+		moveTargets,
+		onmove,
+		onmovetolayer
 	}: {
 		annotation: Annotation;
 		/**
@@ -79,6 +91,20 @@
 		/** The edit is over — the field blurred, or Enter was pressed (ADR-0017 rule 1). */
 		oncommit: () => void;
 		ondelete: () => void;
+		/**
+		 * Where this Annotation sits in its Layer's collection, counted from zero, and how many are in
+		 * it. Read for what the two Move buttons ask for and for which of them is `disabled` — "the
+		 * first Annotation cannot go higher" is a disabled button, which is information a screen reader
+		 * gets for free from the markup.
+		 */
+		index: number;
+		count: number;
+		/** The Annotation Layers this one could move into: every one but the Layer it is in. */
+		moveTargets: readonly { id: string; name: string }[];
+		/** Move it to a position in its own collection (ADR-0017 rule 1: one press, one write). */
+		onmove: (toIndex: number) => void;
+		/** Move it into another Annotation Layer, which moves it between two GeoJSON files. */
+		onmovetolayer: (layerId: string) => void;
 	} = $props();
 
 	const properties = $derived(annotation.properties);
@@ -271,6 +297,83 @@
 				title and description are still yours to edit, and the shape is written back untouched.
 			</p>
 		{/if}
+	{/if}
+
+	<!--
+		Where this Annotation sits in its Layer, and which Layer it is in.
+
+		─────────────────────────────────────────────────────────────────────────────────────────────
+		**WHY THE MOVE CONTROLS ARE HERE AND NOT ON THE ROW**
+
+		ADR-0016 makes the keyboard path the contract and the drag the convenience, so the drag handle
+		on the row cannot be the only way to reorder an Annotation. It could not have the buttons beside
+		it either: the row holds one button and nothing opens in it (the-annotation-inspector stories
+		10, 69), and a control strip unfolding under the selected row is exactly the growth that claim
+		exists to prevent. So they are here, for the same reason Delete is — they act on the Annotation
+		this panel is describing, and the ordinal in the header above is the very number they change.
+
+		**The picker's first option is not a value.** Moving an Annotation into another Layer moves it
+		between two GeoJSON files, so there is no "current" Layer to show as chosen — the Layer it is in
+		is not among the choices — and a picker showing one of the *others* as selected would be
+		claiming the move has already happened. The placeholder is the resting state, every real option
+		performs the move, and the control returns to the placeholder afterwards because by then this
+		panel is describing an Annotation in a different Layer.
+
+		The row goes entirely when a Project has one Annotation Layer holding one Annotation: two
+		disabled buttons and no picker is a strip that can do nothing at all.
+	-->
+	{#if count > 1 || moveTargets.length > 0}
+		<div class="flex flex-wrap items-center gap-2">
+			{#if count > 1}
+				<button
+					type="button"
+					class="btn btn-sm"
+					disabled={index === 0}
+					data-testid="annotation-move-up"
+					onclick={() => onmove(index - 1)}
+				>
+					<ArrowUp size={14} aria-hidden="true" />
+					Move up<span class="sr-only"> — this Annotation, within its Layer</span>
+				</button>
+				<button
+					type="button"
+					class="btn btn-sm"
+					disabled={index === count - 1}
+					data-testid="annotation-move-down"
+					onclick={() => onmove(index + 1)}
+				>
+					<ArrowDown size={14} aria-hidden="true" />
+					Move down<span class="sr-only"> — this Annotation, within its Layer</span>
+				</button>
+			{/if}
+
+			{#if moveTargets.length > 0}
+				<!--
+					Labelled by a real `<label>` rather than by `aria-label`: the words are the same either
+					way, and a real label is what a voice user can say back to the screen (WCAG 2.5.3). One
+					Annotation is described at a time, so the fixed id names one control.
+				-->
+				<label class="sr-only" for="annotation-move-to-layer">
+					Move this Annotation to another Annotation Layer
+				</label>
+				<select
+					id="annotation-move-to-layer"
+					class="select w-auto select-sm"
+					data-testid="annotation-move-to-layer"
+					value=""
+					onchange={(event) => {
+						const layerId = event.currentTarget.value;
+						event.currentTarget.value = '';
+						if (layerId) onmovetolayer(layerId);
+					}}
+				>
+					<option value="">Move to Layer…</option>
+					{#each moveTargets as target (target.id)}
+						<option value={target.id}>{target.name || 'Untitled Layer'}</option>
+					{/each}
+				</select>
+			{/if}
+		</div>
 	{/if}
 
 	<!--

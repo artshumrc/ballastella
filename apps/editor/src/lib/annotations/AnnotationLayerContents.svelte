@@ -55,7 +55,8 @@
 		onfinish,
 		oncancel,
 		onundovertex,
-		onselect
+		onselect,
+		onmove
 	}: {
 		collection: AnnotationCollection | null;
 		selectedId: string | null;
@@ -78,6 +79,14 @@
 		oncancel: () => void;
 		onundovertex: () => void;
 		onselect: (id: string | null) => void;
+		/**
+		 * An Annotation was dropped on another row: move it to that row's position.
+		 *
+		 * **The drag alone.** ADR-0016 will not have it as the only path, and the keyboard half is in
+		 * the Annotation Inspector rather than in this column — see `AnnotationRow` for why a row could
+		 * not carry it.
+		 */
+		onmove: (id: string, toIndex: number) => void;
 	} = $props();
 
 	const annotations = $derived<readonly Annotation[]>(collection?.annotations ?? []);
@@ -157,6 +166,7 @@
 	{annotations}
 	openId={selectedId}
 	onopen={onselect}
+	{onmove}
 	{tools}
 	{noAnnotationsGuidance}
 />

@@ -43,7 +43,11 @@
 		ontext,
 		ontitled,
 		oncommit,
-		ondelete
+		ondelete,
+		count = 1,
+		moveTargets = [],
+		onmove,
+		onmovetolayer
 	}: {
 		id?: string;
 		index?: number;
@@ -64,6 +68,17 @@
 		ontitled?: () => void;
 		oncommit?: () => void;
 		ondelete?: () => void;
+		/**
+		 * How many Annotations the Layer holds, so a test can put this one at an end of the collection
+		 * and read what the Move buttons do there. One by default: the face under test is the words, and
+		 * a Project with a single Annotation and a single Layer is the one where no move is possible.
+		 */
+		count?: number;
+		/** The Layers the picker offers. Empty by default, so there is no picker at all. */
+		moveTargets?: readonly { id: string; name: string }[];
+		/** Reported only: this harness holds no collection for an Annotation to move within. */
+		onmove?: (toIndex: number) => void;
+		onmovetolayer?: (layerId: string) => void;
 	} = $props();
 
 	// Seeded once, then the harness's own: after the first render the properties are whatever the writes
@@ -85,6 +100,11 @@
 		ontitled={() => ontitled?.()}
 		oncommit={() => oncommit?.()}
 		ondelete={() => ondelete?.()}
+		{index}
+		{count}
+		{moveTargets}
+		onmove={(toIndex) => onmove?.(toIndex)}
+		onmovetolayer={(layerId) => onmovetolayer?.(layerId)}
 	/>
 {/snippet}
 
