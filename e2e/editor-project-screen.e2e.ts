@@ -96,67 +96,6 @@ const projectWrites = async (page: Page): Promise<number> =>
 		name.includes('project.json')
 	).length;
 
-/**
- * The Front Page choice, on the hub (SPEC stories 25–28, ADR-0032).
- *
- * On the Workspace hub rather than inside a Project, because the Workspace is what publishes: the
- * choice decides one entry in one list on the Published Site, and the list is the Workspace's.
- *
- * **The wording is the safeguard and is asserted at the component seam** — ADR-0032's refusal to
- * call an off-the-front-page Project unpublished, private, hidden or a draft is a claim about what
- * `ProjectHub` composes from a `ProjectSummary`, and it lives in
- * `apps/editor/src/lib/components/project-hub.dom.test.ts`. What is left here is what needs a real
- * Workspace: that the choice reaches `project.json`, that it leaves `updatedAt` alone, that it
- * survives a reload, and that the caution on screen describes the state the file is in.
- */
-test.describe('choosing whether a Project is on the Front Page', () => {
-	test.beforeEach(async ({ context }) => {
-		await routeBaseMapArchive(context);
-	});
-
-	test('takes a Project off the Front Page and puts it back, and the choice survives a reload', async ({
-		page
-	}) => {
-		await freshWorkspace(page);
-		// Per directory, like the note's `id` beside it: the hub lists every Project, so a testid that
-		// is only per-row is ambiguous the moment a Workspace holds two.
-		const toggle = page.getByTestId(`on-front-page-${PROJECT_DIRECTORY}`);
-
-		// On by default, and written as *absence* — so a new Project's manifest is byte-identical to one
-		// from a build that had never heard of the choice, and a Workspace in git gains no diff.
-		await expect(toggle).toBeChecked();
-		expect(JSON.parse(await projectFile(page))).not.toHaveProperty('onFrontPage');
-		const before = JSON.parse(await projectFile(page)).updatedAt;
-
-		await toggle.uncheck();
-		await expect.poll(async () => JSON.parse(await projectFile(page)).onFrontPage).toBe(false);
-
-		// ⚠ **The caution follows the file, not the click.** The wording matrix — the required
-		// "readable by anyone with the link" and the four refused words, in both states — is
-		// `apps/editor/src/lib/components/project-hub.dom.test.ts`; what only a real Workspace can
-		// show is that the sentence beside the control describes the state `project.json` is now in.
-		const note = page.getByTestId(`front-page-note-${PROJECT_DIRECTORY}`);
-		await expect(note).toContainText('Not on the front page');
-		await expect(toggle).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
-
-		// ⚠ **`updatedAt` is untouched.** The hub is ordered by it and publishing writes the Front Page in
-		// that order, so stamping here would move the row out from under the cursor that just clicked it
-		// and reorder the site — which ADR-0032 leaves alone.
-		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
-
-		// The reload is the assertion: the control reads `project.json` rather than remembering, so what
-		// comes back is what is on disk.
-		await page.reload();
-		await expect(toggle).not.toBeChecked();
-
-		await toggle.check();
-		await expect.poll(async () => 'onFrontPage' in JSON.parse(await projectFile(page))).toBe(false);
-		await page.reload();
-		await expect(toggle).toBeChecked();
-		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
-	});
-});
-
 test.describe('the Project screen', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);

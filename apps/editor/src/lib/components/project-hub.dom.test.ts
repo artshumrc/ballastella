@@ -1,5 +1,4 @@
-// What the Workspace hub renders: the Map Images list, and the Front Page choice beside each
-// Project.
+// What the Workspace hub renders: the Map Images list and its Project actions.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT MOVED HERE, AND WHAT DELIBERATELY DID NOT
@@ -8,8 +7,8 @@
 // into OPFS, booted the built editor, and then read a sentence out of a `<li>` — the label and the
 // size, where the tiles are, and which Projects draw the map. Every one of those sentences is
 // composed from a `WorkspaceMapImage` record and nothing else, so none of the scenery was
-// load-bearing. From `e2e/editor-project-screen.e2e.ts`: the Front Page wording matrix, which is
-// four forbidden words and one required phrase over a two-valued state.
+// load-bearing. The Front Page choice now belongs to the Publish dialog, where it is shown with the
+// rest of the publishing decision.
 //
 // ⚠ **What did not move.**
 //
@@ -25,7 +24,6 @@
 //   answer.
 // - **That the confirmation is a real `<dialog>` opened with `showModal()`.** ADR-0016's claim is
 //   about the platform's own modality, which a DOM implementation approximates; it stays in `e2e/`.
-// - **The Front Page choice reaching `project.json`, and `updatedAt` staying put.** Bytes again.
 //
 // Everything is addressed by position and read straight off the document, per
 // `layer-list.dom.test.ts`.
@@ -46,15 +44,6 @@ const map = (imageId: string, over: Partial<WorkspaceMapImage> = {}): WorkspaceM
 	files: 4,
 	usedBy: [],
 	mightBeUsedBy: [],
-	...over
-});
-
-const project = (directory: string, over: Partial<ProjectSummary> = {}): ProjectSummary => ({
-	directory,
-	name: directory,
-	updatedAt: '2026-01-02T03:04:05.000Z',
-	onFrontPage: true,
-	problem: null,
 	...over
 });
 
@@ -288,79 +277,4 @@ test('a Workspace with no Map Images says so', () => {
 	expect(text(at('no-map-images'))).toBe('No Map Images yet.');
 	// And no total, because there is no total to state.
 	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
-});
-
-/**
- * The Front Page choice, and the wording that is its safeguard (ADR-0032, SPEC stories 26 and 27).
- *
- * ⚠ A Project off the Front Page is still published, still in the repository, and still opened by
- * `?p=<folder>` by anyone who knows the name. Every one of "unpublished", "private", "draft" and
- * "hidden" invites the opposite reading, and a scholar with an embargoed archival photograph or a
- * manuscript under a library's publication restriction will act on the reading they are given. So
- * the four words are refused by test, and the caution required, in **both** states — because the
- * state a user is about to leave is the one they are deciding from.
- */
-describe('the Front Page choice', () => {
-	const FORBIDDEN = ['unpublished', 'private', 'draft', 'hidden'];
-
-	const toggle = () => at('on-front-page-amsterdam-1625') as HTMLInputElement;
-	/** Everything the user reads on and beside the control, as one lowercase string. */
-	const wording = () =>
-		`${text(toggle().closest('label'))} ${text(at('front-page-note-amsterdam-1625'))}`.toLowerCase();
-
-	test('says the Project stays readable by anyone, in both states, and never calls it private, hidden, unpublished, or a draft', () => {
-		hub({ projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })] });
-
-		expect(toggle().checked, 'a Project is on the Front Page by default').toBe(true);
-		expect(wording(), 'the wording while on the front page').toContain(
-			'readable by anyone with the link'
-		);
-		for (const forbidden of FORBIDDEN) {
-			expect(wording(), `“${forbidden}” while on the front page`).not.toContain(forbidden);
-		}
-
-		// Through the control rather than by replacing the prop: the box is a two-way binding whose
-		// setter goes through the session, and the harness's Workspace is what it settles on.
-		toggle().click();
-		flushSync();
-
-		expect(toggle().checked).toBe(false);
-		expect(wording()).toContain('not on the front page');
-		expect(wording(), 'the wording while off the front page').toContain(
-			'readable by anyone with the link'
-		);
-		for (const forbidden of FORBIDDEN) {
-			expect(wording(), `“${forbidden}” while off the front page`).not.toContain(forbidden);
-		}
-	});
-
-	// The caution is the control's accessible *description*, not merely a paragraph nearby: a screen
-	// reader user is given it along with the control instead of having to go looking for it.
-	test('gives the caution to the control as its description, by id', () => {
-		hub({ projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })] });
-
-		const describedById = toggle().getAttribute('aria-describedby') ?? '';
-		expect(describedById).toBe(at('front-page-note-amsterdam-1625').id);
-		expect(text(document.getElementById(describedById))).toContain(
-			'readable by anyone with the link'
-		);
-	});
-
-	// Named per Project, because the hub lists every Project and "On the front page" repeated down a
-	// column names nothing a screen-reader user can act on.
-	test('names the Project the choice is about', () => {
-		hub({ projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })] });
-
-		expect(toggle()).toHaveAccessibleName('On the front page — Amsterdam 1625');
-	});
-
-	// ADR-0010: setting the field means writing `project.json`, which is refused for a Project from a
-	// newer version — so the control says so rather than failing when pressed.
-	test('is not offered for a Project this build cannot read', () => {
-		hub({
-			projects: [project('amsterdam-1625', { name: 'Amsterdam 1625', problem: 'format-too-new' })]
-		});
-
-		expect(toggle().disabled).toBe(true);
-	});
 });

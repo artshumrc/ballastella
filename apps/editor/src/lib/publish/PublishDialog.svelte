@@ -55,6 +55,7 @@
 		describeTokenProblem,
 		publishedSiteStaleness,
 		type PendingLocalFile,
+		type ProjectSummary,
 		type PublishPlan,
 		type PublishedProject,
 		type PublishedSite,
@@ -118,6 +119,9 @@
 	/** The address the user wants their Map Images to answer at, or `''` (SPEC story 92). */
 	let canonicalUrl = $state('');
 
+	/** The Project state the current forecast was built from. */
+	let plannedProjectKey = '';
+
 	/** The credential being pasted, for a Workspace that is bound and not signed in. */
 	let token = $state('');
 	let signingIn = $state(false);
@@ -151,6 +155,23 @@
 
 	const messageOf = (cause: unknown): string =>
 		cause instanceof Error ? cause.message : String(cause);
+
+	const projectStateKey = (projects: readonly ProjectSummary[]): string =>
+		projects
+			.map(
+				(project) =>
+					`${project.directory}\u0000${project.name}\u0000${project.onFrontPage}\u0000${project.problem}`
+			)
+			.join('\u0001');
+
+	/** The caution beside each choice: removing a Project from the list does not make it private. */
+	const frontPageNote = (project: ProjectSummary): string =>
+		project.onFrontPage
+			? 'A Reader arriving at your Published Site is offered this Project on its front page. ' +
+				'Turning this off removes it from that list only — it stays on the site, readable by anyone ' +
+				'with the link.'
+			: 'This Project is not on the front page, but it stays on the site and is readable by anyone ' +
+				'with the link.';
 
 	const reset = () => {
 		plan = null;
@@ -247,11 +268,12 @@
 	let planning = 0;
 
 	/**
-	 * Work out the plan whenever the dialog opens, and exactly once per opening.
+	 * Work out the plan whenever the dialog opens or a Project's Front Page choice changes.
 	 *
 	 * On open rather than once: see decision 1 in the header. `session` is a dependency so that
 	 * switching Workspace with the dialog open re-plans against the Workspace now in front of the
-	 * user rather than the one they left.
+	 * user rather than the one they left. The Project key also makes the forecast follow a choice made
+	 * inside this dialog.
 	 */
 	$effect(() => {
 		const active = session;
@@ -265,10 +287,13 @@
 		}
 		if (!open) {
 			plannedFor = null;
+			plannedProjectKey = '';
 			return;
 		}
-		if (plannedFor === active) return;
+		const currentProjectKey = projectStateKey(active.projects);
+		if (plannedFor === active && plannedProjectKey === currentProjectKey) return;
 		plannedFor = active;
+		plannedProjectKey = currentProjectKey;
 		reset();
 		void planOpening(active, ++planning);
 	});
@@ -640,6 +665,46 @@
 			<p>{failure}</p>
 		</div>
 	{/if}
+
+	<section
+		class="mt-4 rounded-box border border-base-300 p-4"
+		data-testid="publish-project-selection"
+	>
+		<h3 class="font-semibold">Projects on the Published Site</h3>
+		<p class="mt-1 text-sm">
+			Choose which Projects a Reader will see on the site's front page. Turning one off removes it
+			from that list only; it stays on the site and remains readable by anyone with its link.
+		</p>
+		<ul class="mt-3 flex flex-col gap-3">
+			{#each session.projects as project (project.directory)}
+				<li>
+					<label class="flex w-fit items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							class="toggle toggle-sm"
+							data-testid="on-front-page-{project.directory}"
+							checked={project.onFrontPage}
+							onchange={(event) =>
+								void session.setProjectOnFrontPage(
+									project.directory,
+									(event.currentTarget as HTMLInputElement).checked
+								)}
+							disabled={project.problem !== null}
+							aria-describedby="front-page-note-{project.directory}"
+						/>
+						On the front page<span class="sr-only"> — {project.name}</span>
+					</label>
+					<p
+						id="front-page-note-{project.directory}"
+						class="mt-1 max-w-prose text-sm opacity-70"
+						data-testid="front-page-note-{project.directory}"
+					>
+						{frontPageNote(project)}
+					</p>
+				</li>
+			{/each}
+		</ul>
+	</section>
 
 	{#if plan === null}
 		<p>Working out what publishing would add…</p>

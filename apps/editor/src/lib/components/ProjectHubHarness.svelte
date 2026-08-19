@@ -15,12 +15,6 @@
 	 * there. The real `WorkspaceHost` constructor does nothing but declare state — the browser-only
 	 * work is in `begin()`, which is never called here — so it is the real one rather than a fake.
 	 *
-	 * **The hub's Front Page control writes through the session and re-reads the list.** In the
-	 * application `setProjectOnFrontPage` updates the Workspace and the hub re-renders from the new
-	 * summaries; a test that replaced the prop afterwards would be asserting its own arrangement.
-	 * So the list lives in `$state` here and the fake session writes to it, exactly as `LayerList`'s
-	 * harness holds the Layer order the component asks it to change.
-	 *
 	 * ⚠ **Nothing below reaches a store.** Every claim asserted against this harness is a claim about
 	 * what the hub *renders and announces*; what the Workspace does with a deletion is
 	 * `packages/core`'s, and that it reaches OPFS at all is `e2e/`'s.
@@ -74,11 +68,6 @@
 		deleteMapImage: async (imageId: string) => {
 			maps = maps.filter((map) => map.imageId !== imageId);
 			return true;
-		},
-		setProjectOnFrontPage: async (directory: string, onFrontPage: boolean) => {
-			listed = listed.map((project) =>
-				project.directory === directory ? { ...project, onFrontPage } : project
-			);
 		},
 		createProject: async () => {},
 		renameProject: async () => {},

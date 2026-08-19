@@ -416,22 +416,25 @@ test.describe('publishing a Workspace', () => {
 	// "duplicates no tile bytes: the pyramid is in the Workspace exactly once" for the pyramid.
 
 	/**
-	 * ⚠ **Two different numbers, and the dialog has to say both** (ADR-0032).
-	 *
-	 * `PublishPlan.projects` is every Project the site will carry, listed or not, so reporting its
-	 * length as what the site "will list" describes a Front Page the author did not ask for — and the
-	 * announcement afterwards repeats the same count from the record. Both sentences are asserted here
-	 * because they are two strings, built from two objects, saying one fact.
+	 * The Front Page choice belongs with publishing: the dialog shows the consequence, persists the
+	 * choice, and forecasts the resulting site before the button is pressed.
 	 */
-	test('says how many Projects the site carries and how many its front page lists', async ({
-		page
-	}) => {
+	test('lets the author choose which Projects appear on the front page', async ({ page }) => {
 		await openWorkspace(page, {
 			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-			...projectFiles('boston-1775', { name: 'Boston 1775', onFrontPage: false })
+			...projectFiles('boston-1775', { name: 'Boston 1775' })
 		});
 
 		const dialog = await openPublishDialog(page);
+		const boston = dialog.getByTestId('on-front-page-boston-1775');
+		await expect(boston).toBeChecked();
+		await expect(boston).toHaveAccessibleName('On the front page — Boston 1775');
+		const note = dialog.getByTestId('front-page-note-boston-1775');
+		await expect(boston).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
+
+		await boston.uncheck();
+		await expect(note).toContainText('not on the front page');
+		await expect(note).toContainText('readable by anyone with the link');
 		await expect(dialog.getByTestId('publish-projects')).toContainText(
 			'The site will carry 2 Projects, 1 of them on the front page.'
 		);
