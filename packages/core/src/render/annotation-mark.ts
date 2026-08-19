@@ -10,6 +10,7 @@
 
 import {
 	annotationAnchor,
+	isLabel,
 	type Annotation,
 	type LineStringGeometry
 } from '../annotation/annotation.js';
@@ -71,8 +72,8 @@ function westmostVertex(geometry: LineStringGeometry): { lng: number; lat: numbe
  * (`icon-anchor: 'bottom'` in `stack-layers.ts`), so a line drawn to the coordinate would run under
  * the pin and end beneath it — pointing at the ground the pin stands on rather than at the pin. The
  * box returned is the pin's own extent, which puts the centre halfway up it and lets a caller that
- * shortens by half the box stop at its edge. A line and a shape are their anchor exactly: the leader
- * ends on the drawing itself, and there is no mark around it to clear.
+ * shortens by half the box stop at its edge. A line, a shape and a Label are their anchor exactly: the
+ * leader ends on the drawing itself, and there is no mark around it to clear.
  *
  * The icon is square in `pin-icon.ts` — 96 px at `PIN_PIXEL_RATIO` 2, scaled by `marker-size` — so
  * its width is its height.
@@ -88,7 +89,9 @@ export function annotationMarkBox(map: MapLibreMap, annotation: Annotation): Scr
 	const x = container.left + point.x;
 	const y = container.top + point.y;
 
-	if (geometry?.type !== 'Point') {
+	// A Label is centred on its coordinate and has no pin, so the leader ends on the words themselves —
+	// like a line's and a shape's, and unlike the pin's box below.
+	if (geometry?.type !== 'Point' || isLabel(annotation)) {
 		return { left: x, top: y, right: x, bottom: y };
 	}
 	const height = pinHeight(annotation.properties['marker-size']);

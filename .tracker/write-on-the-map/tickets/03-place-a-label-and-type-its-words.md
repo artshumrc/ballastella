@@ -155,3 +155,19 @@ Success: all green, and the new e2e cases are named in the `editor-annotations` 
 ## Blocked by
 
 - Ticket 02 — the renderer, the discriminator, and the glyph table entry.
+
+## Note from ticket 02's review
+
+**The first Label drawn into a fresh Layer is currently invisible.** `styleForNewAnnotation` writes
+`marker-color`, `stroke` and `fill` all as `DEFAULT_ANNOTATION_COLOR` (`#555555`) for the first
+Annotation in a Layer, and the render bucket maps `text-color ← marker-color` and `icon-color ← fill`.
+So a Label created by the app gets `#555555` words on a `#555555` chip: placed, present in the file,
+and unreadable.
+
+Ticket 02 created no Labels, so this was not a live defect there and was deliberately left alone
+rather than fixed out of scope. It becomes live in this ticket, which is where the app first creates
+one. Resolve it deliberately — the creation path defaulting a Label's `marker-color` away from its
+`fill` is the obvious candidate, but the choice is this ticket's to make and to record.
+
+Ticket 02's e2e fixtures all seed an explicit `fill` and no `marker-color`, so no existing test
+exercises the combination.

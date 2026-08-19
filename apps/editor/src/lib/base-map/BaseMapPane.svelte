@@ -599,14 +599,16 @@
 	 * viewport's own coordinates, or `null` when nothing is. The page measures it because the page is
 	 * what renders it; the pane owns the camera and nothing else.
 	 *
-	 * **"The mark" is exactly the point the leader ends at, and for two of the three geometries that is
+	 * **"The mark" is exactly the point the leader ends at, and for three of the four kinds that is
 	 * a point rather than the drawing.** `annotationMarkBox` gives a Pin its pin's own extent, a line its
-	 * westmost vertex and a shape its anchor, the last two zero-size. So what this guarantees is that the
-	 * *end of the leader* is clear of the panel: a long line running in from the west keeps its far half
-	 * under the panel, and a shape wider than the un-occluded region cannot be got out from under it at
-	 * all. That is the contract's choice rather than an omission — the leader is what says which mark a
-	 * selection is about, so the end of it is the thing that has to be visible, and a rule that framed
-	 * whole geometries would be a fit rather than a nudge and would zoom the map on every selection.
+	 * westmost vertex, a shape its anchor and a Label its centre, the last three zero-size. So what this
+	 * guarantees is that the *end of the leader* is clear of the panel: a long line running in from the
+	 * west keeps its far half under the panel, a shape wider than the un-occluded region cannot be got
+	 * out from under it at all, and a long Label whose centre is already clear provokes no nudge even
+	 * when most of its words are still under the panel. That is the contract's choice rather than an
+	 * omission — the leader is what says which mark a selection is about, so the end of it is the
+	 * thing that has to be visible, and a rule that framed whole geometries would be a fit rather than
+	 * a nudge and would zoom the map on every selection.
 	 *
 	 * **It must not fight the user**, which is the whole of the first branch: a mark already inside the
 	 * pane and clear of the panel provokes no camera move at all. Moving the map under a pointer that

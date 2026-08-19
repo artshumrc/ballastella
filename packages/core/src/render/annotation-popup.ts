@@ -17,7 +17,7 @@
 // for `setDOMContent`, an interpolation, or a "just add a class" that reintroduced markup assembly
 // outside the sanitiser — on the origin a Reader's browser trusts.
 
-import { annotationAnchor, type Annotation } from '../annotation/annotation.js';
+import { annotationAnchor, isLabel, type Annotation } from '../annotation/annotation.js';
 import { renderAnnotationPopup } from '../annotation/markdown.js';
 import { pinHeight } from './pin-icon.js';
 import { Popup, type Map as MapLibreMap } from 'maplibre-gl';
@@ -118,10 +118,14 @@ function ensurePopupStyle(): void {
  * and a popup offset by nothing covers the mark it is describing. {@link pinHeight} is where that
  * measurement lives, rather than repeating it here — the ordinal above the pin needs the same number.
  *
+ * A Label is a Point with no pin, so it takes the small clearance a line and a shape take: a pin's
+ * height above a Label would float the popup over unrelated map with a gap under it. Same reading as
+ * `annotation-mark.ts` makes of the same fact.
+ *
  * A number rather than a per-anchor object, so MapLibre offsets radially from the anchor point.
  */
 function clearance(annotation: Annotation): number {
-	if (annotation.geometry?.type !== 'Point') return 10;
+	if (annotation.geometry?.type !== 'Point' || isLabel(annotation)) return 10;
 	return pinHeight(annotation.properties['marker-size']) + 4;
 }
 

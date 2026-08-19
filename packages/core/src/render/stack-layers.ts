@@ -20,9 +20,20 @@
 import {
 	DASHED_DASHARRAY,
 	DOTTED_DASHARRAY,
+	LABEL_MARKER_SYMBOL,
+	isLabelFeature,
 	type AnnotationCollection,
 	type LineStyle
 } from '../annotation/annotation.js';
+import {
+	LABEL_CHIP_CONTENT,
+	LABEL_CHIP_IMAGE_ID,
+	LABEL_CHIP_PADDING,
+	LABEL_CHIP_PIXEL_RATIO,
+	LABEL_CHIP_STRETCH,
+	LABEL_TEXT_SIZE,
+	labelChipImage
+} from './label-chip.js';
 import { PIN_ICON_SIZE, PIN_IMAGE_ID, PIN_PIXEL_RATIO, pinImage } from './pin-icon.js';
 import {
 	ANNOTATION_ID_PROPERTY,
@@ -183,6 +194,28 @@ function ensurePinImage(map: MapLibreMap): boolean {
 }
 
 /**
+ * Register the Label's chip on this map if it is not already there.
+ *
+ * Idempotent and re-run on every stack build, for {@link ensurePinImage}'s reason: a theme change
+ * calls `setStyle` and discards every registered image.
+ *
+ * `content` and the stretch zones are what keep the corners' aspect while `icon-text-fit` grows the
+ * chip to the words, and they are in the **image's own pixels** — see `label-chip.ts`.
+ */
+function ensureLabelChipImage(map: MapLibreMap): void {
+	if (map.hasImage(LABEL_CHIP_IMAGE_ID)) return;
+	const zones = LABEL_CHIP_STRETCH.map((zone): [number, number] => [zone[0], zone[1]]);
+	const [left, top, right, bottom] = LABEL_CHIP_CONTENT;
+	map.addImage(LABEL_CHIP_IMAGE_ID, labelChipImage(), {
+		sdf: true,
+		pixelRatio: LABEL_CHIP_PIXEL_RATIO,
+		content: [left, top, right, bottom],
+		stretchX: zones,
+		stretchY: zones
+	});
+}
+
+/**
  * Choose between two paint values on whether this feature is the selected Annotation.
  *
  * The state is written by {@link StackRender.setSelectedAnnotation} against the feature id, which the
@@ -238,6 +271,21 @@ const SELECTED_HALO_OPACITY = 0.3;
 const SELECTED_HALO = 3;
 
 /**
+ * A feature's `title` with every space, tab and newline taken out — an expression, evaluated per
+ * feature.
+ *
+ * The one use of it is "does this title shape to anything", and the honest test for that is
+ * MapLibre's own: shaping trims each line and then draws nothing, so a title of one space is as empty
+ * as `''` to the text and not at all empty to a `!== ''` comparison. The expression language has no
+ * `trim`, so `split`/`join` removes each whitespace character in turn; `to-string` of a missing
+ * property is `''`, which covers a Label with no `title` at all.
+ */
+const TITLE_WITHOUT_WHITESPACE = [' ', '\t', '\n', '\r'].reduce<unknown[]>(
+	(text, character) => ['join', ['split', text, character], ''],
+	['to-string', ['get', 'title']]
+);
+
+/**
  * The MapLibre layers one Annotation Layer needs.
  *
  * **Every paint value is read from the feature** — `['get', 'stroke']` and not a constant — because
@@ -263,7 +311,12 @@ const SELECTED_HALO = 3;
  */
 function annotationLayers(
 	layerId: string,
-	present: { lineStyles: ReadonlySet<LineStyle>; hasArea: boolean; hasPoint: boolean }
+	present: {
+		lineStyles: ReadonlySet<LineStyle>;
+		hasArea: boolean;
+		hasPoint: boolean;
+		hasLabel: boolean;
+	}
 ): { id: string; spec: Record<string, unknown> }[] {
 	const source = stackLayerId(layerId, 'source');
 	const strokeWidth = ['to-number', ['get', 'stroke-width']];
@@ -351,7 +404,15 @@ function annotationLayers(
 		spec: {
 			type: 'symbol',
 			source,
-			filter: ['==', ['geometry-type'], 'Point'],
+			// ⚠ **The negation is load-bearing**: without it a Label draws its words *and* a pin under
+			// them. `['get', 'marker-symbol']` is `null` on a feature carrying none and `null != 'label'`
+			// is true, so an ordinary Pin is unaffected — asserted in `e2e/editor-annotations.e2e.ts`
+			// rather than trusted.
+			filter: [
+				'all',
+				['==', ['geometry-type'], 'Point'],
+				['!=', ['get', 'marker-symbol'], LABEL_MARKER_SYMBOL]
+			],
 			layout: {
 				'icon-image': PIN_IMAGE_ID,
 				'icon-anchor': 'bottom',
@@ -384,6 +445,74 @@ function annotationLayers(
 		}
 	};
 
+	// **A Label: the scholar's own words, on a chip coloured by the feature's `fill`.**
+	//
+	// Every value is read off the feature, as every other bucket's is.
+	//
+	// ⚠ **A Label with no words draws nothing, and an empty `text-field` is not enough to get that.**
+	// MapLibre skips a symbol only when it has neither text *nor* icon (`if (!text && !icon) continue`),
+	// so an untitled Label with a constant `icon-image` draws a bare coloured chip at a place nobody
+	// wrote anything — story 61's exact complaint, observed in the browser rather than reasoned about.
+	// The chip is therefore chosen per feature too, and `''` is MapLibre's own way of spelling "no
+	// image" (`ResolvedImage.fromString` returns `null` for it). Deliberately *not* a `filter`: which
+	// features are in this bucket stays a question about their kind, so `annotationDrawKey` is still
+	// unmoved by a title being typed. The emptiness test is {@link TITLE_WITHOUT_WHITESPACE}, because
+	// MapLibre's shaping trims each line before it measures anything and a title of one space shapes to
+	// nothing while `!== ''` still resolves the chip.
+	//
+	// `icon-text-fit: 'both'` is what grows the chip to the words on both axes, wrapped lines
+	// included; `label-chip.ts` holds the geometry that keeps its corners while it does.
+	// `text-allow-overlap` and its three companions follow the pin's rule and the reason recorded
+	// there: two Annotations near each other are two claims a scholar made, and MapLibre's default is
+	// to drop one of them.
+	const label = {
+		id: stackLayerId(layerId, 'label'),
+		spec: {
+			type: 'symbol',
+			source,
+			filter: [
+				'all',
+				['==', ['geometry-type'], 'Point'],
+				['==', ['get', 'marker-symbol'], LABEL_MARKER_SYMBOL]
+			],
+			layout: {
+				'text-field': ['get', 'title'],
+				// A stack the Base Map's bundled glyphs carry, and the one written with every Published
+				// Site. There is no typeface choice: see SPEC's Out of Scope.
+				'text-font': ['Noto Sans Regular'],
+				'text-size': [
+					'match',
+					['coalesce', ['get', 'marker-size'], 'medium'],
+					'small',
+					LABEL_TEXT_SIZE.small,
+					'large',
+					LABEL_TEXT_SIZE.large,
+					LABEL_TEXT_SIZE.medium
+				],
+				'icon-image': ['case', ['==', TITLE_WITHOUT_WHITESPACE, ''], '', LABEL_CHIP_IMAGE_ID],
+				'icon-text-fit': 'both',
+				'icon-text-fit-padding': [...LABEL_CHIP_PADDING],
+				'text-allow-overlap': true,
+				'icon-allow-overlap': true,
+				'text-ignore-placement': true,
+				'icon-ignore-placement': true
+			},
+			paint: {
+				'text-color': ['get', 'marker-color'],
+				// One registered SDF, tinted per feature — the whole reason the chip is an SDF.
+				'icon-color': ['get', 'fill'],
+				// `fill-opacity` is simplestyle's *area* opacity and the chip is an area: this is how a
+				// Label's background is made transparent so the words sit straight on the map.
+				'icon-opacity': ['to-number', ['get', 'fill-opacity']],
+				// Selection, in the feature's own `stroke` — the pin's emphasis exactly, and never a
+				// change of hue. See {@link SELECTED_HALO}. No ring at rest: the chip has an edge of its
+				// own, and one drawn permanently would read as a border the scholar did not ask for.
+				'icon-halo-color': ['get', 'stroke'],
+				'icon-halo-width': selected(SELECTED_HALO, 0)
+			}
+		}
+	};
+
 	// The halo under everything, then fill under lines under pins, which is the order these read best
 	// in: an area's outline over its own fill, and a pin over both. The halo is bottom-most so that
 	// selecting an Annotation puts nothing in front of the drawing it is emphasising.
@@ -395,7 +524,9 @@ function annotationLayers(
 		...(present.lineStyles.size > 0 ? [selectionHalo] : []),
 		...(present.hasArea ? [fill] : []),
 		...LINE_STYLES.filter((style) => present.lineStyles.has(style)).map(lineOf),
-		...(present.hasPoint ? [point] : [])
+		...(present.hasPoint ? [point] : []),
+		// Last, so a Label's words are legible over anything else in its own Layer.
+		...(present.hasLabel ? [label] : [])
 	];
 }
 
@@ -410,20 +541,29 @@ function whatItContains(rendered: { features: Record<string, unknown>[] }): {
 	lineStyles: ReadonlySet<LineStyle>;
 	hasArea: boolean;
 	hasPoint: boolean;
+	hasLabel: boolean;
 } {
 	const lineStyles = new Set<LineStyle>();
 	let hasArea = false;
 	let hasPoint = false;
+	let hasLabel = false;
 	for (const feature of rendered.features) {
 		const type = (feature['geometry'] as { type?: string } | undefined)?.type;
 		const properties = feature['properties'] as Record<string, unknown> | undefined;
-		if (type === 'Point') hasPoint = true;
+		// `hasPoint` is "a Point that is **not** a Label", the same split the two buckets' filters make,
+		// so a Layer of Labels alone pays for no pin layer and a Layer of Pins alone pays for no symbol
+		// layer. `isLabelFeature` rather than `isLabel` because this is a render copy's `properties` bag
+		// and not an Annotation; the geometry is checked here instead.
+		if (type === 'Point') {
+			if (isLabelFeature(properties)) hasLabel = true;
+			else hasPoint = true;
+		}
 		if (type === 'Polygon') hasArea = true;
 		if (type === 'LineString' || type === 'Polygon') {
 			lineStyles.add((properties?.[LINE_STYLE_PROPERTY] as LineStyle | undefined) ?? 'solid');
 		}
 	}
-	return { lineStyles, hasArea, hasPoint };
+	return { lineStyles, hasArea, hasPoint, hasLabel };
 }
 
 /**
@@ -439,6 +579,7 @@ export function annotationDrawKey(collection: AnnotationCollection | null | unde
 	const present = whatItContains(toRenderCollection(collection ?? { annotations: [] }));
 	return [
 		present.hasPoint ? 'point' : '',
+		present.hasLabel ? 'label' : '',
 		present.hasArea ? 'area' : '',
 		...LINE_STYLES.filter((style) => present.lineStyles.has(style))
 	].join('|');
@@ -447,7 +588,7 @@ export function annotationDrawKey(collection: AnnotationCollection | null | unde
 /**
  * Every MapLibre layer id an Annotation Layer *could* contribute, for hit-testing a click.
  *
- * All five candidates, not only the ones added: which exist depends on what the Layer contains, and a
+ * Every candidate, not only the ones added: which exist depends on what the Layer contains, and a
  * caller hit-testing has to filter by `map.getLayer(id)` anyway — asking MapLibre about a layer that is
  * not there throws. Returning the full set keeps this function free of the contents.
  *
@@ -459,7 +600,9 @@ export function annotationDrawKey(collection: AnnotationCollection | null | unde
 export const annotationLayerIds = (layerId: string): string[] => [
 	stackLayerId(layerId, 'fill'),
 	...LINE_STYLES.map((style) => stackLayerId(layerId, `line-${style}`)),
-	stackLayerId(layerId, 'point')
+	stackLayerId(layerId, 'point'),
+	// Without this a Label is a mark nobody can click, in either app: hit-testing is by layer id.
+	stackLayerId(layerId, 'label')
 ];
 
 /**
@@ -548,6 +691,7 @@ export function drawLayerStack(options: {
 		// No image, no pin layer — which shows as a missing mark rather than as MapLibre logging a
 		// missing image once per frame.
 		if (contents.hasPoint && !ensurePinImage(map)) contents.hasPoint = false;
+		if (contents.hasLabel) ensureLabelChipImage(map);
 		for (const { id, spec } of annotationLayers(layerId, contents)) {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);

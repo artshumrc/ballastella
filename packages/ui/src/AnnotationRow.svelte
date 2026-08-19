@@ -21,7 +21,7 @@
 	import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 	import { annotationName, shapeWord } from './annotation-name.js';
 	import { KIND_STYLE } from './layer-kind-style.js';
-	import { iconForGeometry } from './shape-icons.js';
+	import { iconForAnnotation } from './shape-icons.js';
 
 	let {
 		annotation,
@@ -51,7 +51,7 @@
 	 */
 	const name = $derived(annotationName(annotation, index));
 
-	const Icon = $derived(iconForGeometry(annotation.geometry?.type));
+	const Icon = $derived(iconForAnnotation(annotation));
 </script>
 
 <!--

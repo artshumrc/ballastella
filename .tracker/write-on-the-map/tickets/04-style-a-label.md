@@ -125,3 +125,16 @@ Success: all green, with the negative assertions ("no line style control for a L
 ## Blocked by
 
 - Ticket 03 — a Label has to be creatable before its style controls can be driven.
+
+## Note from ticket 02's review
+
+**A Point-geometry Label is currently offered no way to recolour its chip.**
+`AnnotationStyleFace.svelte` gates the `fill` and `fill-opacity` controls on
+`hasArea = geometryKind === 'Polygon'`, so a Label — a Point — sees `marker-color` alone. Since the
+render bucket maps the chip's colour to `fill`, the background colour this ticket must offer (stories
+20 and 21) is behind that gate.
+
+This is expected work for this ticket rather than a surprise, and it is recorded here because ticket
+02's review found it while the face was still out of scope: the gate is `hasArea`, and a Label needs
+`fill` without being an area. Ticket 03 carries the related note about the first Label defaulting to
+`#555555` words on a `#555555` chip.

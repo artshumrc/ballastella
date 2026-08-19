@@ -30,7 +30,7 @@ ships, as does the notice promising a Reader that the Annotations are unaffected
 
 Overall status: `In Progress`
 
-Current ticket: 02
+Current ticket: 03 and 09 (frontier)
 
 Last updated: 2026-08-19
 
@@ -39,7 +39,7 @@ Last updated: 2026-08-19
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
 | 01 | [01-prove-the-background-chip.md](./tickets/01-prove-the-background-chip.md) | Completed | — |
-| 02 | [02-a-label-in-a-layer-is-drawn.md](./tickets/02-a-label-in-a-layer-is-drawn.md) | Not Started | 01 |
+| 02 | [02-a-label-in-a-layer-is-drawn.md](./tickets/02-a-label-in-a-layer-is-drawn.md) | Completed | 01 |
 | 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Not Started | 02 |
 | 04 | [04-style-a-label.md](./tickets/04-style-a-label.md) | Not Started | 03 |
 | 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | Not Started | 03 |

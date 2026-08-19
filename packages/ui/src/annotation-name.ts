@@ -4,10 +4,17 @@
 // so a second piece of wording invented in either of them is two names for one thing on one screen —
 // which is what happened: the button said "Untitled pin 3" and the panel under it said "Untitled".
 
-import { annotationOrdinal, type Annotation } from '@ballastella/core';
+import { annotationOrdinal, isLabel, type Annotation } from '@ballastella/core';
 
-/** What this Annotation's geometry is called in prose, and beside its name in the row. */
+/**
+ * What this Annotation is called in prose, and beside its name in the row.
+ *
+ * A question about the **Annotation** rather than about its geometry, because a Label and a Pin are
+ * both Points and are not both pins. `isLabel` is `core`'s and is read here and in the glyph lookup
+ * beside it, so the word and the icon cannot disagree.
+ */
 export const shapeWord = (annotation: Annotation): string => {
+	if (isLabel(annotation)) return 'label';
 	switch (annotation.geometry?.type) {
 		case 'Point':
 			return 'pin';

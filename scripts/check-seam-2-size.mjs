@@ -55,11 +55,13 @@ import { fileURLToPath } from 'node:url';
  * | 2026-08-14 | 630 | Binding on the strength of a GitHub sign-in, and the grant record surviving it. The bug was that the *dialog* validated its paste field regardless, so a signed-in scholar was asked for a token anyway — a claim about a component reading a store, which Seam 1 cannot reach (no `WorkspaceStorage` harness exists) and which a fake store at Seam 1c would assert about the fake. |
  * | 2026-08-18 | 631 | A pasted address that is a plain image file, copied into the Workspace and tiled here. The download and its refusals are asserted at Seam 1 (`remote-image/fetch-remote-image.test.ts`) and the tiler at Seam 1 already; what only Seam 2 can see is that the three halves are wired together — the IIIF reader hands the address over, the dialog closes on the download, and a pyramid of this Workspace's own is what the Layer ends up drawing. |
  * | 2026-08-18 | 632 | A dragged Resource Mask corner and Annotation vertex must repaint MapLibre's real GeoJSON source before pointer-up. The transient geometry can only be proved against the renderer that draws the outline, not against the editing state that feeds it. |
+ * | 2026-08-19 | 634 | The Label: two tests for a kind of Annotation whose whole product is pixels. That a Label's words are drawn at all, that the Pin beside it did not also draw as one, that an empty title draws nothing, and that the chip grew with the words are claims about glyphs, an SDF and `icon-text-fit` — happy-dom has none of the three, so they are Seam 2 or nowhere. Everything about the Label that is arithmetic went to Seam 1 (`label-chip.test.ts`, `stack-layers.test.ts`, `annotation-mark.test.ts`) and its row's wording to `packages/ui`; the two here are folded as far as they will go, one per fixture. |
+ * | 2026-08-19 | 635 | A third Label test, for the geometry ticket 01 proved in a browser and the chip then changed: the shape stops short of the image's border so the halo has somewhere to be, which moves `content`, both stretch zones and the icon's extent. Whether `icon-text-fit` still lands on the words after that is MapLibre's arithmetic over a shaped text block, so it is unreachable at Seam 1 — and it needs its own fixture, six Labels far enough apart that the widest chip cannot reach the next one's coordinate, which is why it did not fold into either test above. |
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
  */
-export const SEAM_2_CEILING = 632;
+export const SEAM_2_CEILING = 635;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

@@ -108,6 +108,21 @@ describe('annotationMarkBox', () => {
 		});
 	});
 
+	test('a label is a point too: it is centred on its coordinate and has no pin to clear', () => {
+		// The leader ends on the words themselves. A Label drawn the pin's box would be pointed at half a
+		// pin's height above the place it names, over ground it does not occupy.
+		const label = annotation(point.geometry, { 'marker-symbol': 'label' });
+
+		expect(annotationMarkBox(map(), label)).toEqual({
+			left: 140,
+			top: 70,
+			right: 140,
+			bottom: 70
+		});
+		// The negative control: the same Point without the symbol is a Pin and does get the pin's box.
+		expect(annotationMarkBox(map(), point)).not.toEqual(annotationMarkBox(map(), label));
+	});
+
 	test("the pin's box follows `marker-size`, so the line stops at the edge of the pin drawn", () => {
 		const heightOf = (size: string): number => {
 			const box = annotationMarkBox(map(), annotation(point.geometry, { 'marker-size': size }));

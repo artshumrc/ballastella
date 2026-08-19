@@ -13,6 +13,7 @@ import {
 	DASHED_DASHARRAY,
 	DEFAULT_ANNOTATION_COLOR,
 	DOTTED_DASHARRAY,
+	LABEL_MARKER_SYMBOL,
 	MARKER_SIZES,
 	SIMPLESTYLE_DEFAULTS,
 	addAnnotation,
@@ -21,6 +22,8 @@ import {
 	dashArrayFor,
 	emptyCollection,
 	findAnnotation,
+	isLabel,
+	isLabelFeature,
 	lineStyleOf,
 	newAnnotation,
 	removeAnnotation,
@@ -32,6 +35,7 @@ import {
 	styleForNewAnnotation,
 	simpleStyleViolations,
 	withLineStyle,
+	type Annotation,
 	type AnnotationCollection,
 	type AnnotationProperties
 } from './annotation.js';
@@ -825,5 +829,85 @@ describe('the nine colours an Annotation can be', () => {
 		// simplestyle's pin default is the grey that is *not* the palette's, which is the whole reason a
 		// new Annotation writes its colours explicitly.
 		expect(annotationColorName(SIMPLESTYLE_DEFAULTS['marker-color'])).toBeNull();
+	});
+});
+
+describe('a Point whose marker-symbol is label', () => {
+	/** A Point carrying whatever `marker-symbol` this case is about, and nothing else. */
+	const withSymbol = (symbol?: string): Annotation =>
+		({
+			id: 'a1',
+			geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+			properties: symbol === undefined ? {} : { 'marker-symbol': symbol }
+		}) as Annotation;
+
+	test('is a label, and nothing else is', () => {
+		expect(isLabel(withSymbol(LABEL_MARKER_SYMBOL))).toBe(true);
+		// A Point with no symbol is a Pin, and a Point carrying somebody else's symbol stays a Pin and
+		// keeps it — this app never destroys a value it does not understand (SPEC story 51).
+		expect(isLabel(withSymbol())).toBe(false);
+		expect(isLabel(withSymbol('harbor'))).toBe(false);
+	});
+
+	test('reads the same discriminator from a bare properties bag, for a caller holding a feature', () => {
+		// What the renderer uses on a render copy, so `whatItContains` compares no literal of its own and
+		// `LABEL_MARKER_SYMBOL` ties every reading together.
+		expect(isLabelFeature({ 'marker-symbol': LABEL_MARKER_SYMBOL })).toBe(true);
+		expect(isLabelFeature({ 'marker-symbol': 'harbor' })).toBe(false);
+		expect(isLabelFeature({})).toBe(false);
+		expect(isLabelFeature(undefined)).toBe(false);
+	});
+
+	test('is a label only as a Point: a line, a shape, a foreign geometry and a null one are not', () => {
+		const labelled = { 'marker-symbol': LABEL_MARKER_SYMBOL };
+		const of = (geometry: unknown): Annotation =>
+			({ id: 'a1', geometry, properties: labelled }) as Annotation;
+
+		expect(
+			isLabel(
+				of({
+					type: 'LineString',
+					coordinates: [
+						[4.8, 52.3],
+						[5, 52.4]
+					]
+				})
+			)
+		).toBe(false);
+		expect(isLabel(of({ type: 'Polygon', coordinates: [[]] }))).toBe(false);
+		expect(isLabel(of({ type: 'foreign', raw: {} }))).toBe(false);
+		expect(isLabel(of(null))).toBe(false);
+	});
+
+	test('adds no extension to the file: a label’s properties are conformant simplestyle', () => {
+		// The whole of the "no new extension" claim, in one assertion. The discriminator was chosen to
+		// make it checkable here rather than argued in a document (SPEC, "A Label is a Point whose
+		// `marker-symbol` is `label`").
+		expect(
+			simpleStyleViolations({
+				title: 'Zuiderzee',
+				'marker-symbol': LABEL_MARKER_SYMBOL,
+				'marker-size': 'large',
+				'marker-color': '#ffffff',
+				fill: '#1976d2',
+				'fill-opacity': 0.8
+			})
+		).toEqual([]);
+	});
+
+	test('reaches the render copy with its symbol, because the layer filter reads it', () => {
+		// The renderer's own filter is the one place outside `isLabel` that compares this property to a
+		// literal, and a filter cannot call a function. If the symbol were resolved away here, a Label
+		// would draw as a pin and nothing at this seam would say why.
+		const collection: AnnotationCollection = {
+			annotations: [withSymbol(LABEL_MARKER_SYMBOL), withSymbol()]
+		};
+
+		const render = toRenderCollection(collection);
+
+		expect(render.features[0]?.['properties']).toMatchObject({
+			'marker-symbol': LABEL_MARKER_SYMBOL
+		});
+		expect(render.features[1]?.['properties']).not.toHaveProperty('marker-symbol');
 	});
 });

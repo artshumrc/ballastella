@@ -37,6 +37,7 @@ import {
 	annotationLayerId,
 	annotationWrites,
 	baseMap,
+	centreOnAmsterdam,
 	chooseColour,
 	chooseTool,
 	chooseLineStyle,
@@ -2363,6 +2364,388 @@ const line = (
 	id,
 	properties,
 	geometry: { type: 'LineString', coordinates: [from, to] }
+});
+
+/**
+ * One Point `Feature` for a seeded fixture, Label or Pin.
+ *
+ * `marker-symbol: 'label'` is the discriminator, spelled here as the literal a file carries rather than
+ * imported: the Playwright project resolves nothing from `@ballastella/core`, and a convention copied
+ * from the spec is a better witness to it than one taken from the code under test.
+ */
+const pointFeature = (id: string, at: [number, number], properties: Record<string, unknown>) => ({
+	type: 'Feature',
+	id,
+	properties,
+	geometry: { type: 'Point', coordinates: at }
+});
+
+const labelFeature = (id: string, at: [number, number], properties: Record<string, unknown>) =>
+	pointFeature(id, at, { 'marker-symbol': 'label', ...properties });
+
+/**
+ * What MapLibre reports at one place on the earth, as Annotation ids and the layers that painted them.
+ *
+ * Scoped to features carrying `ballastella:id`, because a point query answers with the Base Map's own
+ * roads and place names too — and "nothing of ours is drawn here" is one of the claims below.
+ */
+const annotationsAt = (page: Page, at: [number, number], dx = 0, dy = 0) =>
+	page.evaluate(
+		([coordinate, offsetX, offsetY]) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			const point = map.project(coordinate as [number, number]);
+			return map
+				.queryRenderedFeatures([point.x + (offsetX as number), point.y + (offsetY as number)], {})
+				.filter((feature) => typeof feature.properties['ballastella:id'] === 'string')
+				.map((feature) => ({
+					id: feature.properties['ballastella:id'] as string,
+					layer: feature.layer.id,
+					title: feature.properties['title']
+				}));
+		},
+		[at, dx, dy] as const
+	);
+
+/**
+ * How wide the chip drawn for one Label is, in CSS pixels, measured by where it stops being hit.
+ *
+ * ⚠ **Asked of the renderer rather than of the style.** `icon-text-fit` is MapLibre's arithmetic over a
+ * text block this test never sees, so the only honest way to ask how wide a chip came out is to walk
+ * outwards from its coordinate until the hit test stops naming it. The step is coarse because the claim
+ * is a comparison between two chips, not a measurement of either.
+ */
+const chipWidth = (page: Page, at: [number, number], id: string) =>
+	page.evaluate(
+		([coordinate, wanted]) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			const point = map.project(coordinate as [number, number]);
+			const hits = (dx: number) =>
+				map
+					.queryRenderedFeatures([point.x + dx, point.y], {})
+					.some((feature) => feature.properties['ballastella:id'] === wanted);
+			let reach = 0;
+			for (let dx = 0; dx <= 300; dx += 2) {
+				if (!hits(dx)) break;
+				reach = dx;
+			}
+			return reach * 2;
+		},
+		[at, id] as const
+	);
+
+/**
+ * A column of pixels straight up from one coordinate, read off the map's own framebuffer.
+ *
+ * ⚠ **Not a screenshot comparison.** Nothing here is compared against a stored image; the caller reads
+ * the same column twice and asks which rows changed, which is a question about one paint value and not
+ * about how the map looks. It is the only way to ask whether an `icon-halo` was drawn: a halo is not a
+ * feature, so `queryRenderedFeatures` cannot see it.
+ *
+ * `readPixels` has to happen inside a `render` handler, before the frame is presented — after that the
+ * default framebuffer is undefined unless MapLibre was built with `preserveDrawingBuffer`.
+ */
+const pixelsAbove = (page: Page, at: [number, number], rows: number) =>
+	page.evaluate(
+		([coordinate, height]) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			const canvas = map.getCanvas();
+			const gl = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+			if (gl === null) throw new Error('the map canvas has no WebGL2 context to read');
+			const point = map.project(coordinate as [number, number]);
+			const ratio = canvas.width / canvas.clientWidth;
+			return new Promise<string[]>((resolve) => {
+				map.once('render', () => {
+					const column: string[] = [];
+					for (let up = 0; up < (height as number); up += 1) {
+						const pixel = new Uint8Array(4);
+						gl.readPixels(
+							Math.round(point.x * ratio),
+							Math.round(canvas.height - (point.y - up) * ratio),
+							1,
+							1,
+							gl.RGBA,
+							gl.UNSIGNED_BYTE,
+							pixel
+						);
+						column.push([...pixel].join(','));
+					}
+					resolve(column);
+				});
+				map.triggerRepaint();
+			});
+		},
+		[at, rows] as const
+	);
+
+test.describe('a Label draws its words on the map (write-on-the-map stories 28–32, 37, 61)', () => {
+	/**
+	 * A title a stranger wrote, drawn on the map by a renderer that has no HTML parser in it.
+	 *
+	 * The `<img>` fires nothing — there is no network and no loader — so the assertion is on the
+	 * characters and on the absence of an element. `watchFailures` catches the `alert` besides.
+	 */
+	const PAYLOAD = '<img src=x onerror=alert(1)>Zuiderzee';
+
+	/** Well apart in latitude, so a point query at one Label’s place cannot land on another’s chip. */
+	const SHORT: [number, number] = [4.9, 52.51];
+	const LONG: [number, number] = [4.9, 52.44];
+	const BLANK: [number, number] = [4.9, 52.37];
+	const UNTRUSTED: [number, number] = [4.9, 52.3];
+	const PIN: [number, number] = [4.9, 52.23];
+	/** Beside `BLANK` rather than below it, so the column of Labels stays inside the viewport. */
+	const SPACES: [number, number] = [5.05, 52.37];
+
+	test('each Label is drawn from the Label bucket, the Pin beside it is not, and an empty one draws nothing', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		const layerId = await seedAnnotationProject(page);
+		// Seeded rather than drawn: nothing in this slice creates a Label, and the file is where the
+		// convention lives. Two `fill` colours, because one registered SDF tinted per feature is what the
+		// design rests on.
+		await writeProjectFile(
+			page,
+			`annotations/${layerId}.geojson`,
+			JSON.stringify({
+				type: 'FeatureCollection',
+				features: [
+					labelFeature('short', SHORT, { title: 'Ee', fill: ANNOTATION_COLOR.blue }),
+					labelFeature('long', LONG, {
+						title: 'Zuiderzee en de Waddenzee',
+						fill: ANNOTATION_COLOR.red
+					}),
+					labelFeature('blank', BLANK, { title: '' }),
+					labelFeature('spaces', SPACES, { title: ' ', fill: ANNOTATION_COLOR.blue }),
+					labelFeature('untrusted', UNTRUSTED, { title: PAYLOAD }),
+					pointFeature('pin', PIN, { title: 'The old harbour' })
+				]
+			})
+		);
+		await reopenLayers(page);
+		await waitForPaintedAnnotations(page, ['short', 'long', 'untrusted', 'pin']);
+
+		// ── THE WORDS ARE WHERE THE POINT SAID, AND THEY COME OUT OF THE LABEL BUCKET ────────
+		const labelLayer = `ballastella-layer-${layerId}-label`;
+		const pointLayer = `ballastella-layer-${layerId}-point`;
+		// `toContainEqual` rather than an exact array: `queryRenderedFeatures` answers once per tile a
+		// geometry spans, so what is being asked is *which* layer painted this Label, not how many rows
+		// the query returned. That nothing else painted it is the assertion below.
+		expect(await annotationsAt(page, SHORT)) //
+			.toContainEqual({ id: 'short', layer: labelLayer, title: 'Ee' });
+
+		// ── AND A PIN IS STILL A PIN, AND ONLY A PIN ────────────────────────────────────────
+		//
+		// The `point` bucket's filter carries the negation of the Label's, and `['get', 'marker-symbol']`
+		// is `null` on a Pin: without both halves a Label draws a pin under its words, or a Pin stops
+		// drawing at all. Asserted rather than reasoned about.
+		const atPin = await annotationsAt(page, PIN, 0, -12);
+		expect(new Set(atPin.map((hit) => hit.layer))).toEqual(new Set([pointLayer]));
+		expect(new Set(atPin.map((hit) => hit.id))).toEqual(new Set(['pin']));
+		expect(await annotationsAt(page, SHORT)).not.toContainEqual(
+			expect.objectContaining({ layer: pointLayer })
+		);
+
+		// ── AN EMPTY TITLE DRAWS NOTHING, RATHER THAN AN EMPTY COLOURED BOX (story 61) ──────
+		//
+		// Neither the words nor the chip they would have sat on — which is a stronger claim than "no
+		// text", and the reason `icon-image` is chosen per feature: MapLibre draws a symbol that has an
+		// icon and no text, so an empty title used to leave a bare coloured box behind. This is the
+		// assertion that caught it.
+		expect(await annotationsAt(page, BLANK)).toEqual([]);
+
+		// ── AND SO DOES A TITLE OF NOTHING BUT WHITESPACE ───────────────────────────────────
+		//
+		// Story 61's other half, and the one `!== ''` missed: MapLibre's shaping trims each line before
+		// it measures anything, so a single space shapes to no text at all while the icon still resolves
+		// — a bare coloured box for an author who typed a space, or who deleted a word back to one.
+		expect(await annotationsAt(page, SPACES)).toEqual([]);
+
+		// ── THE CHIP GROWS WITH THE WORDS (story 37) ────────────────────────────────────────
+		const short = await chipWidth(page, SHORT, 'short');
+		const long = await chipWidth(page, LONG, 'long');
+		expect(short).toBeGreaterThan(0);
+		expect(long).toBeGreaterThan(short);
+
+		// ── AND A TITLE THAT LOOKS LIKE MARKUP IS CHARACTERS (story 18) ─────────────────────
+		//
+		// The map is a WebGL canvas, so the payload cannot become an element there; what this asserts is
+		// that it did not become one anywhere else on the way, and that every character was typeset —
+		// a renderer that had swallowed the tag would draw a chip no wider than the words after it.
+		expect(await annotationsAt(page, UNTRUSTED)) //
+			.toContainEqual({ id: 'untrusted', layer: labelLayer, title: PAYLOAD });
+		expect(await page.locator('img[src="x"]').count()).toBe(0);
+		expect(await chipWidth(page, UNTRUSTED, 'untrusted')) //
+			.toBeGreaterThan(await chipWidth(page, SHORT, 'short'));
+
+		expect(failures).toEqual([]);
+	});
+
+	test('a Label is selected by clicking it, given a leader, and moved by its vertex handle for one write', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		const layerId = await seedAnnotationProject(page);
+		await writeProjectFile(
+			page,
+			`annotations/${layerId}.geojson`,
+			JSON.stringify({
+				type: 'FeatureCollection',
+				features: [labelFeature('zuiderzee', BLANK, { title: 'Zuiderzee' })]
+			})
+		);
+		await reopenLayers(page);
+		await waitForPaintedAnnotations(page, ['zuiderzee']);
+
+		// ── CLICKED ON THE MAP, LIKE A PIN (story 31) ───────────────────────────────────────
+		//
+		// Hit-testing is by layer id, so a Label absent from `annotationLayerIds` is a mark nobody can
+		// click — and nothing about the click path is Label-specific, which is the point.
+		const pane = (await baseMap(page).boundingBox())!;
+		const at = await page.evaluate(
+			(coordinate) =>
+				(window as unknown as StackWindow).ballastellaLayerStack!.map.project(
+					coordinate as [number, number]
+				),
+			BLANK
+		);
+		// Straight up from the coordinate is the middle of the chip's flat top edge — as far from a corner
+		// as the shape gets, and the place a field with no outward falloff has nothing to draw a halo on.
+		const beforeSelecting = await pixelsAbove(page, BLANK, 40);
+		await page.mouse.click(pane.x + at.x, pane.y + at.y);
+
+		const row = page.getByTestId('annotation-row');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('Zuiderzee');
+		// The emphasis on the map is a feature state the chip's `icon-halo-width` reads, so the selected
+		// Label is drawn exactly as the file asks with an aura around it and never recoloured (story 32).
+		expect(
+			await page.evaluate(
+				(source) =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.getFeatureState({
+						source: source as string,
+						id: 'zuiderzee'
+					}),
+				`ballastella-layer-${layerId}-source`
+			)
+		).toEqual({ selected: true });
+
+		// ── AND THE AURA IS AROUND THE CHIP, NOT FOUR ARCS AT ITS CORNERS ───────────────────
+		//
+		// ⚠ **The claim `label-chip.ts`'s transparent margin exists for.** The chip is an SDF and its halo
+		// is drawn wherever the field has fallen below the shader's own edge value; a field clipped at the
+		// shape's outline has none of that beside a flat edge, so `icon-halo-width` used to paint four
+		// small corner arcs with nothing between them while SPEC promises "an aura around it". Read on the
+		// column above the coordinate, which is the middle of the flat top edge.
+		//
+		// Only the halo can have changed: `icon-color`, `icon-opacity` and `text-color` are all read from
+		// the feature and selection touches none of them.
+		const afterSelecting = await pixelsAbove(page, BLANK, 40);
+		const changed = beforeSelecting.filter((pixel, row) => pixel !== afterSelecting[row]).length;
+		expect(changed).toBeGreaterThanOrEqual(2);
+
+		// ── AND THE LEADER RUNS TO THE WORDS THEMSELVES (story 33) ──────────────────────────
+		//
+		// A Label is centred on its coordinate and has no pin standing above it, so the line ends on the
+		// drawing rather than half a pin's height over the ground beside it. The coordinate is the file's
+		// and the projection the live camera's, never the mark's own box — see `support/leader.ts`.
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		const end = (await leaderPoints(page))!.at(-1)!;
+		expect(Math.hypot(end.x - (pane.x + at.x), end.y - (pane.y + at.y))) //
+			.toBeLessThanOrEqual(MARK_CLEARANCE + 1);
+
+		// ── AND IT IS DRAGGED BY ITS VERTEX HANDLE FOR EXACTLY ONE WRITE (stories 34, 36) ───
+		const handle = page.getByTestId('pane-overlay-point-annotation-vertex');
+		await expect(handle).toHaveCount(1);
+		const before = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
+		await watchAnnotationWrites(page);
+
+		const box = (await handle.boundingBox())!;
+		const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		await page.mouse.move(from.x + 40, from.y - 40);
+		await page.mouse.up();
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		expect(await annotationWrites(page)).toHaveLength(1);
+		expect((await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates) //
+			.not.toEqual(before);
+		expect(failures).toEqual([]);
+	});
+
+	test('the chip fits its words at all three sizes, with a short word and a long phrase', async ({
+		page
+	}) => {
+		// ⚠ **Ticket 01 proved this geometry in a browser and `label-chip.ts` changed it**: the shape now
+		// stops short of the image's own border so the halo has somewhere to be, which moves `content`,
+		// both stretch zones and the icon's total extent. Nothing in a unit test can say whether
+		// `icon-text-fit` still lands on the words after that, so the six cases the proof used are asserted
+		// here instead of being trusted.
+		const failures = watchFailures(page);
+		const layerId = await seedAnnotationProject(page);
+		const SHORT_WORD = 'Ee';
+		const LONG_PHRASE = 'Zuiderzee en de Waddenzee';
+		/** Two columns far enough apart that the widest chip cannot reach the other column's coordinate. */
+		const SHORT_LON = 4.7;
+		const LONG_LON = 5.1;
+		const ROWS = [
+			{ size: 'small', lat: 52.51 },
+			{ size: 'medium', lat: 52.37 },
+			{ size: 'large', lat: 52.23 }
+		] as const;
+
+		await writeProjectFile(
+			page,
+			`annotations/${layerId}.geojson`,
+			JSON.stringify({
+				type: 'FeatureCollection',
+				features: ROWS.flatMap(({ size, lat }) => [
+					labelFeature(`short-${size}`, [SHORT_LON, lat], {
+						title: SHORT_WORD,
+						'marker-size': size,
+						fill: ANNOTATION_COLOR.blue
+					}),
+					labelFeature(`long-${size}`, [LONG_LON, lat], {
+						title: LONG_PHRASE,
+						'marker-size': size,
+						fill: ANNOTATION_COLOR.red
+					})
+				])
+			})
+		);
+		await reopenLayers(page);
+		await centreOnAmsterdam(page);
+		await waitForPaintedAnnotations(
+			page,
+			ROWS.flatMap(({ size }) => [`short-${size}`, `long-${size}`])
+		);
+
+		const labelLayer = `ballastella-layer-${layerId}-label`;
+		const widths: Record<string, { short: number; long: number }> = {};
+		for (const { size, lat } of ROWS) {
+			// Drawn at all, from the Label bucket, at every size — `text-size` is a `match` on `marker-size`
+			// and a size it does not name resolves to nothing rather than to medium.
+			expect(await annotationsAt(page, [SHORT_LON, lat])) //
+				.toContainEqual({ id: `short-${size}`, layer: labelLayer, title: SHORT_WORD });
+			expect(await annotationsAt(page, [LONG_LON, lat])) //
+				.toContainEqual({ id: `long-${size}`, layer: labelLayer, title: LONG_PHRASE });
+			widths[size] = {
+				short: await chipWidth(page, [SHORT_LON, lat], `short-${size}`),
+				long: await chipWidth(page, [LONG_LON, lat], `long-${size}`)
+			};
+		}
+
+		for (const { size } of ROWS) {
+			// The chip is fitted to its words on both axes, so a long phrase's chip is wider than a short
+			// word's at the same size — story 37, at each size rather than only at the default one.
+			expect(widths[size]!.long).toBeGreaterThan(widths[size]!.short);
+		}
+		// And the three sizes are three sizes: larger words, a larger chip around them.
+		expect(widths['small']!.short).toBeLessThan(widths['medium']!.short);
+		expect(widths['medium']!.short).toBeLessThan(widths['large']!.short);
+
+		expect(failures).toEqual([]);
+	});
 });
 
 test.describe('style is on each Annotation (ADR-0009, as amended)', () => {

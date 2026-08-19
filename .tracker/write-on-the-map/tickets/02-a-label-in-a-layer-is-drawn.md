@@ -161,26 +161,26 @@ glyph is missing). Lucide's `Type` is the glyph.
 
 ## Acceptance criteria
 
-- [ ] `isLabel` answers true for a Point with the symbol and false for: a Point without one, a Point
+- [x] `isLabel` answers true for a Point with the symbol and false for: a Point without one, a Point
       with a different symbol, a LineString, a Polygon, a foreign geometry, and a `null` geometry.
-- [ ] `simpleStyleViolations` reports **nothing** for a Label's properties — the whole of the "no new
+- [x] `simpleStyleViolations` reports **nothing** for a Label's properties — the whole of the "no new
       extension" claim, in one assertion.
-- [ ] `whatItContains`/`annotationDrawKey`: a Layer of Labels asks for the Label bucket and not the
+- [x] `whatItContains`/`annotationDrawKey`: a Layer of Labels asks for the Label bucket and not the
       point bucket; a Layer of Pins asks for the point bucket and not the Label bucket; a Layer with
       both asks for both; and the key **does not change** when a Label's text, colour or size changes.
-- [ ] `annotationLayerIds` includes the Label bucket.
-- [ ] `annotationMarkBox` for a Label is its anchor point, not a pin-sized box.
-- [ ] `shapeWord` answers "label", and an untitled Label reads "Untitled label 3" — asserted in
+- [x] `annotationLayerIds` includes the Label bucket.
+- [x] `annotationMarkBox` for a Label is its anchor point, not a pin-sized box.
+- [x] `shapeWord` answers "label", and an untitled Label reads "Untitled label 3" — asserted in
       `packages/ui`, so neither app can differ.
-- [ ] In a browser: a seeded Label draws, `queryRenderedFeatures` at its point returns it from the
+- [x] In a browser: a seeded Label draws, `queryRenderedFeatures` at its point returns it from the
       Label bucket, and a seeded Pin in the same Layer returns from the point bucket and **not** from
       the Label bucket.
-- [ ] In a browser: a seeded Label whose `title` is `""` returns nothing rendered at its point.
-- [ ] In a browser: a seeded Label with a long title draws a chip wider than one with a short title.
-- [ ] In a browser: clicking a Label selects it, its row shows selected, and the leader line is drawn.
-- [ ] In a browser: dragging the selected Label's vertex handle moves it and records exactly one
+- [x] In a browser: a seeded Label whose `title` is `""` returns nothing rendered at its point.
+- [x] In a browser: a seeded Label with a long title draws a chip wider than one with a short title.
+- [x] In a browser: clicking a Label selects it, its row shows selected, and the leader line is drawn.
+- [x] In a browser: dragging the selected Label's vertex handle moves it and records exactly one
       Annotation write.
-- [ ] A seeded title containing `<img src=x onerror=…>` appears on the map as those characters and
+- [x] A seeded title containing `<img src=x onerror=…>` appears on the map as those characters and
       produces no element in the DOM.
 
 ```bash

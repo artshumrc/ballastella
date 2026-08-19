@@ -12,7 +12,9 @@ import { describe, expect, test } from 'vitest';
 
 import type { Annotation, AnnotationCollection } from '../annotation/annotation.js';
 
-import { annotationDrawKey } from './stack-layers.js';
+import { LABEL_MARKER_SYMBOL } from '../annotation/annotation.js';
+
+import { annotationDrawKey, annotationLayerIds, stackLayerId } from './stack-layers.js';
 
 const pin = (id: string, properties: Record<string, unknown> = {}): Annotation =>
 	({ id, geometry: { type: 'Point', coordinates: [4.9, 52.4] }, properties }) as Annotation;
@@ -47,6 +49,10 @@ const shape = (id: string): Annotation =>
 		properties: {}
 	}) as Annotation;
 
+/** A Label: a Point whose `marker-symbol` says the marker shows its own words. */
+const label = (id: string, properties: Record<string, unknown> = {}): Annotation =>
+	pin(id, { 'marker-symbol': LABEL_MARKER_SYMBOL, ...properties });
+
 const of = (...annotations: Annotation[]): AnnotationCollection => ({ annotations });
 
 describe('what does not move the key', () => {
@@ -66,6 +72,17 @@ describe('what does not move the key', () => {
 
 	test('a moved vertex, or another Annotation of a kind already drawn', () => {
 		expect(annotationDrawKey(of(pin('a')))).toBe(annotationDrawKey(of(pin('a'), pin('b'))));
+	});
+
+	test('a label’s text, colour or size, which are the source’s data and not its shape', () => {
+		// The same regression the title case above is for, for the kind whose title *is* the drawing:
+		// typing into a Label must reach `setAnnotations` rather than rebuild the stack per keystroke.
+		const key = annotationDrawKey(of(label('a', { title: 'Zuider' })));
+		expect(annotationDrawKey(of(label('a', { title: 'Zuiderzee' })))).toBe(key);
+		expect(annotationDrawKey(of(label('a', { title: 'Zuider', fill: '#1976d2' })))).toBe(key);
+		expect(annotationDrawKey(of(label('a', { title: 'Zuider', 'marker-size': 'large' })))).toBe(
+			key
+		);
 	});
 
 	test('a marker size, which changes how big a pin is and not which layers exist', () => {
@@ -98,8 +115,35 @@ describe('what does move it', () => {
 		expect(dashed).not.toBe(solid);
 	});
 
+	test('a Layer of labels and a Layer of pins ask for different layers', () => {
+		// A Label draws from a `symbol` layer of its own and a Pin from the pin layer, and neither pays
+		// for the other's: the two buckets' filters split on the same `marker-symbol` this key does.
+		const labels = annotationDrawKey(of(label('a')));
+		const pins = annotationDrawKey(of(pin('a')));
+		const both = annotationDrawKey(of(label('a'), pin('b')));
+
+		expect(new Set([labels, pins, both]).size).toBe(3);
+		expect(labels).not.toContain('point');
+		expect(pins).not.toContain('label');
+		expect(both).toContain('point');
+		expect(both).toContain('label');
+	});
+
 	test('an empty Layer and one with something in it', () => {
 		expect(annotationDrawKey(of())).not.toBe(annotationDrawKey(of(pin('a'))));
 		expect(annotationDrawKey(null)).toBe(annotationDrawKey(of()));
+	});
+});
+
+describe('what a click can be tested against', () => {
+	test('every bucket a Layer could draw is offered for hit-testing, the label’s included', () => {
+		// Hit-testing is by layer id, so a bucket absent from this list is a mark nobody can click — in
+		// either app, and silently.
+		const ids = annotationLayerIds('layer-1');
+
+		expect(ids).toContain(stackLayerId('layer-1', 'label'));
+		expect(ids).toContain(stackLayerId('layer-1', 'point'));
+		// The selection halo is deliberately not among them; see the note on `annotationLayerIds`.
+		expect(ids).not.toContain(stackLayerId('layer-1', 'selected'));
 	});
 });

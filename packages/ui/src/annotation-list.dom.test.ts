@@ -40,11 +40,16 @@ const annotation = (fields: {
 	id: string;
 	type?: 'Point' | 'LineString' | 'Polygon';
 	title?: string;
+	/** simplestyle's `marker-symbol`. `'label'` is what makes a Point a Label. */
+	symbol?: string;
 }): Annotation =>
 	({
 		id: fields.id,
 		geometry: { type: fields.type ?? 'Point', coordinates: [0, 0] },
-		properties: fields.title === undefined ? {} : { title: fields.title }
+		properties: {
+			...(fields.title === undefined ? {} : { title: fields.title }),
+			...(fields.symbol === undefined ? {} : { 'marker-symbol': fields.symbol })
+		}
 	}) as Annotation;
 
 let mounted: Record<string, unknown> | undefined;
@@ -175,6 +180,32 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 		// The shape word is beside the name rather than instead of it (SPEC story 111), so the glyph
 		// is a second channel: a screen reader still hears which shape each row is.
 		expect(nth('annotation-row', 0)).toHaveTextContent('pin');
+	});
+
+	test('an untitled label is a label rather than a pin, in the word and in the number', () => {
+		// A Label and a Pin are both Points, so a row that named them from the geometry called both a
+		// pin. The word is `shapeWord`'s and the number `annotationOrdinal`'s, which is what makes
+		// "Untitled label 3" one fact rather than two counts (SPEC stories 40, 41, 64).
+		list({
+			annotations: [
+				annotation({ id: 'a-1' }),
+				annotation({ id: 'a-2', type: 'LineString' }),
+				annotation({ id: 'a-3', symbol: 'label' })
+			]
+		});
+
+		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
+			.toEqual(['Untitled pin 1', 'Untitled line 2', 'Untitled label 3']);
+		// Beside the name as well as in it, so a screen reader hears the kind on a titled Label too.
+		expect(nth('annotation-row', 2)).toHaveTextContent('label');
+	});
+
+	test('a label carrying an unknown symbol is not a label at all', () => {
+		// `marker-symbol` is simplestyle's own field and another tool's value for it — `"harbor"`, `"7"` —
+		// is a Pin that keeps its symbol (SPEC story 51), not a Label with a typo.
+		list({ annotations: [annotation({ id: 'a-1', symbol: 'harbor' })] });
+
+		expect(one('annotation-row-name')).toHaveTextContent('Untitled pin 1');
 	});
 
 	test('an empty title falls back rather than rendering a blank row', () => {

@@ -53,6 +53,8 @@ export interface StackMap {
 	setZoom(zoom: number): void;
 	getZoom(): number;
 	once(event: string, listener: () => void): unknown;
+	/** Ask for one more frame, so a `render` listener registered just above it is reached. */
+	triggerRepaint(): void;
 	isMoving(): boolean;
 	/** What `StackRender.setSelectedAnnotation` wrote onto a feature, keyed by source and feature id. */
 	getFeatureState(target: { source: string; id: string }): Record<string, unknown>;

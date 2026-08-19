@@ -149,6 +149,40 @@ export const SIMPLESTYLE_PROPERTIES: readonly string[] = [
 export const MARKER_SIZES: readonly string[] = ['small', 'medium', 'large'];
 
 /**
+ * What a Point's `marker-symbol` says when the marker shows its own words.
+ *
+ * simplestyle's `marker-symbol` is *what this marker shows at its point*, and `"label"` is a reading
+ * of that field rather than an overload of it: the value is already legal against
+ * {@link simpleStyleViolations}, so a Layer of Labels is conformant with nothing relaxed and opens in
+ * another tool as titled markers. See `.tracker/write-on-the-map/SPEC.md` for why this rather than an
+ * extension of ours.
+ */
+export const LABEL_MARKER_SYMBOL = 'label';
+
+/**
+ * Whether a bare properties bag says "Label" — for a GeoJSON feature, which is not an Annotation.
+ *
+ * The renderer works on render copies of features and has no Annotation to hand; this is what it reads
+ * instead of the literal, so that {@link LABEL_MARKER_SYMBOL} still ties every reading of the
+ * discriminator together. Says nothing about the geometry, because a properties bag has none: callers
+ * that hold one check it themselves, as {@link isLabel} does.
+ */
+export const isLabelFeature = (
+	properties: { 'marker-symbol'?: unknown } | null | undefined
+): boolean => properties?.['marker-symbol'] === LABEL_MARKER_SYMBOL;
+
+/**
+ * Whether this Annotation is a Label: a Point that draws its `title` on the map.
+ *
+ * ⚠ **The one place the discriminator is read.** Nothing else compares `marker-symbol` to a string
+ * literal — with the single exception of the renderer's filter expressions, because a MapLibre filter
+ * is data rather than a function call and cannot call this. {@link isLabelFeature} is the same reading
+ * for a caller holding only a feature's properties.
+ */
+export const isLabel = (annotation: Annotation): boolean =>
+	annotation.geometry?.type === 'Point' && isLabelFeature(annotation.properties);
+
+/**
  * ═════════════════════════════════════════════════════════════════════════════════════════════════
  * THE NINE COLOURS AN ANNOTATION CAN BE
  *
