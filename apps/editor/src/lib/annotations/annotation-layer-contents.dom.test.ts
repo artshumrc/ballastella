@@ -105,13 +105,13 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 		expect(document.getElementById('annotation-list-caption')).toHaveTextContent('1 Annotation');
 	});
 
-	test('Done puts the shapes away, and the list was never the thing hidden', async () => {
+	test('Cancel puts the shapes away, and the list was never the thing hidden', async () => {
 		contents({ collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })) });
 
 		await press(one('annotation-new')!);
 		expect(one('annotation-list')).toBeInTheDocument();
 
-		await press(one('annotation-tool-cancel')!);
+		await press(one('annotation-cancel')!);
 
 		// Back to resting: one button, and the list untouched throughout.
 		expect(one('annotation-new')).toBeInTheDocument();

@@ -131,7 +131,6 @@ describe('the tool and the gesture are said in words (the-annotation-inspector s
 		// so a region that simply went empty would leave a screen-reader user holding a Pin tool that is
 		// no longer in their hand.
 		expect(drawing.status).toContain('Pin added');
-		expect(drawing.status).toContain('New Annotation');
 	});
 
 	it('names the shape that was finished, not the one before it', () => {

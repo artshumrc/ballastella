@@ -115,10 +115,13 @@ test.describe('adding a Map Image', () => {
 		// would satisfy a weaker version of this and is exactly what was ruled out.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
-		// One affordance in the sidebar, with words on it (SPEC story 111).
+		// One affordance in the sidebar, with words on it and not an icon alone (SPEC story 111). The
+		// plus supplies the verb, so the noun is what is written; the whole sentence is the accessible
+		// name, and it contains the visible words (WCAG 2.5.3).
 		const button = addMapImageButton(page);
 		await expect(button).toBeVisible();
-		await expect(button).toHaveText('Add a Map Image');
+		await expect(button).toHaveText('Map Image');
+		await expect(button).toHaveAccessibleName('Add a Map Image');
 
 		const dialog = await openAddMapImage(page);
 		// Each of the three is ready to use with no further click: a file can be picked, an address

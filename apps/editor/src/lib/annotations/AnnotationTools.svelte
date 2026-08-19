@@ -101,8 +101,7 @@
 		the same entry the card's header tint, its toggle and its opacity slider take. The theme
 		generator owns what that colour *is* (ADR-0016, ADR-0020) and that one table owns which token it
 		is, so a retheme *or* a change of pair moves this button with the card above it instead of
-		leaving it a stray hue. The shapes and Finish match it, because they stand in the same place the
-		moment it is pressed.
+		leaving it a stray hue.
 	-->
 	{#if !picking}
 		<div>
@@ -129,7 +128,7 @@
 			`@ballastella/ui`'s `shape-icons.ts`, so a scholar learns the pin once and then recognises it
 			in the list, and a Reader meets the same glyph on a published site.
 
-			Cancel sits outside the group, because it is not a fourth shape.
+			Cancel puts the tools away. It is not a fourth shape, so it sits outside the group.
 		-->
 		<div class="flex flex-wrap items-center gap-2">
 			<div role="toolbar" aria-label="Annotation tools" class="join" data-testid="annotation-tools">
@@ -148,13 +147,32 @@
 				{/each}
 			</div>
 
+			{#if drawing}
+				<button
+					type="button"
+					class="btn btn-primary btn-xs"
+					disabled={!canFinish}
+					data-testid="annotation-done"
+					onclick={() => onfinish()}
+				>
+					Done
+				</button>
+				<button
+					type="button"
+					class="btn btn-xs"
+					data-testid="annotation-undo-vertex"
+					onclick={() => onundovertex()}
+				>
+					Undo last point
+				</button>
+			{/if}
 			<button
 				type="button"
-				class="btn btn-ghost btn-xs"
-				data-testid="annotation-tool-cancel"
+				class="btn btn-neutral btn-xs"
+				data-testid="annotation-cancel"
 				onclick={() => stopDrawing()}
 			>
-				Done
+				Cancel
 			</button>
 		</div>
 	{/if}
@@ -186,40 +204,4 @@
 	>
 		{announcement}
 	</p>
-
-	{#if drawing}
-		<!--
-			The gesture's own controls, present only while there is a gesture — so "Finish" is never a
-			button that does nothing. Escape does the same as Cancel from anywhere on the page; this is
-			the visible, pointer-reachable half of that, which ADR-0016 asks for whenever a keystroke is
-			the only route.
-		-->
-		<div class="flex flex-wrap gap-2">
-			<button
-				type="button"
-				class="btn btn-sm {KIND_STYLE.annotation.btn}"
-				disabled={!canFinish}
-				data-testid="annotation-finish"
-				onclick={() => onfinish()}
-			>
-				Finish
-			</button>
-			<button
-				type="button"
-				class="btn btn-sm"
-				data-testid="annotation-undo-vertex"
-				onclick={() => onundovertex()}
-			>
-				Undo last point
-			</button>
-			<button
-				type="button"
-				class="btn btn-ghost btn-sm"
-				data-testid="annotation-cancel"
-				onclick={() => oncancel()}
-			>
-				Cancel
-			</button>
-		</div>
-	{/if}
 </div>

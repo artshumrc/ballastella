@@ -19,10 +19,11 @@
  * though the theme is free to make them anything, and neither reads as a demotion of the other, which
  * is the one property a pair for two peer kinds must have.
  *
- * **A kind's colour is the colour of everything in its card**, which is the part worth being careful
- * about, because it is where a colour can start making a second claim. `primary` stays the action
- * colour *outside* the cards — "Add a Map Image" below the stack, the dialogs — so a button in a
- * card is the card's colour and a button on the screen around it is the app's.
+ * **A kind's colour is the colour of everything in its card**, and also of the one button that adds
+ * a card of that kind: the pair below the stack — "Add a Map Image" and "Add an Annotation Layer" —
+ * wears `accent` and `info` so that pressing a colour is what produces a card of that colour.
+ * `primary` remains the action colour for everything not about a single kind: the dialogs, the
+ * screen's own actions.
  *
  * Two overlaps come with `info`, both deliberately accepted:
  *

@@ -69,6 +69,7 @@
 		pageChrome,
 		type Box
 	} from '@ballastella/ui';
+	import Plus from '@lucide/svelte/icons/plus';
 	import Scan from '@lucide/svelte/icons/scan';
 	import { tick, untrack } from 'svelte';
 
@@ -1302,28 +1303,40 @@
 				/>
 
 				<!--
-					The one way a Map Image gets into this Project (ticket 06), and it is a button with
-					words on it rather than an icon (SPEC story 111). What it opens offers all three sources
-					at once — a file, a library, and a map this Workspace already holds — which is why this is
-					one affordance rather than three sections competing for a 24rem column.
-				-->
-				<button
-					class="btn mt-4 btn-primary btn-sm"
-					type="button"
-					data-testid="add-map-image"
-					onclick={() => (addingMap = true)}
-				>
-					Add a Map Image
-				</button>
+					The one way a Map Image gets into this Project (ticket 06), beside the one way an
+					Annotation Layer gets in. What the first opens offers all three sources at once — a file,
+					a library, and a map this Workspace already holds — which is why it is one affordance
+					rather than three sections competing for a 24rem column.
 
-				<button
-					class="btn mt-4 ml-2 btn-sm"
-					data-testid="add-annotation-layer"
-					onclick={() =>
-						session.addAnnotationLayer(`Annotations ${annotations.annotationLayerCount + 1}`)}
-				>
-					Add an Annotation Layer
-				</button>
+					**The plus carries the verb; the words carry the noun** (SPEC story 111 asks for words,
+					not for an icon alone). `aria-label` restores the whole sentence for anyone who hears the
+					button rather than seeing it, and each one *contains* the visible words — "Add a **Map
+					Image**" — so a voice user who says what they read still hits the button (WCAG 2.5.3).
+				-->
+				<div class="mt-4 flex gap-2">
+					<button
+						class="btn flex-1 gap-1 btn-sm {KIND_STYLE.map.btn}"
+						type="button"
+						data-testid="add-map-image"
+						aria-label="Add a Map Image"
+						onclick={() => (addingMap = true)}
+					>
+						<Plus class="size-4" aria-hidden="true" />
+						Map Image
+					</button>
+
+					<button
+						class="btn flex-1 gap-1 btn-sm {KIND_STYLE.annotation.btn}"
+						type="button"
+						data-testid="add-annotation-layer"
+						aria-label="Add an Annotation Layer"
+						onclick={() =>
+							session.addAnnotationLayer(`Annotations ${annotations.annotationLayerCount + 1}`)}
+					>
+						<Plus class="size-4" aria-hidden="true" />
+						Annotation Layer
+					</button>
+				</div>
 
 				{#if annotations.annotationLayerCount === 0}
 					<!--

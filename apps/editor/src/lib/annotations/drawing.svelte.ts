@@ -273,22 +273,18 @@ export class AnnotationDrawing {
 		// what to do next are both changes the scholar did not make and is owed.
 		if (this.tool === 'select') {
 			if (this.added === null) return '';
-			return (
-				`${toolName(this.added)} added, and selected so it can be titled. ` +
-				'Press New Annotation to draw another.'
-			);
+			return `${toolName(this.added)} added.`;
 		}
 		if (this.tool === 'point') {
-			return 'Click the map, or press Enter on it, to place a pin.';
+			return 'Click the map to place.';
 		}
 		const need = MINIMUM_VERTICES[this.tool] - placed;
-		const shape = this.tool === 'line' ? 'line' : 'shape';
 		if (placed === 0) {
-			return `Click the map, or press Enter on it, to start a ${shape}.`;
+			return 'Click the map to start.';
 		}
 		if (need > 0) {
-			return `${placed} ${placed === 1 ? 'point' : 'points'} placed. ${need} more and this ${shape} can be finished. Escape cancels it.`;
+			return `${placed} ${placed === 1 ? 'point' : 'points'}. ${need} more needed.`;
 		}
-		return `${placed} points placed. Double-click the map, press Shift and Enter, or use Finish, to complete this ${shape}. Escape cancels it.`;
+		return `${placed} points. Done to finish.`;
 	}
 }

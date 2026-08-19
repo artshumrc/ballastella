@@ -76,13 +76,11 @@ const press = async (element: HTMLElement): Promise<void> => {
 
 describe('the tool in hand is announced, not only drawn (SPEC story 112)', () => {
 	test('the sentence names the tool and then says what to do with it', () => {
-		toolbar({ tool: 'polygon', picking: true, status: 'Click the map to start a shape.' });
+		toolbar({ tool: 'polygon', picking: true, status: 'Click the map to start.' });
 
 		// **The name is in the sentence, because the criterion is that the tool is *announced* and a
 		// highlight is not an announcement.** `data-tool` is a test attribute and reaches nobody.
-		expect(one('annotation-status')).toHaveTextContent(
-			'Shape tool. Click the map to start a shape.'
-		);
+		expect(one('annotation-status')).toHaveTextContent('Shape tool. Click the map to start.');
 	});
 
 	test('the region is there before there is anything to say', () => {
@@ -154,42 +152,43 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 });
 
 describe('a gesture in progress gets the controls a gesture needs, and only then', () => {
-	test('Finish, Undo and Cancel are absent while nothing is being drawn', () => {
+	test('Cancel is offered while choosing, while Done and Undo wait for a point', () => {
 		toolbar({ tool: 'polygon', picking: true, drawing: false });
 
-		// So "Finish" is never a button that does nothing.
-		expect(all('annotation-finish')).toHaveLength(0);
+		expect(all('annotation-done')).toHaveLength(0);
 		expect(all('annotation-undo-vertex')).toHaveLength(0);
-		expect(all('annotation-cancel')).toHaveLength(0);
-	});
-
-	test('Finish is offered but refused until the shape is one', () => {
-		toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: false });
-
-		// Present and `disabled`, which is information a screen reader gets free from the markup —
-		// rather than absent, which would move under the pointer as the third vertex lands.
-		expect(one('annotation-finish')).toBeDisabled();
-		expect(one('annotation-undo-vertex')).toBeInTheDocument();
-		// Escape does the same from anywhere on the page; this is the pointer-reachable half of it,
-		// which ADR-0016 asks for whenever a keystroke is the only route.
 		expect(one('annotation-cancel')).toBeInTheDocument();
 	});
 
-	test('Done abandons a gesture in progress as well as putting the tools away', async () => {
+	test('Done is refused until the shape is one', () => {
+		toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: false });
+
+		expect(one('annotation-done')).toBeDisabled();
+		expect(one('annotation-undo-vertex')).toBeInTheDocument();
+		expect(one('annotation-cancel')).toBeInTheDocument();
+	});
+
+	test('Done finishes a valid gesture', async () => {
 		const spies = toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: true });
 
-		await press(one('annotation-tool-cancel')!);
+		await press(one('annotation-done')!);
 
-		// Both, in that order: leaving the tools with two vertices still in flight would keep drawing
-		// them on a map whose toolbar has gone.
+		expect(spies.onfinish).toHaveBeenCalled();
+	});
+
+	test('Cancel abandons a gesture in progress and puts the tools away', async () => {
+		const spies = toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: true });
+
+		await press(one('annotation-cancel')!);
+
 		expect(spies.oncancel).toHaveBeenCalled();
 		expect(spies.onchoose).toHaveBeenCalledWith('select');
 	});
 
-	test('Done with nothing in flight cancels nothing', async () => {
+	test('Cancel with nothing in flight cancels nothing', async () => {
 		const spies = toolbar({ tool: 'polygon', picking: true, drawing: false });
 
-		await press(one('annotation-tool-cancel')!);
+		await press(one('annotation-cancel')!);
 
 		expect(spies.oncancel).not.toHaveBeenCalled();
 		expect(spies.onchoose).toHaveBeenCalledWith('select');

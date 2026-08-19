@@ -639,7 +639,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await chooseTool(page, 'polygon');
 		await expect(inspector(page)).toHaveCount(0);
 		await clickAt(baseMap(page), 0.3, 0.3);
-		await expect(page.getByTestId('annotation-status')).toContainText('1 point placed');
+		await expect(page.getByTestId('annotation-status')).toContainText('1 point. 2 more needed');
 		// And neither click opened the Annotation under it: the pin is still there, unselected.
 		await expect(inspector(page)).toHaveCount(0);
 		await clickAt(baseMap(page), 0.5, 0.4);
@@ -842,16 +842,14 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		const status = page.getByTestId('annotation-status');
 
 		await chooseTool(page, 'polygon');
-		await expect(status).toContainText('to start a shape');
+		await expect(status).toContainText('Click the map to start');
 		await clickAt(baseMap(page), 0.4, 0.4);
-		await expect(status).toContainText('1 point placed');
-		await expect(status).toContainText('2 more');
+		await expect(status).toContainText('1 point. 2 more needed');
 		await clickAt(baseMap(page), 0.6, 0.4);
 		await clickAt(baseMap(page), 0.5, 0.6);
-		await expect(status).toContainText('3 points placed');
-		await expect(status).toContainText('Finish');
+		await expect(status).toContainText('3 points. Done to finish');
 
-		await page.getByTestId('annotation-finish').click();
+		await page.getByTestId('annotation-done').click();
 
 		// **And finishing says what happened rather than falling silent.** The tool puts itself down
 		// without being asked, and a region that simply went empty would leave somebody holding a Shape
@@ -2625,7 +2623,7 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		}
 
 		// And the way back out, which is what selecting is reached by.
-		await tabTo(page, page.getByTestId('annotation-tool-cancel'), 'the Done button');
+		await tabTo(page, page.getByTestId('annotation-cancel'), 'the Cancel button');
 		await page.keyboard.press('Enter');
 		await expect(page.getByTestId('annotation-status')).toHaveText('');
 		await expect(page.getByTestId('annotation-new')).toBeVisible();

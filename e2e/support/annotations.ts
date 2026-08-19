@@ -438,7 +438,7 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
  * Choose a drawing tool.
  *
  * **Two clicks, not one.** Selecting is the resting behaviour rather than a tool, so the three shapes
- * live behind "New Annotation" and `select` is reached by leaving them ("Done"). Every test drives the
+ * live behind "New Annotation" and `select` is reached by cancelling them. Every test drives the
  * tools through here, so what a scholar presses is stated once.
  *
  * **And "New Annotation" is pressed once per shape**, because finishing a gesture disarms the tool and
@@ -452,7 +452,7 @@ export async function chooseTool(
 ): Promise<void> {
 	const shapes = page.getByTestId('annotation-tools');
 	if (tool === 'select') {
-		if ((await shapes.count()) > 0) await page.getByTestId('annotation-tool-cancel').click();
+		if ((await shapes.count()) > 0) await page.getByTestId('annotation-cancel').click();
 		await expect(page.getByTestId('annotation-new')).toBeVisible();
 		return;
 	}
@@ -598,7 +598,7 @@ export async function drawPin(page: Page, fx: number, fy: number): Promise<void>
 	await expect(page.getByRole('status')).toHaveText('Saved locally');
 }
 
-/** Draw a line or a shape through the given fractions, finishing with the Finish button. */
+/** Draw a line or a shape through the given fractions, finishing with the Done button. */
 export async function drawShape(
 	page: Page,
 	tool: 'line' | 'polygon',
@@ -606,8 +606,8 @@ export async function drawShape(
 ): Promise<void> {
 	await chooseTool(page, tool);
 	for (const [fx, fy] of points) await clickAt(baseMap(page), fx, fy);
-	await expect(page.getByTestId('annotation-finish')).toBeEnabled();
-	await page.getByTestId('annotation-finish').click();
+	await expect(page.getByTestId('annotation-done')).toBeEnabled();
+	await page.getByTestId('annotation-done').click();
 	await expect(page.getByRole('status')).toHaveText('Saved locally');
 }
 
