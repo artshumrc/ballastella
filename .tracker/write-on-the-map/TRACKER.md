@@ -28,25 +28,25 @@ ships, as does the notice promising a Reader that the Annotations are unaffected
 
 ## Current Status
 
-Overall status: `In Progress` — **work paused at the requester's instruction after ticket 09.**
+Overall status: `In Progress` — a parallel run is under way.
 
-Current ticket: none. The frontier is 04, 05 and 07, all unblocked and unclaimed.
+Current tickets: 04, 05 and 07, each claimed by its own orchestrator in its own git worktree.
 
 Last updated: 2026-08-19
 
 ## Ledger
 
-| Number | Filename | Status | Depends On |
-| --- | --- | --- | --- |
-| 01 | [01-prove-the-background-chip.md](./tickets/01-prove-the-background-chip.md) | Completed | — |
-| 02 | [02-a-label-in-a-layer-is-drawn.md](./tickets/02-a-label-in-a-layer-is-drawn.md) | Completed | 01 |
-| 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Completed | 02 |
-| 04 | [04-style-a-label.md](./tickets/04-style-a-label.md) | Not Started | 03 |
-| 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | Not Started | 03 |
-| 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | Not Started | 03, 04, 05 |
-| 07 | [07-a-label-is-a-file-other-tools-can-read.md](./tickets/07-a-label-is-a-file-other-tools-can-read.md) | Not Started | 03 |
-| 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | Not Started | 04, 05 |
-| 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Completed | 02 |
+| Number | Filename | Status | Depends On | Claimed By |
+| --- | --- | --- | --- | --- |
+| 01 | [01-prove-the-background-chip.md](./tickets/01-prove-the-background-chip.md) | Completed | — | — |
+| 02 | [02-a-label-in-a-layer-is-drawn.md](./tickets/02-a-label-in-a-layer-is-drawn.md) | Completed | 01 | — |
+| 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Completed | 02 | — |
+| 04 | [04-style-a-label.md](./tickets/04-style-a-label.md) | In Progress | 03 | epic-run/ticket-04 |
+| 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | In Progress | 03 | epic-run/ticket-05 |
+| 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | Not Started | 03, 04, 05 | — |
+| 07 | [07-a-label-is-a-file-other-tools-can-read.md](./tickets/07-a-label-is-a-file-other-tools-can-read.md) | In Progress | 03 | epic-run/ticket-07 |
+| 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | Not Started | 04, 05 | — |
+| 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Completed | 02 | — |
 
 Ticket 01 is a spike: its product is an `## Answer` recording whether the chip is a stretched SDF
 coloured per feature or one plain image per colour, and it leaves `src/` unchanged. Every ticket that
