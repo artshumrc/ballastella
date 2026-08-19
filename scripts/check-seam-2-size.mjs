@@ -59,11 +59,12 @@ import { fileURLToPath } from 'node:url';
  * | 2026-08-19 | 635 | A third Label test, for the geometry ticket 01 proved in a browser and the chip then changed: the shape stops short of the image's border so the halo has somewhere to be, which moves `content`, both stretch zones and the icon's extent. Whether `icon-text-fit` still lands on the words after that is MapLibre's arithmetic over a shaped text block, so it is unreachable at Seam 1 — and it needs its own fixture, six Labels far enough apart that the widest chip cannot reach the next one's coordinate, which is why it did not fold into either test above. |
  * | 2026-08-19 | 636 | One test for the gesture that *makes* a Label, which every Label test before it seeded instead. It is the only place three things meet: the keyboard alone reaching the tool and placing at the crosshair, the coalesced write count for placing and then typing (real OPFS, and a count no fake can stand in for), and — the claim the inheritance carve-out exists for — that the Pin drawn straight after a Label is written and painted as a Pin. The style arithmetic behind all of it is asserted at Seam 1 (`annotation.test.ts`, `annotation-editing.svelte.test.ts`) and the toolbar's fourth button at Seam 1c; this is one browser test rather than the four the criteria could have been read as. |
  * | 2026-08-19 | 639 | Label portability needs three browser tests: opening a Project must leave its OPFS files untouched; a bundled Label must draw in a Review Workspace; and a restored Label must draw. Core asserts the bytes and the transfer paths without parsing them, but only the running applications can prove the real Project files and MapLibre rendering meet at each handoff. |
+ * | 2026-08-19 | 643 | Four Label tests: the keyboard journey adds Tab-reachability with no pointer, plus the style and delete legs; the 636 row already covers reaching the tool and placing at the crosshair with Enter. The Layers test needs a browser for MapLibre visibility and for a neighbouring Map Image's opacity slider leaving Annotation paint untouched; its count rides along, already provable at Seam 1c in `packages/ui/src/annotation-list.dom.test.ts`. The other two use real OPFS to prove deletion restores the source Layer's exact bytes and position, including an untitled Label. |
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
  */
-export const SEAM_2_CEILING = 639;
+export const SEAM_2_CEILING = 643;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

@@ -75,21 +75,21 @@ Two behaviours are worth naming because a Label is the first Annotation that can
 
 ## Acceptance criteria
 
-- [ ] In a browser: a Layer holding a Pin, a Line, a Shape and a Label reports a count of four, and
+- [x] In a browser: a Layer holding a Pin, a Line, a Shape and a Label reports a count of four, and
       reports four again after the Label is given words.
-- [ ] In a browser: hiding the Layer removes the Label from the map along with everything else; showing
+- [x] In a browser: hiding the Layer removes the Label from the map along with everything else; showing
       it brings the Label back.
-- [ ] In a browser: a Layer's opacity slider changes nothing about how a Label draws — the same
+- [x] In a browser: a Layer's opacity slider changes nothing about how a Label draws — the same
       no-op it already is for a Pin.
-- [ ] In a browser: deleting a Label from the Inspector removes it from the map, from the list and from
+- [x] In a browser: deleting a Label from the Inspector removes it from the map, from the list and from
       the file; undo restores it to the same position in the collection, in the same Layer, with its
       words and its colours intact.
-- [ ] In a browser: a Label with **no** words is deletable and restorable by the same path.
-- [ ] In a browser: after deleting the only Annotation in a Layer, the keyboard lands on *New
+- [x] In a browser: a Label with **no** words is deletable and restorable by the same path.
+- [x] In a browser: after deleting the only Annotation in a Layer, the keyboard lands on *New
       Annotation* in the same card — the existing rule, holding for a Label.
-- [ ] In a browser, keyboard only, no pointer at any step: press *New Annotation*, choose Label, place
+- [x] In a browser, keyboard only, no pointer at any step: press *New Annotation*, choose Label, place
       it, type its words, change its colour and its size, then delete it.
-- [ ] Ordinals renumber after a Label is deleted, so the numbers stay the positions they claim.
+- [x] Ordinals renumber after a Label is deleted, so the numbers stay the positions they claim.
 
 ```bash
 pnpm test:e2e editor-annotations
@@ -106,3 +106,17 @@ becomes pointer-only.
 - Ticket 03 — a Label has to exist.
 - Ticket 04 — the keyboard journey crosses the Style face.
 - Ticket 05 — and the Text face.
+
+## Answer
+
+Acceptance criterion 3 and story 46 name an Annotation Layer opacity slider that does not exist. The
+control is rendered only for `kind === 'map'`, an `AnnotationLayer` has no `opacity` field, and
+`setOpacity` reaches only a warped Map Image. The union makes that failure unrepresentable rather than
+merely unhandled, which is stronger than the story asked for.
+
+`packages/core/src/project/layer.test.ts` already asserts this at Seam 1 in “cannot put opacity on an
+annotation Layer”. The browser test instead proves that an Annotation Layer's card offers no such
+control, and that a neighbouring Map Image's slider leaves the Label's paint untouched.
+
+No production change was needed for stories 42–46 or 62: the claim that a Label arrives at these
+behaviours by construction held.

@@ -31,11 +31,13 @@ import {
 	projectJson,
 	readProjectFile,
 	reopenLayers,
+	renderedAnnotationLayers,
 	selectAnnotation,
 	startAnnotating,
 	storedAnnotations,
 	waitForPaintedAnnotations,
-	waitForStack
+	waitForStack,
+	writeProjectFile
 } from './support/annotations.js';
 import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
@@ -956,5 +958,207 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		// Ours did not fire: the Annotation is still deleted and the affordance is still offered.
 		await expect(undoButton(page)).toHaveCount(1);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
+	});
+});
+
+test.describe('a deleted Label (write-on-the-map stories 42 and 43)', () => {
+	/**
+	 * Only the running app can connect an Inspector delete and undo to OPFS bytes, Layer choice, and
+	 * MapLibre paint rather than merely to a reconstructed Annotation value.
+	 */
+	test('leaves its row and map, then returns to its Layer and original position with its words and colours', async ({
+		page
+	}) => {
+		const layerId = await annotatingWorkspace(page);
+		await writeProjectFile(
+			page,
+			`annotations/${layerId}.geojson`,
+			`${JSON.stringify(
+				{
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'before',
+							properties: { title: 'The harbour' },
+							geometry: { type: 'Point', coordinates: [4.78, 52.4] }
+						},
+						{
+							type: 'Feature',
+							id: 'label',
+							properties: {
+								title: 'Zuiderzee',
+								'marker-symbol': 'label',
+								'marker-color': '#d32f2f',
+								fill: '#1976d2',
+								'fill-opacity': 0.4,
+								'marker-size': 'large'
+							},
+							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+						},
+						{
+							type: 'Feature',
+							id: 'after',
+							properties: { title: 'The parish' },
+							geometry: { type: 'Point', coordinates: [5.02, 52.34] }
+						}
+					]
+				},
+				null,
+				'\t'
+			)}\n`
+		);
+		await reopenLayers(page);
+		await waitForPaintedAnnotations(page, ['before', 'label', 'after']);
+
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(layerRows(page)).toHaveCount(2);
+		await saved(page);
+		const otherLayerId = (await rowIds(page)).find((id) => id !== layerId) as string;
+		const before = await hashesUnder(page, 'annotations/');
+		expect(before).toHaveLength(2);
+		await openLayerRow(page, rowFor(page, layerId));
+
+		await selectAnnotation(page, 1);
+		await deleteAnnotation(page);
+		await saved(page);
+
+		expect((await storedAnnotations(page, layerId)).features.map((feature) => feature.id)).toEqual([
+			'before',
+			'after'
+		]);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
+		await expect.poll(async () => 'label' in (await renderedAnnotationLayers(page))).toBe(false);
+
+		await openLayerRow(page, rowFor(page, otherLayerId));
+		await expect(undoButton(page)).toHaveText('Undo delete of “Zuiderzee”');
+		await undoButton(page).click();
+		await saved(page);
+
+		await expect.poll(() => hashesUnder(page, 'annotations/')).toEqual(before);
+		await expect(rowFor(page, layerId).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'true'
+		);
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page.getByTestId('annotation-row-name').getByText('The harbour', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('1');
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page.getByTestId('annotation-row-name').getByText('Zuiderzee', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('2');
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page.getByTestId('annotation-row-name').getByText('The parish', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('3');
+		await waitForPaintedAnnotations(page, ['label']);
+	});
+
+	/**
+	 * A browser is required to prove that an invisible Label still follows the Inspector's delete,
+	 * focus, and undo path while OPFS restores the exact file the author had.
+	 */
+	test('an untitled Label is deleted and restored through the same Inspector path', async ({
+		page
+	}) => {
+		const layerId = await annotatingWorkspace(page);
+		await writeProjectFile(
+			page,
+			`annotations/${layerId}.geojson`,
+			`${JSON.stringify(
+				{
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'before',
+							properties: { title: 'The harbour' },
+							geometry: { type: 'Point', coordinates: [4.78, 52.4] }
+						},
+						{
+							type: 'Feature',
+							id: 'empty-label',
+							properties: { 'marker-symbol': 'label', fill: '#1976d2' },
+							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+						},
+						{
+							type: 'Feature',
+							id: 'after',
+							properties: { title: 'The parish' },
+							geometry: { type: 'Point', coordinates: [5.02, 52.34] }
+						}
+					]
+				},
+				null,
+				'\t'
+			)}\n`
+		);
+		await reopenLayers(page);
+		const before = await readProjectFile(page, `annotations/${layerId}.geojson`);
+
+		await selectAnnotation(page, 1);
+		await deleteAnnotation(page);
+		await saved(page);
+		expect(await readProjectFile(page, `annotations/${layerId}.geojson`)).not.toBe(before);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
+
+		await undoButton(page).click();
+		await saved(page);
+		expect(await readProjectFile(page, `annotations/${layerId}.geojson`)).toBe(before);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page.getByTestId('annotation-row-name').getByText('The harbour', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('1');
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page
+						.getByTestId('annotation-row-name')
+						.getByText('Untitled label 2', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('2');
+		await expect(
+			page
+				.getByTestId('annotation-row')
+				.filter({
+					has: page.getByTestId('annotation-row-name').getByText('The parish', { exact: true })
+				})
+				.getByTestId('annotation-row-ordinal')
+		).toHaveText('3');
+
+		await selectAnnotation(page);
+		await deleteAnnotation(page);
+		await saved(page);
+		await selectAnnotation(page, 1);
+		await deleteAnnotation(page);
+		await saved(page);
+		await selectAnnotation(page);
+		await deleteAnnotation(page);
+		await saved(page);
+		await expect
+			.poll(() =>
+				page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? 'BODY')
+			)
+			.toBe('annotation-new');
 	});
 });

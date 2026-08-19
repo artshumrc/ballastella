@@ -3330,8 +3330,9 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
  * Press Tab until `target` has focus, so "operable by keyboard" is asserted by *getting there* with
  * the keyboard rather than by calling `focus()` and pretending.
  */
-async function tabTo(page: Page, target: import('@playwright/test').Locator, what: string) {
-	await page.locator('body').click({ position: { x: 2, y: 2 } });
+async function tabTo(page: Page, target: Locator, what: string, resetFocus = true) {
+	// Without the body reset, a target earlier in the document relies on Tab wrapping past its end.
+	if (resetFocus) await page.locator('body').click({ position: { x: 2, y: 2 } });
 	for (let press = 0; press < 250; press += 1) {
 		if (await target.evaluate((element) => element === document.activeElement)) return;
 		await page.keyboard.press('Tab');
@@ -4109,5 +4110,92 @@ test.describe('placing a Pin at a Place', () => {
 		await expect
 			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
 			.not.toEqual(dragged);
+	});
+});
+
+test.describe('a Label author journey uses only the keyboard (write-on-the-map story 62)', () => {
+	/**
+	 * Only a browser can prove that focus traverses the authored surfaces from the tool through styling
+	 * and deletion without a pointer, including MapLibre's keyboard-operated Base Map.
+	 */
+	test('reaches Label, places it, writes and styles it, then deletes it without a pointer', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		const layerId = await startAnnotating(page);
+
+		await tabTo(page, page.getByTestId('annotation-new'), 'New Annotation', false);
+		await page.keyboard.press('Enter');
+		await tabTo(page, page.getByTestId('annotation-tool-text'), 'Label', false);
+		await page.keyboard.press('Enter');
+
+		await tabTo(page, page.locator('canvas.maplibregl-canvas'), 'the Base Map', false);
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('annotation-title')).toBeFocused();
+		await page.keyboard.type('Zuiderzee');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		await tabTo(
+			page,
+			page.getByTestId('annotation-inspector-tab-text').locator('input'),
+			'the Text tab',
+			false
+		);
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-inspector-face')).toHaveAttribute(
+			'data-face',
+			'style'
+		);
+
+		await tabTo(
+			page,
+			page.getByTestId('annotation-marker-color').locator('input:checked'),
+			'the Label text colour',
+			false
+		);
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-marker-color-grey')).toHaveAttribute(
+			'data-chosen',
+			'true'
+		);
+
+		await tabTo(
+			page,
+			page.getByTestId('annotation-marker-size-medium').locator('input'),
+			'the Label size',
+			false
+		);
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-marker-size-large').locator('input')).toBeChecked();
+		await expect
+			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.properties)
+			.toMatchObject({
+				title: 'Zuiderzee',
+				'marker-symbol': 'label',
+				'marker-color': ANNOTATION_COLOR.grey,
+				'marker-size': 'large'
+			});
+
+		await tabTo(
+			page,
+			page.getByTestId('annotation-inspector-tab-style').locator('input:checked'),
+			'the Style tab',
+			false
+		);
+		await page.keyboard.press('ArrowLeft');
+		await expect(page.getByTestId('annotation-inspector-face')).toHaveAttribute(
+			'data-face',
+			'text'
+		);
+		await tabTo(page, page.getByTestId('annotation-delete'), 'Delete Annotation', false);
+		await page.keyboard.press('Enter');
+		await expect.poll(async () => (await storedAnnotations(page, layerId)).features.length).toBe(0);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(0);
+		await expect
+			.poll(() =>
+				page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? 'BODY')
+			)
+			.toBe('annotation-new');
+		expect(failures).toEqual([]);
 	});
 });
