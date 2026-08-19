@@ -28,10 +28,9 @@ ships, as does the notice promising a Reader that the Annotations are unaffected
 
 ## Current Status
 
-Overall status: `In Progress` — a parallel run is under way.
+Overall status: `Completed` — every ticket has landed on `main`.
 
-Current ticket: 06, the epic's last, claimed by its orchestrator in its own git worktree. Every
-other ticket has landed.
+Current ticket: none. All nine tickets are Completed.
 
 Last updated: 2026-08-19
 
@@ -44,7 +43,7 @@ Last updated: 2026-08-19
 | 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Completed | 02 | — |
 | 04 | [04-style-a-label.md](./tickets/04-style-a-label.md) | Completed | 03 | — |
 | 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | Completed | 03 | — |
-| 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | In Progress | 03, 04, 05 | epic-run/ticket-06 |
+| 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | Completed | 03, 04, 05 | — |
 | 07 | [07-a-label-is-a-file-other-tools-can-read.md](./tickets/07-a-label-is-a-file-other-tools-can-read.md) | Completed | 03 | — |
 | 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | Completed | 04, 05 | — |
 | 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Completed | 02 | — |
