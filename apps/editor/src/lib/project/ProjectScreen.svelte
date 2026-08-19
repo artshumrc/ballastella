@@ -1438,9 +1438,7 @@
 						that failed — so the useful next action is available rather than merely described.
 					-->
 					<p class="mt-4 max-w-prose text-sm" data-testid="no-map-images">
-						This Project has no Map Images yet. Press Add a Map Image to bring one in — from a file
-						on this computer, from a library’s IIIF address, or from one this Workspace already
-						holds, which copies nothing and keeps the alignment it already has.
+						This Project has no Map Images yet. Press Add a Map Image to add one.
 					</p>
 				{/if}
 

@@ -692,8 +692,7 @@
 		<p class="mt-6">Looking for your Projects…</p>
 	{:else if session.projects.length === 0}
 		<p class="mt-6">
-			No Projects yet. A Project holds the Map Images you are working with, the Alignments you make,
-			and the Annotations you write.
+			No Projects yet.
 		</p>
 	{:else}
 		<!--
@@ -711,8 +710,7 @@
 	<section class="mt-10">
 		<h2 class="text-2xl font-semibold">Map Images</h2>
 		<p class="mt-1 text-sm opacity-70">
-			Every Map Image in this Workspace. A map is prepared once and any number of Projects can draw
-			it, so these are shared: deleting one takes it out of the Workspace entirely.
+			Every Map Image in this Workspace across all its projects.
 		</p>
 
 		<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
@@ -741,8 +739,7 @@
 			<p class="mt-4">Looking at what this Workspace holds…</p>
 		{:else if session.mapImages.length === 0}
 			<p class="mt-4" data-testid="no-map-images">
-				No Map Images yet. Open a Project and add one from there — a map is added inside the Project
-				that will draw it first, and every other Project can then use the same map.
+				No Map Images yet.
 			</p>
 		{:else}
 			<ul class="mt-4 flex flex-col gap-3">
@@ -795,9 +792,7 @@
 			{#if baseMapCache === null}
 				Looking at what this Workspace holds…
 			{:else if baseMapCache.tiles === 0}
-				No Base Map tiles are kept in this Workspace, so every Project needs a network connection to
-				draw its Base Map. Open a Project and choose “Make this Project available offline” to keep
-				the tiles its own work covers.
+				No Base Map tiles are saved in this Workspace, so every Project needs a network connection. This is normal.
 			{:else}
 				{describeBytes(baseMapCache.bytes)} in
 				{baseMapCache.tiles}
