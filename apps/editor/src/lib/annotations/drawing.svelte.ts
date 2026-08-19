@@ -57,15 +57,21 @@ import type { AnnotationGeometry, GeoPoint } from '@ballastella/core';
  * `'select'` is a tool rather than the absence of one, so that "I am not drawing" is a state the
  * toolbar can show as pressed and the status line can name. A null tool would make the same
  * information a double negative.
+ *
+ * `'text'` is the Label, and it is the one member whose name in code is not the word a person meets:
+ * the other three are geometry words and the shared glyph table is keyed by them, so the Label joined
+ * them as what it draws. Everywhere a scholar reads it — the button, the status line, every
+ * announcement — it is **Label**, which is {@link TOOL_NAMES}' job.
  */
-export type AnnotationTool = 'select' | 'point' | 'line' | 'polygon';
+export type AnnotationTool = 'select' | 'point' | 'line' | 'polygon' | 'text';
 
 /** How many vertices each tool needs before its shape is finishable. */
 const MINIMUM_VERTICES: Record<AnnotationTool, number> = {
 	select: 0,
 	point: 1,
 	line: 2,
-	polygon: 3
+	polygon: 3,
+	text: 1
 };
 
 /** What each tool is called, for the status line and the announcements. */
@@ -73,7 +79,8 @@ const TOOL_NAMES: Record<AnnotationTool, string> = {
 	select: 'Select',
 	point: 'Pin',
 	line: 'Line',
-	polygon: 'Shape'
+	polygon: 'Shape',
+	text: 'Label'
 };
 
 export const toolName = (tool: AnnotationTool): string => TOOL_NAMES[tool];
@@ -90,7 +97,7 @@ export class AnnotationDrawing {
 	tool = $state<AnnotationTool>('select');
 
 	/**
-	 * Whether the three shapes are on offer: "New Annotation" has been pressed and the gesture it
+	 * Whether the shapes are on offer: "New Annotation" has been pressed and the gesture it
 	 * began is not over yet.
 	 *
 	 * **Here rather than in the toolbar, because a gesture can end anywhere.** A pin lands with one
@@ -132,7 +139,7 @@ export class AnnotationDrawing {
 		return this.vertices.length >= MINIMUM_VERTICES[this.tool] && this.tool !== 'select';
 	}
 
-	/** "New Annotation": put the three shapes on offer, without choosing one. */
+	/** "New Annotation": put the shapes on offer, without choosing one. */
 	offerShapes(): void {
 		this.picking = true;
 		this.added = null;
@@ -155,16 +162,19 @@ export class AnnotationDrawing {
 	/**
 	 * Place a vertex, and say whether that completed a shape.
 	 *
-	 * A pin completes on its first vertex, because one click is the whole gesture. A line and a shape
-	 * accumulate until {@link finish}, so that "click, click, click" describes one route rather than
-	 * three one-vertex ones.
+	 * A pin completes on its first vertex, because one click is the whole gesture — and so does a Label,
+	 * whose gesture is the pin's exactly. A line and a shape accumulate until {@link finish}, so that
+	 * "click, click, click" describes one route rather than three one-vertex ones.
+	 *
+	 * A one-vertex tool is read off {@link MINIMUM_VERTICES} rather than listed again here, so the two
+	 * cannot come to disagree about which tools those are.
 	 *
 	 * @returns the finished geometry when this placement completed the shape, otherwise `null`
 	 */
 	place(point: GeoPoint): AnnotationGeometry | null {
 		if (this.tool === 'select') return null;
 		this.vertices = [...this.vertices, point];
-		if (this.tool !== 'point') return null;
+		if (MINIMUM_VERTICES[this.tool] > 1) return null;
 		const geometry = this.geometry();
 		this.added = this.tool;
 		this.#rest();
@@ -185,9 +195,25 @@ export class AnnotationDrawing {
 		return geometry;
 	}
 
-	/** Abandon what is part-drawn. Escape, or the cancel button beside the status line. */
+	/**
+	 * Abandon the gesture in hand — Escape, or the cancel button beside the status line.
+	 *
+	 * ⚠ **An armed tool that has drawn nothing counts as a gesture in hand, for all four tools.** For a
+	 * one-click tool "mid-gesture" *is* "armed and not yet placed": there is no intermediate state, so a
+	 * `cancel()` that only abandoned part-drawn shapes left the Label tool armed, the status line still
+	 * saying what to do with it, and the next map click placing a Label the scholar had just abandoned
+	 * (write-on-the-map story 6). The armed-nothing-drawn state is common to the Pin, the Line and the
+	 * Shape too, so this is one rule for the four rather than a Label special case — the Line and the
+	 * Shape are put down by an Escape before their first click as well.
+	 *
+	 * "New Annotation pressed, no tool chosen yet" is deliberately *not* in hand: nothing is armed, so
+	 * there is nothing to put down, and {@link returnToRest} is what closes the offer.
+	 *
+	 * @returns whether there was anything to abandon, which is what the Escape handler spends to decide
+	 * whether to consume the key — an Escape that put a tool down must not also clear the selection.
+	 */
 	cancel(): boolean {
-		if (!this.drawing) return false;
+		if (!this.drawing && this.tool === 'select') return false;
 		this.added = null;
 		this.#rest();
 		return true;
@@ -199,9 +225,8 @@ export class AnnotationDrawing {
 	 *
 	 * **For a change of surface rather than the end of a gesture** — the Layer being opened, closed or
 	 * swapped — where the shapes must not follow into a Layer nobody offered them in. {@link cancel}
-	 * cannot serve: its boolean means "a part-drawn gesture was abandoned", which the Escape handler
-	 * spends to decide whether to consume the key, so it has to stay a no-op when nothing is
-	 * part-drawn. "New Annotation pressed, nothing drawn yet" is exactly that state.
+	 * cannot serve: its boolean means "a gesture in hand was abandoned", and no tool is in hand when the
+	 * shapes are merely on offer with none of them chosen. That state is exactly what this ends.
 	 */
 	returnToRest(): void {
 		this.added = null;
@@ -238,7 +263,10 @@ export class AnnotationDrawing {
 	private geometry(): AnnotationGeometry {
 		const positions = this.vertices.map((vertex): [number, number] => [vertex.lng, vertex.lat]);
 		switch (this.tool) {
+			// A Label is a Point like a Pin; what differs is the `marker-symbol` the creation path writes,
+			// which is not this class's business — nothing here can write.
 			case 'point':
+			case 'text':
 				return { type: 'Point', coordinates: positions[0] ?? [0, 0] };
 			case 'line':
 				return { type: 'LineString', coordinates: positions };
@@ -275,7 +303,11 @@ export class AnnotationDrawing {
 			if (this.added === null) return '';
 			return `${toolName(this.added)} added.`;
 		}
-		if (this.tool === 'point') {
+		// A one-vertex tool says "place" rather than "start", because there is nothing to continue. Read
+		// off {@link MINIMUM_VERTICES} for the same reason {@link place} reads it: the Pin and the Label
+		// share this sentence because they share a gesture, and a future one-vertex tool must not be able
+		// to announce a count of points it will never accumulate.
+		if (MINIMUM_VERTICES[this.tool] === 1) {
 			return 'Click the map to place.';
 		}
 		const need = MINIMUM_VERTICES[this.tool] - placed;

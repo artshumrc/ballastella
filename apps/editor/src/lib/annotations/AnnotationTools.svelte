@@ -6,9 +6,9 @@
 	//
 	// **Selecting is not a tool a user picks; it is what the Layer does when nobody is drawing.** Four
 	// equal buttons — Select, Pin, Line, Shape — said the opposite, and read as one set of four
-	// alternatives with no hint that the first was about Annotations that exist and the other three
+	// alternatives with no hint that the first was about Annotations that exist and the others
 	// about making one that does not. So the resting state is a single "New Annotation" button and
-	// selecting behaviour; pressing it reveals the three shapes and a way back out. `select` is still
+	// selecting behaviour; pressing it reveals the shapes and a way back out. `select` is still
 	// a tool underneath, because the drawing state machine has to have a resting value, but it is no
 	// longer something a scholar is asked to choose.
 	//
@@ -57,7 +57,7 @@
 	} = $props();
 
 	/** The shapes that can be drawn. `select` is not among them — it is what happens when none is. */
-	const SHAPES: AnnotationTool[] = ['point', 'line', 'polygon'];
+	const SHAPES: AnnotationTool[] = ['point', 'line', 'polygon', 'text'];
 
 	/** Put the tools away and go back to selecting, abandoning a gesture if one is in progress. */
 	const stopDrawing = (): void => {
@@ -128,7 +128,7 @@
 			`@ballastella/ui`'s `shape-icons.ts`, so a scholar learns the pin once and then recognises it
 			in the list, and a Reader meets the same glyph on a published site.
 
-			Cancel puts the tools away. It is not a fourth shape, so it sits outside the group.
+			Cancel puts the tools away. It is not one of the shapes, so it sits outside the group.
 		-->
 		<div class="flex flex-wrap items-center gap-2">
 			<div role="toolbar" aria-label="Annotation tools" class="join" data-testid="annotation-tools">

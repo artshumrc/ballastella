@@ -60,7 +60,7 @@
 		collection: AnnotationCollection | null;
 		selectedId: string | null;
 		tool: AnnotationTool;
-		/** Whether the three shapes are on offer. The drawing state's, because it ends the gesture. */
+		/** Whether the shapes are on offer. The drawing state's, because it ends the gesture. */
 		picking: boolean;
 		status: string;
 		drawing: boolean;

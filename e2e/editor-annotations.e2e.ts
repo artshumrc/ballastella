@@ -52,6 +52,7 @@ import {
 	inspector,
 	openFace,
 	openLayers,
+	PROJECT_DIRECTORY,
 	PROJECT_NAME,
 	readProjectFile,
 	reopenLayers,
@@ -703,7 +704,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await drawPin(page, 0.4, 0.4);
 
 		// **Back to rest, with nothing put away by hand.** One press of "New Annotation" made one
-		// Annotation: the resting button is showing, the three shapes are not, and the tool is down.
+		// Annotation: the resting button is showing, the shapes are not, and the tool is down.
 		await expect(page.getByTestId('annotation-new')).toBeVisible();
 		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
 		const status = page.getByTestId('annotation-status');
@@ -2743,6 +2744,127 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		// And the three sizes are three sizes: larger words, a larger chip around them.
 		expect(widths['small']!.short).toBeLessThan(widths['medium']!.short);
 		expect(widths['medium']!.short).toBeLessThan(widths['large']!.short);
+
+		expect(failures).toEqual([]);
+	});
+});
+
+test.describe('a Label is placed and its words typed (write-on-the-map stories 3, 4, 9, 10, 16, 26)', () => {
+	/**
+	 * ⚠ **The one test in this suite that *creates* a Label rather than seeding one**, which is why it
+	 * carries the claims a seeded fixture cannot: what the creation path wrote, what it cost, and what
+	 * the next tool drew after it. Everything about the Label bucket's arithmetic is asserted at Seam 1
+	 * (`stack-layers.test.ts`, `label-chip.test.ts`) and everything about the style it is created with
+	 * at Seam 1 too (`annotation.test.ts`, `annotation-editing.svelte.test.ts`); what needs a browser is
+	 * that the whole gesture — a keyboard, a real canvas, real OPFS — comes out as words on a map and a
+	 * Point in a file.
+	 *
+	 * **Driven by the keyboard alone**, so story 9's "the map pane is operable without a pointer" is part
+	 * of this gesture rather than a separate test: every control is a native button, and `Enter` on the
+	 * focused canvas places a vertex at the crosshair.
+	 */
+	test('typed with the keyboard alone, the words draw and the file says label; the Pin after it is a Pin', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		const layerId = await startAnnotating(page);
+		await centreOnAmsterdam(page);
+		await watchAnnotationWrites(page);
+
+		// ── REACHED THE SAME WAY AS THE OTHER THREE: NEW ANNOTATION, THEN CHOOSE ────────────
+		await page.getByTestId('annotation-new').press('Enter');
+		await page.getByTestId('annotation-tool-text').press('Enter');
+		await expect(page.getByTestId('annotation-tool-text')).toHaveAttribute('aria-pressed', 'true');
+		// The tool names itself and says what to do with it — "Label", never the `'text'` the union
+		// spells it (stories 7 and 63).
+		await expect(page.getByTestId('annotation-status')) //
+			.toHaveText('Label tool. Click the map to place.');
+
+		// ── ONE PRESS OF ENTER ON THE MAP IS THE WHOLE GESTURE ──────────────────────────────
+		await page.locator('canvas.maplibregl-canvas').focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		// Placed, announced, and the tool put itself down: one press of New Annotation, one Annotation
+		// (stories 5 and 8).
+		await expect(page.getByTestId('annotation-status')).toContainText('Label added');
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		// And the keyboard is in the field the words go in, so clicking and typing is one gesture (story 4).
+		await expect(page.getByTestId('annotation-title')).toBeFocused();
+
+		// **The placement is exactly one write** (ADR-0017 rule 1), and it is the *untitled* document,
+		// because a Label drawn by hand has no words yet. The count alone cannot say the second half: a
+		// creation followed by a debounced retitle records nothing for the second write, so the count would
+		// stay at 1 while the gesture cost two. The bytes say which document was the one counted.
+		const untitled = await readProjectFile(page, `annotations/${layerId}.geojson`);
+		expect(untitled).not.toContain('title');
+		expect(await annotationWrites(page)).toEqual([
+			expect.objectContaining({
+				annotations: 1,
+				path: `${PROJECT_DIRECTORY}/annotations/${layerId}.geojson`,
+				bytes: new TextEncoder().encode(untitled).length
+			})
+		]);
+
+		// ── AND THE WORDS ARE THE ONES THAT WERE TYPED ──────────────────────────────────────
+		await page.keyboard.type('Zuiderzee', { delay: 20 });
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		const labelLayer = `ballastella-layer-${layerId}-label`;
+		const pointLayer = `ballastella-layer-${layerId}-point`;
+		const placed = await storedAnnotations(page, layerId);
+		const label = placed.features[0]!;
+		const at = label.geometry!.coordinates as [number, number];
+
+		// The file is the product: a Point carrying the discriminator and the words, and nothing this app
+		// invented (story 47).
+		expect(label.geometry?.type).toBe('Point');
+		expect(label.properties).toMatchObject({ 'marker-symbol': 'label', title: 'Zuiderzee' });
+
+		// **And nine keystrokes added no counted write at all**, because typing is rule 2's coalesced path
+		// and `recordAnnotationWrite` deliberately records nothing for a debounced write. So this counter
+		// cannot see the coalescing itself, and does not claim to: that nine debounced writes to one
+		// Annotation Layer's path become *one* store write is asserted against the store in
+		// `editor-session.test.ts` ("collapses nine keystrokes' worth of debounced writes into one store
+		// write"). What this adds is that the browser's own path is the debounced one, so the words reached
+		// the file without a counted write per character.
+		expect(await annotationWrites(page)).toHaveLength(1);
+
+		// Drawn where the point said, out of the Label bucket, with the words on it (story 28).
+		await waitForPaintedAnnotations(page, [label.id]);
+		expect(await annotationsAt(page, at)) //
+			.toContainEqual({ id: label.id, layer: labelLayer, title: 'Zuiderzee' });
+		// And no pin under them: the `point` bucket's filter carries the negation of the Label's.
+		expect(await annotationsAt(page, at)).not.toContainEqual(
+			expect.objectContaining({ layer: pointLayer })
+		);
+		// The words a scholar typed are legible against the chip they sit on, which the creation path is
+		// what guarantees: the first Annotation in a Layer would otherwise inherit one grey for both.
+		expect(label.properties).toMatchObject({ 'marker-color': '#000000', fill: '#ffffff' });
+
+		// ── AND DRAWING A PIN STRAIGHT AFTER IT GIVES A PIN (story 26) ──────────────────────
+		//
+		// The inheritance carve-out's whole consequence, and the reason `marker-symbol` left the copied
+		// set: with it copied, this click produced a second Label — the tool the author chose overridden
+		// by the style of what they drew last.
+		await chooseTool(page, 'point');
+		await clickAt(baseMap(page), 0.72, 0.68);
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		const withPin = await storedAnnotations(page, layerId);
+		const pin = withPin.features[1]!;
+		expect(pin.properties).not.toHaveProperty('marker-symbol');
+		// The colours it *did* inherit from the Label are the Label's: only the property that says what
+		// kind of thing this is stopped inheriting.
+		expect(pin.properties['marker-color']).toBe(label.properties['marker-color']);
+		expect(pin.properties['fill']).toBe(label.properties['fill']);
+
+		// Drawn as a pin, and only as a pin. The query is offset up because a pin stands above its
+		// coordinate while a Label is centred on it.
+		await waitForPaintedAnnotations(page, [pin.id]);
+		const atPin = await annotationsAt(page, pin.geometry!.coordinates as [number, number], 0, -12);
+		expect(new Set(atPin.map((hit) => hit.layer))).toEqual(new Set([pointLayer]));
+		expect(new Set(atPin.map((hit) => hit.id))).toEqual(new Set([pin.id]));
 
 		expect(failures).toEqual([]);
 	});

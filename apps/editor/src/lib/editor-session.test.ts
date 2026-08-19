@@ -16,6 +16,7 @@ import {
 	emptyAnnotationCollection,
 	fingerprintOf,
 	newAnnotationLayer,
+	newAnnotation,
 	newMapLayer,
 	imageInfoPath,
 	newAlignment,
@@ -1232,5 +1233,41 @@ describe('the record of what is on disk for an Alignment', () => {
 		// again would be reporting the same displacement twice.
 		await opened.writeAlignment({ ...alignment, controlPoints: [] });
 		expect(opened.alignmentChangedElsewhere).toBeNull();
+	});
+});
+
+describe('typing an Annotation’s words costs one write, not one per keystroke (ADR-0017 rule 2)', () => {
+	/**
+	 * ⚠ **The one seam that can see the coalescing.** The editing seam counts *intents* — one debounced
+	 * call per keystroke — and the browser's counter records nothing at all for a debounced write, so
+	 * neither of them can tell one coalesced write from nine. What `Autosave` does with those calls on an
+	 * Annotation Layer's own path is visible here, where the store is the assertion.
+	 */
+	it('collapses nine keystrokes’ worth of debounced writes into one store write', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+		const layer = newAnnotationLayer({ id: 'one', name: 'Warehouses' });
+		const path = `${DIRECTORY}/${layer.geojsonRef}` as StorePath;
+		const written: StorePath[] = [];
+		store.afterWrite = (path) => written.push(path);
+		const titled = (title: string) => ({
+			annotations: [
+				newAnnotation({ id: 'a1', geometry: { type: 'Point', coordinates: [4.9, 52.37] }, title })
+			]
+		});
+
+		const word = 'Zuiderzee';
+		for (let typed = 1; typed <= word.length; typed += 1) {
+			await opened.writeAnnotations(layer, titled(word.slice(0, typed)), { debounce: true });
+		}
+
+		// Nothing has reached the store: nine keystrokes on one path share one window.
+		expect(written).toEqual([]);
+
+		await opened.flush();
+
+		expect(written).toEqual([path]);
+		// And what landed is the last thing typed rather than the first, so coalescing is not dropping.
+		expect(new TextDecoder().decode(await store.read(path))).toContain('Zuiderzee');
 	});
 });

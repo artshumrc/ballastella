@@ -57,11 +57,12 @@ import { fileURLToPath } from 'node:url';
  * | 2026-08-18 | 632 | A dragged Resource Mask corner and Annotation vertex must repaint MapLibre's real GeoJSON source before pointer-up. The transient geometry can only be proved against the renderer that draws the outline, not against the editing state that feeds it. |
  * | 2026-08-19 | 634 | The Label: two tests for a kind of Annotation whose whole product is pixels. That a Label's words are drawn at all, that the Pin beside it did not also draw as one, that an empty title draws nothing, and that the chip grew with the words are claims about glyphs, an SDF and `icon-text-fit` — happy-dom has none of the three, so they are Seam 2 or nowhere. Everything about the Label that is arithmetic went to Seam 1 (`label-chip.test.ts`, `stack-layers.test.ts`, `annotation-mark.test.ts`) and its row's wording to `packages/ui`; the two here are folded as far as they will go, one per fixture. |
  * | 2026-08-19 | 635 | A third Label test, for the geometry ticket 01 proved in a browser and the chip then changed: the shape stops short of the image's border so the halo has somewhere to be, which moves `content`, both stretch zones and the icon's extent. Whether `icon-text-fit` still lands on the words after that is MapLibre's arithmetic over a shaped text block, so it is unreachable at Seam 1 — and it needs its own fixture, six Labels far enough apart that the widest chip cannot reach the next one's coordinate, which is why it did not fold into either test above. |
+ * | 2026-08-19 | 636 | One test for the gesture that *makes* a Label, which every Label test before it seeded instead. It is the only place three things meet: the keyboard alone reaching the tool and placing at the crosshair, the coalesced write count for placing and then typing (real OPFS, and a count no fake can stand in for), and — the claim the inheritance carve-out exists for — that the Pin drawn straight after a Label is written and painted as a Pin. The style arithmetic behind all of it is asserted at Seam 1 (`annotation.test.ts`, `annotation-editing.svelte.test.ts`) and the toolbar's fourth button at Seam 1c; this is one browser test rather than the four the criteria could have been read as. |
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
  */
-export const SEAM_2_CEILING = 635;
+export const SEAM_2_CEILING = 636;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

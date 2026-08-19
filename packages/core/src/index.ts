@@ -525,6 +525,7 @@ export {
 	setText,
 	simpleStyleViolations,
 	styleForNewAnnotation,
+	styleForNewLabel,
 	type Annotation,
 	type AnnotationCollection,
 	type AnnotationGeometry,

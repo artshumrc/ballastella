@@ -439,7 +439,7 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
 /**
  * Choose a drawing tool.
  *
- * **Two clicks, not one.** Selecting is the resting behaviour rather than a tool, so the three shapes
+ * **Two clicks, not one.** Selecting is the resting behaviour rather than a tool, so the shapes
  * live behind "New Annotation" and `select` is reached by cancelling them. Every test drives the
  * tools through here, so what a scholar presses is stated once.
  *
@@ -450,7 +450,7 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
  */
 export async function chooseTool(
 	page: Page,
-	tool: 'select' | 'point' | 'line' | 'polygon'
+	tool: 'select' | 'point' | 'line' | 'polygon' | 'text'
 ): Promise<void> {
 	const shapes = page.getByTestId('annotation-tools');
 	if (tool === 'select') {
