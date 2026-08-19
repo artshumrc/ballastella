@@ -611,7 +611,7 @@ const propertiesOf = (it_: ReturnType<typeof screen>, index = 0): Record<string,
 	written(it_).annotations[index]!.properties as Record<string, unknown>;
 
 /** A screen with one Annotation Layer open, and the tool in hand. */
-function drawing(tool: 'point' | 'line' | 'polygon') {
+function drawing(tool: 'point' | 'line' | 'polygon' | 'text') {
 	const it_ = screen([layerNamed('one')]);
 	it_.annotations.openLayer('one');
 	it_.annotations.drawing.choose(tool);
@@ -742,6 +742,126 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		// And going back to solid *removes* the property rather than blanking it.
 		await it_.annotations.lineStyleSelected('solid');
 		expect(propertiesOf(it_)).not.toHaveProperty('stroke-dasharray');
+	});
+});
+
+describe('placing a Label writes what makes it one (write-on-the-map stories 10, 26, 47)', () => {
+	it('writes a Point carrying the discriminator, untitled, for one write', async () => {
+		const it_ = drawing('text');
+
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+
+		// A Point like a Pin's, and the `marker-symbol` that says the marker shows its own words. No
+		// `title` until the author types one: a placed Label has no words nobody wrote.
+		expect(written(it_).annotations[0]!.geometry) //
+			.toEqual({ type: 'Point', coordinates: [4.9, 52.37] });
+		expect(propertiesOf(it_)['marker-symbol']).toBe('label');
+		expect(propertiesOf(it_)).not.toHaveProperty('title');
+		// ADR-0017 rule 1: the placement is one write, and the title arrives through the coalesced text
+		// write below rather than through a second commit here.
+		expect(it_.session.writes).toHaveLength(1);
+		// And the keyboard is offered the field, which is what makes clicking and typing one gesture
+		// (story 4). The offer is by id, so a read gesture never produces a form.
+		expect(it_.annotations.titlingId).toBe(written(it_).annotations[0]!.id);
+		for (const name of Object.keys(propertiesOf(it_))) expect(SIMPLESTYLE_NAMES).toContain(name);
+		expect(simpleStyleViolations(propertiesOf(it_))).toEqual([]);
+	});
+
+	it('gives the first Label in a Layer words a different colour from its background', async () => {
+		// ⚠ The defect this rule exists for. The first Annotation in a Layer is given
+		// `DEFAULT_ANNOTATION_COLOR` as its `marker-color` *and* its `fill`, and a Label draws the first
+		// as its words on the second as its chip — grey on grey, placed and unreadable. `styleForNewLabel`
+		// starts that one case on a fixed legible pair from the palette instead.
+		const it_ = drawing('text');
+
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+
+		const properties = propertiesOf(it_);
+		expect(properties['marker-color']).toBe('#000000');
+		expect(properties['fill']).toBe('#ffffff');
+		expect(properties['marker-color']).not.toBe(properties['fill']);
+	});
+
+	// ⚠ **A Layer whose last Annotation carries colour values that are not colours.** ADR-0009
+	// validates the *format* of what it recognises and `readProperties` carries everything else
+	// untouched, so a document from another tool can put `4`, `true`, or an array where a `#RRGGBB`
+	// belongs — and the style of the last Annotation drawn is what a new Label starts from. This screen
+	// is driven from `ProjectScreen.svelte` as `void placePoint(…)`, so a throw here is an unhandled
+	// rejection: no Annotation placed, and nothing said about why.
+	it.each([
+		['a null text colour', { 'marker-color': null, fill: DEFAULT_ANNOTATION_COLOR }],
+		['a numeric background', { fill: 4 }],
+		['a boolean background', { fill: true }],
+		['an array background', { fill: ['#fff'] }],
+		['a numeric text colour', { 'marker-color': 5, fill: '#fff' }]
+	])('places a Label after an Annotation carrying %s', async (_name, properties) => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, {
+			annotations: [{ id: 'foreign', geometry: null, properties } as unknown as Annotation]
+		});
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.choose('text');
+
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+
+		// Placed, and the strange values are inherited exactly as they arrived — this is not the place
+		// that repairs another tool's file.
+		expect(written(it_).annotations).toHaveLength(2);
+		expect(propertiesOf(it_, 1)).toEqual({ ...properties, 'marker-symbol': 'label' });
+	});
+
+	it('coalesces the words into one further write, and draws what was typed', async () => {
+		const it_ = drawing('text');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+		it_.annotations.selectAnnotation(written(it_).annotations[0]!.id);
+
+		await it_.annotations.typeText({ title: 'Zuiderzee' });
+
+		// The words are `title`, which is what the renderer's `text-field` reads and what the row and the
+		// Inspector header already name an Annotation from — one Annotation, one name.
+		expect(propertiesOf(it_)['title']).toBe('Zuiderzee');
+		expect(it_.session.writes.map((write) => write.debounce)).toEqual([false, true]);
+	});
+
+	it('draws a Pin after a Label, because the discriminator is never inherited (story 26)', async () => {
+		const it_ = drawing('text');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+
+		// One press of "New Annotation" per Annotation: the Label tool put itself down, so the Pin is a
+		// fresh choice — which is exactly the gesture whose result used to be a second Label.
+		it_.annotations.drawing.offerShapes();
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 5, lat: 52.4 });
+
+		const pinProperties = propertiesOf(it_, 1);
+		expect(pinProperties).not.toHaveProperty('marker-symbol');
+		// And the colours it inherited from the Label are the Label's, unchanged: only the property that
+		// says *what kind of thing this is* stopped inheriting.
+		expect(pinProperties['marker-color']).toBe(propertiesOf(it_, 0)['marker-color']);
+		expect(pinProperties['fill']).toBe(propertiesOf(it_, 0)['fill']);
+	});
+
+	it('carries a Label’s size and colours onto the next Label drawn (story 25)', async () => {
+		const it_ = drawing('text');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+		it_.annotations.selectAnnotation(written(it_).annotations[0]!.id);
+		await it_.annotations.styleSelected({
+			'marker-color': '#ffffff',
+			fill: '#1976d2',
+			'marker-size': 'large'
+		});
+
+		it_.annotations.drawing.offerShapes();
+		it_.annotations.drawing.choose('text');
+		await it_.annotations.placePoint({ lng: 5, lat: 52.4 });
+
+		expect(propertiesOf(it_, 1)).toMatchObject({
+			'marker-symbol': 'label',
+			'marker-color': '#ffffff',
+			fill: '#1976d2',
+			'marker-size': 'large'
+		});
 	});
 });
 

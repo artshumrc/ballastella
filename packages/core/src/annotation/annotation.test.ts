@@ -33,6 +33,7 @@ import {
 	setStyle,
 	setText,
 	styleForNewAnnotation,
+	styleForNewLabel,
 	simpleStyleViolations,
 	withLineStyle,
 	type Annotation,
@@ -427,6 +428,159 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 
 		expect(annotation.properties).toEqual({ stroke: '#ff0000', title: 'Fort' });
 		expect(resolveStyle(annotation.properties).stroke).toBe('#ff0000');
+	});
+
+	// ── WHAT KIND OF THING IT IS DOES NOT INHERIT (write-on-the-map story 26) ─────────────
+	//
+	// `marker-symbol` is the one style property left out of the copy, because it is the discriminator
+	// that makes a Point a Label rather than anything about how a Point looks. Copied, it would mean
+	// the tool a scholar chose was overridden by whatever they drew last.
+	test('styleForNewAnnotation does not copy marker-symbol, from a Label or from a stranger', () => {
+		const afterALabel = styleForNewAnnotation({
+			annotations: [at('a', { 'marker-symbol': LABEL_MARKER_SYMBOL, 'marker-color': '#ffffff' })]
+		});
+		expect(afterALabel).not.toHaveProperty('marker-symbol');
+		// Stated as the consequence rather than as the absence: whatever is drawn next is not a Label.
+		expect(
+			isLabel({
+				id: 'n1',
+				geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+				properties: afterALabel
+			} as Annotation)
+		).toBe(false);
+
+		// And another tool's symbol is not propagated either. It stays on the Annotation that has it and
+		// is still written back untouched (story 51) — that claim is asserted where round-tripping is.
+		expect(
+			styleForNewAnnotation({ annotations: [at('a', { 'marker-symbol': 'harbor' })] })
+		).not.toHaveProperty('marker-symbol');
+	});
+
+	test('styleForNewAnnotation still copies colour, size and opacity, across kinds', () => {
+		// The carve-out is one property wide. A scholar who picks red keeps red whatever they draw next,
+		// which is the rule the amendment chose, and the Label they drew it after is no exception.
+		expect(
+			styleForNewAnnotation({
+				annotations: [
+					at('a', {
+						'marker-symbol': LABEL_MARKER_SYMBOL,
+						'marker-size': 'large',
+						'marker-color': '#d32f2f',
+						stroke: '#d32f2f',
+						'stroke-opacity': 0.5,
+						'stroke-width': 3,
+						fill: '#1976d2',
+						'fill-opacity': 0.25,
+						'stroke-dasharray': [8, 4]
+					})
+				]
+			})
+		).toEqual({
+			'marker-size': 'large',
+			'marker-color': '#d32f2f',
+			stroke: '#d32f2f',
+			'stroke-opacity': 0.5,
+			'stroke-width': 3,
+			fill: '#1976d2',
+			'fill-opacity': 0.25,
+			'stroke-dasharray': [8, 4]
+		});
+	});
+});
+
+describe('styleForNewLabel: the first Label in a Layer is not grey on grey', () => {
+	const at = (id: string, properties: Record<string, unknown>) => ({
+		id,
+		geometry: { type: 'Point' as const, coordinates: [0, 0] as [number, number] },
+		properties
+	});
+
+	test('the tool writes the discriminator, so what was drawn is a Label', () => {
+		const style = styleForNewLabel({ annotations: [] });
+
+		expect(style['marker-symbol']).toBe(LABEL_MARKER_SYMBOL);
+		expect(
+			isLabel({
+				id: 'n1',
+				geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+				properties: style
+			} as Annotation)
+		).toBe(true);
+	});
+
+	// ⚠ The defect this rule exists for, and the only one it claims: the first Annotation in a Layer is
+	// given `DEFAULT_ANNOTATION_COLOR` as its `marker-color` *and* its `fill`, and a Label's words are
+	// the first while its chip is the second — grey on grey, placed and unreadable.
+	test('the untouched default is replaced by a legible pair from the palette', () => {
+		for (const style of [styleForNewLabel(null), styleForNewLabel({ annotations: [] })]) {
+			expect(style['marker-color']).toBe('#000000');
+			expect(style.fill).toBe('#ffffff');
+			// Both are colours the interface offers, so the Style face has a swatch to report.
+			expect(annotationColorName(style['marker-color']!)).toBe('Black');
+			expect(annotationColorName(style.fill!)).toBe('White');
+		}
+	});
+
+	test('a colour a scholar chose twice on purpose is kept, whatever it is', () => {
+		// The narrow rule's whole point: only the untouched default moves. Grey words on a grey chip a
+		// user asked for by hand are their business, and this is not the place to argue with them.
+		expect(
+			styleForNewLabel({
+				annotations: [at('a', { 'marker-color': '#1976d2', fill: '#1976d2' })]
+			})
+		).toEqual({ 'marker-color': '#1976d2', fill: '#1976d2', 'marker-symbol': LABEL_MARKER_SYMBOL });
+
+		// And a transparent chip keeps its words: nothing paints the background, so measuring it and
+		// flipping white words to black would invert story 25 from a colour nobody can see.
+		expect(
+			styleForNewLabel({
+				annotations: [at('a', { 'marker-color': '#ffffff', fill: '#555555', 'fill-opacity': 0 })]
+			})['marker-color']
+		).toBe('#ffffff');
+	});
+
+	// ⚠ **A colour value that is not a `#RRGGBB` string at all.** `readProperties` documents that it
+	// carries such a value untouched, so a Layer written by another tool can put anything here — and
+	// `ProjectScreen.svelte` calls `placePoint` as `void`, so a throw in this function is an unhandled
+	// rejection with no Annotation placed and nothing said. Equality against one constant is the whole
+	// of the arithmetic, which is what makes every one of these merely inherit.
+	test.each([
+		['a null text colour', { 'marker-color': null, fill: DEFAULT_ANNOTATION_COLOR }],
+		['a numeric background', { 'marker-color': DEFAULT_ANNOTATION_COLOR, fill: 4 }],
+		['a boolean background', { fill: true }],
+		['an array background', { fill: ['#fff'] }],
+		['a numeric text colour', { 'marker-color': 5, fill: '#fff' }],
+		['a 3-digit hex from geojson.io', { fill: '#fff' }]
+	])('inherits %s without throwing', (_name, properties) => {
+		const style = styleForNewLabel({ annotations: [at('a', properties)] });
+
+		expect(style).toEqual({ ...properties, 'marker-symbol': LABEL_MARKER_SYMBOL });
+	});
+
+	test('inherited colours are left exactly as they are', () => {
+		// Only the untouched default moves, so a run of Labels styled once at its head stays styled
+		// (story 25).
+		expect(
+			styleForNewLabel({
+				annotations: [
+					at('a', {
+						'marker-symbol': LABEL_MARKER_SYMBOL,
+						'marker-color': '#ffffff',
+						fill: '#1976d2',
+						'marker-size': 'large'
+					})
+				]
+			})
+		).toEqual({
+			'marker-symbol': LABEL_MARKER_SYMBOL,
+			'marker-color': '#ffffff',
+			fill: '#1976d2',
+			'marker-size': 'large'
+		});
+	});
+
+	test('a Label’s properties are still conformant simplestyle', () => {
+		expect(simpleStyleViolations(styleForNewLabel({ annotations: [] }))).toEqual([]);
 	});
 });
 

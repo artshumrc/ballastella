@@ -29,6 +29,7 @@ import {
 	findAnnotation,
 	newAnnotation,
 	styleForNewAnnotation,
+	styleForNewLabel,
 	removeAnnotation,
 	insertAnnotationAt,
 	setGeometry,
@@ -318,8 +319,11 @@ export class AnnotationEditing {
 	 */
 	async placePoint(point: GeoPoint): Promise<void> {
 		if (this.drawing.tool === 'select') return;
+		// Read before the placement, because completing a gesture disarms the tool: one press of "New
+		// Annotation" makes one Annotation, so by the time `place` returns the tool in hand is `select`.
+		const label = this.drawing.tool === 'text';
 		const finished = this.drawing.place(point);
-		if (finished !== null) await this.#addDrawn(finished);
+		if (finished !== null) await this.#addDrawn(finished, { label });
 	}
 
 	/** End a line or a shape, and keep it. */
@@ -348,7 +352,7 @@ export class AnnotationEditing {
 		// the announcement to report, and a sentence left over from the last shape drawn would name that
 		// shape while pointing at this Pin.
 		this.drawing.added = null;
-		await this.#addDrawn({ type: 'Point', coordinates: [point.lng, point.lat] }, title);
+		await this.#addDrawn({ type: 'Point', coordinates: [point.lng, point.lat] }, { title });
 	}
 
 	/**
@@ -360,18 +364,30 @@ export class AnnotationEditing {
 	 * `styleForNewAnnotation` is in `core` so the rule is stated once, beside the resolution it
 	 * replaced.
 	 *
-	 * @param title what it is called, for a caller that already knows — without one no `title`
+	 * **The `marker-symbol` that makes a Point a Label is written here and nowhere else** (SPEC, "
+	 * `marker-symbol` stops being inherited by a newly drawn Annotation"): it says what kind of thing
+	 * this is, so it belongs to the tool in hand rather than to whatever was drawn last.
+	 * `styleForNewAnnotation` no longer copies it, which is what makes drawing a Pin straight after a
+	 * Label give a Pin.
+	 *
+	 * @param options.title what it is called, for a caller that already knows — without one no `title`
 	 *   property is written at all, which is what a shape drawn on the map is. **One write either
 	 *   way**: a creation followed by a retitle is two, and {@link placePin} exists in the shape it
 	 *   does because of it.
+	 * @param options.label whether the Label tool drew this. The other three tools write no
+	 *   `marker-symbol` at all.
 	 */
-	async #addDrawn(geometry: AnnotationGeometry, title?: string): Promise<void> {
+	async #addDrawn(
+		geometry: AnnotationGeometry,
+		options: { title?: string; label?: boolean } = {}
+	): Promise<void> {
+		const { title, label = false } = options;
 		const collection = this.#activeCollection ?? { annotations: [] };
 		const annotation = newAnnotation({
 			id: crypto.randomUUID(),
 			geometry,
 			title,
-			style: styleForNewAnnotation(collection)
+			style: label ? styleForNewLabel(collection) : styleForNewAnnotation(collection)
 		});
 		// Captured across the selection below, which retires the announcement for every other caller.
 		// This one selection is what the sentence claims, so it is the one the sentence survives.

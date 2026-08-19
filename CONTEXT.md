@@ -74,6 +74,10 @@ _Avoid_: crop, clip, cutline, boundary
 A piece of scholarly content a user places on the map: a label, pin, route, or shape. Author-facing, and the reason the tool exists. Never used for georeferencing data.
 _Avoid_: feature, marker, note, overlay
 
+**Label**:
+An Annotation whose content is drawn on the map — a scholar's own words, set at a place on the earth, in a colour and a size they chose. A Point like a Pin, and everything a Pin has it has; what differs is that what is drawn at its place is its own words. Stored as a Point whose `marker-symbol` is `label` (ADR-0009).
+_Avoid_: text, caption, marker, title, annotation text
+
 **Annotation Inspector**:
 The docked panel where one Annotation's content is read and, in the editor, changed — its title, its rendered description, and for an author how the Annotation is drawn. It is docked over the map rather than beside it, it is headed by the same ordinal, shape glyph and shape word the Annotation's row carries, and one is on screen at a time. Membership in a Layer is not its business: that is what the Layer stack says (ADR-0035).
 _Avoid_: panel, popup, drawer, sidebar, detail view. "Panel" especially: `AnnotationPanel` names a component this project has already deleted, and a returning name that means something else is worse than a new one.

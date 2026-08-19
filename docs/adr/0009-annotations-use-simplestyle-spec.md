@@ -54,3 +54,40 @@ The reason is that the concept could not be made legible. A Layer default is inv
 
 **Existing Projects keep their bytes.** `defaultStyle` is no longer named by the Layer parser, so a Project written by an earlier build carries the field through `unknownFields` and writes it back untouched — no migration, and no file rewritten because it was opened (ADR-0010). Such a Layer's Annotations draw with simplestyle's defaults where they set nothing themselves, so a Project that relied on a Layer default does change appearance. That is accepted rather than migrated: stamping resolved styles onto features at open time would rewrite a document the user only looked at.
 
+
+## A Label is a Point whose `marker-symbol` is `label`
+
+**Not an amendment.** No property is added, none changes meaning, and the file remains simplestyle-spec 1.1.0 plus `stroke-dasharray`. This records a convention within what is already here, so that a reader meeting `marker-symbol: "label"` in a Workspace knows what the app makes of it.
+
+An Annotation whose words are drawn on the map — a Label — is a `Point` carrying:
+
+| What the author chooses | Stored as |
+| --- | --- |
+| the words drawn on the map | `title` |
+| the colour of those words | `marker-color` |
+| the colour behind them | `fill` |
+| how solid that background is | `fill-opacity` |
+| small / medium / large | `marker-size` |
+| that this is a Label at all | `marker-symbol: "label"` |
+
+`marker-symbol`'s meaning in simplestyle is *what this marker shows at its point*, and "it shows its own words" is a reading of that field rather than an overload of it — the distinction this ADR draws above when it forbids overloading `stroke` for line style. `simpleStyleViolations` already accepts the value, so a Layer of Labels is conformant against this project's own conformance instrument with nothing relaxed, and it opens in geojson.io or QGIS as titled markers.
+
+**Why not a namespaced property.** `ballastella:label` was the obvious discriminator and would have cost a second extension to this ADR, a new branch in the conformance instrument, and a property no other tool can read. It also degrades worse: a Layer of Labels elsewhere would be markers carrying a private flag rather than markers with titles.
+
+`marker-size`'s three values in simplestyle 1.1.0 are already `small`, `medium` and `large`, which is why a Label has three text sizes and not a number.
+
+### `marker-symbol` is not inherited by a newly drawn Annotation
+
+`styleForNewAnnotation` copies the last Annotation's style onto the next one drawn (the amendment above). **`marker-symbol` is excluded from that copy**, because it says what kind of thing an Annotation is rather than how it looks: copied, drawing a Pin straight after a Label would produce a second Label, with the tool the author chose overridden by the previous Annotation's style. The creation path writes it instead — the Label tool writes `"label"`, every other tool writes nothing.
+
+Colour, size and opacity continue to inherit exactly as the amendment says, including across kinds.
+
+The accepted consequence: a `marker-symbol` from another tool (`"harbor"`, `"7"`) is no longer copied onto the next Annotation drawn. It stays on the Annotation that carries it and is still written back untouched.
+
+### The first Label in a Layer starts on a legible pair
+
+A Label draws `marker-color` on a chip of `fill`, and both inherit from the last Annotation drawn — which, when a Layer holds nothing to inherit from, is the palette's grey written into *both*. Grey words on a grey chip is placed, present in the file, and unreadable.
+
+That untouched default is the whole of the defect, so it is the whole of the rule: **a new Label whose inherited `marker-color` and `fill` are both exactly the default grey starts instead on black words on a white chip** — one fixed pair, both of them among the nine colours the interface offers, so the Style face has a swatch to report. Every other combination inherits untouched: a colour a scholar set twice on purpose is kept, a Label with `fill-opacity: 0` keeps the words it was given, and a `#fff` from another tool is not touched.
+
+**No colour arithmetic is done anywhere.** The rejected alternative measured the background's perceived brightness and substituted black or white whenever the two colours agreed. It ignored `fill-opacity`, so a deliberately transparent Label had its words decided from a background nothing paints; it mis-read the 3-digit hex that any geojson.io-authored Layer may carry; it measured the raw hex rather than what the chip composites to at `fill-opacity` over the map beneath; and its threshold chose the lower-contrast option for some of the nine. The only comparison left is equality against one constant of ours, which is also why a colour property that is not a string — which this ADR's tolerance for foreign values permits — cannot make the creation path throw.

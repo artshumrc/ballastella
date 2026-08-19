@@ -103,7 +103,8 @@ describe('the tool in hand is announced, not only drawn (SPEC story 112)', () =>
 		for (const [tool, name] of [
 			['point', 'Pin tool.'],
 			['line', 'Line tool.'],
-			['polygon', 'Shape tool.']
+			['polygon', 'Shape tool.'],
+			['text', 'Label tool.']
 		] as const) {
 			toolbar({ tool, picking: true, status: 'Click the map.' });
 			expect(one('annotation-status')).toHaveTextContent(name);
@@ -123,14 +124,17 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 		expect(tools).toHaveAttribute('role', 'toolbar');
 		expect(tools).toHaveAccessibleName('Annotation tools');
 
-		// Three shapes and no fourth: selecting is what the Layer does when nobody is drawing, not a
-		// tool a scholar is asked to pick.
+		// Four shapes and no fifth: selecting is what the Layer does when nobody is drawing, not a tool a
+		// scholar is asked to pick. The fourth is the Label, reached the same way as the other three — one
+		// press of *New Annotation*, then choose (write-on-the-map stories 1 and 2).
 		const buttons = [...tools.querySelectorAll('button')];
-		expect(buttons).toHaveLength(3);
+		expect(buttons).toHaveLength(4);
 		expect(buttons.map((button) => button.getAttribute('aria-pressed'))) //
-			.toEqual(['false', 'true', 'false']);
-		// The glyph goes beside each name, never instead of it (SPEC story 111).
-		expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Pin', 'Line', 'Shape']);
+			.toEqual(['false', 'true', 'false', 'false']);
+		// The glyph goes beside each name, never instead of it (SPEC story 111) — and the word beside the
+		// Label's glyph is "Label", never the `'text'` the union spells it (story 63).
+		expect(buttons.map((button) => button.textContent?.trim())) //
+			.toEqual(['Pin', 'Line', 'Shape', 'Label']);
 	});
 
 	test('resting, there is one button and the shapes are behind it', () => {
@@ -148,6 +152,14 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 		// Which tool is in hand is the page's, because it is also what a click on the map does — a copy
 		// held here would be a second thing that could disagree.
 		expect(spies.onchoose).toHaveBeenCalledWith('point');
+	});
+
+	test('the Label button reports the tool the union spells, not the word on it', async () => {
+		const spies = toolbar({ picking: true });
+
+		await press(one('annotation-tool-text')!);
+
+		expect(spies.onchoose).toHaveBeenCalledWith('text');
 	});
 });
 

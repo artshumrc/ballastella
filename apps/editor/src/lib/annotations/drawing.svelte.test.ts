@@ -1,7 +1,7 @@
 // The drawing state machine, asserted directly (the-annotation-inspector stories 37, 38, 39, 41, 42).
 //
 // **Node, no DOM, no application**: `AnnotationDrawing` is a class holding a tool, the vertices placed
-// so far, and whether the three shapes are on offer. Every claim below is about what one of its own
+// so far, and whether the shapes are on offer. Every claim below is about what one of its own
 // methods leaves behind, which is the cheapest seam that can fail for the reason each title gives —
 // the browser suite can only reach these through a Project, a built app and a real MapLibre, and what
 // it would then be asserting is `data-tool`.
@@ -12,10 +12,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AnnotationDrawing } from './drawing.svelte.js';
+import { AnnotationDrawing, toolName } from './drawing.svelte.js';
 
 /** The shapes on offer with `tool` in hand, which is what "New Annotation" then a shape leaves. */
-const armed = (tool: 'point' | 'line' | 'polygon'): AnnotationDrawing => {
+const armed = (tool: 'point' | 'line' | 'polygon' | 'text'): AnnotationDrawing => {
 	const drawing = new AnnotationDrawing();
 	drawing.offerShapes();
 	drawing.choose(tool);
@@ -49,6 +49,43 @@ describe('one press of New Annotation makes one Annotation', () => {
 		expect(drawing.vertices).toEqual([]);
 	});
 
+	it('puts the tool down when a Label lands, whose gesture is the pin’s exactly', () => {
+		// Story 3 and story 5 together: one click costs what placing a Pin costs, and the tool is down
+		// afterwards, so one press of "New Annotation" made one Label. `'text'` is the tool's name in code
+		// only — every word a scholar reads for it is "Label".
+		const drawing = armed('text');
+
+		const geometry = drawing.place({ lng: 4.9, lat: 52.37 });
+
+		expect(geometry).toEqual({ type: 'Point', coordinates: [4.9, 52.37] });
+		expect(drawing.tool).toBe('select');
+		expect(drawing.picking).toBe(false);
+		expect(drawing.vertices).toEqual([]);
+	});
+
+	// Escape and the Cancel button both come here: `ProjectScreen.svelte`'s window handler spends
+	// `cancel()`'s boolean to decide whether to consume the key, and `AnnotationTools.svelte`'s Cancel
+	// calls it before choosing `select`. So this *is* the Escape path, minus the keypress.
+	it.each(['point', 'line', 'polygon', 'text'] as const)(
+		'is put down by Escape with the %s tool armed and nothing drawn',
+		(tool) => {
+			// Story 6, whose "mid-gesture" for a one-click tool means exactly "armed and not yet placed":
+			// there is no part-drawn Label, so an Escape that only abandoned part-drawn shapes left the tool
+			// armed and the next map click placed the Label the scholar had just abandoned. The
+			// armed-nothing-drawn state belongs to all four tools, so the rule is one rule for the four.
+			const drawing = armed(tool);
+
+			expect(drawing.cancel()).toBe(true);
+
+			expect(drawing.tool).toBe('select');
+			expect(drawing.picking).toBe(false);
+			expect(drawing.drawing).toBe(false);
+			// And nothing was added, so the region has nothing to announce about a gesture that made no
+			// Annotation.
+			expect(drawing.status).toBe('');
+		}
+	);
+
 	it('puts the tool down when a shape is finished', () => {
 		const drawing = armed('polygon');
 		drawing.place({ lng: 4.8, lat: 52.3 });
@@ -73,13 +110,19 @@ describe('one press of New Annotation makes one Annotation', () => {
 		expect(drawing.drawing).toBe(false);
 	});
 
-	it('reports nothing to abandon when nothing is part-drawn', () => {
-		// The return value is the Escape key's ordering on the Project screen: a gesture in progress is
-		// what Escape almost always means, and the open row is what is left when there is no gesture. A
-		// `cancel()` that claimed to have abandoned something would swallow that second Escape.
-		const drawing = armed('polygon');
-
+	it('reports nothing to abandon when no tool is in hand', () => {
+		// The return value is the Escape key's ordering on the Project screen: a gesture in hand is what
+		// Escape almost always means, and the open row is what is left when there is no gesture. A
+		// `cancel()` that claimed to have abandoned something would swallow that second Escape — so with
+		// nothing armed and nothing drawn it must say so.
+		const drawing = new AnnotationDrawing();
 		expect(drawing.cancel()).toBe(false);
+
+		// The shapes merely on offer are not a tool in hand either: nothing is armed, so a click on the
+		// map draws nothing and there is nothing for Escape to put down.
+		drawing.offerShapes();
+		expect(drawing.cancel()).toBe(false);
+		expect(drawing.picking).toBe(true);
 	});
 
 	it('refuses to finish a shape that is not one, and stays armed while it is not', () => {
@@ -131,6 +174,19 @@ describe('the tool and the gesture are said in words (the-annotation-inspector s
 		// so a region that simply went empty would leave a screen-reader user holding a Pin tool that is
 		// no longer in their hand.
 		expect(drawing.status).toContain('Pin added');
+	});
+
+	it('calls the Label a Label, in the tool’s own words and in what was added', () => {
+		// Stories 7 and 8, and the reason `TOOL_NAMES` exists: the union spells the tool `'text'` and no
+		// announcement ever does. The toolbar puts `toolName(tool)` in front of the gesture, so the region
+		// reads "Label tool. Click the map to place."
+		const drawing = armed('text');
+		expect(toolName(drawing.tool)).toBe('Label');
+		expect(drawing.status).toBe('Click the map to place.');
+
+		drawing.place({ lng: 4.9, lat: 52.37 });
+
+		expect(drawing.status).toContain('Label added');
 	});
 
 	it('names the shape that was finished, not the one before it', () => {

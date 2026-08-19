@@ -417,10 +417,13 @@ export function newAnnotation(fields: {
 	};
 }
 
-/** The simplestyle property names, so style can be told from content. */
-const STYLE_NAMES = [
+/**
+ * The style property names a newly drawn Annotation inherits, so style can be told from content.
+ *
+ * ⚠ **`marker-symbol` is deliberately not among them** — see {@link styleForNewAnnotation}.
+ */
+const INHERITED_STYLE_NAMES = [
 	'marker-size',
-	'marker-symbol',
 	'marker-color',
 	'stroke',
 	'stroke-opacity',
@@ -459,6 +462,17 @@ const STYLE_NAMES = [
  * Only the colours are defaulted. `stroke-width`, the opacities and `marker-size` stay absent, because
  * simplestyle has one default for each of those and nothing here contradicts it — writing them would be
  * bytes that say what the spec already says.
+ *
+ * ⚠ **`marker-symbol` is not inherited, because it says what kind of thing this is rather than how it
+ * looks.** It is the discriminator that makes a Point a Label, so copying it would mean that drawing a
+ * Pin straight after a Label produced a second Label — the tool the author chose overridden by the
+ * previous Annotation's style. The creation path writes it instead: the Label tool writes
+ * {@link LABEL_MARKER_SYMBOL} (see {@link styleForNewLabel}), every other tool writes nothing.
+ * Colour, size and opacity keep inheriting across kinds, which is the rule ADR-0009's amendment chose.
+ *
+ * The accepted consequence: a `marker-symbol` from another tool (`"harbor"`, `"7"`) is no longer copied
+ * onto the next Annotation drawn. It stays on the Annotation that has it and is still written back
+ * untouched (SPEC story 51).
  */
 export function styleForNewAnnotation(
 	collection: AnnotationCollection | null | undefined
@@ -472,11 +486,66 @@ export function styleForNewAnnotation(
 		};
 	}
 	const style: Record<string, unknown> = {};
-	for (const name of STYLE_NAMES) {
+	for (const name of INHERITED_STYLE_NAMES) {
 		const value = last.properties[name];
 		if (value !== undefined) style[name] = value;
 	}
 	return style as SimpleStyle;
+}
+
+/**
+ * What a Label starts on when there is no previous Annotation to inherit colours from: black words on
+ * a white chip.
+ *
+ * Both are among the nine colours a scholar is offered ({@link ANNOTATION_COLORS}), so the Style face
+ * has a swatch to report and the file says a colour that exists in the interface. Black on white is
+ * also the pair that survives the compositing a chip actually gets — the background paints at
+ * `fill-opacity`, 0.6 by default, over whatever is beneath it, so the worst case is a pale chip over a
+ * dark Map Image and black words still read on it.
+ *
+ * A constant chosen once, never a computation: see {@link styleForNewLabel} for why no colour
+ * arithmetic happens here.
+ */
+const DEFAULT_LABEL_COLORS = {
+	'marker-color': '#000000',
+	fill: '#ffffff'
+} as const satisfies Pick<SimpleStyle, 'marker-color' | 'fill'>;
+
+/**
+ * The style a newly drawn **Label** should carry: {@link styleForNewAnnotation}'s, plus the
+ * discriminator — and, in exactly one case, a legible pair of colours instead of two identical greys.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ * **The one case.** A Label's words are `marker-color` and its background is `fill`.
+ * {@link styleForNewAnnotation} writes {@link DEFAULT_ANNOTATION_COLOR} into *both* when a Layer holds
+ * nothing to copy from, so the first Label drawn into a fresh Layer would be `#555555` words on a
+ * `#555555` chip: placed, present in the file, and unreadable.
+ *
+ * That untouched default is the whole of the defect, so it is the whole of the rule: a Label whose
+ * inherited `marker-color` **and** `fill` are both exactly `DEFAULT_ANNOTATION_COLOR` starts on
+ * {@link DEFAULT_LABEL_COLORS} instead. Everything else inherits untouched — a scholar who set one
+ * colour for both on purpose keeps it, and a Label with `fill-opacity: 0` keeps the words it was given
+ * (SPEC story 25: white words straight on a dark Map Image).
+ *
+ * **No colour arithmetic, deliberately.** The rejected alternative measured the background's perceived
+ * brightness and substituted black or white whenever the two colours agreed, and every part of it was
+ * wrong: it read a background that `fill-opacity: 0` means nothing paints; it mis-parsed the 3-digit
+ * hex any geojson.io-authored Layer may carry (`#fff` measured dark, so the words went white on white);
+ * it measured the raw hex rather than what the chip composites to; and its threshold picked the
+ * *lower*-contrast of the two for some of the nine. The only value compared here is a constant of ours,
+ * which is also why a `fill` that is not a string — a foreign document's `4`, `true` or `["#fff"]`,
+ * which `readProperties` carries untouched — cannot make this throw.
+ */
+export function styleForNewLabel(collection: AnnotationCollection | null | undefined): SimpleStyle {
+	const inherited = styleForNewAnnotation(collection);
+	const untouchedDefault =
+		inherited['marker-color'] === DEFAULT_ANNOTATION_COLOR &&
+		inherited.fill === DEFAULT_ANNOTATION_COLOR;
+	return {
+		...inherited,
+		...(untouchedDefault ? DEFAULT_LABEL_COLORS : {}),
+		'marker-symbol': LABEL_MARKER_SYMBOL
+	};
 }
 
 /**
