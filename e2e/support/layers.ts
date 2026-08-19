@@ -44,6 +44,18 @@ export async function openLayerRow(page: Page, at: number | Locator = 0): Promis
 	return row;
 }
 
+/**
+ * Delete a Layer through its row: open the row, press Delete Layer, confirm the dialog.
+ *
+ * The confirmation is not optional in the app, so it is not optional here — a spec that clicked the
+ * row's button alone would assert against a Project nothing had been deleted from.
+ */
+export async function deleteLayerRow(page: Page, at: number | Locator = 0): Promise<void> {
+	const row = await openLayerRow(page, at);
+	await row.getByTestId('layer-delete').click();
+	await page.getByTestId('confirm-delete-layer').click();
+}
+
 /** Close whichever row is open. */
 export async function closeLayerRow(page: Page, at: number | Locator = 0): Promise<void> {
 	const row = typeof at === 'number' ? layerRows(page).nth(at) : at;

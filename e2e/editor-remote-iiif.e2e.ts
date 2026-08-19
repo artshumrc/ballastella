@@ -21,7 +21,7 @@ import {
 	routeCommunityAnnotations,
 	service
 } from './support/iiif-hosts.js';
-import { layerRows, openLayerRow } from './support/layers.js';
+import { deleteLayerRow, layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
 // did not need the routing until ticket 11, because nothing but MapLibre opened the archive and a
@@ -521,7 +521,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await page.goto('/?p=amsterdam-1625');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page)).getByTestId('layer-delete').click();
+		await deleteLayerRow(page);
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect(
@@ -589,7 +589,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await page.goto('/?p=amsterdam-1625');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page)).getByTestId('layer-delete').click();
+		await deleteLayerRow(page);
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		// Deleting a Layer never deletes a Map Image or its Alignment (ADR-0023). Stated here

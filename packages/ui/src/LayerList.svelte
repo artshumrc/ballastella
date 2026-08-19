@@ -1039,7 +1039,7 @@
 											onclick={() => void deleteByButton(layer.id, index)}
 										>
 											<Trash2 size={13} class="text-error" aria-hidden="true" />
-											Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+											Delete Layer<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
 										</button>
 									{/if}
 								</div>

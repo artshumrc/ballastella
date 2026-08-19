@@ -3,7 +3,7 @@ import { type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { addMapImageButton } from './support/map-images.js';
-import { alignFromLayer, openLayerRow } from './support/layers.js';
+import { alignFromLayer, deleteLayerRow, openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -655,7 +655,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		expect(await stackOrder(page)).toContain(`ballastella-layer-${mapLayer}`);
 
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page, layerRows(page).nth(1))).getByTestId('layer-delete').click();
+		await deleteLayerRow(page, layerRows(page).nth(1));
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 
@@ -705,7 +705,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		const annotationId = (await storedAnnotations(page, layerId)).features[0]?.id as string;
 
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-delete').click();
+		await deleteLayerRow(page, layerRows(page).first());
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
 		expect(await hashesUnder(page, 'annotations/')).toEqual([]);
@@ -774,7 +774,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		const layerBefore = (await projectJson(page)).layers[0];
 
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-delete').click();
+		await deleteLayerRow(page, layerRows(page).first());
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
 		await undoButton(page).click();
@@ -856,7 +856,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		const [top, bottom] = (await rowIds(page)) as [string, string];
 
 		// Delete is inside the open card since the Layers revision.
-		await (await openLayerRow(page, layerRows(page).nth(1))).getByTestId('layer-delete').click();
+		await deleteLayerRow(page, layerRows(page).nth(1));
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 		const label = 'Undo delete of the Layer “Annotations 1”';

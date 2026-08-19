@@ -28,7 +28,7 @@ import {
 	preparingCard
 } from './support/map-images.js';
 import { installIiifHosts, service } from './support/iiif-hosts.js';
-import { openLayerRow } from './support/layers.js';
+import { deleteLayerRow, openLayerRow } from './support/layers.js';
 import { waitForStoredLayers } from './support/saved.js';
 
 /**
@@ -246,7 +246,7 @@ test.describe('adding a Map Image', () => {
 		await waitForStoredLayers(page, 1, 'amsterdam-1625');
 		const imageId = (await page.getByTestId('layer-row').first().getAttribute('data-image-id'))!;
 
-		await (await openLayerRow(page)).getByTestId('layer-delete').click();
+		await deleteLayerRow(page);
 		await waitForStoredLayers(page, 0, 'amsterdam-1625');
 		await deleteStoredFile(page, `alignments/${imageId}.json`);
 

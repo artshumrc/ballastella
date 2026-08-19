@@ -149,6 +149,15 @@
 
 	const layers = $derived<readonly Layer[]>(session.openProject?.layers ?? []);
 
+	let deletingLayerId = $state<string | null>(null);
+	const deletingLayer = $derived(layers.find((layer) => layer.id === deletingLayerId));
+
+	const confirmDeleteLayer = async (): Promise<void> => {
+		const id = deletingLayerId;
+		deletingLayerId = null;
+		if (id) await session.deleteLayer(id);
+	};
+
 	/**
 	 * The Layers that could be on the map: visible, and of a kind this build can draw.
 	 *
@@ -1293,7 +1302,7 @@
 					onshow={(id, visible) => session.showLayer(id, visible)}
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
-					ondelete={(id) => void session.deleteLayer(id)}
+					ondelete={(id) => (deletingLayerId = id)}
 					{noLayersGuidance}
 					{foreignLayerNote}
 					preparing={session.ingest ? preparingLayer : undefined}
@@ -1562,6 +1571,30 @@
 
 		{#snippet actions()}
 			<button type="button" class="btn btn-sm" onclick={() => (settingsOpen = false)}>Close</button>
+		{/snippet}
+	</ModalDialog>
+
+	<!--
+		A Layer delete takes an Annotation Layer's file with it, so it is asked before it is done rather
+		than offered back afterwards. Undo can put both back, but only for as long as this Project stays
+		open — the question is the durable protection, the undo is the convenience.
+	-->
+	<ModalDialog
+		bind:open={() => deletingLayerId !== null, (open) => !open && (deletingLayerId = null)}
+		title="Delete Layer"
+	>
+		<p>
+			Delete <strong>{deletingLayer?.name || 'Untitled Layer'}</strong>? Its Annotations go with it.
+			A Map Image stays in the Workspace and can be added again.
+		</p>
+		{#snippet actions()}
+			<button type="button" class="btn" onclick={() => (deletingLayerId = null)}>Cancel</button>
+			<button
+				type="button"
+				class="btn btn-error"
+				data-testid="confirm-delete-layer"
+				onclick={() => void confirmDeleteLayer()}>Delete Layer</button
+			>
 		{/snippet}
 	</ModalDialog>
 {:else}
