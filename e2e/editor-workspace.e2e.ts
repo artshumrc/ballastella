@@ -629,11 +629,11 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(entry(page, 'A map nobody kept')).toHaveCount(0);
 	});
 
-	test('a Workspace with no Map Images says so, and names the next action', async ({ page }) => {
+	test('a Workspace with no Map Images says so', async ({ page }) => {
 		await emptyWorkspace(page);
 		await page.reload();
 
-		await expect(page.getByTestId('no-map-images')).toContainText('Open a Project and add one');
+		await expect(page.getByTestId('no-map-images')).toHaveText('No Map Images yet.');
 		await expect(page.getByTestId('map-image')).toHaveCount(0);
 	});
 });

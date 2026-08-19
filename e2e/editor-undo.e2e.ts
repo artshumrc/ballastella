@@ -895,7 +895,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await expect(undoButton(page)).toHaveCount(1);
 
 		// Out to the hub, which is what closing a Project is (ADR-0008: it is selected by `?p=`).
-		await page.getByRole('link', { name: 'Back to all Projects' }).first().click();
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible();
 		await expect(undoButton(page)).toHaveCount(0);
 

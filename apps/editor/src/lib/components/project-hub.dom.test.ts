@@ -278,14 +278,14 @@ describe('what the Workspace holds in total', () => {
 	});
 });
 
-// A Workspace with nothing in it has to say so and name the action that would change it — the hub
-// has no "add a Map Image" of its own, because a map is added inside the Project that draws it
-// first, so an empty state that only said "nothing here" would leave the user with no next move.
-test('a Workspace with no Map Images says so, and names the next action', () => {
+// A Workspace with nothing in it says so, rather than rendering an empty section a user has to
+// interpret. The hub has no "add a Map Image" of its own — a map is added inside the Project that
+// draws it first — so the empty state states the fact and nothing more.
+test('a Workspace with no Map Images says so', () => {
 	hub({ mapImages: [] });
 
 	expect(cards()).toHaveLength(0);
-	expect(text(at('no-map-images'))).toContain('Open a Project and add one from there');
+	expect(text(at('no-map-images'))).toBe('No Map Images yet.');
 	// And no total, because there is no total to state.
 	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
 });

@@ -977,7 +977,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 		// ── The control. Referenced, the picture is a plain URL on the library's server, fetched by the
 		// element itself and lazily, and the listener really does see the request.
 		const beforeCopy = watchRequests(page);
-		await page.getByRole('link', { name: 'Back to all Projects' }).click();
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// The picture is `loading="lazy"` while it comes from the library, so a card below the fold would
 		// never fire its request and the poll would sit on a decoded 0 × 0 until it timed out.
@@ -1006,7 +1006,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 		// ── And the claim, on the same hub with the same instrument: the picture is now an object URL
 		// over bytes read out of the Workspace, and nothing was asked of the library to draw it.
 		const afterCopy = watchRequests(page);
-		await page.getByRole('link', { name: 'Back to all Projects' }).click();
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// `blob:` is the assertion the ticket turns on. `loading` is gone with it — ADR-0030's deliberate
 		// asymmetry, and the one *observable* difference between the two code paths — and the decoded size

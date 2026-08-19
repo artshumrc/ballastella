@@ -77,7 +77,7 @@ test('a Map Image added from a file shows a picture that has actually decoded', 
 		buffer: gradientPng(700, 500)
 	});
 
-	await page.getByRole('link', { name: 'Back to all Projects' }).click();
+	await page.getByTestId('all-projects').click();
 	await expect(page.getByTestId('map-image')).toHaveCount(1);
 
 	// **700 × 500 reduces to 175 × 125**, worked out from ADR-0030's rule rather than from the code: the

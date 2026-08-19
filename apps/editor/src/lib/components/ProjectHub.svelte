@@ -691,9 +691,7 @@
 	{:else if session.status === 'loading'}
 		<p class="mt-6">Looking for your Projects…</p>
 	{:else if session.projects.length === 0}
-		<p class="mt-6">
-			No Projects yet.
-		</p>
+		<p class="mt-6">No Projects yet.</p>
 	{:else}
 		<!--
 			The same list a Reader is offered on a Published Site's Front Page, from the one component
@@ -738,9 +736,7 @@
 		{#if session.mapImagesLoading && session.mapImages.length === 0}
 			<p class="mt-4">Looking at what this Workspace holds…</p>
 		{:else if session.mapImages.length === 0}
-			<p class="mt-4" data-testid="no-map-images">
-				No Map Images yet.
-			</p>
+			<p class="mt-4" data-testid="no-map-images">No Map Images yet.</p>
 		{:else}
 			<ul class="mt-4 flex flex-col gap-3">
 				{#each session.mapImages as map (map.imageId)}
@@ -792,7 +788,8 @@
 			{#if baseMapCache === null}
 				Looking at what this Workspace holds…
 			{:else if baseMapCache.tiles === 0}
-				No Base Map tiles are saved in this Workspace, so every Project needs a network connection. This is normal.
+				No Base Map tiles are saved in this Workspace, so every Project needs a network connection.
+				This is normal.
 			{:else}
 				{describeBytes(baseMapCache.bytes)} in
 				{baseMapCache.tiles}
