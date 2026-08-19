@@ -300,6 +300,8 @@
 				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
 			});
 			if (bundledBaseMapAvailable) return cached;
+			// The same absence as the network branch below, and with the same consequence for a Label —
+			// see the note there.
 			const withoutAssets = { ...cached };
 			delete withoutAssets.glyphs;
 			delete withoutAssets.sprite;
@@ -310,8 +312,11 @@
 				version: 8,
 				sources: {},
 				// No `glyphs` and no `sprite`: both are site-relative templates, and asking for them is the
-				// other half of the same 404. Nothing the Layer stack draws needs either — a warped Map
-				// Image is custom WebGL, and Annotations are circles, lines, and fills.
+				// other half of the same 404. Nothing the Layer stack draws needs the **sprite** — a warped
+				// Map Image is custom WebGL, and a Pin is a symbol drawn from an image this app registers
+				// itself. A **Label** does need glyphs, and `drawLayerStack` asks the style for them and
+				// omits the Label bucket when they are absent, which is what makes this style safe to
+				// build; `baseMapNotPublishedNotice` is where a Reader is told the Labels are not drawn.
 				layers: [
 					{
 						// daisyUI's stock `base-100` for each theme, written out. A MapLibre paint value is
@@ -342,6 +347,11 @@
 		// **A map with no place names on it is not a map that needs no explanation.** The page says so:
 		// `baseMapNotPublished` in `+page.svelte` has a branch for exactly this state, and dropping it
 		// would leave a Reader holding an unlabelled world with no account of why.
+		//
+		// ⚠ **The author's own Labels go too**, and the same notice names them. A Label's words are
+		// shaped from these very typefaces, so `drawLayerStack` asks the style whether it carries
+		// `glyphs` and omits the Label bucket when it does not — the Layer's Pins, Lines and Shapes are
+		// untouched. Nothing else in the stack needs a font, and nothing at all needs the sprite.
 		const withoutDisplayAssets = { ...style };
 		delete withoutDisplayAssets.glyphs;
 		delete withoutDisplayAssets.sprite;

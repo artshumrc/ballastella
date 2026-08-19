@@ -154,6 +154,34 @@ describe('baseMapStyle', () => {
 		expect(archiveUrl(remote, (path) => `https://example.test/${path}`)).toBe(remote.archive);
 	});
 
+	it('takes glyphs from the catalog alone, so no entry or theme can be without them', () => {
+		// SPEC story 60. A Label's words are shaped from the Base Map's typefaces, and the stack omits the
+		// Label bucket where the style carries none (`styleHasGlyphs` in `render/stack-layers.ts`) — which
+		// is the state of a Published Site written before ADR-0025. **The editor never reaches that
+		// state**, and the reason is structural rather than statistical: `glyphs` is
+		// `resolveAsset(catalog.glyphs)`, which reads neither the entry nor the theme, so there is one
+		// code path and no entry-or-theme combination that can miss it. Looping the catalog × both themes
+		// would call that one path N×2 times and prove no more than this does.
+		const asked: string[] = [];
+		const style = baseMapStyle(entry('streets'), {
+			theme: 'light',
+			// The editor's own `resolveDeploymentAsset` shape: concatenation onto a prefix, chosen because
+			// `new URL()` would percent-encode the braces and MapLibre's plain-string substitution would
+			// stop matching — leaving a style whose `glyphs` is a non-empty string that fetches nothing.
+			resolveAsset: (path) => {
+				asked.push(path);
+				return `https://editor.test/${path}`;
+			}
+		});
+
+		// The template the catalog names is what the resolver is handed, unmodified and unencoded…
+		expect(asked).toContain(BASE_MAP_CATALOG.glyphs);
+		// …and what comes back is the glyph URL, with the placeholders MapLibre fills in still intact.
+		expect(style.glyphs).toBe(`https://editor.test/${BASE_MAP_CATALOG.glyphs}`);
+		expect(style.glyphs).toContain('{fontstack}');
+		expect(style.glyphs).toContain('{range}');
+	});
+
 	it('carries the tile attribution, which ODbL makes an obligation', () => {
 		const source = baseMapStyle(entry('streets'), { theme: 'light' }).sources[BASE_MAP_SOURCE_ID];
 

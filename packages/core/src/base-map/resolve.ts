@@ -184,16 +184,31 @@ export function baseMapNotPublishedNotice(
 	// Nothing to draw the reference map from: no local tiles, and an archive that is this site's own
 	// missing file rather than another server's. The pane paints the page's background colour and the
 	// Reader's own Layers draw over it.
+	//
+	// ⚠ **The Labels are missing here too, for a reason of its own.** This row is reached only when
+	// the display assets are absent, and that is the same state that makes `ReaderMapPane.styleFor`
+	// build its bare background style with no `glyphs` — so `drawLayerStack` omits the Label bucket on
+	// this site exactly as it does on the row below. Losing the geography does not restore the
+	// typefaces, and a sentence promising the Annotations were drawn while every Label was silently
+	// absent is the false reassurance the row below was rewritten to stop making.
 	if (!site.cachedTiles && !isAbsoluteUrl(entry.archive)) {
 		return (
 			'This site was published without its own copy of the modern reference map, so only the ' +
-			'Map Images and Annotations are drawn. The Base Maps marked “needs network” still work.'
+			'Map Images and the Pins, Lines and Shapes are drawn. The author’s Labels are not: they ' +
+			'are shaped from typefaces this site does not carry. The Base Maps marked “needs ' +
+			'network” still work.'
 		);
 	}
 	// A reference map does draw — from the network, or from this site's own cached tiles — and what it
 	// has lost is every label on it, because `styleFor` drops `glyphs`, `sprite`, and every `symbol`
 	// layer rather than firing 404s at files the site does not carry. Silently losing every place name
 	// is exactly the failure ADR-0025 says those 820 KB exist to prevent, so it is said out loud.
+	//
+	// ⚠ **The author's own Labels go with them**, which is why this sentence names them: a Label is
+	// the scholar's words shaped from the Base Map's typefaces, so `drawLayerStack` omits the Label
+	// bucket where the style carries no glyphs (`styleHasGlyphs`). This row's promise that "the
+	// Annotations are not affected" was true only while nothing in a Layer needed a font, and a false
+	// reassurance is worse than the absence it describes.
 	//
 	// ⚠ **This says nothing about whether the map is drawing right now**, deliberately. The archive may
 	// also be refusing, in which case `baseMapUnavailableNotice` is on screen beside it — and it may be
@@ -203,7 +218,7 @@ export function baseMapNotPublishedNotice(
 	// announce one claim on load and another a beat later when the archive's error arrived.
 	return (
 		'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
-		'map here carries no place names at all. The Map Images and the Annotations are not ' +
-		'affected.'
+		'map here carries no place names at all, and the author’s Labels are not drawn. The Map ' +
+		'Images and the other Annotations — Pins, Lines and Shapes — are not affected.'
 	);
 }

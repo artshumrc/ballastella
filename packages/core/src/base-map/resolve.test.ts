@@ -190,7 +190,11 @@ describe('baseMapNotPublishedNotice', () => {
 	const siteServed = FORKED_CATALOG.entries[0]!;
 	const remote = FORKED_CATALOG.entries[2]!;
 	const NO_PLACE_NAMES = /carries no place names at all/;
-	const NOTHING_UNDER_THE_WORK = /only the Map Images and Annotations are drawn/;
+	/** What a site with no typefaces costs the *author's* work, and not only the reference map's. */
+	// Both wordings of the same refusal — "are not drawn" where the sentence ends there, "are not:"
+	// where the reason follows. Deliberately not `are not\b`, which "are not affected" would satisfy.
+	const NO_LABELS = /[Tt]he author’s Labels are not(?: drawn|:)/;
+	const NOTHING_UNDER_THE_WORK = /only the Map Images and the Pins, Lines and Shapes are drawn/;
 
 	it('says nothing at all when the site carries the files', () => {
 		for (const entry of [siteServed, remote]) {
@@ -227,6 +231,30 @@ describe('baseMapNotPublishedNotice', () => {
 		expect(baseMapNotPublishedNotice(remote, { bundledAssets: false, cachedTiles: true })).toMatch(
 			NO_PLACE_NAMES
 		);
+	});
+
+	it('names the author’s Labels among what such a site does not draw, in every absent-assets row', () => {
+		// A Label is the scholar's words shaped from the Base Map's own typefaces, so a site published
+		// without them draws none — `drawLayerStack` omits the Label bucket where the style carries no
+		// glyphs. These rows used to promise that "the Annotations are not affected", which stopped
+		// being true the day Labels shipped; the Pins, Lines and Shapes are what they can still promise.
+		//
+		// **Including the row where the reference map is absent outright.** That row is reached only
+		// when the display assets are absent, which is the same state that makes `styleFor` build a
+		// bare background style with no `glyphs` — losing the geography does not restore the typefaces,
+		// so the Labels are missing there for a reason of their own and the row may not promise them.
+		for (const entry of [siteServed, remote]) {
+			for (const cachedTiles of [true, false]) {
+				const notice = baseMapNotPublishedNotice(entry, { bundledAssets: false, cachedTiles });
+
+				expect(notice).toMatch(NO_LABELS);
+				expect(notice).toContain('Pins, Lines and Shapes');
+				expect(notice).not.toMatch(/the Annotations are not affected/);
+			}
+		}
+		// And nothing of the sort on a site that carries the files, where a Label draws like anything
+		// else.
+		expect(baseMapNotPublishedNotice(remote, { bundledAssets: true, cachedTiles: true })).toBe('');
 	});
 
 	it('never claims the geography is here, in any row', () => {

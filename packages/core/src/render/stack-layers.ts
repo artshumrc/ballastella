@@ -216,6 +216,29 @@ function ensureLabelChipImage(map: MapLibreMap): void {
 }
 
 /**
+ * Whether the style on this map carries the typefaces a Label's words are shaped from.
+ *
+ * A Published Site written before ADR-0025 holds no `base-map/` assets, and the viewer builds its
+ * style without `glyphs` rather than firing 404s at fonts that are not there — or worse, letting
+ * MapLibre substitute a system one, which is invisible to every assertion about the map. A Label on
+ * such a site cannot be drawn, and the page's notice says so (`baseMapNotPublishedNotice`).
+ *
+ * ⚠ **Asked of the map, not passed in.** The style is the fact; a boolean threaded down from two
+ * applications would be a second description of it, free to disagree. Both panes wait for the style
+ * to load before calling {@link drawLayerStack}, because a map with no style has nothing to add a
+ * layer to either — but `Map#getStyle()` returns `undefined` before then while MapLibre's types
+ * declare it non-nullable, so the absent style is read as "no glyphs" rather than left to throw
+ * mid-loop and abandon the remaining Layers with sources added and no layers.
+ *
+ * The empty string is not a URL template either, and would hand MapLibre a Label bucket it can never
+ * shape text for — the silent kind of failure this guard exists to avoid.
+ */
+const styleHasGlyphs = (map: MapLibreMap): boolean => {
+	const glyphs = map.getStyle()?.glyphs;
+	return typeof glyphs === 'string' && glyphs !== '';
+};
+
+/**
  * Choose between two paint values on whether this feature is the selected Annotation.
  *
  * The state is written by {@link StackRender.setSelectedAnnotation} against the feature id, which the
@@ -656,6 +679,10 @@ export function drawLayerStack(options: {
 	const sources: string[] = [];
 	/** Which Annotation is drawn as selected — display state, held here so a redraw can restore it. */
 	let selectedAnnotationId: string | null = null;
+	// Asked once, not per Layer: `getStyle()` is a whole-style serialization — every layer spec of a
+	// 100-plus-layer Protomaps style, cloned — and the style cannot gain or lose glyphs partway
+	// through a rebuild.
+	const hasGlyphs = styleHasGlyphs(map);
 
 	for (const drawn of drawingOrder(layers)) {
 		const layerId = drawn.layer.id;
@@ -691,6 +718,10 @@ export function drawLayerStack(options: {
 		// No image, no pin layer — which shows as a missing mark rather than as MapLibre logging a
 		// missing image once per frame.
 		if (contents.hasPoint && !ensurePinImage(map)) contents.hasPoint = false;
+		// No glyphs, no Label layer — which shows as a mark absent from the map rather than as MapLibre
+		// asking, once per frame, for a font this site does not carry. See {@link styleHasGlyphs}: the
+		// Layer is still drawn, and its Pins, Lines and Shapes are unaffected.
+		if (contents.hasLabel && !hasGlyphs) contents.hasLabel = false;
 		if (contents.hasLabel) ensureLabelChipImage(map);
 		for (const { id, spec } of annotationLayers(layerId, contents)) {
 			map.addLayer({ id, ...spec } as never);

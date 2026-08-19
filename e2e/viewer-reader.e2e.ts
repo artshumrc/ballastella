@@ -67,7 +67,7 @@ type ReaderMapHandle = {
 	map: {
 		getLayersOrder(): string[];
 		getStyle(): { layers: Record<string, unknown>[] };
-		queryRenderedFeatures(): { layer: { id: string } }[];
+		queryRenderedFeatures(): { layer: { id: string }; properties: Record<string, unknown> }[];
 		project(lngLat: [number, number]): { x: number; y: number };
 		jumpTo(options: { center: [number, number]; zoom?: number }): void;
 		fitBounds(bounds: unknown, options?: Record<string, unknown>): void;
@@ -2093,6 +2093,82 @@ test.describe('a Published Site that is not entirely well', () => {
 		site = null;
 	});
 
+	/**
+	 * The whole sentence a site published without the Base Map's display assets shows a Reader.
+	 *
+	 * Named once and asserted with `toHaveText` in the three rows below — the archive answering, the
+	 * archive refusing, and the connection gone — because it is **one** sentence about the site's own
+	 * files and the point of pinning it in three rows is that it stays one. A conditional version of it
+	 * was where this notice went wrong twice; `resolve.test.ts` drives all four rows of the table.
+	 *
+	 * It names the author's Labels since ticket 09: a Label's words are shaped from these very
+	 * typefaces, so the stack omits the Label bucket on such a site and the sentence that used to
+	 * promise "the Annotations are not affected" would have been false.
+	 */
+	const NOT_PUBLISHED_NOTICE =
+		'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
+		'map here carries no place names at all, and the author’s Labels are not drawn. The Map ' +
+		'Images and the other Annotations — Pins, Lines and Shapes — are not affected.';
+
+	/**
+	 * One Annotation of each kind a Layer can draw, close enough together to share a viewport.
+	 *
+	 * The Label is the one that needs glyphs; the other three are the control that makes "the Label is
+	 * not drawn" a claim about typefaces rather than about a Layer that drew nothing at all. The
+	 * `marker-symbol: 'label'` literal is spelled out rather than imported: this suite resolves nothing
+	 * from `@ballastella/core`, and a convention copied from the file format is a better witness to it
+	 * than one taken from the code under test.
+	 */
+	const everyKind = () => [
+		annotation({ title: 'A warehouse' }),
+		{
+			type: 'Feature',
+			id: 'a-label',
+			geometry: { type: 'Point', coordinates: [4.92, 52.372] },
+			properties: { 'marker-symbol': 'label', title: 'Zuiderzee', fill: '#1976d2' }
+		},
+		{
+			type: 'Feature',
+			id: 'a-line',
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[4.88, 52.36],
+					[4.93, 52.365]
+				]
+			},
+			properties: { stroke: '#cc0000', 'stroke-width': 4 }
+		},
+		{
+			type: 'Feature',
+			id: 'a-shape',
+			geometry: {
+				type: 'Polygon',
+				coordinates: [
+					[
+						[4.885, 52.374],
+						[4.9, 52.374],
+						[4.9, 52.379],
+						[4.885, 52.374]
+					]
+				]
+			},
+			properties: { stroke: '#cc0000', fill: '#00aa55' }
+		}
+	];
+
+	/** Which of this stack's buckets MapLibre reports drawing something, anywhere in the viewport. */
+	const drawnBuckets = (page: Page): Promise<string[]> =>
+		page.evaluate(() => [
+			...new Set(
+				(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? [])
+					.filter((feature) => feature.layer.id.startsWith('ballastella-layer-'))
+					.map((feature) => feature.layer.id)
+			)
+		]);
+
+	const bucket = (part: string): string => `ballastella-layer-${ANNOTATION_LAYER_ID}-${part}`;
+
 	test('names the host when a referenced Map Image’s record cannot be read', async ({ page }) => {
 		// Ticket 17's degradation table: "Referenced image whose host is unreachable → say so, naming the
 		// host; keep the rest of the site working."
@@ -2186,7 +2262,9 @@ test.describe('a Published Site that is not entirely well', () => {
 				body: served.body
 			});
 		});
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(
+			oneProject({ baseMap: 'physical', annotations: everyKind() }, { baseMapAssetsBundled: true })
+		);
 		const served = site.sites[0]!;
 		const seen = watch(page);
 
@@ -2213,6 +2291,17 @@ test.describe('a Published Site that is not entirely well', () => {
 				(request) => request.url.startsWith(served.url) && request.url.endsWith('.pmtiles')
 			)
 		).toEqual([]);
+
+		// ── AND A LABEL DRAWS, BECAUSE THIS SITE CARRIES THE TYPEFACES (story 60's Reader half) ──
+		//
+		// The control for the site that carries none, where the Label bucket is omitted: without this,
+		// that test's "the Label is not drawn" would be satisfied by a Label that never draws anywhere.
+		// The glyphs come from this site's own `base-map/`, which is why the assertion belongs to the row
+		// where the display assets are bundled.
+		await expect
+			.poll(() => drawnBuckets(page), { timeout: 30_000 })
+			.toEqual(expect.arrayContaining([bucket('label'), bucket('point')]));
+
 		expect(served.failures).toEqual([]);
 		expect(seen.failures).toEqual([]);
 	});
@@ -2293,9 +2382,18 @@ test.describe('a Published Site that is not entirely well', () => {
 		// symbol layers rather than 404ing at files that are not there, and the question this test
 		// exists to answer is whether the Reader is told. A geography-only map with no account of
 		// itself is precisely the silent failure this ticket forbids.
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
-			withoutBaseMap: true
-		});
+		//
+		// **And since ticket 09 the author's own Labels go with the place names**, because a Label's
+		// words are shaped from those same typefaces. So this Project holds one of every kind: the Label
+		// must not be drawn, and the Pin, the Line and the Shape beside it must — an assertion about the
+		// Label alone would pass on a site that drew nothing at all.
+		site = await published(
+			oneProject(
+				{ baseMap: 'physical', annotations: everyKind() },
+				{ baseMapAssetsBundled: false }
+			),
+			{ withoutBaseMap: true }
+		);
 		const served = site.sites[0]!;
 		const seen = watch(page);
 
@@ -2307,17 +2405,28 @@ test.describe('a Published Site that is not entirely well', () => {
 		// sentence about the site's own files, and the point of pinning it in three rows is that it
 		// stays one. A conditional version of it was where this notice went wrong.
 		const notice = page.getByTestId('base-map-not-published');
-		await expect(notice).toHaveText(
-			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Map Images and the ' +
-				'Annotations are not affected.'
-		);
+		await expect(notice).toHaveText(NOT_PUBLISHED_NOTICE);
 		// **And no outage claimed.** The archive answers here (the global `beforeEach` serves the
 		// fixture), so this site is short of its labels and of nothing else.
 		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
 		// The scholar's own work is still drawn, and so is the geography: this is a reference map
 		// missing its lettering, not a missing Project.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		// ── THE LABEL IS NOT DRAWN, AND THE REST OF THE LAYER IS (stories 58 and 59) ────────────
+		//
+		// The three other kinds are polled for, because a GeoJSON source may not have painted on the
+		// first frame; the Label's absence is then asserted against the same answer, so it is read from a
+		// map that has demonstrably finished drawing this Layer.
+		await expect
+			.poll(() => drawnBuckets(page), { timeout: 30_000 })
+			.toEqual(expect.arrayContaining([bucket('point'), bucket('line-solid'), bucket('fill')]));
+		expect(await drawnBuckets(page)).not.toContain(bucket('label'));
+		// And the bucket was never added at all, rather than added and painting nothing — which is the
+		// difference between omitting it and asking MapLibre for a font this site does not carry.
+		expect(
+			await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())
+		).not.toContain(bucket('label'));
 		// And not one request for a file the site does not hold — the 404s the old empty-rectangle
 		// path existed to prevent are still prevented, glyph ranges and sprites included.
 		expect(seen.requests.filter((request) => request.url.includes('/base-map/'))).toEqual([]);
@@ -2691,11 +2800,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			{ kind: 'insert', text: '' },
 			{ kind: 'change', text: expect.stringContaining('no place names at all') }
 		]);
-		await expect(notPublished).toHaveText(
-			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Map Images and the ' +
-				'Annotations are not affected.'
-		);
+		await expect(notPublished).toHaveText(NOT_PUBLISHED_NOTICE);
 		await expect(page.getByTestId('base-map-unavailable').locator('p')).toHaveText(
 			UNAVAILABLE_NOTICE
 		);
@@ -2733,11 +2838,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await mapReady(page);
 
-		await expect(page.getByTestId('base-map-not-published')).toHaveText(
-			'This site was published without the Base Map’s labels and symbols, so the modern ' +
-				'reference map here carries no place names at all. The Map Images and the ' +
-				'Annotations are not affected.'
-		);
+		await expect(page.getByTestId('base-map-not-published')).toHaveText(NOT_PUBLISHED_NOTICE);
 		// The archive did fail — no Base Map geography is on screen — and nothing on the page blames
 		// the server for it.
 		expect(
