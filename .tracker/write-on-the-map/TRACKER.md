@@ -30,8 +30,8 @@ ships, as does the notice promising a Reader that the Annotations are unaffected
 
 Overall status: `In Progress` — a parallel run is under way.
 
-Current tickets: 06 and 08, the epic's last two, each claimed by its own orchestrator in its own
-git worktree. 04, 05 and 07 have landed.
+Current ticket: 06, the epic's last, claimed by its orchestrator in its own git worktree. Every
+other ticket has landed.
 
 Last updated: 2026-08-19
 
@@ -46,7 +46,7 @@ Last updated: 2026-08-19
 | 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | Completed | 03 | — |
 | 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | In Progress | 03, 04, 05 | epic-run/ticket-06 |
 | 07 | [07-a-label-is-a-file-other-tools-can-read.md](./tickets/07-a-label-is-a-file-other-tools-can-read.md) | Completed | 03 | — |
-| 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | In Progress | 04, 05 | epic-run/ticket-08 |
+| 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | Completed | 04, 05 | — |
 | 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Completed | 02 | — |
 
 Ticket 01 is a spike: its product is an `## Answer` recording whether the chip is a stretched SDF
