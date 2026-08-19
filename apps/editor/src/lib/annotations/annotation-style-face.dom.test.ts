@@ -108,6 +108,68 @@ describe('a geometry is offered the controls it has and no others (SPEC stories 
 		);
 		expect(checked).toEqual(['medium']);
 	});
+
+	test('the style face gives a Label its text, background, and shared size controls, with no pin or line controls', async () => {
+		const styled = vi.fn();
+		const committed = vi.fn();
+		editor({
+			geometry: POINT,
+			properties: { 'marker-symbol': 'label' },
+			onstyle: styled,
+			oncommit: committed
+		});
+
+		const legends = [...document.querySelectorAll('legend')].map(
+			(legend) => legend.textContent ?? ''
+		);
+		expect(legends).toContain('Label');
+		expect(legends.some((text) => text.includes('Pin'))).toBe(false);
+		expect(all('annotation-marker-color')).toHaveLength(1);
+		expect(all('annotation-fill')).toHaveLength(1);
+		expect(all('annotation-fill-opacity')).toHaveLength(1);
+		expect(all('annotation-marker-size-large')).toHaveLength(1);
+		expect(all('annotation-stroke')).toHaveLength(0);
+		expect(all('annotation-stroke-width')).toHaveLength(0);
+		expect(all('annotation-stroke-opacity')).toHaveLength(0);
+		expect(all('annotation-line-style-dashed')).toHaveLength(0);
+		expect(
+			one('annotation-marker-color')!.parentElement!.querySelector('legend')
+		).toHaveTextContent('Label text colour');
+		expect(one('annotation-fill')!.parentElement!.querySelector('legend')).toHaveTextContent(
+			'Label background colour'
+		);
+		const controlsInOrder = [...document.querySelectorAll<HTMLElement>('[data-testid]')]
+			.map((element) => element.dataset.testid)
+			.filter((testid) =>
+				[
+					'annotation-marker-color',
+					'annotation-fill',
+					'annotation-fill-opacity',
+					'annotation-marker-size-large'
+				].includes(testid ?? '')
+			);
+		expect(controlsInOrder).toEqual([
+			'annotation-marker-color',
+			'annotation-fill',
+			'annotation-fill-opacity',
+			'annotation-marker-size-large'
+		]);
+
+		await press(one('annotation-marker-color-purple')!.querySelector('input')!);
+		await press(one('annotation-fill-blue')!.querySelector('input')!);
+		await press(one('annotation-marker-size-large')!.querySelector('input')!);
+		const opacity = one('annotation-fill-opacity') as HTMLInputElement;
+		opacity.value = '0.4';
+		opacity.dispatchEvent(new Event('input', { bubbles: true }));
+		opacity.dispatchEvent(new Event('change', { bubbles: true }));
+		await settle();
+
+		expect(styled).toHaveBeenCalledWith({ 'marker-color': '#7b1fa2' }, undefined);
+		expect(styled).toHaveBeenCalledWith({ fill: '#1976d2' }, undefined);
+		expect(styled).toHaveBeenCalledWith({ 'marker-size': 'large' }, undefined);
+		expect(styled).toHaveBeenCalledWith({ 'fill-opacity': 0.4 }, { debounce: true });
+		expect(committed).toHaveBeenCalledTimes(3);
+	});
 });
 
 describe('an Annotation may be one of nine colours and no other (SPEC story 111)', () => {

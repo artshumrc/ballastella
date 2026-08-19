@@ -2763,7 +2763,7 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 	 * of this gesture rather than a separate test: every control is a native button, and `Enter` on the
 	 * focused canvas places a vertex at the crosshair.
 	 */
-	test('typed with the keyboard alone, the words draw and the file says label; the Pin after it is a Pin', async ({
+	test('typed with the keyboard alone, the words draw and the file says label; its style is inherited and the Pin after it is a Pin', async ({
 		page
 	}) => {
 		const failures = watchFailures(page);
@@ -2842,6 +2842,105 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		// what guarantees: the first Annotation in a Layer would otherwise inherit one grey for both.
 		expect(label.properties).toMatchObject({ 'marker-color': '#000000', fill: '#ffffff' });
 
+		// ── THE LABEL'S STYLE IS A NATIVE, KEYBOARD-REACHABLE SET OF CONTROLS ────────────────
+		await openFace(page, 'style');
+		expect(await page.getByTestId('annotation-stroke').count()).toBe(0);
+		expect(await page.getByTestId('annotation-stroke-width').count()).toBe(0);
+		expect(await page.getByTestId('annotation-stroke-opacity').count()).toBe(0);
+		expect(await page.getByTestId('annotation-line-style-dashed').count()).toBe(0);
+
+		const textColour = page.getByTestId('annotation-marker-color').locator('input:checked');
+		await textColour.focus();
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-marker-color-grey')).toHaveAttribute(
+			'data-chosen',
+			'true'
+		);
+
+		const backgroundColour = page.getByTestId('annotation-fill').locator('input:checked');
+		await backgroundColour.focus();
+		await page.keyboard.press('ArrowLeft');
+		await expect(page.getByTestId('annotation-fill-grey')).toHaveAttribute('data-chosen', 'true');
+
+		const size = page.getByTestId('annotation-marker-size-medium').locator('input');
+		await size.focus();
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-marker-size-large').locator('input')).toBeChecked();
+
+		const background = await chooseColour(page, 'annotation-fill', 'blue');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		const opacitySlider = page.getByTestId('annotation-fill-opacity');
+		const opacityBeforeKeyboard = Number(await opacitySlider.inputValue());
+		await opacitySlider.focus();
+		await page.keyboard.press('ArrowLeft');
+		const opacityAfterKeyboard = Number(await opacitySlider.inputValue());
+		expect(
+			opacityAfterKeyboard,
+			'the Label background opacity slider ignored the keyboard'
+		).toBeLessThan(opacityBeforeKeyboard);
+		await expect
+			.poll(async () =>
+				Number((await storedAnnotations(page, layerId)).features[0]!.properties['fill-opacity'])
+			)
+			.toBe(opacityAfterKeyboard);
+
+		// And then a real drag: `fill()` cannot prove the thumb accepts a pointer gesture, and only a
+		// gesture with a release can prove the debounced write is flushed once rather than per step.
+		await watchAnnotationWrites(page);
+		const opacityBox = await opacitySlider.boundingBox();
+		if (!opacityBox) throw new Error('the Label background opacity slider has no box to drag in');
+		await page.mouse.move(
+			opacityBox.x + opacityBox.width * 0.6,
+			opacityBox.y + opacityBox.height / 2
+		);
+		await page.mouse.down();
+		await page.mouse.move(
+			opacityBox.x + opacityBox.width * 0.25,
+			opacityBox.y + opacityBox.height / 2,
+			{
+				steps: 10
+			}
+		);
+		await page.mouse.up();
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		const opacity = Number(await opacitySlider.inputValue());
+		expect(opacity, 'dragging the Label background opacity slider did not change it').toBeLessThan(
+			0.6
+		);
+		expect(await annotationWrites(page)).toHaveLength(1);
+		const restyled = (await storedAnnotations(page, layerId)).features[0]!;
+		expect(restyled.properties).toMatchObject({
+			'marker-color': ANNOTATION_COLOR.grey,
+			fill: background,
+			'fill-opacity': opacity,
+			'marker-size': 'large'
+		});
+		await expect
+			.poll(() => renderedStyles(page))
+			.toMatchObject({
+				[restyled.id]: {
+					'marker-color': ANNOTATION_COLOR.grey,
+					fill: background,
+					'fill-opacity': opacity,
+					'marker-size': 'large'
+				}
+			});
+
+		// ── THE NEXT LABEL STARTS WITH THAT STYLE ─────────────────────────────────────────────
+		await chooseTool(page, 'text');
+		await clickAt(baseMap(page), 0.62, 0.58);
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		const secondLabel = (await storedAnnotations(page, layerId)).features[1]!;
+		expect(secondLabel.properties).toMatchObject({
+			'marker-symbol': 'label',
+			'marker-color': ANNOTATION_COLOR.grey,
+			fill: background,
+			'fill-opacity': opacity,
+			'marker-size': 'large'
+		});
+
 		// ── AND DRAWING A PIN STRAIGHT AFTER IT GIVES A PIN (story 26) ──────────────────────
 		//
 		// The inheritance carve-out's whole consequence, and the reason `marker-symbol` left the copied
@@ -2852,12 +2951,12 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const withPin = await storedAnnotations(page, layerId);
-		const pin = withPin.features[1]!;
+		const pin = withPin.features[2]!;
 		expect(pin.properties).not.toHaveProperty('marker-symbol');
 		// The colours it *did* inherit from the Label are the Label's: only the property that says what
 		// kind of thing this is stopped inheriting.
-		expect(pin.properties['marker-color']).toBe(label.properties['marker-color']);
-		expect(pin.properties['fill']).toBe(label.properties['fill']);
+		expect(pin.properties['marker-color']).toBe(secondLabel.properties['marker-color']);
+		expect(pin.properties['fill']).toBe(secondLabel.properties['fill']);
 
 		// Drawn as a pin, and only as a pin. The query is offset up because a pin stands above its
 		// coordinate while a Label is centred on it.
