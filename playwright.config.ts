@@ -4,6 +4,7 @@ import { availableParallelism } from 'node:os';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
+import { GPU_LAUNCH_ARGS } from './scripts/gpu-launch-args.mjs';
 
 // Seam 2 (SPEC, Testing Decisions): the running app in a real browser, with real MapLibre,
 // real OpenSeadragon, and real OPFS. Deliberately no map-abstraction layer — inventing one
@@ -91,11 +92,16 @@ const serveStatic = (app: string, port: number) => ({
 // has no GPU, and reading it as one is how this comment came to claim the opposite for an afternoon.
 //
 // So the detection below is prudence rather than a proven necessity: the flags are asked for only
-// where a render node *and* an installed ICD are both present, and anything else gets the software
-// path. That is cheap, and the cost of being wrong is a red suite on somebody else's laptop. Force it
-// either way when the detection is wrong: `BALLASTELLA_E2E_GPU=1` to insist, `=0` to refuse.
+// where a render node *and* an installed ICD are both present. Force it either way when the
+// detection is wrong: `BALLASTELLA_E2E_GPU=1` to insist, `=0` to refuse.
 //
 //     BALLASTELLA_E2E_GPU=0 pnpm test:e2e     # the software rasteriser, wherever you are
+//
+// ⚠ **A workstation never reaches the software path by accident.** It used to: a wrong answer from
+// the detection dropped the run onto SwiftShader, where each worker holds a core, and nothing said
+// so — the only symptom was a hot machine and a suite that felt slow. Both halves are now refused
+// out loud, the detection's answer below and the browser's own answer in `scripts/assert-gpu.mjs`,
+// and CI — which has no render node and no other path — is the one case exempt from both.
 //
 // ⚠ **Two tests had to be fixed before this could be the default, and what they were pinning is worth
 // knowing.** `viewer-reader.e2e.ts`'s two outage tests failed under the GPU, deterministically and in
@@ -144,13 +150,33 @@ const canUseVulkan = (): boolean => {
 };
 
 const wantsGpu = process.env.BALLASTELLA_E2E_GPU;
-const useGpu = wantsGpu === '0' ? false : canUseVulkan();
+const useGpu = wantsGpu === '0' ? false : wantsGpu === '1' || canUseVulkan();
+
+/**
+ * A workstation may not fall through to the software rasteriser without saying so.
+ *
+ * {@link canUseVulkan} is a heuristic over two directories, and its wrong answer is silent and
+ * expensive: every worker takes the software path, each one holds a core rasterising WebGL, and the
+ * run pins the machine instead of failing. That is indistinguishable from "the suite is slow today"
+ * from the outside, so it is refused here rather than discovered from a fan curve.
+ *
+ * CI is the case this does *not* fire for: `ubuntu-latest` has no render node, the software path is
+ * the only one it has, and the worker count below is already conditional on that.
+ */
+if (!useGpu && !process.env.CI && wantsGpu !== '0') {
+	throw new Error(
+		'No Vulkan GPU was detected, and this is not CI, so the run would rasterise WebGL on the CPU ' +
+			'and hold one core per worker.\n\n' +
+			'  BALLASTELLA_E2E_GPU=1 pnpm test:e2e   insist, when the detection is wrong\n' +
+			'  BALLASTELLA_E2E_GPU=0 pnpm test:e2e   accept the software rasteriser deliberately\n\n' +
+			'The detection wants a render node in /dev/dri and an installed Vulkan ICD ' +
+			'(/usr/share/vulkan/icd.d or /etc/vulkan/icd.d, or a file named by VK_DRIVER_FILES).'
+	);
+}
 
 const gpuLaunchOptions = useGpu
 	? {
-			launchOptions: {
-				args: ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist']
-			}
+			launchOptions: { args: [...GPU_LAUNCH_ARGS] }
 		}
 	: {};
 
@@ -345,6 +371,8 @@ export default defineConfig({
 	// and a profiled run therefore gives exactly the verdict the gate gives.
 	retries: 1,
 	reporter,
+	// Proves the flags above actually landed on a GPU before a single worker starts; see the script.
+	globalSetup: './scripts/assert-gpu.mjs',
 	use: {
 		...devices['Desktop Chrome'],
 		...gpuLaunchOptions,
