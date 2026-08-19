@@ -68,16 +68,16 @@ way.
 
 ## Acceptance criteria
 
-- [ ] Against a real published build: a Project containing Labels draws them, and
+- [x] Against a real published build: a Project containing Labels draws them, and
       `queryRenderedFeatures` at a Label's point returns it from the Label bucket.
-- [ ] Against a real published build: a Label's rendered colour, size and coordinate match the ones the
+- [x] Against a real published build: a Label's rendered colour, size and coordinate match the ones the
       author's file states.
-- [ ] Clicking a Label on the published map opens its Layer's card with that Annotation selected.
-- [ ] The Inspector for a Label shows its words in the identity header, and shows a description when
+- [x] Clicking a Label on the published map opens its Layer's card with that Annotation selected.
+- [x] The Inspector for a Label shows its words in the identity header, and shows a description when
       the file carries one.
-- [ ] The Inspector for a Label shows **no** tab strip, no Style face, no *Edit text*, no *Delete*, and
+- [x] The Inspector for a Label shows **no** tab strip, no Style face, no *Edit text*, no *Delete*, and
       no drawing tools anywhere on the page.
-- [ ] `git diff --stat apps/viewer/src` shows no change, or a change the reviewer agrees was
+- [x] `git diff --stat apps/viewer/src` shows no change, or a change the reviewer agrees was
       unavoidable and is not a Label special case.
 
 ```bash
@@ -93,3 +93,35 @@ Success: `viewer-reader` green with the Label cases named, and an empty (or argu
 - Ticket 04 — a Label's colours and size must be authorable before "publishing changes nothing" is a
   claim with anything in it.
 - Ticket 05 — the words a Reader reads are typed in the Text face.
+
+## Answer
+
+**The contract held: `git diff --stat apps/viewer/src` is empty.** Nothing in the viewer knows a Label
+from a Pin, and the two new specs in `e2e/viewer-reader.e2e.ts` — "a Published Site draws the author's
+Labels" — pass against a real served build with the viewer untouched.
+
+What made that possible was already shared, and each half is now asserted on the published side rather
+than inferred from the editor's:
+
+- the **render bucket** is `core`'s, so the published stack builds it from the same
+  `whatItContains`/`annotationDrawKey` the editor uses. The spec reads the bucket id back out of
+  `queryRenderedFeatures` at each Label's own coordinate;
+- the **hit-test list** is `core`'s too, which is the whole of why a click on a Label's words reaches
+  the viewer's `annotationLayerIds(…)` filter and selects that Annotation's row;
+- the **Inspector's subtraction is an unpassed snippet**, so a Label meets the same identity header and
+  description face an undescribed Pin does. A Label with no `description` gets
+  `AnnotationDescription`'s own "No description." — the intended outcome, and the reason no case had to
+  be written for it.
+
+Two things worth recording for whoever reads these specs next:
+
+- **A published Label's colour cannot be asserted from the style.** `getPaintProperty` answers with the
+  expression (`['get', 'marker-color']`), which says where the renderer was told to look and nothing
+  about what was drawn. The colours are therefore read out of the map's framebuffer, as a band across
+  the middle of the chip; the fixture sets `fill-opacity: 1` so the sampled pixel is the author's
+  colour rather than a blend of it with the geography beneath.
+- **A Label's hit box is wider than its chip.** The stretchable SDF keeps a transparent margin for the
+  selection halo (ticket 01), so walking outwards until `queryRenderedFeatures` stops naming the
+  feature over-measures the visible chip by a few pixels either side. That is harmless for the claim
+  being made — the three sizes are compared with each other — but a future reader should not read the
+  measured width as the drawn width.

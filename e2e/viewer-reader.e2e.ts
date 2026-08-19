@@ -67,8 +67,15 @@ type ReaderMapHandle = {
 	map: {
 		getLayersOrder(): string[];
 		getStyle(): { layers: Record<string, unknown>[] };
-		queryRenderedFeatures(): { layer: { id: string }; properties: Record<string, unknown> }[];
+		queryRenderedFeatures(at?: [number, number]): {
+			layer: { id: string };
+			properties: Record<string, unknown>;
+		}[];
 		project(lngLat: [number, number]): { x: number; y: number };
+		/** The map's own canvas, for the one claim `queryRenderedFeatures` cannot answer: what colour. */
+		getCanvas(): HTMLCanvasElement;
+		once(event: 'render', listener: () => void): void;
+		triggerRepaint(): void;
 		jumpTo(options: { center: [number, number]; zoom?: number }): void;
 		fitBounds(bounds: unknown, options?: Record<string, unknown>): void;
 		getCenter(): { lng: number; lat: number };
@@ -501,6 +508,16 @@ const ANNOTATION_AT: [number, number] = [4.9, 52.3676];
 const TAPPED_ANNOTATION_ID = '11111111-1111-4111-8111-111111111111';
 
 /**
+ * One render bucket of the fixture Annotation Layer, by the MapLibre layer id the stack gives it.
+ *
+ * Spelled out here rather than imported from `@ballastella/core`: hit-testing is by layer id, so the
+ * id *is* the contract between the render stack and everything that points at a drawing, and a
+ * fixture that composed it from the same helper the application composes it with would agree with
+ * itself however wrong both were.
+ */
+const bucket = (part: string): string => `ballastella-layer-${ANNOTATION_LAYER_ID}-${part}`;
+
+/**
  * The archive every entry in this deployment's catalog points at (ADR-0020).
  *
  * Named here because a site's cached tiles sit in a directory keyed on it (ticket 12), and because
@@ -559,8 +576,21 @@ const ARCHIVE_HOST = new URL(ARCHIVE).host;
  * answers about what is *rendered*, so a click one frame early is a genuine miss rather than a defect.
  * Clicking a pin is not a toggle — it names the Annotation to open rather than flipping it — so a
  * second click while the first is settling cannot close what it just opened.
+ *
+ * `at` and `annotationId` are for a fixture carrying more than one Annotation, where "some row is
+ * expanded" is satisfied by the wrong one: naming the id makes the poll wait for the row belonging to
+ * the drawing that was clicked, which is what turns "a Label is clickable" into a claim about *that*
+ * Label rather than about the list having a selection.
  */
-async function openAnnotationFromMap(page: Page): Promise<Locator> {
+async function openAnnotationFromMap(
+	page: Page,
+	at: [number, number] = ANNOTATION_AT,
+	annotationId?: string
+): Promise<Locator> {
+	const opened =
+		annotationId === undefined
+			? '[data-testid="annotation-row"][aria-expanded="true"]'
+			: `[data-testid="annotation-row"][data-annotation-id="${annotationId}"][aria-expanded="true"]`;
 	const pane = page.getByTestId('reader-map-pane');
 	// **Scrolled into view, and the box re-read inside the loop.** `page.mouse.click` takes *viewport*
 	// coordinates while `boundingBox()` gives page ones, so on the 375 px layout — where the controls come
@@ -572,12 +602,12 @@ async function openAnnotationFromMap(page: Page): Promise<Locator> {
 		.poll(
 			async () => {
 				const box = (await pane.boundingBox())!;
-				const at = await page.evaluate(
+				const point = await page.evaluate(
 					(lngLat) => window.ballastellaReaderMap!.map.project(lngLat),
-					ANNOTATION_AT
+					at
 				);
-				await page.mouse.click(box.x + at.x, box.y + at.y);
-				return page.locator('[data-testid="annotation-row"][aria-expanded="true"]').count();
+				await page.mouse.click(box.x + point.x, box.y + point.y);
+				return page.locator(opened).count();
 			},
 			{ timeout: 30_000, intervals: [250, 500, 1000] }
 		)
@@ -1648,6 +1678,344 @@ test.describe('exploring a Project', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
+// A READER MEETS THE AUTHOR'S LABELS (write-on-the-map stories 54–57)
+//
+// **Against a real published build, and that is the whole of why these two tests are here.** A Label
+// draws through the same shared stack the editor draws through, and the Inspector withholds an
+// author's controls by not being handed a snippet rather than by asking who is looking — so nothing
+// below needs a line of Label-specific code in `apps/viewer`. What publishing *can* break is
+// everything around that: the glyphs a Label's words are shaped from are files copied into the site,
+// the stack is rebuilt from a Project parsed out of static HTTP, and the Inspector is compiled into a
+// second application. "Publishing changes nothing about how the work looks" is therefore a claim only
+// a served site can falsify, and `editor-annotations.e2e.ts` — which drives the same buckets against
+// the editor's dev server — cannot stand in for it.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+test.describe('a Published Site draws the author’s Labels', () => {
+	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
+
+	test.afterEach(async () => {
+		await site?.close();
+		site = null;
+	});
+
+	/** The words on every Label in the fixture, so a chip's width varies by `marker-size` alone. */
+	const WORDS = 'Zuiderzee';
+
+	/**
+	 * The colours the fixture's file states, and which part of the drawing each one is.
+	 *
+	 * White on blue rather than a subtle pair, because these are read back **out of the framebuffer**:
+	 * the words have to be a colour the chip they sit on is nowhere near, or a sampled pixel cannot say
+	 * which of the two it came from.
+	 */
+	const TEXT_COLOUR = '#ffffff';
+	const CHIP_COLOUR = '#1976d2';
+
+	/**
+	 * Three Labels, one per `marker-size`, far enough apart that a query at one cannot reach another.
+	 *
+	 * Stacked in latitude at one longitude, so the horizontal probe {@link labelChip} walks outwards
+	 * along has nothing but empty geography either side of it. The fixture's sheet lies below them,
+	 * which keeps the opening frame on content the whole Project shares.
+	 */
+	const LABEL_AT = {
+		small: [4.9, 52.42] as [number, number],
+		medium: [4.9, 52.4] as [number, number],
+		large: [4.9, 52.38] as [number, number]
+	};
+
+	const labelId = (size: keyof typeof LABEL_AT) => `a-label-${size}`;
+
+	/**
+	 * One Label as a Project file carries it.
+	 *
+	 * `marker-symbol: 'label'` is spelled as the literal rather than imported from
+	 * `@ballastella/core`: this suite resolves nothing from the code under test, and the discriminator
+	 * is a convention of the file format.
+	 *
+	 * ⚠ **`fill-opacity: 1`.** The default is 0.6, which is right for a Label over a map and wrong for
+	 * a test that reads the chip's colour off the canvas: at 0.6 the sampled pixel is the author's
+	 * colour mixed with whatever geography is under it, and the assertion would have to become a
+	 * tolerance around a number nothing states.
+	 */
+	const labelFeature = (size: keyof typeof LABEL_AT, extra: Record<string, unknown> = {}) => ({
+		type: 'Feature',
+		id: labelId(size),
+		geometry: { type: 'Point', coordinates: LABEL_AT[size] },
+		properties: {
+			'marker-symbol': 'label',
+			title: WORDS,
+			'marker-size': size,
+			'marker-color': TEXT_COLOUR,
+			fill: CHIP_COLOUR,
+			'fill-opacity': 1,
+			...extra
+		}
+	});
+
+	/** The Workspace this section publishes: one Annotation Layer of Labels, and one ordinary Pin. */
+	const labelledProject = (): SiteFiles =>
+		oneProject({
+			baseMap: 'physical',
+			annotations: [
+				labelFeature('small'),
+				labelFeature('medium'),
+				// The described one, so the Inspector's description face has something to render and the
+				// two undescribed ones are the control for what it says when the file carries nothing.
+				labelFeature('large', { description: 'Silted by 1600, and drained in 1932.' }),
+				// **The control for "from the Label bucket only".** The stack builds the `point` bucket
+				// only for a Layer that holds a Point which is not a Label, so a Project of Labels alone
+				// leaves that layer out of the style altogether and the set assertion below would compare
+				// the Label bucket against itself. This Pin puts the bucket in the style, which is what
+				// makes that assertion a claim about the point filter's negation of the Label's. It sits
+				// west of the Labels' meridian and down on the sheet, clear of every horizontal probe.
+				annotation({ id: 'a-pin', title: 'Haarlemmerpoort', coordinates: [4.885, 52.37] })
+			]
+		});
+
+	/**
+	 * What the running stack painted at one coordinate, with the Annotation's own id and style.
+	 *
+	 * Filtered to features carrying `ballastella:id` because the Base Map draws under this and answers
+	 * the same query with its own roads and water; every mark this application makes carries that
+	 * property and nothing else on the map does.
+	 */
+	const paintedAt = (page: Page, at: [number, number], dx = 0) =>
+		page.evaluate(
+			({ at, dx }) => {
+				const map = window.ballastellaReaderMap!.map;
+				const point = map.project(at);
+				return map
+					.queryRenderedFeatures([point.x + dx, point.y])
+					.filter((feature) => typeof feature.properties['ballastella:id'] === 'string')
+					.map((feature) => ({
+						id: feature.properties['ballastella:id'] as string,
+						layer: feature.layer.id,
+						title: feature.properties['title'],
+						'marker-size': feature.properties['marker-size'],
+						'marker-color': feature.properties['marker-color'],
+						fill: feature.properties['fill']
+					}));
+			},
+			{ at, dx }
+		);
+
+	/**
+	 * How wide one Label's chip came out, and the colours across the middle of it.
+	 *
+	 * ⚠ **Both are asked of the renderer rather than of the style**, and neither can be asked any other
+	 * way. `icon-text-fit` is MapLibre's arithmetic over a shaped text block nothing here ever sees, so
+	 * the honest way to ask how wide a chip is is to walk outwards from its coordinate until the hit
+	 * test stops naming it. And a paint value read back off the layer is an *expression* —
+	 * `['get', 'marker-color']` — which says the renderer was told where to look and nothing at all
+	 * about what colour was drawn; the framebuffer is the only surface that answers that.
+	 *
+	 * **A band across the middle of the chip rather than a single row of pixels**, because the words are
+	 * shaped inside it and where their strokes fall is MapLibre's business: one row can cross the gap
+	 * between two lines of a wrapped title, or sit under the letters entirely. The band is read in one
+	 * `readPixels` — a call per pixel is a GPU stall per pixel — inside a `render` handler, because
+	 * after the frame is presented the default framebuffer is undefined unless MapLibre was built with
+	 * `preserveDrawingBuffer`. The repaint is asked for rather than waited on: a settled map draws no
+	 * further frames on its own.
+	 *
+	 * ⚠ **The band is deliberately narrower than the reach the walk measured.** What the walk finds is
+	 * the *hit box*, and a Label's hit box is wider than its chip — the stretchable SDF keeps a
+	 * transparent margin for the selection halo — so a band that ran out to the reach would sample
+	 * through that margin onto the geography beneath, and `#ffffff` would be satisfied by any pale
+	 * patch of base map rather than by the words. Six tenths of the reach is chip interior throughout.
+	 */
+	const labelChip = (page: Page, at: [number, number], id: string) =>
+		page.evaluate(
+			({ at, id }) => {
+				const map = window.ballastellaReaderMap!.map;
+				const canvas = map.getCanvas();
+				const gl = canvas.getContext('webgl2');
+				if (gl === null) throw new Error('the map canvas has no WebGL2 context to read');
+				const point = map.project(at);
+				const hits = (dx: number) =>
+					map
+						.queryRenderedFeatures([point.x + dx, point.y])
+						.some((feature) => feature.properties['ballastella:id'] === id);
+				let reach = 0;
+				for (let dx = 0; dx <= 300; dx += 2) {
+					if (!hits(dx)) break;
+					reach = dx;
+				}
+				// Refused here rather than inside the handler below, where a negative band would throw a
+				// `RangeError` the promise never settles on and the test would only ever report a timeout.
+				const half = Math.round(reach * 0.6);
+				if (half < 1) throw new Error(`nothing drawn at ${id}`);
+				const ratio = canvas.width / canvas.clientWidth;
+				const band = { width: Math.round(half * 2 * ratio), height: Math.round(24 * ratio) };
+				return new Promise<{ width: number; colours: string[] }>((resolve) => {
+					map.once('render', () => {
+						const pixels = new Uint8Array(band.width * band.height * 4);
+						gl.readPixels(
+							Math.round((point.x - half) * ratio),
+							Math.round(canvas.height - (point.y + 12) * ratio),
+							band.width,
+							band.height,
+							gl.RGBA,
+							gl.UNSIGNED_BYTE,
+							pixels
+						);
+						const colours: string[] = [];
+						for (let offset = 0; offset < pixels.length; offset += 4) {
+							colours.push(
+								`#${[...pixels.slice(offset, offset + 3)]
+									.map((channel) => channel.toString(16).padStart(2, '0'))
+									.join('')}`
+							);
+						}
+						resolve({ width: reach * 2, colours });
+					});
+					map.triggerRepaint();
+				});
+			},
+			{ at, id }
+		);
+
+	test('draws every Label from the Label bucket, in the colour, at the size and at the place its file states (stories 54, 57)', async ({
+		page
+	}) => {
+		site = await published(labelledProject());
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		// ── DRAWN, AND OUT OF THE LABEL BUCKET (story 54) ───────────────────────────────────
+		//
+		// Polled, because a GeoJSON source may not have painted on the first frame and the glyphs a
+		// Label's words are shaped from arrive over HTTP out of the site's own `base-map/` — so a first
+		// query here is early rather than wrong.
+		await expect
+			.poll(() => paintedAt(page, LABEL_AT.medium), { timeout: 30_000 })
+			.toContainEqual(expect.objectContaining({ id: labelId('medium'), layer: bucket('label') }));
+
+		for (const size of ['small', 'medium', 'large'] as const) {
+			const painted = await paintedAt(page, LABEL_AT[size]);
+			// **The colours and the size the file states**, read back off the feature the renderer is
+			// drawing: this Project was parsed out of static HTTP by the published build, and these are
+			// the values its paint and layout expressions read per feature.
+			expect(painted).toContainEqual({
+				id: labelId(size),
+				layer: bucket('label'),
+				title: WORDS,
+				'marker-size': size,
+				'marker-color': TEXT_COLOUR,
+				fill: CHIP_COLOUR
+			});
+			// **And from that bucket only**: the `point` bucket's filter carries the negation of the
+			// Label's, so a Label that also drew a pin under its words would show up here as a second
+			// layer id — on a Published Site as in the editor. The fixture's one ordinary Pin is what
+			// gives that sentence something to be false about: without it the stack never builds the
+			// point bucket, and this would compare the Label bucket against itself.
+			expect(new Set(painted.map((hit) => hit.layer))).toEqual(new Set([bucket('label')]));
+			// **At its own place, and not everywhere.** 200 px along the parallel is well past the widest
+			// chip measured below and past nothing else this Layer drew, so an empty answer says the
+			// words are where the coordinate put them rather than that this query is satisfied anywhere.
+			// It is also still on the canvas: Desktop Chrome is 1280 wide, the viewer's sidebar takes
+			// `lg:w-96` of it, and the fit centres the Labels in the ~896 px that remain — so x ≈ 448,
+			// and both this probe and the 300 px the chip walk can reach land inside the pane.
+			expect(await paintedAt(page, LABEL_AT[size], 200)).toEqual([]);
+		}
+
+		// ── AT THE AUTHOR'S SIZE, AND IN THE AUTHOR'S COLOURS (story 57) ────────────────────
+		//
+		// Identical words on all three, so the only thing that can separate these widths is
+		// `marker-size` reaching `text-size` through the published build.
+		const chips = {
+			small: await labelChip(page, LABEL_AT.small, labelId('small')),
+			medium: await labelChip(page, LABEL_AT.medium, labelId('medium')),
+			large: await labelChip(page, LABEL_AT.large, labelId('large'))
+		};
+		expect(chips.small.width).toBeGreaterThan(0);
+		expect(chips.small.width).toBeLessThan(chips.medium.width);
+		expect(chips.medium.width).toBeLessThan(chips.large.width);
+
+		// The chip is the author's `fill` and the words are the author's `marker-color`, both exactly:
+		// the chip is one SDF tinted per feature at `fill-opacity: 1`, so a saturated pixel of each is
+		// the colour the file states rather than a blend of it with the geography underneath.
+		expect(chips.large.colours).toContain(CHIP_COLOUR);
+		expect(chips.large.colours).toContain(TEXT_COLOUR);
+
+		expect(served.failures).toEqual([]);
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('opens a clicked Label’s Layer card with it selected, and reads its words and description with nothing to edit (stories 55, 56)', async ({
+		page
+	}) => {
+		site = await published(labelledProject());
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+		await expect
+			.poll(() => paintedAt(page, LABEL_AT.large), { timeout: 30_000 })
+			.toContainEqual(expect.objectContaining({ id: labelId('large') }));
+
+		// ── CLICKED ON ITS OWN WORDS (story 55) ─────────────────────────────────────────────
+		//
+		// The id is named, so this waits for *that* Label's row rather than for the list acquiring a
+		// selection: with three Labels on the map, "some row is expanded" would be satisfied by the
+		// wrong one. A Label is clickable at all because `annotationLayerIds` carries the bucket — a
+		// bucket absent from that list is a mark nobody can select — and that list is `core`'s, shared,
+		// which is what this asserts survived publishing.
+		const face = await openAnnotationFromMap(page, LABEL_AT.large, labelId('large'));
+
+		// Its Layer's card is open, and exactly one row inside it is the chosen one.
+		await expect(
+			layerRow(page, ANNOTATION_LAYER_ID).getByTestId('layer-disclosure')
+		).toHaveAttribute('aria-expanded', 'true');
+		const selected = page.locator('[data-testid="annotation-row"][aria-expanded="true"]');
+		await expect(selected).toHaveCount(1);
+		await expect(selected).toHaveAttribute('data-annotation-id', labelId('large'));
+
+		// ── ITS WORDS IN THE IDENTITY HEADER, AND ITS DESCRIPTION IN THE FACE (story 56) ────
+		//
+		// A Label's title is the drawing on the map, so the header is where a Reader meets those same
+		// words as text — from `annotationName`, the rule the row draws from, which is why the two
+		// cannot disagree. The shape word beside it says which kind this is without anyone having to
+		// see a glyph.
+		await expect(page.getByTestId('annotation-inspector-name')).toHaveText(WORDS);
+		await expect(page.getByTestId('annotation-inspector-shape')).toHaveText('label');
+		await expect(face).toContainText('Silted by 1600');
+
+		// ── AND NOTHING AT ALL TO EDIT IT WITH (story 56) ───────────────────────────────────
+		//
+		// The sweep every Reader-side Annotation claim in this file makes, run with a **Label**
+		// selected: the absences are the viewer passing no `style` and no `tools` snippet, so a Label
+		// meeting a face nobody wrote a case for is exactly the intended outcome. See
+		// {@link ANNOTATION_EDITING_CONTROLS} for where each of these is asserted *present*, which is
+		// what stops this passing on a renamed id.
+		for (const control of ANNOTATION_EDITING_CONTROLS) {
+			await expect(page.getByTestId(control), `${control} beside a Label`).toHaveCount(0);
+		}
+		await expectNoEditorProse(page);
+
+		// ── AND A LABEL THE FILE DESCRIBES NOTHING ABOUT SAYS SO ────────────────────────────
+		//
+		// The Contract's claim that a Label needs no case of its own: this is the description face's
+		// own answer to an absent `description`, reached by the path an undescribed Pin already takes.
+		await page
+			.locator(`[data-testid="annotation-row"][data-annotation-id="${labelId('small')}"]`)
+			.click();
+		// All three Labels carry the same words, so the header cannot say which one is selected. The
+		// expanded row can, and it is the same witness the click on the map was read through above.
+		await expect(selected).toHaveAttribute('data-annotation-id', labelId('small'));
+		await expect(page.getByTestId('annotation-description-text')).toHaveText('No description.');
+
+		expect(served.failures).toEqual([]);
+		expect(seen.failures).toEqual([]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
 // The Base Map (ADR-0020)
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -2166,8 +2534,6 @@ test.describe('a Published Site that is not entirely well', () => {
 					.map((feature) => feature.layer.id)
 			)
 		]);
-
-	const bucket = (part: string): string => `ballastella-layer-${ANNOTATION_LAYER_ID}-${part}`;
 
 	test('names the host when a referenced Map Image’s record cannot be read', async ({ page }) => {
 		// Ticket 17's degradation table: "Referenced image whose host is unreachable → say so, naming the
