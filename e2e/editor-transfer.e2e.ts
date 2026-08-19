@@ -1,6 +1,13 @@
 import { packTar, type TarEntry } from 'modern-tar';
 import { readFile } from 'node:fs/promises';
 
+import {
+	hashesUnder,
+	type StackWindow,
+	waitForOpeningView,
+	waitForPaintedAnnotations,
+	waitForStack
+} from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { layerRows, openLayerRow } from './support/layers.js';
 import { expect, test, type Page } from './support/test.js';
@@ -160,6 +167,26 @@ const WAREHOUSES_GEOJSON = JSON.stringify({
 				description: 'Bonded warehouses, still standing in 1625.',
 				'marker-size': 'large',
 				'marker-color': '#cc0000'
+			}
+		}
+	]
+});
+
+/** A Label as another GeoJSON tool writes it: a Point with simplestyle properties. */
+const ZUIDERZEE_GEOJSON = JSON.stringify({
+	type: 'FeatureCollection',
+	features: [
+		{
+			type: 'Feature',
+			id: 'label',
+			geometry: { type: 'Point', coordinates: [4.9, 52.3676] },
+			properties: {
+				'marker-symbol': 'label',
+				title: 'Zuiderzee',
+				'marker-color': '#ffffff',
+				fill: '#1976d2',
+				'fill-opacity': 0.8,
+				'marker-size': 'large'
 			}
 		}
 	]
@@ -498,6 +525,30 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 	});
 });
 
+test.describe('merely opening a Project leaves its files unchanged (write-on-the-map SPEC story 50)', () => {
+	test('merely opening a Project with a Label leaves every Project file hash-identical', async ({
+		page
+	}) => {
+		await routeBaseMapArchive(page);
+		await seedProject(
+			page,
+			'amsterdam-1625',
+			projectFiles({ 'annotations/warehouses.geojson': ZUIDERZEE_GEOJSON })
+		);
+		await page.reload();
+		const before = await hashesUnder(page, '');
+
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await waitForOpeningView(page);
+		await waitForStack(page);
+		await waitForPaintedAnnotations(page, ['label']);
+		// Let the 400 ms autosave debounce and any resulting flush complete.
+		await page.waitForTimeout(600);
+
+		expect(await hashesUnder(page, '')).toEqual(before);
+	});
+});
+
 test.describe('opening a bundle lands in a review copy (workspace-and-layers SPEC stories 90–92)', () => {
 	test('creates a separate Workspace holding exactly that one Project', async ({ page }) => {
 		await openBundle(page, await bundleFixture(projectFiles()));
@@ -515,6 +566,37 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 			'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 			'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile'
 		});
+	});
+
+	test('opens a bundled Label in the review copy with its words and colours drawn', async ({
+		page
+	}) => {
+		await routeBaseMapArchive(page);
+		await openBundle(
+			page,
+			await bundleFixture(projectFiles({ 'annotations/warehouses.geojson': ZUIDERZEE_GEOJSON }))
+		);
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await waitForPaintedAnnotations(page, ['label']);
+
+		const drawn = await page.evaluate(() =>
+			(
+				(window as unknown as StackWindow).ballastellaLayerStack?.map.queryRenderedFeatures() ?? []
+			).map((feature) => ({ layer: feature.layer.id, properties: feature.properties }))
+		);
+
+		expect(drawn).toContainEqual(
+			expect.objectContaining({
+				layer: 'ballastella-layer-l1-label',
+				properties: expect.objectContaining({
+					'ballastella:id': 'label',
+					title: 'Zuiderzee',
+					'marker-color': '#ffffff',
+					fill: '#1976d2',
+					'fill-opacity': 0.8
+				})
+			})
+		);
 	});
 
 	// ⚠ **The most important criterion in this ticket, and the easiest to fake.** Every path and every
