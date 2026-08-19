@@ -19,6 +19,7 @@
 	// nothing in this file says "this shape cannot be drawn".
 
 	import {
+		isLabel as annotationIsLabel,
 		MARKER_SIZES,
 		lineStyleOf,
 		resolveStyle,
@@ -61,7 +62,8 @@
 	const resolved = $derived(resolveStyle(properties));
 
 	const geometryKind = $derived(annotation.geometry?.type ?? null);
-	const isPoint = $derived(geometryKind === 'Point');
+	const isLabel = $derived(annotationIsLabel(annotation));
+	const isPoint = $derived(geometryKind === 'Point' && !isLabel);
 	const hasArea = $derived(geometryKind === 'Polygon');
 	const hasLine = $derived(geometryKind === 'LineString' || geometryKind === 'Polygon');
 
@@ -92,10 +94,10 @@
 	depended on which shape was selected.
 	─────────────────────────────────────────────────────────────────────────────────────────────────
 	**The grouping is what does that work now, and it does it better than the disclosure did.** One
-	`<fieldset>` per part — Pin, or Fill and Line — each named once, so the labels inside lose the
-	prefix they were all carrying ("Line colour", "Line width", "Line opacity" → Colour, Width,
-	Opacity). Fill comes before Line on a shape, which is the order every drawing tool uses: the area
-	first, then the edge around it.
+	`<fieldset>` per part — Pin, or Label, or Fill and Line — each named once, so the labels inside
+	lose the prefix they were all carrying ("Line colour", "Line width", "Line opacity" → Colour,
+	Width, Opacity). Fill comes before Line on a shape, which is the order every drawing tool uses: the
+	area first, then the edge around it.
 	─────────────────────────────────────────────────────────────────────────────────────────────────
 	The group names reach assistive technology as `<legend>`s, which is what makes two controls both
 	labelled "Opacity" unambiguous — the legend is announced with the control (WCAG technique H71), so
@@ -112,10 +114,12 @@
 <fieldset class="flex flex-col gap-3" data-testid="annotation-style-face">
 	<legend class="sr-only">Style</legend>
 
-	{#if isPoint}
+	{#if isPoint || isLabel}
 		<fieldset class="flex flex-col gap-2">
-			<legend class="sr-only">Pin</legend>
-			<p class="text-[0.65rem] font-semibold uppercase opacity-70" aria-hidden="true">Pin</p>
+			<legend class="sr-only">{isLabel ? 'Label' : 'Pin'}</legend>
+			<p class="text-[0.65rem] font-semibold uppercase opacity-70" aria-hidden="true">
+				{isLabel ? 'Label' : 'Pin'}
+			</p>
 
 			<!--
 				**Not debounced, unlike the well it replaced.** An `<input type="color">` fires `input`
@@ -125,7 +129,7 @@
 			-->
 			<div data-own={own('marker-color')}>
 				<ColorPicker
-					label="Pin colour"
+					label={isLabel ? 'Label text colour' : 'Pin colour'}
 					caption="Colour"
 					value={resolved['marker-color']}
 					name="annotation-marker-color"
@@ -137,8 +141,48 @@
 				/>
 			</div>
 
+			{#if isLabel}
+				<div data-own={own('fill')}>
+					<ColorPicker
+						label="Label background colour"
+						caption="Background"
+						value={resolved.fill}
+						name="annotation-fill"
+						testid="annotation-fill"
+						onchoose={(colour) => {
+							onstyle({ fill: colour });
+							oncommit();
+						}}
+					/>
+				</div>
+
+				<label class="flex items-center justify-between gap-2 text-sm">
+					<span>Background opacity</span>
+					<span class="flex items-center gap-2">
+						<input
+							type="range"
+							class="range w-32 shrink-0 range-sm {KIND_STYLE.annotation.range}"
+							min="0"
+							max="1"
+							step="0.05"
+							value={resolved['fill-opacity']}
+							data-testid="annotation-fill-opacity"
+							oninput={(event) =>
+								onstyle({ 'fill-opacity': Number(event.currentTarget.value) }, { debounce: true })}
+							onchange={() => oncommit()}
+						/>
+						<span
+							class="w-10 shrink-0 text-right tabular-nums"
+							data-testid="annotation-fill-opacity-value"
+						>
+							{resolved['fill-opacity']}
+						</span>
+					</span>
+				</label>
+			{/if}
+
 			<!--
-				The pin's size, and the whole of what a pin has left to set.
+				The shared size control for a Pin or a Label.
 
 				The three sizes are simplestyle's own, offered as a radio group rather than a `<select>`
 				for the same reason the line style is: three alternatives, all worth seeing at once. It
@@ -150,7 +194,7 @@
 				to medium, so the control reports what is on the map rather than a blank.
 			-->
 			<fieldset class="flex items-center justify-between gap-2 text-sm">
-				<legend class="sr-only">Pin size</legend>
+				<legend class="sr-only">{isLabel ? 'Label size' : 'Pin size'}</legend>
 				<span aria-hidden="true">Size</span>
 				<div class="join">
 					{#each MARKER_SIZES as size (size)}
