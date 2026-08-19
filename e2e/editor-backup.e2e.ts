@@ -3,6 +3,8 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import { unpackTar } from 'modern-tar';
 import { readFile } from 'node:fs/promises';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { renderedAnnotationLayers, waitForPaintedAnnotations } from './support/annotations.js';
 import {
 	closeWorkspaceSettings,
 	expectWorkspaceNamed,
@@ -54,7 +56,7 @@ async function everyPathInBrowserStorage(page: Page): Promise<string[]> {
 	});
 }
 
-const projectJson = (name: string): string =>
+const projectJson = (name: string, withLabel = false): string =>
 	`${JSON.stringify(
 		{
 			formatVersion: 1,
@@ -69,13 +71,44 @@ const projectJson = (name: string): string =>
 					kind: 'map',
 					opacity: 0.8,
 					imageId: 'amsterdam-1625'
-				}
+				},
+				...(withLabel
+					? [
+							{
+								id: 'l2',
+								name: 'Names on the water',
+								visible: true,
+								order: 1,
+								kind: 'annotation',
+								geojsonRef: 'annotations/warehouses.geojson'
+							}
+						]
+					: [])
 			],
 			baseMap: null
 		},
 		null,
 		'\t'
 	)}\n`;
+
+const ZUIDERZEE_GEOJSON = JSON.stringify({
+	type: 'FeatureCollection',
+	features: [
+		{
+			type: 'Feature',
+			id: 'label',
+			geometry: { type: 'Point', coordinates: [4.9, 52.3676] },
+			properties: {
+				'marker-symbol': 'label',
+				title: 'Zuiderzee',
+				'marker-color': '#ffffff',
+				fill: '#1976d2',
+				'fill-opacity': 0.8,
+				'marker-size': 'large'
+			}
+		}
+	]
+});
 
 /**
  * A Workspace with two Projects over one shared Map Image — the first acceptance criterion's
@@ -271,6 +304,36 @@ test.describe('restoring a Workspace', () => {
 		// comparison cannot answer: it is `listProjects` that decides what a scholar sees.
 		await expect(page.getByRole('heading', { name: 'Amsterdam 1625' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'The Canal Ring' })).toBeVisible();
+	});
+
+	test('restores a Label and draws it on the map', async ({ page }) => {
+		await seedWorkspace(page, DEFAULT_WORKSPACE, {
+			'amsterdam-1625/project.json': projectJson('Amsterdam 1625', true),
+			'amsterdam-1625/annotations/warehouses.geojson': ZUIDERZEE_GEOJSON
+		});
+		await page.reload();
+		const backup = await backUpToBuffer(page);
+
+		await openWorkspaceSettings(page);
+		await settings(page)
+			.getByTestId('restore-file')
+			.setInputFiles({
+				name: `${DEFAULT_WORKSPACE}.tar`,
+				mimeType: 'application/x-tar',
+				buffer: backup
+			});
+		await expect(settings(page).getByTestId('transfer-outcome')).toContainText('publish', {
+			timeout: 30_000
+		});
+		await closeWorkspaceSettings(page);
+		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
+
+		await routeBaseMapArchive(page);
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await waitForPaintedAnnotations(page, ['label']);
+		expect(await renderedAnnotationLayers(page)).toMatchObject({
+			label: ['ballastella-layer-l2-label']
+		});
 	});
 
 	test('refuses a file that is not a backup, in words, and creates no Workspace', async ({

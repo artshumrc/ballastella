@@ -155,7 +155,7 @@ export const MARKER_SIZES: readonly string[] = ['small', 'medium', 'large'];
  * of that field rather than an overload of it: the value is already legal against
  * {@link simpleStyleViolations}, so a Layer of Labels is conformant with nothing relaxed and opens in
  * another tool as titled markers. See `.tracker/write-on-the-map/SPEC.md` for why this rather than an
- * extension of ours.
+ * extension of ours. This comparison is case-sensitive, as file-format string values are.
  */
 export const LABEL_MARKER_SYMBOL = 'label';
 

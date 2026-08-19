@@ -16,6 +16,7 @@ import {
 	LABEL_MARKER_SYMBOL,
 	MARKER_SIZES,
 	SIMPLESTYLE_DEFAULTS,
+	SIMPLESTYLE_PROPERTIES,
 	addAnnotation,
 	annotationAnchor,
 	annotationColorName,
@@ -180,6 +181,30 @@ describe('an unchanged file serialises byte-identically', () => {
 		expect([...again]).toEqual([...original]);
 	});
 
+	test('a Layer containing a Label round trips through the identical bytes', () => {
+		const original = serialiseAnnotations(
+			collectionOf(
+				newAnnotation({
+					id: 'a1',
+					geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+					title: 'Zuiderzee',
+					style: {
+						'marker-symbol': LABEL_MARKER_SYMBOL,
+						'marker-color': '#ffffff',
+						fill: '#1976d2',
+						'fill-opacity': 0.8,
+						'marker-size': 'large'
+					}
+				})
+			)
+		);
+
+		const again = serialiseAnnotations(parseAnnotations(original));
+
+		expect(utf8(again)).toBe(utf8(original));
+		expect([...again]).toEqual([...original]);
+	});
+
 	test('an empty Layer written at creation round-trips identically', () => {
 		// `emptyAnnotationCollection` in `layer.ts` is what ticket 09 writes when a Layer is added, and
 		// this module has to agree with it byte for byte or the first edit reformats the file.
@@ -259,6 +284,58 @@ describe('an unchanged file serialises byte-identically', () => {
 });
 
 describe('reading somebody else’s document', () => {
+	test('a Point with marker-symbol label and a title opens as a Label', () => {
+		const read = parseAnnotations(
+			bytes(
+				JSON.stringify({
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'a1',
+							properties: { 'marker-symbol': 'label', title: 'Zuiderzee' },
+							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+						}
+					]
+				})
+			)
+		);
+
+		expect(isLabel(read.annotations[0]!)).toBe(true);
+	});
+
+	test('an unrecognised marker-symbol stays on its Pin after another Annotation changes', () => {
+		const read = parseAnnotations(
+			bytes(
+				JSON.stringify({
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'harbor',
+							properties: { 'marker-symbol': 'harbor' },
+							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+						},
+						{
+							type: 'Feature',
+							id: 'other',
+							properties: {},
+							geometry: { type: 'Point', coordinates: [5, 52.4] }
+						}
+					]
+				})
+			)
+		);
+
+		const written = parseAnnotations(
+			serialiseAnnotations(setText(read, 'other', { title: 'An unrelated edit' }))
+		);
+		const harbor = findAnnotation(written, 'harbor')!;
+
+		expect(isLabel(harbor)).toBe(false);
+		expect(harbor.properties['marker-symbol']).toBe('harbor');
+	});
+
 	test('bytes that are not JSON are surfaced, never replaced with an empty collection', () => {
 		// Silently substituting an empty collection would show a scholar none of their Annotations and
 		// then overwrite them on the next save.
@@ -1001,6 +1078,7 @@ describe('a Point whose marker-symbol is label', () => {
 		// keeps it — this app never destroys a value it does not understand (SPEC story 51).
 		expect(isLabel(withSymbol())).toBe(false);
 		expect(isLabel(withSymbol('harbor'))).toBe(false);
+		expect(isLabel(withSymbol('Label'))).toBe(false);
 	});
 
 	test('reads the same discriminator from a bare properties bag, for a caller holding a feature', () => {
@@ -1033,20 +1111,35 @@ describe('a Point whose marker-symbol is label', () => {
 		expect(isLabel(of(null))).toBe(false);
 	});
 
-	test('adds no extension to the file: a label’s properties are conformant simplestyle', () => {
-		// The whole of the "no new extension" claim, in one assertion. The discriminator was chosen to
-		// make it checkable here rather than argued in a document (SPEC, "A Label is a Point whose
-		// `marker-symbol` is `label`").
-		expect(
-			simpleStyleViolations({
-				title: 'Zuiderzee',
-				'marker-symbol': LABEL_MARKER_SYMBOL,
-				'marker-size': 'large',
-				'marker-color': '#ffffff',
-				fill: '#1976d2',
-				'fill-opacity': 0.8
-			})
-		).toEqual([]);
+	test('adds no extension to the file: a Label serialises with only simplestyle properties', () => {
+		// The discriminator was chosen to make this checkable rather than argued in a document (SPEC, "A
+		// Label is a Point whose `marker-symbol` is `label`").
+		const written = JSON.parse(
+			utf8(
+				serialiseAnnotations(
+					collectionOf(
+						newAnnotation({
+							id: 'a1',
+							geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+							title: 'Zuiderzee',
+							style: {
+								'marker-symbol': LABEL_MARKER_SYMBOL,
+								'marker-size': 'large',
+								'marker-color': '#ffffff',
+								fill: '#1976d2',
+								'fill-opacity': 0.8
+							}
+						})
+					)
+				)
+			)
+		);
+		const properties = written.features[0].properties as AnnotationProperties;
+		// ADR-0009 permits `stroke-dasharray`, but simplestyle 1.1.0 does not define it.
+		const simplestyleNames = SIMPLESTYLE_PROPERTIES.filter((name) => name !== 'stroke-dasharray');
+
+		expect(simpleStyleViolations(properties)).toEqual([]);
+		expect(Object.keys(properties).filter((name) => !simplestyleNames.includes(name))).toEqual([]);
 	});
 
 	test('reaches the render copy with its symbol, because the layer filter reads it', () => {
@@ -1063,5 +1156,18 @@ describe('a Point whose marker-symbol is label', () => {
 			'marker-symbol': LABEL_MARKER_SYMBOL
 		});
 		expect(render.features[1]?.['properties']).not.toHaveProperty('marker-symbol');
+	});
+
+	test('keeps a foreign marker-symbol on the render copy for the Pin filter', () => {
+		const render = toRenderCollection({ annotations: [withSymbol('harbor')] });
+		const properties = render.features[0]?.['properties'] as AnnotationProperties;
+
+		expect({
+			markerSymbol: properties['marker-symbol'],
+			isLabel: isLabelFeature(properties)
+		}).toEqual({
+			markerSymbol: 'harbor',
+			isLabel: false
+		});
 	});
 });
