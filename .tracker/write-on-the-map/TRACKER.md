@@ -28,9 +28,9 @@ ships, as does the notice promising a Reader that the Annotations are unaffected
 
 ## Current Status
 
-Overall status: `In Progress`
+Overall status: `In Progress` — **work paused at the requester's instruction after ticket 09.**
 
-Current ticket: 03 and 09 (frontier)
+Current ticket: none. The frontier is 04, 05 and 07, all unblocked and unclaimed.
 
 Last updated: 2026-08-19
 
@@ -40,13 +40,13 @@ Last updated: 2026-08-19
 | --- | --- | --- | --- |
 | 01 | [01-prove-the-background-chip.md](./tickets/01-prove-the-background-chip.md) | Completed | — |
 | 02 | [02-a-label-in-a-layer-is-drawn.md](./tickets/02-a-label-in-a-layer-is-drawn.md) | Completed | 01 |
-| 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Not Started | 02 |
+| 03 | [03-place-a-label-and-type-its-words.md](./tickets/03-place-a-label-and-type-its-words.md) | Completed | 02 |
 | 04 | [04-style-a-label.md](./tickets/04-style-a-label.md) | Not Started | 03 |
 | 05 | [05-the-labels-text-face.md](./tickets/05-the-labels-text-face.md) | Not Started | 03 |
 | 06 | [06-a-label-is-an-ordinary-annotation.md](./tickets/06-a-label-is-an-ordinary-annotation.md) | Not Started | 03, 04, 05 |
 | 07 | [07-a-label-is-a-file-other-tools-can-read.md](./tickets/07-a-label-is-a-file-other-tools-can-read.md) | Not Started | 03 |
 | 08 | [08-a-published-site-draws-labels.md](./tickets/08-a-published-site-draws-labels.md) | Not Started | 04, 05 |
-| 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Not Started | 02 |
+| 09 | [09-a-site-without-typefaces-says-so.md](./tickets/09-a-site-without-typefaces-says-so.md) | Completed | 02 |
 
 Ticket 01 is a spike: its product is an `## Answer` recording whether the chip is a stretched SDF
 coloured per feature or one plain image per colour, and it leaves `src/` unchanged. Every ticket that
@@ -54,3 +54,26 @@ draws a Label sits behind it.
 
 All 65 of the spec's user stories are claimed by exactly one ticket. Ticket 01 claims none, which is
 what a spike is.
+
+## Found while running this epic, and not fixed by it
+
+Neither of these is Label work. Both were confirmed by reading the code and reproducing at a commit
+that predates this epic, and both are recorded here because a reviewer's report is not a durable place
+for them. Neither has a ticket yet.
+
+**1. Switching Base Map drops the Annotation stack.** In both panes, `stackStructure`
+(`apps/viewer/src/lib/ReaderMapPane.svelte`, `apps/editor/src/lib/base-map/BaseMapPane.svelte`) is
+built from `theme.current` plus the layer list, while `paintKey` is `entryId@theme@cachedTo`. Choosing
+a different Base Map therefore changes `paintKey` and calls `setStyle`, MapLibre's diff removes every
+layer the stack added, and the stack effect never re-runs because `stackStructure` is byte-identical —
+so a scholar's Layers are gone until a theme toggle or a reload. A change to `cachedBaseMap` is the
+same event by a second route. No e2e covers it: the switcher specs assert the switcher's value and
+`localStorage`, never `stack-status` or `getLayersOrder` afterwards. Pre-existing; this epic's glyphs
+guard makes it neither better nor worse.
+
+**2. On a phone, the map-controls overlay intercepts the Inspector's close button.** `editor-annotations`
+› "the screen stacks, the Inspector becomes a sheet at the bottom, and no leader is drawn" fails at the
+375 px layout: the click lands on `BaseMapPane.svelte`'s `absolute top-2 left-2 z-10` in-pane controls.
+`git log -S` on that class string returns one commit, `5de60d0` "clarifying UI in align and project",
+which moved those controls into the pane. Two agents independently reproduced the failure at that
+commit with every Label change absent. It is the one red test in the suite as this epic pauses.
