@@ -1182,10 +1182,19 @@
 	page flow. Both editor screens therefore get the search without spending map height; only the
 	Project screen supplies its own Base Map controls. This search navigates and places nothing;
 	placing lives on the Annotation Layer surface, where there is always a Layer to draw into.
+
+	⚠ **`z-[6]` puts this block with the map's other controls, and the number is load-bearing.** One
+	stacking context holds the leader at 5, MapLibre's four control corners at 6 (`packages/ui`'s
+	`layout.css` has the rule and the reason), and the Annotation Inspector at 7. This block is pane
+	furniture like the zoom control, so it belongs at 6: above the leader, which is what keeps a
+	dashed line from being drawn across the search field, and below the Inspector. Above 7 it is
+	*over* the Inspector, and below `lg` — where the Inspector is a sheet spanning the pane's width
+	rather than a panel docked to the far corner — this box then lies across the sheet's header and
+	swallows the pointer events meant for its close button.
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
-	<div class="absolute top-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+	<div class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
 		<div class="w-72 max-w-full">
 			<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
 		</div>
