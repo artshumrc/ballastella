@@ -137,6 +137,16 @@ describe('planning a publish', () => {
 		expect(planned.workspace.files).toBe(2);
 	});
 
+	it('counts complete tiled Map Images separately from the published viewer', async () => {
+		await store.write('images/x/info.json', encode('{}'));
+		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('tile'));
+
+		const planned = await plan();
+
+		expect(planned.mapImages.files).toBe(2);
+		expect(planned.mapImages.bytes).toBeGreaterThan(0);
+	});
+
 	it('states the Base Map’s size before it is added', async () => {
 		const planned = await plan();
 

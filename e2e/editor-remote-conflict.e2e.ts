@@ -135,7 +135,7 @@ async function start(
 const openPublishDialog = async (page: Page) => {
 	await page.getByRole('button', { name: 'Publish…' }).click();
 	const dialog = page.getByRole('dialog');
-	await expect(dialog.getByText('read-only viewer')).toBeVisible();
+	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	return dialog;
 };
 
@@ -154,7 +154,7 @@ async function signIn(page: Page) {
  * does not affect the conflict being exercised.
  */
 async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promise<void> {
-	await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	await dialog.getByRole('button', { name: /^Publish/ }).click();
 	await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
 		timeout: 120_000

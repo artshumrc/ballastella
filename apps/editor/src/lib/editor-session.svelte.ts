@@ -24,8 +24,6 @@ import {
 	deletionsAreNoteworthy,
 	replayIsNoteworthy,
 	replayJournal,
-	// Aliased for the same reason `stampCanonicalUrl` is: the session has methods of these names, and
-	// two things called one word is how a later edit calls the wrong one.
 	baseMapCacheSize as readBaseMapCacheSize,
 	baseMapCacheSizeFor as readBaseMapCacheSizeFor,
 	cachedTilePath,
@@ -55,7 +53,6 @@ import {
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
-	normaliseCanonicalUrl,
 	offlineCoverage,
 	emptyCollection,
 	openDecodeAndCropSource,
@@ -63,8 +60,6 @@ import {
 	parseAnnotations,
 	partitionByOfflineCopy,
 	planPublish,
-	// Aliased for the reason `stampCanonicalUrl` is: the session has methods of both names, and two
-	// things called one word is how a later edit calls the wrong one.
 	planRemotePublish as planWorkspaceUpload,
 	projectFilePath,
 	publishSite,
@@ -81,9 +76,6 @@ import {
 	setLayerVisible,
 	setMapLayerOpacity,
 	sourceOf,
-	// Aliased: the session has a method of the same name, and the two doing different amounts of work
-	// under one word is how a later edit calls the wrong one.
-	stampCanonicalUrl as stampWorkspaceImages,
 	workspaceSize,
 	writeAlignmentBytes,
 	writeAlignmentFileReporting,
@@ -2511,58 +2503,6 @@ export class EditorSession {
 			this.#manifests === undefined ||
 			this.#manifests.write({ remote: options.remote, commit, files: manifest });
 		return { commit, plan, manifestKept };
-	}
-
-	/**
-	 * Stamp every Map Image in the Workspace with a canonical address (SPEC story 92).
-	 *
-	 * Opt-in, and the **only** thing publishing does that writes the user's own files: it rewrites
-	 * each `info.json`'s `id` from the ADR-0004 placeholder to `<url>/images/<image-id>`, so that the
-	 * tiles become a real, citable IIIF endpoint Allmaps, Theseus, and OpenSeadragon can consume
-	 * directly.
-	 *
-	 * **The images are stamped once for the whole Workspace, and then every Project records the
-	 * address** (ADR-0023). The pyramids are shared, so there is one address per Map Image — the
-	 * per-Project version wrote `<url>/<project>/images/<id>`, a citation that broke the moment a second
-	 * Project used the map. `images` therefore counts Map Images and not Project-image pairs.
-	 *
-	 * `info.json` first and `project.json` second, the same order every other write here follows: a
-	 * document's record of the address must never claim a stamp the images do not carry. A failure part
-	 * way through leaves some images stamped and some Projects unstamped, which the next publish repairs
-	 * by stamping all of them again — idempotent, because the address does not depend on what was there
-	 * before.
-	 *
-	 * A Project this build cannot open is skipped rather than rewritten (ADR-0010).
-	 */
-	async stampCanonicalUrl(url: string): Promise<{ projects: number; images: number }> {
-		const stamped = normaliseCanonicalUrl(url);
-		if (stamped === '') {
-			// Through core's own refusal, so the sentence a user reads is written in one place.
-			await stampWorkspaceImages(this.#store, url, []);
-		}
-		await this.flush();
-
-		const ingested = await listIngestedImages(this.#store);
-		const stamp = await stampWorkspaceImages(
-			this.#store,
-			stamped,
-			ingested.map((image) => image.imageId)
-		);
-
-		let projects = 0;
-		for (const summary of await this.#workspace.listProjects()) {
-			if (summary.problem !== null) continue;
-			const file = await this.#workspace.readProject(summary.directory);
-			if (file.canonicalUrl !== stamp.url) {
-				await this.#workspace.writeProject(summary.directory, { ...file, canonicalUrl: stamp.url });
-			}
-			projects += 1;
-			if (this.openDirectory === summary.directory && this.openProject) {
-				this.openProject = { ...this.openProject, canonicalUrl: stamp.url };
-			}
-		}
-		this.projects = await this.#workspace.listProjects();
-		return { projects, images: stamp.images.length };
 	}
 
 	/**

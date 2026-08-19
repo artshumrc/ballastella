@@ -21,28 +21,22 @@
 	//   1. The plan is computed **on open** rather than once. A Workspace's byte total and its Project
 	//      list both change while the app is running, and a plan computed at startup would state a
 	//      size that is no longer true at the one moment where the number is the whole point.
-	//   2. `stampCanonicalUrl` runs **before** anything is written. Core refuses an address it cannot
-	//      make an image service out of and its refusal ends "Nothing has been changed." — and
-	//      `scholar.example`, with no scheme, is the ordinary way to arrive there.
+	//   2. A GitHub Remote and credential are required before the Publish action is offered; a local-only
+	//      publish would be indistinguishable from a successful web publish.
 	//   3. Progress is announced from **inside** the modal and the result from outside it after a
 	//      `tick()`. `showModal()` makes the rest of the document inert, and an inert `aria-live`
 	//      region is not a quiet one: it is not announced at all.
-	//   4. Neither button is ever `disabled`, and neither is ever removed. A `disabled` button leaves
-	//      the tab order the moment it is pressed and a removed one leaves it altogether, and both
-	//      drop a keyboard user's focus to `<body>` (SPEC story 60, WCAG 2.4.3). `aria-disabled` and
-	//      a guard in the handler say the same thing without moving anybody's focus.
+	//   4. Once offered, Publish is never `disabled` and stays in the tab order while it is unavailable.
+	//      A missing Remote or credential removes the action before it can be mistaken for a local-only
+	//      publish; `aria-disabled` and a guard preserve focus for the remaining states.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// EVERY STATE OF THE CONTROL LEADS SOMEWHERE, AND NONE OF THEM IS A DISABLED BUTTON
+	// GITHUB IS REQUIRED BEFORE PUBLISHING IS OFFERED
 	//
-	// Unbound: it publishes locally exactly as it always did, and says where binding lives. Bound with
-	// no credential: it asks for the credential, here, rather than sending the user to another dialog
-	// — and the confirm button says what pressing it in that state actually does, which is write the
-	// website into the Workspace and send it nowhere. Bound with a credential and nothing to do: it
-	// says so, and the button is inert beside the sentence saying why. Bound to a Remote somebody else
-	// has written to: it names the files, offers Clone and replace, and the button waits for one of
-	// them. A disabled Publish button with no explanation is the failure this whole epic exists to
-	// remove; the explanation is the part that matters, and it is always on screen.
+	// An unbound Workspace is directed to the Remote repository control, and a bound Workspace must
+	// have a credential before Publish enters the action row. Once offered, Publish remains in the tab
+	// order while planning, uploading, or waiting on a conflict; `aria-disabled` preserves focus in
+	// those states without making an unavailable local-only publish look like an option.
 
 	import { tick } from 'svelte';
 
@@ -116,9 +110,6 @@
 	let replacing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
-	/** The address the user wants their Map Images to answer at, or `''` (SPEC story 92). */
-	let canonicalUrl = $state('');
-
 	/** The Project state the current forecast was built from. */
 	let plannedProjectKey = '';
 
@@ -139,7 +130,6 @@
 	let published = $state<{
 		site: PublishedSite;
 		files: number;
-		stamped: number;
 		sent: { remote: string; files: number; uploaded: number } | null;
 		/** The Remote nothing was sent to, or `''` when there was nothing to send to. */
 		notSent: string;
@@ -163,15 +153,6 @@
 					`${project.directory}\u0000${project.name}\u0000${project.onFrontPage}\u0000${project.problem}`
 			)
 			.join('\u0001');
-
-	/** The caution beside each choice: removing a Project from the list does not make it private. */
-	const frontPageNote = (project: ProjectSummary): string =>
-		project.onFrontPage
-			? 'A Reader arriving at your Published Site is offered this Project on its front page. ' +
-				'Turning this off removes it from that list only — it stays on the site, readable by anyone ' +
-				'with the link.'
-			: 'This Project is not on the front page, but it stays on the site and is readable by anyone ' +
-				'with the link.';
 
 	const reset = () => {
 		plan = null;
@@ -317,9 +298,6 @@
 							viewerVersion: bundle.version,
 							projects: active.projects
 						});
-			// Offered back rather than asked for again: a citable address that changes every time it
-			// is re-published is not citable (ADR-0004).
-			canonicalUrl = planned.canonicalUrl ?? '';
 		} catch (cause) {
 			if (mine !== planning) return;
 			failure = messageOf(cause);
@@ -349,8 +327,7 @@
 			rightsNotice = rights.canPush
 				? ''
 				: `This token reaches ${bound ? describeRemote(bound) : 'the repository'} but cannot ` +
-					`push to it, so publishing will be refused. A fine-grained personal access token with ` +
-					`“Contents: Read and write” for this repository is what publishing needs.`;
+					`push. Use a fine-grained token with “Contents: Read and write” for this repository.`;
 			await forecastUpload(plan?.files ?? []);
 		} catch (cause) {
 			uploadProblem = messageOf(cause);
@@ -379,15 +356,10 @@
 	/**
 	 * Whether pressing the button would change nothing anywhere (SPEC story 15).
 	 *
-	 * The Remote holding this Workspace already is most of it, and the rest is an address that has been
-	 * typed over. Said rather than left as a publish that uploads one file — the site record's timestamp
-	 * — and reports success.
+	 * The Remote holding this Workspace already is most of it. Said rather than left as a publish that
+	 * uploads one file — the site record's timestamp — and reports success.
 	 */
-	const nothingToDo = $derived(
-		upload?.unchanged === true &&
-			siteIsCurrent &&
-			canonicalUrl.trim() === (plan?.canonicalUrl ?? '')
-	);
+	const nothingToDo = $derived(upload?.unchanged === true && siteIsCurrent);
 
 	/**
 	 * How many files the Remote will hold: the Workspace's, and the website about to be written.
@@ -397,6 +369,23 @@
 	 * sum, and on a first publish the second half is most of it.
 	 */
 	const uploadFiles = $derived(upload === null ? 0 : upload.files.length + upload.pending.length);
+
+	const publishedBreakdown = $derived.by(() => {
+		const files = plan?.files ?? [];
+		const mapImages = plan?.mapImages ?? { files: 0, bytes: 0 };
+		const baseMap = files.filter((file) => file.path.startsWith('base-map/'));
+		const site = files.filter((file) => !file.path.startsWith('base-map/'));
+		return {
+			totalFiles: files.length + mapImages.files,
+			totalBytes: (plan?.bytes ?? 0) + mapImages.bytes,
+			mapImageFiles: mapImages.files,
+			mapImageBytes: mapImages.bytes,
+			baseMapFiles: baseMap.length,
+			baseMapBytes: baseMap.reduce((total, file) => total + file.bytes, 0),
+			siteFiles: site.length,
+			siteBytes: site.reduce((total, file) => total + file.bytes, 0)
+		};
+	});
 
 	/**
 	 * Why publishing would overwrite work this Workspace has never seen, or `null` (ADR-0033).
@@ -410,38 +399,26 @@
 	const blockedByConflict = $derived(conflict !== null && !replacing);
 
 	/**
-	 * What the confirm button says, which has to be what pressing it does.
-	 *
-	 * ⚠ **A bound Workspace with no credential publishes into the folder and reaches nobody.** The
-	 * paste form and this button are on screen together — the run guards the upload on the credential,
-	 * and the button does not — so a plain "Publish" there is the one press in this dialog that reads
-	 * as putting the work on the web and does not. It is still offered, because the local publish is
-	 * a real thing to want and every state of this control has to lead somewhere.
+	 * What the confirm button says, which has to be what pressing it does. The button is rendered only
+	 * after the Workspace has a Remote and a credential.
 	 */
 	const confirmLabel = $derived(
 		publishing
 			? 'Publishing…'
-			: remote !== null && !signedIn
-				? 'Publish into this Workspace only'
-				: // Said on the button as well as on the remedy that armed it, because between the two
-					// presses is where a scholar looks away — and "Publish" is not what this one does.
-					conflict !== null && replacing
-					? 'Publish anyway, replacing it'
-					: 'Publish'
+			: conflict !== null && replacing
+				? 'Publish anyway, replacing it'
+				: 'Publish'
 	);
 
 	const run = async () => {
 		const agreed = plan;
-		if (!agreed || publishing || nothingToDo || blockedByConflict) return;
+		if (!agreed || remote === null || !signedIn || publishing || nothingToDo || blockedByConflict)
+			return;
 		publishing = true;
 		failure = '';
 		/** Whether the viewer has reached the Workspace, so a later refusal does not deny it. */
 		let written = false;
 		try {
-			// The address is settled **first** — decision 2 in the header. Refused here, nothing has been
-			// written and nothing has been sent, which is what its refusal claims.
-			const stamped =
-				canonicalUrl.trim() === '' ? { images: 0 } : await session.stampCanonicalUrl(canonicalUrl);
 			const siteWritten = await session.publish({
 				plan: agreed,
 				readAsset: readBundleAsset,
@@ -488,10 +465,8 @@
 				};
 				manifestKept = result.manifestKept;
 			} else if (bound !== null) {
-				// ⚠ **A bound Workspace with no credential publishes locally and reaches nobody**, and the
-				// worst instance of it is the one this dialog exists to close: an expired token clears the
-				// credential from under the button, so the very next press would otherwise report a
-				// successful publish to a scholar who has just been told their sign-in has gone.
+				// A sign-out during a long publish can remove the credential after the local site is written;
+				// keep the result explicit about the Remote that was not reached.
 				notSent = describeRemote(bound);
 			}
 
@@ -502,7 +477,6 @@
 			published = {
 				site: siteWritten,
 				files: agreed.files.length,
-				stamped: stamped.images,
 				sent,
 				notSent,
 				manifestKept
@@ -586,10 +560,6 @@
 		return (
 			`Published: ${published.files} files written into your Workspace, carrying ` +
 			`${describeProjects(published.site.projects)}.` +
-			(published.stamped > 0
-				? ` ${published.stamped === 1 ? '1 Map Image' : `${published.stamped} Map Images`} ` +
-					`stamped for ${canonicalUrl.trim()}.`
-				: '') +
 			(sent
 				? ` Sent to ${sent.remote}: ${sent.files} files, ${sent.uploaded} of them uploaded.`
 				: '') +
@@ -670,37 +640,33 @@
 		class="mt-4 rounded-box border border-base-300 p-4"
 		data-testid="publish-project-selection"
 	>
-		<h3 class="font-semibold">Projects on the Published Site</h3>
-		<p class="mt-1 text-sm">
-			Choose which Projects a Reader will see on the site's front page. Turning one off removes it
-			from that list only; it stays on the site and remains readable by anyone with its link.
+		<h3 class="font-semibold">Projects on the front page</h3>
+		<p id="publish-project-description" class="mt-1 text-sm">
+			Choose which Projects Readers see first. All Projects stay published.
 		</p>
 		<ul class="mt-3 flex flex-col gap-3">
 			{#each session.projects as project (project.directory)}
 				<li>
-					<label class="flex w-fit items-center gap-2 text-sm">
-						<input
-							type="checkbox"
-							class="toggle toggle-sm"
-							data-testid="on-front-page-{project.directory}"
-							checked={project.onFrontPage}
-							onchange={(event) =>
-								void session.setProjectOnFrontPage(
-									project.directory,
-									(event.currentTarget as HTMLInputElement).checked
-								)}
-							disabled={project.problem !== null}
-							aria-describedby="front-page-note-{project.directory}"
-						/>
-						On the front page<span class="sr-only"> — {project.name}</span>
+					<label class="flex items-center justify-between gap-3 text-sm">
+						<span class="font-medium">{project.name}</span>
+						<span class="flex items-center gap-2">
+							<span>Front page</span>
+							<input
+								type="checkbox"
+								class="toggle toggle-sm"
+								data-testid="on-front-page-{project.directory}"
+								checked={project.onFrontPage}
+								onchange={(event) =>
+									void session.setProjectOnFrontPage(
+										project.directory,
+										(event.currentTarget as HTMLInputElement).checked
+									)}
+								disabled={project.problem !== null}
+								aria-label="On the front page — {project.name}"
+								aria-describedby="publish-project-description"
+							/>
+						</span>
 					</label>
-					<p
-						id="front-page-note-{project.directory}"
-						class="mt-1 max-w-prose text-sm opacity-70"
-						data-testid="front-page-note-{project.directory}"
-					>
-						{frontPageNote(project)}
-					</p>
 				</li>
 			{/each}
 		</ul>
@@ -709,31 +675,46 @@
 	{#if plan === null}
 		<p>Working out what publishing would add…</p>
 	{:else}
-		<p>
-			An <code>index.html</code> and a read-only viewer are written into your Workspace, beside the
-			work already there:
-			<strong>{plan.files.length} files, {describeBytes(plan.bytes)}</strong>. Your Map Images are
-			not copied — publishing adds a website to the folder you already have.
-		</p>
-		<p class="mt-2 text-sm opacity-80" data-testid="publish-projects">
-			The site will carry {describeProjects(plan.projects)}.
-		</p>
+		<div class="mt-2" data-testid="publish-breakdown">
+			<p class="text-lg font-semibold">
+				Published site: <strong class="text-2xl"
+					>{describeBytes(publishedBreakdown.totalBytes)}</strong
+				>
+			</p>
+			<p class="text-sm opacity-80">{publishedBreakdown.totalFiles} files total</p>
+			<ul class="mt-1 list-disc pl-5 text-sm opacity-80">
+				{#if publishedBreakdown.mapImageFiles > 0}
+					<li>
+						Uploaded Map Images: {publishedBreakdown.mapImageFiles} files,
+						{describeBytes(publishedBreakdown.mapImageBytes)}.
+					</li>
+				{/if}
+				<li>
+					Viewer and site data: {publishedBreakdown.siteFiles} files,
+					{describeBytes(publishedBreakdown.siteBytes)}.
+				</li>
+				{#if publishedBreakdown.baseMapFiles > 0}
+					<li>
+						Base Map labels and symbols: {publishedBreakdown.baseMapFiles} files,
+						{describeBytes(publishedBreakdown.baseMapBytes)}.
+					</li>
+				{/if}
+			</ul>
+		</div>
 
 		<!--
 			Where the Workspace goes afterwards, and what that costs (ADR-0032, ADR-0033).
 
-			Four states, and every one of them leads somewhere: unbound offers the binding, bound and
-			signed out offers the paste, a refusal names its remedy, and a Remote that already holds this
-			Workspace says so rather than uploading a timestamp and reporting success.
+			A GitHub repository and credential are required before the action is offered. A refusal names
+			its remedy, and a Remote that already holds this Workspace says so rather than uploading a
+			timestamp and reporting success.
 		-->
 		<section class="mt-4 rounded-box border border-base-300 p-4">
-			<h3 class="font-semibold">Sending it to the web</h3>
+			<h3 class="font-semibold">Publish destination</h3>
 			{#if remote === null}
 				<p class="mt-1 text-sm" data-testid="publish-unbound">
-					This Workspace is not bound to a repository, so publishing writes the website into your
-					Workspace and sends it nowhere. To put it on the web, open the Workspace menu at the top
-					left and choose <strong>Remote repository…</strong> — one GitHub repository, once, and publishing
-					never asks you where again.
+					Connect this Workspace to a GitHub repository before publishing. Choose
+					<strong>Remote repository…</strong> from the Workspace menu.
 				</p>
 			{:else}
 				<!--
@@ -769,9 +750,8 @@
 				{#if !signedIn}
 					<form class="mt-3 flex flex-col gap-2" onsubmit={(event) => void signIn(event)}>
 						<p class="text-sm" data-testid="publish-sign-in-needed">
-							This Workspace publishes to <code>{describeRemote(remote)}</code>, and you are not
-							signed in to GitHub. Paste a fine-grained personal access token with “Contents: Read
-							and write” for that repository. It is kept only in this tab.
+							Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
+							<strong>Contents: Read and write</strong>. Kept only in this tab.
 						</p>
 						<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
 						<input
@@ -854,10 +834,12 @@
 							</button>
 						</div>
 					{/if}
-					<p class="mt-1 text-sm">
-						Publishing sends this Workspace to <code>{describeRemote(remote)}</code>, on the branch
-						<code>{remote.branch}</code>, and nowhere else.
-					</p>
+					<ul class="mt-2 list-disc pl-5 text-sm">
+						<li>
+							Destination: <code>{describeRemote(remote)}</code>, branch
+							<code>{remote.branch}</code>.
+						</li>
+					</ul>
 					<!--
 					The three budgets, stated separately because the two kinds of content load them
 					oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a
@@ -867,20 +849,19 @@
 				-->
 					<ul class="mt-2 list-disc pl-5 text-sm opacity-80" data-testid="publish-budget">
 						<li data-budget="files">
-							{upload.uploads} of {uploadFiles} files need uploading; the rest are already there. A publish
-							can carry {MAX_PUBLISHED_FILES} files at most.
+							{upload.uploads} of {uploadFiles} files need uploading (limit: {MAX_PUBLISHED_FILES}).
 						</li>
 						<li data-budget="bytes">
-							The site will hold {describeBytes(upload.bytes)}, of the
-							{describeBytes(STATIC_HOSTING_LIMIT_BYTES)} GitHub Pages will serve.
+							Site size: {describeBytes(upload.bytes)} / {describeBytes(STATIC_HOSTING_LIMIT_BYTES)} GitHub
+							Pages limit.
 						</li>
 						<li data-budget="requests">
 							{#if upload.requestsRemaining === null}
-								GitHub did not say how much of this hour's request budget is left.
+								Requests this hour: unavailable.
 							{:else}
-								GitHub allows {upload.requestsRemaining} more requests this hour{resetsAt === ''
+								Requests this hour: {upload.requestsRemaining} left{resetsAt === ''
 									? ''
-									: `, and the budget resets at ${resetsAt}`}.
+									: `; resets at ${resetsAt}`}.
 							{/if}
 						</li>
 					</ul>
@@ -897,34 +878,10 @@
 			{/if}
 		</section>
 
-		<label class="floating-label mt-6">
-			<span>Address your Map Images will be published at (optional)</span>
-			<input
-				class="input w-full"
-				bind:value={canonicalUrl}
-				placeholder="https://your-name.github.io/your-repository"
-			/>
-		</label>
-		<p class="mt-2 text-sm opacity-70">
-			Fill this in and each Map Image becomes a real IIIF image service at that address, which
-			Allmaps and other tools can read directly. Your Projects keep working here either way.
-		</p>
-
-		<!--
-			⚠ **`aria-live` and never `role="status"` on this bar's screens.** The save indicator owns the
-			one `status` role in the editor, and a second one — even inside an open modal, where Playwright
-			matches roles off the DOM rather than off the accessibility tree — makes `getByRole('status')`
-			ambiguous, which is acceptance criterion 2 in as many words. The Base Map's size is a report
-			rather than a refusal, so it is polite rather than assertive; every other warning here is an
-			`alert` and stays one.
-		-->
-		{#each plan.warnings as warning (warning.kind)}
+		{#each plan.warnings.filter((warning) => warning.kind !== 'base-map-size') as warning (warning.kind)}
 			<div
-				role={warning.kind === 'base-map-size' ? undefined : 'alert'}
-				aria-live={warning.kind === 'base-map-size' ? 'polite' : undefined}
-				class="mt-4 alert flex-col items-start"
-				class:alert-warning={warning.kind !== 'base-map-size'}
-				class:alert-info={warning.kind === 'base-map-size'}
+				role="alert"
+				class="mt-4 alert flex-col items-start alert-warning"
 				data-warning={warning.kind}
 			>
 				<p>{warning.message}</p>
@@ -942,11 +899,8 @@
 	</p>
 
 	<!--
-		⚠ **Neither button is ever `disabled`, and neither is ever removed** — decision 4 in the header,
-		applied to both. A `disabled` button leaves the tab order the moment it is pressed and a removed
-		one leaves it altogether, and both drop a keyboard user's focus to `<body>` (SPEC story 60, WCAG
-		2.4.3). Cancel becomes inert while a publish runs, and Publish while there is nothing to do — and
-		in both cases the sentence saying why is on screen above.
+		Cancel becomes inert while a publish runs. Once it is offered, Publish stays in the tab order
+		while planning, uploading, or waiting on a conflict; the sentence explaining why is on screen.
 	-->
 	{#snippet actions()}
 		<button
@@ -959,13 +913,15 @@
 		>
 			{nothingToDo ? 'Close' : 'Cancel'}
 		</button>
-		<button
-			class="btn btn-primary"
-			class:btn-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
-			aria-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
-			onclick={run}
-		>
-			{confirmLabel}
-		</button>
+		{#if remote !== null && signedIn}
+			<button
+				class="btn btn-primary"
+				class:btn-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
+				aria-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
+				onclick={run}
+			>
+				{confirmLabel}
+			</button>
+		{/if}
 	{/snippet}
 </ModalDialog>

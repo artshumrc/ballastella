@@ -49,6 +49,7 @@ import {
 } from '../project/workspace-size.js';
 import type { ProjectSummary } from '../project/workspace.js';
 import { assertStorePath, type Bytes, type ProjectStore } from '../store/project-store.js';
+import { listIngestedImages } from '../tiler/ingest.js';
 import { serialiseJson } from '../tiler/pyramid.js';
 import {
 	JEKYLL_OFF_MARKER,
@@ -420,6 +421,8 @@ export type PublishPlan = {
 	readonly bytes: number;
 	/** What the Workspace holds now, from `ProjectStore#size` and never from reading a tile. */
 	readonly workspace: WorkspaceSize;
+	/** How much the tiled Map Images already in the Workspace contribute to the published site. */
+	readonly mapImages: WorkspaceSize;
 	/**
 	 * How much of {@link workspace} is Map Images no Project's Layers draw (SPEC story 98).
 	 *
@@ -493,6 +496,17 @@ export type PlanPublishOptions = {
 	readonly editorUrl?: string;
 };
 
+const tiledMapImageSize = async (store: ProjectStore): Promise<WorkspaceSize> => {
+	const images = await listIngestedImages(store);
+	const sizes = await Promise.all(
+		images.map((image) => workspaceSize(store, `${image.directory}/`))
+	);
+	return sizes.reduce(
+		(total, size) => ({ bytes: total.bytes + size.bytes, files: total.files + size.files }),
+		{ bytes: 0, files: 0 }
+	);
+};
+
 /**
  * Work out what publishing would do, and everything the user has to be told first.
  *
@@ -523,6 +537,7 @@ export async function planPublish(
 	// Workspace already held. `workspaceSize` is `list` + `size` and never `read` — a Workspace with
 	// an offline copy's pyramid in it is tens of thousands of files (ADR-0001, ADR-0008).
 	const workspace = await workspaceSize(store);
+	const mapImages = await tiledMapImageSize(store);
 	// Cheap even beside that walk: the classification and the used-by are one `list` of `images/` and
 	// one read per Project, and the `size` calls happen only for the maps nothing draws — usually none.
 	const unusedMapImages = await unusedMapImageBytes(store);
@@ -575,15 +590,12 @@ export async function planPublish(
 		warnings.push({
 			kind: 'base-map-size',
 			message:
-				`Including Base Map labels and symbols writes ${baseMap.length} more files, about ` +
-				`${describeBytes(bundleBytes(baseMap))}, into this Workspace. ` +
+				`Base Map labels and symbols add ${baseMap.length} more files, about ` +
+				`${describeBytes(bundleBytes(baseMap))}. ` +
 				(baseMapTiles.tiles > 0
-					? `The Base Map tiles are already here — ${baseMapTiles.tiles} of them, ` +
-						`${describeBytes(baseMapTiles.bytes)} — so this site will draw its geography with no ` +
-						`network connection. `
-					: `The Base Map tiles still need a network connection: make a Project available offline ` +
-						`if the site has to draw its geography on a train. `) +
-				`These files count against the same hosting budget as your Map Images.`
+					? `${baseMapTiles.tiles} cached tiles (${describeBytes(baseMapTiles.bytes)}); works offline. `
+					: 'Base Map tiles need a network connection. ') +
+				`Counts against the hosting budget.`
 		});
 	}
 
@@ -600,6 +612,7 @@ export async function planPublish(
 		files,
 		bytes,
 		workspace,
+		mapImages,
 		unusedMapImages,
 		baseMapBundled: baseMapTiles.tiles > 0,
 		baseMapAssetsBundled: baseMap.length > 0,

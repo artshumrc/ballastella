@@ -5,7 +5,6 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
 	GITHUB_API_ORIGIN,
@@ -13,11 +12,14 @@ import {
 	type GitHubHosts,
 	type GitHubHostsOptions
 } from './support/github-hosts.js';
-import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
-import { alignFromLayer } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
 import { createWorkspace } from './support/workspace.js';
+
+const DEFAULT_REMOTE_BINDING = {
+	'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
+};
+const DEFAULT_PUBLISH_TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -45,8 +47,8 @@ declare global {
 /**
  * SPEC's Seam 2 for ticket 16, and the assertion the whole ticket rests on.
  *
- * The file-level behaviour — additive publishing, the recorded file set, the warnings, the canonical
- * stamp — is asserted at Seam 1 in `@ballastella/core`, where the bytes are the assertion. What only
+ * The file-level behaviour — additive publishing, the recorded file set, and the warnings — is asserted
+ * at Seam 1 in `@ballastella/core`, where the bytes are the assertion. What only
  * a browser can settle is the claim ADR-0006 actually makes: that the folder publishing wrote **is a
  * working website**, from one build, at a domain root *and* in a subdirectory.
  *
@@ -236,10 +238,14 @@ const projectFiles = (
 });
 
 /** Open the editor on an empty Workspace holding exactly `files`. */
-async function openWorkspace(page: Page, files: Record<string, string>): Promise<void> {
+async function openWorkspace(
+	page: Page,
+	files: Record<string, string>,
+	options: { unbound?: boolean } = {}
+): Promise<void> {
 	await page.goto('./');
 	await emptyWorkspace(page);
-	await seed(page, files);
+	await seed(page, options.unbound ? files : { ...DEFAULT_REMOTE_BINDING, ...files });
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 }
@@ -248,7 +254,7 @@ async function openWorkspace(page: Page, files: Record<string, string>): Promise
 async function openPublishDialog(page: Page) {
 	await page.getByRole('button', { name: 'Publish…' }).click();
 	const dialog = page.getByRole('dialog');
-	await expect(dialog.getByText('read-only viewer')).toBeVisible();
+	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	return dialog;
 }
 
@@ -256,13 +262,22 @@ async function openPublishDialog(page: Page) {
  * Publish, and wait for the announced result.
  *
  */
-async function publish(page: Page, options: { canonicalUrl?: string } = {}) {
-	const dialog = await openPublishDialog(page);
-	const stated = dialog.locator('[data-warning="base-map-size"]');
-	await expect(stated).toBeVisible();
-	if (options.canonicalUrl) {
-		await dialog.getByLabel(/Address your Map Images/).fill(options.canonicalUrl);
+async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>) {
+	await routeGitHubHosts(page, {
+		repositories: [{ owner: 'ada', name: 'atlas' }]
+	});
+	if (await dialog.getByTestId('publish-token-field').count()) {
+		const token = dialog.getByTestId('publish-token-field');
+		await token.fill(DEFAULT_PUBLISH_TOKEN);
+		await expect(token).toHaveValue(DEFAULT_PUBLISH_TOKEN);
+		await dialog.getByTestId('publish-sign-in').click();
+		await expect(dialog.getByTestId('publish-budget')).toBeVisible({ timeout: 60_000 });
 	}
+}
+
+async function publish(page: Page, existingDialog?: ReturnType<Page['getByRole']>) {
+	const dialog = existingDialog ?? (await openPublishDialog(page));
+	await preparePublish(page, dialog);
 	await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 	// Generous, because publishing fetches every file of the bundle and writes it into OPFS: real work,
 	// and the suite runs four workers each driving a real map against the same origin's storage. The
@@ -304,8 +319,8 @@ test.describe('publishing a Workspace', () => {
 	 * following `http://localhost:5173/` arrives at whatever is on *their* port 5173. A dev server is
 	 * exactly that case, and so is this one.
 	 *
-	 * Which is why every site below carries no return link and asks for no `remote.json`: the binding
-	 * that would name the repository is only worth a round trip when there is an instance to link to.
+	 * Which is why every site below carries no return link and makes no `remote.json` request: the editor
+	 * URL is empty in this suite, so the viewer has no instance to link to.
 	 */
 	async function expectNoReturnLink(page: Page, site: StaticSite): Promise<void> {
 		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
@@ -429,17 +444,18 @@ test.describe('publishing a Workspace', () => {
 		const boston = dialog.getByTestId('on-front-page-boston-1775');
 		await expect(boston).toBeChecked();
 		await expect(boston).toHaveAccessibleName('On the front page — Boston 1775');
-		const note = dialog.getByTestId('front-page-note-boston-1775');
-		await expect(boston).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
-
-		await boston.uncheck();
-		await expect(note).toContainText('not on the front page');
-		await expect(note).toContainText('readable by anyone with the link');
-		await expect(dialog.getByTestId('publish-projects')).toContainText(
-			'The site will carry 2 Projects, 1 of them on the front page.'
+		const description = dialog.locator('#publish-project-description');
+		await expect(boston).toHaveAttribute(
+			'aria-describedby',
+			(await description.getAttribute('id')) ?? ''
 		);
 
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await boston.uncheck();
+		await expect(description).toContainText('All Projects stay published.');
+		await expect(dialog.getByTestId('publish-breakdown')).toBeHidden();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+
+		await publish(page, dialog);
 
 		await expect(page.getByTestId('publish-status')).toContainText(
 			'carrying 2 Projects, 1 of them on the front page.',
@@ -452,8 +468,8 @@ test.describe('publishing a Workspace', () => {
 
 		const dialog = await openPublishDialog(page);
 		// The display assets' size is on screen before publishing spends it.
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toContainText(/[0-9.]+ (kB|MB)/);
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(dialog.getByTestId('publish-breakdown')).toContainText(/[0-9.]+ (kB|MB)/);
+		await publish(page, dialog);
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
 		});
@@ -487,39 +503,14 @@ test.describe('publishing a Workspace', () => {
 			...publishedSite({ baseMapAssetsBundled: false })
 		});
 		const dialog = await openPublishDialog(page);
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await publish(page, dialog);
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
 		});
 		expect(
 			Object.keys(await takeWorkspace(page)).some((path) => path.startsWith('base-map/'))
 		).toBe(true);
-	});
-
-	test('refuses a mistyped address before it writes a thing, which is what its refusal claims', async ({
-		page
-	}) => {
-		// `scholar.example` — no scheme — is how a user ordinarily arrives here, the placeholder being
-		// the only hint. Core's refusal ends "Nothing has been changed.", so the address has to be
-		// settled *before* the site is written rather than after: the failure this guards is the whole
-		// Workspace gaining a website and the user being told, in the same breath, that it did not.
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		const before = await takeWorkspace(page);
-
-		const dialog = await openPublishDialog(page);
-		await dialog.getByLabel(/Address your Map Images/).fill('scholar.example');
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-
-		const refusal = dialog.getByRole('alert');
-		await expect(refusal).toContainText('scholar.example');
-		await expect(refusal).toContainText('https://');
-		await expect(refusal).toContainText('Nothing has been changed.');
-
-		// The sentence, checked against the folder rather than taken on trust.
-		expect(await takeWorkspace(page)).toEqual(before);
-		// And nothing was announced as published, because nothing was.
-		await expect(page.getByTestId('publish-status')).toHaveText('');
 	});
 
 	test('announces progress from inside the modal, where the document is not inert', async ({
@@ -559,6 +550,7 @@ test.describe('publishing a Workspace', () => {
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			await route.continue();
 		});
+		await preparePublish(page, dialog);
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(dialog.getByTestId('publish-progress')).toContainText(
 			/Publishing: \d+ of \d+ files\./
@@ -586,7 +578,7 @@ test.describe('publishing a Workspace', () => {
 		await expect(warning).toContainText('Blaeu’s plan, from the library');
 		await expect(warning).toContainText('no network');
 		// And the Reader is told too, on the site itself (SPEC story 29).
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await publish(page, dialog);
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
 		});
@@ -669,7 +661,7 @@ test.describe('publishing a Workspace', () => {
 		});
 		await page.reload();
 		await page.getByRole('button', { name: 'Publish…' }).click();
-		await expect(page.getByRole('dialog').getByText('read-only viewer')).toBeVisible();
+		await expect(page.getByRole('dialog').getByTestId('publish-breakdown')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('publish-stale')).toContainText('an older version of the viewer');
 
@@ -724,97 +716,6 @@ test.describe('publishing a Workspace', () => {
 		page.removeAllListeners('pageerror');
 	});
 
-	test('stamps every info.json id with the canonical address, and the editor still opens it', async ({
-		page
-	}) => {
-		// Driven against a **real ingested pyramid** rather than a seeded stub, because the assertion
-		// that matters is not what the file says: it is that the editor still draws the map after its
-		// `info.json` has been rewritten to point at somebody else's address. `info.json`'s `id` is what
-		// `@allmaps/iiif-parser` concatenates every tile URL onto, so a stamp the load-time override did
-		// not beat would send every tile to `scholar.example` and leave the pane blank (ADR-0004).
-		await page.addInitScript(() => {
-			window.ballastellaServedTiles = [];
-		});
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-		await page.getByRole('button', { name: 'New Project' }).click();
-		const created = page.getByRole('dialog', { name: 'New Project' });
-		await created.getByLabel('Project name').fill('Amsterdam 1625');
-		await created.getByRole('button', { name: 'Create' }).click();
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addMapImageButton(page)).toBeVisible();
-		await pickMapImageFile(page, {
-			name: 'amsterdam.png',
-			mimeType: 'image/png',
-			buffer: gradientPng(600, 400)
-		});
-		// The image id off the Layer the map arrived with (ADR-0023, ticket 04): the Project's list of
-		// image ids is gone, because the Layer already says which image it draws.
-		const row = page.getByTestId('layer-row').first();
-		await expect(row).toBeVisible({ timeout: 30_000 });
-		const imageId = (await row.getAttribute('data-image-id'))!;
-		// The pane that reads through the shim is the `/align/` route since ticket 03, so this is where
-		// `ballastellaServedTiles` is filled from. Reached by opening the Layer, which is where the Align
-		// link lives since ticket 05.
-		await alignFromLayer(page, row);
-		await expect
-			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
-				timeout: 30_000
-			})
-			.toBeGreaterThan(0);
-
-		await page.goto('./');
-		await publish(page, { canonicalUrl: 'https://scholar.example/atlas/' });
-		await expect(page.getByTestId('publish-status')).toContainText(
-			'stamped for https://scholar.example/atlas'
-		);
-
-		const taken = await takeWorkspace(page);
-		const info = JSON.parse(
-			Buffer.from(taken[`images/${imageId}/info.json`]!, 'base64').toString('utf8')
-		);
-		// **No Project directory in the address** (ADR-0023). A Map Image is shared, so it answers at
-		// one citable endpoint however many Projects draw it — and a stamp naming one of them would 404 for
-		// every tile the moment that Project was renamed or deleted.
-		expect(info.id).toBe(`https://scholar.example/atlas/images/${imageId}`);
-		// Every other field of the document survived the stamp, so the pyramid is still describable.
-		expect(info).toMatchObject({
-			type: 'ImageService3',
-			profile: 'level0',
-			width: 600,
-			height: 400
-		});
-		// The Project still records the address it was stamped for, so a later publish can offer it back.
-		const projectFile = Object.keys(taken).find((path) => path.endsWith('/project.json'))!;
-		expect(
-			JSON.parse(Buffer.from(taken[projectFile]!, 'base64').toString('utf8')).canonicalUrl
-		).toBe('https://scholar.example/atlas');
-
-		// Load-time override wins (ADR-0004): the stamped Project still opens here, and the pane still
-		// draws out of the store. `ballastellaServedTiles` is the decisive form of that — a pyramid read
-		// from OPFS issues no request at all, so every entry in it is a tile the injection shim answered
-		// at the placeholder host, which no blank canvas and no fallback to the network could produce.
-		const requested: string[] = [];
-		page.on('request', (request) => requested.push(request.url()));
-		await page.reload();
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(addMapImageButton(page)).toBeVisible();
-		await alignFromLayer(page);
-		await expect
-			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
-				timeout: 30_000
-			})
-			.toBeGreaterThan(0);
-
-		const served = await page.evaluate(() => window.ballastellaServedTiles ?? []);
-		for (const tile of served) {
-			expect(tile.url.startsWith(`https://unset.invalid/${imageId}/`), tile.url).toBe(true);
-		}
-		expect(requested.filter((url) => url.startsWith('https://scholar.example'))).toEqual([]);
-		page.removeAllListeners('request');
-	});
-
 	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
@@ -829,14 +730,15 @@ test.describe('publishing a Workspace', () => {
 		await page.keyboard.press('Enter');
 
 		const dialog = page.getByRole('dialog');
-		await expect(dialog.getByText('read-only viewer')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await preparePublish(page, dialog);
 		// ADR-0016's mandated `<dialog>` + `showModal()`: Escape closes it and focus comes back.
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
 		await expect(publishButton).toBeFocused();
 
 		await page.keyboard.press('Enter');
-		await expect(dialog.getByText('read-only viewer')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).press('Enter');
 
 		// The outcome is announced rather than only drawn (SPEC story 96).
@@ -963,8 +865,7 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * Sign in from the publish dialog itself, which **is** the bound-with-no-credential state.
 	 *
-	 * The Publish control is enabled in that state and pressing it asks for the credential here rather
-	 * than sending the user to another dialog — one of the six states this ticket settled.
+	 * The dialog asks for the credential here rather than sending the user to another dialog.
 	 */
 	async function signIn(page: Page) {
 		const dialog = await openPublishDialog(page);
@@ -981,7 +882,7 @@ test.describe('publishing to a Remote', () => {
 	 * namespace either way (ADR-0033), and the remote tests assert on the resulting bytes.
 	 */
 	async function publishToRemote(page: Page, dialog: ReturnType<Page['getByRole']>) {
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
 			timeout: 120_000
@@ -1094,7 +995,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		const github = await start(page);
 		const dialog = await signIn(page);
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		// Slow every GitHub request down so the progress line is on screen long enough to assert rather
 		// than long enough to be lucky. Installed *after* the fake's own handler, so it is consulted
 		// first and falls back to it — the delay is the whole of what this adds.
@@ -1202,7 +1103,7 @@ test.describe('publishing to a Remote', () => {
 		// every byte it is about to send: the fixture that stands the local warning up is a sparse file
 		// `ProjectStore#size` reports without reading, and this path would read all of it.
 		await expect(dialog.locator('[data-budget="bytes"]')).toContainText(
-			/The site will hold [\d.]+ (bytes|kB|MB|GB),\s+of the\s+1\.0 GB GitHub Pages will serve\./
+			/Site size: [\d.]+ (bytes|kB|MB|GB) \/ 1\.0 GB GitHub\s+Pages limit\./
 		);
 	});
 
@@ -1220,7 +1121,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		const github = await start(page);
 		const dialog = await signIn(page);
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
 		const stated = await dialog.locator('[data-budget="files"]').innerText();
@@ -1252,7 +1153,7 @@ test.describe('publishing to a Remote', () => {
 		const before = github.files(OWNER, REPOSITORY);
 		const commit = github.head(OWNER, REPOSITORY);
 		const dialog = await signIn(page);
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
@@ -1270,82 +1171,33 @@ test.describe('publishing to a Remote', () => {
 		await expect(page.getByTestId('publish-failure')).toContainText('written into this Workspace');
 	});
 
-	test('settles the address before any upload, and a refused one sends nothing', async ({
-		page
-	}) => {
-		// `scholar.example` — no scheme — is how a user ordinarily arrives here. Core's refusal ends
-		// "Nothing has been changed.", so the address is settled before the site is written *and*
-		// before a byte is sent: a refusal after an upload would make that sentence false on a public
-		// host as well as in a folder.
-		const github = await start(page);
-		const before = await takeWorkspace(page);
-		const dialog = await signIn(page);
-		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
-
-		await dialog.getByLabel(/Address your Map Images/).fill('scholar.example');
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-
-		await expect(dialog.getByRole('alert').first()).toContainText('Nothing has been changed.');
-		expect(await takeWorkspace(page)).toEqual(before);
-		expect(github.blobPosts()).toBe(0);
-		expect(github.files(OWNER, REPOSITORY)).toEqual(['README.md']);
-	});
-
-	// SPEC story 38 in the one place it could most easily be broken: the Publish button is on every
-	// screen now, and a scholar who never publishes must still never meet a sign-in prompt.
-	test('offers the binding rather than a sign-in when the Workspace is bound to nothing', async ({
-		page
-	}) => {
+	// An unbound Workspace must be connected to a GitHub repository before publishing is offered.
+	test('offers a GitHub repository binding before publishing', async ({ page }) => {
 		const github = await routeGitHubHosts(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY }]
 		});
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }), {
+			unbound: true
+		});
 
 		const dialog = await openPublishDialog(page);
 
 		await expect(dialog.getByTestId('publish-unbound')).toContainText('Remote repository…');
 		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
-		// Nothing was asked of GitHub, and the local publish is still there and still works — a user
-		// with no Remote is not blocked by an epic about Remotes.
-		expect(github.requests).toEqual([]);
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
-			timeout: 30_000
-		});
-		await expect(page.getByTestId('publish-status')).not.toContainText('Sent to');
+		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
 		expect(github.requests).toEqual([]);
 	});
 
 	/**
-	 * The state between the two the unbound test covers, and the one that can report a lie.
-	 *
-	 * ⚠ **Bound with no credential publishes into the Workspace and reaches nobody.** The paste form
-	 * and the confirm button are on screen together, so the press is available before the sign-in is —
-	 * and the worst arrangement of it is the one the expired-token test above produces, where the
-	 * credential is cleared from under a scholar who then presses Publish and would be told their work
-	 * is on the web. What must be on screen afterwards is the Remote that did **not** get it.
+	 * A bound Workspace without a credential shows the sign-in form but does not offer publishing.
 	 */
-	test('says nothing was sent when the Workspace is bound and not signed in', async ({ page }) => {
+	test('requires sign-in before publishing a bound Workspace', async ({ page }) => {
 		const github = await start(page);
-		const before = github.files(OWNER, REPOSITORY);
 
 		const dialog = await openPublishDialog(page);
 		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeVisible();
-		// The label says so as well, before it is pressed: "Publish" beside a token field is the one
-		// control here that reads as putting the work on the web without doing it.
-		await dialog.getByRole('button', { name: 'Publish into this Workspace only' }).click();
-
-		const status = page.getByTestId('publish-status');
-		await expect(status).toContainText('Published:', { timeout: 30_000 });
-		await expect(status).toContainText(`Nothing was sent to ${REMOTE}`);
-		await expect(status).toContainText('not signed in to GitHub');
-		await expect(status).not.toContainText('Sent to');
-		// And the Remote is exactly as it was, which is what the sentence claims.
-		expect(github.blobPosts()).toBe(0);
-		expect(github.files(OWNER, REPOSITORY)).toEqual(before);
-		// The website itself did reach the Workspace, so publishing again after a sign-in sends it.
-		expect(Object.keys(await takeWorkspace(page))).toContain('index.html');
+		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+		expect(github.requests).toEqual([]);
 	});
 
 	/**
