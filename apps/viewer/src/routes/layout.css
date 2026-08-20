@@ -108,8 +108,8 @@
 	--color-warning-content: #fbfaf7;
 	--color-error-content: #fbfaf7;
 
-	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
-	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */
+	--radius-selector: 0rem; /* toggle, range, checkbox, badge */
+	--radius-field: 0rem; /* button, input, select, textarea, menu, kbd */
 	--radius-box: 0rem; /* card, modal, alert, select (outer) */
 	--size-selector: 0.25rem;
 	--size-field: 0.25rem;
@@ -145,8 +145,8 @@
 	--color-warning-content: #14181f;
 	--color-error-content: #14181f;
 
-	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
-	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */
+	--radius-selector: 0rem; /* toggle, range, checkbox, badge */
+	--radius-field: 0rem; /* button, input, select, textarea, menu, kbd */
 	--radius-box: 0rem; /* card, modal, alert, select (outer) */
 	--size-selector: 0.25rem;
 	--size-field: 0.25rem;

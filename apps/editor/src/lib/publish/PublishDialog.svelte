@@ -110,6 +110,7 @@
 	let replacing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
+	let refusalToastDismissed = $state(false);
 	/** The Project state the current forecast was built from. */
 	let plannedProjectKey = '';
 
@@ -515,6 +516,10 @@
 	/** What the user is left holding once the dialog is dismissed, or `''`. */
 	const standingRefusal = $derived(failure || uploadProblem);
 
+	$effect(() => {
+		if (standingRefusal) refusalToastDismissed = false;
+	});
+
 	/**
 	 * How many Projects a site carries, and how many of them its Front Page lists (ADR-0032).
 	 *
@@ -612,20 +617,14 @@
 	</div>
 {/if}
 
-<!--
-	A refusal outlives the dialog it was raised in (ticket 04): it is the one thing on this screen a
-	user has to act on, and dismissing the modal is how they get back to the Workspace to act on it.
-	Both kinds — a publish that stopped, and an upload that could not even be planned — because a
-	scholar who closes the dialog over a truncated tree has exactly the same work to do as one who
-	closes it over a spent request budget.
--->
-{#if standingRefusal && !open}
-	<div
-		role="alert"
-		class="mt-2 alert flex-col items-start alert-error"
-		data-testid="publish-failure"
-	>
-		<p>{standingRefusal}</p>
+{#if standingRefusal && !open && !refusalToastDismissed}
+	<div class="toast toast-top toast-end" data-testid="publish-failure">
+		<div role="alert" class="alert max-w-md items-start alert-error">
+			<p>{standingRefusal}</p>
+			<button class="btn btn-sm" type="button" onclick={() => (refusalToastDismissed = true)}>
+				Dismiss
+			</button>
+		</div>
 	</div>
 {/if}
 

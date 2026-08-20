@@ -41,16 +41,23 @@
  * whole — `${style.btn}` in a class attribute is fine, `btn-${kind}` is not.
  *
  * The `ink` entries are the kind's hue **mixed half-and-half with the theme's own text colour**, and
- * that is not a decoration: `accent` is a 77%-lightness teal in the stock light theme, 1.9:1 against a
- * white card — a colour that cannot carry a 0.65rem label (4.5:1) and cannot carry an icon either
- * (3:1) — and `info` is a 74%-lightness blue at 2.2:1, no better. Mixed, they carry 5.6:1 and 6.0:1 in
- * light, 9.2:1 and 8.8:1 in dark. The mix is defined in `layout.css` from the same theme variables, so
- * it still follows the theme; that file has the measured sweep, including why the ratio is a half and
- * not the 60% it started at (ADR-0016, ADR-0020).
+ * that is not a decoration: a raw `accent` or `info` cannot carry a 0.65rem label (4.5:1) or an icon
+ * (3:1) against the ground it sits on, in either theme. The mix is defined in `layout.css` from the
+ * same theme variables, so it still follows the theme; that file has the measured sweep, including why
+ * the ratio is a half and not the 60% it started at (ADR-0016, ADR-0020).
+ *
+ * **No ratio is quoted here on purpose.** The numbers move whenever the palette or the tint moves, and
+ * a figure in a comment is one nobody re-measures — `layer-kind-contrast.dom.test.ts` computes every
+ * one of them from the shipped stylesheets instead, against the bare card *and* against the tinted
+ * header the kind line is actually drawn on, which is the lower of the two.
+ *
+ * **The tint's strength is a design decision and no test pins its value.** Retune the `/30` below
+ * freely; the contrast test is what fails if a retune makes the kind line illegible, and it reads the
+ * alpha out of this table rather than being told it.
  */
 export const KIND_STYLE = {
 	map: {
-		tint: 'bg-accent/10',
+		tint: 'bg-accent/30',
 		ink: 'text-[var(--layer-kind-ink-map)]',
 		toggle: 'toggle-accent',
 		range: 'range-accent',
@@ -59,7 +66,7 @@ export const KIND_STYLE = {
 		btnWhenChecked: 'has-[:checked]:btn-accent'
 	},
 	annotation: {
-		tint: 'bg-info/10',
+		tint: 'bg-info/30',
 		ink: 'text-[var(--layer-kind-ink-annotation)]',
 		toggle: 'toggle-info',
 		range: 'range-info',

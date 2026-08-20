@@ -24,6 +24,7 @@ import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
+import { KIND_STYLE } from './layer-kind-style.js';
 import AnnotationInspectorHarness from './AnnotationInspectorHarness.svelte';
 import AnnotationListHarness from './AnnotationListHarness.svelte';
 
@@ -431,15 +432,19 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 		const marked = nth('annotation-row-item', 1);
 		const plain = nth('annotation-row-item', 0);
 
-		expect(marked).toHaveClass('bg-info/10');
+		// The wash is read from `KIND_STYLE` rather than written out: how strong it is gets tuned, and
+		// naming the value here would make a tuning pass a test edit. What this asserts is the thing a
+		// reader depends on — the selected row wears the wash and the spine, and an unselected row
+		// wears neither.
+		expect(marked).toHaveClass(KIND_STYLE.annotation.tint);
 		expect(marked).toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
-		expect(plain).not.toHaveClass('bg-info/10');
+		expect(plain).not.toHaveClass(KIND_STYLE.annotation.tint);
 		expect(plain).not.toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
 
 		// The button is inside the marked element rather than being the marked element: the `<li>` is
 		// what wears the wash, which is what "the whole row" means here.
 		expect(marked).toContainElement(nth('annotation-row', 1));
-		expect(nth('annotation-row', 1)).not.toHaveClass('bg-info/10');
+		expect(nth('annotation-row', 1)).not.toHaveClass(KIND_STYLE.annotation.tint);
 	});
 
 	test('the selected row’s name is semibold, and an unselected row’s is not', () => {

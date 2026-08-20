@@ -188,7 +188,7 @@
 				{#each group as colour (colour.value)}
 					{@const isChosen = chosen === colour.value}
 					<label
-						class="relative size-6 cursor-pointer rounded border border-base-content/30 transition-transform hover:scale-110 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-base-content"
+						class="relative size-6 cursor-pointer rounded-box border border-base-content/30 transition-transform hover:scale-110 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-base-content"
 						style="background-color: {colour.value}"
 						data-testid="{testid}-{colour.name.toLowerCase()}"
 						data-chosen={isChosen ? 'true' : 'false'}
@@ -223,7 +223,7 @@
 				leads nowhere and an option a screen reader would list.
 			-->
 			<span
-				class="size-6 shrink-0 rounded border-2 border-dashed border-base-content/50"
+				class="size-6 shrink-0 rounded-box border-2 border-dashed border-base-content/50"
 				style="background-color: {chosen}"
 				data-testid="{testid}-current"
 				data-colour={chosen}

@@ -92,10 +92,11 @@
 	enough to say which row had been chosen — the fault a scholar reported first — so the selected
 	Annotation is one marked block.
 
-	`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table every
-	colour in this card comes from (`layer-kind-style.ts`). It is a wash rather than a fill for a
-	reason: at 10% over `base-100` the row's text stays on the colour it was already legible on, where
-	a `base-content` slab has to re-solve its own contrast and then repaint the text to win.
+	`KIND_STYLE.annotation.tint` is the same wash the card's header wears, from the one table every
+	colour in this card comes from (`layer-kind-style.ts`) — so retuning it there moves both together.
+	It is a wash rather than a fill for a reason: over `base-100` the row's text stays on the colour it
+	was already legible on, where a `base-content` slab has to re-solve its own contrast and then
+	repaint the text to win.
 
 	⚠ **The spine is not the rule that was removed.** What was removed was `border-primary` over
 	daisyUI's `menu-active`: two colours making two claims, `primary` being the *app's* action colour
@@ -245,9 +246,10 @@
 					so deleting an Annotation renumbers the rest, and so does moving one (ADR-0002).
 
 					The kind's own ink rather than a plain `opacity-60` like the shape word: the number is what
-					the mark on the map is wearing, and the ink is the measured mix `layout.css` computes from
-					`--color-info` — 6.0:1 in the light theme and 8.8:1 in dark, on the row's own 10% wash. The
-					raw token is 2.2:1 there and could not carry text this size.
+					the mark on the map is wearing, and the ink is the mix `layout.css` computes from
+					`--color-info`, which the raw token could not stand in for at this size.
+					`layer-kind-contrast.dom.test.ts` measures it on the row's own wash in both themes, so the
+					ratio lives there rather than in a figure here that a retune would falsify.
 				-->
 			<span
 				class={['shrink-0 text-xs font-semibold tabular-nums', KIND_STYLE.annotation.ink]}

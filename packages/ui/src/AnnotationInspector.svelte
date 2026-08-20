@@ -191,7 +191,7 @@
 -->
 <section
 	id={ID}
-	class="flex w-full flex-col gap-3 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-lg"
+	class="flex w-full flex-col gap-3 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
 	aria-label="Annotation Inspector: {name}"
 	data-testid="annotation-inspector"
 	data-reveal-ms={arrival.duration}

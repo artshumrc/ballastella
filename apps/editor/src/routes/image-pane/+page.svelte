@@ -119,7 +119,7 @@
 			</button>
 		</div>
 
-		<div class="min-h-0 flex-1 overflow-hidden rounded border border-base-300">
+		<div class="min-h-0 flex-1 overflow-hidden rounded-box border border-base-300">
 			<ImagePaneView
 				bind:this={paneView}
 				{pane}

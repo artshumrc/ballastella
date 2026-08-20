@@ -49,6 +49,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import type { Layer } from '@ballastella/core';
 
+import { KIND_STYLE } from './layer-kind-style';
 import LayerList from './LayerList.svelte';
 
 /** WCAG 2.1 AA for text below 18.66px bold / 24px regular, which the 0.65rem kind line is. */
@@ -285,6 +286,103 @@ test("every Layer kind's ink clears AA on a base-100 card, in every theme both a
 			expect(ratio, `${where} reads at ${ratio.toFixed(2)}:1 on its card`).toBeGreaterThanOrEqual(
 				AA_NORMAL_TEXT
 			);
+		}
+	}
+
+	expect(measurements).toBe(8);
+});
+
+// ── The same ink, on the ground it is actually drawn on ────────────────────────────────────────
+//
+// The test above measures the kind line against a `base-100` card, which is what the card *body* is.
+// The kind line is not on the body: it is in the header, and the header wears the kind's tint — so
+// the ratio that decides whether a scholar can read "MAP IMAGE" is the ink against the *tinted*
+// header, which is always the lower of the two. Nothing measured that until a tint change took the
+// dark theme's kind line to 4.30:1 with every test green.
+//
+// This is the assertion that lets the wash be tuned freely. How strong the tint is is a design
+// decision and no test should pin its value; that it stays legible is not a design decision, and this
+// is where it is enforced.
+//
+// ⚠ **The tint's alpha is read out of `KIND_STYLE`, not written here.** `bg-accent/30` is a Tailwind
+// utility whose opacity suffix is the alpha, and importing the table is the point: a tint retuned to
+// any value is measured at that value rather than at the one this file was written beside.
+//
+// ⚠ **Alpha is composited in gamma-encoded sRGB, unlike the `color-mix()` above.** Those are two
+// different operations and they do not share a space: `color-mix(in oklab, …)` is interpolation and
+// happens where it says, while painting a semi-transparent background over another colour is
+// compositing, which browsers do on the gamma-encoded channels. Doing it in linear light here would
+// flatter the result by a few hundredths and report a ratio no browser produces.
+
+/** `bg-accent/30` → the token it names and its alpha. */
+function tintOf(utility: string): { token: string; alpha: number } | null {
+	const match = /^bg-([a-z-]+)\/(\d+)$/.exec(utility);
+	if (!match) return null;
+	const [, name, percent] = match;
+	if (!name || !percent) return null;
+	return { token: `--color-${name}`, alpha: Number(percent) / 100 };
+}
+
+const linearToGamma = (channel: number): number => {
+	const clamped = Math.min(1, Math.max(0, channel));
+	return clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * clamped ** (1 / 2.4) - 0.055;
+};
+
+/** `foreground` at `alpha` painted over `background`, the way a browser paints it. */
+function compositeOver(foreground: Linear, background: Linear, alpha: number): Linear {
+	const blend = (from: number, to: number): number => {
+		const mixed = alpha * linearToGamma(from) + (1 - alpha) * linearToGamma(to);
+		return gammaToLinear(mixed);
+	};
+	return {
+		r: blend(foreground.r, background.r),
+		g: blend(foreground.g, background.g),
+		b: blend(foreground.b, background.b)
+	};
+}
+
+test("every Layer kind's ink clears AA on its own tinted header, in every theme both apps declare", () => {
+	const recipes = inkRecipes();
+	const blocks = themeBlocks();
+
+	// The two drawn kinds. `foreign` is excluded deliberately: it wears the drained wash and states
+	// its ink as a plain `base-content` opacity rather than through a `color-mix` recipe, so it is not
+	// a hue on a tint and has nothing to measure here.
+	const kinds = [
+		{ kind: 'map', style: KIND_STYLE.map },
+		{ kind: 'annotation', style: KIND_STYLE.annotation }
+	] as const;
+
+	let measurements = 0;
+
+	for (const { kind, style } of kinds) {
+		const tint = tintOf(style.tint);
+		expect(tint, `${kind}'s tint "${style.tint}" is not a bg-<token>/<alpha> utility`).toBeTruthy();
+		const property = /text-\[var\((--layer-kind-ink-[a-z]+)\)\]/.exec(style.ink)?.[1];
+		expect(property, `${kind}'s ink "${style.ink}" names no custom property`).toBeTruthy();
+		if (!tint || !property) continue;
+
+		const recipe = recipes.get(property);
+		expect(recipe, `${property} has no color-mix recipe in layout.css`).toBeTruthy();
+		if (!recipe) continue;
+
+		for (const { app, name, tokens } of blocks) {
+			const where = `${kind} in ${app}'s ${name} theme`;
+			const hue = tokens.get(recipe.hue);
+			const against = tokens.get(recipe.against);
+			const card = tokens.get('--color-base-100');
+			const tintHue = tokens.get(tint.token);
+			expect(tintHue, `${where}: ${tint.token} is not stated`).toBeTruthy();
+			if (!hue || !against || !card || !tintHue) continue;
+
+			const header = compositeOver(hexToLinear(tintHue), hexToLinear(card), tint.alpha);
+			const ink = mixInOklab(hue, recipe.weight, against);
+			const ratio = contrast(ink, header);
+			measurements += 1;
+			expect(
+				ratio,
+				`${where} reads at ${ratio.toFixed(2)}:1 on its ${style.tint} header`
+			).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
 		}
 	}
 

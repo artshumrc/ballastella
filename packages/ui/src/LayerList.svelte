@@ -633,7 +633,7 @@
 					Dashed, and the one card without a tint: it is the shape of a Layer that is not one yet.
 				-->
 				<li
-					class="rounded-lg border border-dashed border-base-300 bg-base-100 p-3"
+					class="rounded-box border border-dashed border-base-300 bg-base-100 p-3"
 					data-testid="preparing-layer"
 				>
 					{@render preparing()}
@@ -665,7 +665,7 @@
 					holds focus — always present and always operable, never the thing your eye lands on first.
 
 					`animate:flip` is what makes a move followable; `overflow-hidden` is what keeps the
-					header's tint inside the card's rounded corners.
+					header's tint clipped to the card, whatever `--radius-box` is set to.
 
 					`data-drop-target` says whether a drop would land here — the same fact the `border-primary`
 					draws. It is written out as an attribute as well because a highlight that *flickers* is a
@@ -680,7 +680,7 @@
 				-->
 				<li
 					bind:this={card[layer.id]}
-					class="group overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm"
+					class="group overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-sm"
 					class:opacity-50={dragging === layer.id}
 					class:border-primary={over === layer.id && dragging !== layer.id}
 					data-testid="layer-row"
@@ -1004,10 +1004,10 @@
 									>
 										{#if referenced}
 											<Cloud size={12} aria-hidden="true" />
-											Remote reference — needs the network
+											Remote reference
 										{:else}
 											<HardDrive size={12} aria-hidden="true" />
-											Local copy — no network needed
+											Local copy
 										{/if}
 									</span>
 								{/if}

@@ -44,6 +44,7 @@ import type { DrawnOutcome } from '@ballastella/core/render';
 import { createRawSnippet, flushSync, mount, tick, unmount, type Snippet } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { KIND_STYLE } from './layer-kind-style.js';
 import LayerList from './LayerList.svelte';
 import LayerListHarness from './LayerListHarness.svelte';
 
@@ -1035,14 +1036,19 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 	test('tints a shown Layer’s header in its own kind’s colour for a Reader (SPEC story 10)', () => {
 		offering(viewerProps(), { layers: stackOfBoth() });
 
-		// Written out rather than read from `KIND_STYLE`, for the reason {@link NOT_ALIGNED} gives: a
-		// class read off the table would agree with the table whatever either of them said. What is
-		// asserted is that two kinds differ before a word has been read — and that neither is wearing the
-		// drained wash the hidden test below asserts, which is the state that would make them the same.
-		expect(nth('layer-header', 0)).toHaveClass('bg-accent/10');
-		expect(nth('layer-header', 1)).toHaveClass('bg-info/10');
-		expect(nth('layer-header', 0)).not.toHaveClass('bg-base-content/5');
-		expect(nth('layer-header', 1)).not.toHaveClass('bg-base-content/5');
+		// What a Reader needs is that two kinds differ before a word has been read, so that is what is
+		// asserted: each header wears its own kind's tint, the two tints are not the same tint, and
+		// neither is the drained wash the hidden test below asserts — which is the state that would
+		// make them alike. **The tint's own value is deliberately not pinned here.** How strong the
+		// wash is is a design decision that gets tuned, and a test naming `bg-accent/10` turns every
+		// tuning pass into a test edit while proving nothing a reader cares about. The one property
+		// that must not regress is legibility, and `layer-kind-contrast.dom.test.ts` measures that
+		// from the rendered colours instead.
+		expect(nth('layer-header', 0)).toHaveClass(KIND_STYLE.map.tint);
+		expect(nth('layer-header', 1)).toHaveClass(KIND_STYLE.annotation.tint);
+		expect(KIND_STYLE.map.tint).not.toEqual(KIND_STYLE.annotation.tint);
+		expect(nth('layer-header', 0)).not.toHaveClass(KIND_STYLE.foreign.tint);
+		expect(nth('layer-header', 1)).not.toHaveClass(KIND_STYLE.foreign.tint);
 	});
 
 	test('tells a Reader a Layer of a kind this build cannot draw is left alone (SPEC story 18)', () => {

@@ -361,7 +361,7 @@
 		</p>
 	</div>
 
-	<div class="{frameClass} overflow-hidden rounded border border-base-300">
+	<div class="{frameClass} overflow-hidden rounded-box border border-base-300">
 		<!--
 			Keyed on the image, so switching Map Images builds a new map rather than repointing
 			the old one. The tile protocol's registry is populated in `onMount`, and MapLibre's own

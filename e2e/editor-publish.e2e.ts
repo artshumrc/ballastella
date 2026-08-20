@@ -1070,7 +1070,11 @@ test.describe('publishing to a Remote', () => {
 		// to the Workspace to act on it.
 		await page.keyboard.press('Escape');
 		await expect(page.getByRole('dialog')).toBeHidden();
-		await expect(page.getByTestId('publish-failure')).toContainText('first 2 files');
+		const refusalToast = page.getByTestId('publish-failure');
+		await expect(refusalToast).toHaveClass(/toast/);
+		await expect(refusalToast).toContainText('first 2 files');
+		await refusalToast.getByRole('button', { name: 'Dismiss' }).click();
+		await expect(refusalToast).toHaveCount(0);
 	});
 
 	test('warns before starting when it needs more requests than remain, naming the reset', async ({

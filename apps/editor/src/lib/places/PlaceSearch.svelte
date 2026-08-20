@@ -169,7 +169,7 @@
 			same display name.
 		-->
 		<ul
-			class="menu mt-1 max-h-64 w-full flex-nowrap overflow-y-auto rounded border border-base-300 bg-base-100 p-1 shadow-lg"
+			class="menu mt-1 max-h-64 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-lg"
 			data-testid="place-candidates"
 		>
 			{#each candidates as place, index (index)}
@@ -193,7 +193,7 @@
 			exactly while that data is.
 		-->
 		<p
-			class="mt-1 rounded bg-base-100/90 px-2 py-1 text-xs opacity-80"
+			class="mt-1 rounded-box bg-base-100/90 px-2 py-1 text-xs opacity-80"
 			data-testid="place-attribution"
 		>
 			Place data:
@@ -222,7 +222,7 @@
 	<p
 		class={announcement === ''
 			? 'sr-only'
-			: 'mt-1 max-w-full rounded bg-base-100 px-2 py-1 text-sm shadow'}
+			: 'mt-1 max-w-full rounded-box bg-base-100 px-2 py-1 text-sm shadow'}
 		aria-live="polite"
 		aria-atomic="true"
 		data-testid="place-search-status"

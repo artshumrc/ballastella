@@ -160,7 +160,7 @@
 			carrying `aria-expanded` — ADR-0016's shape for a disclosure — and what makes the list
 			operable by keyboard with nothing added.
 		-->
-		<div class="overflow-hidden rounded-lg border border-base-300">
+		<div class="overflow-hidden rounded-box border border-base-300">
 			<p
 				class="border-b border-base-300 bg-base-200 px-3 py-1 text-[0.65rem] font-semibold uppercase opacity-70"
 				id="annotation-list-caption"

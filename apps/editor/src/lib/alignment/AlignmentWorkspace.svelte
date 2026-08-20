@@ -1088,7 +1088,7 @@
 				<!-- The Map Image frame reserves this header's height, keeping the canvases top-aligned. -->
 				<div
 					bind:this={baseMapFrame}
-					class="h-[45dvh] overflow-hidden rounded border border-base-300 lg:h-auto lg:min-h-64 lg:grow"
+					class="h-[45dvh] overflow-hidden rounded-box border border-base-300 lg:h-auto lg:min-h-64 lg:grow"
 				>
 					<BaseMapPane
 						bind:this={baseMapPane}
