@@ -195,27 +195,26 @@ test('folds the app’s items and the theme control into one menu at a phone’s
 	expect(document.querySelectorAll('[data-testid="theme-toggle"]')).toHaveLength(1);
 });
 
-test('splits into a masthead and a route tier for an app that hands it a status', () => {
-	// Ticket 04. The upper tier is the one that does not change with the route: who you are, whether
-	// your work is kept, and what the interface looks like. The lower tier is where you are and what
-	// you can do here.
+test('splits into an eyebrow and a main row for an app that hands it a status', () => {
+	// Option B: the upper eyebrow is what does not change with the route — who you are and whether
+	// your work is kept — and the taller main row is where you are and what you can do here.
 	render({ withStatus: true });
 	pageChrome.show('Amsterdam 1625');
 	flushSync();
 
-	const masthead = testid('bar-masthead')!;
-	const document_ = testid('bar-document')!;
+	const eyebrow = testid('bar-eyebrow')!;
+	const main = testid('bar-main')!;
 
-	expect(masthead).toContainElement(testid('site-name') as HTMLElement);
-	expect(masthead).toContainElement(testid('app-status') as HTMLElement);
-	expect(masthead).toContainElement(testid('theme-toggle') as HTMLElement);
+	expect(eyebrow).toContainElement(testid('site-name') as HTMLElement);
+	expect(eyebrow).toContainElement(testid('app-status') as HTMLElement);
 
-	expect(document_).toContainElement(testid('page-chrome') as HTMLElement);
-	expect(document_).toContainElement(testid('app-control') as HTMLElement);
+	expect(main).toContainElement(testid('page-chrome') as HTMLElement);
+	expect(main).toContainElement(testid('app-control') as HTMLElement);
+	expect(main).toContainElement(testid('theme-toggle') as HTMLElement);
 });
 
-test('keeps both tiers inside the one banner, each affordance rendered once', () => {
-	// ⚠ **The mutation that breaks every "exactly one of these in the bar" assertion.** Two tiers is a
+test('keeps both rows inside the one banner, each affordance rendered once', () => {
+	// ⚠ **The mutation that breaks every "exactly one of these in the bar" assertion.** Two rows is a
 	// second row inside one `<header>`, not a second `<header>` and not an inline row beside a
 	// duplicate hidden one.
 	render({ withStatus: true });
@@ -224,8 +223,8 @@ test('keeps both tiers inside the one banner, each affordance rendered once', ()
 
 	expect(document.querySelectorAll('header')).toHaveLength(1);
 	const bar = document.querySelector('[data-testid="navigation-bar"]')!;
-	expect(bar).toContainElement(testid('bar-masthead') as HTMLElement);
-	expect(bar).toContainElement(testid('bar-document') as HTMLElement);
+	expect(bar).toContainElement(testid('bar-eyebrow') as HTMLElement);
+	expect(bar).toContainElement(testid('bar-main') as HTMLElement);
 	for (const id of ['theme-toggle', 'app-status', 'app-control', 'page-chrome', 'site-name']) {
 		expect(document.querySelectorAll(`[data-testid="${id}"]`), id).toHaveLength(1);
 	}
@@ -238,8 +237,8 @@ test('stays one row for an app that hands it no status', () => {
 	pageChrome.show('Amsterdam 1625');
 	flushSync();
 
-	expect(testid('bar-masthead')).toBeNull();
-	expect(testid('bar-document')).toBeNull();
+	expect(testid('bar-eyebrow')).toBeNull();
+	expect(testid('bar-main')).toBeNull();
 	expect(testid('site-name')).toBeInTheDocument();
 	expect(testid('page-chrome')).toBeInTheDocument();
 	expect(testid('theme-toggle')).toBeInTheDocument();
@@ -266,14 +265,15 @@ test('does not fold for an app that offers it nothing to fold into', () => {
 // that keep it from breaking something else: it belongs to the masthead, which is the row chartered
 // to hold what does not change with the screen, and it is neither a heading nor a control.
 
-test('names the app in the masthead, and only when the bar is tiered', () => {
+test('names the app in the taller main row, and only when the bar is tiered', () => {
 	render({ withStatus: true, withWordmark: true });
 
 	const wordmark = testid('app-wordmark');
 	expect(wordmark).not.toBeNull();
-	// In the masthead rather than the route tier: the app's name is not a fact about this screen.
-	expect(testid('bar-masthead')?.contains(wordmark!)).toBe(true);
-	expect(testid('bar-document')?.contains(wordmark!)).toBe(false);
+	// Centered in the main row (the taller row), not in the eyebrow: the app's name is at the bar's
+	// visual centre.
+	expect(testid('bar-main')?.contains(wordmark!)).toBe(true);
+	expect(testid('bar-eyebrow')?.contains(wordmark!)).toBe(false);
 
 	// The display face, because ADR-0036 says naming the app is what it is for. This is the rule, not
 	// a size or a weight — those are free to be retuned without touching this test.
@@ -286,7 +286,8 @@ test('does not name the app in a bar that has only one row', () => {
 	render({ withWordmark: true });
 
 	expect(testid('app-wordmark')).toBeNull();
-	expect(testid('bar-masthead')).toBeNull();
+	expect(testid('bar-eyebrow')).toBeNull();
+	expect(testid('bar-main')).toBeNull();
 });
 
 test('the app\u2019s name is not a heading, and not a button', () => {

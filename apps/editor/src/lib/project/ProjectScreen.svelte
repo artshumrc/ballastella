@@ -872,6 +872,16 @@
 	 */
 	let settingsOpen = $state(false);
 
+	const projectDateFormat = new Intl.DateTimeFormat(undefined, {
+		dateStyle: 'medium',
+		timeStyle: 'short',
+		hour12: true
+	});
+	function formatProjectUpdatedAt(iso: string): string {
+		const when = new Date(iso);
+		return Number.isNaN(when.valueOf()) ? iso : projectDateFormat.format(when);
+	}
+
 	function openSettings(): void {
 		settingsOpen = true;
 	}
@@ -1586,51 +1596,65 @@
 		secondary Base Map offline action. A dialog rather than a page keeps those occasional tasks out of
 		the map workspace.
 	-->
-	<ModalDialog bind:open={settingsOpen} title="Project settings">
-		<!--
-			`onchange` and `onblur` both mean "the edit is over" (ADR-0017 rule 1). Neither writes on its
-			own: `commitProjectName` is a no-op unless there is a pending write, because tabbing into and
-			out of this field must not rewrite `project.json` — the write stamps a fresh `updatedAt`, and
-			ADR-0010 is explicit that merely looking at an old Project must not modify files.
-		-->
-		<label class="floating-label block">
-			<span>Project name</span>
-			<input
-				class="input w-full"
-				data-testid="project-name-input"
-				value={session.openProject?.name ?? ''}
-				oninput={(event) => session.typeProjectName(event.currentTarget.value)}
-				onchange={() => session.commitProjectName()}
-				onblur={() => session.commitProjectName()}
-			/>
-		</label>
+	<ModalDialog bind:open={settingsOpen} title="Project settings" wide>
+		<div class="flex flex-col divide-y divide-rule">
+			<section class="flex flex-col items-start gap-3 pb-6">
+				<h3 class="font-serif text-lg">Project details</h3>
 
-		<dl class="mt-6 text-sm">
-			<dt class="font-medium">Folder</dt>
-			<dd><code data-testid="project-folder">{session.openDirectory}</code></dd>
-			<dt class="mt-2 font-medium">Last saved</dt>
-			<dd>
-				<time data-testid="project-updated-at" datetime={session.openProject.updatedAt}
-					>{session.openProject.updatedAt}</time
+				<!--
+					`onchange` and `onblur` both mean "the edit is over" (ADR-0017 rule 1). Neither writes on
+					its own: `commitProjectName` is a no-op unless there is a pending write, because tabbing
+					into and out of this field must not rewrite `project.json` — the write stamps a fresh
+					`updatedAt`, and ADR-0010 is explicit that merely looking at an old Project must not modify
+					files.
+				-->
+				<label class="flex w-full flex-col gap-1">
+					<span class="text-sm font-medium">Project name</span>
+					<input
+						class="input w-full"
+						data-testid="project-name-input"
+						value={session.openProject?.name ?? ''}
+						oninput={(event) => session.typeProjectName(event.currentTarget.value)}
+						onchange={() => session.commitProjectName()}
+						onblur={() => session.commitProjectName()}
+					/>
+				</label>
+
+				<dl class="flex w-full flex-col gap-3 text-sm">
+					<div class="flex flex-col gap-1">
+						<dt class="text-sm font-semibold opacity-70">Folder</dt>
+						<dd><code data-testid="project-folder">{session.openDirectory}</code></dd>
+					</div>
+					<div class="flex flex-col gap-1">
+						<dt class="text-sm font-semibold opacity-70">Last saved</dt>
+						<dd>
+							<time
+								class="tabular-nums"
+								data-testid="project-updated-at"
+								datetime={session.openProject.updatedAt}
+								>{formatProjectUpdatedAt(session.openProject.updatedAt)}</time
+							>
+						</dd>
+					</div>
+				</dl>
+			</section>
+
+			<section class="flex flex-col items-start gap-3 pt-6">
+				<h3 class="font-serif text-lg">Base Map offline</h3>
+				<p class="max-w-prose text-sm opacity-70">
+					Store the Base Map tiles for this Project in this Workspace for use without a network
+					connection.
+				</p>
+				<button
+					type="button"
+					class="btn btn-sm"
+					data-testid="make-offline"
+					onclick={() => void makeProjectOffline()}
 				>
-			</dd>
-		</dl>
-
-		<section class="mt-6 border-t border-base-300 pt-4">
-			<h3 class="font-medium">Base Map offline</h3>
-			<p class="mt-1 max-w-prose text-sm">
-				Store the Base Map tiles for this Project in this Workspace for use without a network
-				connection.
-			</p>
-			<button
-				type="button"
-				class="btn mt-3 btn-sm"
-				data-testid="make-offline"
-				onclick={() => void makeProjectOffline()}
-			>
-				Make this Project available offline
-			</button>
-		</section>
+					Make this Project available offline
+				</button>
+			</section>
+		</div>
 
 		{#snippet actions()}
 			<button type="button" class="btn btn-sm" onclick={() => (settingsOpen = false)}>Close</button>

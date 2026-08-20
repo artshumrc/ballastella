@@ -432,11 +432,11 @@
 {/snippet}
 
 <!--
-	What can be done on this screen, at the far end of the lower tier — opposite the page-chrome slot
+	What can be done on this screen, at the far end of the main row — opposite the page-chrome slot
 	that says which screen it is, so that where you are and what you can do here are one row.
 
 	The theme control is not among them: it is the shell's, it is the one thing both apps offer
-	outright, and it does not change with the route, so it belongs to the masthead.
+	outright, and it now sits beside these in the main row's right cluster.
 -->
 {#snippet end()}
 	{#if session !== null}
@@ -484,7 +484,7 @@
 
 <!--
 	What is true of the Workspace whatever screen is on: whether the work is kept, and every reason it
-	might not be. The masthead tier, beside the Workspace's own identity — a scholar asking whether their
+	might not be. The eyebrow, beside the Workspace's own identity — a scholar asking whether their
 	work is safe is asking about their Workspace and not about this screen (SPEC story 25).
 -->
 {#snippet status()}
@@ -570,21 +570,21 @@
 {/snippet}
 
 <!--
-	`status` and no `menu`. The status puts the bar in two tiers: the masthead holds `start`, the save
-	state and the theme, and the lower tier holds the screen and `end`. No menu because authoring is
-	desktop-only (ADR-0014), so this bar does not fold at any width.
+	`status` and no `menu`. The status puts the bar in two rows: the eyebrow holds `start` and the save
+	state, and the taller main row holds the screen, the centered wordmark, and `end` + theme. No menu
+	because authoring is desktop-only (ADR-0014), so this bar does not fold at any width.
 -->
 <!--
-	The app's own name, in the display face, at the centre of the masthead.
+	The app's own name, in the display face, at the centre of the main row.
 
 	ADR-0036 gives Bluu Next three jobs — it heads a section, names the app, and titles a dialog — and
 	this is the one that names the app.
 
 	**A link to the root route, which is what the viewer's own name has always been** (`SiteBar.svelte`
-	renders `site-name` as an anchor to `resolve('/')`). The masthead is the tier that does not change
-	with the screen, and the app's root does not either, so the destination is as invariant as the
-	label. A wordmark that is not clickable reads as broken, because every other site a scholar uses
-	has trained them otherwise.
+	renders `site-name` as an anchor to `resolve('/')`). The main row is the taller row that a scholar
+	scans for where they are, so centering the mark there puts the app's name at the bar's visual
+	centre (`AppBar`'s `1fr auto 1fr` grid). A wordmark that is not clickable reads as broken, because
+	every other site a scholar uses has trained them otherwise.
 
 	**Not a heading, and not a control label.** Every screen carries exactly one `<h1>` and three specs
 	count it, so a second would break them — this is an `<a>`, not a heading. And ADR-0036's rule that
@@ -592,15 +592,13 @@
 	action: naming the app is one of the face's three sanctioned jobs, and a name that is also the way
 	home is still a name. The rule would be broken by setting `Publish` in Bluu Next, not by this.
 
-	**Hidden below `lg`.** The editor's bar does not fold (ADR-0014's first fence), so everything in the
-	masthead has to fit one row at every width the editor is used at — and identity on the left plus
-	save state and the theme control on the right already claim that row at the narrow end. The
-	wordmark is the one thing here a scholar never needs to reach, and the breadcrumbs' root crumb goes
-	to the same place, so nothing becomes unreachable when it goes.
+	**Hidden below `lg` on the old masthead; now always flex.** The eyebrow is compact, so the main
+	row has room to keep the wordmark centred at every desktop width the editor is used at. It hides
+	below `md` only, where the breadcrumbs already need the width.
 -->
 {#snippet wordmark()}
 	<a
-		class="hidden link items-center gap-2 font-serif text-xl leading-none link-hover lg:flex"
+		class="hidden link items-center gap-2 font-serif text-xl leading-none link-hover md:flex"
 		data-testid="app-wordmark"
 		href={resolve('/')}
 	>

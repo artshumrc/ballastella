@@ -34,13 +34,17 @@
 	// a published site is what most people will ever see.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE TWO TIERS
+	// THE TWO TIERS — NOW AN EYEBROW ABOVE A MAIN ROW
 	//
-	// An app that passes `status` gets a **masthead** above a **route tier**, both inside the one
-	// `<header>`. The split is by what changes: the masthead carries identity, whether the work is
-	// kept and what the interface looks like — none of which depend on the screen — and the lower tier
-	// carries the screen itself and the actions belonging to it. A bar that re-lays-out as a scholar
-	// moves between the Workspace Home, a Project and the align screen is the defect this removes.
+	// An app that passes `status` gets an **eyebrow** above a **main row**, both inside the one
+	// `<header>`. The eyebrow is the 14 px muted line that carries what does not change with the
+	// route — who you are and whether your work is kept — and the main row is the taller 50 px row
+	// that carries where you are and what you can do here. Together they are 64 px, regaining ~20 px
+	// over the previous 84 px two-tier bar, while preserving the "Workspace facts vs screen facts"
+	// split without costing a full tier.
+	//
+	// The wordmark is centered in the taller main row (grid `1fr auto 1fr`), not in the eyebrow,
+	// so the app's name sits at the visual centre of the bar a reader actually scans.
 	//
 	// The tiers are two rows in one landmark, never two landmarks and never an inline row beside a
 	// hidden duplicate, for the same reason the fold is a choice in JavaScript: every "exactly one of
@@ -90,11 +94,12 @@
 		 */
 		status?: Snippet;
 		/**
-		 * The app's own name, set in the display face, in the middle of the masthead.
+		 * The app's own name, set in the display face, in the middle of the main row.
 		 *
-		 * Rendered **only when `status` puts the bar in two tiers**, because the masthead is the only row
+		 * Rendered **only when `status` puts the bar in two rows**, because the main row is the only row
 		 * chartered to hold something that never changes with the screen. Ignored otherwise, so a
-		 * single-row bar cannot grow a wordmark by accident.
+		 * single-row bar cannot grow a wordmark by accident. Centered in the taller main row via
+		 * `1fr auto 1fr`, so the name sits at the bar's visual centre.
 		 *
 		 * ADR-0036 gives the display face three jobs — it heads a section, names the app, and titles a
 		 * dialog — and this is the second. It must not be a control: the same ADR forbids that face on a
@@ -250,53 +255,32 @@
 <header data-testid="navigation-bar" class="border-b border-base-300 bg-base-200">
 	{#if status}
 		<!--
-			The masthead: who you are, whether your work is kept, and what the interface looks like. None
-			of it depends on the screen, so none of it moves as a scholar changes screens.
+			Eyebrow: who you are and whether your work is kept. Muted and compact (py-1, text-xs)
+			because it is the facts that do not change with the route, not the place a scholar scans
+			for where they are.
 
-			**A three-column grid rather than a flex row with a spacer, because of the wordmark.** The
-			left cluster holds the Workspace's name, which is user data of any length, and the right one
-			grows and shrinks with the save state — so a wordmark centred between two `grow` spacers would
-			sit at the midpoint of whatever those two happen to measure and drift every time either
-			changed. `1fr auto 1fr` puts it at the centre of the *bar*, which is the only centre a reader
-			can see, and holds it there.
-
-			The side cells take `min-w-0` so a long Workspace name is truncated by its own rules rather
-			than pushing the wordmark off centre.
+			Main row: where you are and what you can do here, centered wordmark in the taller row.
+			`1fr auto 1fr` keeps the wordmark at the bar's visual centre regardless of how long the
+			Workspace name or save state happens to be.
 		-->
 		<div
-			class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 py-2"
-			data-testid="bar-masthead"
+			class="flex flex-wrap items-center gap-3 px-4 py-1 text-xs leading-none opacity-80"
+			data-testid="bar-eyebrow"
 		>
-			<div class="flex min-w-0 flex-wrap items-center gap-4">{@render start?.()}</div>
-			{@render wordmark?.()}
-			<div class="flex min-w-0 flex-wrap items-center justify-end gap-4">
-				{@render status()}
+			<div class="flex min-w-0 flex-wrap items-center gap-3">{@render start?.()}</div>
+			<div class="grow"></div>
+			<div class="flex min-w-0 flex-wrap items-center justify-end gap-2">{@render status()}</div>
+		</div>
+		<div
+			class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 border-t border-rule px-4 py-2.5"
+			data-testid="bar-main"
+		>
+			<div class="flex min-w-0 items-center gap-4">{@render chrome()}</div>
+			<div class="flex min-w-0 justify-center">{@render wordmark?.()}</div>
+			<div class="flex min-w-0 flex-wrap items-center justify-end gap-3">
+				{@render end?.()}
 				{@render themeControl()}
 			</div>
-		</div>
-
-		<!--
-			And the screen: where you are, and what you can do here. `border-rule` rather than
-			`border-base-300` — the rule has to read against the bar's own `base-200` ground as clearly as
-			the bar's bottom edge reads against `base-100` (ADR-0036), and it is a boundary between two
-			regions rather than an emphasis on either.
-
-			**This row is an empty ruled band in three states, and that is the accepted cost of a bar
-			whose height does not move.** It renders with nothing in it before hydration, permanently in
-			a browser the app does not support, and permanently on a review Workspace's Workspace Home —
-			there `publishable` is false, the Workspace Home sets no page chrome, and `undo-slot` is
-			empty. Gating the row would buy a tidier review copy at the price of the bar changing height
-			at hydration on every ordinary load, which two specs measure; dropping the empty `undo-slot`
-			would break the "exactly one of these in the bar" count three specs assert. Known, priced,
-			and left.
-		-->
-		<div
-			class="flex flex-wrap items-center gap-4 border-t border-rule px-4 py-2"
-			data-testid="bar-document"
-		>
-			{@render chrome()}
-			<div class="grow"></div>
-			{@render end?.()}
 		</div>
 	{:else}
 		<div class="flex flex-wrap items-center gap-4 px-4 py-2">

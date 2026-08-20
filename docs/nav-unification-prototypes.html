@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Ballastella — Nav bar unification: 4 directions</title>
+		<style>
+			:root {
+				--color-base-100: #fbfaf7;
+				--color-base-200: #f1eee7;
+				--color-base-300: #ddd7ca;
+				--color-base-content: #14181f;
+				--color-primary: #8a5f14;
+				--color-primary-content: #fff9ec;
+				--color-secondary: #3e5a73;
+				--color-accent: #14625e;
+				--color-success: #1f6a4a;
+				--color-warning: #9a6412;
+				--color-rule: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+			}
+			[data-theme='dark'] {
+				--color-base-100: #1a2130;
+				--color-base-200: #141a24;
+				--color-base-300: #0d121a;
+				--color-base-content: #e9e7e2;
+				--color-primary: #d6a244;
+				--color-primary-content: #171208;
+				--color-secondary: #7e9bb6;
+				--color-accent: #45bdb3;
+				--color-success: #57b98c;
+				--color-warning: #e0a63c;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				font-family:
+					ui-sans-system,
+					-apple-system,
+					Segoe UI,
+					Roboto,
+					Helvetica,
+					Arial,
+					sans-serif;
+				background: var(--color-base-100);
+				color: var(--color-base-content);
+				line-height: 1.4;
+			}
+			a {
+				color: inherit;
+			}
+			.wrap {
+				max-width: 1200px;
+				margin: 0 auto;
+				padding: 28px 20px 80px;
+			}
+			h1 {
+				font-family: ui-serif, Georgia, serif;
+				font-size: 28px;
+				margin: 0 0 6px;
+			}
+			.sub {
+				opacity: 0.7;
+				font-size: 14px;
+				max-width: 72ch;
+			}
+			.controls {
+				position: sticky;
+				top: 0;
+				z-index: 30;
+				background: var(--color-base-100);
+				border-bottom: 1px solid var(--color-base-300);
+				padding: 10px 20px;
+				display: flex;
+				flex-wrap: wrap;
+				gap: 10px;
+				align-items: center;
+			}
+			.controls label {
+				font-size: 13px;
+				display: flex;
+				gap: 6px;
+				align-items: center;
+			}
+			.controls select,
+			.controls button {
+				font: inherit;
+				padding: 6px 10px;
+				border: 1px solid var(--color-base-300);
+				background: var(--color-base-200);
+				border-radius: 0;
+			}
+			.controls button {
+				cursor: pointer;
+			}
+			.deck {
+				display: grid;
+				gap: 36px;
+				margin-top: 28px;
+			}
+			.variant {
+				border: 1px solid var(--color-base-300);
+				background: var(--color-base-100);
+			}
+			.variant-header {
+				padding: 16px 18px 14px;
+				border-bottom: 1px solid var(--color-base-300);
+				background: var(--color-base-200);
+			}
+			.variant-header h2 {
+				margin: 0 0 6px;
+				font-size: 18px;
+			}
+			.variant-header .meta {
+				font-size: 13px;
+				opacity: 0.75;
+				display: flex;
+				gap: 14px;
+				flex-wrap: wrap;
+			}
+			.variant-header .meta span {
+				display: inline-flex;
+				gap: 6px;
+				align-items: center;
+			}
+			.badge {
+				font-size: 11px;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				padding: 2px 6px;
+				border: 1px solid var(--color-base-300);
+				background: var(--color-base-100);
+			}
+			.bar-shell {
+				border-bottom: 1px solid var(--color-base-300);
+				background: var(--color-base-200);
+			}
+			.preview-label {
+				font-size: 12px;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				opacity: 0.6;
+				padding: 10px 12px 4px;
+			}
+			.frame {
+				border: 1px solid var(--color-base-300);
+				margin: 0 12px 12px;
+				background: var(--color-base-100);
+				overflow: hidden;
+				resize: horizontal;
+			}
+			.frame-label {
+				font-size: 11px;
+				opacity: 0.6;
+				padding: 6px 10px;
+				border-bottom: 1px dashed var(--color-base-300);
+				display: flex;
+				justify-content: space-between;
+			}
+			.proscons {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 14px;
+				padding: 14px 18px;
+				font-size: 13px;
+				background: var(--color-base-100);
+			}
+			.proscons h4 {
+				margin: 0 0 6px;
+				font-size: 12px;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				opacity: 0.7;
+			}
+			.proscons ul {
+				margin: 0;
+				padding-left: 16px;
+			}
+			.proscons li {
+				margin: 2px 0;
+			}
+			@media (max-width: 780px) {
+				.proscons {
+					grid-template-columns: 1fr;
+				}
+			}
+
+			/* shared bar pieces */
+			.bar {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 10px 14px;
+				background: var(--color-base-200);
+				color: var(--color-base-content);
+			}
+			.bar a.link {
+				text-decoration: underline;
+				text-underline-offset: 2px;
+				opacity: 0.9;
+			}
+			.bar a.link:hover {
+				opacity: 1;
+			}
+			.btn {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 6px 10px;
+				border: 1px solid var(--color-base-300);
+				background: var(--color-base-100);
+				font-size: 13px;
+				white-space: nowrap;
+				cursor: pointer;
+			}
+			.btn-primary {
+				background: var(--color-primary);
+				color: var(--color-primary-content);
+				border-color: var(--color-primary);
+			}
+			.btn-ghost {
+				background: transparent;
+				border-color: transparent;
+			}
+			.btn-sm {
+				padding: 4px 8px;
+				font-size: 12.5px;
+			}
+			.badge-save {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 4px 8px;
+				border: 1px solid transparent;
+				font-size: 12px;
+				font-weight: 600;
+				border-radius: 0;
+			}
+			.badge-save.saved {
+				background: color-mix(in oklab, var(--color-success) 14%, var(--color-base-100));
+				border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+				color: var(--color-success);
+			}
+			.badge-save.unsaved {
+				background: color-mix(in oklab, var(--color-warning) 14%, var(--color-base-100));
+				border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+				color: var(--color-warning);
+			}
+			.breadcrumbs {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				min-width: 0;
+				font-size: 13.5px;
+			}
+			.breadcrumbs a {
+				white-space: nowrap;
+			}
+			.breadcrumbs .sep {
+				opacity: 0.35;
+			}
+			.crumb-current {
+				font-weight: 700;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.workspace-btn {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 4px 8px;
+				border: 1px solid var(--color-base-300);
+				background: var(--color-base-100);
+				font-size: 13px;
+				max-width: 14rem;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.icon {
+				width: 16px;
+				height: 16px;
+				display: inline-block;
+				vertical-align: middle;
+			}
+			.wordmark {
+				font-family: ui-serif, Georgia, serif;
+				font-size: 18px;
+				display: inline-flex;
+				align-items: center;
+				gap: 8px;
+				text-decoration: none;
+			}
+			.wordmark small {
+				font-family: ui-sans-system;
+				font-size: 11px;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				opacity: 0.6;
+			}
+			.divider {
+				width: 1px;
+				align-self: stretch;
+				background: var(--color-rule);
+				margin: 0 2px;
+			}
+			.spacer {
+				flex: 1;
+			}
+			.truncate {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				min-width: 0;
+			}
+			.muted {
+				opacity: 0.7;
+				font-size: 12.5px;
+			}
+
+			/* Variant specific */
+			/* A: single row clustered */
+			.variantA .bar {
+				padding: 12px 14px;
+			}
+			/* B: eyebrow */
+			.variantB .bar {
+				flex-direction: column;
+				align-items: stretch;
+				gap: 0;
+				padding: 0;
+			}
+			.variantB .eyebrow {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 4px 14px 3px;
+				font-size: 11px;
+				letter-spacing: 0.02em;
+				opacity: 0.75;
+				border-bottom: 1px solid var(--color-rule);
+			}
+			.variantB .eyebrow strong {
+				font-weight: 600;
+				opacity: 1;
+			}
+			.variantB .mainrow {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 8px 14px;
+			}
+			/* C: mark as home */
+			.variantC .bar {
+				padding: 10px 14px;
+			}
+			.variantC .mark {
+				width: 28px;
+				height: 28px;
+				border: 1px solid var(--color-base-300);
+				display: grid;
+				place-items: center;
+				background: var(--color-base-100);
+				font-family: ui-serif;
+				font-weight: 700;
+				font-size: 14px;
+				flex-shrink: 0;
+			}
+			/* D: split tint */
+			.variantD .bar {
+				padding: 0;
+				align-items: stretch;
+			}
+			.variantD .left {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 10px 14px;
+				flex: 1;
+				min-width: 0;
+			}
+			.variantD .right {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				padding: 10px 14px;
+				border-left: 1px solid var(--color-rule);
+				background: color-mix(in oklab, var(--color-base-200) 85%, var(--color-base-100));
+			}
+
+			/* mobile folding demo */
+			.mobile-only {
+				display: none;
+			}
+			@media (max-width: 640px) {
+				.hide-sm {
+					display: none !important;
+				}
+				.mobile-only {
+					display: inline-flex;
+				}
+			}
+			.menu-pop {
+				position: relative;
+			}
+			.menu-pop summary {
+				list-style: none;
+				cursor: pointer;
+			}
+			.menu-pop summary::-webkit-details-marker {
+				display: none;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="controls">
+			<label
+				>Theme
+				<select id="themeSel">
+					<option value="light">Light</option>
+					<option value="dark">Dark</option>
+				</select>
+			</label>
+			<label
+				>Route
+				<select id="routeSel">
+					<option value="project">Project — Amsterdam 1625</option>
+					<option value="hub">Workspace Home — no breadcrumbs</option>
+					<option value="align">Align — Harbor chart</option>
+				</select>
+			</label>
+			<label
+				>Workspace name
+				<select id="wsSel">
+					<option>Harvard Georeferencing</option>
+					<option>A very long workspace name that will truncate</option>
+					<option>My Workspace</option>
+				</select>
+			</label>
+			<label
+				>Save state
+				<select id="saveSel">
+					<option value="saved">Saved locally</option>
+					<option value="unsaved">Unsaved changes</option>
+				</select>
+			</label>
+			<button id="toggleSaveWarn" type="button">Toggle warning line</button>
+			<span class="muted"
+				>Drag right edge of any bar to test narrow → wide. Heights annotated per variant.</span
+			>
+		</div>
+
+		<div class="wrap">
+			<h1>Nav bar unification — 4 directions</h1>
+			<p class="sub">
+				The editor today is two rows inside one <code>&lt;header&gt;</code>: masthead (Workspace +
+				save + theme, centered wordmark) above a ruled document row (breadcrumbs + Undo + Publish).
+				The viewer is one row. All four below collapse the editor to <strong>one bar</strong> — a
+				little taller than a single row, but ~16–28 px shorter than the current two. Every direction
+				keeps the rule “it’s obvious what everything does” higher than “it looks nice”. Each
+				includes desktop / tablet / mobile.
+			</p>
+			<p class="sub">
+				Current measured heights: two-tier ≈ 84 px (42 + 42). Single-row today (viewer) ≈ 46 px.
+				Targets below: A 52 px, B 64 px, C 54 px, D 56 px. So regained vertical space vs today:
+				<strong>A +32 px, B +20 px, C +30 px, D +28 px</strong> for the map.
+			</p>
+
+			<div class="deck">
+				<!-- Variant A -->
+				<section class="variant variantA" id="variantA">
+					<div class="variant-header">
+						<h2>A — One row, zoned <span class="badge">52 px • simplest</span></h2>
+						<div class="meta">
+							<span
+								>⬢ Zones: <code>Workspace | Breadcrumbs</code> left ·
+								<code>Save · Undo · Publish · Theme</code> right</span
+							>
+							<span>Wordmark: centered, hidden &lt; 1024 px (as now)</span>
+							<span>Mobile: breadcrumbs + Workspace stay, actions into overflow</span>
+						</div>
+						<p style="margin: 8px 0 0; font-size: 13px; max-width: 70ch">
+							One flex row with two dividers. No eyebrow, no tint. Clearest preservation of current
+							grouping — the masthead facts and the document facts now sit side-by-side, separated
+							by a rule. Closest to “just put it on one line”.
+						</p>
+					</div>
+					<div class="preview-label">Editor — desktop / tablet / phone (resize the frame)</div>
+					<div class="frame" style="width: 100%; max-width: 100%">
+						<div class="frame-label">
+							<span>↔ drag to resize</span><span class="muted">A · 52 px</span>
+						</div>
+						<div class="bar" role="banner" data-testid="nav-a">
+							<button class="workspace-btn" title="Workspace switcher">
+								Workspace: <span class="truncate" data-bind="ws">Harvard Georeferencing</span> ▾
+							</button>
+							<span class="hide-sm divider"></span>
+							<nav class="breadcrumbs" aria-label="Breadcrumb" data-bind="crumbs"></nav>
+							<span class="spacer"></span>
+							<span class="wordmark hide-sm" aria-hidden="true">◆ Ballastella</span>
+							<span class="hide-sm divider"></span>
+							<span class="badge-save saved" data-bind="save"
+								><span aria-hidden="true">✓</span>
+								<span data-bind="saveLabel">Saved locally</span></span
+							>
+							<button class="hide-sm btn btn-sm" data-testid="undo">↩ Undo</button>
+							<button class="btn btn-primary btn-sm">Publish…</button>
+							<button class="btn btn-sm" aria-label="Switch to dark theme">◐</button>
+						</div>
+						<div class="muted" style="padding: 6px 12px; font-size: 12px" data-bind="warn"></div>
+					</div>
+					<div class="proscons">
+						<div>
+							<h4>Why this works</h4>
+							<ul>
+								<li>Maximum space reclaimed (+32 px).</li>
+								<li>Information architecture unchanged — just closer.</li>
+								<li>Workspace stays fully visible and always first in tab order.</li>
+								<li>One row = one place to scan, no typographic hierarchy to learn.</li>
+							</ul>
+						</div>
+						<div>
+							<h4>Trade-offs</h4>
+							<ul>
+								<li>Long project names truncate sooner (breadcrumbs compete with Publish).</li>
+								<li>Save badge and Publish sit adjacent — could read as one group.</li>
+								<li>
+									Centered wordmark still drifts if left/right clusters grow — current grid solved
+									this; flex doesn’t.
+								</li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<!-- Variant B -->
+				<section class="variant variantB" id="variantB">
+					<div class="variant-header">
+						<h2>B — Taller row with eyebrow <span class="badge">64 px • keeps hierarchy</span></h2>
+						<div class="meta">
+							<span>⬢ Eyebrow 14 px: <code>Workspace · save state · warnings</code> (muted)</span>
+							<span>Main row 50 px: <code>Breadcrumbs · Undo · Publish · Theme</code></span>
+						</div>
+						<p style="margin: 8px 0 0; font-size: 13px; max-width: 70ch">
+							A single bar that’s a little taller, not two bars. The masthead facts become a small
+							muted line above the main row — same signal as today, but 10 px not 42 px. Keeps the
+							“what’s true of the Workspace vs what’s true of this screen” split without costing a
+							full tier.
+						</p>
+					</div>
+					<div class="preview-label">Editor — same widths, eyebrow stays readable at 390 px</div>
+					<div class="frame" style="width: 100%">
+						<div class="frame-label">
+							<span>↔ drag</span><span class="muted">B · 64 px (14 + 50)</span>
+						</div>
+						<div class="bar" role="banner" data-testid="nav-b">
+							<div class="eyebrow">
+								<span>Workspace: <strong data-bind="ws">Harvard Georeferencing</strong></span>
+								<span>·</span>
+								<span data-bind="saveLabel">Saved locally</span>
+								<span class="spacer"></span>
+								<span class="hide-sm" data-bind="warnInline"></span>
+								<span class="hide-sm">◆ Ballastella</span>
+							</div>
+							<div class="mainrow">
+								<nav class="breadcrumbs" aria-label="Breadcrumb" data-bind="crumbsB"></nav>
+								<span class="spacer"></span>
+								<button class="hide-sm btn btn-sm">↩ Undo</button>
+								<button class="btn btn-primary btn-sm">Publish…</button>
+								<button class="btn btn-sm" aria-label="Switch to dark theme">◐</button>
+							</div>
+						</div>
+					</div>
+					<div class="proscons">
+						<div>
+							<h4>Why this works</h4>
+							<ul>
+								<li>
+									Preserves current mental model (Workspace facts ≠ screen facts) with least height
+									cost (+20 px saved, not +0).
+								</li>
+								<li>Eyebrow can host multi-line warnings without growing the main row.</li>
+								<li>Main row breathes — breadcrumbs get full width.</li>
+							</ul>
+						</div>
+						<div>
+							<h4>Trade-offs</h4>
+							<ul>
+								<li>Two type scales in one bar — eyebrow could be missed.</li>
+								<li>Slightly taller than A/C/D, so less map back.</li>
+								<li>
+									Slim rule between eyebrow and main row must be subtle or it re-reads as two bars.
+								</li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<!-- Variant C -->
+				<section class="variant variantC" id="variantC">
+					<div class="variant-header">
+						<h2>C — Mark as home <span class="badge">54 px • shortens the left</span></h2>
+						<div class="meta">
+							<span
+								>⬢ Left: <code>◆ (home) › Projects › Amsterdam 1625 ✎</code> as one breadcrumb
+								chain</span
+							>
+							<span>Workspace sits inline as muted meta beside the mark</span>
+						</div>
+						<p style="margin: 8px 0 0; font-size: 13px; max-width: 70ch">
+							Reuses the Ballastella mark as the breadcrumb root — “◆ › Projects › …” — so the left
+							isn’t both a brand and a trail. Workspace identity becomes a small “in Harvard
+							Georeferencing” beside the mark, not a big button. Frees ~120 px for the project name.
+						</p>
+					</div>
+					<div class="preview-label">Editor — brand is navigation</div>
+					<div class="frame" style="width: 100%">
+						<div class="frame-label"><span>↔ drag</span><span class="muted">C · 54 px</span></div>
+						<div class="bar" role="banner" data-testid="nav-c">
+							<a class="mark" href="#" title="Ballastella — home">◆</a>
+							<span
+								class="muted hide-sm"
+								style="font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase"
+								>in <span data-bind="ws">Harvard Georeferencing</span></span
+							>
+							<span class="hide-sm divider"></span>
+							<nav class="breadcrumbs" aria-label="Breadcrumb" data-bind="crumbsC"></nav>
+							<span class="spacer"></span>
+							<span class="badge-save saved hide-sm" data-bind="saveC"
+								><span aria-hidden="true">✓</span>
+								<span data-bind="saveLabelC">Saved locally</span></span
+							>
+							<button class="hide-sm btn btn-sm">↩ Undo</button>
+							<button class="btn btn-primary btn-sm">Publish…</button>
+							<button class="btn btn-sm" aria-label="Switch to dark theme">◐</button>
+						</div>
+						<div class="muted" style="padding: 6px 12px; font-size: 12px" data-bind="warnC"></div>
+					</div>
+					<div class="proscons">
+						<div>
+							<h4>Why this works</h4>
+							<ul>
+								<li>Shortest left edge — long Workspace names stop stealing from breadcrumbs.</li>
+								<li>Brand as home is a web convention, so it’s discoverable.</li>
+								<li>Still one row, good map height (+30 px).</li>
+							</ul>
+						</div>
+						<div>
+							<h4>Trade-offs</h4>
+							<ul>
+								<li>
+									Workspace switcher becomes less prominent (violates “always obvious which
+									Workspace you’re in”).
+								</li>
+								<li>Mark-as-root must still pass “Projects” link a11y for screen readers.</li>
+								<li>
+									If Workspace name is the key signal for Review copies, muting it risks confusion.
+								</li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<!-- Variant D -->
+				<section class="variant variantD" id="variantD">
+					<div class="variant-header">
+						<h2>D — Split tint <span class="badge">56 px • clearest grouping</span></h2>
+						<div class="meta">
+							<span>⬢ Left: navigation (Workspace + trail) — base-200</span>
+							<span
+								>Vertical rule + right: work state (save · Undo · Publish · Theme) — slightly
+								mixed</span
+							>
+						</div>
+						<p style="margin: 8px 0 0; font-size: 13px; max-width: 70ch">
+							Same content as A, but the bar is visually split. A 1 px rule and a very light mixed
+							background on the right make “where you are” vs “what’s true / what you can do”
+							scannable without a second row. Wordmark centered over the whole bar (hidden &lt; 1024
+							px as now).
+						</p>
+					</div>
+					<div class="preview-label">Editor — visual grouping without height</div>
+					<div class="frame" style="width: 100%">
+						<div class="frame-label"><span>↔ drag</span><span class="muted">D · 56 px</span></div>
+						<div class="bar" role="banner" data-testid="nav-d">
+							<div class="left">
+								<button class="workspace-btn">
+									Workspace: <span class="truncate" data-bind="wsD">Harvard Georeferencing</span> ▾
+								</button>
+								<nav class="breadcrumbs" aria-label="Breadcrumb" data-bind="crumbsD"></nav>
+								<span class="spacer"></span>
+								<span
+									class="wordmark hide-sm"
+									style="position: absolute; left: 50%; transform: translateX(-50%)"
+									>◆ Ballastella</span
+								>
+							</div>
+							<div class="right">
+								<span class="badge-save saved" data-bind="saveD"
+									><span aria-hidden="true">✓</span>
+									<span data-bind="saveLabelD">Saved locally</span></span
+								>
+								<button class="hide-sm btn btn-sm">↩ Undo</button>
+								<button class="btn btn-primary btn-sm">Publish…</button>
+								<button class="btn btn-sm" aria-label="Switch to dark theme">◐</button>
+							</div>
+						</div>
+						<div
+							class="muted"
+							style="
+								padding: 6px 12px;
+								font-size: 12px;
+								border-top: 1px dashed var(--color-base-300);
+							"
+							data-bind="warnD"
+						></div>
+					</div>
+					<div class="proscons">
+						<div>
+							<h4>Why this works</h4>
+							<ul>
+								<li>Grouping is visual, not structural — clarity without height.</li>
+								<li>Save + Publish are now explicitly “work” not “navigation”.</li>
+								<li>Centered wordmark can use absolute centering (doesn’t drift like flex).</li>
+							</ul>
+						</div>
+						<div>
+							<h4>Trade-offs</h4>
+							<ul>
+								<li>Two-tone bar is a new visual language for this app.</li>
+								<li>Right cluster on mobile needs a menu anyway — the tint has to adapt.</li>
+								<li>Absolute-centered wordmark can overlap breadcrumbs at ~860–1020 px.</li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<!-- Viewer comparison -->
+				<section class="variant" style="border-style: dashed">
+					<div class="variant-header">
+						<h2>Viewer — already single-row (reference)</h2>
+						<div class="meta">
+							<span>Left: Ballastella · Heading/Back</span
+							><span>Right: All Projects + Theme (folds to Menu at 40 rem)</span>
+						</div>
+					</div>
+					<div class="preview-label">
+						Published site — no change proposed; editor variants above should feel like the same
+						shell
+					</div>
+					<div class="frame" style="width: 100%">
+						<div class="frame-label"><span>↔ drag</span><span class="muted">46 px</span></div>
+						<div class="bar" role="banner">
+							<a class="wordmark" href="#" style="font-size: 16px">◆ Ballastella</a>
+							<span class="divider"></span>
+							<span class="crumb-current">Amsterdam 1625</span>
+							<a class="hide-sm btn btn-sm" href="#">← Back</a>
+							<span class="spacer"></span>
+							<button class="hide-sm btn btn-sm">All Projects</button>
+							<button class="btn btn-sm" aria-label="Switch">◐</button>
+							<details class="menu-pop mobile-only" style="display: none">
+								<summary class="btn btn-sm">Menu ▾</summary>
+							</details>
+						</div>
+					</div>
+				</section>
+			</div>
+
+			<div
+				style="
+					margin-top: 28px;
+					border: 1px solid var(--color-base-300);
+					padding: 16px 18px;
+					background: var(--color-base-200);
+				"
+			>
+				<h3
+					style="
+						margin: 0 0 8px;
+						font-size: 14px;
+						letter-spacing: 0.06em;
+						text-transform: uppercase;
+						opacity: 0.7;
+					"
+				>
+					How to pick
+				</h3>
+				<ul style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5">
+					<li><strong>If regaining height is the top job and clarity can’t slip:</strong> A.</li>
+					<li>
+						<strong
+							>If keeping today’s “Workspace facts vs screen facts” split matters most:</strong
+						>
+						B (pay 12 px more height than A).
+					</li>
+					<li>
+						<strong>If the left is too long today and you want the brand to do work:</strong> C —
+						but reinstate a stronger Workspace affordance (maybe a subtle dot for Review copies).
+					</li>
+					<li>
+						<strong
+							>If scanning is the bottleneck (“which controls are navigation vs work?”):</strong
+						>
+						D.
+					</li>
+				</ul>
+				<p style="font-size: 13px; opacity: 0.75; margin: 10px 0 0">
+					All four keep: one <code>header[data-testid="navigation-bar"]</code>, one
+					<code>h1</code> (current breadcrumb), one <code>theme-toggle</code>, one
+					<code>save-slot</code> and one <code>undo-slot</code> — so the existing
+					<code>describe('the navigation bar')</code> specs can stay counting one. They differ only
+					in CSS, not in landmarks. I can turn your pick into a real
+					<code>AppBar.svelte</code> branch in ~one file edit.
+				</p>
+			</div>
+
+			<div style="margin-top: 18px; font-size: 12.5px; opacity: 0.6">
+				File: <code>/tmp/ballastella-nav-proto/index.html</code> — open with
+				<code>python3 -m http.server</code> or <code>file://</code>. No build step. Tokens copied
+				from <code>apps/editor/src/routes/layout.css</code> Sidereal block.
+			</div>
+		</div>
+
+		<script>
+			const $ = (s) => document.querySelector(s);
+			const $$ = (s) => [...document.querySelectorAll(s)];
+			const themeSel = $('#themeSel'),
+				routeSel = $('#routeSel'),
+				wsSel = $('#wsSel'),
+				saveSel = $('#saveSel');
+			const toggleWarn = $('#toggleSaveWarn');
+			let showWarn = false;
+
+			function crumbsFor(route) {
+				if (route === 'hub') return [];
+				if (route === 'align')
+					return [
+						{ label: 'Projects', href: './', testid: 'all-projects' },
+						{ label: 'Amsterdam 1625', href: './?p=amsterdam-1625', testid: 'back-to-project' },
+						{ label: 'Align: Harbor chart', current: true }
+					];
+				return [
+					{ label: 'Projects', href: './', testid: 'all-projects' },
+					{ label: 'Amsterdam 1625', current: true, action: 'Edit' }
+				];
+			}
+			function renderBreadcrumbs(container, route) {
+				const crumbs = crumbsFor(route);
+				container.innerHTML = '';
+				if (crumbs.length === 0) {
+					container.innerHTML = '<span class="muted">Workspace Home — no breadcrumbs</span>';
+					return;
+				}
+				crumbs.forEach((c, i) => {
+					if (i > 0) {
+						const s = document.createElement('span');
+						s.className = 'sep';
+						s.textContent = '›';
+						container.appendChild(s);
+					}
+					if (c.current) {
+						const h = document.createElement('span');
+						h.className = 'crumb-current';
+						h.textContent = c.label;
+						h.setAttribute('aria-current', 'page');
+						if (c.action) {
+							const btn = document.createElement('button');
+							btn.className = 'btn btn-ghost btn-sm';
+							btn.style.padding = '2px 6px';
+							btn.textContent = '✎ Edit';
+							btn.setAttribute('aria-label', 'Edit Project name');
+							const wrap = document.createElement('span');
+							wrap.style.display = 'inline-flex';
+							wrap.style.alignItems = 'center';
+							wrap.style.gap = '6px';
+							wrap.appendChild(h);
+							wrap.appendChild(btn);
+							container.appendChild(wrap);
+						} else container.appendChild(h);
+					} else {
+						const a = document.createElement('a');
+						a.className = 'link';
+						a.href = c.href;
+						a.textContent = c.label;
+						if (c.testid) a.dataset.testid = c.testid;
+						container.appendChild(a);
+					}
+				});
+			}
+			function sync() {
+				const ws = wsSel.value;
+				const save = saveSel.value;
+				const route = routeSel.value;
+				$$('[data-bind="ws"],[data-bind="wsD"]').forEach((el) => (el.textContent = ws));
+				$$('[data-bind="saveLabel"],[data-bind="saveLabelC"],[data-bind="saveLabelD"]').forEach(
+					(el) => (el.textContent = save === 'saved' ? 'Saved locally' : 'Unsaved changes')
+				);
+				$$('[data-bind="save"],[data-bind="saveC"],[data-bind="saveD"]').forEach((el) => {
+					el.classList.toggle('saved', save === 'saved');
+					el.classList.toggle('unsaved', save !== 'saved');
+				});
+				['', 'B', 'C', 'D'].forEach((suffix) => {
+					const sel = suffix ? `[data-bind="crumbs${suffix}"]` : '[data-bind="crumbs"]';
+					$$(sel).forEach((el) => renderBreadcrumbs(el, route));
+				});
+				const warnText = showWarn
+					? '⚠ Couldn’t keep an edit safe — localStorage is full. Close a tab or remove an Annotation.'
+					: '';
+				$$('[data-bind="warn"],[data-bind="warnC"],[data-bind="warnD"]').forEach(
+					(el) => (el.textContent = warnText)
+				);
+				const inline = $('[data-bind="warnInline"]');
+				if (inline) inline.textContent = showWarn ? '⚠ storage full' : '';
+				document.documentElement.setAttribute('data-theme', themeSel.value);
+			}
+			themeSel.addEventListener('change', sync);
+			routeSel.addEventListener('change', sync);
+			wsSel.addEventListener('change', sync);
+			saveSel.addEventListener('change', sync);
+			toggleWarn.addEventListener('click', () => {
+				showWarn = !showWarn;
+				sync();
+			});
+			sync();
+
+			// make mobile menu visible demo at narrow widths by toggling class
+			const ro = new ResizeObserver(() => {});
+		</script>
+	</body>
+</html>
