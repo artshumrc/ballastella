@@ -28,10 +28,13 @@
      1. **The names are exactly `light` and `dark`**, because those are the two strings
         `src/lib/theme.svelte.ts` writes to `data-theme`. A third name is a theme nothing can
         select.
-     2. **`prefersdark: false` here, and `themes: false` on the `@plugin 'daisyui'` above.** Both
-        keep the stylesheet from holding a second opinion about the operating system's preference,
-        which is the divergence ADR-0016 exists to prevent: `ThemeSignal` owns that decision — live,
-        off the media query's `change` event.
+     2. **`prefersdark: true` on the `dark` block, and `themes: false` on the `@plugin 'daisyui'`
+        above.** `themes: false` keeps stock daisyUI out (see below). `prefersdark` is *not* a second
+        opinion about the operating system's preference, which is the divergence ADR-0016 exists to
+        prevent, because daisyUI emits it behind `:root:not([data-theme])`
+        (`daisyui/theme/index.js`): it styles only the window before `ThemeSignal` has spoken, and
+        goes inert the instant the attribute is written. `ThemeSignal` still owns the decision — live,
+        off the media query's `change` event — and nothing here can contradict it.
 
         `themes: false` is also what lets these two blocks win at all. daisyUI's built-in `light` is
         selected by `:is(:root:has(input.theme-controller[value=light]:checked),[data-theme=light])`
@@ -46,6 +49,13 @@
         `:root`, so a prerendered page is Sidereal at first paint, before the root layout has
         written any attribute. Deleting either `themes: false` or `default: true` reintroduces stock
         daisyUI with nothing erroring.
+
+        ⚠ **`prefersdark: true` is what keeps that first paint from being the *wrong* half.**
+        `startTheme()` runs from a mounted component and `preferredTheme()` answers `light` while
+        prerendering, so without the media query an OS-dark machine paints Sidereal light and flips
+        to dark at hydration — on every prerendered page, **including every Published Site**, which
+        is the artefact a scholar is judged by. Stock `dark` used to own that paint; `themes: false`
+        took it away, and this puts it back under our own palette.
      3. **The base ramp descends** — `base-100` lightest, `base-300` deepest — in *both* themes, as
         daisyUI's own do. Inverting it in dark inverts every `border-base-300` in both apps and
         turns the align sidebar's and the Layer rail's `bg-base-300` from a well into a highlight,
@@ -110,7 +120,7 @@
 
 @plugin 'daisyui/theme' {
 	name: 'dark';
-	prefersdark: false;
+	prefersdark: true;
 	color-scheme: 'dark';
 
 	--color-base-100: #1a2130;

@@ -63,9 +63,19 @@ fails if a later palette change does.
 
 **Two themes, named `light` and `dark`, and nothing else.** Those two literal names are what
 `apps/{editor,viewer}/src/lib/theme.svelte.ts` write to `data-theme`, so a third name would be a
-theme nothing can select. `prefersdark` is `false` in both blocks: `ThemeSignal` already owns the
-`prefers-color-scheme` decision — the editor's live, the viewer's read once at construction — and a
-second opinion about it is precisely the divergence ADR-0016 exists to prevent.
+theme nothing can select. `ThemeSignal` owns the `prefers-color-scheme` decision — the editor's live,
+the viewer's read once at construction — and a second opinion about it is precisely the divergence
+ADR-0016 exists to prevent.
+
+**`prefersdark` is nonetheless `true` on the `dark` block, and it is not that second opinion.**
+daisyUI emits it behind `:root:not([data-theme])` (`daisyui/theme/index.js`), so it styles only the
+window before `ThemeSignal` has spoken and goes inert the moment the attribute is written — it cannot
+disagree with the signal, because the two never apply at once. It is there because `themes: false`
+removed stock `dark`'s own copy of that rule, and `startTheme()` runs from a mounted component while
+`preferredTheme()` answers `light` during prerendering: without it, an OS-dark machine paints Sidereal
+light and flips to dark at hydration on every prerendered page, **including every Published Site**.
+Verified in the built stylesheet rather than inferred — the emitted media query carries the dark
+ramp, the semantic inks and the structure tokens.
 
 **Sidereal is designed dark-first and that is a stance, not a default.** Neither app defaults to
 dark; both start from the operating system. So the light half is what roughly half of Readers meet on
