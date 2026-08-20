@@ -44,7 +44,7 @@ copy in the repository rather than two under `static/`.
 
 Overall status: `In Progress`
 
-Current ticket: 01 (08 completed)
+Current ticket: 02, 05 and 06 (in parallel); 01 and 08 completed
 
 Last updated: 2026-08-19
 
@@ -52,11 +52,11 @@ Last updated: 2026-08-19
 
 | Number | Filename | Status | Depends On | Claimed By |
 | --- | --- | --- | --- | --- |
-| 01 | [01-the-theme-the-faces-and-the-two-marking-rules.md](./tickets/01-the-theme-the-faces-and-the-two-marking-rules.md) | In Progress | — | run-epic/01 |
-| 02 | [02-workspace-settings-becomes-three-groups.md](./tickets/02-workspace-settings-becomes-three-groups.md) | Not Started | 01 | — |
+| 01 | [01-the-theme-the-faces-and-the-two-marking-rules.md](./tickets/01-the-theme-the-faces-and-the-two-marking-rules.md) | Completed | — | run-epic/01 |
+| 02 | [02-workspace-settings-becomes-three-groups.md](./tickets/02-workspace-settings-becomes-three-groups.md) | In Progress | 01 | run-epic/02 |
 | 03 | [03-the-workspace-menu-answers-one-question.md](./tickets/03-the-workspace-menu-answers-one-question.md) | Not Started | 01, 02 | — |
 | 04 | [04-the-navigation-bar-becomes-two-tiers.md](./tickets/04-the-navigation-bar-becomes-two-tiers.md) | Not Started | 01, 03 | — |
-| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | Not Started | 01 | — |
-| 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | Not Started | 01 | — |
+| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | In Progress | 01 | run-epic/05 |
+| 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | In Progress | 01 | run-epic/06 |
 | 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | Not Started | 01, 05 | — |
 | 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | Completed | — | run-epic/08 |
