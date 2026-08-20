@@ -44,7 +44,7 @@ copy in the repository rather than two under `static/`.
 
 Overall status: `In Progress`
 
-Current ticket: 01 and 08 (in parallel)
+Current ticket: 01 (08 completed)
 
 Last updated: 2026-08-19
 
@@ -59,4 +59,4 @@ Last updated: 2026-08-19
 | 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | Not Started | 01 | — |
 | 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | Not Started | 01 | — |
 | 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | Not Started | 01, 05 | — |
-| 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | In Progress | — | run-epic/08 |
+| 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | Completed | — | run-epic/08 |
