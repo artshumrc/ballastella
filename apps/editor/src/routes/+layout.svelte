@@ -2,7 +2,8 @@
 	import './layout.css';
 	import { refuseUnroutedImageServiceRequests } from '@ballastella/core';
 	import { asset } from '$app/paths';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon16 from '$lib/assets/favicon-16.png';
+	import favicon32 from '$lib/assets/favicon-32.png';
 	import NavigationBar from '$lib/components/NavigationBar.svelte';
 	import RecoveredEdits from '$lib/components/RecoveredEdits.svelte';
 	import ReviewBanner from '$lib/components/ReviewBanner.svelte';
@@ -77,7 +78,8 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" type="image/png" sizes="16x16" href={favicon16} />
+	<link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
 	<!--
 		ADR-0006: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
 		page being rendered — so the prerendered `/align` carries `../manifest.webmanifest` and the
