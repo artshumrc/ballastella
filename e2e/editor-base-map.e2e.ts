@@ -387,14 +387,19 @@ test.describe('the Base Map pane', () => {
 		// *within* a focused `<select>` is the browser's own arrow-key handling — which is exactly why
 		// ADR-0016 mandates a native `<select>` here — and headless Chromium does not run its native
 		// popup, so this asserts the reach and the element, and leaves the popup to the platform.
+		//
+		// The bar is two tiers, and the tab order says so: the masthead first — which Workspace, and
+		// what the interface looks like — and then the screen's own tier, where you are and what you can
+		// do here. So the theme control is reached before the breadcrumb rather than after it, which is
+		// the one place a scholar can feel the tiering with the keyboard alone.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('all-projects')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('edit-project-name')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('publish')).toBeFocused();
 		await tabUntilFocused(page, page.getByTestId('place-search-query'), 'place search');

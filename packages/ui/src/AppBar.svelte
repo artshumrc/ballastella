@@ -32,6 +32,23 @@
 	// **An app that passes no `menu` never folds**, which is what keeps the editor's bar behaving at
 	// every width exactly as it did before this shell existed. Authoring is desktop-only (ADR-0014);
 	// a published site is what most people will ever see.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE TWO TIERS
+	//
+	// An app that passes `status` gets a **masthead** above a **route tier**, both inside the one
+	// `<header>`. The split is by what changes: the masthead carries identity, whether the work is
+	// kept and what the interface looks like — none of which depend on the screen — and the lower tier
+	// carries the screen itself and the actions belonging to it. A bar that re-lays-out as a scholar
+	// moves between the Workspace Home, a Project and the align screen is the defect this removes.
+	//
+	// The tiers are two rows in one landmark, never two landmarks and never an inline row beside a
+	// hidden duplicate, for the same reason the fold is a choice in JavaScript: every "exactly one of
+	// these in the bar" assertion has to keep counting one, and `navigation-bar`'s box is measured as
+	// the whole bar.
+	//
+	// A tiered bar does not fold. Folding is the published site's arrangement and tiering is the
+	// editor's; no app passes both, and authoring is desktop-only anyway.
 
 	import { otherTheme, type Theme } from '@ballastella/core';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -44,6 +61,7 @@
 		start,
 		end,
 		menu,
+		status,
 		theme,
 		onToggleTheme,
 		homeHref
@@ -59,6 +77,15 @@
 		 * with it — so nothing in here may be the only way to reach something.
 		 */
 		menu?: Snippet;
+		/**
+		 * What is true of the app's own work regardless of the screen — the editor's save indicator and
+		 * its warnings.
+		 *
+		 * Absent means one row, which is the published site's bar. Present puts the bar in two tiers and
+		 * renders this in the masthead beside identity, because whether the work is kept is a fact about
+		 * the Workspace and not about this screen.
+		 */
+		status?: Snippet;
 		/** The theme in force, for the control's own words. The signal behind it is the app's. */
 		theme: Theme;
 		onToggleTheme: () => void;
@@ -95,29 +122,27 @@
 	});
 
 	const folded = $derived(menu !== undefined && narrow);
+
+	// Written once because the control has two spellings — a `btn` in the bar and an `<li>` in the
+	// folded menu — and a scholar meeting either must be told the same thing.
+	const themeLabel = $derived(`Switch to ${otherTheme(theme)} theme`);
 </script>
 
 <!--
-	`<header>` with a `banner` role by placement. Not `<nav>`: the editor's bar has screens where
-	nothing in it navigates, and announcing a navigation landmark with no links in it is a promise the
-	bar does not keep.
+	Which screen this is and its way up the hierarchy — whatever the screen said, and nothing when a
+	screen says nothing. Editor work screens use breadcrumbs; published sites retain their compact
+	heading and back-link presentation.
+
+	A real `<h1>`: the bar is before the page's own content, so this is the first heading a screen
+	reader reaches. The link is spelled out here rather than handed over finished because
+	`svelte/no-navigation-without-resolve` checks the literal start of an `href` — hence `WayBack`
+	carrying a Project directory rather than a URL.
+
+	A snippet because the bar has two arrangements to put it in and it may exist in only one of them:
+	written twice it would be two of everything below, and a `getByTestId` that can no longer say
+	which heading a screen reader reached.
 -->
-<header
-	data-testid="navigation-bar"
-	class="flex flex-wrap items-center gap-4 border-b border-base-300 bg-base-200 px-4 py-2"
->
-	{@render start?.()}
-
-	<!--
-		Which screen this is and its way up the hierarchy — whatever the screen said, and nothing when a
-		screen says nothing. Editor work screens use breadcrumbs; published sites retain their compact
-		heading and back-link presentation.
-
-		A real `<h1>`: the bar is before the page's own content, so this is the first heading a screen
-		reader reaches. The link is spelled out here rather than handed over finished because
-		`svelte/no-navigation-without-resolve` checks the literal start of an `href` — hence `WayBack`
-		carrying a Project directory rather than a URL.
-	-->
+{#snippet chrome()}
 	{#if pageChrome.breadcrumbs.length > 0}
 		<nav class="breadcrumbs min-w-0 py-0 text-sm" aria-label="Breadcrumb" data-testid="page-chrome">
 			<ul>
@@ -179,30 +204,78 @@
 			{/if}
 		</div>
 	{/if}
+{/snippet}
 
-	<div class="grow"></div>
+<!-- The theme, for the interface and the Base Map together. One control in each app, and it says
+     what it will do rather than what it is. A snippet for the same reason `chrome` is one: it has two
+     places it can appear — the masthead and the single row — and exactly one of them may hold it. The
+     folded menu spells its own control instead, because there it is an `<li>` menu item rather than a
+     `btn`; `themeLabel` is shared so the two cannot drift apart in wording. -->
+{#snippet themeControl()}
+	<button
+		type="button"
+		class="btn btn-sm"
+		data-testid="theme-toggle"
+		onclick={() => onToggleTheme()}
+	>
+		{themeLabel}
+	</button>
+{/snippet}
 
-	{#if folded && menu}
-		<MenuPopover label="Menu" testid="bar-menu" align="end">
-			<li>
-				<button type="button" data-testid="theme-toggle" onclick={() => onToggleTheme()}>
-					Switch to {otherTheme(theme)} theme
-				</button>
-			</li>
-			{@render menu()}
-		</MenuPopover>
-	{:else}
-		<!-- The theme, for the interface and the Base Map together. One control in each app, and it
-		     says what it will do rather than what it is. Before the app's own items, which is where
-		     the editor's bar has always had it. -->
-		<button
-			type="button"
-			class="btn btn-sm"
-			data-testid="theme-toggle"
-			onclick={() => onToggleTheme()}
+<!--
+	`<header>` with a `banner` role by placement. Not `<nav>`: the editor's bar has screens where
+	nothing in it navigates, and announcing a navigation landmark with no links in it is a promise the
+	bar does not keep.
+
+	The padding is on the rows rather than here, so that a tiered bar's rule runs the full width of the
+	bar instead of stopping short of its edges.
+-->
+<header data-testid="navigation-bar" class="border-b border-base-300 bg-base-200">
+	{#if status}
+		<!--
+			The masthead: who you are, whether your work is kept, and what the interface looks like. None
+			of it depends on the screen, so none of it moves as a scholar changes screens.
+		-->
+		<div class="flex flex-wrap items-center gap-4 px-4 py-2" data-testid="bar-masthead">
+			{@render start?.()}
+			<div class="grow"></div>
+			{@render status()}
+			{@render themeControl()}
+		</div>
+
+		<!--
+			And the screen: where you are, and what you can do here. `border-rule` rather than
+			`border-base-300` — the rule has to read against the bar's own `base-200` ground as clearly as
+			the bar's bottom edge reads against `base-100` (ADR-0036), and it is a boundary between two
+			regions rather than an emphasis on either.
+		-->
+		<div
+			class="flex flex-wrap items-center gap-4 border-t border-rule px-4 py-2"
+			data-testid="bar-document"
 		>
-			Switch to {otherTheme(theme)} theme
-		</button>
-		{@render end?.()}
+			{@render chrome()}
+			<div class="grow"></div>
+			{@render end?.()}
+		</div>
+	{:else}
+		<div class="flex flex-wrap items-center gap-4 px-4 py-2">
+			{@render start?.()}
+			{@render chrome()}
+			<div class="grow"></div>
+			{#if folded && menu}
+				<MenuPopover label="Menu" testid="bar-menu" align="end">
+					<li>
+						<button type="button" data-testid="theme-toggle" onclick={() => onToggleTheme()}>
+							{themeLabel}
+						</button>
+					</li>
+					{@render menu()}
+				</MenuPopover>
+			{:else}
+				<!-- Before the app's own items, which is where the editor's bar has always had it. -->
+				{@render themeControl()}
+				{@render end?.()}
+			{/if}
+		</div>
 	{/if}
 </header>

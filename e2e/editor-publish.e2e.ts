@@ -720,9 +720,13 @@ test.describe('publishing a Workspace', () => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
 		// Reached by tabbing rather than by clicking (SPEC story 95). From the theme toggle, which is
-		// the control before it on the bar since ticket 04 moved Publish there — `UndoControl` sits
-		// between them and renders nothing at all when there is nothing to undo, which is the state a
-		// freshly seeded Workspace is in.
+		// the control before it on the bar — `UndoControl` sits between them and renders nothing at all
+		// when there is nothing to undo, which is the state a freshly seeded Workspace is in.
+		//
+		// The two are in different tiers: the theme toggle ends the masthead and Publish is in the
+		// screen's tier, with the page-chrome slot between them. So this single `Tab` holds only on a
+		// screen that sets no breadcrumbs, which the Workspace Home is. On a Project, the crumbs and
+		// their edit action come first.
 		const publishButton = page.getByRole('button', { name: 'Publish…' });
 		await page.getByTestId('theme-toggle').focus();
 		await page.keyboard.press('Tab');

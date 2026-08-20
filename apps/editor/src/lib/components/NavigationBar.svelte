@@ -198,8 +198,9 @@
 </script>
 
 <!--
-	The shell's identity slot — which Workspace you are in, and what is true of it. A published site
-	puts its own name in the same place, which is the whole of what makes the two bars one bar.
+	The shell's identity slot, first in the masthead tier — which Workspace you are in, and what is true
+	of it. A published site puts its own name in the same place, which is the whole of what makes the
+	two bars one bar.
 -->
 {#snippet start()}
 	<!--
@@ -431,11 +432,11 @@
 {/snippet}
 
 <!--
-	The editor's own controls, at the far end of the bar.
+	What can be done on this screen, at the far end of the lower tier — opposite the page-chrome slot
+	that says which screen it is, so that where you are and what you can do here are one row.
 
-	Two things that used to be written out here are the shell's now, and neither has moved on screen:
-	which screen this is and its ancestors (the page-chrome slot, filled by whichever route is on),
-	and the theme control, which is the one thing both apps offer outright.
+	The theme control is not among them: it is the shell's, it is the one thing both apps offer
+	outright, and it does not change with the route, so it belongs to the masthead.
 -->
 {#snippet end()}
 	{#if session !== null}
@@ -451,12 +452,13 @@
 		<!--
 			5. Putting the work on the web (SPEC story 1, ADR-0032).
 
-			**Beside the save indicator, and that is the whole point of both.** "Saved locally" and
-			"Publish" answer the two questions a scholar has about where their work is, and separating
+			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
+			and "Publish" answer the two questions a scholar has about where their work is, and separating
 			them across two screens is how somebody comes to believe a saved edit is a published one.
-			The Workspace is the site (ADR-0008), so this belongs to the bar rather than to a Project —
-			it was on the hub, which meant it was absent from every screen where a person is actually
-			working.
+			They sit in different tiers because they answer differently: whether the work is kept is true
+			of the Workspace, while publishing is an action taken from wherever you are. The Workspace is
+			the site (ADR-0008), so this belongs to the bar rather than to a Project — it was on the hub,
+			which meant it was absent from every screen where a person is actually working.
 
 			**Enabled in every state except while it is running**, and each of them leads somewhere: it
 			offers the binding when there is none, asks for the credential when there is no credential,
@@ -477,7 +479,16 @@
 				{publishing ? publishControlLabel(publishProgress) : 'Publish…'}
 			</button>
 		{/if}
+	{/if}
+{/snippet}
 
+<!--
+	What is true of the Workspace whatever screen is on: whether the work is kept, and every reason it
+	might not be. The masthead tier, beside the Workspace's own identity — a scholar asking whether their
+	work is safe is asking about their Workspace and not about this screen (SPEC story 25).
+-->
+{#snippet status()}
+	{#if session !== null}
 		<!-- 6. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
 		     only signal that anything reached storage — which is why it is on every screen and not
 		     only on the ones that happen to write. -->
@@ -559,12 +570,14 @@
 {/snippet}
 
 <!--
-	No `menu`: authoring is desktop-only (ADR-0014), so this bar does not fold, and it behaves at every
-	width exactly as it did before there was a shell to hold it.
+	`status` and no `menu`. The status puts the bar in two tiers: the masthead holds `start`, the save
+	state and the theme, and the lower tier holds the screen and `end`. No menu because authoring is
+	desktop-only (ADR-0014), so this bar does not fold at any width.
 -->
 <AppBar
 	{start}
 	{end}
+	{status}
 	theme={theme.current}
 	onToggleTheme={() => theme.toggle()}
 	homeHref={resolve('/')}

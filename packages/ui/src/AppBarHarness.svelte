@@ -14,12 +14,15 @@
 	let {
 		theme = 'light',
 		onToggleTheme = () => {},
-		withMenu = false
+		withMenu = false,
+		withStatus = false
 	}: {
 		theme?: Theme;
 		onToggleTheme?: () => void;
 		/** Whether this app offers foldable items, which is what turns the fold on at all. */
 		withMenu?: boolean;
+		/** Whether this app hands the masthead a status, which is what turns the two tiers on. */
+		withStatus?: boolean;
 	} = $props();
 </script>
 
@@ -35,5 +38,17 @@
 	<li><button type="button" data-testid="app-control">Publish…</button></li>
 {/snippet}
 
+{#snippet status()}
+	<span data-testid="app-status">Saved</span>
+{/snippet}
+
 <!-- `exactOptionalPropertyTypes`: an optional snippet is absent or a snippet, never `undefined`. -->
-<AppBar {start} {end} {...withMenu ? { menu } : {}} {theme} {onToggleTheme} homeHref="./" />
+<AppBar
+	{start}
+	{end}
+	{...withMenu ? { menu } : {}}
+	{...withStatus ? { status } : {}}
+	{theme}
+	{onToggleTheme}
+	homeHref="./"
+/>

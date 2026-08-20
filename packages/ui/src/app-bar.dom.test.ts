@@ -193,6 +193,57 @@ test('folds the app’s items and the theme control into one menu at a phone’s
 	expect(document.querySelectorAll('[data-testid="theme-toggle"]')).toHaveLength(1);
 });
 
+test('splits into a masthead and a route tier for an app that hands it a status', () => {
+	// Ticket 04. The upper tier is the one that does not change with the route: who you are, whether
+	// your work is kept, and what the interface looks like. The lower tier is where you are and what
+	// you can do here.
+	render({ withStatus: true });
+	pageChrome.show('Amsterdam 1625');
+	flushSync();
+
+	const masthead = testid('bar-masthead')!;
+	const document_ = testid('bar-document')!;
+
+	expect(masthead).toContainElement(testid('site-name') as HTMLElement);
+	expect(masthead).toContainElement(testid('app-status') as HTMLElement);
+	expect(masthead).toContainElement(testid('theme-toggle') as HTMLElement);
+
+	expect(document_).toContainElement(testid('page-chrome') as HTMLElement);
+	expect(document_).toContainElement(testid('app-control') as HTMLElement);
+});
+
+test('keeps both tiers inside the one banner, each affordance rendered once', () => {
+	// ⚠ **The mutation that breaks every "exactly one of these in the bar" assertion.** Two tiers is a
+	// second row inside one `<header>`, not a second `<header>` and not an inline row beside a
+	// duplicate hidden one.
+	render({ withStatus: true });
+	pageChrome.show('Amsterdam 1625');
+	flushSync();
+
+	expect(document.querySelectorAll('header')).toHaveLength(1);
+	const bar = document.querySelector('[data-testid="navigation-bar"]')!;
+	expect(bar).toContainElement(testid('bar-masthead') as HTMLElement);
+	expect(bar).toContainElement(testid('bar-document') as HTMLElement);
+	for (const id of ['theme-toggle', 'app-status', 'app-control', 'page-chrome', 'site-name']) {
+		expect(document.querySelectorAll(`[data-testid="${id}"]`), id).toHaveLength(1);
+	}
+});
+
+test('stays one row for an app that hands it no status', () => {
+	// The viewer's bar, unchanged: one row at every width, and the fold still the only arrangement it
+	// has a second form of.
+	render();
+	pageChrome.show('Amsterdam 1625');
+	flushSync();
+
+	expect(testid('bar-masthead')).toBeNull();
+	expect(testid('bar-document')).toBeNull();
+	expect(testid('site-name')).toBeInTheDocument();
+	expect(testid('page-chrome')).toBeInTheDocument();
+	expect(testid('theme-toggle')).toBeInTheDocument();
+	expect(testid('app-control')).toBeInTheDocument();
+});
+
 test('does not fold for an app that offers it nothing to fold into', () => {
 	// The editor's case. Authoring is desktop-only (ADR-0014), and its bar must behave at every width
 	// exactly as it did before there was a shell at all.
