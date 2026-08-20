@@ -258,3 +258,47 @@ test('does not fold for an app that offers it nothing to fold into', () => {
 	expect(testid('app-control')).toBeInTheDocument();
 	expect(testid('theme-toggle')).toBeInTheDocument();
 });
+
+// ── The app's own name, in the masthead ────────────────────────────────────────────────────────
+//
+// ADR-0036 gives the display face three jobs — heading a section, naming the app, titling a dialog —
+// and this is the second one. What is worth pinning is not how the wordmark looks but the two rules
+// that keep it from breaking something else: it belongs to the masthead, which is the row chartered
+// to hold what does not change with the screen, and it is neither a heading nor a control.
+
+test('names the app in the masthead, and only when the bar is tiered', () => {
+	render({ withStatus: true, withWordmark: true });
+
+	const wordmark = testid('app-wordmark');
+	expect(wordmark).not.toBeNull();
+	// In the masthead rather than the route tier: the app's name is not a fact about this screen.
+	expect(testid('bar-masthead')?.contains(wordmark!)).toBe(true);
+	expect(testid('bar-document')?.contains(wordmark!)).toBe(false);
+
+	// The display face, because ADR-0036 says naming the app is what it is for. This is the rule, not
+	// a size or a weight — those are free to be retuned without touching this test.
+	expect(wordmark).toHaveClass('font-serif');
+});
+
+test('does not name the app in a bar that has only one row', () => {
+	// The published site's bar. A wordmark handed to an untiered bar is ignored rather than rendered
+	// somewhere it was never chartered to appear.
+	render({ withWordmark: true });
+
+	expect(testid('app-wordmark')).toBeNull();
+	expect(testid('bar-masthead')).toBeNull();
+});
+
+test('the app\u2019s name is not a heading, and not a button', () => {
+	const header = render({ withStatus: true, withWordmark: true });
+
+	const wordmark = testid('app-wordmark') as HTMLElement | null;
+	expect(wordmark).not.toBeNull();
+	// Every screen carries exactly one `<h1>` and three specs count it, so the bar contributes none.
+	expect(header.querySelectorAll('h1')).toHaveLength(0);
+	// **A link is allowed and a button is not.** ADR-0036 keeps the display face off control labels,
+	// which is the text on a button or input naming an action; the app's name is one of that face's
+	// three sanctioned jobs, and the viewer's `site-name` has always been an anchor to the root. What
+	// would break the rule is a wordmark that performed something.
+	expect(wordmark!.closest('button')).toBeNull();
+});

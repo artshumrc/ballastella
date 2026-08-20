@@ -2221,12 +2221,17 @@ test.describe('the Base Map a Reader sees', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('marks the entries that need a network, in words rather than in colour', async ({
+	test('offers the entries that need a network without spelling the caveat into every label', async ({
 		page
 	}) => {
-		// SPEC story 72, and ADR-0020's reason: a Reader offline who picks satellite imagery gets a blank
-		// map with no explanation. A tooltip would not do — daisyUI renders those via CSS `::before`, which
-		// no screen reader announces — so the marking is in the option's own visible text.
+		// SPEC story 72 and ADR-0020 require that a Reader offline is *told* why the map is blank rather
+		// than left with it — but not that every remote entry carry a suffix, which made the switcher
+		// read as a list of caveats instead of a list of maps. The label is the map's name; the fact
+		// still travels on the option as `data-needs-network`, and the words a Reader reads when it
+		// matters are the offline notice's, asserted where that notice is.
+		//
+		// A tooltip would still not do — daisyUI renders those via CSS `::before`, which no screen
+		// reader announces — so nothing here may move into one.
 		site = await published(oneProject());
 		const seen = watch(page);
 
@@ -2239,10 +2244,8 @@ test.describe('the Base Map a Reader sees', () => {
 			remote.length,
 			'the catalog offers at least one entry needing a network'
 		).toBeGreaterThan(0);
-		for (const entry of remote) expect(entry.text).toContain('needs network');
-		for (const entry of catalog.filter((one) => !one.needsNetwork)) {
-			expect(entry.text).not.toContain('needs network');
-		}
+		// The fact is on the option for anything that needs it, and out of the words a scholar reads.
+		for (const entry of catalog) expect(entry.text).not.toContain('needs network');
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2649,7 +2652,8 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
 		const options = page.getByTestId('base-map-switcher').locator('option');
 		await expect(options).toHaveCount(4);
-		for (const option of await options.allTextContents()) expect(option).toContain('needs network');
+		for (const option of await options.allTextContents())
+			expect(option).not.toContain('needs network');
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 		expect(networkArchiveRequests).toBeGreaterThan(0);
 		expect(

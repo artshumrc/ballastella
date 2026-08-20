@@ -618,7 +618,7 @@
 {/if}
 
 {#if standingRefusal && !open && !refusalToastDismissed}
-	<div class="toast toast-top toast-end" data-testid="publish-failure">
+	<div class="toast toast-end toast-top" data-testid="publish-failure">
 		<div role="alert" class="alert max-w-md items-start alert-error">
 			<p>{standingRefusal}</p>
 			<button class="btn btn-sm" type="button" onclick={() => (refusalToastDismissed = true)}>

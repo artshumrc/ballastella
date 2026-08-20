@@ -64,6 +64,7 @@
 		end,
 		menu,
 		status,
+		wordmark,
 		theme,
 		onToggleTheme,
 		homeHref
@@ -88,6 +89,18 @@
 		 * the Workspace and not about this screen.
 		 */
 		status?: Snippet;
+		/**
+		 * The app's own name, set in the display face, in the middle of the masthead.
+		 *
+		 * Rendered **only when `status` puts the bar in two tiers**, because the masthead is the only row
+		 * chartered to hold something that never changes with the screen. Ignored otherwise, so a
+		 * single-row bar cannot grow a wordmark by accident.
+		 *
+		 * ADR-0036 gives the display face three jobs — it heads a section, names the app, and titles a
+		 * dialog — and this is the second. It must not be a control: the same ADR forbids that face on a
+		 * control label, so a wordmark that became a button would break the rule it exists to satisfy.
+		 */
+		wordmark?: Snippet;
 		/** The theme in force, for the control's own words. The signal behind it is the app's. */
 		theme: Theme;
 		onToggleTheme: () => void;
@@ -239,12 +252,27 @@
 		<!--
 			The masthead: who you are, whether your work is kept, and what the interface looks like. None
 			of it depends on the screen, so none of it moves as a scholar changes screens.
+
+			**A three-column grid rather than a flex row with a spacer, because of the wordmark.** The
+			left cluster holds the Workspace's name, which is user data of any length, and the right one
+			grows and shrinks with the save state — so a wordmark centred between two `grow` spacers would
+			sit at the midpoint of whatever those two happen to measure and drift every time either
+			changed. `1fr auto 1fr` puts it at the centre of the *bar*, which is the only centre a reader
+			can see, and holds it there.
+
+			The side cells take `min-w-0` so a long Workspace name is truncated by its own rules rather
+			than pushing the wordmark off centre.
 		-->
-		<div class="flex flex-wrap items-center gap-4 px-4 py-2" data-testid="bar-masthead">
-			{@render start?.()}
-			<div class="grow"></div>
-			{@render status()}
-			{@render themeControl()}
+		<div
+			class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 py-2"
+			data-testid="bar-masthead"
+		>
+			<div class="flex min-w-0 flex-wrap items-center gap-4">{@render start?.()}</div>
+			{@render wordmark?.()}
+			<div class="flex min-w-0 flex-wrap items-center justify-end gap-4">
+				{@render status()}
+				{@render themeControl()}
+			</div>
 		</div>
 
 		<!--

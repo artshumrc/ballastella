@@ -16,7 +16,6 @@
 		catalog,
 		onSelect,
 		labelSrOnly = false,
-		showNetworkRequirement = true,
 		fullWidth = true,
 		class: width
 	}: {
@@ -32,8 +31,6 @@
 		 * and ADR-0016 keeps that out of a `title`.
 		 */
 		labelSrOnly?: boolean;
-		/** Whether option labels state that the entry needs a network connection. */
-		showNetworkRequirement?: boolean;
 		/** Whether the select fills its caller's available width. */
 		fullWidth?: boolean;
 		/**
@@ -69,8 +66,6 @@
 	onchange={(event) => onSelect(event.currentTarget.value)}
 >
 	{#each options as option (option.id)}
-		<option value={option.id} data-needs-network={option.needsNetwork}
-			>{showNetworkRequirement ? option.text : option.label}</option
-		>
+		<option value={option.id} data-needs-network={option.needsNetwork}>{option.label}</option>
 	{/each}
 </select>

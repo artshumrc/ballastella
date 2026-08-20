@@ -366,7 +366,7 @@ test('still refuses a host whose info.json is readable and whose tiles are not',
 	await expect(layerRows(page)).toHaveCount(0);
 });
 
-test('says on the Layer, in text, that this map needs the network', async ({ page }) => {
+test('says on the Layer, in text, where this map’s tiles live', async ({ page }) => {
 	await installIiifHosts(page);
 	await openNewProject(page);
 	await addReferenced(page, 'images.test');
@@ -379,7 +379,10 @@ test('says on the Layer, in text, that this map needs the network', async ({ pag
 	// waited for on a collapsed row — where it is not in the DOM at all.
 	const badge = (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-image-mode');
 	await expect(badge).toBeVisible();
-	await expect(badge).toHaveText(/needs the network/i);
+	// "Remote reference" against "Local copy" — the words say where the tiles are, which is what
+	// decides whether a reader needs the network. Still words: the `badge-warning` colour beside them
+	// is the second channel, never the only one.
+	await expect(badge).toHaveText(/remote reference/i);
 	await expect(badge).toHaveAttribute('data-image-mode', 'referenced');
 });
 

@@ -68,7 +68,6 @@ const render = (props: {
 	catalog: BaseMapCatalog;
 	onSelect: (id: string) => void;
 	labelSrOnly?: boolean;
-	showNetworkRequirement?: boolean;
 	fullWidth?: boolean;
 	class?: string;
 }) => {
@@ -93,9 +92,13 @@ test('offers every entry of the catalog it is handed, in catalog order', () => {
 	]);
 });
 
-test('marks an entry that needs the network in the option text a Reader can read', () => {
-	// Visible text rather than a tooltip or a colour: ADR-0016 rules tooltips out as an information
-	// channel, and ADR-0020 wants a Reader offline to know *before* choosing.
+test('labels an option with the map’s name and nothing else', () => {
+	// An option's words are the map's name. The needs-network fact rides on `data-needs-network` for
+	// anything that has to branch on it, and the words a scholar reads when it actually bites are the
+	// offline notice's — `nothingUnderTheWork`, covered in `packages/core/src/base-map/resolve.test.ts`.
+	//
+	// Not a tooltip, here or anywhere: ADR-0016 rules them out as an information channel because
+	// daisyUI renders them via CSS `::before`, which no screen reader announces.
 	const select = render({ entryId: 'parish-roads', catalog: CATALOG, onSelect: () => {} });
 
 	expect([...select.options].map((option) => option.textContent)).toEqual([
@@ -103,21 +106,12 @@ test('marks an entry that needs the network in the option text a Reader can read
 		'Parish roads',
 		'Satellite'
 	]);
-});
-
-test('can leave network requirements out of an editor selector', () => {
-	const select = render({
-		entryId: 'parish-roads',
-		catalog: CATALOG,
-		onSelect: () => {},
-		showNetworkRequirement: false
-	});
-
-	expect([...select.options].map((option) => option.textContent)).toEqual([
-		'Harbour charts',
-		'Parish roads',
-		'Satellite'
-	]);
+	expect(select.querySelector('[title]')).toBeNull();
+	// The fact itself still reaches anything that needs it.
+	expect(
+		[...select.options].map((option) => option.dataset.needsNetwork).filter((set) => set === 'true')
+			.length
+	).toBeGreaterThan(0);
 });
 
 test('carries the test id both suites address the control by', () => {

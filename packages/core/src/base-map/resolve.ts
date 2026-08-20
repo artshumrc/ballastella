@@ -125,16 +125,20 @@ export type BaseMapOption = {
 	readonly label: string;
 	readonly needsNetwork: boolean;
 	/** The label as shown in the switcher, carrying the needs-network marking. */
-	readonly text: string;
 };
 
 /**
  * The switcher's options, in catalog order.
  *
- * The needs-network marking is **visible text**, not a tooltip and not colour alone: ADR-0016
- * rules out tooltips as an information channel because daisyUI renders them via CSS `::before`
- * and screen readers never announce them, and ADR-0020 requires the distinction be legible or
- * a Reader offline picks satellite imagery and gets a blank map with no explanation.
+ * `text` is the entry's label and nothing else. `needsNetwork` still travels with each option — the
+ * `<option>` carries it as `data-needs-network`, and the offline notice `nothingUnderTheWork`
+ * composes from it — but it is not spelled into the label a scholar reads, because a suffix on every
+ * remote entry made the switcher a list of caveats rather than a list of maps.
+ *
+ * ⚠ **So the notice is now the only thing that says it in words.** ADR-0020's requirement is that a
+ * Reader who cannot reach the network is told why the map is blank, and with the labels plain that
+ * duty rests entirely on `nothingUnderTheWork` and on `base-map-unavailable`. Neither may quietly
+ * lose its wording.
  */
 export function baseMapOptions(
 	catalog: BaseMapCatalog = BASE_MAP_CATALOG
@@ -142,8 +146,7 @@ export function baseMapOptions(
 	return catalog.entries.map((entry) => ({
 		id: entry.id,
 		label: entry.label,
-		needsNetwork: entry.needsNetwork,
-		text: entry.needsNetwork ? `${entry.label}` : entry.label
+		needsNetwork: entry.needsNetwork
 	}));
 }
 

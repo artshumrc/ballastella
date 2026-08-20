@@ -34,7 +34,7 @@
 
 	import { resolve } from '$app/paths';
 	import { describeRemote } from '@ballastella/core';
-	import { AppBar, MenuPopover } from '@ballastella/ui';
+	import { AppBar, BallastellaMark, MenuPopover } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by (SPEC story 111).
@@ -574,10 +574,46 @@
 	state and the theme, and the lower tier holds the screen and `end`. No menu because authoring is
 	desktop-only (ADR-0014), so this bar does not fold at any width.
 -->
+<!--
+	The app's own name, in the display face, at the centre of the masthead.
+
+	ADR-0036 gives Bluu Next three jobs — it heads a section, names the app, and titles a dialog — and
+	this is the one that names the app.
+
+	**A link to the root route, which is what the viewer's own name has always been** (`SiteBar.svelte`
+	renders `site-name` as an anchor to `resolve('/')`). The masthead is the tier that does not change
+	with the screen, and the app's root does not either, so the destination is as invariant as the
+	label. A wordmark that is not clickable reads as broken, because every other site a scholar uses
+	has trained them otherwise.
+
+	**Not a heading, and not a control label.** Every screen carries exactly one `<h1>` and three specs
+	count it, so a second would break them — this is an `<a>`, not a heading. And ADR-0036's rule that
+	this face never reaches a *control label* is about the text on a button or an input that names an
+	action: naming the app is one of the face's three sanctioned jobs, and a name that is also the way
+	home is still a name. The rule would be broken by setting `Publish` in Bluu Next, not by this.
+
+	**Hidden below `lg`.** The editor's bar does not fold (ADR-0014's first fence), so everything in the
+	masthead has to fit one row at every width the editor is used at — and identity on the left plus
+	save state and the theme control on the right already claim that row at the narrow end. The
+	wordmark is the one thing here a scholar never needs to reach, and the breadcrumbs' root crumb goes
+	to the same place, so nothing becomes unreachable when it goes.
+-->
+{#snippet wordmark()}
+	<a
+		class="hidden link items-center gap-2 font-serif text-xl leading-none link-hover lg:flex"
+		data-testid="app-wordmark"
+		href={resolve('/')}
+	>
+		<BallastellaMark />
+		Ballastella
+	</a>
+{/snippet}
+
 <AppBar
 	{start}
 	{end}
 	{status}
+	{wordmark}
 	theme={theme.current}
 	onToggleTheme={() => theme.toggle()}
 	homeHref={resolve('/')}

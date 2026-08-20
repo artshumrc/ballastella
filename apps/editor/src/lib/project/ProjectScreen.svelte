@@ -2000,7 +2000,6 @@
 			entryId={resolution!.entry.id}
 			catalog={BASE_MAP_CATALOG}
 			labelSrOnly={true}
-			showNetworkRequirement={false}
 			fullWidth={false}
 			class="select-sm"
 			onSelect={(id) => session.chooseBaseMap(id)}

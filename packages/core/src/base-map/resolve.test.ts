@@ -78,13 +78,18 @@ describe('baseMapOptions', () => {
 		]);
 	});
 
-	it('marks a needs-network entry in visible text rather than by colour or a tooltip', () => {
+	it('labels an entry with its name, and carries the network fact beside it', () => {
 		const options = baseMapOptions(FORKED_CATALOG);
 		const satellite = options.find((option) => option.id === 'satellite');
 		const offline = options.find((option) => option.id === 'harbour-charts');
 
-		expect(satellite?.text).toBe('Satellite');
-		expect(offline?.text).toBe('Harbour charts');
+		// The label is the map's name. What needs the network is still knowable — `needsNetwork` is what
+		// `nothingUnderTheWork` composes its notice from, which is where the requirement is now said in
+		// words — but it is not spelled into every option a scholar reads past.
+		expect(satellite?.label).toBe('Satellite');
+		expect(offline?.label).toBe('Harbour charts');
+		expect(satellite?.needsNetwork).toBe(true);
+		expect(offline?.needsNetwork).toBe(false);
 	});
 });
 
@@ -211,8 +216,9 @@ describe('baseMapNotPublishedNotice', () => {
 		});
 
 		expect(notice).toMatch(NOTHING_UNDER_THE_WORK);
-		// And points at the way out rather than merely apologising: the entries that would work are
-		// the ones the switcher already marks.
+		// And points at the way out rather than merely apologising. With the switcher's labels plain,
+		// this notice is the only place the requirement is stated in words, so its wording is the thing
+		// ADR-0020 now rests on.
 		expect(notice).toContain('needs network');
 	});
 

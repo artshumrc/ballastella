@@ -15,7 +15,8 @@
 		theme = 'light',
 		onToggleTheme = () => {},
 		withMenu = false,
-		withStatus = false
+		withStatus = false,
+		withWordmark = false
 	}: {
 		theme?: Theme;
 		onToggleTheme?: () => void;
@@ -23,6 +24,9 @@
 		withMenu?: boolean;
 		/** Whether this app hands the masthead a status, which is what turns the two tiers on. */
 		withStatus?: boolean;
+		/** Whether this app names itself in the masthead. Independent of `withStatus`, so that the
+		 * bar's refusal to render a wordmark on a single-row bar can be asserted. */
+		withWordmark?: boolean;
 	} = $props();
 </script>
 
@@ -42,12 +46,17 @@
 	<span data-testid="app-status">Saved</span>
 {/snippet}
 
+{#snippet wordmark()}
+	<a class="font-serif" data-testid="app-wordmark" href="./">Ballastella</a>
+{/snippet}
+
 <!-- `exactOptionalPropertyTypes`: an optional snippet is absent or a snippet, never `undefined`. -->
 <AppBar
 	{start}
 	{end}
 	{...withMenu ? { menu } : {}}
 	{...withStatus ? { status } : {}}
+	{...withWordmark ? { wordmark } : {}}
 	{theme}
 	{onToggleTheme}
 	homeHref="./"
