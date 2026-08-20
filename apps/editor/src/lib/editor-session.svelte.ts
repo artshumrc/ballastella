@@ -2006,14 +2006,13 @@ export class EditorSession {
 			await deleteMapImage(this.#store, imageId, { label });
 		} catch (cause) {
 			// ⚠ **The sweep is here and below, and never before the `await`** (ticket 21, review 2).
-			// It used to be the first thing this method did, which made it the one remaining
-			// "destroy synchronously, justify asynchronously" pair in the application — the exact
-			// inversion `Workspace.deleteProject` had and ticket 21 fixed. The synchronous half threw
-			// away the user's unsaved Alignment edit; the asynchronous half is the one a reload cuts.
-			// A reload in between therefore lost the edit **and** left the map in place: data loss
-			// with no deletion to justify it, through a window that is wider than `deleteProject`'s
-			// ever was, because the first `await` here is `mapImageUsage` — a walk of every
-			// Project in the Workspace.
+			// Sweeping first would make this the one remaining "destroy synchronously, justify
+			// asynchronously" pair in the application — the inversion `Workspace.deleteProject` had
+			// and ticket 21 fixed. The synchronous half throws away the user's unsaved Alignment edit;
+			// the asynchronous half is the one a reload cuts. A reload in between would therefore lose
+			// the edit **and** leave the map in place: data loss with no deletion to justify it,
+			// through a window wider than `deleteProject`'s, because two awaits open it —
+			// `#quietBeforeDeleting` and then `deleteMapImage` itself.
 			//
 			// Swept only when something was actually removed, which `MapImagePartlyDeletedError`
 			// is the only failure that says. `MapImageInUseError` is a refusal taken *before*
