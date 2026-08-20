@@ -139,7 +139,7 @@ test.describe('the Workspace on the bar', () => {
 		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
 		// frame — a `<dialog>` has to exist before `showModal()` can be called on it — so the question
 		// is whether any of this is *on screen*, which is the question the criterion asks.
-		await expect(page.getByText('Where your work is stored')).toBeHidden();
+		await expect(page.getByText('Where your work lives')).toBeHidden();
 		await expect(page.getByTestId('settings-choose-folder')).toBeHidden();
 		await expect(page.getByTestId('install-offer')).toBeHidden();
 	});
