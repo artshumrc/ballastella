@@ -7,9 +7,11 @@
 //
 // About a second, once per run, before any worker starts.
 
+import process from 'node:process';
+
 import { chromium } from '@playwright/test';
 
-import { GPU_LAUNCH_ARGS, isSoftwareRenderer } from './gpu-launch-args.mjs';
+import { GPU_LAUNCH_ARGS, isSoftwareRenderer, onGithubActions } from './gpu-launch-args.mjs';
 
 /** What {@link rendererInUse} answers when the browser has no WebGL to report on. */
 const NO_WEBGL = 'no WebGL context at all';
@@ -35,7 +37,7 @@ const rendererInUse = async () => {
 export default async () => {
 	// `BALLASTELLA_E2E_GPU=0` is a deliberate choice of the software path, and CI has no other, so
 	// neither is a failure. The config refuses the *undeclared* software run before reaching here.
-	if (process.env.BALLASTELLA_E2E_GPU === '0' || process.env.CI) return;
+	if (process.env.BALLASTELLA_E2E_GPU === '0' || onGithubActions()) return;
 
 	const renderer = await rendererInUse();
 	if (renderer !== NO_WEBGL && !isSoftwareRenderer(renderer)) return;

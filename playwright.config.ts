@@ -4,7 +4,11 @@ import { availableParallelism } from 'node:os';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
-import { GPU_LAUNCH_ARGS } from './scripts/gpu-launch-args.mjs';
+import {
+	GPU_LAUNCH_ARGS,
+	SOFTWARE_LAUNCH_ARGS,
+	onGithubActions
+} from './scripts/gpu-launch-args.mjs';
 
 // Seam 2 (SPEC, Testing Decisions): the running app in a real browser, with real MapLibre,
 // real OpenSeadragon, and real OPFS. Deliberately no map-abstraction layer — inventing one
@@ -101,7 +105,8 @@ const serveStatic = (app: string, port: number) => ({
 // the detection dropped the run onto SwiftShader, where each worker holds a core, and nothing said
 // so — the only symptom was a hot machine and a suite that felt slow. Both halves are now refused
 // out loud, the detection's answer below and the browser's own answer in `scripts/assert-gpu.mjs`,
-// and CI — which has no render node and no other path — is the one case exempt from both.
+// and the GitHub Actions runner — which has no render node and no other path — is the one case exempt
+// from both. The exemption reads `GITHUB_ACTIONS`, never `CI`: a local `CI=1` is not a runner.
 //
 // ⚠ **Two tests had to be fixed before this could be the default, and what they were pinning is worth
 // knowing.** `viewer-reader.e2e.ts`'s two outage tests failed under the GPU, deterministically and in
@@ -160,10 +165,13 @@ const useGpu = wantsGpu === '0' ? false : wantsGpu === '1' || canUseVulkan();
  * run pins the machine instead of failing. That is indistinguishable from "the suite is slow today"
  * from the outside, so it is refused here rather than discovered from a fan curve.
  *
- * CI is the case this does *not* fire for: `ubuntu-latest` has no render node, the software path is
- * the only one it has, and the worker count below is already conditional on that.
+ * The GitHub Actions runner is the case this does *not* fire for: `ubuntu-latest` has no render node,
+ * the software path is the only one it has, and the worker count below is already conditional on
+ * that. The exemption asks for `GITHUB_ACTIONS` rather than `CI` on purpose — `CI=1` is set by any
+ * number of local wrappers and agent harnesses, and while it opened this gate a workstation could
+ * still reach the software path in silence.
  */
-if (!useGpu && !process.env.CI && wantsGpu !== '0') {
+if (!useGpu && !onGithubActions() && wantsGpu !== '0') {
 	throw new Error(
 		'No Vulkan GPU was detected, and this is not CI, so the run would rasterise WebGL on the CPU ' +
 			'and hold one core per worker.\n\n' +
@@ -174,11 +182,14 @@ if (!useGpu && !process.env.CI && wantsGpu !== '0') {
 	);
 }
 
+// A declared software run still gets its raster threads capped off the runner, because the worker
+// cap is not a CPU cap: SwiftShader's threads are per browser, and four browsers have pinned all
+// twenty cores of this box. The runner keeps Chromium's own defaults, so CI timings stay comparable.
 const gpuLaunchOptions = useGpu
-	? {
-			launchOptions: { args: [...GPU_LAUNCH_ARGS] }
-		}
-	: {};
+	? { launchOptions: { args: [...GPU_LAUNCH_ARGS] } }
+	: onGithubActions()
+		? {}
+		: { launchOptions: { args: [...SOFTWARE_LAUNCH_ARGS] } };
 
 /**
  * Workers to run by default, which is a question about the rasteriser before it is one about cores.
