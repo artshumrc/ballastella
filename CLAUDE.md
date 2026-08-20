@@ -37,3 +37,6 @@ wrong here in a way that produced a confident wrong answer rather than an error.
 A stale listener in the *same* tree is the remaining case, and it is why both the wrapper and
 Playwright's `webServer` call `scripts/free-e2e-port.mjs` before binding.
 
+## Ticket Tracker
+
+Local: `./.tracker`

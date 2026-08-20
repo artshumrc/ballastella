@@ -4,6 +4,8 @@
 >
 > **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** "a project zip is one project subdirectory" no longer describes transfer. Backup is a **tar of the whole workspace**; a project bundle is a separate artefact that opens only in a throwaway Review Workspace and is never merged into the recipient's own.
 >
+> **Amended again by [ADR-0037](./0037-import-copies-a-project-into-the-current-workspace.md):** a Project Bundle can now be reviewed or imported. Import copies the Project into the current Workspace with fresh Map Image identities rather than merging Workspace-level assets.
+>
 > The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold map images no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
 >
 > **Amended by [ADR-0032](./0032-publish-means-the-remote.md): the "hub page" below is the *Front Page*.** "Hub" was doing two jobs — this record's reader-facing published root, and `ProjectHub.svelte`, which is the *editor's* Project list. Read every "hub page" here as **Front Page**, and note that a Project is now either on it or not, which this record's `?p=` addressing already makes possible at no cost: a Project absent from the Front Page is still reachable by its query parameter, and is therefore not private.

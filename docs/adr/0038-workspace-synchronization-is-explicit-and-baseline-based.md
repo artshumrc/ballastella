@@ -1,0 +1,15 @@
+# Workspace synchronization is explicit and baseline-based
+
+> **Amends [ADR-0032](./0032-publish-means-the-remote.md) and [ADR-0033](./0033-a-publish-mirrors-an-owned-namespace.md).**
+
+Synchronization belongs to the whole Workspace, never to an imported Project. A Workspace has one Remote, and one Ballastella installation keeps at most one synchronized local Workspace for a GitHub repository. **Open a Workspace from GitHub** replaces user-facing Clone: it creates the local Workspace and its Synchronization Baseline, or opens the existing local Workspace already bound to that repository. Reading a public Remote and updating from it require no write permission; Publish does.
+
+The **Synchronization Baseline** is the per-path state last shared by a successful Open, Update, Publish, or Publish anyway. A Remote Status check observes but never advances it. Authenticated Workspaces are checked automatically with bounded frequency; signed-out users may check a public Remote explicitly. Status is reported separately from local save state as Up to date, Changes to publish, Update available, Changes on both sides, or Conflict, without Git's ahead/behind vocabulary.
+
+The two transfer directions remain separate and explicit. **Update from GitHub** brings Remote-only changes, including deletions, into the Workspace without publishing local work. **Publish** sends local work outward and remains the only action that makes it public. Both operate over the complete Ballastella-owned namespace, including generated Published Site files and offline Base Map data; differences caused only by generated viewer output are publication staleness, not changed scholarship.
+
+For each path, a change on one side of the Baseline is safe and changes on different paths may be combined. A path changed on both sides is a Conflict. The prospective Workspace is also validated as a graph before transfer, so individually non-conflicting files that would create dangling references or violate another Workspace invariant are a Conflict together. A Conflict or invalid Remote stops the operation without changing either side; no content merge or new conflict-resolution interface is introduced. The existing Publish anyway action remains the explicit local-wins escape hatch.
+
+Remote deletions of locally unchanged content are ordinary inbound changes, previewed and confirmed before an atomic Update. The Remote relationship and Baseline are local-only metadata and never arrive through repository content. Publish separately generates the repository address the Published Site needs for its return links, so opening a copied or forked repository cannot silently bind the Workspace to the repository from which it was copied.
+
+Project directories remain inside the owned namespace when recognized locally, remotely, or in the Baseline; this keeps local additions publishable and remote deletions visible until synchronization establishes their complete removal. Files outside Ballastella's namespace remain preserved as ADR-0033 requires.

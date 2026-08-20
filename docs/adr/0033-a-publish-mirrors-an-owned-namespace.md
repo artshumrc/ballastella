@@ -1,5 +1,7 @@
 # A Publish mirrors an owned namespace and preserves the rest
 
+> **Amended by [ADR-0038](./0038-workspace-synchronization-is-explicit-and-baseline-based.md):** the publish manifest becomes a Synchronization Baseline established by Open, Update, or Publish. Update from GitHub is the explicit inbound operation; the Remote relationship itself is local-only and is not learned from synchronized content.
+
 A Publish builds one tree and moves one ref. What goes in that tree is the decision with the worst
 failure mode in this epic, so it is settled here rather than in a ticket.
 

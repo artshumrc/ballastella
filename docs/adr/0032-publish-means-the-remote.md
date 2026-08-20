@@ -1,5 +1,7 @@
 # Publish means the Remote, and the Front Page is where a Reader arrives
 
+> **Amended by [ADR-0037](./0037-import-copies-a-project-into-the-current-workspace.md) and [ADR-0038](./0038-workspace-synchronization-is-explicit-and-baseline-based.md):** one Project may now be imported into the current Workspace, while continuing synchronization remains a whole-Workspace relationship. Open a Workspace from GitHub replaces user-facing Clone, and Project return links offer Import or Review.
+
 "Publish" used to mean *write `index.html` and a viewer bundle into the Workspace directory*. That is
 [ADR-0006](./0006-the-project-directory-is-the-published-site.md)'s additive trick, and it is a good
 mechanism — it is why publishing copies no tile. But it is a mechanism, and no scholar should have to

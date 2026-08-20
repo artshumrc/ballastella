@@ -1301,7 +1301,7 @@
 				`base-300` rather than `base-200`, measured rather than chosen: `base-200` puts a
 				1.06:1 luminance step between column and card in both themes and `base-300` puts 1.16:1 in
 				light and 1.12:1 in dark. Neither is text contrast — a surface boundary is carried by the
-				card's own border and shadow as well — but the stock light theme has 100% and 98% to work
+				card's own border as well — but the stock light theme has 100% and 98% to work
 				with, and half of what little there is was not worth keeping. The divider is an ink wash
 				rather than `base-300`, which is now the column's own colour.
 

@@ -77,6 +77,10 @@
 	// border darker than either surface, which reads as a smudge rather than an edge. `ProjectScreen`
 	// owns the column and records the luminance steps that decided `base-300` over `base-200`.
 	//
+	// The card's own edge is an ink hairline and there is no drop shadow: a `base-300` border is the
+	// column's exact colour, so along the bottom of a card it read as a stray beige line rather than
+	// an edge, and the shadow under it only made that line look thicker.
+	//
 	// On top of that the header carries a tint of the Layer kind's own colour — `accent` for a
 	// Map Image, `info` for Annotations — so that two cards of different kinds differ before a
 	// word has been read, and **everything else in that card is in the same colour**: its toggle, its
@@ -680,7 +684,7 @@
 				-->
 				<li
 					bind:this={card[layer.id]}
-					class="group overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-sm"
+					class="group overflow-hidden rounded-box border border-base-content/10 bg-base-100"
 					class:opacity-50={dragging === layer.id}
 					class:border-primary={over === layer.id && dragging !== layer.id}
 					data-testid="layer-row"

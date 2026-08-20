@@ -22,6 +22,22 @@ _Avoid_: build, deployment, website. "Export" belongs to a Project Bundle and a 
 To send a Workspace's files to its Remote, so that the Published Site at that address becomes the work as it now stands. One act and one word: it uploads, and what it uploads is readable by anyone. Never automatic and never silent — an edit is saved locally the moment it is made, and reaches the Remote only when someone presses the button.
 _Avoid_: sync, deploy, upload, push, save to the cloud
 
+**Update from GitHub**:
+To bring non-conflicting changes, including deletions, from a Workspace's Remote into that Workspace without publishing its local changes. Always explicit, and always inbound.
+_Avoid_: import, restore, clone, pull, download, sync
+
+**Synchronize**:
+To keep a Workspace and its Remote current through the two explicit actions Update from GitHub and Publish. Ballastella may check for drift automatically, but if a file changed on both sides, synchronization stops without changing either side.
+_Avoid_: merge, reconcile. Do not use "sync" for either individual action.
+
+**Synchronization Baseline**:
+The last state a Workspace and its Remote successfully shared through Open a Workspace from GitHub, Update from GitHub, or Publish. Checking Remote Status observes drift from this state but never changes it.
+_Avoid_: last checked state, latest Remote state
+
+**Conflict**:
+A change that prevents a Workspace and its Remote from being synchronized safely: the same file changed on both sides of the Synchronization Baseline, or combining otherwise separate changes would violate a Workspace invariant. A Conflict stops the operation without changing either side.
+_Avoid_: merge conflict, divergence
+
 **Front Page**:
 The Published Site's root: where a Reader arrives, listing the Projects offered to them. Each Project is either on the Front Page or not, and not being on it says nothing about who can read the Project — the files are public either way.
 _Avoid_: hub, landing page, index, home
@@ -31,8 +47,16 @@ The Workspace's own root, in either app: what a person meets before they have op
 _Avoid_: hub, dashboard, project hub, root page, home page
 
 **Remote**:
-The one GitHub repository a Workspace can be bound to, where its Published Site lives. At most one per Workspace, and orthogonal to where the Workspace's own bytes are kept — a Workspace in browser storage and a Workspace in a folder can each have one. A Review Workspace can never have one.
+The one GitHub repository a Workspace can be bound to, where its Published Site lives. The relationship is local-only, never synchronized from repository content, and orthogonal to where the Workspace's own bytes are kept; a Review Workspace can never have one.
 _Avoid_: origin, cloud, backend, server, sync target, host
+
+**Remote Status**:
+The last checked relationship between a Workspace and its Remote across the complete set of files Ballastella owns: Up to date, Changes to publish, Update available, Changes on both sides, or Conflict. Ballastella checks automatically only while the user is authenticated; differences caused only by generated viewer files are reported as a Published Site needing republishing rather than as changed scholarly work.
+_Avoid_: ahead, behind, dirty, diverged
+
+**Open a Workspace from GitHub**:
+To make a public Remote's Workspace available locally and establish their shared synchronization state, or to reopen the local Workspace already bound to that Remote. Reading and updating do not require write permission; Publish requires write permission, and one Ballastella installation never creates a second synchronized Workspace for the same repository.
+_Avoid_: clone, import, restore, checkout
 
 **Layer**:
 One entry in a project's ordered stack. A layer references its content and carries only how that content is presented — its name, whether it is visible, and where it sits in the stack. Layers come in kinds: an aligned map image, or a set of annotations.
@@ -59,11 +83,19 @@ A referenced map image whose tiles have been fetched into the workspace, so it n
 _Avoid_: mirror, cache, download, localise
 
 **Project Bundle**:
-A tar of one Project and every Map Image, Alignment, and Annotation its Layers reference, made to be sent to somebody. It opens only into a Review Workspace and is never merged into the recipient's own (ADR-0024). The verb is "export".
+A tar of one Project and every Map Image, Alignment, and Annotation its Layers reference, made to be sent to somebody. It can be opened in a Review Workspace or imported into the recipient's current Workspace. The verb for making one is "export".
 _Avoid_: zip, archive, package, submission, share
 
+**Import**:
+To add a detached copy of a Project from outside the Workspace currently open, whether it arrives as a Project Bundle, from a Published Site, or from a Review Workspace. Importing does not create or switch to another Workspace, does not retain a publishing relationship with its source, and gives every incoming Map Image a distinct identity; a conflicting Project name is disambiguated rather than overwritten, and the imported Project stays off the Front Page until its new owner puts it there.
+_Avoid_: open, review, restore, clone
+
+**Import Provenance**:
+A visible, read-only history of the origins through which an imported Project was copied: repository, Project address, and commit observed during a GitHub transfer, or the filename and embedded Project name observed in a Project Bundle. Each transfer appends an entry without claiming authorship or creating an ongoing relationship; inherited entries are identified as inherited rather than independently verified, and an original publication address belongs here rather than to the imported Project.
+_Avoid_: Remote, binding, origin
+
 **Review Workspace**:
-A throwaway workspace holding one project someone else sent, opened to be looked at and then discarded. Never merged into the user's own workspace, and nothing in it can be promoted out of it.
+A throwaway workspace holding one Project from outside the user's own Workspace, opened to be examined in isolation. Its current state can be imported into the ordinary Workspace from which review began, after which the Review Workspace is discarded; the Review Workspace itself is never merged or made permanent.
 _Avoid_: sandbox, preview, scratch, temp
 
 **Control Point**:

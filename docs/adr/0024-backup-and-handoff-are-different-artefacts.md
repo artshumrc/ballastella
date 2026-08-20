@@ -1,5 +1,7 @@
 # Backup and handoff are different artefacts, and neither is a zip
 
+> **Amended by [ADR-0037](./0037-import-copies-a-project-into-the-current-workspace.md):** a Project Bundle may now be imported into the current Workspace. Import avoids the Alignment collision described below by assigning every incoming Map Image a fresh identity and remapping the Project closure. Review remains available, but Import from Review is now a third exit.
+
 Transfer serves two unrelated purposes, and one file format was serving neither well. They are now separate:
 
 - **Backup and restore, and moving between computers: a tar of the whole Workspace.** This is how a user on Firefox, Safari, or an iPad keeps their work safe, because File System Access — and therefore "just copy the folder" — exists on none of them.
