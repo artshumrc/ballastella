@@ -19,6 +19,108 @@
 @source '.';
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
+   The two faces (ADR-0036), served from the site's own origin.
+
+   Instrument Sans carries everything readable and Bluu Next Bold heads a section, names the app and
+   titles a dialog — and never labels a control. Instrument Sans is one variable file carrying both a
+   weight and a **width** axis, so a condensed uppercase label is this download rather than a second
+   family; `font-stretch` is what declares that axis to the browser.
+
+   Nothing here reaches `fonts.googleapis.com` or any other host. A webfont host sees every Reader of
+   every Published Site, which is not something a scholar's readers agreed to.
+
+   ⚠ **THE FILES LIVE BESIDE THIS STYLESHEET, AND THE URL IS RELATIVE, AND BOTH ARE CONSTRAINTS.**
+
+   `paths: { relative: true }` is set in both apps because ADR-0006 leaves the publish target — a
+   domain root or a project subdirectory — unknown at build time. So a `url()` rooted at the origin
+   404s on every site published into a subdirectory, which is most of them; and a relative URL from a
+   file in an app's `static/` is no better, because the built CSS is served from
+   `_app/immutable/assets/` and a relative path resolves against *that* directory.
+
+   Referenced relatively from here, Vite treats each file as an asset import: it hashes it, emits it,
+   and rewrites this URL relative to the emitted stylesheet. Correct under any base path, in both
+   apps, from one copy of each file in the repository. Any later face arrives the same way.
+
+   Both are OFL and both have an entry in `THIRD-PARTY-NOTICES.md`, because publishing copies these
+   bytes into every Published Site and that is redistribution rather than use (ADR-0021). */
+@font-face {
+	font-family: 'Instrument Sans';
+	src: url('./fonts/InstrumentSans.woff2') format('woff2');
+	font-weight: 400 700;
+	font-stretch: 75% 100%;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Bluu Next';
+	src: url('./fonts/BluuNext-Bold.woff2') format('woff2');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   The hairline, and the two faces as Tailwind theme values (ADR-0036).
+
+   Here rather than in either app's `routes/layout.css` because a shared component needs all four
+   wherever it renders, and a component that read a variable one consumer had never declared would
+   draw an invisible rule or fall back to the browser's own sans with nothing failing.
+
+   **The hairline is a mix rather than a token, and `base-300` cannot be it.** Under Ruled a 1px line
+   is the only thing separating most surfaces, which makes it the most load-bearing colour in either
+   app — and `base-300` is also a *ground*, so a rule drawn in it is crisp against `base-200` and
+   nearly invisible against a `base-100` surface in the same theme. Mixed against `base-content`
+   instead, one declaration is legible on every surface in both themes and cannot drift when the
+   palette does. This is the technique the Layer-kind inks below already use.
+
+   `--font-sans` is what Tailwind's own `--default-font-family` resolves to, so declaring it here is
+   what puts Instrument Sans on `html` in both apps.
+
+   `--font-mono` is redirected rather than left alone because a `font-mono` *call site* exists:
+   `AnnotationTextFace.svelte` renders its textarea with it, and the token's Tailwind default is a
+   monospace stack, so without this line the one multi-line editing surface in the editor is set in
+   the browser's monospace. Pointing the token at `--font-sans` keeps any such call site inside
+   ADR-0036's no-monospace rule without touching markup. */
+@theme {
+	--color-rule: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+	--color-rule-strong: color-mix(in oklab, var(--color-base-content) 28%, transparent);
+	--font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+	--font-serif: 'Bluu Next', Georgia, serif;
+	--font-mono: var(--font-sans);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   No monospace, anywhere — and this reset is load-bearing (ADR-0036).
+
+   Neither app loads a monospaced face, and the two routes a browser's own default monospace can
+   still arrive by are both closed: the `font-mono` token is redirected to `--font-sans` above, and
+   the four elements the UA stylesheet sets in monospace are reset here. A folder path
+   (`ProjectCardList`), a Control Point's coordinate readout, a Workspace's folder name
+   (`settings-folder-name`) and an image pyramid's figures (`ImageDetails`) all reach for `<code>`,
+   and `<code>`'s meaning — *this is a literal string* — is worth keeping. It is carried by a tinted
+   ground and tabular figures instead of by a second family.
+
+   ⚠ **Its absence is silent.** Delete these four selectors and the browser's own default monospace
+   applies at all four call sites, defeating the decision with nothing erroring. The `tabular-nums`
+   assertion in `editor-alignment.e2e.ts` is not evidence either way — tabular figures are not
+   monospace, so the text face satisfies it. `no-monospace.dom.test.ts` is what holds this. */
+code,
+kbd,
+samp,
+pre {
+	font-family: inherit;
+	font-variant-numeric: tabular-nums;
+}
+
+code,
+kbd,
+samp {
+	background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+	padding-inline: 0.25em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
    The ink of a Layer kind's line, in the card header of the Layer stack.
 
    A Layer card's header carries a 10% wash of its kind's own colour, and the kind line on it — the

@@ -5,5 +5,128 @@
 @import '@ballastella/ui/layout.css';
 
 /* ADR-0016: daisyUI is the only UI dependency. Tracy's generated theme replaces the
-   stock ones here, and ships in the published viewer as well as the authoring app. */
-@plugin 'daisyui';
+   stock ones here, and ships in the published viewer as well as the authoring app.
+
+   `themes: false` is what makes "replaces" literal: it stops the plugin emitting any built-in
+   theme, so the only themes in the sheet are the two Sidereal blocks below. See point 2 there for
+   why leaving the stock ones in makes Sidereal inert. */
+@plugin 'daisyui' {
+	themes: false;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   Sidereal — the generated theme (ADR-0036).
+
+   ⚠ **This block is duplicated verbatim in the other app's `routes/layout.css`, and the two must
+   not diverge.** daisyUI's theme plugin is invoked per stylesheet and each app has its own, so
+   there is no file either could import this from; a change to one is a change to both in the same
+   edit. ADR-0036 holds the tables these values are copied from.
+
+   Four things here are load-bearing rather than style preferences:
+
+     1. **The names are exactly `light` and `dark`**, because those are the two strings
+        `src/lib/theme.svelte.ts` writes to `data-theme`. A third name is a theme nothing can
+        select.
+     2. **`prefersdark: false` here, and `themes: false` on the `@plugin 'daisyui'` above.** Both
+        keep the stylesheet from holding a second opinion about the operating system's preference,
+        which is the divergence ADR-0016 exists to prevent: this app's `ThemeSignal` owns that
+        decision, reading `prefers-color-scheme` once when it is constructed and registering no
+        listener.
+
+        `themes: false` is also what lets these two blocks win at all. daisyUI's built-in `light` is
+        selected by `:is(:root:has(input.theme-controller[value=light]:checked),[data-theme=light])`
+        — specificity (0,3,1) — while `default: true` here emits
+        `:where(:root),[data-theme="light"]`, whose attribute branch is only (0,1,0). So with the
+        stock themes emitted, every Sidereal light colour and every structure token loses the moment
+        `src/lib/theme.svelte.ts` writes `data-theme="light"`, and stock `dark` additionally owns
+        first paint on an OS-dark machine through its own
+        `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { … } }`.
+
+        `default: true` stays, and does exactly one job: it puts the Sidereal light palette on bare
+        `:root`, so a prerendered page is Sidereal at first paint, before the root layout has
+        written any attribute. Deleting either `themes: false` or `default: true` reintroduces stock
+        daisyUI with nothing erroring.
+     3. **The base ramp descends** — `base-100` lightest, `base-300` deepest — in *both* themes, as
+        daisyUI's own do. Inverting it in dark inverts every `border-base-300` in both apps and
+        turns the align sidebar's and the Layer rail's `bg-base-300` from a well into a highlight,
+        with nothing erroring and no test failing.
+     4. **The structure tokens are identical in both blocks.** Square structure with soft controls
+        comes from daisyUI's own three radius tokens and no per-component override; `--depth: 0` is
+        what makes a surface read as drawn rather than rendered, and stock light ships `1`.
+
+   ⚠ **A token omitted here is inherited, not undefined.** `daisyui/theme` merges a custom block
+   with the built-in theme of the same name (`daisyui/theme/index.js`, "Merge custom theme with
+   built-in theme if it exists"), and `light` and `dark` are both built-in names — so every token
+   this block does not state keeps daisyUI's stock value.
+
+   That is how the four `--color-{info,success,warning,error}-content` tokens get their values,
+   because ADR-0036's table does not state them, and **in the light theme the result is not
+   legible**: Sidereal's semantic colours are dark where the stock ones are light, so the stock
+   content colours land on them at 1.95:1 (info), 1.53:1 (success), 1.85:1 (warning) and 2.16:1
+   (error). Dark fares better at 4.15–5.44:1. Every `alert-*`, `badge-success`, `badge-warning` and
+   `btn-error` in both apps reads through those pairs. Choosing the four missing values is a palette
+   decision and belongs to ADR-0036 rather than to this file. */
+@plugin 'daisyui/theme' {
+	name: 'light';
+	default: true;
+	prefersdark: false;
+	color-scheme: 'light';
+
+	--color-base-100: #fbfaf7;
+	--color-base-200: #f1eee7;
+	--color-base-300: #ddd7ca;
+	--color-base-content: #14181f;
+	--color-primary: #8a5f14;
+	--color-primary-content: #fff9ec;
+	--color-secondary: #3e5a73;
+	--color-secondary-content: #f2f6f9;
+	--color-accent: #14625e;
+	--color-accent-content: #effaf8;
+	--color-neutral: #2a3038;
+	--color-neutral-content: #f3f2ee;
+	--color-info: #2c5c7a;
+	--color-success: #1f6a4a;
+	--color-warning: #9a6412;
+	--color-error: #9e2f2a;
+
+	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
+	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */
+	--radius-box: 0rem; /* card, modal, alert, select (outer) */
+	--size-selector: 0.25rem;
+	--size-field: 0.25rem;
+	--border: 1px;
+	--depth: 0;
+	--noise: 0;
+}
+
+@plugin 'daisyui/theme' {
+	name: 'dark';
+	prefersdark: false;
+	color-scheme: 'dark';
+
+	--color-base-100: #1a2130;
+	--color-base-200: #141a24;
+	--color-base-300: #0d121a;
+	--color-base-content: #e9e7e2;
+	--color-primary: #d6a244;
+	--color-primary-content: #171208;
+	--color-secondary: #7e9bb6;
+	--color-secondary-content: #0c1219;
+	--color-accent: #45bdb3;
+	--color-accent-content: #04191a;
+	--color-neutral: #3a4553;
+	--color-neutral-content: #e9e7e2;
+	--color-info: #7ea6c4;
+	--color-success: #57b98c;
+	--color-warning: #e0a63c;
+	--color-error: #e1615a;
+
+	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
+	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */
+	--radius-box: 0rem; /* card, modal, alert, select (outer) */
+	--size-selector: 0.25rem;
+	--size-field: 0.25rem;
+	--border: 1px;
+	--depth: 0;
+	--noise: 0;
+}

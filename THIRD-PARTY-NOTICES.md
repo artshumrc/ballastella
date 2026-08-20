@@ -103,6 +103,21 @@ carries no published terms and is accepted only for educational development and 
 The central-Amsterdam ODbL/public-domain/BSD-3-Clause extract is retained only as the browser-test
 fixture `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; it is not application output.
 
+## Bundled typefaces
+
+The two faces Sidereal is set in ship as bytes in this repository rather than as dependencies, so no
+`node_modules` manifest records their licences either. Both sit in
+[`packages/ui/src/fonts/`](packages/ui/src/fonts/) — one copy each — and are referenced relatively
+from `packages/ui/src/layout.css`, so both apps emit them and **every Published Site carries both**.
+That is redistribution rather than use, which is why OFL was a requirement rather than a preference:
+the free-but-bespoke foundry licences generally do not permit it, and a face being free to download
+was never sufficient (ADR-0036).
+
+| Content                             | Licence | What it is                                     |
+| ----------------------------------- | ------- | ---------------------------------------------- |
+| `packages/ui/src/fonts/InstrumentSans.woff2` | OFL 1.1 | Instrument Sans, the text face — everything readable in both apps, one variable file carrying a weight and a width axis. From [`Instrument/instrument-sans`](https://github.com/Instrument/instrument-sans), `fonts/webfonts/InstrumentSans[wdth,wght].woff2` (88,784 bytes) |
+| `packages/ui/src/fonts/BluuNext-Bold.woff2`  | OFL 1.1 | Bluu Next Bold, the display face — headings, the app's name, dialog titles. From [`velvetyne/BluuNext`](https://github.com/velvetyne/BluuNext), `Fonts/webfonts/bluunext-bold-webfont.woff2` (30,652 bytes) |
+
 ## Bundled test fixtures
 
 The image pane's fixture pyramid also ships as bytes rather than as a dependency, so the same
@@ -125,8 +140,11 @@ them is anywhere in this repository or in `node_modules`:
 | ------------------------------------------------ | ---------------------------------- | ----------------- |
 | `base-map/fonts/Noto Sans *`                     | OFL 1.1                            | missing           |
 | `base-map/sprites/*`                             | BSD-3-Clause                       | missing           |
+| `packages/ui/src/fonts/InstrumentSans.woff2`     | OFL 1.1                            | missing           |
+| `packages/ui/src/fonts/BluuNext-Bold.woff2`      | OFL 1.1                            | missing           |
 
-**Two rows shorter than it was, by deletion rather than by discharge.** It also listed the LGPLv3
+**The two font rows are new, and two rows that were here before went by deletion rather than by
+discharge.** It also listed the LGPLv3
 text for compiled libvips, `glib`, `libexif` and `libheif`, and the nineteen further notices inside
 `vips.wasm` — nineteen separate texts with nineteen copyright lines, none of which shipped in the
 package. [ADR-0027](docs/adr/0027-no-streaming-tiler-in-v1.md) removed `wasm-vips` from the
@@ -142,7 +160,10 @@ Resolving this means fetching each text from its source —
 [OFL 1.1](https://openfontlicense.org/), the BSD-3-Clause notice as published by
 [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets) with its own copyright
 line — and committing them beside the assets they cover. That is a network fetch and a
-copyright-holder determination, so it is left for a person rather than guessed at.
+copyright-holder determination, so it is left for a person rather than guessed at. The two typefaces
+are three OFL copyright lines rather than one shared text: Instrument's, Velvetyne's, and the Noto
+Sans line already listed above.
 
-Both remaining rows are live rather than prospective: the fonts and sprites are committed bytes in
-this repository and ship in every editor build and every Published Site.
+All four rows are live rather than prospective: the base map's fonts and sprites and the two
+typefaces are all committed bytes in this repository, and all four ship in every editor build and
+every Published Site.
