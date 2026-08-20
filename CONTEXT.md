@@ -26,6 +26,10 @@ _Avoid_: sync, deploy, upload, push, save to the cloud
 The Published Site's root: where a Reader arrives, listing the Projects offered to them. Each Project is either on the Front Page or not, and not being on it says nothing about who can read the Project — the files are public either way.
 _Avoid_: hub, landing page, index, home
 
+**Workspace Home**:
+The Workspace's own root, in either app: what a person meets before they have opened a Project. The Editor's lists the Workspace's Projects and its Map Images; the Viewer's lists only the Projects on the Front Page, because a Reader has no Workspace and Map Images are not a Reader's concern. One name for one surface, so that a sentence about it does not have to say which app it means — and *not* a word a user ever reads: to a Reader that surface is labelled the Front Page, and to an author it is labelled Projects.
+_Avoid_: hub, dashboard, project hub, root page, home page
+
 **Remote**:
 The one GitHub repository a Workspace can be bound to, where its Published Site lives. At most one per Workspace, and orthogonal to where the Workspace's own bytes are kept — a Workspace in browser storage and a Workspace in a folder can each have one. A Review Workspace can never have one.
 _Avoid_: origin, cloud, backend, server, sync target, host
