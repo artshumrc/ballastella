@@ -26,30 +26,32 @@ const namesOf = (users: readonly MapImageUser[]): string =>
 	users.map((project) => project.name).join(', ');
 
 /**
- * What this screen says about who else this Alignment belongs to.
+ * Who else an Alignment belongs to, in one sentence, wherever that is read.
  *
- * The scope of every gesture on the alignment screen: one Alignment per Map Image, shared by
- * every Project that draws the map, so refining it here moves all of them — published ones included.
+ * The scope of every gesture on the alignment screen, and the scope of the Alignment behind a Map
+ * Image row on the Workspace Home: one Alignment per Map Image, shared by every Project that draws
+ * the map, so refining it moves all of them — published ones included.
  *
- * **The Project this screen was entered from is named too, not subtracted.** It is one of the
- * Projects the edit moves, and a list that quietly omitted it would read as "and these others",
- * which understates what is being changed.
+ * **The Project a reader came from is named too, not subtracted.** It is one of the Projects the
+ * edit moves, and a list that quietly omitted it would read as "and these others", which
+ * understates what is being changed.
  *
- * ⚠ **An empty `usedBy` is `''` rather than "no Project uses this map", and that is a decision.**
- * The hub has a real answer for it — a Map Image can sit in the Workspace's pool with nothing
- * drawing it, which is exactly what its reclaim list is for. This screen effectively cannot: `/align`
- * is reached through a map Layer of an *open* Project, and the walk behind this reads that Project's
- * `project.json`, so ordinarily the open Project is in the list.
+ * ⚠ **An empty `usedBy` is `''`, and the words for that case are the caller's.** The two callers
+ * have different answers to it, which is why this one says nothing:
  *
- * "Ordinarily" and not "always, by construction", because the walk reads **disk**. A map added and
- * immediately aligned can be walked before ADR-0017 rule 2's debounce has committed the Layer, and
- * the walk runs once per Map Image opened — so that visit gets an empty answer and keeps it.
- * That is the honest reachable case, and silence is still the right response to it: the alternative
- * is telling a scholar "no Project draws this map" about the Project they are standing in.
+ * - `ProjectHub.svelte` renders a row for every Map Image in the Workspace's pool, including maps no
+ *   Project draws — that pool is what its reclaim figure is for — so it composes its own "No Project
+ *   uses this map." and its own sentence for a map whose only possible users are Projects from a
+ *   newer build.
+ * - `AlignmentWorkspace.svelte` renders nothing. `/align` is reached through a map Layer of an
+ *   *open* Project, so an empty answer there means the walk read disk before ADR-0017 rule 2's
+ *   debounce committed the Layer, and the walk runs once per Map Image opened, so that visit keeps
+ *   the empty answer. Silence is right for it: the alternative is telling a scholar "no Project
+ *   draws this map" about the Project they are standing in.
  *
- * An earlier version had a paragraph of prose for an empty list and another for its newer-build
- * variant. Both described a Workspace nobody could produce, and unreachable prose about who might
- * lose work is worse than silence, because nobody can check it.
+ * An earlier version composed prose here for an empty list and another paragraph for its
+ * newer-build variant. Both spoke for a caller that had not been asked, and prose about who might
+ * lose work belongs where the screen can say something true about it.
  */
 export function describeAlignmentUsers(users: AlignmentUsers | null): string {
 	if (!users || users.usedBy.length === 0) return '';
@@ -62,7 +64,8 @@ export function describeAlignmentUsers(users: AlignmentUsers | null): string {
 				`${namesOf(users.mightBeUsedBy)}, made with a newer version of Ballastella, which this ` +
 				'one cannot read.';
 
-	// The plural is the whole reason this sentence is on this screen rather than only on the hub.
+	// The plural branch is the whole reason the sentence exists: that refining one Alignment moves
+	// several Projects is the fact a reader needs, and it cannot be inferred from a count.
 	return users.usedBy.length === 1
 		? `${shared}. Right now that is ${namesOf(users.usedBy)}.${caveat}`
 		: `${shared} — and ${users.usedBy.length} Projects do: ${namesOf(users.usedBy)}. ` +

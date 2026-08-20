@@ -9,6 +9,7 @@
 	} from '@ballastella/core';
 	import { ProjectCardList } from '@ballastella/ui';
 
+	import { describeAlignmentUsers } from '../alignment/used-by.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import MapThumbnail from '../map-images/MapThumbnail.svelte';
 	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
@@ -296,24 +297,52 @@
 		`${map.files} ${map.files === 1 ? 'file' : 'files'}`;
 
 	/**
-	 * Which Projects draw a map, and plainly when none do (SPEC story 63).
+	 * Which Projects draw a map, what refining it moves, and plainly when none do (SPEC story 63).
 	 *
-	 * A Project this build cannot read is named separately and in its own words. It is not folded into
-	 * "used by", which would claim something unknown, and it is emphatically not left out — a map whose
-	 * only user is a Project from next year's build must not be described as one nothing uses.
+	 * ⚠ **The sentence itself is `alignment/used-by.ts`, which the align screen also renders.**
+	 * One Alignment belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so
+	 * "refining it here moves all of them" is a fact about *this map* that a scholar needs before they
+	 * open the align screen rather than while they are clicking in it. `describeAlignmentUsers` has a
+	 * test naming every branch, which is why the composition here is only the two branches it is
+	 * silent about.
+	 *
+	 * **It is silent when no readable Project draws the map, and this list is not.** A Map Image can
+	 * sit in the Workspace's pool with nothing drawing it — that is exactly what the reclaim figure
+	 * below is for — so the empty answer is said here in words. A Project this build cannot read is
+	 * named separately and in its own words: it is not folded into the users, which would claim
+	 * something unknown, and it is emphatically not left out, because a map whose only user is a
+	 * Project from next year's build must not be described as one nothing uses.
 	 */
 	const usedBy = (map: WorkspaceMapImage): string => {
+		const shared = describeAlignmentUsers(map);
+		if (shared) return shared;
 		const unreadable = map.mightBeUsedBy.map((project) => project.name).join(', ');
-		const caveat = unreadable
-			? ` ${map.mightBeUsedBy.length === 1 ? 'It' : 'They'} may also be drawn by ${unreadable}, made with a newer version of Ballastella, which this one cannot read.`
-			: '';
-		if (map.usedBy.length > 0) {
-			return `Used by ${map.usedBy.map((project) => project.name).join(', ')}.${caveat}`;
-		}
 		return unreadable
 			? `No Project this version can read uses this map. It may be drawn by ${unreadable}, made with a newer version of Ballastella.`
 			: 'No Project uses this map.';
 	};
+
+	/** A Map Image as the shared row takes it: the record, its name, and the folder it is kept in. */
+	type ListedMapImage = {
+		readonly name: string;
+		readonly directory: string;
+		readonly map: WorkspaceMapImage;
+	};
+
+	/**
+	 * The Map Image list, each entry named for the row that draws it.
+	 *
+	 * **No `href`.** A Map Image is not a destination: `/align` refuses to open without a Project, so
+	 * a linked name would promise a screen that does not exist. The shared row renders a name without
+	 * one as text, which is the same rule its actions follow.
+	 */
+	const mapEntries = $derived<readonly ListedMapImage[]>(
+		session.mapImages.map((map) => ({
+			name: map.label || map.imageId,
+			directory: map.imageId,
+			map
+		}))
+	);
 
 	/**
 	 * Ask to delete a map.
@@ -454,11 +483,89 @@ What else the Hub says about a Project: whether this build can read it.
 	</button>
 {/snippet}
 
-<section class="mt-8">
-	<div class="flex flex-wrap items-baseline justify-between gap-4">
-		<h2 class="text-2xl font-semibold">Projects</h2>
-		<div class="flex flex-wrap gap-2">
-			<!--
+<!--
+	A picture of the sheet, before the name and inside the same row (ADR-0030). It is what lets a
+	scholar tell eleven scans of the same city apart without opening a Project, and it adds no bytes to
+	the Workspace: it is the map's own coarsest tile. A referenced map's comes off its Library over the
+	network, which ADR-0030 accepts and deliberately does not warn about.
+-->
+{#snippet mapMedia(entry: ListedMapImage)}
+	<MapThumbnail map={entry.map} {fetchTile} />
+{/snippet}
+
+<!--
+	What a Map Image weighs, how many files that is, and where its tiles are — visible text rather
+	than a tooltip or a badge colour (SPEC story 111), because where the tiles are is the fact that
+	decides whether this map draws anything on a train. The folder is the row's own, said after these.
+-->
+{#snippet mapFacts(entry: ListedMapImage)}
+	{describeBytes(entry.map.bytes)} in {fileCount(entry.map)} · {whereTilesAre(entry.map)}
+{/snippet}
+
+<!--
+	Who draws this Map Image, and so what refining its Alignment moves (SPEC story 34, ADR-0023).
+
+	**Not a live region.** `usedBy` is a field of the same `WorkspaceMapImage` record as the bytes and
+	the file count, filled by the one `refreshMapImages` walk, and the list renders nothing until that
+	walk has an answer — so a row reaches the screen with this sentence already on it, which is
+	precisely what a live region does not announce. What this screen announces about a Map Image is
+	the one `map-image-status` region above the list.
+-->
+{#snippet mapDetails(entry: ListedMapImage)}
+	<p class="text-sm opacity-70" data-testid="used-by" data-used-by-count={entry.map.usedBy.length}>
+		{usedBy(entry.map)}
+	</p>
+{/snippet}
+
+<!-- Delete is the last control in the row and the only one in `error` (SPEC story 33). -->
+{#snippet mapActions(entry: ListedMapImage)}
+	<button class="btn btn-outline btn-error btn-sm" onclick={() => askToDelete(entry.map)}>
+		Delete<span class="sr-only"> {entry.name}</span>
+	</button>
+{/snippet}
+
+<!--
+	The Workspace Home's two columns: what the author has on the left, what it is made of on the
+	right, divided by one vertical rule (SPEC stories 30, 34).
+
+	**`lg` and not a measurement of its own**, because it is the breakpoint the Project page already
+	stacks at, and a second answer to "when is this screen wide" is how two surfaces of one app come
+	to disagree. Below it the columns stack and **Projects comes first**, which is source order here.
+
+	**The Projects column is pinned to `--workspace-home-measure`** rather than taking half of
+	whatever the page is, so that it measures the same above `lg`, below `lg`, and on a Published
+	Site — one width from one declaration in `packages/ui/src/layout.css` (SPEC story 35).
+
+	The rule is a boundary between two regions, which is the one thing ADR-0036's no-left-border rule
+	explicitly does not forbid: it separates the columns and marks nothing.
+-->
+<div
+	class="mt-8 lg:grid lg:grid-cols-[minmax(0,var(--workspace-home-measure))_minmax(0,1fr)] lg:gap-8"
+>
+	<section>
+		<div class="flex flex-wrap items-baseline justify-between gap-4">
+			<div class="flex flex-wrap items-baseline gap-3">
+				<h2 class="text-2xl font-semibold">Projects</h2>
+				<!--
+					The count is beside the heading rather than inside it (SPEC story 31). Every spec that
+					arrives at this screen does so through `heading, { name: 'Projects' }`, and a number in
+					the accessible name would break all of them for a fact that is not part of the name —
+					so the figure is a sibling, with the noun in `sr-only` text so it is still a sentence
+					when it is read aloud.
+
+					The separator is `&nbsp;` because Svelte trims the whitespace at the start of an
+					element's content, and without it the count is announced as “3Projects”.
+				-->
+				{#if session.status === 'ready'}
+					<span class="text-sm opacity-70" data-testid="projects-count">
+						{session.projects.length}<span class="sr-only"
+							>&nbsp;{session.projects.length === 1 ? 'Project' : 'Projects'}</span
+						>
+					</span>
+				{/if}
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<!--
 				Opening a Project somebody sent you (workspace-and-layers SPEC story 90). Beside New Project rather than in a
 				menu, because for a Firefox, Safari, or iPad user whose Workspace lives in storage they
 				cannot see (ADR-0001), a file is the only way anything gets in or out at all.
@@ -469,35 +576,35 @@ What else the Hub says about a Project: whether this build can read it.
 				copy as a place things accumulate, which is the mental model ADR-0024 is built to prevent.
 				The button is on the hub of their own Workspace, which is one exit away.
 			-->
-			{#if review === null}
-				<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
-					Open a Project someone sent me…
-				</button>
-				<!--
+				{#if review === null}
+					<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
+						Open a Project someone sent me…
+					</button>
+					<!--
 					The same operation from a Remote rather than from a file (SPEC story 50). Absent inside
 					a review copy for the reason above and one more: a reviewer who follows a second link
 					from inside the first would accumulate review copies, which is the mental model
 					ADR-0024 exists to prevent.
 				-->
-				<button class="btn" data-testid="review-remote" onclick={startReviewingRemote}>
-					Review a Project from GitHub…
-				</button>
-			{/if}
-			<button class="btn btn-primary" onclick={startCreating}>New Project</button>
+					<button class="btn" data-testid="review-remote" onclick={startReviewingRemote}>
+						Review a Project from GitHub…
+					</button>
+				{/if}
+				<button class="btn btn-primary" onclick={startCreating}>New Project</button>
+			</div>
 		</div>
-	</div>
 
-	<!-- ADR-0024: a Review Workspace is never published. Since ticket 04 the control and its dialog
+		<!-- ADR-0024: a Review Workspace is never published. Since ticket 04 the control and its dialog
 	     are on the navigation bar, where they are on every screen — so what is left here is the
 	     sentence explaining the absence, which the bar has nowhere to put. -->
-	{#if review !== null}
-		<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
-			A review copy is not published and not backed up: it holds somebody else's work and is meant
-			to be discarded. Go back to your own Workspace to publish yours.
-		</p>
-	{/if}
+		{#if review !== null}
+			<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
+				A review copy is not published and not backed up: it holds somebody else's work and is meant
+				to be discarded. Go back to your own Workspace to publish yours.
+			</p>
+		{/if}
 
-	<!--
+		<!--
 		Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
 		first text is not reliably announced.
 
@@ -507,17 +614,17 @@ What else the Hub says about a Project: whether this build can read it.
 		a strict-mode violation, which is a hint that a screen-reader user would have to disambiguate
 		as well.
 	-->
-	<p
-		aria-live="polite"
-		aria-atomic="true"
-		class="mt-2 text-sm opacity-80"
-		data-transfer={transfer?.kind ?? ''}
-	>
-		{transferMessage}
-	</p>
+		<p
+			aria-live="polite"
+			aria-atomic="true"
+			class="mt-2 text-sm opacity-80"
+			data-transfer={transfer?.kind ?? ''}
+		>
+			{transferMessage}
+		</p>
 
-	{#if bundleNotice}
-		<!--
+		{#if bundleNotice}
+			<!--
 			What opening a bundle did, in the reader's own words: which review copy it made, and — when
 			the bundle named the same Alignment twice — what was deliberately not written. Beside the
 			list rather than over it, because nothing went wrong; the review copy is on screen and this
@@ -526,40 +633,40 @@ What else the Hub says about a Project: whether this build can read it.
 			`aria-live="polite"` and not `role="status"`, this page's settled convention: the transfer
 			line above and the save indicator on the bar already account for the status role here.
 		-->
-		<p
-			bind:this={bundleNoticeLine}
-			tabindex="-1"
-			aria-live="polite"
-			class="mt-4 text-sm opacity-80"
-			data-testid="bundle-notice"
-		>
-			{bundleNotice}
-		</p>
-	{/if}
+			<p
+				bind:this={bundleNoticeLine}
+				tabindex="-1"
+				aria-live="polite"
+				class="mt-4 text-sm opacity-80"
+				data-testid="bundle-notice"
+			>
+				{bundleNotice}
+			</p>
+		{/if}
 
-	{#if session.transferError}
-		<!-- An export that failed — another tab deleted the Project, a folder grant lapsed. This used to
+		{#if session.transferError}
+			<!-- An export that failed — another tab deleted the Project, a folder grant lapsed. This used to
 		     be rendered *only* inside the import dialog, so a failed export blanked the status line and
 		     said nothing at all: on the path ADR-0001 makes the only way out, indistinguishable from a
 		     click that did not register. Now that the dialog on this page is about a *different*
 		     Workspace, there is no branch left for it to hide behind. -->
-		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
-			<p>{session.transferError}</p>
-		</div>
-	{/if}
+			<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+				<p>{session.transferError}</p>
+			</div>
+		{/if}
 
-	{#if session.projectProblem?.kind === 'reserved-name'}
-		<!-- ADR-0023: `images/`, `alignments/`, and `base-map/` belong to the Workspace, so a Project
+		{#if session.projectProblem?.kind === 'reserved-name'}
+			<!-- ADR-0023: `images/`, `alignments/`, and `base-map/` belong to the Workspace, so a Project
 		     cannot have one of those folder names. Here rather than in the dialog, which has already
 		     closed by the time `createProject` answers, and beside the list rather than over it: the
 		     Workspace is fine and every other Project stays visible. -->
-		<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
-			<p data-testid="reserved-name">{session.projectProblem.message}</p>
-		</div>
-	{/if}
+			<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
+				<p data-testid="reserved-name">{session.projectProblem.message}</p>
+			</div>
+		{/if}
 
-	{#if session.status === 'unreachable'}
-		<!--
+		{#if session.status === 'unreachable'}
+			<!--
 			ADR-0008: a normal state with a recovery, never an error boundary — and **the alert and the
 			recovery are `WorkspaceRecovery`'s**, one level up, not this component's (ticket 12).
 
@@ -570,34 +677,51 @@ What else the Hub says about a Project: whether this build can read it.
 			the one component that knows both backings, and what is left here is the consequence for the
 			*list*, which is this component's own subject.
 		-->
-		<p class="mt-6">
-			The Projects in this Workspace cannot be listed until it can be reached. Nothing has been lost
-			— they are still wherever they were.
-		</p>
-	{:else if session.status === 'loading'}
-		<p class="mt-6">Looking for your Projects…</p>
-	{:else if session.projects.length === 0}
-		<p class="mt-6">No Projects yet.</p>
-	{:else}
-		<!--
+			<p class="mt-6">
+				The Projects in this Workspace cannot be listed until it can be reached. Nothing has been
+				lost — they are still wherever they were.
+			</p>
+		{:else if session.status === 'loading'}
+			<p class="mt-6">Looking for your Projects…</p>
+		{:else if session.projects.length === 0}
+			<p class="mt-6">No Projects yet.</p>
+		{:else}
+			<!--
 			The same list a Reader is offered on a Published Site's Front Page, from the one component
 			(SPEC stories 8, 52–54). What is the Hub's rather than the card's arrives as the three
 			snippets below, and what a Reader must not be offered is what the viewer does not pass.
 		-->
-		<ProjectCardList class="mt-6" heading="h3" projects={listed} {facts} {details} {actions} />
-	{/if}
-</section>
+			<ProjectCardList
+				class="mt-6 workspace-home-column"
+				heading="h3"
+				projects={listed}
+				{facts}
+				{details}
+				{actions}
+			/>
+		{/if}
+	</section>
 
-<!-- The Workspace's shared pool (ADR-0023). Hidden while the Workspace itself cannot be reached,
+	<!-- The Workspace's shared pool (ADR-0023). Hidden while the Workspace itself cannot be reached,
      because a list of nothing under a "not reachable" banner reads as "your maps are gone". -->
-{#if session.status !== 'unreachable'}
-	<section class="mt-10">
-		<h2 class="text-2xl font-semibold">Map Images</h2>
-		<p class="mt-1 text-sm opacity-70">
-			Every Map Image in this Workspace across all its projects.
-		</p>
+	{#if session.status !== 'unreachable'}
+		<section class="mt-10 lg:mt-0 lg:border-l lg:border-rule lg:pl-8">
+			<div class="flex flex-wrap items-baseline gap-3">
+				<h2 class="text-2xl font-semibold">Map Images</h2>
+				<!-- Beside the heading rather than in it, for the reason the Projects count gives above. -->
+				{#if !(session.mapImagesLoading && session.mapImages.length === 0)}
+					<span class="text-sm opacity-70" data-testid="map-images-count">
+						{session.mapImages.length}<span class="sr-only"
+							>&nbsp;{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}</span
+						>
+					</span>
+				{/if}
+			</div>
+			<p class="mt-1 text-sm opacity-70">
+				Every Map Image in this Workspace across all its projects.
+			</p>
 
-		<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
+			<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
 		     same moment as its first text is not reliably announced.
 
 		     `aria-live="polite"` and not `role="status"`, which is this app's settled convention wherever
@@ -606,66 +730,52 @@ What else the Hub says about a Project: whether this build can read it.
 		     and `UndoControl` all say so). A second `role="status"` makes `getByRole('status')` a strict
 		     mode violation, which is what pushed two existing tests off the role and onto attribute
 		     locators that stay green with the live region deleted. -->
-		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="map-image-status">
-			{mapImageMessage}
-		</p>
+			<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="map-image-status">
+				{mapImageMessage}
+			</p>
 
-		{#if session.mapImageError}
-			<!-- SPEC story 64: the refusal, naming the Projects that would break. A warning beside the
+			{#if session.mapImageError}
+				<!-- SPEC story 64: the refusal, naming the Projects that would break. A warning beside the
 			     list rather than a dialog over it — nothing has happened, and every other map stays
 			     reachable. -->
-			<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
-				<p data-testid="map-image-refused">{session.mapImageError}</p>
-			</div>
-		{/if}
+				<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
+					<p data-testid="map-image-refused">{session.mapImageError}</p>
+				</div>
+			{/if}
 
-		{#if session.mapImagesLoading && session.mapImages.length === 0}
-			<p class="mt-4">Looking at what this Workspace holds…</p>
-		{:else if session.mapImages.length === 0}
-			<p class="mt-4" data-testid="no-map-images">No Map Images yet.</p>
-		{:else}
-			<ul class="mt-4 flex flex-col gap-3">
-				{#each session.mapImages as map (map.imageId)}
-					<li class="card bg-base-100 card-border" data-testid="map-image">
-						<div class="card-body flex-row flex-wrap items-center justify-between gap-4">
-							<!-- A picture of the sheet, before the text and inside the same row (ADR-0030). It
-							     is what lets a scholar tell eleven scans of the same city apart without
-							     opening a Project, and it adds no bytes to the Workspace: it is the map's own
-							     coarsest tile. A referenced map's comes off its Library over the network, which
-							     ADR-0030 accepts and deliberately does not warn about. -->
-							<MapThumbnail {map} {fetchTile} />
-							<!-- `grow` so the picture and the name stay beside each other: the row is
-							     `justify-between`, and without it the free space would open up between them. -->
-							<div class="grow">
-								<h3 class="text-lg font-medium">{map.label || map.imageId}</h3>
-								<!-- Visible text rather than a tooltip or a badge colour (SPEC story 111): where
-								     the tiles are is the fact that decides whether this map works on a train. -->
-								<p class="text-sm opacity-70">
-									{describeBytes(map.bytes)} in {fileCount(map)} · {whereTilesAre(map)} · folder
-									<code>{map.imageId}</code>
-								</p>
-								<p class="text-sm opacity-70" data-testid="used-by">{usedBy(map)}</p>
-							</div>
-							<div class="flex flex-wrap gap-2">
-								<button class="btn btn-outline btn-error btn-sm" onclick={() => askToDelete(map)}>
-									Delete<span class="sr-only"> {map.label || map.imageId}</span>
-								</button>
-							</div>
-						</div>
-					</li>
-				{/each}
-			</ul>
-			<p class="mt-3 text-sm opacity-70" data-testid="map-images-total">
-				{session.mapImages.length}
-				{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}, {describeBytes(
-					mapImagesBytes
-				)} in all{unused.maps.length > 0
-					? `, of which ${describeBytes(unused.bytes)} is used by no Project`
-					: ''}.
-			</p>
-		{/if}
-	</section>
-{/if}
+			{#if session.mapImagesLoading && session.mapImages.length === 0}
+				<p class="mt-4">Looking at what this Workspace holds…</p>
+			{:else if session.mapImages.length === 0}
+				<p class="mt-4" data-testid="no-map-images">No Map Images yet.</p>
+			{:else}
+				<!--
+				The same row the Projects list is drawn with, from the one component (SPEC story 37). It
+				used to be this markup written a second time, so a change to a row could land in one list
+				and miss the other; what is a Map Image's rather than a row's arrives as the four snippets
+				above.
+			-->
+				<ProjectCardList
+					class="mt-4 workspace-home-column"
+					heading="h3"
+					projects={mapEntries}
+					media={mapMedia}
+					facts={mapFacts}
+					details={mapDetails}
+					actions={mapActions}
+					itemTestid="map-image"
+				/>
+				<p class="mt-3 text-sm opacity-70" data-testid="map-images-total">
+					{session.mapImages.length}
+					{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}, {describeBytes(
+						mapImagesBytes
+					)} in all{unused.maps.length > 0
+						? `, of which ${describeBytes(unused.bytes)} is used by no Project`
+						: ''}.
+				</p>
+			{/if}
+		</section>
+	{/if}
+</div>
 
 <ModalDialog
 	bind:open={() => deletingMap !== null, (open) => !open && (deletingMap = null)}

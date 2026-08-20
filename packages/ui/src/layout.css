@@ -91,6 +91,36 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
+   The measure of a Workspace Home column, and it is one number for both apps (SPEC story 35).
+
+   A Project's row is meant to be identical in the editor and on a Published Site, and the two apps
+   used to state their own widths — `max-w-4xl` against `max-w-6xl` — so the lists they drew from one
+   component were two different widths. Two `max-w-*` literals that happened to agree would be the
+   same bug one edit later, so the width is declared once, here, where both apps' stylesheets already
+   import it.
+
+   The editor's two-column Workspace Home pins its Projects column to this same custom property
+   through its grid template, so the column measures the same above `lg`, where it is one of two, as
+   below `lg`, where it is the whole width — and the same as the viewer's at every viewport.
+
+   42rem is measured rather than chosen: it is the narrowest width at which a Project row keeps its
+   name, its last-saved line, its folder **and** its four controls on one line. At 41rem the controls
+   wrap onto a second line in every row, in both apps.
+
+   ⚠ **An `@utility` rather than a plain class**, so the rule lands in Tailwind's `utilities` layer.
+   Written outside every layer it would sit above all of them in the cascade and silently beat any
+   Tailwind sizing utility on the same element — `class="workspace-home-column w-full"` would measure
+   42rem with nothing to show why. */
+:root {
+	--workspace-home-measure: 42rem;
+}
+
+@utility workspace-home-column {
+	width: 100%;
+	max-width: var(--workspace-home-measure);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
    No monospace, anywhere — and this reset is load-bearing (ADR-0036).
 
    Neither app loads a monospaced face, and the two routes a browser's own default monospace can

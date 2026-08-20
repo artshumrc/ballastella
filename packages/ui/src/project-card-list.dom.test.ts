@@ -48,6 +48,9 @@ const takeDown = (): void => {
 
 afterEach(takeDown);
 
+/** One row as either app hands it over: a name, its folder, and a link only where there is one. */
+type Row = { directory: string; name: string; href?: string };
+
 /**
  * The component offering **exactly** what it is handed here, and nothing else.
  *
@@ -55,13 +58,15 @@ afterEach(takeDown);
  * every absence asserted below assert nothing at all.
  */
 const list = (props: {
-	projects: readonly { directory: string; name: string; href: string }[];
+	projects: readonly Row[];
 	heading?: 'h2' | 'h3';
-	facts?: Snippet<[{ directory: string; name: string; href: string }]>;
-	details?: Snippet<[{ directory: string; name: string; href: string }]>;
-	actions?: Snippet<[{ directory: string; name: string; href: string }]>;
+	media?: Snippet<[Row]>;
+	facts?: Snippet<[Row]>;
+	details?: Snippet<[Row]>;
+	actions?: Snippet<[Row]>;
 	class?: string;
 	testid?: string;
+	itemTestid?: string;
 }): void => {
 	mounted = mount(ProjectCardList, { target: document.body, props });
 	flushSync();
@@ -145,6 +150,63 @@ describe('the card both apps render', () => {
 		takeDown();
 		list({ projects: [entry('amsterdam-1625', 'Amsterdam 1625')] });
 		expect(text(document.querySelector('li h2'))).toBe('Amsterdam 1625');
+	});
+});
+
+describe('the leading media slot, and the row with nowhere to go (SPEC stories 34, 37)', () => {
+	// The editor's Map Image list is this component with a thumbnail handed to it, which is what
+	// retired the second copy of this markup. Both halves in one test for the reason the paired test
+	// below gives: an absence asserted alone would go on passing with the slot deleted.
+	test('renders the media it is handed at the head of every row, and nothing when it is handed none', () => {
+		list({
+			projects: [entry('shared', 'Blaeu’s plan of Amsterdam'), entry('solo', 'Bonner’s Boston')],
+			media: marker('map-thumbnail')
+		});
+
+		// One per row, so the slot is rendered inside the list rather than once beside it.
+		expect(document.querySelectorAll('[data-testid="map-thumbnail"]')).toHaveLength(2);
+		// **Ahead of the name**, which is the whole of what "leading" means here: a scholar tells
+		// eleven scans of one city apart by the picture before they read anything.
+		const inRow = [...card(0).querySelectorAll('[data-testid="map-thumbnail"], h2')];
+		expect(inRow[0]).toHaveAttribute('data-testid', 'map-thumbnail');
+		expect(inRow[1]?.tagName).toBe('H2');
+
+		takeDown();
+		list({ projects: [entry('shared', 'Blaeu’s plan of Amsterdam')] });
+
+		expect(one('map-thumbnail')).not.toBeInTheDocument();
+		// And the row is still a row, so the absence above is not an empty list passing for one.
+		expect(cards()).toHaveLength(1);
+	});
+
+	// ⚠ **A Map Image is not a destination.** `/align` refuses to open without a Project, so a linked
+	// Map Image name would promise a screen that does not exist — and the row says so by being handed
+	// no `href`, which is the same interface the actions use. A Project's row still links, immediately
+	// below, so this is a subtraction rather than the component having stopped linking anything.
+	test('names a row with no href as text, creating no link', () => {
+		list({ projects: [{ directory: 'shared', name: 'Blaeu’s plan of Amsterdam' }] });
+
+		expect(text(card(0).querySelector('h2'))).toBe('Blaeu’s plan of Amsterdam');
+		expect(card(0).querySelector('a')).toBeNull();
+		expect(text(card(0))).toContain('folder shared');
+
+		takeDown();
+		list({ projects: [entry('amsterdam-1625', 'Amsterdam 1625')] });
+
+		expect(card(0).querySelector('a')).toHaveAttribute('href', './?p=amsterdam-1625');
+	});
+
+	// The row, and not something inside it, is what a consumer's tests count and filter by text.
+	test('marks each row with the handle its consumer addresses rows by', () => {
+		list({ projects: [entry('shared'), entry('solo')], itemTestid: 'map-image' });
+
+		expect(document.querySelectorAll('[data-testid="map-image"]')).toHaveLength(2);
+		expect(document.querySelector('[data-testid="map-image"]')).toBe(card(0));
+
+		takeDown();
+		list({ projects: [entry('shared')] });
+
+		expect(one('map-image')).not.toBeInTheDocument();
 	});
 });
 
