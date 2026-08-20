@@ -1333,7 +1333,16 @@
 				and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
 				published site (ADR-0009).
 			-->
-				<ProjectCardList class="mt-8" testid="published-projects" projects={frontPageCards} />
+				<!--
+				`workspace-home-column` is the measure, and it is the editor's too: it is declared once in
+				`packages/ui/src/layout.css`, so a Project's row is the same width here as in the editor
+				rather than the two apps each stating a `max-w-*` of their own (SPEC story 35).
+			-->
+				<ProjectCardList
+					class="mt-8 workspace-home-column"
+					testid="published-projects"
+					projects={frontPageCards}
+				/>
 			{/if}
 		</div>
 	{:else}

@@ -47,6 +47,15 @@ const map = (imageId: string, over: Partial<WorkspaceMapImage> = {}): WorkspaceM
 	...over
 });
 
+const project = (directory: string, over: Partial<ProjectSummary> = {}): ProjectSummary => ({
+	directory,
+	name: directory,
+	updatedAt: '2026-01-02T03:04:05.000Z',
+	onFrontPage: true,
+	problem: null,
+	...over
+});
+
 let mounted: Record<string, unknown> | undefined;
 
 afterEach(() => {
@@ -58,6 +67,7 @@ afterEach(() => {
 const hub = (props: {
 	mapImages?: readonly WorkspaceMapImage[];
 	projects?: readonly ProjectSummary[];
+	mapImagesLoading?: boolean;
 }): void => {
 	mounted = mount(ProjectHubHarness, { target: document.body, props });
 	flushSync();
@@ -139,7 +149,12 @@ describe('what a Map Image card says about the map', () => {
 });
 
 describe('which Projects draw a map, in the words the list uses (SPEC story 63)', () => {
-	test('names them, and says plainly when none do', () => {
+	// ⚠ **The sentence is `alignment/used-by.ts`'s, and this row is where it renders.** One Alignment
+	// belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so what refining it
+	// moves is a fact about *this map* — read here, before the align screen, rather than beside the
+	// controls while a scholar is clicking. `used-by.test.ts` names every branch of the sentence; what
+	// is asserted here is that this row renders it, and the two branches it is silent about.
+	test('names them, says what refining moves, and says plainly when none do', () => {
 		hub({
 			mapImages: [
 				map('shared', {
@@ -159,8 +174,15 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 
 		const usedBy = [...document.querySelectorAll('[data-testid="used-by"]')].map(text);
 		expect(usedBy).toEqual([
-			'Used by Amsterdam 1625, Boston 1775.',
-			'Used by Amsterdam 1625.',
+			// The plural branch, and the reason the sentence is worth this much: two Projects are named,
+			// counted, and told that refining the Alignment here moves both.
+			'One Alignment, shared by every Project that draws this Map Image — and 2 Projects do: ' +
+				'Amsterdam 1625, Boston 1775. Refining it here moves all of them.',
+			'One Alignment, shared by every Project that draws this Map Image. Right now that is ' +
+				'Amsterdam 1625.',
+			// `describeAlignmentUsers` is silent about a map nothing readable draws, and this list is
+			// not: a Map Image can sit in the pool with nothing drawing it, which is what the reclaim
+			// figure below is for, so the empty answer is the row's own words.
 			'No Project uses this map.'
 		]);
 	});
@@ -204,7 +226,8 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 		});
 
 		expect(text(at('used-by'))).toBe(
-			'Used by Amsterdam 1625. They may also be drawn by Tomorrow, Later Still, made with a newer ' +
+			'One Alignment, shared by every Project that draws this Map Image. Right now that is ' +
+				'Amsterdam 1625. They may also be drawn by Tomorrow, Later Still, made with a newer ' +
 				'version of Ballastella, which this one cannot read.'
 		);
 	});
@@ -277,4 +300,93 @@ test('a Workspace with no Map Images says so', () => {
 	expect(text(at('no-map-images'))).toBe('No Map Images yet.');
 	// And no total, because there is no total to state.
 	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
+});
+
+describe('each list under a heading carrying its own count (SPEC story 31)', () => {
+	// ⚠ **Beside the heading and not inside it.** Every spec that arrives at this screen does so
+	// through `heading, { name: 'Projects' }` or `{ name: 'Map Images' }`, which is a whole-string
+	// match — so a figure inside the `<h2>` would break all of them, for a number that is not part of
+	// what the section is called. The noun is in `sr-only` text so the count is still a sentence read
+	// aloud, and the two accessible names are asserted here rather than left to those specs.
+	test('states each count beside its heading, leaving the headings named what they were', () => {
+		hub({
+			projects: [project('amsterdam-1625'), project('boston-1775'), project('la-floride')],
+			mapImages: [map('shared'), map('solo')]
+		});
+
+		expect([...document.querySelectorAll('section h2')].map(text)).toEqual([
+			'Projects',
+			'Map Images'
+		]);
+		expect(text(at('projects-count'))).toBe('3 Projects');
+		expect(text(at('map-images-count'))).toBe('2 Map Images');
+	});
+
+	// "1 Projects" is the sort of thing a scholar reads as a bug in the tool.
+	test('says one Project and one Map Image in the singular', () => {
+		hub({ projects: [project('amsterdam-1625')], mapImages: [map('shared')] });
+
+		expect(text(at('projects-count'))).toBe('1 Project');
+		expect(text(at('map-images-count'))).toBe('1 Map Image');
+	});
+
+	// A count of nothing is not a count of nothing *yet*: while the walk is still weighing `images/`
+	// the list has no answer, and rendering `0` would state one it does not have.
+	test('states no Map Image count while the Workspace is still being weighed', () => {
+		hub({ mapImages: [], mapImagesLoading: true });
+
+		expect(document.querySelector('[data-testid="map-images-count"]')).toBeNull();
+	});
+});
+
+describe('a row’s actions, and the one that is destructive (SPEC story 33)', () => {
+	/** The Project row, found by the control only a Project's row has. */
+	const projectRow = (): HTMLElement => {
+		const found = [...document.querySelectorAll<HTMLElement>('li')].find((row) =>
+			[...row.querySelectorAll('button')].some((button) => text(button).startsWith('Rename'))
+		);
+		if (!found) throw new Error('no Project row is rendered');
+		return found;
+	};
+
+	// Delete last, so it is never where Rename was a moment ago, and `error` on nothing else, so the
+	// colour means one thing on this screen.
+	test('ends a Project row with Delete, and colours nothing else in error', () => {
+		hub({ projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })] });
+
+		const buttons = [...projectRow().querySelectorAll('button')];
+		// By accessible name, because each label's per-row half is `sr-only` text beside the verb.
+		expect(buttons).toHaveLength(4);
+		expect(buttons[0]).toHaveAccessibleName('Rename Amsterdam 1625');
+		expect(buttons[1]).toHaveAccessibleName('Duplicate Amsterdam 1625');
+		expect(buttons[2]).toHaveAccessibleName('Export Amsterdam 1625');
+		expect(buttons[3]).toHaveAccessibleName('Delete Amsterdam 1625');
+		const destructive = buttons.filter((button) => button.className.includes('btn-error'));
+		expect(destructive).toEqual([buttons[buttons.length - 1]]);
+	});
+
+	// A Map Image's row has the one action, and it is the same one in the same colour.
+	test('leaves a Map Image row with Delete alone', () => {
+		hub({ mapImages: [map('shared', { label: 'Blaeu’s plan of Amsterdam' })] });
+
+		const buttons = [...cards()[0].querySelectorAll('button')];
+		expect(buttons).toHaveLength(1);
+		expect(buttons[0]).toHaveAccessibleName('Delete Blaeu’s plan of Amsterdam');
+		expect(buttons[0].className).toContain('btn-error');
+	});
+
+	// ⚠ **ADR-0036: emphasis and selection are a ground tint, never a coloured left edge.** A row is
+	// where that habit would land first, so nothing inside one may carry a left border — the only
+	// left border on this screen is the boundary between the two columns, which is not in a row.
+	test('marks nothing in a row with a left border', () => {
+		hub({
+			projects: [project('amsterdam-1625', { problem: 'format-too-new' })],
+			mapImages: [map('shared')]
+		});
+
+		const edged = [...document.querySelectorAll('li, li *')].filter((element) =>
+			/(^|[\s:])border-l/.test(element.className.toString())
+		);
+		expect(edged).toEqual([]);
+	});
 });

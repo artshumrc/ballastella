@@ -112,23 +112,23 @@ moves. A Map Image row shows how many Projects draw it; the full sentence, with 
 
 ## Acceptance criteria
 
-- [ ] Above `lg` the editor's Workspace Home renders two columns with a single vertical rule; below
+- [x] Above `lg` the editor's Workspace Home renders two columns with a single vertical rule; below
       `lg` they stack with Projects first.
-- [ ] Both lists are drawn by `ProjectCardList`; no card markup for Map Images remains in
+- [x] Both lists are drawn by `ProjectCardList`; no card markup for Map Images remains in
       `ProjectHub.svelte`.
-- [ ] `ProjectCardList` accepts a `media` snippet, proved by a Seam 1c test in
+- [x] `ProjectCardList` accepts a `media` snippet, proved by a Seam 1c test in
       `project-card-list.dom.test.ts`.
-- [ ] Each list's heading carries its count.
-- [ ] A Project row's action order ends with Delete, and Delete is the only action in `error`.
-- [ ] The Projects column has the same computed width in both apps at the same viewport, from one
+- [x] Each list's heading carries its count.
+- [x] A Project row's action order ends with Delete, and Delete is the only action in `error`.
+- [x] The Projects column has the same computed width in both apps at the same viewport, from one
       shared source rather than two matching literals.
-- [ ] The viewer's Workspace Home renders no Map Images column, and its `<h1>` still reads
+- [x] The viewer's Workspace Home renders no Map Images column, and its `<h1>` still reads
       "Front Page".
-- [ ] Every empty, loading, refused and review-copy state listed in the Contract still renders, with
+- [x] Every empty, loading, refused and review-copy state listed in the Contract still renders, with
       its existing testid.
-- [ ] A Map Image row states how many Projects draw it.
-- [ ] No row uses a left border for emphasis or selection.
-- [ ] `pnpm precommit` passes; if `SEAM_2_CEILING` is raised, the table in
+- [x] A Map Image row states how many Projects draw it.
+- [x] No row uses a left border for emphasis or selection.
+- [x] `pnpm precommit` passes; if `SEAM_2_CEILING` is raised, the table in
       `scripts/check-seam-2-size.mjs` records the count and the reason.
 
 ```bash
@@ -153,3 +153,84 @@ Success is one component drawing both lists, the two apps' Project rows measurin
 ## Blocked by
 
 - 01
+
+## Answer
+
+### The measure, and why
+
+**42rem, declared once as `--workspace-home-measure` in `packages/ui/src/layout.css`**, with a
+`workspace-home-column` utility beside it — an `@utility`, so the rule lands in Tailwind's
+`utilities` layer rather than above every layer — that both apps put on their `ProjectCardList`.
+Both apps already import that stylesheet, so there is one declaration and no pair of literals to
+drift.
+
+Neither of the old numbers could be it. `max-w-4xl` (56rem) was the editor's *whole page* and is now
+two columns; `max-w-6xl` (72rem) is the viewer's whole page and is far past a comfortable measure for
+a one-line list.
+
+**42rem is measured, and it is the floor.** Measured in Chromium at 1024px with a Project called
+"Boston 1775" in folder `boston-1775`: the four controls are 307px wide and the row keeps name,
+last-saved, folder and controls on one line at 42rem and at 44rem, and wraps the controls onto a
+second line at 41rem and at every width below it. So nothing in the 32–38rem range is available: it
+would cost every Project row in both apps its single line.
+
+**And the 1024px squeeze the smaller measure was meant to relieve is not the measure's to relieve.**
+At exactly `lg`, `main`'s `max-w-[90rem] p-8` leaves 960px, less the 672px column, the 32px `gap-8`
+and the Map Images section's 32px `lg:pl-8` — 224px for a row holding a 96px thumbnail, a `gap-4`, a
+name, a facts line and the used-by sentence. Measured, that Map Image row wraps into three lines
+(thumbnail, text, Delete) at 1024px at **every** measure from 44rem down to 32rem: the text block's
+flex basis is its max-content, which a full sentence puts past any of these widths. Shrinking the
+measure only takes height off the wrapped row — 388px at 42rem against 300px at 32rem for the
+longest-named map — while breaking the Projects row. So the measure stays 42rem, and how the two
+columns divide 1024px is left as a question for human judgement rather than answered with a number
+that trades one column's layout for the other's.
+
+The editor's column is pinned to the same custom property through its grid template —
+`lg:grid-cols-[minmax(0,var(--workspace-home-measure))_minmax(0,1fr)]` — rather than taking half of
+whatever the page happens to be, so the Projects column measures 42rem above `lg` (where it is one of
+two), below `lg` (where it is the whole width) and in the viewer, at every viewport wide enough for
+it. The editor's `<main>` widened from `max-w-4xl` to `max-w-[90rem]` to hold the second column.
+
+### The used-by sentence, for ticket 07
+
+It renders on the Map Image row, composed in `ProjectHub.svelte`'s `usedBy` from
+`describeAlignmentUsers` — which is untouched, as is `used-by.test.ts` — with the hub's own two
+sentences kept for the branch that function is deliberately silent about (no Project this build can
+read draws the map). The element:
+
+```html
+<p class="text-sm opacity-70" data-testid="used-by" data-used-by-count="{n}">
+```
+
+- **testid:** `used-by` — the testid the hub row already had, on the `details` snippet of the shared
+  row. `alignment-used-by` remains the align sidebar's until ticket 07 deletes it.
+- **live region: none, deliberately.** `usedBy` is a field of the same `WorkspaceMapImage` record as
+  the bytes and the file count, filled by the one `refreshMapImages` walk, and the list renders
+  nothing until that walk has an answer — so the row reaches the screen with the sentence already on
+  it, which is exactly what a live region does not announce. A per-row `aria-live` bought nothing on
+  insert and, on a Project deletion, queued one polite announcement per affected row. What this
+  screen announces about a Map Image is the single `map-image-status` region above the list.
+- **count attribute:** `data-used-by-count` is the number of Projects the walk can vouch for
+  (`map.usedBy.length`), the same meaning the align sidebar's attribute has, so
+  `editor-align-referenced.e2e.ts`'s two `toHaveAttribute('data-used-by-count', …)` assertions can be
+  retargeted rather than rewritten.
+
+Ticket 07 also inherits three string edits already made here, in `editor-workspace.e2e.ts`: the hub's
+"Used by …" wording is now the shared-Alignment sentence, because rendering both would have printed
+the newer-version caveat twice in one row.
+
+### What `ProjectCardList` grew
+
+`media` (the leading slot, per the Contract), and two smaller things the Contract's own out-of-scope
+list forces:
+
+- **`href` is optional**, and a row without one renders its name as text. "Making a Map Image row a
+  link" is out of scope, and `/align` refuses to open without a Project, so there is nothing for a
+  Map Image's name to link to. Same interface as the actions: what the consumer does not hand over,
+  the row does not have.
+- **`itemTestid`**, put on each `<li>`. `map-image` is the handle fifteen assertions across four
+  specs count and filter rows by, and it has to be on the row rather than on something inside it.
+
+The rows themselves are now ruled — `divide-y divide-rule border-y border-rule` — rather than
+`card bg-base-100 card-border`, which is Ruled applied to the surface this ticket rebuilt. No spec
+asserted those classes.

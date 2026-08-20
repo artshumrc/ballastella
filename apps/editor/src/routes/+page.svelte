@@ -264,8 +264,14 @@
 		<p class="mt-8">Starting…</p>
 	</main>
 {:else if openDirectory === null}
-	<!-- The hub: a centred column that scrolls, which is what a list of Projects wants. -->
-	<main class="mx-auto max-w-4xl p-8">
+	<!--
+		The Workspace Home: a centred block that scrolls, which is what two lists want.
+
+		Wide enough for the two columns `ProjectHub` lays out above `lg` — the Projects column is
+		pinned to `--workspace-home-measure` and the Map Images column takes what is left — rather
+		than the single `max-w-4xl` column it was while the two lists were stacked.
+	-->
+	<main class="mx-auto max-w-[90rem] p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<!--
 			**Where the work is stored is no longer asked here** (ticket 12). It is a setting, reached
@@ -279,7 +285,14 @@
 			from the user's side, from the tool having lost everything they had. It renders nothing when
 			the Workspace is reachable, so it costs nothing on the ordinary path.
 		-->
-		<WorkspaceRecovery {storage} />
+		<!--
+			Wrapped at the Workspace Home measure: the recovery's alerts are multi-sentence prose, and
+			`<main>` is as wide as the two columns together, which is far past a readable line length.
+			The same measure as the Projects column beside it, so the two line up.
+		-->
+		<div class="workspace-home-column">
+			<WorkspaceRecovery {storage} />
+		</div>
 		<ProjectHub {session} />
 	</main>
 {:else}
