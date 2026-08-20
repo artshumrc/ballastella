@@ -380,7 +380,10 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// shortens the canvas, and a mark that had left the pane would make the first half pass for the
 		// wrong reason.
 		await page.setViewportSize({ width: 1280, height: 320 });
-		const column = page.getByTestId('layer-sidebar');
+		// ⚠ **The scroller inside the rail, not the rail.** The rail is a flex column whose last child is
+		// the pinned add-Layer pair, so it is this box that scrolls and this box that clips a row out of
+		// sight — which is the box `leaderPath` is given, and the one the rule below is about.
+		const column = page.getByTestId('layer-scroller');
 		const rowOutsideColumn = () =>
 			column.evaluate((element) => {
 				const rows = [...element.querySelectorAll('[data-testid="annotation-row-item"]')];
@@ -451,8 +454,9 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// And the positive control at the same size, which is what makes the absence above a fact about
 		// the row: scrolled to it, the same row in the same window gets its line back. Scrolled *to the
-		// row* rather than to the bottom of the column — there is a button below the stack, so the far
-		// end of the scroll takes the row off the top instead of bringing it back.
+		// row* rather than to the bottom of the column — the status and guidance paragraphs render below
+		// the stack inside this box, so the far end of the scroll takes the row off the top instead of
+		// bringing it back.
 		await column.evaluate((element) => {
 			const rows = [...element.querySelectorAll('[data-testid="annotation-row-item"]')];
 			rows[rows.length - 1]!.scrollIntoView({ block: 'center' });

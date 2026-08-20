@@ -525,6 +525,17 @@
 	let mapColumn = $state<HTMLElement | undefined>();
 
 	/**
+	 * The scrolling part of the rail, which is the box the leader's own rule is about.
+	 *
+	 * ⚠ **Not `layerSidebar`.** `leaderPath` draws nothing when the row's near edge has left the
+	 * column it was given, and what clips a row out of sight is this box rather than the rail around
+	 * it — the rail also holds the pinned add-Layer pair, so a row scrolled behind that pair is
+	 * invisible while still inside the rail's own rectangle, and a line drawn to it would start on a
+	 * row nobody can see.
+	 */
+	let layerScroller = $state<HTMLElement | undefined>();
+
+	/**
 	 * Where the selected Annotation is on the map, or `null` when there is nothing to point at.
 	 *
 	 * Projected at draw time rather than measured off an element, because an Annotation is painted
@@ -1288,30 +1299,209 @@
 			-->
 			<div
 				bind:this={layerSidebar}
-				class="shrink-0 border-t border-base-content/10 bg-base-300 p-4 lg:order-first lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-r"
+				class="flex shrink-0 flex-col border-t border-base-content/10 bg-base-300 p-4 lg:order-first lg:w-96 lg:border-t-0 lg:border-r"
 				data-testid="layer-sidebar"
 			>
-				<LayerList
-					{layers}
-					{outcomes}
-					{referencedImageIds}
-					openLayerId={annotations.openLayerId}
-					onopen={(id) => annotations.openLayer(id)}
-					ontypename={(id, name) => session.typeLayerName(id, name)}
-					oncommit={() => session.commitLayerEdit()}
-					onshow={(id, visible) => session.showLayer(id, visible)}
-					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
-					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
-					ondropannotation={(annotationId, layerId) =>
-						void annotations.moveAnnotationToLayer(annotationId, layerId)}
-					ondelete={(id) => (deletingLayerId = id)}
-					{noLayersGuidance}
-					{foreignLayerNote}
-					preparing={session.ingest ? preparingLayer : undefined}
-					{mapContents}
-					problemAction={layerProblemAction}
-					{annotationContents}
-				/>
+				<!--
+					The scroller, so that the stack is the only thing that scrolls. From `lg` the rail is as
+					tall as the screen and this box takes what the add-Layer pair below it does not, which is
+					what keeps that pair on screen under a Project with a dozen Layers (story 74). `min-h-0`
+					because a flex item will not shrink below its content without it, and an unshrunk box
+					overflows the rail instead of scrolling inside it.
+
+					⚠ **`lg:` on the overflow, and nothing below it.** Below `lg` the rail is an ordinary block
+					in the route layout's own scroller (`routes/+layout.svelte`), and a second scroller here
+					would trap the stack in a box inside a page that already scrolls.
+				-->
+				<div
+					bind:this={layerScroller}
+					class="min-h-0 grow lg:overflow-y-auto"
+					data-testid="layer-scroller"
+				>
+					<LayerList
+						{layers}
+						{outcomes}
+						{referencedImageIds}
+						openLayerId={annotations.openLayerId}
+						onopen={(id) => annotations.openLayer(id)}
+						ontypename={(id, name) => session.typeLayerName(id, name)}
+						oncommit={() => session.commitLayerEdit()}
+						onshow={(id, visible) => session.showLayer(id, visible)}
+						ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
+						onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
+						ondropannotation={(annotationId, layerId) =>
+							void annotations.moveAnnotationToLayer(annotationId, layerId)}
+						ondelete={(id) => (deletingLayerId = id)}
+						{noLayersGuidance}
+						{foreignLayerNote}
+						preparing={session.ingest ? preparingLayer : undefined}
+						{mapContents}
+						problemAction={layerProblemAction}
+						{annotationContents}
+					/>
+
+					{#if annotations.annotationLayerCount === 0}
+						<!--
+							What to do when there is nothing to draw into yet, beside the button that fixes it.
+
+							**This sentence is not new; it is where it went.** It used to be `AnnotationPanel`'s
+							`layers.length === 0` branch, and the toolbar beneath it announced "Add an Annotation
+							Layer to start drawing." from a `disabled` state. Ticket 05 put the toolbar inside an
+							open Annotation Layer's row, which makes both of those unreachable — and an
+							announcement that disappears with the state it described is fine, while guidance that
+							disappears with it is an accessibility regression (SPEC story 112). So the guidance
+							moved to the affordance it is about rather than going with the panel.
+						-->
+						<p class="mt-2 max-w-prose text-sm" data-testid="no-annotation-layers">
+							No Annotation Layers yet. Add one, then open it to draw: its pins, lines, and shapes
+							are kept in one GeoJSON file that opens in other mapping tools.
+						</p>
+					{/if}
+
+					<!--
+						Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a
+						status, and it is here rather than inside `UndoControl` — which is on the navigation bar —
+						because the refusal is this screen's knowledge: the record names an Annotation Layer, and
+						only the thing holding the stack can say that Layer is not there any more.
+					-->
+					<p
+						class="mt-2 max-w-prose text-sm text-warning"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="undo-refused"
+					>
+						{annotations.undoRefusal}
+					</p>
+
+					<!--
+						Why an Annotation did not move into the Layer it was dropped on. Beside the undo's refusal
+						rather than folded into it: they are two gestures, and a sentence that could be about
+						either is a sentence a scholar has to work out.
+					-->
+					<p
+						class="mt-2 max-w-prose text-sm text-warning"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="annotation-move-refused"
+					>
+						{annotations.moveRefusal}
+					</p>
+
+					<!--
+						And where one that did move went. Announced rather than drawn, because the screen already
+						shows it: the target Layer opens with the Annotation selected in it. What a screen-reader
+						user gets from that is a stack that has silently rearranged itself, which is the same
+						problem the Layer stack's own move announcement solves.
+					-->
+					<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="annotation-moved">
+						{annotations.moveNotice}
+					</p>
+
+					<!--
+						What the preparation in the stack is doing, announced (SPEC stories 23, 112).
+
+						─────────────────────────────────────────────────────────────────────────────────────────
+						WHY THE ANNOUNCEMENT IS HERE AND THE PROGRESS IS ON THE CARD
+
+						`aria-live="polite"` with `aria-atomic="true"` rather than `role="status"`, and the reason
+						is unchanged from where this used to live: the save indicator already owns `status` for the
+						whole app, so a second one makes `getByRole('status')` ambiguous — which is a hint that a
+						screen-reader user would have to disambiguate too. `aria-atomic` so each update is read as
+						a whole sentence rather than as the digits that changed.
+
+						**Always rendered, which is what makes it work.** A live region is announced when its text
+						*changes*, not when the element carrying it is inserted — the same rule this file states at
+						length for `base-map-offline`, which is an `alert` for exactly that reason. The Layer's
+						card is inserted with its text already in it, so a live region inside the card would be an
+						announcement a screen-reader user never hears. So the card carries the visible sentence and
+						this carries the announced one, they are the same string ({@link ingestSentence}), and this
+						one is `sr-only` because the card is already showing it.
+					-->
+					<p
+						class="sr-only"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="ingest-announcement"
+					>
+						{ingestSentence}
+					</p>
+
+					<!--
+						Why an add did not happen, from either of the two sources that fail in the sidebar rather
+						than in the dialog: a file that could not be tiled, and a second file picked while one was
+						still running. `role="alert"` because this element is *inserted* when its text first exists,
+						and an `aria-live` region is announced on a text change rather than on insertion.
+
+						Here and not in the dialog because the dialog is closed by then: picking a file closes it, so
+						the refusal has to land where the user is left. The "already in this Workspace" source fails
+						with the dialog still open and says so there, beside the list that was clicked.
+					-->
+					{#if session.ingestError}
+						<div role="alert" class="mt-4 alert max-w-prose alert-warning">
+							<p>{session.ingestError}</p>
+						</div>
+					{/if}
+
+					{#if mapLayers.length === 0 && session.ingest === null}
+						<!--
+							The Map Image empty state, beside the button that answers it (SPEC story 106). Derived
+							from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
+							to what this sentence *means*: the Workspace may hold a dozen Map Images and this Project
+							draw none of them, and "you have no maps" would be false while "this Project has none" stays
+							true. It is also what says a cancelled or refused preparation left the Project exactly as it
+							was.
+
+							**And it now names the third source, which is the state ticket 04 left unsaid.** A Map
+							Image whose starter Alignment could not be written arrives with its pyramid and without its
+							Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
+							it is on screen and `open()` clears it, so after a reload this sentence was the only thing
+							left and it described a Workspace that was not empty as if it were. The pyramid is offered by
+							the "already in this Workspace" source, and adding it from there is what writes the Alignment
+							that failed — so the useful next action is available rather than merely described.
+						-->
+						<p class="mt-4 max-w-prose text-sm" data-testid="no-map-images">
+							This Project has no Map Images yet. Press Add a Map Image to add one.
+						</p>
+					{/if}
+
+					<!--
+						The outcome of a copy, announced from out here rather than from inside the dialog: the
+						dialog closes on success, and an announcement added to a subtree that is removed in the
+						same frame is indistinguishable from one that never happened.
+					-->
+					<p
+						class="mt-4 min-h-6 text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-copy-done"
+					>
+						{offlineCopy.completed}
+					</p>
+
+					<!--
+						What an add had to say for itself after its dialog closed (ticket 06), out here for exactly
+						the reason stated above it. Always rendered so that its text *changing* is what a screen
+						reader hears; `alert-info` when there is something, because the add succeeded and nothing
+						is broken — what did not happen is one thing the user asked for, and it is said in the
+						words `add-remote-map.svelte.ts` chose for it.
+					-->
+					<p
+						class="mt-2 min-h-6 max-w-prose text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="remote-notice"
+					>
+						{addNotice}
+					</p>
+
+					{#if session.referencedImageErrors.length > 0}
+						<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
+							{#each session.referencedImageErrors as failure (failure.imageId)}
+								<p>{failure.reason}</p>
+							{/each}
+						</div>
+					{/if}
+				</div>
 
 				<!--
 					The one way a Map Image gets into this Project (ticket 06), beside the one way an
@@ -1323,8 +1513,14 @@
 					not for an icon alone). `aria-label` restores the whole sentence for anyone who hears the
 					button rather than seeing it, and each one *contains* the visible words — "Add a **Map
 					Image**" — so a voice user who says what they read still hits the button (WCAG 2.5.3).
+
+					**Pinned: the rail's last child, `shrink-0`, outside the scroller above.** Everything else
+					in this column belongs to the stack or reports on it, so it scrolls with the stack; these
+					two are the only way to add to it, and inside the scroller a Project with a dozen Layers
+					put them off the bottom (story 74). `shrink-0` because the pair is what the scroller
+					yields height to, not the other way round.
 				-->
-				<div class="mt-4 flex gap-2">
+				<div class="mt-4 flex shrink-0 gap-2">
 					<button
 						class="btn flex-1 gap-1 btn-sm {KIND_STYLE.map.btn}"
 						type="button"
@@ -1348,163 +1544,6 @@
 						Annotation Layer
 					</button>
 				</div>
-
-				{#if annotations.annotationLayerCount === 0}
-					<!--
-						What to do when there is nothing to draw into yet, beside the button that fixes it.
-
-						**This sentence is not new; it is where it went.** It used to be `AnnotationPanel`'s
-						`layers.length === 0` branch, and the toolbar beneath it announced "Add an Annotation
-						Layer to start drawing." from a `disabled` state. Ticket 05 put the toolbar inside an
-						open Annotation Layer's row, which makes both of those unreachable — and an
-						announcement that disappears with the state it described is fine, while guidance that
-						disappears with it is an accessibility regression (SPEC story 112). So the guidance
-						moved to the affordance it is about rather than going with the panel.
-					-->
-					<p class="mt-2 max-w-prose text-sm" data-testid="no-annotation-layers">
-						No Annotation Layers yet. Add one, then open it to draw: its pins, lines, and shapes are
-						kept in one GeoJSON file that opens in other mapping tools.
-					</p>
-				{/if}
-
-				<!--
-					Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a
-					status, and it is here rather than inside `UndoControl` — which is on the navigation bar —
-					because the refusal is this screen's knowledge: the record names an Annotation Layer, and
-					only the thing holding the stack can say that Layer is not there any more.
-				-->
-				<p
-					class="mt-2 max-w-prose text-sm text-warning"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="undo-refused"
-				>
-					{annotations.undoRefusal}
-				</p>
-
-				<!--
-					Why an Annotation did not move into the Layer it was dropped on. Beside the undo's refusal
-					rather than folded into it: they are two gestures, and a sentence that could be about
-					either is a sentence a scholar has to work out.
-				-->
-				<p
-					class="mt-2 max-w-prose text-sm text-warning"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="annotation-move-refused"
-				>
-					{annotations.moveRefusal}
-				</p>
-
-				<!--
-					And where one that did move went. Announced rather than drawn, because the screen already
-					shows it: the target Layer opens with the Annotation selected in it. What a screen-reader
-					user gets from that is a stack that has silently rearranged itself, which is the same
-					problem the Layer stack's own move announcement solves.
-				-->
-				<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="annotation-moved">
-					{annotations.moveNotice}
-				</p>
-
-				<!--
-					What the preparation in the stack is doing, announced (SPEC stories 23, 112).
-
-					─────────────────────────────────────────────────────────────────────────────────────────
-					WHY THE ANNOUNCEMENT IS HERE AND THE PROGRESS IS ON THE CARD
-
-					`aria-live="polite"` with `aria-atomic="true"` rather than `role="status"`, and the reason
-					is unchanged from where this used to live: the save indicator already owns `status` for the
-					whole app, so a second one makes `getByRole('status')` ambiguous — which is a hint that a
-					screen-reader user would have to disambiguate too. `aria-atomic` so each update is read as
-					a whole sentence rather than as the digits that changed.
-
-					**Always rendered, which is what makes it work.** A live region is announced when its text
-					*changes*, not when the element carrying it is inserted — the same rule this file states at
-					length for `base-map-offline`, which is an `alert` for exactly that reason. The Layer's
-					card is inserted with its text already in it, so a live region inside the card would be an
-					announcement a screen-reader user never hears. So the card carries the visible sentence and
-					this carries the announced one, they are the same string ({@link ingestSentence}), and this
-					one is `sr-only` because the card is already showing it.
-				-->
-				<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="ingest-announcement">
-					{ingestSentence}
-				</p>
-
-				<!--
-					Why an add did not happen, from either of the two sources that fail in the sidebar rather
-					than in the dialog: a file that could not be tiled, and a second file picked while one was
-					still running. `role="alert"` because this element is *inserted* when its text first exists,
-					and an `aria-live` region is announced on a text change rather than on insertion.
-
-					Here and not in the dialog because the dialog is closed by then: picking a file closes it, so
-					the refusal has to land where the user is left. The "already in this Workspace" source fails
-					with the dialog still open and says so there, beside the list that was clicked.
-				-->
-				{#if session.ingestError}
-					<div role="alert" class="mt-4 alert max-w-prose alert-warning">
-						<p>{session.ingestError}</p>
-					</div>
-				{/if}
-
-				{#if mapLayers.length === 0 && session.ingest === null}
-					<!--
-						The Map Image empty state, beside the button that answers it (SPEC story 106). Derived
-						from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
-						to what this sentence *means*: the Workspace may hold a dozen Map Images and this Project
-						draw none of them, and "you have no maps" would be false while "this Project has none" stays
-						true. It is also what says a cancelled or refused preparation left the Project exactly as it
-						was.
-
-						**And it now names the third source, which is the state ticket 04 left unsaid.** A Map
-						Image whose starter Alignment could not be written arrives with its pyramid and without its
-						Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
-						it is on screen and `open()` clears it, so after a reload this sentence was the only thing
-						left and it described a Workspace that was not empty as if it were. The pyramid is offered by
-						the "already in this Workspace" source, and adding it from there is what writes the Alignment
-						that failed — so the useful next action is available rather than merely described.
-					-->
-					<p class="mt-4 max-w-prose text-sm" data-testid="no-map-images">
-						This Project has no Map Images yet. Press Add a Map Image to add one.
-					</p>
-				{/if}
-
-				<!--
-					The outcome of a copy, announced from out here rather than from inside the dialog: the
-					dialog closes on success, and an announcement added to a subtree that is removed in the
-					same frame is indistinguishable from one that never happened.
-				-->
-				<p
-					class="mt-4 min-h-6 text-sm"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="offline-copy-done"
-				>
-					{offlineCopy.completed}
-				</p>
-
-				<!--
-					What an add had to say for itself after its dialog closed (ticket 06), out here for exactly
-					the reason stated above it. Always rendered so that its text *changing* is what a screen
-					reader hears; `alert-info` when there is something, because the add succeeded and nothing
-					is broken — what did not happen is one thing the user asked for, and it is said in the
-					words `add-remote-map.svelte.ts` chose for it.
-				-->
-				<p
-					class="mt-2 min-h-6 max-w-prose text-sm"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="remote-notice"
-				>
-					{addNotice}
-				</p>
-
-				{#if session.referencedImageErrors.length > 0}
-					<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
-						{#each session.referencedImageErrors as failure (failure.imageId)}
-							<p>{failure.reason}</p>
-						{/each}
-					</div>
-				{/if}
 			</div>
 
 			<!--
@@ -1519,7 +1558,7 @@
 				mark={selectedMark}
 				row={selectedRow}
 				canvas={() => mapColumn}
-				sidebar={() => layerSidebar}
+				sidebar={() => layerScroller}
 				watch={(redraw) => baseMapPane?.onCameraMove(redraw) ?? (() => {})}
 			/>
 		</div>

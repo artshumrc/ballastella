@@ -129,6 +129,41 @@ test.describe('the Project screen', () => {
 		expect(mapBox.width).toBeGreaterThan(sidebarBox.width);
 	});
 
+	test('keeps the add-Layer buttons on screen under a stack taller than the rail', async ({
+		page
+	}) => {
+		await freshWorkspace(page);
+		await openProject(page);
+
+		// A dozen Layers, which is story 74's own number and is what it takes to overflow a 24rem
+		// column at this viewport. Annotation Layers rather than Map Images: each is one file rather
+		// than a pyramid, and the claim is about the rail's height, not about what is in the cards.
+		const rows = page.getByTestId('layer-row');
+		for (let count = 1; count <= 12; count += 1) {
+			await page.getByTestId('add-annotation-layer').click();
+			await expect(rows).toHaveCount(count);
+		}
+
+		// The stack really does overflow, and the rail itself is not what scrolls: exactly one child of
+		// the rail has more content than height. Asked of the laid-out box rather than of a class name,
+		// so the claim survives the classes being rewritten.
+		const scrolling = await page.getByTestId('layer-sidebar').evaluate((rail) => ({
+			rail: rail.scrollHeight > rail.clientHeight + 1,
+			children: [...rail.children].filter((child) => child.scrollHeight > child.clientHeight + 1)
+				.length
+		}));
+		expect(scrolling).toEqual({ rail: false, children: 1 });
+
+		// And both buttons are inside the viewport with nothing scrolled, which is the whole of "never
+		// needs to be hunted for".
+		const viewport = page.viewportSize()!;
+		for (const testid of ['add-map-image', 'add-annotation-layer']) {
+			const box = (await page.getByTestId(testid).boundingBox())!;
+			expect(box.y).toBeGreaterThanOrEqual(0);
+			expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+		}
+	});
+
 	test('every control on it is reachable by keyboard', async ({ page }) => {
 		await freshWorkspace(page);
 		await openProject(page);

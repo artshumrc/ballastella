@@ -780,10 +780,17 @@
 	The wrapper is positioned so that {@link overlay} has a containing block that is the map's own box,
 	which is what lets the Annotation Inspector be docked over the map rather than beside it
 	(ADR-0035). The same arrangement as the editor's `BaseMapPane`, deliberately: one panel, one dock.
+
+	⚠ **`z-[6]` on the control block, the same number the editor's pane uses, and it is load-bearing.**
+	`.maplibregl-map` opens no stacking context, so one context holds the leader at 5, MapLibre's four
+	control corners at 6 (`packages/ui`'s `layout.css` has the rule and the reason) and the Annotation
+	Inspector at 7. This block is pane furniture like the zoom control, so it sits with the corners at
+	6. Above 7 it is *over* the Inspector, and below `lg` — where the Inspector is a sheet spanning the
+	pane's width — the box then lies across the sheet and swallows the pointer events meant for it.
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="reader-map-pane"></div>
-	<div class="absolute top-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+	<div class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
 		{@render controls?.()}
 	</div>
 	{@render overlay?.()}
