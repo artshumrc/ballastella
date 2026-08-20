@@ -60,6 +60,8 @@ test('carries the one control both apps share, saying what it will do rather tha
 
 	const toggle = testid('theme-toggle')!;
 	expect(toggle).toHaveAccessibleName('Switch to dark theme');
+	expect(toggle).toHaveAttribute('aria-label', 'Switch to dark theme');
+	expect(toggle.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
 
 	(toggle as HTMLButtonElement).click();
 	flushSync();

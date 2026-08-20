@@ -51,7 +51,9 @@
 	// editor's; no app passes both, and authoring is desktop-only anyway.
 
 	import { otherTheme, type Theme } from '@ballastella/core';
+	import Moon from '@lucide/svelte/icons/moon';
 	import Pencil from '@lucide/svelte/icons/pencil';
+	import Sun from '@lucide/svelte/icons/sun';
 	import type { Snippet } from 'svelte';
 
 	import MenuPopover from './MenuPopover.svelte';
@@ -126,6 +128,7 @@
 	// Written once because the control has two spellings — a `btn` in the bar and an `<li>` in the
 	// folded menu — and a scholar meeting either must be told the same thing.
 	const themeLabel = $derived(`Switch to ${otherTheme(theme)} theme`);
+	const ThemeIcon = $derived(otherTheme(theme) === 'dark' ? Moon : Sun);
 </script>
 
 <!--
@@ -216,9 +219,10 @@
 		type="button"
 		class="btn btn-sm"
 		data-testid="theme-toggle"
+		aria-label={themeLabel}
 		onclick={() => onToggleTheme()}
 	>
-		{themeLabel}
+		<ThemeIcon aria-hidden="true" />
 	</button>
 {/snippet}
 
@@ -274,8 +278,13 @@
 			{#if folded && menu}
 				<MenuPopover label="Menu" testid="bar-menu" align="end">
 					<li>
-						<button type="button" data-testid="theme-toggle" onclick={() => onToggleTheme()}>
-							{themeLabel}
+						<button
+							type="button"
+							data-testid="theme-toggle"
+							aria-label={themeLabel}
+							onclick={() => onToggleTheme()}
+						>
+							<ThemeIcon aria-hidden="true" />
 						</button>
 					</li>
 					{@render menu()}
