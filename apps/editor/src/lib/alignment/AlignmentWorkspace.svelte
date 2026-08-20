@@ -518,6 +518,10 @@
 	};
 
 	const controlPoints = $derived(pairing?.controlPoints ?? []);
+
+	/** The row's pixel-and-earth readout in full, for the hover title of a row too narrow to show it. */
+	const pointReadout = (point: ControlPoint) =>
+		`${Math.round(point.resource.x)}, ${Math.round(point.resource.y)} px \u2192 ${point.geo.lng.toFixed(5)}, ${point.geo.lat.toFixed(5)}`;
 	const pending = $derived(pairing?.pending ?? null);
 	const selectedId = $derived(pairing?.selectedId ?? null);
 
@@ -1420,14 +1424,14 @@
 				{:else}
 					<ul class="mt-2 flex flex-col gap-1" data-testid="control-point-list">
 						{#each controlPoints as point (point.id)}
-							<li class="flex flex-wrap items-center gap-2 text-sm" data-testid="control-point-row">
+							<li class="flex items-center gap-2 text-sm" data-testid="control-point-row">
 								<!--
 							Selecting from here highlights *both* halves, which is the same state the map
 							points read — so the cross-pane highlight has a keyboard route as well as a
 							pointer one. `aria-pressed` because it is a toggle, not a navigation.
 						-->
 								<button
-									class="btn btn-xs"
+									class="btn shrink-0 btn-xs"
 									class:btn-secondary={point.id === selectedId}
 									aria-pressed={point.id === selectedId}
 									data-testid="control-point-select"
@@ -1461,7 +1465,7 @@
 										data-ordinal={point.ordinal}>{point.ordinal}</span
 									>
 								</button>
-								<code class="opacity-70">
+								<code class="min-w-0 flex-1 truncate opacity-70" title={pointReadout(point)}>
 									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
 									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
 								</code>
@@ -1484,7 +1488,7 @@
 								-->
 								<button
 									type="button"
-									class="btn btn-square btn-outline btn-error btn-sm"
+									class="btn btn-square shrink-0 btn-outline btn-error btn-sm"
 									data-testid="control-point-delete"
 									onclick={() => removePair(point.id)}
 								>
