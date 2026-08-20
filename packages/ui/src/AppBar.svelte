@@ -248,6 +248,15 @@
 			`border-base-300` — the rule has to read against the bar's own `base-200` ground as clearly as
 			the bar's bottom edge reads against `base-100` (ADR-0036), and it is a boundary between two
 			regions rather than an emphasis on either.
+
+			**This row is an empty ruled band in three states, and that is the accepted cost of a bar
+			whose height does not move.** It renders with nothing in it before hydration, permanently in
+			a browser the app does not support, and permanently on a review Workspace's Workspace Home —
+			there `publishable` is false, the Workspace Home sets no page chrome, and `undo-slot` is
+			empty. Gating the row would buy a tidier review copy at the price of the bar changing height
+			at hydration on every ordinary load, which two specs measure; dropping the empty `undo-slot`
+			would break the "exactly one of these in the bar" count three specs assert. Known, priced,
+			and left.
 		-->
 		<div
 			class="flex flex-wrap items-center gap-4 border-t border-rule px-4 py-2"
