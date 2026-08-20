@@ -122,6 +122,110 @@ Success is a menu a scholar can read in one glance, with the folder decision off
 place in the app, and `editor-folder-workspace` green — that spec is the one that will notice if the
 rescue path is gone.
 
+## Answer
+
+**`open-remote-settings` is the surviving testid, and `settings-open-remote` is gone.** The Contract
+says the testid *moves* to Workspace settings rather than being deleted, and that is the reading
+taken: `WorkspaceSettings.svelte`'s button is now `open-remote-settings`, and the five specs that
+reach for it — `editor-remote-binding`, `editor-github-signin`, `editor-clone-remote`,
+`editor-remote-conflict`, `editor-review-remote` — keep the name they always used and change only the
+route in front of it. Keeping ticket 02's temporary name instead would have renamed a control in five
+specs to record a collision that no longer exists.
+
+**The four identical local `openRemoteSettings` helpers are now one, in `e2e/support/workspace.ts`,
+and it is paired.** `openRemoteSettings` goes through `openWorkspaceSettings`; `closeRemoteSettings`
+closes **both** dialogs. That second half is load-bearing rather than tidy: Remote settings is a
+`<dialog>` stacked on Workspace settings, and a `showModal()` dialog makes the page behind it *inert*
+rather than merely obscured — so eleven bare `close-remote-settings` clicks in `editor-clone-remote`
+and `editor-github-signin` left a modal over everything the test went on to touch, which is exactly
+how two of them failed on the first run. They all go through the helper now.
+
+**The `remoteAsked` latch is deleted and the mount is unconditional.** `NavigationBar` no longer
+mounts `RemoteSettings` at all — it no longer imports it — so there is one copy of every `remote-*`
+control in the document and nothing to gate.
+
+**The three facts the header states, and the testids they are read by.** `workspace-header` carries
+the name, `workspace-backing` the backing in words (`A folder on this computer` / `Kept in this
+browser`), and `workspace-publishes` where it publishes — with `workspace-remote` and
+`workspace-credential` inside it when there is a binding, and the sentence *"No Remote yet, so
+nothing is published from this Workspace"* when there is not. It is a `li.menu-title`, which daisyUI
+excludes from its own item styling, so nothing in it hovers, focuses or takes a pointer.
+
+**Every line of the header states its own ink, and that is a contrast requirement rather than a
+preference.** daisyUI paints `.menu-title`'s contents at
+`color-mix(in oklab, base-content 40%, transparent)`, which against Sidereal's `base-100` is 2.52:1
+in light and 3.25:1 in dark — below AA at any size, and the Remote's name is one of the lines it
+would have taken. So the name is full `text-base-content` (17.05:1 light, 13.03:1 dark), the backing
+and publishing lines are `text-base-content opacity-70` (6.45:1 and 7.05:1), and `text-warning` is
+used only at full opacity — 4.78:1 and 7.43:1, against 2.79:1 in light if it were dimmed the same
+way, which is why no marking sits inside a dimmed span.
+
+**The bar's `remote-identity` pair had 23 assertions across three specs, and they are rewritten
+rather than relaxed** (SPEC story 77). The facts moved, so the assertions follow them:
+`expectRemoteNamed`, `expectCredential` and `expectNoRemote` in `e2e/support/workspace.ts` open the
+menu, assert one sentence in the header, and close it again. `expectNoRemote` asserts three things —
+that the header says "No Remote yet", that `workspace-remote` is absent, and that
+`workspace-credential` is absent — because "publishes nowhere" and "names a repository" must not both
+be true, and because the sealed credential store is what a Review Workspace is for (ADR-0033): a
+header naming a signed-in identity in one would be reporting a token it must not be able to read.
+That third claim is what the `remote-credential` count it replaced was about, and it is pinned rather
+than left to markup nesting. Two test titles changed with them: they said "on the bar", and the bar is
+no longer where it is.
+
+**Three states are marked, on the row that is the open Workspace in each, and every marking names a
+recovery.** `status` is a property of the *open* `EditorSession` (`editor-session.svelte.ts:139`), so
+what it reports is a fact about the Workspace on screen and about no other — the named Workspaces in
+the roster are not open and have no status to read. That decides *which row* carries a marking, not
+whether one exists:
+
+- **A folder that cannot be reached** — moved, renamed, deleted. The open Workspace is the folder
+  row, so that is where `workspace-unreachable` lands, in `text-warning`, reading *"Unreachable.
+  Workspace settings can locate it again."*
+- **Browser storage refusing** — OPFS itself, which a second tab deleting the directory produces and
+  which `editor-named-workspaces.e2e.ts` drives at the `navigator.storage.getDirectory` boundary.
+  There is no folder row in this backing, so the same `workspace-unreachable` treatment goes on the
+  open Workspace's own `switch-workspace` row, reading *"Unreachable. The notice on this screen can
+  locate it again."* It names a different way back because a different one is true: nothing in
+  Workspace settings locates a browser Workspace, and `WorkspaceRecovery`'s alert — on every route —
+  does.
+- **A folder remembered but not open yet** — `storage.awaitingFolder`, which is `backing === 'browser'`
+  with a `reopenable` name (`workspace-storage.svelte.ts:1545`). This is the state every
+  folder-backed scholar returns in, because reopening needs a gesture (ADR-0012), and "Kept in this
+  browser" is false of it. So the backing line itself becomes the marking:
+  `workspace-awaiting-folder`, in `text-warning`, reading *"Your work is in the folder “…”, which is
+  not open yet. Workspace settings can reopen it."*
+
+Words in all three, no glyph, and each names where the recovery is rather than carrying it: the
+rescue paths are `WorkspaceRecovery` and `settings-reopen-folder`, and a folder control in this menu
+is what story 45 forbids.
+
+**Two assertions were added to existing tests rather than as new ones**, so the Seam 2 count is
+unchanged at 643 against a ceiling of 646. `editor-folder-workspace`'s "reports a folder that has
+been deleted as unreachable" now also reads the marking off the roster, in the one state that
+produces it. `editor-named-workspaces`' "asks nothing about where work is stored on a first visit"
+now also opens the menu, reads all three header facts, and asserts that none of
+`locate-workspace-folder`, `use-browser-storage`, `reopen-workspace-folder`,
+`choose-workspace-folder` or `open-remote-settings` is on screen inside it.
+
+**The roster still lists every Workspace, including the open one.** The Contract's "one row per other
+Workspace" is read against its own next clause — `aria-current` stays *on the open Workspace* — and
+against the acceptance criterion that asks for it on the open Workspace's row. A row cannot carry
+`aria-current` if it is not rendered, so the open one keeps its row and its `(open)` suffix, and the
+header states the same name above it. `(review copy)` is untouched.
+
+**What went with the folder controls.** `changeBacking`, `chooseFolder`, `reopenFolder` and
+`useBrowserStorage` had no caller left once the four buttons went, and with them went the two
+`Your Workspace is now…` announcements — nothing asserted them, and `WorkspaceSettings` is where that
+act happens now. `workspace-announcement` itself stays: it still carries the switch and the creation,
+which are what `editor-named-workspaces.e2e.ts:204` reads. The `Cloud`, `FolderOpen` and
+`FolderSearch` glyphs went with their buttons.
+
+**One thing worth a later look.** Nothing in `WorkspaceSettings` announces a backing change now that
+the bar's live region has stopped narrating it — the dialog's own `transfer-outcome` and
+`workspace-delete-outcome` regions do not cover `chooseFolder`. It was silent before this ticket too
+whenever the act was started from settings rather than from the menu, so this is not a regression, but
+it is now the only path.
+
 ## Blocked by
 
 - 01

@@ -7,9 +7,13 @@ import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
+	closeRemoteSettings,
 	closeWorkspaceSettings,
+	expectCredential,
+	expectNoRemote,
+	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openWorkspaceMenu,
+	openRemoteSettings,
 	openWorkspaceSettings
 } from './support/workspace';
 
@@ -23,7 +27,8 @@ import {
  *
  *   - the binding is made from the Workspace menu, and is still there after a reload, because it is
  *     a file in the Workspace rather than a fact about this tab;
- *   - the bar says where the work will go and whether anything may push it there;
+ *   - the workspace menu's header states where the work will go and whether anything may push it
+ *     there;
  *   - a refused credential is refused **and not kept anywhere** — not in web storage, and not in the
  *     Workspace, which is where a Backup and a Publish would carry it from;
  *   - a folder Workspace binds exactly as a browser one does, because the binding code branches on
@@ -71,17 +76,6 @@ async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1]
 	return github;
 }
 
-const openRemoteSettings = async (page: Page): Promise<void> => {
-	await openWorkspaceMenu(page);
-	await page.getByTestId('open-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-};
-
-const closeRemoteSettings = async (page: Page): Promise<void> => {
-	await page.getByTestId('close-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeHidden();
-};
-
 /** Fill the bind form and press the button. Does not assert the outcome — each test says its own. */
 async function bind(page: Page, repository = REMOTE, token = TOKEN): Promise<void> {
 	await openRemoteSettings(page);
@@ -125,10 +119,10 @@ test.describe('binding a Workspace to a repository', () => {
 		});
 
 		await page.reload();
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
+		await expectRemoteNamed(page, REMOTE);
 	});
 
-	test('shows the Remote and the sign-in on the bar, on every screen (story 36)', async ({
+	test('states the Remote and the sign-in in the Workspace menu’s header (story 36)', async ({
 		page
 	}) => {
 		await start(page);
@@ -136,9 +130,8 @@ test.describe('binding a Workspace to a repository', () => {
 		await bind(page);
 		await closeRemoteSettings(page);
 
-		const identity = page.getByTestId('remote-identity');
-		await expect(identity).toContainText(REMOTE);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectRemoteNamed(page, REMOTE);
+		await expectCredential(page, 'Signed in to GitHub');
 	});
 
 	test('takes the whole address out of the browser’s bar, not only owner/repository', async ({
@@ -194,7 +187,7 @@ test.describe('a credential that cannot push', () => {
 			'Contents: Read and write'
 		);
 		await closeRemoteSettings(page);
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
+		await expectRemoteNamed(page, REMOTE);
 	});
 });
 
@@ -286,21 +279,21 @@ test.describe('the pasted credential', () => {
 		await closeRemoteSettings(page);
 
 		await page.reload();
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectCredential(page, 'Signed in to GitHub');
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-sign-out').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText('Signed out of GitHub');
 		await closeRemoteSettings(page);
 
-		await expect(page.getByTestId('remote-credential')).toHaveText('Not signed in');
+		await expectCredential(page, 'Not signed in');
 		expect(await whereverTheTokenIs(page, TOKEN)).toEqual([]);
 
 		// And a reload after signing out has none, which is the half `sessionStorage` could have got
 		// wrong quietly: the binding is still there, and the credential is not.
 		await page.reload();
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Not signed in');
+		await expectRemoteNamed(page, REMOTE);
+		await expectCredential(page, 'Not signed in');
 	});
 
 	// SPEC story 37: *"a way to sign out, so that I can hand my machine to somebody"*. Unbinding
@@ -333,7 +326,7 @@ test.describe('the pasted credential', () => {
 
 		await expect(page.getByTestId('remote-outcome')).toContainText('Signed in to GitHub');
 		await closeRemoteSettings(page);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectCredential(page, 'Signed in to GitHub');
 	});
 });
 
@@ -351,7 +344,7 @@ test.describe('a first visit', () => {
 	test('shows no sign-in affordance anywhere', async ({ page }) => {
 		await start(page);
 
-		await expect(page.getByTestId('remote-identity')).toHaveCount(0);
+		await expectNoRemote(page);
 		// ⚠ **Visible, not merely present.** The Remote dialog is mounted unconditionally so that its
 		// `<dialog>` element exists before `showModal()` is asked for, and a closed `<dialog>` still
 		// holds its markup — so a bare `toHaveCount(0)` here would be asserting that a component this
@@ -397,8 +390,9 @@ test.describe('a folder Workspace', () => {
 	test('binds exactly as a browser Workspace does', async ({ page }) => {
 		await installDirectoryPicker(page);
 		await start(page);
-		await openWorkspaceMenu(page);
-		await page.getByTestId('choose-workspace-folder').click();
+		await openWorkspaceSettings(page);
+		await page.getByTestId('settings-choose-folder').click();
+		await closeWorkspaceSettings(page);
 		await expectWorkspaceNamed(page, 'e2e-remote-folder');
 
 		await bind(page);
@@ -407,7 +401,7 @@ test.describe('a folder Workspace', () => {
 			`This Workspace is bound to ${REMOTE}`
 		);
 		await closeRemoteSettings(page);
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
+		await expectRemoteNamed(page, REMOTE);
 		// In the folder, which is where the binding has to be for a Clone to learn its own Remote.
 		expect(JSON.parse((await bindingFile(page, 'e2e-remote-folder')) ?? 'null')).toHaveProperty(
 			'repository',
@@ -424,7 +418,7 @@ test.describe('a restored Backup', () => {
 		await start(page);
 		await bind(page);
 		await closeRemoteSettings(page);
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
+		await expectRemoteNamed(page, REMOTE);
 
 		const settings = page.getByRole('dialog', { name: 'Workspace settings' });
 		await openWorkspaceSettings(page);
@@ -443,7 +437,7 @@ test.describe('a restored Backup', () => {
 		await closeWorkspaceSettings(page);
 
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
-		await expect(page.getByTestId('remote-identity')).toHaveCount(0);
+		await expectNoRemote(page);
 		expect(await bindingFile(page, `${DEFAULT_WORKSPACE} (2)`)).toBeNull();
 	});
 });
@@ -458,7 +452,7 @@ test.describe('a Review Workspace', () => {
 		await start(page);
 		await bind(page);
 		await closeRemoteSettings(page);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectCredential(page, 'Signed in to GitHub');
 
 		await page.getByTestId('open-bundle').click();
 		await page
@@ -469,7 +463,7 @@ test.describe('a Review Workspace', () => {
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 
 		// Unbound, so nothing on the bar names a Remote at all.
-		await expect(page.getByTestId('remote-identity')).toHaveCount(0);
+		await expectNoRemote(page);
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('no-remote-in-review')).toContainText(
 			'cannot be bound to a repository'
@@ -489,7 +483,7 @@ test.describe('a Review Workspace', () => {
 		// locators, the opposite answers, one gesture apart.
 		await page.getByTestId('leave-review').click();
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectCredential(page, 'Signed in to GitHub');
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
 		await expect(page.getByTestId('remote-sign-out')).toBeVisible();

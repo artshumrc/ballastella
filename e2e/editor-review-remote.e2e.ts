@@ -3,7 +3,12 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
-import { expectWorkspaceNamed, openWorkspaceMenu, switchToWorkspace } from './support/workspace.js';
+import {
+	closeRemoteSettings,
+	expectWorkspaceNamed,
+	openRemoteSettings,
+	switchToWorkspace
+} from './support/workspace.js';
 
 /**
  * Reviewing one Project out of a public repository (ticket 08, ADR-0024, ADR-0031).
@@ -303,8 +308,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		await expect(page.getByTestId('publish')).toHaveCount(0);
 		await expect(page.getByTestId('review-workspace-note')).toBeVisible();
 
-		await openWorkspaceMenu(page);
-		await page.getByTestId('open-remote-settings').click();
+		await openRemoteSettings(page);
 		await expect(page.getByTestId('no-remote-in-review')).toBeVisible();
 		// The binding form is absent, rather than present and refused on submission.
 		await expect(page.getByTestId('remote-repository-field')).toHaveCount(0);
@@ -320,26 +324,24 @@ test.describe('reviewing one Project from a Remote', () => {
 		// Bound with a pasted token, which is how this deployment signs in (ADR-0031) and the state a
 		// teacher is in when a submission arrives: their own Workspace publishes somewhere, and the
 		// credential that pushes there is in the tab.
-		await openWorkspaceMenu(page);
-		await page.getByTestId('open-remote-settings').click();
+		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
 		await page.getByTestId('remote-token-field').fill(TOKEN);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		await review(page);
 		await expect(banner(page)).toBeVisible();
 
-		await openWorkspaceMenu(page);
-		await page.getByTestId('open-remote-settings').click();
+		await openRemoteSettings(page);
 		// Sealed: every screen above the store renders the not-signed-in state without knowing why, and
 		// the whole sign-in section is absent rather than present and refused.
 		await expect(page.getByTestId('no-remote-in-review')).toBeVisible();
 		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
 		await expect(page.getByTestId('remote-sign-out')).toHaveCount(0);
 		await expect(page.getByTestId('remote-sign-in-field')).toHaveCount(0);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// Not written to either: the token is exactly where it was, in `sessionStorage` and nowhere
 		// else, and no copy of it landed in the review copy the Review had just made.
@@ -350,8 +352,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		// And back out, the same sign-in is readable again — the seal is not a sign-out.
 		await page.getByTestId('leave-review').click();
 		await expect(banner(page)).toBeHidden();
-		await openWorkspaceMenu(page);
-		await page.getByTestId('open-remote-settings').click();
+		await openRemoteSettings(page);
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
 	});
 

@@ -3,7 +3,7 @@
 	//
 	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
 	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
-	// `workspace-storage.svelte.ts`, the remote settings into the GitHub broker, publishing into the
+	// `workspace-storage.svelte.ts`, Workspace settings into the GitHub broker, publishing into the
 	// planner — and moving the bar itself into the shared package would put all of that in the
 	// viewer's reachable graph. So the shell is shared and the filling is not.
 	//
@@ -39,10 +39,7 @@
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by (SPEC story 111).
 	import AppWindow from '@lucide/svelte/icons/app-window';
-	import Cloud from '@lucide/svelte/icons/cloud';
 	import Folder from '@lucide/svelte/icons/folder';
-	import FolderOpen from '@lucide/svelte/icons/folder-open';
-	import FolderSearch from '@lucide/svelte/icons/folder-search';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Settings from '@lucide/svelte/icons/settings';
 
@@ -52,7 +49,6 @@
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
-	import RemoteSettings from './RemoteSettings.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
@@ -73,12 +69,45 @@
 	 */
 	const workspaceName = $derived(storage === null ? 'Starting…' : storage.name);
 
-	/** Whether the folder Workspace cannot be reached, which is what turns "choose" into "locate again". */
+	/**
+	 * Whether the open Workspace cannot be reached.
+	 *
+	 * ⚠ **The menu's markings are the only thing here that can send a scholar towards recovery**
+	 * (SPEC story 43). `status` belongs to the open session, so this is a fact about the Workspace
+	 * currently on screen and about no other — which is why the marking lands on the open one's row:
+	 * the folder row when the backing is a folder, and that Workspace's own `switch-workspace` row
+	 * when it is browser storage refusing.
+	 */
 	const unreachable = $derived(session?.status === 'unreachable');
+
+	/**
+	 * Where this Workspace's bytes are, in words — the header's second fact (SPEC story 41).
+	 *
+	 * Only for the two settled backings. A remembered folder that is not open yet is browser-backed
+	 * by this test and "Kept in this browser" is false of it, so the header states that state in its
+	 * own sentence rather than through this one — see `awaitingFolder`.
+	 */
+	const backingSentence = $derived(
+		storage?.backing === 'folder' ? 'A folder on this computer' : 'Kept in this browser'
+	);
+
+	/**
+	 * Whether a push credential is held, and as whom (SPEC story 32).
+	 *
+	 * Read from the credential store rather than from anything remembered here, so it says what is
+	 * **true**: the store is sealed while a Review Workspace is open (ADR-0033), and a token that
+	 * cannot be read is a token this menu must not claim to hold.
+	 */
+	const credentialSentence = $derived(
+		storage?.signedIn
+			? storage.identity
+				? `Signed in to GitHub as ${storage.identity}`
+				: 'Signed in to GitHub'
+			: 'Not signed in'
+	);
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
 	let settingsOpen = $state(false);
-	let remoteOpen = $state(false);
 	let publishOpen = $state(false);
 	/**
 	 * Whether a publish is running, and how far it has got.
@@ -149,46 +178,6 @@
 		announcement = `Switched to the Workspace “${name}”.`;
 	}
 
-	/**
-	 * Say what a folder action did.
-	 *
-	 * The three folder actions report nothing of their own: `chooseFolder` returns silently when the
-	 * picker is dismissed, and puts a refusal on `storage.problem` rather than throwing. So the
-	 * announcement is made from what the Workspace *is* afterwards, which is the only thing that is
-	 * true in every one of those cases.
-	 */
-	async function changeBacking(act: () => Promise<void>): Promise<void> {
-		if (!storage) return;
-		const was = storage.backing;
-		const wasFolder = storage.folderName;
-		await act();
-		// A refusal is not announced from here. `storage.problem` already renders as a `role="alert"`
-		// through `WorkspaceRecovery`, which is on every screen this bar is; saying it again in the
-		// live region is the same sentence twice for a screen-reader user, and a second `alert` on the
-		// page for anyone querying by role.
-		if (!storage.problem && (storage.backing !== was || storage.folderName !== wasFolder)) {
-			announcement =
-				storage.backing === 'folder'
-					? `Your Workspace is now the folder “${storage.folderName}”.`
-					: `Your Workspace is now “${storage.workspaceName}”, in this browser's storage.`;
-		}
-		// Otherwise nothing changed — a dismissed picker, a permission prompt declined — and saying
-		// "your Workspace is now…" would announce something the user did not do.
-	}
-
-	const chooseFolder = () =>
-		changeBacking(async () => {
-			await storage?.chooseFolder();
-		});
-	const reopenFolder = () =>
-		changeBacking(async () => {
-			await storage?.reopenFolder();
-		});
-	const useBrowserStorage = () =>
-		changeBacking(async () => {
-			await storage?.useBrowserStorage();
-		});
-
 	async function createWorkspace(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const asked = newName ?? '';
@@ -240,6 +229,59 @@
 				buttonClass="btn max-w-[14rem] truncate btn-sm font-medium"
 				testid="workspace-switcher"
 			>
+				<!--
+					What this Workspace is: its name, where its bytes are, and where it publishes (SPEC
+					story 41). The only place in the app those facts appear together, and a heading rather
+					than a set of controls — every decision behind them is in Workspace settings, so the
+					same choice is never offered in two places that could disagree (story 45).
+
+					**The publishing line is stated even when there is nothing bound.** An omitted line
+					reads as a rendering fault, and "no Remote yet" is the state a first-time author is
+					in. It is still not a sign-in prompt: nothing here asks for a credential (story 38).
+				-->
+				<!--
+					⚠ **Every line states its own ink, and none of them may inherit.** daisyUI paints
+					`.menu-title`'s contents at `color-mix(in oklab, base-content 40%, transparent)`, which
+					is 2.52:1 in light and 3.25:1 in dark against `base-100` — below AA at any size. Full
+					`base-content` is 17.05:1 and 13.03:1, and `opacity-70` over it is 6.45:1 and 7.05:1, so
+					a de-emphasised line still clears 4.5:1. `text-warning` is used only at full opacity:
+					at 70% it falls to 2.79:1 in light.
+				-->
+				<li class="menu-title" data-testid="workspace-header">
+					<span class="block truncate text-sm font-semibold text-base-content">
+						{workspaceName}
+					</span>
+					<span class="block font-normal" data-testid="workspace-backing">
+						{#if storage.awaitingFolder}
+							<!--
+								⚠ **"Kept in this browser" is false here** and this is the state every
+								folder-backed scholar returns in: the folder is remembered, the browser wants a
+								gesture before handing it back, and until that gesture the backing reads as
+								`browser` (`workspace-storage.svelte.ts`, `awaitingFolder`). So the line names the
+								folder, says it is not open, and says where the gesture is — the menu offers no
+								folder control of its own (SPEC story 45).
+							-->
+							<span class="text-warning" data-testid="workspace-awaiting-folder">
+								Your work is in the folder “{storage.reopenable}”, which is not open yet. Workspace
+								settings can reopen it.
+							</span>
+						{:else}
+							<span class="text-base-content opacity-70">{backingSentence}</span>
+						{/if}
+					</span>
+					<span
+						class="block font-normal text-base-content opacity-70"
+						data-testid="workspace-publishes"
+					>
+						{#if storage.remote}
+							Publishes to <span data-testid="workspace-remote"
+								>{describeRemote(storage.remote)}</span
+							>. <span data-testid="workspace-credential">{credentialSentence}</span>.
+						{:else}
+							No Remote yet, so nothing is published from this Workspace.
+						{/if}
+					</span>
+				</li>
 				<li class="menu-title">Switch to</li>
 				{#each storage.workspaces as name (name)}
 					<li>
@@ -266,12 +308,28 @@
 								moves between them, and two students' conflicting Alignments of the same sheet
 								never meet precisely because each is in its own Workspace (ADR-0024).
 							-->
-							<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of an
-							     element, so `<span> (open)</span>` renders as "My Workspace(open)". -->
-							<span class="truncate">
-								{name}{#if storage.reviewWorkspaces.includes(name)}<span class="opacity-70"
-										>&nbsp;(review copy)</span
-									>{/if}{#if storage.isOpen(name)}<span class="opacity-70">&nbsp;(open)</span>{/if}
+							<span class="min-w-0">
+								<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of an
+								     element, so `<span> (open)</span>` renders as "My Workspace(open)". -->
+								<span class="block truncate">
+									{name}{#if storage.reviewWorkspaces.includes(name)}<span class="opacity-70"
+											>&nbsp;(review copy)</span
+										>{/if}{#if storage.isOpen(name)}<span class="opacity-70">&nbsp;(open)</span
+										>{/if}
+								</span>
+								{#if unreachable && storage.backing === 'browser' && storage.isOpen(name)}
+									<!--
+										The same marking as the folder row's, on the row that is the open Workspace when
+										the backing is browser storage — OPFS itself refusing, which a second tab
+										deleting the directory produces. One idiom for "this Workspace cannot be
+										reached" rather than two, and it names a different way back only because a
+										different one is true: nothing in Workspace settings locates a browser
+										Workspace, and `WorkspaceRecovery`'s alert — which is on every screen — does.
+									-->
+									<span class="block text-warning" data-testid="workspace-unreachable">
+										Unreachable. The notice on this screen can locate it again.
+									</span>
+								{/if}
 							</span>
 						</button>
 					</li>
@@ -281,10 +339,24 @@
 					     is a different backing, and showing it as a sibling would suggest it can be deleted
 					     from settings alongside them, which it cannot. -->
 					<li>
-						<span class="opacity-70">
+						<span>
 							<Folder size={16} aria-hidden="true" class="shrink-0" />
-							<span class="truncate">
-								{storage.folderName || 'A folder on this computer'} (open)
+							<span class="min-w-0">
+								<span class="block truncate opacity-70">
+									{storage.folderName || 'A folder on this computer'} (open)
+								</span>
+								{#if unreachable}
+									<!--
+										⚠ **The whole of the way back, now that the folder controls are in settings**
+										(SPEC story 43, ADR-0008). A folder that has moved, been renamed or been
+										unplugged is a normal state, and a scholar who cannot see that it has
+										happened has no reason to go looking for the control that fixes it — so the
+										row says so in `warning`, in words, and names where the recovery is.
+									-->
+									<span class="block text-warning" data-testid="workspace-unreachable">
+										Unreachable. Workspace settings can locate it again.
+									</span>
+								{/if}
 							</span>
 						</span>
 					</li>
@@ -306,91 +378,13 @@
 						New Workspace…
 					</button>
 				</li>
-				<!--
-					A Workspace folder on the user's own disk, offered here rather than only in settings.
+				<!-- A boundary rather than an emphasis, which is what ADR-0036 permits a rule to be: above
+				     it is this Workspace and the others, below it is the way out of the menu.
 
-					⚠ **Only where the browser has the picker at all.** `canChooseFolder` is the File System
-					Access API's presence, which Firefox and iOS Safari do not have — and ADR-0001 makes a
-					folder Workspace a capability upgrade and never a gate, so a browser without it must not
-					be shown a route it cannot take.
-
-					These are real clicks, which is what `showDirectoryPicker()` and `requestPermission()`
-					need: called without transient user activation they fail silently (ADR-0012).
-				-->
-				{#if storage.canChooseFolder || storage.backing === 'folder'}
-					<li class="menu-title">Folder on this computer</li>
-					{#if storage.backing === 'folder'}
-						{#if unreachable}
-							<!-- ADR-0008: a folder that has moved, been renamed, or been unplugged is a normal
-							     state, and locating it again is the recovery. -->
-							<li>
-								<button
-									type="button"
-									data-testid="locate-workspace-folder"
-									onclick={() => fromMenu(() => void chooseFolder())}
-								>
-									<FolderSearch size={16} aria-hidden="true" class="shrink-0" />
-									Locate Workspace folder again…
-								</button>
-							</li>
-						{/if}
-						<li>
-							<button
-								type="button"
-								data-testid="use-browser-storage"
-								onclick={() => fromMenu(() => void useBrowserStorage())}
-							>
-								<AppWindow size={16} aria-hidden="true" class="shrink-0" />
-								Use browser storage instead
-							</button>
-						</li>
-					{:else}
-						{#if storage.reopenable}
-							<li>
-								<button
-									type="button"
-									data-testid="reopen-workspace-folder"
-									onclick={() => fromMenu(() => void reopenFolder())}
-								>
-									<FolderOpen size={16} aria-hidden="true" class="shrink-0" />
-									<span class="truncate">Reopen “{storage.reopenable}”</span>
-								</button>
-							</li>
-						{/if}
-						<li>
-							<button
-								type="button"
-								data-testid="choose-workspace-folder"
-								onclick={() => fromMenu(() => void chooseFolder())}
-							>
-								<Folder size={16} aria-hidden="true" class="shrink-0" />
-								Choose Workspace folder…
-							</button>
-						</li>
-					{/if}
-				{/if}
-				<!--
-					Where this Workspace publishes (ticket 03, ADR-0032).
-
-					⚠ **In the menu and nowhere else until it is bound.** A scholar who never publishes must
-					never meet a sign-in prompt (SPEC story 38), so nothing about GitHub is on the bar, on
-					the hub, or on any screen until they have opened this and named a repository. A menu
-					item behind a button they chose to press is not a prompt.
-
-					**Offered inside a review copy too, rather than hidden.** The refusal lives in
-					`packages/core` — a Review Workspace cannot be bound by any route — and the dialog says
-					why in words. An absent control explains nothing and teaches nobody the rule.
-				-->
-				<li>
-					<button
-						type="button"
-						data-testid="open-remote-settings"
-						onclick={() => fromMenu(() => (remoteOpen = true))}
-					>
-						<Cloud size={16} aria-hidden="true" class="shrink-0" />
-						Remote repository…
-					</button>
-				</li>
+				     `aria-hidden` and no `role`: `MenuPopover`'s list is a plain `<ul>` with no
+				     `role="menu"`, so this is a listitem, and a `role="separator"` that is also hidden
+				     announces nothing while adding a widget role to a list that has none. -->
+				<li aria-hidden="true" class="my-1 border-t border-rule"></li>
 				<li>
 					<button
 						type="button"
@@ -404,40 +398,6 @@
 			</MenuPopover>
 		{/if}
 	</div>
-
-	<!--
-		1a. Where this Workspace publishes, and whether anything may push there (SPEC story 36).
-
-		⚠ **Absent entirely until the Workspace is bound**, which is the whole of story 38: a scholar
-		who never publishes is never shown a sign-in prompt, so a first visit has no GitHub affordance
-		anywhere on the bar. Once bound, both facts are here because they answer one question —
-		*where will the button send my work, and as whom* — and separating them is how a scholar comes
-		to be sure of one and wrong about the other.
-
-		"Signed in" is read from the credential store rather than from anything remembered here, so it
-		says what is **true**: the store is sealed while a Review Workspace is open (ADR-0033, story
-		40), and a token that cannot be read is a token this bar must not claim to hold.
-	-->
-	{#if storage?.remote}
-		<div class="flex items-center gap-2 text-sm" data-testid="remote-identity">
-			<span class="opacity-70">Remote:</span>
-			<span class="max-w-[14rem] truncate font-medium" data-testid="remote-name">
-				{describeRemote(storage.remote)}
-			</span>
-			<!--
-				Named when the name is known (story 32). A GitHub App sign-in has just been through a
-				redirect the scholar cannot see the result of, so *as whom* is the fact they most need
-				back; a pasted token has no name attached and says what it always said.
-			-->
-			<span class="opacity-70" data-testid="remote-credential">
-				{storage.signedIn
-					? storage.identity
-						? `Signed in to GitHub as ${storage.identity}`
-						: 'Signed in to GitHub'
-					: 'Not signed in'}
-			</span>
-		</div>
-	{/if}
 
 	{#if newName !== null && storage !== null}
 		<!-- Inline on the bar rather than in a dialog: it is one field and one button, and a modal for
@@ -616,7 +576,6 @@
 -->
 {#if storage !== null}
 	<WorkspaceSettings bind:open={settingsOpen} {storage} />
-	<RemoteSettings bind:open={remoteOpen} {storage} />
 {/if}
 
 <!--

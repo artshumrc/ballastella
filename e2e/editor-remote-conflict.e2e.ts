@@ -2,7 +2,7 @@ import { expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
-import { openWorkspaceMenu } from './support/workspace.js';
+import { openRemoteSettings } from './support/workspace.js';
 
 /**
  * The two refusals that stop one machine deleting another's afternoon (ticket 05, ADR-0033).
@@ -162,12 +162,6 @@ async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promi
 }
 
 test.describe('binding to a Remote that already carries somebody else’s Projects (story 23)', () => {
-	const openRemoteSettings = async (page: Page): Promise<void> => {
-		await openWorkspaceMenu(page);
-		await page.getByTestId('open-remote-settings').click();
-		await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-	};
-
 	async function bind(page: Page): Promise<void> {
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);

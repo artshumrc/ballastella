@@ -65,17 +65,6 @@
 
 	/** Whether the Remote dialog is showing. */
 	let remoteOpen = $state(false);
-	/**
-	 * Whether the Remote dialog has been asked for at all.
-	 *
-	 * ⚠ **`NavigationBar` still mounts a `RemoteSettings` of its own for the workspace menu's item,
-	 * and two of them in one document means two of every `remote-*` control.** So this one is created
-	 * the first time somebody asks for it here and then left mounted, which keeps a document that
-	 * never asks down to the single copy the menu already provides — and keeps `ModalDialog`'s close
-	 * and focus restoration, which an unmount would skip, in charge of getting out of it again. It
-	 * becomes an unconditional mount when the menu's copy goes (ticket 03).
-	 */
-	let remoteAsked = $state(false);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// BACKING UP AND RESTORING (ticket 13, ADR-0024, SPEC stories 82–87)
@@ -327,11 +316,8 @@
 			{/if}
 			<button
 				class="btn btn-sm"
-				data-testid="settings-open-remote"
-				onclick={() => {
-					remoteAsked = true;
-					remoteOpen = true;
-				}}
+				data-testid="open-remote-settings"
+				onclick={() => (remoteOpen = true)}
 			>
 				Remote repository…
 			</button>
@@ -570,7 +556,8 @@
 	{/snippet}
 </ModalDialog>
 
-<!-- Outside the dialog above, for the same top-layer reason the confirmation is. -->
-{#if remoteAsked}
-	<RemoteSettings bind:open={remoteOpen} {storage} />
-{/if}
+<!--
+	Outside the dialog above, for the same top-layer reason the confirmation is, and mounted
+	unconditionally so the `<dialog>` element exists before `showModal()` is asked for.
+-->
+<RemoteSettings bind:open={remoteOpen} {storage} />

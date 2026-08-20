@@ -6,6 +6,7 @@ import {
 	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
+	openWorkspaceMenu,
 	openWorkspaceSettings
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
@@ -742,6 +743,16 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('Workspace not reachable');
 		await expect(page.getByRole('heading', { level: 1, name: 'Ballastella Editor' })).toBeVisible();
+
+		// ⚠ SPEC story 43. The roster marks the folder as unreachable on its own row, in words, and
+		// names where the recovery is — the menu no longer carries a folder control, so a scholar who
+		// opens it to ask which Workspace they are in has to be able to read that this one has gone.
+		await openWorkspaceMenu(page);
+		await expect(page.getByTestId('workspace-unreachable')).toContainText(
+			'Unreachable. Workspace settings can locate it again.'
+		);
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
 
 		// And the recovery works: locating it again re-grants a folder of that name, which is now
 		// empty because it really was deleted.

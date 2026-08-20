@@ -4,7 +4,14 @@ import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
-import { expectWorkspaceNamed, openWorkspaceMenu } from './support/workspace';
+import {
+	closeRemoteSettings,
+	expectCredential,
+	expectNoRemote,
+	expectRemoteNamed,
+	expectWorkspaceNamed,
+	openRemoteSettings
+} from './support/workspace';
 
 /**
  * Signing in with the GitHub App, through the broker (ticket 10, ADR-0031).
@@ -72,12 +79,6 @@ async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1]
 	await page.reload();
 	return github;
 }
-
-const openRemoteSettings = async (page: Page): Promise<void> => {
-	await openWorkspaceMenu(page);
-	await page.getByTestId('open-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-};
 
 /** Whether a push credential is held at all, asked of the app rather than of a screen. */
 const holdsCredential = (page: Page): Promise<boolean> =>
@@ -204,7 +205,7 @@ test.describe('signing in with GitHub', () => {
 		]);
 	});
 
-	test('shows the account on the bar once the Workspace is bound', async ({ page }) => {
+	test('names the account in the Workspace menu once the Workspace is bound', async ({ page }) => {
 		await start(page, { login: 'ada' });
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
@@ -214,9 +215,9 @@ test.describe('signing in with GitHub', () => {
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub as ada');
+		await expectCredential(page, 'Signed in to GitHub as ada');
 	});
 });
 
@@ -435,7 +436,7 @@ test.describe('a sign-in that has run out', () => {
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// Whatever the App session was, it is over: the refresh below must never be reached, because
 		// there is nothing left to refresh.
@@ -495,7 +496,7 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		await page.getByTestId('confirm-open-bundle').click();
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 
-		await expect(page.getByTestId('remote-credential')).toHaveCount(0);
+		await expectNoRemote(page);
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('no-remote-in-review')).toContainText(
 			'cannot be bound to a repository'
@@ -508,7 +509,7 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
 		await expect(page.getByTestId('remote-sign-out')).toHaveCount(0);
 		await expect(page.getByTestId('sign-in-with-github')).toHaveCount(0);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// ⚠ **And nothing was spent.** Opening that screen is what asks whether the sign-in is still
 		// good, and the held grant is stale — so an unsealed record would have sent the refresh token
@@ -591,11 +592,11 @@ test.describe('with no broker served at all', () => {
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		await page.reload();
 
-		await expect(page.getByTestId('remote-name')).toHaveText(REMOTE);
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectRemoteNamed(page, REMOTE);
+		await expectCredential(page, 'Signed in to GitHub');
 	});
 });
