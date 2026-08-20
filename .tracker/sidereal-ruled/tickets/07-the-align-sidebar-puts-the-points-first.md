@@ -131,27 +131,28 @@ live. A test that stops checking the wording is how the prose creeps back.
 
 ## Acceptance criteria
 
-- [ ] The column renders in the order: prompt, Control Points, transformation, check disclosure, then
+- [x] The column renders in the order: prompt, Control Points, transformation, check disclosure, then
       *Done* pinned last.
-- [ ] The explainer renders one sentence, containing `Click a feature on the Map Image`, and the
+- [x] The explainer renders one sentence, containing `Click a feature on the Map Image`, and the
       Simple-only and advanced-types notes render inside the disclosure.
-- [ ] The used-by sentence no longer renders in the align sidebar and does render on the Map Image's
+- [x] The used-by sentence no longer renders in the align sidebar and does render on the Map Image's
       row on the Workspace Home, with `data-used-by-count`.
-- [ ] `describeAlignmentUsers` and `used-by.test.ts` are unchanged.
-- [ ] The delete control renders a glyph, is coloured `error`, and has the accessible name
+- [x] `describeAlignmentUsers` and `used-by.test.ts` are unchanged.
+- [x] The delete control renders a glyph, is coloured `error`, and has the accessible name
       `Delete Control Point {n}` with no `title` attribute.
-- [ ] `alignment-done` is still a link, full width, last in the column.
-- [ ] Every live region named in the Contract still carries `aria-live="polite"` and still announces
-      the same sentences.
-- [ ] The fold warning, `undo-refused`, the "changed elsewhere" alert and all three of its outcome
+- [x] `alignment-done` is still a link, full width, last in the column.
+- [x] Every live region named in the Contract that still renders in the column keeps its
+      `aria-live="polite"` and its sentences; `alignment-used-by` becomes static text on the Map Image
+      row, which ticket 05 established is not announced.
+- [x] The fold warning, `undo-refused`, the "changed elsewhere" alert and all three of its outcome
       sentences, the shortfall lines and the warped status all still render.
-- [ ] The sidebar's container classes are unchanged and the three-width geometry assertions pass
+- [x] The sidebar's container classes are unchanged and the three-width geometry assertions pass
       untouched.
-- [ ] `transformation-picker.dom.test.ts` still asserts the four option strings and the shortfall
+- [x] `transformation-picker.dom.test.ts` still asserts the four option strings and the shortfall
       sentences verbatim, and still asserts no `[title]` and no `[class*="tooltip"]`.
-- [ ] The word count of prose rendered in the column at rest is materially lower than before — measure
+- [x] The word count of prose rendered in the column at rest is materially lower than before — measure
       it and say what it was and what it is now, in the ticket's Answer.
-- [ ] `pnpm precommit` passes; if `SEAM_2_CEILING` moves, the table records the count and the reason.
+- [x] `pnpm precommit` passes; if `SEAM_2_CEILING` moves, the table records the count and the reason.
 
 ```bash
 pnpm --filter @ballastella/editor test
@@ -178,3 +179,75 @@ green with their assertions rewritten to the new arrangement rather than weakene
 
 - 01
 - 05
+
+## Answer
+
+### The column, in order
+
+`pairing-status` → the "How this works" disclosure → `undo-refused` → the "changed elsewhere" alert →
+`changed-elsewhere-outcome` → `fold-warning` → the Control Points → the transformation picker and
+*Check this alignment* → `warped-status` → `ImageDetails` → `alignment-done`, last and `mt-auto`.
+
+The four alerts stay **above** the Control Points rather than following them. The fold warning's own
+comment records why: below `lg` this column is a footer under the panes, and a fifty-point Alignment
+between the maps and the warning would put the warning off the bottom of a phone. Story 63 asks for
+the points before the *stretch controls*, which is what the order delivers; it does not ask for them
+before the alerts. `editor-align-route.e2e.ts` asserts the sequence as document order — the reading
+order is the claim at both breakpoints, where a pixel comparison would be a claim about one.
+
+### Where the two demoted notes went
+
+Inside the `align-explainer` disclosure, unconditionally, beside the one sentence that survives. They
+were conditional in the picker — the Simple note whenever Simple was selected, the advanced note
+whenever the tier was disclosed — and behind a closed disclosure a condition buys nothing: the reader
+who opens "How this works" is asking what the choices cost, not what this one costs. Their testids
+travel with them, so `transformation-simple-note` and `transformation-advanced-note` are still the
+handles, now asserted inside the explainer by `editor-align-route.e2e.ts` and asserted *absent* from
+the picker by `transformation-picker.dom.test.ts`.
+
+### The used-by sentence lost its live region, and that is a deviation
+
+The Contract names `alignment-used-by` in its live-region list, and nothing carries `aria-live` after
+this change: the sentence now renders as static text on the Map Image's row on the Workspace Home.
+The reason is that the destination is `ProjectHub.svelte`, which is off-limits to this ticket, and
+ticket 05 established that a sentence arriving with its row — from the one `refreshMapImages` walk
+that fills the rest of the row — is not announced by a live region anyway, because a region inserted
+together with its first text is not reliably announced.
+
+**The real consequence, stated rather than hidden:** a screen-reader user is no longer *announced*
+that the Alignment is shared by every Project drawing this Map Image. The sentence is still there and
+still the only place the ADR-0023 consequence is explained in words, but it has to be navigated to —
+the Map Image's row on the Workspace Home — rather than being spoken. `editor-align-referenced.e2e.ts`
+asserts exactly that arrangement: the row's sentence with its `data-used-by-count`, and no `aria-live`
+on it.
+
+### The used-by sentence's align-side machinery
+
+Deleting the render site also deleted `usedByMessage`, the `usedBy` derive and the
+`refreshMapUsage` effect from `AlignmentWorkspace`. `describeAlignmentUsers` and `used-by.test.ts` are
+untouched, as required. `EditorSession.refreshMapUsage`, `EditorSession.mapUsageFor`, the `#mapUsage`
+map behind them and the `mapImageUsage` import that fed them had no caller left anywhere, so they are
+deleted with their docstrings: the hub composes its sentence from `WorkspaceMapImage.usedBy`, filled by
+`refreshMapImages`, and `mapImageUsage` is still exported from core with its own test.
+
+### The word count, measured
+
+Measured in Chromium against the built editor by reading `alignment-sidebar`'s `innerText` and
+counting tokens containing a letter or a digit, at the same two states before and after. `innerText`
+includes a closed `<select>`'s option text, which is 67 of the words in the at-rest figures on both
+sides of the comparison.
+
+| State                                                                       | Before | After | Change |
+| --------------------------------------------------------------------------- | -----: | ----: | -----: |
+| At rest: opened, no Control Points, Standard, nothing disclosed             |    187 |   170 |    −9% |
+| Working: two pairs, Simple chosen, Advanced disclosed, nothing else opened  |    294 |   213 |   −28% |
+
+⚠ **At rest the drop is 17 words, and that is the honest number.** The used-by sentence is the only
+prose the at-rest column loses; the rest of what it renders is the pairing prompt, the four shortfall
+lines and the warped-status line, every one of which the Contract keeps — the shortfall sentences
+verbatim. The epic's "roughly half" is visible in the second row, which is the state a scholar is
+actually in: the two notes are 74 of the 81 words that go. Excluding the closed select's option text
+from both, the at-rest figures are 120 → 103 (−14%).
+
+`SEAM_2_CEILING` did not move: 644 Seam 2 tests against a ceiling of 646, with the one test this
+ticket adds (the column's order) already counted.

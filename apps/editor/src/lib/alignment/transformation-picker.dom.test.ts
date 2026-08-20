@@ -237,6 +237,29 @@ describe('the guidance is announced with the control (ADR-0016)', () => {
 	});
 });
 
+// The two notes about *consequences* — that Simple cannot mirror, and that the higher orders distort
+// at the edges — belong behind "How this works" in `AlignmentWorkspace`, with the rest of this
+// screen's explanation (SPEC stories 62, 67), and `e2e/editor-align-route.e2e.ts` asserts them inside
+// that disclosure. This is the other half of that claim, and it is the half that catches a note
+// creeping back into the group: neither renders here in the state that would show it — Simple
+// selected, and Advanced disclosed.
+describe('the notes about consequences are not standing in this group', () => {
+	test('says nothing extra about Simple when Simple is the selection', () => {
+		picker({ value: 'helmert', controlPointCount: 3 });
+
+		expect(document.querySelector('[data-testid="transformation-simple-note"]')).toBeNull();
+		expect(at('transformation-picker').textContent).not.toContain('cannot turn the Map Image over');
+	});
+
+	test('says nothing extra about the higher orders when Advanced is disclosed', () => {
+		picker({ controlPointCount: 10 });
+		pressAdvanced();
+
+		expect(document.querySelector('[data-testid="transformation-advanced-note"]')).toBeNull();
+		expect(at('transformation-picker').textContent).not.toContain('spectacular distortion');
+	});
+});
+
 // Every guidance string the picker can show comes from `TRANSFORMATION_CHOICES`, which ADR-0013's
 // table pins at Seam 1. This is the join: whatever is in that table is what the option carries, so a
 // type added there cannot arrive in the picker without its guidance.

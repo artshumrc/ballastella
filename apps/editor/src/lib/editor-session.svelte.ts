@@ -40,7 +40,6 @@ import {
 	imageSizeFromInfo,
 	ingestImageFile,
 	fetchTilesIntoCache,
-	mapImageUsage,
 	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
@@ -126,7 +125,6 @@ import {
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
-import type { AlignmentUsers } from './alignment/used-by.js';
 import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
 import { saveFile } from './save-file.js';
 
@@ -457,52 +455,6 @@ export class EditorSession {
 	 */
 	mapImages = $state<WorkspaceMapImage[]>([]);
 
-	/**
-	 * Which Projects draw the one Map Image a screen is about (SPEC story 56).
-	 *
-	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-	 * │ "TOLD WHICH PROJECTS USE THIS MAP IMAGE **WHILE I AM ALIGNING IT**."                  │
-	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
-	 *
-	 * ADR-0023 made the Alignment the Workspace's, shared by every Project that draws the map, and
-	 * that is the whole reason this sentence has to be on the alignment screen rather than only on
-	 * the hub. Refining an Alignment moves every one of those Projects — published ones included —
-	 * and the hub's copy of this list is two navigations away from the gesture that does it. Being
-	 * told *afterwards*, in the concurrent-edit alert, is being told once it has already happened and
-	 * only when somebody else was editing at the same moment.
-	 *
-	 * **A separate field from {@link mapImages}, and a much cheaper answer.** That one weighs
-	 * every file under `images/` — thousands of tiles — because the hub's question is "why is my
-	 * Workspace two gigabytes?". This one reads each `project.json` and no pyramid at all. See
-	 * {@link refreshMapUsage} for what the two do share, which is one `list` of the Workspace.
-	 *
-	 * ⚠ **A map keyed by image id, and not one record carrying an id beside it.** The align route can
-	 * change which Map Image it is on without unmounting, and the walk behind this is
-	 * asynchronous — so between choosing a map and its answer arriving there is a window in which the
-	 * *previous* map's Projects are the only answer in hand. Naming them against the map now on screen
-	 * is a claim about who loses work if this Alignment is refined, made about the wrong Alignment.
-	 *
-	 * That was first written as one record with an `imageId` field and a `=== imageId` comparison at
-	 * the reader. It was correct and it could not be defended: the two differ only during that window,
-	 * so deleting the comparison left every test green, and catching it needs a test that wins a race.
-	 * A lookup by id has no such window to get wrong — the id is the key rather than something a
-	 * caller is trusted to check — which is the same move {@link AlignmentWorkspace}'s `livePane`
-	 * makes for the same kind of hazard.
-	 *
-	 * Bounded by the number of Map Images opened in one session, which is a handful of names and
-	 * Project names each.
-	 */
-	readonly #mapUsage = new SvelteMap<string, AlignmentUsers>();
-
-	/**
-	 * Which Projects draw one Map Image, or `null` while nothing has been walked for it yet.
-	 *
-	 * `null` is "no answer yet" and renders as nothing at all — see `describeAlignmentUsers`, which
-	 * gives the same answer for an empty list, so a screen never shows a half-answer.
-	 */
-	mapUsageFor(imageId: string): AlignmentUsers | null {
-		return this.#mapUsage.get(imageId) ?? null;
-	}
 	/** Whether {@link mapImages} is still being walked, so the hub can say so rather than "none". */
 	mapImagesLoading = $state(false);
 	/**
@@ -1971,42 +1923,6 @@ export class EditorSession {
 	 * it: it weighs every file under `images/`, so it is a walk tied to a change in what it reports and
 	 * never to a keystroke or a re-render.
 	 */
-	/**
-	 * Work out which Projects draw one Map Image, for {@link mapUsage} (SPEC story 56).
-	 *
-	 * **A failure is silence rather than a sentence.** Every other reader of this walk is a screen
-	 * *about* the Workspace; this one is a scholar aligning a map, and "the Projects that use this map
-	 * could not be listed" is a message they can do nothing with, on a screen whose actual work is
-	 * unaffected. `null` renders as nothing at all, which is the same thing the answer "still walking"
-	 * renders as.
-	 *
-	 * Not routed through the unreachable verdict either, for the reason {@link refreshMapImages}
-	 * spells out about `refreshAddableMapImages`: a transient failure reading the Workspace must
-	 * not take a scholar's alignment off the screen.
-	 *
-	 * **`mapImageUsage` and not `listWorkspaceMapImages`**, which is what the hub calls. Both
-	 * begin with one `list` of the Workspace — every path in it, tile files included, which is not free
-	 * and is why this is called once per Map Image opened rather than per render — but the hub's
-	 * then `size`s every one of those files to answer "why is my Workspace two gigabytes?". This reads
-	 * only each `project.json` and no pyramid at all. A screen a scholar opens to place Control Points
-	 * must not pay for a size walk it does not show.
-	 */
-	async refreshMapUsage(imageId: string): Promise<void> {
-		try {
-			const usage = await mapImageUsage(this.#store);
-			// Filed under the id it was asked about. A walk that resolves after the user has moved on
-			// therefore answers a question nobody is asking any more, rather than answering the wrong one.
-			this.#mapUsage.set(imageId, {
-				usedBy: usage.byMap.get(imageId) ?? [],
-				mightBeUsedBy: usage.fromANewerVersion
-			});
-		} catch {
-			// Left with no entry rather than an empty one: "not walked" and "walked, nobody draws it" are
-			// different, and only the second is something to say out loud.
-			this.#mapUsage.delete(imageId);
-		}
-	}
-
 	async refreshMapImages(): Promise<void> {
 		this.mapImagesLoading = true;
 		try {

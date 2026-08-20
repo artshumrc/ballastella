@@ -61,6 +61,7 @@
 	import type { WarpedRender } from '@ballastella/core/render';
 	import { BaseMapSwitcher, LeaderLine, type Box } from '@ballastella/ui';
 	import Check from '@lucide/svelte/icons/check';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 
@@ -74,7 +75,6 @@
 	import DistortionControls from './DistortionControls.svelte';
 	import { mapImageSourceOf } from './map-source.svelte.js';
 	import TransformationPicker from './TransformationPicker.svelte';
-	import { describeAlignmentUsers } from './used-by.js';
 
 	let {
 		session,
@@ -122,45 +122,6 @@
 	const mapSource = $derived(held.current);
 
 	const paneSource = $derived(imagePaneSourceFor(mapSource));
-
-	/**
-	 * Which Projects draw the Map Image being aligned (SPEC story 56).
-	 *
-	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-	 * │ THE SENTENCE BELONGS ON THIS SCREEN, NOT ONLY ON THE HUB.                                  │
-	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
-	 *
-	 * ADR-0023 shares one Alignment between every Project that draws the map, so a Control Point
-	 * placed here moves all of them — published ones included. The hub says who they are, two
-	 * navigations away from the gesture. The only thing this screen said was inside the
-	 * concurrent-edit alert, which names no Project and appears only when somebody else happened to
-	 * be editing at the same moment: an account of what has already happened rather than a statement
-	 * of what a refinement is about to do.
-	 *
-	 * Where it is rendered — below the panes rather than above them — is a measurement, and the
-	 * markup says which.
-	 *
-	 * Asked for on the image rather than once for the route, because `imageId` is a prop and the route
-	 * can change it without unmounting. Compared against `mapUsage.imageId` at the read, so a walk that
-	 * resolves after the user has moved on names nothing rather than the previous map's Projects.
-	 */
-
-	$effect(() => {
-		void session.refreshMapUsage(imageId);
-	});
-
-	// A lookup by id rather than a record with the id beside it — see `EditorSession.#mapUsage` for
-	// why a comparison here was a guard nothing could fail.
-	const usedBy = $derived(session.mapUsageFor(imageId));
-
-	/**
-	 * Who this Alignment is shared with, in words, or `''` while the walk has not answered.
-	 *
-	 * The sentence itself is `used-by.ts`, a pure function with a test naming every branch — written
-	 * here, only the one-Project case was ever exercised and the whole caveat expression could be
-	 * deleted with the suite green.
-	 */
-	const usedByMessage = $derived(describeAlignmentUsers(usedBy));
 
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
@@ -1194,41 +1155,6 @@
 			data-testid="alignment-sidebar"
 		>
 			<!--
-				What this screen is, in words, behind a disclosure (SPEC story 112).
-
-				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
-				*for*, and "Map Image" beside "Base Map" does not tell a screen-reader user that clicking
-				one and then the other is the gesture. Visible text and not a tooltip (ADR-0016).
-
-				Closed by default, because a scholar who has placed a Control Point before does not need to be
-				told again — and standing prose is the one thing this screen had too much of.
-			-->
-			<div>
-				<button
-					type="button"
-					class="btn btn-ghost btn-sm"
-					aria-expanded={explaining}
-					aria-controls={explaining ? 'align-explainer' : undefined}
-					data-testid="align-explainer-toggle"
-					onclick={() => (explaining = !explaining)}
-				>
-					How this works
-				</button>
-
-				{#if explaining}
-					<p
-						id="align-explainer"
-						class="mt-2 max-w-prose text-sm opacity-70"
-						data-testid="align-explainer"
-					>
-						{mapName} beside the Base Map. Click a feature on the Map Image and then the same place on
-						the earth to make a Control Point pair; with enough pairs the Map Image is drawn over the
-						Base Map. Your work saves as you go.
-					</p>
-				{/if}
-			</div>
-
-			<!--
 				The pending prompt. `role="status"` is already taken by the save indicator on this page, so
 				this is an `aria-live` region — which is also why the ingest progress region is one. `atomic`,
 				so it is read as a whole sentence rather than as the words that changed.
@@ -1262,6 +1188,71 @@
 					<button class="btn btn-sm btn-warning" onclick={() => pairing?.cancelPending()}>
 						Cancel this Control Point
 					</button>
+				{/if}
+			</div>
+
+			<!--
+				What this screen is, in words, behind a disclosure (SPEC story 112).
+
+				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
+				*for*, and "Map Image" beside "Base Map" does not tell a screen-reader user that clicking
+				one and then the other is the gesture. Visible text and not a tooltip (ADR-0016).
+
+				Closed by default and under the prompt rather than above it: the prompt is the sentence that
+				says what to click next, and a scholar who has placed a Control Point before does not need
+				to be told what the two panes are again.
+
+				**Everything this screen explains without being asked is in here** (SPEC stories 62, 67):
+				one sentence about the gesture, the limit of Simple, and what the advanced transformations
+				cost. Text, never a tooltip and never CSS-generated content (ADR-0016) — the align spec
+				asserts the absence of both.
+			-->
+			<div>
+				<button
+					type="button"
+					class="btn btn-ghost btn-sm"
+					aria-expanded={explaining}
+					aria-controls={explaining ? 'align-explainer' : undefined}
+					data-testid="align-explainer-toggle"
+					onclick={() => (explaining = !explaining)}
+				>
+					How this works
+				</button>
+
+				{#if explaining}
+					<div
+						id="align-explainer"
+						class="mt-2 flex max-w-prose flex-col gap-2 text-sm opacity-70"
+						data-testid="align-explainer"
+					>
+						<p>
+							Click a feature on the Map Image and then the same place on the earth to make a
+							Control Point pair; with enough pairs the Map Image is drawn over the Base Map.
+						</p>
+
+						<!--
+							**The one place the fold warning cannot help.** A similarity has no reflection to fit,
+							so a least-squares solve over two swapped Control Points comes back unmirrored rather
+							than folded and `detectFold` correctly reports nothing. That is right mathematics and
+							not a defect — but it is a *silence*, and a student who has learnt to trust "this
+							Alignment is mirrored" under Standard will read the same silence here as "no mistake".
+
+							Not folded into Simple's own guidance text, because that string is ADR-0013's table and
+							is asserted verbatim; this is a note about the consequence of the choice, like the one
+							below it.
+						-->
+						<p data-testid="transformation-simple-note">
+							Simple cannot turn the Map Image over, so it is the one choice where the "this
+							Alignment is mirrored" warning cannot appear. Under Simple, two swapped Control Points
+							show up as a badly placed Map Image rather than as a warning.
+						</p>
+
+						<p data-testid="transformation-advanced-note">
+							Higher-order transformations bend the map more freely, and need many well-spread
+							Control Points. With few or clustered points they produce spectacular distortion at
+							the edges.
+						</p>
+					</div>
 				{/if}
 			</div>
 
@@ -1410,6 +1401,102 @@
 				</div>
 			{/if}
 
+			<!--
+		The Control Points as a list. Not decoration: it is the keyboard and screen-reader path to
+		every pairing action ADR-0022 asks for, and it is where the ordinals are unambiguously
+		readable — the numbers drawn on the map are small, and on a dense Alignment they overlap.
+
+		**The one thing in this column that is allowed to be long**, which is why the column scrolls and
+		the panes do not: a fifty-point Alignment used to add fifty rows to the height of the page, and
+		the page was the same scrolling stack the maps were in.
+	-->
+			<section aria-labelledby="control-points-heading">
+				<h4 id="control-points-heading" class="text-sm font-semibold">
+					Control Points ({controlPoints.length})
+				</h4>
+
+				{#if controlPoints.length === 0}
+					<p class="mt-1 text-sm opacity-70">None yet.</p>
+				{:else}
+					<ul class="mt-2 flex flex-col gap-1" data-testid="control-point-list">
+						{#each controlPoints as point (point.id)}
+							<li class="flex flex-wrap items-center gap-2 text-sm" data-testid="control-point-row">
+								<!--
+							Selecting from here highlights *both* halves, which is the same state the map
+							points read — so the cross-pane highlight has a keyboard route as well as a
+							pointer one. `aria-pressed` because it is a toggle, not a navigation.
+						-->
+								<button
+									class="btn btn-xs"
+									class:btn-secondary={point.id === selectedId}
+									aria-pressed={point.id === selectedId}
+									data-testid="control-point-select"
+									data-ordinal={point.ordinal}
+									onclick={() => pairing?.toggleSelected(point.id)}
+								>
+									<!--
+										**The number the marker already wears, on the row** (SPEC story 44). Both halves
+										of this pair draw `point.ordinal` inside themselves as text — see
+										`.pane-overlay-point-control-point` — and this is that number's third
+										appearance, so that "point 7" identifies one pair across a desk whether the
+										listener is looking at a canvas or at the list.
+
+										**A `<span>` of its own inside the button, at `tabular-nums`**, which is the
+										marker's own `font-variant-numeric` and `AnnotationRow`'s treatment of the same
+										idea on the Project screen: a column of ordinals that do not shift as they gain
+										a digit is what makes the list scannable. Inside the button rather than beside
+										it, so a screen reader hears "Point 7" as one name and nothing about which pair
+										is which depends on seeing the canvas.
+
+										⚠ **Nothing writes it.** `ControlPoint.ordinal` is the pair's position in the
+										Alignment's list, derived on read and on collect and stored nowhere — a
+										Georeference Annotation has no place to put an index, and inventing one would be
+										the proprietary field ADR-0002 and SPEC story 94 both rule out. Deleting point 3
+										of 5 renumbers the two after it because this list renders again.
+									-->
+									Point
+									<span
+										class="tabular-nums"
+										data-testid="control-point-row-ordinal"
+										data-ordinal={point.ordinal}>{point.ordinal}</span
+									>
+								</button>
+								<code class="opacity-70">
+									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
+									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
+								</code>
+								<!--
+								**A glyph that looks like a button and looks destructive** (SPEC story 65,
+								ADR-0016's icon amendment). This is the one place on this screen where a mis-click
+								destroys work. `btn-outline btn-error` draws the glyph and a border in `error`
+								without a fill, which is what this repository gives an in-row destructive action;
+								the solid `btn-error` is reserved for the confirm button inside a destructive
+								dialog. `btn-sm` rather than `btn-xs`, because `btn-xs` is a 24×24 target sitting
+								exactly on WCAG 2.2 AA 2.5.8's floor for the only unconfirmed destructive control
+								here.
+
+								**The name is text and it names which point.** `sr-only` beside an
+								`aria-hidden` glyph, never a `title`: a `title` is not announced reliably and
+								cannot be dismissed, and specs reach this control by accessible name.
+
+								No confirmation. Undo is the safety net ADR-0022's flow assumes, and it names
+								what it will put back.
+								-->
+								<button
+									type="button"
+									class="btn btn-square btn-outline btn-error btn-sm"
+									data-testid="control-point-delete"
+									onclick={() => removePair(point.id)}
+								>
+									<Trash2 size={13} aria-hidden="true" />
+									<span class="sr-only">Delete Control Point {point.ordinal}</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
+
 			{#if pairing}
 				<!--
 			How the map is stretched, and how that is drawn. Two groups rather than one: the
@@ -1495,117 +1582,6 @@
 						? 'Point'
 						: 'Points'} and the Map Image will be drawn over the Base Map.
 				{/if}
-			</p>
-
-			<!--
-		The Control Points as a list. Not decoration: it is the keyboard and screen-reader path to
-		every pairing action ADR-0022 asks for, and it is where the ordinals are unambiguously
-		readable — the numbers drawn on the map are small, and on a dense Alignment they overlap.
-
-		**The one thing in this column that is allowed to be long**, which is why the column scrolls and
-		the panes do not: a fifty-point Alignment used to add fifty rows to the height of the page, and
-		the page was the same scrolling stack the maps were in.
-	-->
-			<section aria-labelledby="control-points-heading">
-				<h4 id="control-points-heading" class="text-sm font-semibold">
-					Control Points ({controlPoints.length})
-				</h4>
-
-				{#if controlPoints.length === 0}
-					<p class="mt-1 text-sm opacity-70">None yet.</p>
-				{:else}
-					<ul class="mt-2 flex flex-col gap-1" data-testid="control-point-list">
-						{#each controlPoints as point (point.id)}
-							<li class="flex flex-wrap items-center gap-2 text-sm" data-testid="control-point-row">
-								<!--
-							Selecting from here highlights *both* halves, which is the same state the map
-							points read — so the cross-pane highlight has a keyboard route as well as a
-							pointer one. `aria-pressed` because it is a toggle, not a navigation.
-						-->
-								<button
-									class="btn btn-xs"
-									class:btn-secondary={point.id === selectedId}
-									aria-pressed={point.id === selectedId}
-									data-testid="control-point-select"
-									data-ordinal={point.ordinal}
-									onclick={() => pairing?.toggleSelected(point.id)}
-								>
-									<!--
-										**The number the marker already wears, on the row** (SPEC story 44). Both halves
-										of this pair draw `point.ordinal` inside themselves as text — see
-										`.pane-overlay-point-control-point` — and this is that number's third
-										appearance, so that "point 7" identifies one pair across a desk whether the
-										listener is looking at a canvas or at the list.
-
-										**A `<span>` of its own inside the button, at `tabular-nums`**, which is the
-										marker's own `font-variant-numeric` and `AnnotationRow`'s treatment of the same
-										idea on the Project screen: a column of ordinals that do not shift as they gain
-										a digit is what makes the list scannable. Inside the button rather than beside
-										it, so a screen reader hears "Point 7" as one name and nothing about which pair
-										is which depends on seeing the canvas.
-
-										⚠ **Nothing writes it.** `ControlPoint.ordinal` is the pair's position in the
-										Alignment's list, derived on read and on collect and stored nowhere — a
-										Georeference Annotation has no place to put an index, and inventing one would be
-										the proprietary field ADR-0002 and SPEC story 94 both rule out. Deleting point 3
-										of 5 renumbers the two after it because this list renders again.
-									-->
-									Point
-									<span
-										class="tabular-nums"
-										data-testid="control-point-row-ordinal"
-										data-ordinal={point.ordinal}>{point.ordinal}</span
-									>
-								</button>
-								<code class="opacity-70">
-									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
-									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
-								</code>
-								<button
-									class="btn btn-ghost btn-xs"
-									data-testid="control-point-delete"
-									onclick={() => removePair(point.id)}
-								>
-									Delete point {point.ordinal}
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</section>
-
-			<!--
-			Which Projects this Alignment belongs to (SPEC story 56, ADR-0023).
-
-			One Alignment per Map Image, shared by every Project that draws the map — so this is the
-			scope of every gesture on this screen, and a scholar refining a placement here is moving every
-			Project named in it, published ones included. Visible text and not a tooltip (ADR-0016), and
-			`aria-live="polite"` because it arrives after the screen does: the Workspace's `project.json`
-			files are read to answer it, and the panes are up first.
-
-			⚠ **Last in this column, and never above the panes — that is a measurement rather than a
-			preference.** It reads as the scope of what is about to happen, so it was written above the
-			pairing prompt first, and prose above the panes pushed the panes down: at the browser suite's
-			window size that put the Map Image's Control Point handles below the fold, and
-			`editor-alignment.e2e.ts`'s drag test went red with zero writes — the pointer was moved to
-			coordinates outside the viewport, so the gesture never started. A scholar on a laptop felt the
-			same thing as scrolling to reach the sheet.
-
-			The sidebar is what makes that class of defect unreachable rather than merely avoided: nothing
-			in this column can take height from the panes at `lg`, because the column has its own scroll.
-			The ordering rule stays anyway — below `lg` this *is* a stack under the maps, which is the
-			arrangement the measurement was taken in.
-
-			Rendered even while the answer is `''`, which is this app's rule for every live region: one
-			inserted at the same moment as its first text is not reliably announced.
-		-->
-			<p
-				class="max-w-prose text-sm opacity-70"
-				aria-live="polite"
-				data-testid="alignment-used-by"
-				data-used-by-count={usedBy ? usedBy.usedBy.length : ''}
-			>
-				{usedByMessage}
 			</p>
 
 			<!--

@@ -812,6 +812,65 @@ test.describe('the route from the keyboard', () => {
 	});
 
 	/**
+	 * SPEC stories 62, 63 and 69: the column is ordered by what a scholar is doing.
+	 *
+	 * The prompt answers "what do I click next" and is read after every half-pair, so it is first. The
+	 * Control Points are what the screen is *for*, so they come before how the map is stretched and
+	 * before the disclosure that checks it. *Done* is pinned last and stays one large link.
+	 *
+	 * **Asserted as document order rather than as pixel positions**, because below `lg` this column is
+	 * a footer under the panes and above it a rail beside them, and the reading order is the claim in
+	 * both. The three-width geometry assertions above measure the boxes; this measures the sequence.
+	 *
+	 * **The alerts sit above the Control Points**, which is why this drives the column into a state
+	 * that raises the fold warning and asserts its place in the sequence: below `lg` the column is a
+	 * footer, so a fifty-point Alignment between the maps and a warning would put the warning off the
+	 * bottom of a phone. Story 63 asks for the points before the stretch controls, not before the
+	 * warnings.
+	 */
+	test('puts the prompt first, then the Control Points, then the stretch, then Done', async ({
+		page
+	}) => {
+		test.setTimeout(120_000);
+		await start(page);
+		// Two swapped pairs and a third: the "I mixed up two Control Points" mistake, which under the
+		// default affine transformation reads as a mirrored Alignment and raises the fold warning.
+		await makePair(page, [0.25, 0.3], [0.75, 0.3]);
+		await makePair(page, [0.75, 0.3], [0.25, 0.3]);
+		await makePair(page, [0.5, 0.75], [0.5, 0.75]);
+		await expect(rows(page)).toHaveCount(3);
+		await expect(foldWarning(page)).toBeVisible();
+
+		const wanted = [
+			'pairing-status',
+			'align-explainer-toggle',
+			'fold-warning',
+			'control-point-list',
+			'transformation-picker',
+			'check-alignment-toggle',
+			'alignment-done'
+		];
+		const order = await page
+			.getByTestId('alignment-sidebar')
+			.evaluate(
+				(column, ids) =>
+					[...column.querySelectorAll('[data-testid]')]
+						.map((element) => element.getAttribute('data-testid') ?? '')
+						.filter((id) => ids.includes(id)),
+				wanted
+			);
+		expect(order).toEqual(wanted);
+
+		// Last in the column and nothing after it, which is the half "pinned to the bottom" that a
+		// class name cannot promise.
+		expect(
+			await page
+				.getByTestId('alignment-sidebar')
+				.evaluate((column) => column.lastElementChild?.getAttribute('data-testid'))
+		).toBe('alignment-done');
+	});
+
+	/**
 	 * SPEC story 112: what this screen does, in text.
 	 *
 	 * **Behind "How this works" in the sidebar now.** It was standing prose above the panes, which is
@@ -831,6 +890,24 @@ test.describe('the route from the keyboard', () => {
 		await expect(explainer).toContainText('Click a feature on the Map Image');
 		await expect(explainer).not.toHaveAttribute('title', /.+/);
 
+		// **The two notes about consequences are in here with it** (SPEC stories 62, 67). Both are
+		// prose about what a choice costs rather than help for making it, so they sit behind the same
+		// disclosure as the rest of the explanation instead of standing in the transformation group.
+		// `transformation-picker.dom.test.ts` asserts the other half: that neither renders in that
+		// group.
+		await expect(explainer.getByTestId('transformation-simple-note')).toContainText(
+			'Simple cannot turn the Map Image over'
+		);
+		await expect(explainer.getByTestId('transformation-advanced-note')).toContainText(
+			'spectacular distortion at the edges'
+		);
+
+		// The whole disclosure is a tooltip-free channel, notes included: no `title` anywhere in the
+		// subtree and no daisyUI `tooltip` class, which renders through CSS and is not announced
+		// (ADR-0016).
+		await expect(explainer.locator('[title]')).toHaveCount(0);
+		await expect(explainer.locator('[class*="tooltip"]')).toHaveCount(0);
+
 		// The transformation guidance is text in the accessibility tree, bound to the control by
 		// `aria-describedby` — never a `title` and never CSS-generated (ADR-0016).
 		const guidance = page.getByTestId('transformation-guidance');
@@ -839,14 +916,21 @@ test.describe('the route from the keyboard', () => {
 		const picker = page.getByTestId('transformation-select');
 		expect(await picker.getAttribute('aria-describedby')).toBe('transformation-guidance');
 		expect(await picker.getAttribute('title')).toBeNull();
-		expect(
-			await guidance.evaluate((element) => {
-				const read = (pseudo: string) =>
-					globalThis.getComputedStyle(element, pseudo).getPropertyValue('content');
-				return { before: read('::before'), after: read('::after') };
-			}),
-			'the guidance must not be CSS-generated content'
-		).toEqual({ before: 'none', after: 'none' });
+		// The guidance and both demoted notes are real text nodes, not `::before` content.
+		for (const id of [
+			'transformation-guidance',
+			'transformation-simple-note',
+			'transformation-advanced-note'
+		]) {
+			expect(
+				await page.getByTestId(id).evaluate((element) => {
+					const read = (pseudo: string) =>
+						globalThis.getComputedStyle(element, pseudo).getPropertyValue('content');
+					return { before: read('::before'), after: read('::after') };
+				}),
+				`${id} must not be CSS-generated content`
+			).toEqual({ before: 'none', after: 'none' });
+		}
 		// And it is the guidance for the type that is actually selected.
 		await expect(guidance).toHaveText('Most printed and scanned maps');
 	});

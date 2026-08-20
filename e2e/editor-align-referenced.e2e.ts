@@ -76,9 +76,9 @@ async function createAndOpenProject(page: Page, name: string): Promise<void> {
  * How many of the Workspace's Projects have a Layer drawing `imageId`, read off disk.
  *
  * **The precondition for anything asserting the used-by sentence**, and it is a real race rather
- * than a tidy-up: `refreshMapUsage` reads every `project.json` once per Map Image opened, so a
- * Layer still inside ADR-0017 rule 2's debounce is a Project the walk does not see — and because the
- * walk does not run again, the sentence stays wrong for the whole visit. Waiting for the bytes is
+ * than a tidy-up: the Workspace Home's walk reads every `project.json` once per visit, so a Layer
+ * still inside ADR-0017 rule 2's debounce is a Project the walk does not see — and the walk does not
+ * run again on its own, so the sentence stays wrong for the whole visit. Waiting for the bytes is
  * waiting for the thing the screen is about to read.
  */
 const projectsDrawing = (page: Page, imageId: string): Promise<number> =>
@@ -697,43 +697,77 @@ test('warns only on the Map Image the warning is about', async ({ page }) => {
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // WHO ELSE THIS ALIGNMENT BELONGS TO, AND WHAT THE SCREEN SAYS OUT LOUD
 
-test('names the Projects that draw this Map Image while it is being aligned', async ({ page }) => {
+/**
+ * The used-by sentence on one Map Image's row on the Workspace Home.
+ *
+ * Addressed by the image id rather than by the map's name: the row prints the folder its tiles are
+ * kept in, which is the id, and a referenced map's label belongs to the Library.
+ */
+const usedByFor = (page: Page, imageId: string) =>
+	page.getByTestId('map-image').filter({ hasText: imageId }).getByTestId('used-by');
+
+/**
+ * SPEC story 68: this is a fact about a Map Image, so it is told on the Map Image's own row.
+ *
+ * ADR-0023 shares one Alignment between every Project that draws the map, so refining a placement
+ * moves all of them — published ones included. That is something to know *before* opening the align
+ * screen rather than prose beside the controls while a scholar is clicking, so the sentence belongs
+ * to the Workspace Home's Map Image row and the align sidebar carries no copy of it (ticket 07).
+ *
+ * **Both halves are asserted here.** Asserting only the row leaves nothing pinning the sidebar's
+ * silence, and a fact explained in words nowhere else could stop being told at all with the suite
+ * green.
+ */
+test('says who draws this Map Image on its own row, and no longer in the align sidebar', async ({
+	page
+}) => {
 	test.slow();
 	await installIiifHosts(page);
 	await openNewProject(page);
-	await addReferenced(page, 'images.test');
+	const imageId = await addReferenced(page, 'images.test');
 	await alignFromLayer(page);
 	await waitForPane(page);
 
-	// SPEC story 56. ADR-0023 shares one Alignment between every Project that draws the map, so this
-	// is the scope of every gesture on this screen — and it belongs here rather than only on the hub,
-	// which is two navigations from the drag that moves all of them.
-	const usedBy = page.getByTestId('alignment-used-by');
+	// Gone from the column, render site and all — not merely reworded.
+	await expect(page.getByTestId('alignment-used-by')).toHaveCount(0);
+
+	// **Waited for on disk**, because the walk that answers this reads every `project.json`. See
+	// {@link projectsDrawing}.
+	await expect.poll(() => projectsDrawing(page, imageId), { timeout: 30_000 }).toBe(1);
+	await page.goto('/');
+
+	const usedBy = usedByFor(page, imageId);
 	await expect(usedBy).toBeVisible({ timeout: 30_000 });
 	await expect(usedBy).toHaveAttribute('data-used-by-count', '1');
 	// Read as text rather than off the attribute: the attribute is for tests and the sentence is for
 	// the user, and a version that kept the count and dropped the words would pass an attribute check.
 	await expect(usedBy).toContainText(PROJECT_NAME);
 	await expect(usedBy).toContainText('shared by every Project that draws this Map Image');
+
+	// **And no live region on the row, deliberately.** The sentence arrives with the row from the one
+	// `refreshMapImages` walk that fills the rest of it, so there is no later moment for a region to
+	// announce — which is the opposite of the align sidebar's case, where the panes were up first.
+	await expect(usedBy).not.toHaveAttribute('aria-live', /.+/);
 });
 
 /**
- * Two Map Images with **different** answers, so the sentence has to be about the one on screen.
+ * Two Map Images with **different** answers, so the sentence has to be about the row it is on.
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
- * │ THE ID SCOPING WAS A COMMENT IN TWO PLACES AND AN ASSERTION IN NONE.                       │
+ * │ ONE WALK ANSWERS FOR EVERY MAP, AND THE ANSWERS MUST NOT BE EACH OTHER'S.                  │
  * └───────────────────────────────────────────────────────────────────────────────────────────┘
  *
- * `mapUsage` carries the image id it was asked about and the screen compares it before showing
- * anything, both so that one map's Projects are never named against another's. With one map in one
- * Project, every version of that code says the same thing — including a version that keeps no id at
- * all. So the second map is drawn by a *second* Project, and then the two sentences differ: one
- * Project against two, singular against the plural that warns the edit moves all of them.
+ * `refreshMapImages` reads the Workspace's Projects once and fills a `usedBy` on every Map Image
+ * record from that one pass. With one map in one Project every version of that code says the same
+ * thing, including a version that credits the wrong map. So the second map is drawn by a *second*
+ * Project, and then the two sentences differ: one Project against two, singular against the plural
+ * that warns the edit moves all of them.
  *
- * This is also the only place the ≥2 branch is exercised on a real screen. `used-by.test.ts` pins
- * every branch of the string; what this adds is that the string is built from the right map's answer.
+ * This is also the only place the ≥2 branch is exercised against a real disk. `used-by.test.ts` pins
+ * every branch of the string and `project-hub.dom.test.ts` pins the row that renders it; what this
+ * adds is that the string is built from the right map's answer.
  */
-test('names a different set of Projects for a different map on the same screen', async ({
+test('names a different set of Projects for each Map Image on the Workspace Home', async ({
 	page
 }) => {
 	test.slow();
@@ -752,31 +786,25 @@ test('names a different set of Projects for a different map on the same screen',
 	await addReferenced(page, 'images.test', 'georgia');
 
 	await page.goto('/');
-	// **Waited for on disk**, because that is what the align screen reads. See {@link projectsDrawing}.
+	// **Waited for on disk**, because that is what the walk behind these rows reads. See
+	// {@link projectsDrawing}.
 	await expect.poll(() => projectsDrawing(page, georgia), { timeout: 30_000 }).toBe(2);
 	await expect.poll(() => projectsDrawing(page, florida), { timeout: 30_000 }).toBe(1);
+	// Reloaded after the wait, so the rows on screen are drawn from a walk that ran after the second
+	// Project's Layer reached disk rather than from the one that raced it.
+	await page.reload();
 
-	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(page.getByTestId('project-screen')).toBeVisible();
+	const one = usedByFor(page, florida);
+	await expect(one).toHaveAttribute('data-used-by-count', '1', { timeout: 30_000 });
+	await expect(one).toContainText(PROJECT_NAME);
+	await expect(one).not.toContainText('A Second Reading');
 
-	const usedBy = page.getByTestId('alignment-used-by');
-
-	await alignFromLayer(page, layerFor(page, florida));
-	await waitForPane(page);
-	await expect(usedBy).toHaveAttribute('data-used-by-count', '1', { timeout: 30_000 });
-	await expect(usedBy).toContainText(PROJECT_NAME);
-	await expect(usedBy).not.toContainText('A Second Reading');
-
-	await page.getByTestId('back-to-project').click();
-	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-	await alignFromLayer(page, layerFor(page, georgia));
-	await waitForPane(page);
-
-	// The other map, the other answer — and the sentence that says what refining it here costs.
-	await expect(usedBy).toHaveAttribute('data-used-by-count', '2', { timeout: 30_000 });
-	await expect(usedBy).toContainText(PROJECT_NAME);
-	await expect(usedBy).toContainText('A Second Reading');
-	await expect(usedBy).toContainText('Refining it moves all of them');
+	// The other map, the other answer — and the sentence that says what refining it costs.
+	const both = usedByFor(page, georgia);
+	await expect(both).toHaveAttribute('data-used-by-count', '2', { timeout: 30_000 });
+	await expect(both).toContainText(PROJECT_NAME);
+	await expect(both).toContainText('A Second Reading');
+	await expect(both).toContainText('Refining it moves all of them');
 });
 
 test('says what this screen is doing, in regions a screen reader is told about', async ({
@@ -784,7 +812,7 @@ test('says what this screen is doing, in regions a screen reader is told about',
 }) => {
 	await installIiifHosts(page);
 	await openNewProject(page);
-	await addReferenced(page, 'images.test');
+	const imageId = await addReferenced(page, 'images.test');
 	await alignFromLayer(page);
 	await waitForPane(page);
 
@@ -795,11 +823,12 @@ test('says what this screen is doing, in regions a screen reader is told about',
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('aria-live', 'polite');
 	await expect(page.getByTestId('warped-status')).toHaveAttribute('aria-live', 'polite');
 	await expect(page.getByTestId('alignment-opening-view')).toHaveAttribute('aria-live', 'polite');
-	await expect(page.getByTestId('alignment-used-by')).toHaveAttribute('aria-live', 'polite');
 	await expect(page.getByTestId('changed-elsewhere-outcome')).toHaveAttribute(
 		'aria-live',
 		'polite'
 	);
+
+	await expect(page.getByTestId('alignment-used-by')).toHaveCount(0);
 
 	// ⚠ **The offline region exists before there is anything offline about it**, and that is the
 	// point. A live region inserted at the same moment as its first text is not reliably announced —
@@ -810,6 +839,25 @@ test('says what this screen is doing, in regions a screen reader is told about',
 	await expect(region).toHaveAttribute('aria-live', 'polite');
 	await expect(region).toBeEmpty();
 	await expect(page.getByTestId('map-image-offline')).toHaveCount(0);
+
+	// ⚠ **Four regions above, and the fifth one the Contract names is on another screen.** The
+	// used-by sentence lives on the Map Image's row on the Workspace Home (ticket 07), so the
+	// roll-call follows it there rather than counting one region fewer — which is how the fact would
+	// vanish with the suite green.
+	//
+	// **It carries no region there, and that is the arrangement rather than an omission**: the
+	// sentence arrives with the row from the one `refreshMapImages` walk that fills the rest of it, so
+	// there is no later moment for a region to announce — and a region inserted together with its
+	// first text is not reliably announced anyway, which is the rule the paragraph above rests on.
+	// What this screen announces about a Map Image is the one `map-image-status` region above the list.
+	//
+	// **Waited for on disk before the visit**, because the walk behind the row reads every
+	// `project.json`. See {@link projectsDrawing}.
+	await expect.poll(() => projectsDrawing(page, imageId), { timeout: 30_000 }).toBe(1);
+	await page.goto('/');
+	const onTheRow = usedByFor(page, imageId);
+	await expect(onTheRow).toBeVisible({ timeout: 30_000 });
+	await expect(onTheRow).not.toHaveAttribute('aria-live', /.+/);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════

@@ -385,6 +385,17 @@ test.describe('Control Point pairing', () => {
 			await rowOrdinals.first().evaluate((element) => getComputedStyle(element).fontVariantNumeric)
 		).toContain('tabular-nums');
 
+		// ─── And the control that destroys one names which one, to a screen reader (SPEC story 65) ──
+		//
+		// The row's ordinal is drawn text and the delete control is a glyph, so the *only* thing that
+		// says which pair this button destroys is its accessible name — reached here as a role and a
+		// name rather than as a `data-testid`, which is what makes this an assertion about the
+		// accessibility tree. Never a `title`: ADR-0016's icon amendment, because a `title` is not
+		// reliably announced and cannot be dismissed.
+		const destroyPointTwo = page.getByRole('button', { name: 'Delete Control Point 2' });
+		await expect(destroyPointTwo).toHaveCount(1);
+		await expect(destroyPointTwo).not.toHaveAttribute('title', /.+/);
+
 		// Deleting the first pair renumbers the rest on every surface at once, because the ordinal is
 		// the pair's position and nothing on disk holds it (ADR-0002).
 		await page.getByTestId('control-point-delete').first().click();
