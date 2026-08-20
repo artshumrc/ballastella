@@ -629,274 +629,391 @@
 	</div>
 {/if}
 
-<ModalDialog bind:open title="Publish this Workspace">
-	{#if failure}
-		<div role="alert" class="alert flex-col items-start alert-error">
-			<p>{failure}</p>
-		</div>
-	{/if}
+<!--
+	The repository, the credential and what is left of this hour's request budget, on one line that
+	does not wrap (story 49) — the strip the button beneath it acts on, under a hairline of its own.
 
-	<section
-		class="mt-4 rounded-box border border-base-300 p-4"
-		data-testid="publish-project-selection"
-	>
-		<h3 class="font-semibold">Projects on the front page</h3>
-		<p id="publish-project-description" class="mt-1 text-sm">
-			Choose which Projects Readers see first. All Projects stay published.
-		</p>
-		<ul class="mt-3 flex flex-col gap-3">
-			{#each session.projects as project (project.directory)}
-				<li>
-					<label class="flex items-center justify-between gap-3 text-sm">
-						<span class="font-medium">{project.name}</span>
-						<span class="flex items-center gap-2">
-							<span>Front page</span>
-							<input
-								type="checkbox"
-								class="toggle toggle-sm"
-								data-testid="on-front-page-{project.directory}"
-								checked={project.onFrontPage}
-								onchange={(event) =>
-									void session.setProjectOnFrontPage(
-										project.directory,
-										(event.currentTarget as HTMLInputElement).checked
-									)}
-								disabled={project.problem !== null}
-								aria-label="On the front page — {project.name}"
-								aria-describedby="publish-project-description"
-							/>
-						</span>
-					</label>
-				</li>
-			{/each}
-		</ul>
-	</section>
-
-	{#if plan === null}
-		<p>Working out what publishing would add…</p>
-	{:else}
-		<div class="mt-2" data-testid="publish-breakdown">
-			<p class="text-lg font-semibold">
-				Published site: <strong class="text-2xl"
-					>{describeBytes(publishedBreakdown.totalBytes)}</strong
+	Rendered by the two arms that have an answer to give: a Remote that already holds this Workspace,
+	and a Remote that is about to. Each fact is unbreakable and the row wraps between them, so a
+	repository name long enough to break the line moves the facts after it down instead of pushing
+	them into a horizontal scroll only a pointer could reach (WCAG 2.1.1).
+-->
+{#snippet destinationStrip()}
+	{#if remote !== null}
+		<p
+			class="mt-4 flex flex-wrap items-baseline gap-x-3 border-t border-rule pt-3 text-sm [&>*]:whitespace-nowrap"
+			data-testid="publish-destination"
+		>
+			<code>{describeRemote(remote)}</code>
+			<span aria-hidden="true" class="opacity-40">·</span>
+			<span class="opacity-80">branch <code>{remote.branch}</code></span>
+			<span aria-hidden="true" class="opacity-40">·</span>
+			<span class="opacity-80">Signed in to GitHub</span>
+			{#if upload !== null && upload.requestsRemaining !== null}
+				<span aria-hidden="true" class="opacity-40">·</span>
+				<span class="tabular-nums opacity-80"
+					>{upload.requestsRemaining} requests left{resetsAt === ''
+						? ''
+						: `, resets ${resetsAt}`}</span
 				>
-			</p>
-			<p class="text-sm opacity-80">{publishedBreakdown.totalFiles} files total</p>
-			<ul class="mt-1 list-disc pl-5 text-sm opacity-80">
-				{#if publishedBreakdown.mapImageFiles > 0}
-					<li>
-						Uploaded Map Images: {publishedBreakdown.mapImageFiles} files,
-						{describeBytes(publishedBreakdown.mapImageBytes)}.
-					</li>
-				{/if}
-				<li>
-					Viewer and site data: {publishedBreakdown.siteFiles} files,
-					{describeBytes(publishedBreakdown.siteBytes)}.
-				</li>
-				{#if publishedBreakdown.baseMapFiles > 0}
-					<li>
-						Base Map labels and symbols: {publishedBreakdown.baseMapFiles} files,
-						{describeBytes(publishedBreakdown.baseMapBytes)}.
-					</li>
-				{/if}
-			</ul>
-		</div>
+			{/if}
+		</p>
+	{/if}
+{/snippet}
+
+<ModalDialog bind:open wide title="Publish this Workspace">
+	<!--
+		A receipt, read top to bottom: what the site weighs, what it carries, which Projects a Reader
+		meets first, and last of all where it goes — immediately above the button that sends it there,
+		so that Publish is never pressed with its target off screen.
+
+		`wide` widens `ModalDialog`'s box and the cap here spends that width on one column rather than
+		two: distance between a ledger row's label and its figure, and a destination line that holds
+		the repository, the credential and the request budget without wrapping. Two columns were
+		rejected — this dialog's worst state is a footer holding one sentence, and beside an empty
+		second column that reads as a rendering fault.
+	-->
+	<div class="mx-auto flex w-full max-w-[40rem] flex-col gap-6">
+		{#if failure}
+			<div role="alert" class="alert flex-col items-start alert-error">
+				<p>{failure}</p>
+			</div>
+		{/if}
+
+		{#if plan === null}
+			<p>Working out what publishing would add…</p>
+		{:else}
+			<!--
+				The total first and largest, because it is the fact the dialog is opened to learn, with the
+				breakdown under it as a ledger: label left, figures right, a hairline between the rows. The
+				figures are tabular in the text face — ADR-0036 leaves no monospaced family to reach for.
+			-->
+			<section data-testid="publish-breakdown">
+				<h3 class="text-sm font-medium opacity-70">Published site</h3>
+				<p class="mt-1 flex flex-wrap items-baseline gap-x-3">
+					<strong class="text-4xl leading-none font-semibold tabular-nums"
+						>{describeBytes(publishedBreakdown.totalBytes)}</strong
+					>
+					<span class="text-sm tabular-nums opacity-70"
+						>{publishedBreakdown.totalFiles} files total</span
+					>
+				</p>
+				<!--
+					What the site carries, at plan level and independent of the destination below: a receipt
+					states what is in it, and the Project count is a fact about the site rather than about
+					the Remote. `describeProjects` keeps its two numbers for the reason its own note gives.
+				-->
+				<p class="mt-2 text-sm" data-testid="publish-projects">
+					This site will carry {describeProjects(plan.projects)}.
+				</p>
+				<dl
+					class="mt-4 grid grid-cols-[1fr_auto_6rem] items-baseline border-t border-rule text-sm [&>*]:border-b [&>*]:border-rule [&>*]:py-2"
+				>
+					{#if publishedBreakdown.mapImageFiles > 0}
+						<dt class="pe-6">Uploaded Map Images</dt>
+						<dd class="pe-6 text-right tabular-nums opacity-70">
+							{publishedBreakdown.mapImageFiles} files
+						</dd>
+						<dd class="text-right font-medium tabular-nums">
+							{describeBytes(publishedBreakdown.mapImageBytes)}
+						</dd>
+					{/if}
+					<dt class="pe-6">Viewer and site data</dt>
+					<dd class="pe-6 text-right tabular-nums opacity-70">
+						{publishedBreakdown.siteFiles} files
+					</dd>
+					<dd class="text-right font-medium tabular-nums">
+						{describeBytes(publishedBreakdown.siteBytes)}
+					</dd>
+					{#if publishedBreakdown.baseMapFiles > 0}
+						<dt class="pe-6">Base Map labels and symbols</dt>
+						<dd class="pe-6 text-right tabular-nums opacity-70">
+							{publishedBreakdown.baseMapFiles} files
+						</dd>
+						<dd class="text-right font-medium tabular-nums">
+							{describeBytes(publishedBreakdown.baseMapBytes)}
+						</dd>
+					{/if}
+				</dl>
+			</section>
+		{/if}
 
 		<!--
-			Where the Workspace goes afterwards, and what that costs (ADR-0032, ADR-0033).
+			The choice in the middle of the receipt, between what the site weighs and where it goes.
 
-			A GitHub repository and credential are required before the action is offered. A refusal names
-			its remedy, and a Remote that already holds this Workspace says so rather than uploading a
-			timestamp and reporting success.
+			⚠ **Outside the `plan === null` gate above, and that is not an accident.** Changing a toggle
+			re-plans, which nulls `plan` for as long as that takes; gated with the breakdown, the control
+			the scholar has just pressed would vanish under their hand and come back.
 		-->
-		<section class="mt-4 rounded-box border border-base-300 p-4">
-			<h3 class="font-semibold">Publish destination</h3>
-			{#if remote === null}
-				<p class="mt-1 text-sm" data-testid="publish-unbound">
-					Connect this Workspace to a GitHub repository before publishing. Choose
-					<strong>Remote repository…</strong> from the Workspace menu.
-				</p>
-			{:else}
-				<!--
-					⚠ **The refusal comes before the paste, and it is not an ordering preference.** An
-					expired sign-in raises its refusal *and* clears the credential, so a refusal rendered in
-					the `signedIn` branch would be replaced, in the same update, by the very form it is the
-					reason for — the scholar would be shown a token field and never told why. Both are on
-					screen: what happened, and the one thing that fixes it.
-				-->
-				{#if uploadProblem}
-					<div
-						role="alert"
-						class="mt-3 alert flex-col items-start alert-error"
-						data-testid="publish-upload-problem"
-					>
-						<p>{uploadProblem}</p>
-					</div>
-				{/if}
-				<!--
-					What the sign-in found out about pushing (story 5). Outside the branches below for the
-					same reason the refusal is: it is a fact about the credential now held, and the branch
-					that produced it is the one the sign-in has just left.
-				-->
-				{#if rightsNotice}
-					<div
-						role="alert"
-						class="mt-3 alert flex-col items-start alert-warning"
-						data-testid="publish-no-push"
-					>
-						<p>{rightsNotice}</p>
-					</div>
-				{/if}
-				{#if !signedIn}
-					<form class="mt-3 flex flex-col gap-2" onsubmit={(event) => void signIn(event)}>
-						<p class="text-sm" data-testid="publish-sign-in-needed">
-							Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
-							<strong>Contents: Read and write</strong>. Kept only in this tab.
-						</p>
-						<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
-						<input
-							id={tokenId}
-							class="input w-full max-w-md input-sm"
-							type="password"
-							bind:value={token}
-							data-testid="publish-token-field"
-							autocomplete="off"
-							spellcheck="false"
-						/>
-						<div>
-							<button
-								class="btn btn-sm"
-								type="submit"
-								data-testid="publish-sign-in"
-								disabled={signingIn}
-							>
-								{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
-							</button>
-						</div>
-					</form>
-				{:else if uploadProblem}
-					<!-- Its remedy is not a sign-in: a truncated tree, a repository GitHub cannot show. The
-					     message itself names what to do, and there is nothing further to render. -->
-				{:else if upload === null}
-					<p class="mt-1 text-sm opacity-70">Asking GitHub what it already has…</p>
-				{:else if nothingToDo}
-					<!--
-						⚠ **Before the conflict, and that ordering is the fix to a dead button.** A conflict
-						is a statement about *whose* the files on the Remote are, and `unknown` is raised on
-						nothing more than "no manifest, and the owned namespace is not empty" — which is the
-						state of a Workspace whose Remote matches it byte for byte, the ordinary first press
-						after a complete Clone (story 24). Rendered conflict-first, that Workspace was shown a
-						refusal, offered a replace that armed and then changed nothing, and left with a
-						`aria-disabled` Publish button and the sentence explaining it suppressed. Nothing here
-						would change anything anywhere, so there is nothing to refuse and nothing at stake.
-					-->
-					<p class="mt-1 text-sm" data-testid="publish-nothing-to-do">
-						Nothing needs changing. <code>{describeRemote(remote)}</code> already holds this Workspace
-						exactly as it is here, so there is nothing to send and your Published Site is up to date.
-					</p>
-				{:else}
-					{#if conflict !== null}
-						<!--
-							⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
-							whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
-							scope" item 3) — and the two ways on are Clone or replace, never a merge. The second
-							is a two-step: this button only *arms* it, and the confirm button below then says
-							what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
+		<section data-testid="publish-project-selection">
+			<h3 class="font-semibold">Projects on the front page</h3>
+			<p id="publish-project-description" class="mt-1 text-sm opacity-80">
+				Choose which Projects Readers see first. All Projects stay published.
+			</p>
+			<ul class="mt-3 border-t border-rule">
+				{#each session.projects as project (project.directory)}
+					<li class="[&+li]:border-t [&+li]:border-rule">
+						<label class="flex items-center justify-between gap-4 py-2 text-sm">
+							<span class="font-medium">{project.name}</span>
+							<span class="flex shrink-0 items-center gap-2">
+								<span class="opacity-70">Front page</span>
+								<input
+									type="checkbox"
+									class="toggle toggle-sm"
+									data-testid="on-front-page-{project.directory}"
+									checked={project.onFrontPage}
+									onchange={(event) =>
+										void session.setProjectOnFrontPage(
+											project.directory,
+											(event.currentTarget as HTMLInputElement).checked
+										)}
+									disabled={project.problem !== null}
+									aria-label="On the front page — {project.name}"
+									aria-describedby="publish-project-description"
+								/>
+							</span>
+						</label>
+					</li>
+				{/each}
+			</ul>
+		</section>
 
-							⚠ **Beside the budgets rather than instead of them.** A conflict is where the
-							replacement tree is largest and where the scholar is being asked to press through a
-							warning, so it is the worst possible moment to be the one state that hides story 9's
-							two numbers, the hosting cliff and the hourly request budget.
-						-->
-						<!-- `alert-vertical`, not `flex-col`: daisyUI's `.alert` is a grid with
-						     `grid-auto-flow: column`, so a flexbox utility on it does nothing and these three
-						     children lay out as three squeezed columns with the button cut off. -->
+		{#if plan !== null}
+			{#each plan.warnings.filter((warning) => warning.kind !== 'base-map-size') as warning (warning.kind)}
+				<div
+					role="alert"
+					class="alert flex-col items-start alert-warning"
+					data-warning={warning.kind}
+				>
+					<p>{warning.message}</p>
+				</div>
+			{/each}
+
+			<!--
+				The foot of the receipt: where the Workspace goes afterwards, what that costs, and every
+				state in which it cannot go anywhere (ADR-0032, ADR-0033).
+
+				A GitHub repository and a credential are required before the action is offered, so each of
+				the five arms is a footer laid out for what it has to say rather than a stack of alerts. A
+				refusal names its remedy, and a Remote that already holds this Workspace says so rather
+				than uploading a timestamp and reporting success.
+			-->
+			<footer class="border-t border-rule-strong pt-4">
+				<h3 class="text-sm font-medium opacity-70">Publish destination</h3>
+				{#if remote === null}
+					<!--
+						The state a first-time author meets, and the one arm that has a single sentence to
+						carry: drawn as a glyph, a statement and its remedy rather than left as a lone line in
+						an empty footer. It names the control that binds a Remote, which is where the way
+						forward is.
+					-->
+					<div class="mt-3 flex items-start gap-3" data-testid="publish-unbound">
+						<svg
+							aria-hidden="true"
+							class="mt-0.5 size-5 shrink-0 opacity-60"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.5"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
+							/>
+						</svg>
+						<div>
+							<p class="font-medium">This Workspace publishes nowhere yet.</p>
+							<p class="mt-1 text-sm opacity-80">
+								Publishing sends the website to a GitHub repository, and this Workspace is bound to
+								none. Bind one with <strong>Remote repository…</strong> in Workspace settings, and the
+								destination and what sending it would cost appear here.
+							</p>
+						</div>
+					</div>
+				{:else}
+					<!--
+						⚠ **The refusal comes before the paste, and it is not an ordering preference.** An
+						expired sign-in raises its refusal *and* clears the credential, so a refusal rendered in
+						the `signedIn` branch would be replaced, in the same update, by the very form it is the
+						reason for — the scholar would be shown a token field and never told why. Both are on
+						screen: what happened, and the one thing that fixes it.
+					-->
+					{#if uploadProblem}
 						<div
 							role="alert"
-							class="mt-3 alert alert-vertical items-start alert-warning"
-							data-testid="publish-conflict"
-							data-conflict={conflict.reason}
+							class="mt-3 alert flex-col items-start alert-error"
+							data-testid="publish-upload-problem"
 						>
-							<p>{conflict.message}</p>
-							<p class="text-sm">
-								Cloning is in the Workspace menu at the top left, under <strong
-									>Remote repository…</strong
-								>. It makes a new Workspace and leaves this one exactly as it is.
-							</p>
-							<button
-								class="btn btn-sm"
-								class:btn-disabled={replacing}
-								aria-disabled={replacing}
-								data-testid="publish-replace"
-								onclick={() => (replacing = true)}
-							>
-								{replacing ? 'Ready to replace it' : 'Publish anyway, replacing it'}
-							</button>
+							<p>{uploadProblem}</p>
 						</div>
 					{/if}
-					<ul class="mt-2 list-disc pl-5 text-sm">
-						<li>
-							Destination: <code>{describeRemote(remote)}</code>, branch
-							<code>{remote.branch}</code>.
-						</li>
-					</ul>
 					<!--
-					The three budgets, stated separately because the two kinds of content load them
-					oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a
-					Map Image's pyramid is the other way round. Shown whether or not they warn, so
-					that "how many files and how many bytes will this send" is answerable before the button
-					is pressed rather than only when something is already wrong (SPEC story 9).
-				-->
-					<ul class="mt-2 list-disc pl-5 text-sm opacity-80" data-testid="publish-budget">
-						<li data-budget="files">
-							{upload.uploads} of {uploadFiles} files need uploading (limit: {MAX_PUBLISHED_FILES}).
-						</li>
-						<li data-budget="bytes">
-							Site size: {describeBytes(upload.bytes)} / {describeBytes(STATIC_HOSTING_LIMIT_BYTES)} GitHub
-							Pages limit.
-						</li>
-						<li data-budget="requests">
-							{#if upload.requestsRemaining === null}
-								Requests this hour: unavailable.
-							{:else}
-								Requests this hour: {upload.requestsRemaining} left{resetsAt === ''
-									? ''
-									: `; resets at ${resetsAt}`}.
-							{/if}
-						</li>
-					</ul>
-					{#each upload.warnings as warning (warning.kind)}
+						What the sign-in found out about pushing (story 5). Outside the branches below for the
+						same reason the refusal is: it is a fact about the credential now held, and the branch
+						that produced it is the one the sign-in has just left.
+					-->
+					{#if rightsNotice}
 						<div
 							role="alert"
 							class="mt-3 alert flex-col items-start alert-warning"
-							data-remote-warning={warning.kind}
+							data-testid="publish-no-push"
 						>
-							<p>{warning.message}</p>
+							<p>{rightsNotice}</p>
 						</div>
-					{/each}
+					{/if}
+					{#if !signedIn}
+						<form class="mt-3" onsubmit={(event) => void signIn(event)}>
+							<p class="text-sm" data-testid="publish-sign-in-needed">
+								Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
+								<strong>Contents: Read and write</strong>. Kept only in this tab.
+							</p>
+							<div class="mt-3 flex flex-wrap items-end gap-3">
+								<div class="flex min-w-0 grow basis-72 flex-col gap-1">
+									<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
+									<input
+										id={tokenId}
+										class="input w-full max-w-md input-sm"
+										type="password"
+										bind:value={token}
+										data-testid="publish-token-field"
+										autocomplete="off"
+										spellcheck="false"
+									/>
+								</div>
+								<button
+									class="btn btn-sm"
+									type="submit"
+									data-testid="publish-sign-in"
+									disabled={signingIn}
+								>
+									{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
+								</button>
+							</div>
+						</form>
+					{:else if uploadProblem}
+						<!-- Its remedy is not a sign-in: a truncated tree, a repository GitHub cannot show. The
+						     message itself names what to do, and there is nothing further to render. -->
+					{:else if upload === null}
+						<p class="mt-3 flex items-center gap-2 text-sm opacity-70">
+							<span aria-hidden="true" class="loading loading-xs loading-spinner"></span>
+							Asking <code>{describeRemote(remote)}</code> what it already has…
+						</p>
+					{:else if nothingToDo}
+						<!--
+							⚠ **Before the conflict, and that ordering is the fix to a dead button.** A conflict
+							is a statement about *whose* the files on the Remote are, and `unknown` is raised on
+							nothing more than "no manifest, and the owned namespace is not empty" — which is the
+							state of a Workspace whose Remote matches it byte for byte, the ordinary first press
+							after a complete Clone (story 24). Rendered conflict-first, that Workspace was shown a
+							refusal, offered a replace that armed and then changed nothing, and left with a
+							`aria-disabled` Publish button and the sentence explaining it suppressed. Nothing here
+							would change anything anywhere, so there is nothing to refuse and nothing at stake.
+						-->
+						<p class="mt-3 text-sm" data-testid="publish-nothing-to-do">
+							Nothing needs changing. <code>{describeRemote(remote)}</code> already holds this Workspace
+							exactly as it is here, so there is nothing to send and your Published Site is up to date.
+						</p>
+						{@render destinationStrip()}
+					{:else}
+						{#if conflict !== null}
+							<!--
+								⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
+								whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
+								scope" item 3) — and the two ways on are Clone or replace, never a merge. The second
+								is a two-step: this button only *arms* it, and the confirm button below then says
+								what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
+
+								⚠ **Beside the budgets rather than instead of them.** A conflict is where the
+								replacement tree is largest and where the scholar is being asked to press through a
+								warning, so it is the worst possible moment to be the one state that hides story 9's
+								two numbers, the hosting cliff and the hourly request budget.
+							-->
+							<!-- `alert-vertical`, not `flex-col`: daisyUI's `.alert` is a grid with
+							     `grid-auto-flow: column`, so a flexbox utility on it does nothing and these three
+							     children lay out as three squeezed columns with the button cut off. -->
+							<div
+								role="alert"
+								class="mt-3 alert alert-vertical items-start alert-warning"
+								data-testid="publish-conflict"
+								data-conflict={conflict.reason}
+							>
+								<p>{conflict.message}</p>
+								<p class="text-sm">
+									Cloning is in the Workspace menu at the top left, under <strong
+										>Remote repository…</strong
+									>. It makes a new Workspace and leaves this one exactly as it is.
+								</p>
+								<button
+									class="btn btn-sm"
+									class:btn-disabled={replacing}
+									aria-disabled={replacing}
+									data-testid="publish-replace"
+									onclick={() => (replacing = true)}
+								>
+									{replacing ? 'Ready to replace it' : 'Publish anyway, replacing it'}
+								</button>
+							</div>
+						{/if}
+						<!--
+							The three budgets, stated separately because the two kinds of content load them
+							oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a
+							Map Image's pyramid is the other way round. Shown whether or not they warn, so that
+							"how many files and how many bytes will this send" is answerable before the button is
+							pressed rather than only when something is already wrong (SPEC story 9).
+						-->
+						<ul
+							class="mt-3 border-t border-rule text-sm tabular-nums [&>li]:py-2 [&>li+li]:border-t [&>li+li]:border-rule"
+							data-testid="publish-budget"
+						>
+							<li data-budget="files">
+								{upload.uploads} of {uploadFiles} files need uploading (limit: {MAX_PUBLISHED_FILES}).
+							</li>
+							<li data-budget="bytes">
+								Site size: {describeBytes(upload.bytes)} / {describeBytes(
+									STATIC_HOSTING_LIMIT_BYTES
+								)} GitHub Pages limit.
+							</li>
+							<li data-budget="requests">
+								{#if upload.requestsRemaining === null}
+									Requests this hour: unavailable.
+								{:else}
+									Requests this hour: {upload.requestsRemaining} left{resetsAt === ''
+										? ''
+										: `; resets at ${resetsAt}`}.
+								{/if}
+							</li>
+						</ul>
+						{#each upload.warnings as warning (warning.kind)}
+							<div
+								role="alert"
+								class="mt-3 alert flex-col items-start alert-warning"
+								data-remote-warning={warning.kind}
+							>
+								<p>{warning.message}</p>
+							</div>
+						{/each}
+						{@render destinationStrip()}
+					{/if}
 				{/if}
-			{/if}
-		</section>
+			</footer>
+		{/if}
 
-		{#each plan.warnings.filter((warning) => warning.kind !== 'base-map-size') as warning (warning.kind)}
-			<div
-				role="alert"
-				class="mt-4 alert flex-col items-start alert-warning"
-				data-warning={warning.kind}
-			>
-				<p>{warning.message}</p>
-			</div>
-		{/each}
-	{/if}
+		<!--
+			Progress, seen and announced by the same element, from inside the modal so that it is not in
+			the inert half of the document while it has something to say. At the foot of the receipt, below
+			the destination it is moving to.
 
-	<!--
-		Progress, seen and announced by the same element, from inside the modal so that it is not in
-		the inert half of the document while it has something to say. Always rendered and empty when
-		idle, for the same reason the region outside is.
-	-->
-	<p aria-live="polite" aria-atomic="true" class="mt-4" data-testid="publish-progress">
-		{progressLine}
-	</p>
+			⚠ **Outside every gate above, and unconditionally rendered while the dialog is open.** Flipping
+			a Front Page toggle re-plans, which nulls `plan` — gated on the plan this region would be
+			removed mid-publish and re-inserted already holding a line, and an `aria-live` region inserted
+			together with its first text is not announced, so the rest of that publish would be silent.
+			Empty when idle, for the same reason the region outside the dialog is.
+		-->
+		<p aria-live="polite" aria-atomic="true" class="text-sm" data-testid="publish-progress">
+			{progressLine}
+		</p>
+	</div>
 
 	<!--
 		Cancel becomes inert while a publish runs. Once it is offered, Publish stays in the tab order
