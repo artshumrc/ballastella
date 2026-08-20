@@ -132,6 +132,68 @@ pnpm precommit
 Success is every one of those specs green without its assertions being relaxed, and the dialog
 readable top to bottom as three concerns rather than six.
 
+## Answer
+
+**`RemoteSettings` stays its own dialog, reached from a control in *Where your work lives*.** The
+recommendation is taken, and reading the two files makes it more than a size argument.
+
+- The component's own docstring is an argument for the split, and it is a good one: Workspace settings
+  answers *where your work is kept and what may be done to it*, a question about this machine, and the
+  Remote answers *where your work goes when you publish it*, a question about the web. Inlining 555
+  lines of repository field, token field, sign-in, clone, unbind and Pages into a dialog whose whole
+  point this ticket is to *reduce* from six concerns to three would have made a seventh concern out of
+  the largest one.
+- Story 38 is load-bearing and the split is what keeps it: nothing about GitHub renders anywhere until
+  the user opens that dialog. A section would have put a sign-in field in front of every scholar who
+  opened settings to read one sentence about browser persistence.
+- The group therefore carries a state line — the bound repository and whether GitHub is signed in, or
+  "No repository yet" — and one `settings-open-remote` button behind it. Story 45 is satisfied because
+  the binding is reachable from settings; ticket 03 is unblocked because it can delete the menu item
+  without deleting the only route to it.
+
+**Two consequences ticket 03 inherits, both deliberate.**
+
+1. **The testid is `settings-open-remote`, not `open-remote-settings`.** `NavigationBar` still carries
+   `open-remote-settings`, and this ticket may not edit that file — two elements with one testid is a
+   Playwright strict-mode failure in every spec that reaches for it, which is `editor-remote-binding`,
+   `editor-github-signin`, `editor-clone-remote`, `editor-remote-conflict` and `editor-review-remote`.
+   When ticket 03 removes the menu's copy it may rename this one to `open-remote-settings` and point
+   those specs' `openRemoteSettings` helpers at Workspace settings, which they need anyway once the
+   menu item is gone.
+2. **The `RemoteSettings` mount here is behind a first-ask latch** (`remoteAsked`), for the same
+   reason: `NavigationBar` mounts one unconditionally, and `ModalDialog` renders its children whether
+   the dialog is open or not, so a second unconditional mount would double every `remote-*` control in
+   the document. Mounted on first ask and then left mounted — rather than mounted while open — because
+   an unmount on close skips `ModalDialog`'s own `close()` and focus restoration, and the focus a
+   keyboard user gets back is `<body>`. Ticket 03 should make it an unconditional mount when the bar's
+   copy goes, and delete the latch.
+
+**The folder controls collapse through one derived flag, `pickableHere`.** Every `chooseFolder()`
+control in the file is the same act under three labels, so a standing `storage.problem` moves the
+offer into the warning that names the folder and suppresses the row's copy. At most two controls
+render in every reachable state, including the two that used to produce three: browser backing with a
+remembered folder and a problem (`Reopen “X”` plus the warning's own button), and folder backing that
+is unreachable with a problem (`Use browser storage instead` plus the warning's own button).
+
+**The orphaned-journal outcome still lands in `workspace-delete-outcome`, and that is not an
+oversight.** `discardOrphanedJournal` is now a named function beside `backUp`, `restore` and
+`confirmDelete`, but it writes the same shared `outcome` state the delete does, because
+`editor-named-workspaces.e2e.ts:526` and `:559` assert the sentence in that region. Giving the discard
+its own state would be a behaviour change and is not in this ticket's Contract — it is worth a later
+look, since the sentence is now announced two groups away from the button that produced it.
+
+**Two things noticed and left alone, recorded because this ticket is presentation only.**
+
+- **The storage-problem warning's "Choose a folder again" button is not gated on
+  `storage.canChooseFolder`.** Pre-existing, but it matters more now that `pickableHere` suppresses the
+  row's copy, because in that state it can be the only folder control on screen. Gating it was rejected:
+  it would produce a state with a standing problem and no recovery control at all, which is worse than
+  a button that may fail. `editor-folder-workspace.e2e.ts:889` only looks at `settings-choose-folder`,
+  so no spec would catch it either way.
+- **The new *Where this Workspace publishes* summary reads `storage.signedIn` and `storage.identity`
+  cold**, with no `ensureCredentialFresh()`, so an expired token still reads as signed in. That is
+  behaviour, not presentation, and outside this ticket's scope.
+
 ## Blocked by
 
 - 01
