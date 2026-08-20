@@ -59,13 +59,17 @@
    built-in theme if it exists"), and `light` and `dark` are both built-in names — so every token
    this block does not state keeps daisyUI's stock value.
 
-   That is how the four `--color-{info,success,warning,error}-content` tokens get their values,
-   because ADR-0036's table does not state them, and **in the light theme the result is not
-   legible**: Sidereal's semantic colours are dark where the stock ones are light, so the stock
-   content colours land on them at 1.95:1 (info), 1.53:1 (success), 1.85:1 (warning) and 2.16:1
-   (error). Dark fares better at 4.15–5.44:1. Every `alert-*`, `badge-success`, `badge-warning` and
-   `btn-error` in both apps reads through those pairs. Choosing the four missing values is a palette
-   decision and belongs to ADR-0036 rather than to this file. */
+   That is why the four `--color-{info,success,warning,error}-content` tokens are stated below even
+   though they read as redundant. Omitted, they inherit stock's inks, which are drawn for stock's
+   *light* semantic colours — and Sidereal's are dark, so the inherited pairs land at 1.95:1 (info),
+   1.53:1 (success), 1.85:1 (warning) and 2.16:1 (error). Every `alert-*`, `badge-success`,
+   `badge-warning` and `btn-error` in both apps reads through one of those pairs.
+
+   Each theme therefore takes the other's ground as its semantic ink — `base-100` here, and light's
+   `base-content` in the dark block — which is one value per theme rather than four, invents no hue
+   the palette does not already have, and clears 4.5:1 on all eight pairs (light 4.78–6.95:1, dark
+   5.13–8.21:1). The tightest is `warning` in light at 4.78:1, so darkening `--color-warning` is what
+   would break this first. */
 @plugin 'daisyui/theme' {
 	name: 'light';
 	default: true;
@@ -88,6 +92,11 @@
 	--color-success: #1f6a4a;
 	--color-warning: #9a6412;
 	--color-error: #9e2f2a;
+	/* Stated, not inherited: see the note above. */
+	--color-info-content: #fbfaf7;
+	--color-success-content: #fbfaf7;
+	--color-warning-content: #fbfaf7;
+	--color-error-content: #fbfaf7;
 
 	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
 	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */
@@ -120,6 +129,11 @@
 	--color-success: #57b98c;
 	--color-warning: #e0a63c;
 	--color-error: #e1615a;
+	/* Stated, not inherited: see the note above. */
+	--color-info-content: #14181f;
+	--color-success-content: #14181f;
+	--color-warning-content: #14181f;
+	--color-error-content: #14181f;
 
 	--radius-selector: 2rem; /* toggle, range, checkbox, badge */
 	--radius-field: 0.1875rem; /* button, input, select, textarea, menu, kbd */

@@ -41,6 +41,25 @@ institutional prospectus.
 | `success` | `#1f6a4a` | `#57b98c` |
 | `warning` | `#9a6412` | `#e0a63c` |
 | `error` | `#9e2f2a` | `#e1615a` |
+| `info-content` | `#fbfaf7` | `#14181f` |
+| `success-content` | `#fbfaf7` | `#14181f` |
+| `warning-content` | `#fbfaf7` | `#14181f` |
+| `error-content` | `#fbfaf7` | `#14181f` |
+
+**The four semantic `-content` inks are one value per theme, and they have to be stated.** Each theme
+takes the other's ground as its semantic ink: light uses its own `base-100`, dark uses light's
+`base-content`. Omitting them is not neutral — `daisyui/theme` merges a custom block with the
+built-in theme of the same name, and `light` and `dark` are both built-in names, so an omitted token
+keeps daisyUI's stock value. Stock's inks are drawn for stock's *light* semantic colours while
+Sidereal's are dark, which puts the inherited pairs at 1.95:1 (info), 1.53:1 (success), 1.85:1
+(warning) and 2.16:1 (error) — illegible, across every `alert-*`, `badge-success`, `badge-warning`
+and `btn-error` in both apps.
+
+One ink per theme rather than eight hand-tuned values: it invents no hue the palette does not already
+have, and it clears 4.5:1 on all eight pairs — light 4.78–6.95:1, dark 5.13–8.21:1. The tightest is
+`warning` in light at 4.78:1, so **darkening `warning` is what would break this first**;
+`semantic-content-contrast.dom.test.ts` measures all eight from the rendered colours and is what
+fails if a later palette change does.
 
 **Two themes, named `light` and `dark`, and nothing else.** Those two literal names are what
 `apps/{editor,viewer}/src/lib/theme.svelte.ts` write to `data-theme`, so a third name would be a
