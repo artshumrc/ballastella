@@ -44,7 +44,7 @@ copy in the repository rather than two under `static/`.
 
 Overall status: `In Progress`
 
-Current ticket: 05 and 03 (in parallel); 01, 02, 06 and 08 completed
+Current ticket: 04 and 07 (in parallel); 01, 02, 03, 05, 06 and 08 completed
 
 Last updated: 2026-08-19
 
@@ -54,9 +54,9 @@ Last updated: 2026-08-19
 | --- | --- | --- | --- | --- |
 | 01 | [01-the-theme-the-faces-and-the-two-marking-rules.md](./tickets/01-the-theme-the-faces-and-the-two-marking-rules.md) | Completed | — | run-epic/01 |
 | 02 | [02-workspace-settings-becomes-three-groups.md](./tickets/02-workspace-settings-becomes-three-groups.md) | Completed | 01 | run-epic/02 |
-| 03 | [03-the-workspace-menu-answers-one-question.md](./tickets/03-the-workspace-menu-answers-one-question.md) | In Progress | 01, 02 | run-epic/03 |
-| 04 | [04-the-navigation-bar-becomes-two-tiers.md](./tickets/04-the-navigation-bar-becomes-two-tiers.md) | Not Started | 01, 03 | — |
-| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | In Progress | 01 | run-epic/05 |
+| 03 | [03-the-workspace-menu-answers-one-question.md](./tickets/03-the-workspace-menu-answers-one-question.md) | Completed | 01, 02 | run-epic/03 |
+| 04 | [04-the-navigation-bar-becomes-two-tiers.md](./tickets/04-the-navigation-bar-becomes-two-tiers.md) | In Progress | 01, 03 | run-epic/04 |
+| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | Completed | 01 | run-epic/05 |
 | 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | Completed | 01 | run-epic/06 |
-| 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | Not Started | 01, 05 | — |
+| 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | In Progress | 01, 05 | run-epic/07 |
 | 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | Completed | — | run-epic/08 |
