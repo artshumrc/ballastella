@@ -83,7 +83,7 @@ describe('baseMapOptions', () => {
 		const satellite = options.find((option) => option.id === 'satellite');
 		const offline = options.find((option) => option.id === 'harbour-charts');
 
-		expect(satellite?.text).toBe('Satellite — needs network');
+		expect(satellite?.text).toBe('Satellite');
 		expect(offline?.text).toBe('Harbour charts');
 	});
 });

@@ -374,7 +374,7 @@ test.describe('publishing a Workspace', () => {
 			await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
 			await expect(
 				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
-			).toHaveText('Physical geography — needs network');
+			).toHaveText('Physical geography');
 
 			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
 			// it is answered at a domain root and is outside the published folder in a subdirectory,

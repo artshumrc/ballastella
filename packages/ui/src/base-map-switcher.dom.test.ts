@@ -101,7 +101,7 @@ test('marks an entry that needs the network in the option text a Reader can read
 	expect([...select.options].map((option) => option.textContent)).toEqual([
 		'Harbour charts',
 		'Parish roads',
-		'Satellite — needs network'
+		'Satellite'
 	]);
 });
 

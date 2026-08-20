@@ -143,7 +143,7 @@ export function baseMapOptions(
 		id: entry.id,
 		label: entry.label,
 		needsNetwork: entry.needsNetwork,
-		text: entry.needsNetwork ? `${entry.label} — needs network` : entry.label
+		text: entry.needsNetwork ? `${entry.label}` : entry.label
 	}));
 }
 
