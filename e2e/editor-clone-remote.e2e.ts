@@ -2,7 +2,12 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
-import { expectWorkspaceNamed, openWorkspaceMenu, switchToWorkspace } from './support/workspace';
+import {
+	closeRemoteSettings,
+	expectWorkspaceNamed,
+	openRemoteSettings,
+	switchToWorkspace
+} from './support/workspace';
 
 /**
  * Cloning a Workspace out of a public repository (ticket 07, ADR-0031, ADR-0032).
@@ -140,12 +145,6 @@ async function start(page: Page, repository: Record<string, unknown> = {}) {
 	return github;
 }
 
-const openRemoteSettings = async (page: Page): Promise<void> => {
-	await openWorkspaceMenu(page);
-	await page.getByTestId('open-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-};
-
 /** Fill the Clone form and press the button. Does not assert the outcome — each test says its own. */
 async function clone(page: Page, repository = REMOTE): Promise<void> {
 	await openRemoteSettings(page);
@@ -197,7 +196,7 @@ test.describe('cloning a published Workspace', () => {
 
 		await expect(outcome(page)).toContainText(`Cloned ${REMOTE}`);
 		await expect(outcome(page)).toContainText('“atlas”');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// Switched to, which the bar is the one place that says.
 		await expectWorkspaceNamed(page, 'atlas');
@@ -222,7 +221,7 @@ test.describe('cloning a published Workspace', () => {
 
 		await clone(page);
 		await expect(outcome(page)).toContainText('Cloned');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
@@ -242,13 +241,13 @@ test.describe('cloning a published Workspace', () => {
 
 		await clone(page);
 		await expect(outcome(page)).toContainText('Cloned');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 		await expectWorkspaceNamed(page, 'atlas');
 
 		// The binding as the app reads it, in the dialog that reports where a Workspace publishes.
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// ⚠ And on disk, naming the repository the user typed rather than the `someone-else/fork` the
 		// published tree carried. A Clone writes its own binding; it never copies the one it downloads.
@@ -370,19 +369,19 @@ test.describe('what a Clone never does', () => {
 
 		await clone(page);
 		await expect(outcome(page)).toContainText('Cloned');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
 		await openRemoteSettings(page);
 		await expect(outcome(page)).toHaveText('');
 		await expect(problem(page)).toHaveCount(0);
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		// The refusal too, which is the half a stale reading of would send somebody chasing a fault
 		// that has already been fixed.
 		await clone(page, 'not a repository');
 		await expect(problem(page)).toBeVisible();
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 		await openRemoteSettings(page);
 		await expect(problem(page)).toHaveCount(0);
 	});
@@ -397,11 +396,11 @@ test.describe('what a Clone never does', () => {
 
 		await clone(page);
 		await expect(outcome(page)).toContainText('“atlas”');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		await clone(page);
 		await expect(outcome(page)).toContainText('“atlas (2)”');
-		await page.getByTestId('close-remote-settings').click();
+		await closeRemoteSettings(page);
 
 		await expectWorkspaceNamed(page, 'atlas (2)');
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas', 'atlas (2)']);

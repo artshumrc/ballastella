@@ -142,6 +142,26 @@ test.describe('the Workspace on the bar', () => {
 		await expect(page.getByText('Where your work lives')).toBeHidden();
 		await expect(page.getByTestId('settings-choose-folder')).toBeHidden();
 		await expect(page.getByTestId('install-offer')).toBeHidden();
+
+		// ⚠ **And the menu does not ask either** (SPEC stories 40, 45). It states what this Workspace
+		// is — the only place its name, its backing and where it publishes appear together (story 41) —
+		// and every storage decision is behind Workspace settings, so the same choice cannot be offered
+		// in two places that could disagree.
+		await openWorkspaceMenu(page);
+		await expect(page.getByTestId('workspace-header')).toContainText(DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('workspace-backing')).toHaveText('Kept in this browser');
+		await expect(page.getByTestId('workspace-publishes')).toContainText('No Remote yet');
+		for (const absent of [
+			'locate-workspace-folder',
+			'use-browser-storage',
+			'reopen-workspace-folder',
+			'choose-workspace-folder',
+			'open-remote-settings'
+		])
+			await expect(page.getByTestId(absent)).toBeHidden();
+
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
 	});
 
 	test('names the Workspace on the hub and on the Project screen', async ({ page }) => {

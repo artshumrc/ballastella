@@ -14,7 +14,7 @@ import {
 } from './support/github-hosts.js';
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
-import { createWorkspace } from './support/workspace.js';
+import { createWorkspace, expectCredential } from './support/workspace.js';
 
 const DEFAULT_REMOTE_BINDING = {
 	'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
@@ -1249,8 +1249,8 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * The stale sign-in ticket 03 recorded and this ticket settled.
 	 *
-	 * Rights are read at a bind and at a paste and at no other moment, so the bar's "Signed in to
-	 * GitHub" means *a credential is held*, never *a credential still works*. The answer taken is:
+	 * Rights are read at a bind and at a paste and at no other moment, so the Workspace menu's
+	 * "Signed in to GitHub" means *a credential is held*, never *a credential still works*. The answer taken is:
 	 * leave the label alone and let the **refusal** carry it. It arrives on opening the dialog,
 	 * because planning is the first credentialed request a publish makes and it sends nothing — so a
 	 * scholar meets it with the Remote untouched rather than after four thousand tiles have gone.
@@ -1264,7 +1264,7 @@ test.describe('publishing to a Remote', () => {
 		// asserting a race rather than the behaviour.
 		await expect((await signIn(page)).getByTestId('publish-budget')).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+		await expectCredential(page, 'Signed in to GitHub');
 
 		// The token is revoked on GitHub's side while the tab still holds it — which is the situation,
 		// and which nothing in this browser can notice until it next asks. A second fake, installed
@@ -1287,9 +1287,9 @@ test.describe('publishing to a Remote', () => {
 		expect(github.files(OWNER, REPOSITORY)).toEqual(['README.md']);
 
 		// And the credential is forgotten rather than merely reported on, so the paste is back — the
-		// bar tells the truth from here on, because there is now genuinely no credential held.
+		// menu tells the truth from here on, because there is now genuinely no credential held.
 		await expect(dialog.getByTestId('publish-token-field')).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('remote-credential')).toHaveText('Not signed in');
+		await expectCredential(page, 'Not signed in');
 	});
 });
