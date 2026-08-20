@@ -42,21 +42,21 @@ copy in the repository rather than two under `static/`.
 
 ## Current Status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: — (frontier is 01 and 08)
+Current ticket: 01 and 08 (in parallel)
 
 Last updated: 2026-08-19
 
 ## Ledger
 
-| Number | Filename | Status | Depends On |
-| --- | --- | --- | --- |
-| 01 | [01-the-theme-the-faces-and-the-two-marking-rules.md](./tickets/01-the-theme-the-faces-and-the-two-marking-rules.md) | Not Started | — |
-| 02 | [02-workspace-settings-becomes-three-groups.md](./tickets/02-workspace-settings-becomes-three-groups.md) | Not Started | 01 |
-| 03 | [03-the-workspace-menu-answers-one-question.md](./tickets/03-the-workspace-menu-answers-one-question.md) | Not Started | 01, 02 |
-| 04 | [04-the-navigation-bar-becomes-two-tiers.md](./tickets/04-the-navigation-bar-becomes-two-tiers.md) | Not Started | 01, 03 |
-| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | Not Started | 01 |
-| 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | Not Started | 01 |
-| 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | Not Started | 01, 05 |
-| 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | Not Started | — |
+| Number | Filename | Status | Depends On | Claimed By |
+| --- | --- | --- | --- | --- |
+| 01 | [01-the-theme-the-faces-and-the-two-marking-rules.md](./tickets/01-the-theme-the-faces-and-the-two-marking-rules.md) | In Progress | — | run-epic/01 |
+| 02 | [02-workspace-settings-becomes-three-groups.md](./tickets/02-workspace-settings-becomes-three-groups.md) | Not Started | 01 | — |
+| 03 | [03-the-workspace-menu-answers-one-question.md](./tickets/03-the-workspace-menu-answers-one-question.md) | Not Started | 01, 02 | — |
+| 04 | [04-the-navigation-bar-becomes-two-tiers.md](./tickets/04-the-navigation-bar-becomes-two-tiers.md) | Not Started | 01, 03 | — |
+| 05 | [05-workspace-home-becomes-two-columns.md](./tickets/05-workspace-home-becomes-two-columns.md) | Not Started | 01 | — |
+| 06 | [06-publish-becomes-a-receipt.md](./tickets/06-publish-becomes-a-receipt.md) | Not Started | 01 | — |
+| 07 | [07-the-align-sidebar-puts-the-points-first.md](./tickets/07-the-align-sidebar-puts-the-points-first.md) | Not Started | 01, 05 | — |
+| 08 | [08-the-project-pages-furniture.md](./tickets/08-the-project-pages-furniture.md) | In Progress | — | run-epic/08 |
