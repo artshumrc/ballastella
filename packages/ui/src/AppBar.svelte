@@ -94,12 +94,12 @@
 		 */
 		status?: Snippet;
 		/**
-		 * The app's own name, set in the display face, in the middle of the main row.
+		 * The app's own name, set in the display face, centered in the bar.
 		 *
-		 * Rendered **only when `status` puts the bar in two rows**, because the main row is the only row
-		 * chartered to hold something that never changes with the screen. Ignored otherwise, so a
-		 * single-row bar cannot grow a wordmark by accident. Centered in the taller main row via
-		 * `1fr auto 1fr`, so the name sits at the bar's visual centre.
+		 * When `status` is present the bar has an eyebrow and a taller main row; the wordmark is centered
+		 * in that main row via `1fr auto 1fr`. When `status` is absent (the published site) the bar is a
+		 * single row and the wordmark is centered there in the same way. Ignored only if not provided, so
+		 * a caller that does not pass it — rather than a rule — decides whether the name appears.
 		 *
 		 * ADR-0036 gives the display face three jobs — it heads a section, names the app, and titles a
 		 * dialog — and this is the second. It must not be a control: the same ADR forbids that face on a
@@ -283,29 +283,33 @@
 			</div>
 		</div>
 	{:else}
-		<div class="flex flex-wrap items-center gap-4 px-4 py-2">
-			{@render start?.()}
-			{@render chrome()}
-			<div class="grow"></div>
-			{#if folded && menu}
-				<MenuPopover label="Menu" testid="bar-menu" align="end">
-					<li>
-						<button
-							type="button"
-							data-testid="theme-toggle"
-							aria-label={themeLabel}
-							onclick={() => onToggleTheme()}
-						>
-							<ThemeIcon aria-hidden="true" />
-						</button>
-					</li>
-					{@render menu()}
-				</MenuPopover>
-			{:else}
-				<!-- Before the app's own items, which is where the editor's bar has always had it. -->
-				{@render themeControl()}
-				{@render end?.()}
-			{/if}
+		<div
+			class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 py-2"
+			data-testid="bar-single"
+		>
+			<div class="flex min-w-0 items-center gap-4">{@render start?.()} {@render chrome()}</div>
+			<div class="flex min-w-0 justify-center">{@render wordmark?.()}</div>
+			<div class="flex min-w-0 flex-wrap items-center justify-end gap-4">
+				{#if folded && menu}
+					<MenuPopover label="Menu" testid="bar-menu" align="end">
+						<li>
+							<button
+								type="button"
+								data-testid="theme-toggle"
+								aria-label={themeLabel}
+								onclick={() => onToggleTheme()}
+							>
+								<ThemeIcon aria-hidden="true" />
+							</button>
+						</li>
+						{@render menu()}
+					</MenuPopover>
+				{:else}
+					<!-- Before the app's own items, which is where the editor's bar has always had it. -->
+					{@render themeControl()}
+					{@render end?.()}
+				{/if}
+			</div>
 		</div>
 	{/if}
 </header>

@@ -11,19 +11,21 @@
 	// the whole of "read-only" in this app.
 
 	import { resolve } from '$app/paths';
-	import { AppBar } from '@ballastella/ui';
+	import { AppBar, BallastellaMark } from '@ballastella/ui';
 
 	import { returnLink } from '$lib/return-link.svelte.js';
 	import { theme } from '$lib/theme.svelte';
 </script>
 
-<!--
-	The way home, in the same place on every page (SPEC story 4). Where the editor's bar says which
-	Workspace you are in, a published site says whose tool made it — the record a site carries has no
-	name of its own to use, and inventing one would mean writing a byte this epic does not write.
--->
-{#snippet start()}
-	<a class="link font-semibold" data-testid="site-name" href={resolve('/')}>Ballastella</a>
+{#snippet wordmark()}
+	<a
+		class="flex link items-center gap-2 font-serif text-lg leading-none link-hover"
+		data-testid="site-name"
+		href={resolve('/')}
+	>
+		<BallastellaMark />
+		Ballastella
+	</a>
 {/snippet}
 
 {#snippet end()}
@@ -54,7 +56,7 @@
 {/snippet}
 
 <AppBar
-	{start}
+	{wordmark}
 	{end}
 	{menu}
 	theme={theme.current}

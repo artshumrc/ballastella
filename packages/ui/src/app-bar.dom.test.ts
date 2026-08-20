@@ -231,14 +231,15 @@ test('keeps both rows inside the one banner, each affordance rendered once', () 
 });
 
 test('stays one row for an app that hands it no status', () => {
-	// The viewer's bar, unchanged: one row at every width, and the fold still the only arrangement it
-	// has a second form of.
+	// The viewer's bar: one row (now `bar-single` with centered wordmark slot) at every width,
+	// and the fold still the only arrangement it has a second form of.
 	render();
 	pageChrome.show('Amsterdam 1625');
 	flushSync();
 
 	expect(testid('bar-eyebrow')).toBeNull();
 	expect(testid('bar-main')).toBeNull();
+	expect(testid('bar-single')).toBeInTheDocument();
 	expect(testid('site-name')).toBeInTheDocument();
 	expect(testid('page-chrome')).toBeInTheDocument();
 	expect(testid('theme-toggle')).toBeInTheDocument();
@@ -280,12 +281,13 @@ test('names the app in the taller main row, and only when the bar is tiered', ()
 	expect(wordmark).toHaveClass('font-serif');
 });
 
-test('does not name the app in a bar that has only one row', () => {
-	// The published site's bar. A wordmark handed to an untiered bar is ignored rather than rendered
-	// somewhere it was never chartered to appear.
+test('names the app in a single-row bar when a wordmark is provided', () => {
+	// The published site now shows the wordmark centered in its single row.
 	render({ withWordmark: true });
 
-	expect(testid('app-wordmark')).toBeNull();
+	const wordmark = testid('app-wordmark');
+	expect(wordmark).not.toBeNull();
+	expect(testid('bar-single')?.contains(wordmark!)).toBe(true);
 	expect(testid('bar-eyebrow')).toBeNull();
 	expect(testid('bar-main')).toBeNull();
 });
