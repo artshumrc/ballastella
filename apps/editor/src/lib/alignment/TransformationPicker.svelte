@@ -20,6 +20,12 @@
 	// A `<button aria-expanded>` disclosure and not `<details>`: ADR-0016 bans the `<details>`
 	// dropdown, and while a disclosure is a different pattern from a dropdown, the WAI-ARIA disclosure
 	// button is unambiguously outside that ban and needs no interpretation of it.
+	//
+	// **What this group does not carry is the two notes about consequences** — that Simple cannot
+	// mirror, and that the higher orders distort at the edges. They are prose about the choice rather
+	// than help for making it, and they stand behind "How this works" in `AlignmentWorkspace`, where
+	// the rest of this screen's explanation is (SPEC stories 62, 67). What stays here is the guidance
+	// the control is described by and the shortfall a count cannot support.
 
 	import {
 		TRANSFORMATION_CHOICES,
@@ -167,33 +173,6 @@
 	<p id="transformation-guidance" class="max-w-prose text-sm" data-testid="transformation-guidance">
 		{chosen?.guidance ?? ''}
 	</p>
-
-	{#if value === 'helmert'}
-		<!--
-			**The one place the fold warning cannot help, said where the choice is made.** A similarity has
-			no reflection to fit, so a least-squares solve over two swapped Control Points comes back
-			unmirrored rather than folded and `detectFold` correctly reports nothing. That is right
-			mathematics and not a defect — but it is a *silence*, and a student who has learnt to trust
-			"this Alignment is mirrored" under Standard will read the same silence here as "no mistake".
-			So the limit is stated beside the option rather than only in a comment.
-
-			Not folded into the option's own guidance text, because that string is ADR-0013's table and is
-			asserted verbatim; this is a note about the consequence of the choice, like the advanced one
-			below it.
-		-->
-		<p class="max-w-prose text-sm opacity-70" data-testid="transformation-simple-note">
-			Simple cannot turn the Map Image over, so it is the one choice where the "this Alignment is
-			mirrored" warning cannot appear. Under Simple, two swapped Control Points show up as a badly
-			placed Map Image rather than as a warning.
-		</p>
-	{/if}
-
-	{#if advancedShown}
-		<p class="max-w-prose text-sm opacity-70" data-testid="transformation-advanced-note">
-			Higher-order transformations bend the map more freely, and need many well-spread Control
-			Points. With few or clustered points they produce spectacular distortion at the edges.
-		</p>
-	{/if}
 
 	{#if shortfalls.length > 0}
 		<!--
