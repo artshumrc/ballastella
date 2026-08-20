@@ -74,6 +74,18 @@ refuses a merge; the dialog says so.
 **The staleness notice and the standing refusal stay outside the dialog.** They outlive it on purpose:
 `publish-stale` renders when `!open`, and `publish-failure` is a refusal that survives closing.
 
+**The unbound gate must not swallow a bound Workspace's plan.** `editor-transfer.e2e.ts:753`
+("publishing while a review copy exists publishes only the user's own Workspace") is **red on the
+branch before this ticket starts**, and it is this dialog's fault: commits `6855ec1` and `9442815`
+added a `publish-unbound` arm rendered whenever `remote === null`, and that spec reaches the dialog
+without binding a Remote, so it reads "Connect this Workspace to a GitHub repository before
+publishing" where it expects "will carry" and "1 Project". Verified pre-existing by reverting ticket
+08's two source files and re-running: it still fails. Redrawing the five-way branch is exactly the
+work that decides which arm that spec lands in, so the fix belongs here rather than in a ticket of its
+own. Either the arm's condition is wrong or the spec's setup no longer reaches a bound Workspace —
+**diagnose which before changing either**, and say which in the Answer. Do not make the spec pass by
+relaxing its two assertions.
+
 ## User Stories
 
 - **46.** As an author, I want the size of what I am about to publish stated first and largest, because
@@ -125,6 +137,7 @@ refuses a merge; the dialog says so.
       when idle.
 - [ ] Every testid and `data-*` attribute listed in the Contract still resolves.
 - [ ] No notice in the dialog uses a left border for emphasis.
+- [ ] `editor-transfer.e2e.ts:753` is green, with both `will carry` and `1 Project` still asserted.
 - [ ] `pnpm precommit` passes; if `SEAM_2_CEILING` is raised, the table records the count and reason.
 
 ```bash
@@ -138,8 +151,8 @@ grep -n "border-l\b\|border-l-" apps/editor/src/lib/publish/PublishDialog.svelte
 pnpm precommit
 ```
 
-Success is `editor-publish` and `editor-remote-conflict` green with no assertion relaxed, and the
-unbound arm — the one a first-time author meets — looking like a state somebody drew.
+Success is `editor-publish`, `editor-remote-conflict` and `editor-transfer` green with no assertion
+relaxed, and the unbound arm — the one a first-time author meets — looking like a state somebody drew.
 
 ## Blocked by
 
