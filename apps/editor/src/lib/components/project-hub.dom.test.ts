@@ -177,7 +177,7 @@ describe('which Projects draw a map, in the words the list uses (SPEC story 63)'
 			// The plural branch, and the reason the sentence is worth this much: two Projects are named,
 			// counted, and told that refining the Alignment here moves both.
 			'One Alignment, shared by every Project that draws this Map Image — and 2 Projects do: ' +
-				'Amsterdam 1625, Boston 1775. Refining it here moves all of them.',
+				'Amsterdam 1625, Boston 1775. Refining it moves all of them.',
 			'One Alignment, shared by every Project that draws this Map Image. Right now that is ' +
 				'Amsterdam 1625.',
 			// `describeAlignmentUsers` is silent about a map nothing readable draws, and this list is

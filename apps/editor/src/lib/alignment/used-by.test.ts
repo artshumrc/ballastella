@@ -31,7 +31,7 @@ describe('who else this Alignment belongs to', () => {
 		expect(said).toContain('3 Projects do: Amsterdam 1625, Boston 1775, Lisbon 1755');
 		// The consequence, said out loud. ADR-0023's accepted risk is exactly this, and the scholar
 		// refining a placement is the person who has to know it.
-		expect(said).toContain('Refining it here moves all of them.');
+		expect(said).toContain('Refining it moves all of them.');
 	});
 
 	it('adds a singular caveat for one Project this build cannot read', () => {

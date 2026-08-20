@@ -66,8 +66,12 @@ export function describeAlignmentUsers(users: AlignmentUsers | null): string {
 
 	// The plural branch is the whole reason the sentence exists: that refining one Alignment moves
 	// several Projects is the fact a reader needs, and it cannot be inferred from a count.
+	//
+	// "Refining it", not "refining it here": this sentence reads on the Map Image's own row on the
+	// Workspace Home (SPEC story 68), which carries no align control, so a deictic pointing at one
+	// would be false. The fact travels with the Map Image rather than with the screen.
 	return users.usedBy.length === 1
 		? `${shared}. Right now that is ${namesOf(users.usedBy)}.${caveat}`
 		: `${shared} — and ${users.usedBy.length} Projects do: ${namesOf(users.usedBy)}. ` +
-				`Refining it here moves all of them.${caveat}`;
+				`Refining it moves all of them.${caveat}`;
 }

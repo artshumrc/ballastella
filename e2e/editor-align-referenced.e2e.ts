@@ -776,7 +776,7 @@ test('names a different set of Projects for a different map on the same screen',
 	await expect(usedBy).toHaveAttribute('data-used-by-count', '2', { timeout: 30_000 });
 	await expect(usedBy).toContainText(PROJECT_NAME);
 	await expect(usedBy).toContainText('A Second Reading');
-	await expect(usedBy).toContainText('Refining it here moves all of them');
+	await expect(usedBy).toContainText('Refining it moves all of them');
 });
 
 test('says what this screen is doing, in regions a screen reader is told about', async ({

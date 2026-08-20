@@ -267,7 +267,7 @@
 	<!--
 		The Workspace Home: a centred block that scrolls, which is what two lists want.
 
-		Wide enough for the two columns `ProjectHub` lays out above `lg` — the Projects column is
+		Wide enough for the two columns `ProjectHub` lays out above `xl` — the Projects column is
 		pinned to `--workspace-home-measure` and the Map Images column takes what is left — rather
 		than the single `max-w-4xl` column it was while the two lists were stacked.
 	-->

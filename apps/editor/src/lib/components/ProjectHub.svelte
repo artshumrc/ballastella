@@ -528,19 +528,23 @@ What else the Hub says about a Project: whether this build can read it.
 	The Workspace Home's two columns: what the author has on the left, what it is made of on the
 	right, divided by one vertical rule (SPEC stories 30, 34).
 
-	**`lg` and not a measurement of its own**, because it is the breakpoint the Project page already
-	stacks at, and a second answer to "when is this screen wide" is how two surfaces of one app come
-	to disagree. Below it the columns stack and **Projects comes first**, which is source order here.
+	**`xl` rather than the Project page's `lg`, and it was measured.** At exactly 1024 the Projects
+	column takes its pinned measure and leaves the Map Images column 224px, where a Map Image row
+	wraps to three lines — and it does so at *every* measure from 44rem down to 32rem, because the
+	row's text block sizes to its max-content, so no choice of measure buys it out. At 1280 that
+	column gets roughly 480px and the row fits. The two surfaces disagreeing about "wide" is the
+	lesser evil: below `xl` this screen stacks, **Projects first**, which is source order here and a
+	state story 38 already requires to work.
 
 	**The Projects column is pinned to `--workspace-home-measure`** rather than taking half of
-	whatever the page is, so that it measures the same above `lg`, below `lg`, and on a Published
+	whatever the page is, so that it measures the same above `xl`, below `xl`, and on a Published
 	Site — one width from one declaration in `packages/ui/src/layout.css` (SPEC story 35).
 
 	The rule is a boundary between two regions, which is the one thing ADR-0036's no-left-border rule
 	explicitly does not forbid: it separates the columns and marks nothing.
 -->
 <div
-	class="mt-8 lg:grid lg:grid-cols-[minmax(0,var(--workspace-home-measure))_minmax(0,1fr)] lg:gap-8"
+	class="mt-8 xl:grid xl:grid-cols-[minmax(0,var(--workspace-home-measure))_minmax(0,1fr)] xl:gap-8"
 >
 	<section>
 		<div class="flex flex-wrap items-baseline justify-between gap-4">
@@ -705,7 +709,7 @@ What else the Hub says about a Project: whether this build can read it.
 	<!-- The Workspace's shared pool (ADR-0023). Hidden while the Workspace itself cannot be reached,
      because a list of nothing under a "not reachable" banner reads as "your maps are gone". -->
 	{#if session.status !== 'unreachable'}
-		<section class="mt-10 lg:mt-0 lg:border-l lg:border-rule lg:pl-8">
+		<section class="mt-10 xl:mt-0 xl:border-l xl:border-rule xl:pl-8">
 			<div class="flex flex-wrap items-baseline gap-3">
 				<h2 class="text-2xl font-semibold">Map Images</h2>
 				<!-- Beside the heading rather than in it, for the reason the Projects count gives above. -->
