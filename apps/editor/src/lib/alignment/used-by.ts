@@ -13,7 +13,7 @@
 
 import type { MapImageUser } from '@ballastella/core';
 
-/** Who draws one Map Image, as `EditorSession.mapUsage` answers it. */
+/** Who draws one Map Image, as the Workspace's `refreshMapImages` walk answers it. */
 export interface AlignmentUsers {
 	/** The Projects whose Layers draw it, by directory order. */
 	readonly usedBy: readonly MapImageUser[];
@@ -43,11 +43,9 @@ const namesOf = (users: readonly MapImageUser[]): string =>
  *   Project draws — that pool is what its reclaim figure is for — so it composes its own "No Project
  *   uses this map." and its own sentence for a map whose only possible users are Projects from a
  *   newer build.
- * - `AlignmentWorkspace.svelte` renders nothing. `/align` is reached through a map Layer of an
- *   *open* Project, so an empty answer there means the walk read disk before ADR-0017 rule 2's
- *   debounce committed the Layer, and the walk runs once per Map Image opened, so that visit keeps
- *   the empty answer. Silence is right for it: the alternative is telling a scholar "no Project
- *   draws this map" about the Project they are standing in.
+ * The align sidebar is deliberately not a caller. The fact belongs to the Map Image rather than to
+ *   the screen, so a scholar meets it on the Map Image's row before they start refining rather than
+ *   beside the controls while they click (SPEC story 68).
  *
  * An earlier version composed prose here for an empty list and another paragraph for its
  * newer-build variant. Both spoke for a caller that had not been asked, and prose about who might

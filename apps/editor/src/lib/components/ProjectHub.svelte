@@ -299,9 +299,9 @@
 	/**
 	 * Which Projects draw a map, what refining it moves, and plainly when none do (SPEC story 63).
 	 *
-	 * ⚠ **The sentence itself is `alignment/used-by.ts`, which the align screen also renders.**
+	 * ⚠ **The sentence itself is `alignment/used-by.ts`, and this is its only render site.**
 	 * One Alignment belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so
-	 * "refining it here moves all of them" is a fact about *this map* that a scholar needs before they
+	 * "refining it moves all of them" is a fact about *this map* that a scholar needs before they
 	 * open the align screen rather than while they are clicking in it. `describeAlignmentUsers` has a
 	 * test naming every branch, which is why the composition here is only the two branches it is
 	 * silent about.
