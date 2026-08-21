@@ -637,6 +637,18 @@
 	const STYLE_WAIT_MS = 15_000;
 
 	/**
+	 * How often the gate re-reads `isStyleLoaded()` regardless of what the map has announced.
+	 *
+	 * **The gate is a state, and `styledata` and `idle` are only two of the ways it can be reached.**
+	 * A style whose last unfinished piece is a tile that *errored* completes without either firing
+	 * again, and on a machine slow enough that the map never falls idle nothing else arrives either —
+	 * so the pane sat on a Base Map that had been ready for fourteen seconds and then reported it as
+	 * missing. Reproduced on one core against an archive that refuses tile ranges. The events stay for
+	 * the immediacy; this is what makes the answer independent of them.
+	 */
+	const STYLE_POLL_MS = 250;
+
+	/**
 	 * Run `attach` once the map's style is complete, and hand back the way to stop waiting.
 	 *
 	 * **`isStyleLoaded()` is the gate, not the event.** `styledata` fires repeatedly while a style loads
@@ -646,6 +658,12 @@
 	 * to listen for. And a style that never completes is **reported** rather than waited on for ever:
 	 * without `giveUp` the page would say "0 of 2 Layers are drawn" and give no reason, which tells a
 	 * Reader their scholar's work is missing and not why.
+	 *
+	 * ⚠ **`giveUp` is an account of the wait, not the end of it.** The budget is a guess about how long
+	 * a working load takes, and a loaded machine or a slow reading-room connection beats that guess
+	 * routinely — so the listeners stay on afterwards, and a style that completes late is still drawn
+	 * on. Stopping there left the Layers permanently undrawn on a map that had in fact arrived, which
+	 * is the worse of the two failures and the one a Reader cannot recover from without reloading.
 	 */
 	const whenStyleLoaded = (
 		target: MapLibreMap,
@@ -657,9 +675,12 @@
 			return () => undefined;
 		}
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		let poll: ReturnType<typeof setInterval> | undefined;
 		const stop = () => {
 			if (timer !== undefined) clearTimeout(timer);
 			timer = undefined;
+			if (poll !== undefined) clearInterval(poll);
+			poll = undefined;
 			target.off('styledata', retry);
 			target.off('idle', retry);
 		};
@@ -670,8 +691,9 @@
 		};
 		target.on('styledata', retry);
 		target.on('idle', retry);
+		poll = setInterval(retry, STYLE_POLL_MS);
 		timer = setTimeout(() => {
-			stop();
+			timer = undefined;
 			giveUp();
 		}, STYLE_WAIT_MS);
 		return stop;

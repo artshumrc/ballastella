@@ -388,26 +388,28 @@ test.describe('the Base Map pane', () => {
 		// ADR-0016 mandates a native `<select>` here — and headless Chromium does not run its native
 		// popup, so this asserts the reach and the element, and leaves the popup to the platform.
 		//
-		// The bar is two tiers, and the tab order says so: the masthead first — which Workspace, the
-		// app's own name, and what the interface looks like — and then the screen's own tier, where you
-		// are and what you can do here. So the theme control is reached before the breadcrumb rather
-		// than after it, which is the one place a scholar can feel the tiering with the keyboard alone.
+		// The bar is an eyebrow above a main row, and the tab order is that reading order: the eyebrow
+		// first — which Workspace you are in, and whether your work is kept — and then the main row,
+		// left to right, which is where you are, the app's own name, and what you can do here.
 		//
-		// The wordmark is between them because it is a link to the root and sits at the centre of the
-		// masthead. It is `hidden lg:flex`, so below `lg` it leaves the tab order with the rest of it —
-		// this spec runs wide, where it is present.
+		// So the wordmark is reached *after* the breadcrumb rather than before it, and the theme
+		// control last of all: both sit in the main row, and each is asserted where it is painted. A
+		// keyboard order that disagreed with the row a sighted scholar reads would be the defect.
+		//
+		// The wordmark is `hidden md:flex`, so below `md` it leaves the tab order along with the space
+		// the breadcrumbs need — this spec runs wide, where it is present.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(page.getByTestId('app-wordmark')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('all-projects')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('edit-project-name')).toBeFocused();
 		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('app-wordmark')).toBeFocused();
+		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('publish')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(themeToggle(page)).toBeFocused();
 		await tabUntilFocused(page, page.getByTestId('place-search-query'), 'place search');
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('place-search-submit')).toBeFocused();
