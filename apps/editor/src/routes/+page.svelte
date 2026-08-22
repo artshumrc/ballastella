@@ -263,6 +263,19 @@
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<p class="mt-8">Starting…</p>
 	</main>
+{:else if storage.unrecoveredImport}
+	<!--
+		⚠ **Its own branch, above the hub and above the Project** (ticket 05). An Import that did not
+		finish could not be resolved, so this Workspace has not opened: its provisional files sit at
+		ordinary Workspace paths and a Project list, a Map Image list, a size, a Backup or a Publish
+		plan drawn now would include them. Nothing enumerates — `storage.recovered` is never resolved —
+		so rendering `ProjectHub` here would show “Looking for your Projects…” for ever beside an alert
+		saying the Workspace is shut, which answers neither question.
+	-->
+	<main class="mx-auto max-w-4xl p-8">
+		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<WorkspaceRecovery {storage} />
+	</main>
 {:else if openDirectory === null}
 	<!--
 		The Workspace Home: a centred block that scrolls, which is what two lists want.

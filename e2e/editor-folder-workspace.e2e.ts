@@ -529,34 +529,70 @@ test.describe('choosing a folder as the Workspace', () => {
 		).toEqual([]);
 	});
 
-	test('sweeps abandoned writes out of the folder when it is adopted', async ({ page }) => {
+	test('sweeps abandoned writes and an unfinished Import out of the folder when it is adopted', async ({
+		page
+	}) => {
 		// A laptop that died mid-autosave leaves a `.ballastella-tmp` — or Chromium's
 		// `.ballastella-tmp.crswap` — inside the Project directory. `list` hides it, `delete` refuses
 		// it, and `reclaimAbandonedWrites` had exactly one caller in the app: `Workspace.deleteProject`.
 		// So in `~/Dropbox/maps/amsterdam-1625/` it is a file `git add -A` commits and Dropbox syncs,
 		// and nothing removed it unless the whole Project was deleted. Choosing or reopening a folder is
 		// the one moment a full sweep is cheap and expected.
+		//
+		// **And it is the moment an unfinished Import is swept, which is the same claim about a folder**
+		// (ticket 05). An Import writes its provisional files at ordinary paths under one durable
+		// marker, so a tab that died half way through leaves a `project.json` in a real directory on
+		// somebody's disk — and in a folder Workspace that directory is *visible to the user in
+		// Finder*. Both kinds of residue are what adoption exists to resolve, and the engine that
+		// resolves them is asserted per boundary in `project-import-recovery.test.ts`; what only a
+		// browser can show is that a folder Workspace really goes through it.
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
 
 		await page.evaluate(async (folder) => {
 			const root = await navigator.storage.getDirectory();
-			const project = await (
-				await root.getDirectoryHandle(folder)
-			).getDirectoryHandle('amsterdam-1625');
-			for (const litter of [
-				'.project.json.abandoned.ballastella-tmp',
-				'.project.json.crashed.ballastella-tmp.crswap'
-			]) {
-				const writable = await (
-					await project.getFileHandle(litter, { create: true })
-				).createWritable();
-				await writable.write('half a document');
+			const workspace = await root.getDirectoryHandle(folder);
+			const put = async (path: string, text: string) => {
+				const segments = path.split('/');
+				let directory = workspace;
+				for (const segment of segments.slice(0, -1)) {
+					directory = await directory.getDirectoryHandle(segment, { create: true });
+				}
+				const handle = await directory.getFileHandle(segments[segments.length - 1] as string, {
+					create: true
+				});
+				const writable = await handle.createWritable();
+				await writable.write(text);
 				await writable.close();
+			};
+			for (const litter of [
+				'amsterdam-1625/.project.json.abandoned.ballastella-tmp',
+				'amsterdam-1625/.project.json.crashed.ballastella-tmp.crswap'
+			]) {
+				await put(litter, 'half a document');
 			}
+			// An Import of “Boston 1775” that had written its whole closure and died before the marker
+			// said so, so every one of these is provisional and none of it is the user's.
+			const provisional = {
+				'boston-1775/project.json': '{"formatVersion":1,"name":"Boston 1775","layers":[]}',
+				'boston-1775/annotations/wharves.geojson': '{"type":"FeatureCollection","features":[]}',
+				'images/img-imported/info.json': '{"width":2048,"height":2048}'
+			};
+			for (const [path, text] of Object.entries(provisional)) await put(path, text);
+			await put(
+				'import.json',
+				JSON.stringify({
+					formatVersion: 1,
+					transaction: 'e2e-folder-import',
+					state: 'writing',
+					project: 'boston-1775/project.json',
+					paths: Object.keys(provisional).sort(),
+					startedAt: '2026-08-22T10:00:00.000Z'
+				})
+			);
 		}, PICKED_FOLDER);
-		expect(await everyPathInFolder(page)).toHaveLength(3);
+		expect(await everyPathInFolder(page)).toHaveLength(7);
 
 		// Reopening is an adoption too, so the sweep has to be on that path and not only on picking.
 		await page.reload();
@@ -564,6 +600,9 @@ test.describe('choosing a folder as the Workspace', () => {
 		await inFolder(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 
+		// The half-arrived Project was never on the hub: the Workspace does not open until the marker
+		// is resolved, so there is no frame in which it could have been listed.
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
 		await expect.poll(() => everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
 	});
 

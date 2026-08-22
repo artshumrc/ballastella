@@ -26,7 +26,28 @@
 	const unreachable = $derived(storage.session.status === 'unreachable');
 </script>
 
-{#if unreachable}
+<!--
+	⚠ **First, and on its own** (ticket 05). An Import that did not finish leaves its provisional files
+	at ordinary Workspace paths under one durable marker, so a Workspace whose marker cannot be
+	resolved does not open at all — no Project list, no Map Image list, no size, no Backup, no Publish
+	and no Project. That is not one state among the two below but the absence of a Workspace to have
+	them about, so nothing else on this component renders beside it, and neither does the hub's list.
+
+	No button. The recovery *is* a reload: the marker is untouched, so the next startup tries again
+	from the same inventory, and a control offering to do it now would be offering the thing that has
+	just been tried. Staging internals are not the user's to see either — the sentence names what
+	happened to their Import and what to do about it (ADR-0008: a normal state with a way back).
+-->
+{#if storage.unrecoveredImport}
+	<div
+		role="alert"
+		class="mt-8 alert flex-col items-start alert-warning"
+		data-testid="unrecovered-import"
+	>
+		<h2 class="font-semibold">This Workspace is not open yet</h2>
+		<p>{storage.unrecoveredImport}</p>
+	</div>
+{:else if unreachable}
 	<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
 		<h2 class="font-semibold">Workspace not reachable</h2>
 		<p>
@@ -72,7 +93,7 @@
 	</div>
 {/if}
 
-{#if storage.problem}
+{#if storage.problem && !storage.unrecoveredImport}
 	<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
 		<h2 class="font-semibold">Your Workspace folder was not opened</h2>
 		<p>{storage.problem}</p>

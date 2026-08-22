@@ -10,9 +10,10 @@ import {
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { layerRows, openLayerRow } from './support/layers.js';
-import { expect, test, type Page } from './support/test.js';
+import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import {
 	closeWorkspaceSettings,
+	createWorkspace,
 	openWorkspaceMenu,
 	openWorkspaceSettings,
 	switchToWorkspace
@@ -1338,5 +1339,173 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 
 		await expect(dialog).toBeHidden();
 		await expect(page.getByRole('button', { name: 'New Project' })).toBeFocused();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// AN IMPORT THAT DID NOT FINISH (ticket 05)
+//
+// An Import writes its provisional files straight to their final Workspace paths and makes them
+// provisional by naming them in one durable marker: while that marker is unresolved the Workspace is
+// unavailable, and startup recovery resolves it before anything asks the Workspace a question. Every
+// decision that recovery makes — swept, finished, or refused — is asserted per durable boundary and
+// without a browser in `packages/core/src/transfer/project-import-recovery.test.ts`.
+//
+// What only a browser can show is that the *application* is gated on it: the Project list is an
+// effect over `?p=` that runs the moment the layout mounts, the Map Image list and the Workspace's
+// size are walks of the same real OPFS, and a Backup is a third. So this is one test with three
+// restarts in it rather than three tests — the subject is a single workflow, "what the next visit
+// does with an outstanding marker", and the three markers are the three answers it can have.
+
+test.describe('an Import that did not finish (ticket 05)', () => {
+	/** The Workspace the author already had, which a swept Import must leave exactly as it is. */
+	const OWN = {
+		'project.json': projectJson({ name: 'My own Amsterdam', layers: [] }),
+		'annotations/quays.geojson': WAREHOUSES_GEOJSON,
+		'images/blaeu-1649/info.json': '{"width":2048,"height":2048}',
+		// alignment-write-is-the-fixture: the author's own Alignment, seeded so a sweep that touched it would be visible
+		'alignments/blaeu-1649.json': '{"type":"Annotation","id":"blaeu-1649"}'
+	};
+
+	/**
+	 * The closure an interrupted Import had written, at the fresh paths it had allocated.
+	 *
+	 * Project-relative, as {@link seedProject} takes them: the shared material goes to the Workspace
+	 * root and the rest inside the directory, which is ADR-0023's split and therefore the layout a
+	 * real Import would have left.
+	 */
+	const PROVISIONAL: Record<string, string> = {
+		'project.json': projectJson({ name: 'Boston 1775', layers: [] }),
+		'annotations/wharves.geojson': WAREHOUSES_GEOJSON,
+		'images/img-imported/info.json': '{"width":1024,"height":1024}',
+		// alignment-write-is-the-fixture: the incoming Alignment as an interrupted Import had already written it, at the fresh identity it allocated
+		'alignments/img-imported.json': '{"type":"Annotation","id":"img-imported"}'
+	};
+
+	/** The same closure as the marker names it: Workspace-rooted, sorted, and authoritative. */
+	const PROVISIONAL_PATHS = [
+		'alignments/img-imported.json',
+		'boston-1775/annotations/wharves.geojson',
+		'boston-1775/project.json',
+		'images/img-imported/info.json'
+	];
+
+	/** Write a marker naming {@link PROVISIONAL}, or any other bytes, at the Workspace root. */
+	const plantMarker = (page: Page, marker: string) =>
+		page.evaluate(async (marker) => {
+			const handle = await (await workspaceRoot()).getFileHandle('import.json', { create: true });
+			const writable = await handle.createWritable();
+			await writable.write(marker);
+			await writable.close();
+		}, marker);
+
+	const markerFor = (state: 'writing' | 'committed') =>
+		JSON.stringify({
+			formatVersion: 1,
+			transaction: 'e2e-import',
+			state,
+			project: 'boston-1775/project.json',
+			paths: PROVISIONAL_PATHS,
+			startedAt: '2026-08-22T10:00:00.000Z'
+		});
+
+	const plantProvisional = (page: Page) => seedProject(page, 'boston-1775', PROVISIONAL);
+
+	test('is swept, finished, or keeps the Workspace shut — before anything can list it', async ({
+		page
+	}) => {
+		await seedProject(page, 'my-own-amsterdam', OWN);
+
+		// ── A transaction that was still writing. Nothing about it is durable, so all of it goes.
+		await plantProvisional(page);
+		await plantMarker(page, markerFor('writing'));
+		await page.reload();
+
+		await expect(page.getByRole('link', { name: 'My own Amsterdam' })).toBeVisible();
+		// Never listed, rather than listed and then removed: the Workspace does not open until the
+		// marker is resolved, so there is no frame in which the half-arrived Project could appear.
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
+		// Nor its Map Image, which is the reader the shared pool makes easiest to forget: `images/` holds
+		// the author's own maps beside the Import's, one directory along.
+		await expect(page.getByTestId('map-image')).toHaveCount(1);
+		// Nor is any of it in a Backup — a second walk of the same Workspace.
+		const download = page.waitForEvent('download');
+		await openWorkspaceSettings(page);
+		await page.getByTestId('back-up-workspace').click();
+		const { unpackTar } = await import('modern-tar');
+		const entries = await unpackTar(new Uint8Array(await readFile(await (await download).path())), {
+			strict: true
+		});
+		expect(entries.map((entry) => entry.header.name).sort()).toEqual(
+			[
+				// The archive's own directory entry for the Workspace it is rooted at.
+				`${DEFAULT_WORKSPACE}/`,
+				...Object.keys(OWN).map((path) =>
+					path.startsWith('images/') || path.startsWith('alignments/')
+						? `${DEFAULT_WORKSPACE}/${path}`
+						: `${DEFAULT_WORKSPACE}/my-own-amsterdam/${path}`
+				)
+			].sort()
+		);
+		await closeWorkspaceSettings(page);
+		// The marker went last and took the whole inventory with it, so the disk is the pre-Import
+		// Workspace exactly.
+		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toEqual(
+			Object.fromEntries(
+				Object.entries(OWN).map(([path, text]) => [
+					path.startsWith('images/') || path.startsWith('alignments/')
+						? path
+						: `my-own-amsterdam/${path}`,
+					text
+				])
+			)
+		);
+
+		// And the Workspace weighs the author's own four files and not a byte of the Import's. This is
+		// the one place a Workspace's size reaches a screen, and it is offered only for a Workspace the
+		// user is *not* in — so reaching it means standing somewhere else and looking back at this one.
+		await createWorkspace(page, 'Elsewhere');
+		await openWorkspaceSettings(page);
+		await page.getByTestId('delete-workspace').click();
+		await expect(page.getByTestId('delete-workspace-size')).toContainText(
+			`It holds ${Object.keys(OWN).length} files,`
+		);
+		await page.getByRole('button', { name: 'Keep it' }).click();
+		await closeWorkspaceSettings(page);
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+
+		// ── A transaction that had committed. Every final path is durable and nothing may be rolled
+		// back, so all that is left is removing the marker that shuts the Workspace.
+		await plantProvisional(page);
+		await plantMarker(page, markerFor('committed'));
+		await page.reload();
+
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'My own Amsterdam' })).toBeVisible();
+		await expect(page.getByTestId('map-image')).toHaveCount(2);
+		expect(Object.keys(await everyByteOf(page, DEFAULT_WORKSPACE))).not.toContain('import.json');
+
+		// ── A marker that will not parse. Which of the two above it meant cannot be told, and guessing
+		// wrong is either a Project silently deleted or a Workspace opened over half of one.
+		await plantMarker(page, 'half a jso');
+		await page.reload();
+
+		await expect(page.getByTestId('unrecovered-import')).toBeVisible();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
+		// Nor is there a reader to reach: publishing and backing up are two more walks of this
+		// Workspace, and both are absent rather than present and refused — the arrangement a review copy
+		// already has.
+		await expect(page.getByTestId('publish')).toHaveCount(0);
+		await openWorkspaceSettings(page);
+		await expect(page.getByTestId('no-backup-unrecovered')).toBeVisible();
+		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);
+		await closeWorkspaceSettings(page);
+		// Staging internals are not the author's to read, and the marker is left where it is — which is
+		// the durable evidence the next startup retries from.
+		await expect(page.getByTestId('unrecovered-import')).not.toContainText('import.json');
+		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toMatchObject({
+			'import.json': 'half a jso'
+		});
 	});
 });

@@ -125,8 +125,15 @@
 	 * Absent inside a review copy rather than present and refused, which is the arrangement the hub
 	 * already had: the review copy holds somebody else's work, the hub says so in words where the
 	 * button used to be, and `packages/core` refuses the binding by any route regardless.
+	 *
+	 * Absent for the same reason over a Workspace whose interrupted Import could not be resolved
+	 * (ticket 05). A publish plan is a walk of the Workspace, and until the marker is resolved that
+	 * walk would include provisional files — which is what the whole gate exists to prevent, and the
+	 * hub is already saying why in words.
 	 */
-	const publishable = $derived(storage !== null && storage.review === null);
+	const publishable = $derived(
+		storage !== null && storage.review === null && storage.unrecoveredImport === ''
+	);
 
 	/**
 	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared

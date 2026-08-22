@@ -12,11 +12,13 @@ import {
 	ensureOpfsWorkspace,
 	exportWorkspaceTar,
 	forgetWorkspaceFolder,
+	ImportRecoveryFailedError,
 	isFolderWorkspaceSupported,
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
 	openProjectBundle,
 	readReviewMark,
+	recoverProjectImport,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
 	restoreWorkspaceTar,
@@ -462,6 +464,22 @@ export class WorkspaceStorage {
 	orphanedJournals = $state<string[]>([]);
 	/** `''` when this browser can protect an edit against the tab closing, otherwise why it cannot. */
 	unprotected = $state('');
+	/**
+	 * Why this Workspace is not available, because an interrupted Import could not be resolved
+	 * (ticket 05).
+	 *
+	 * ⚠ **Not a notice beside a Workspace that opened anyway.** An Import writes its provisional files
+	 * at ordinary Workspace paths under one durable marker, so while that marker is unresolved *every*
+	 * reader would see them — the Project list is whichever directories hold a `project.json`, and
+	 * Workspace size, Backup and Publish all walk `list`. `recoverProjectImport` resolves the marker
+	 * before anything asks the Workspace a question; when it cannot, this is set and
+	 * {@link recovered} is never resolved, so nothing enumerates and the routes render this instead of
+	 * a Project list that would be a lie.
+	 *
+	 * The marker is left exactly where it is, which is the durable evidence the next visit retries
+	 * from — so the recovery offered here is a reload.
+	 */
+	unrecoveredImport = $state('');
 
 	#teardownFlushOnHide: (() => void) | undefined;
 	/**
@@ -540,6 +558,45 @@ export class WorkspaceStorage {
 		return this.#recovered;
 	}
 
+	/**
+	 * Resolve an outstanding Project Import, or leave this Workspace unavailable (ticket 05).
+	 *
+	 * `false` is not "it failed" so much as "nothing may read this Workspace": the marker is left
+	 * exactly where it is, which is the durable evidence the next visit retries from, and
+	 * {@link unrecoveredImport} is what the routes render instead of a Project list.
+	 *
+	 * Cleared first, so a second Workspace's answer is never the first's.
+	 */
+	async #recoverImport(store: ProjectStore): Promise<boolean> {
+		this.unrecoveredImport = '';
+		try {
+			await recoverProjectImport(store);
+			return true;
+		} catch (cause) {
+			// ⚠ **A Workspace that cannot be reached at all is not an Import that will not recover.**
+			// `readImportTransaction` answers "unreadable" for a backing that is down as well as for a
+			// marker that will not parse, deliberately — the safe direction there is to keep a Workspace
+			// shut. But at this level the two have different recoveries: a moved or unplugged folder is
+			// already a state this app renders, with a picker or a locate-again beside it, and relabelling
+			// it as an unfinished Import would take that way back off the screen and offer a reload
+			// instead. So the backing is asked directly, and only a Workspace that answers is one this
+			// may draw a conclusion about.
+			if (
+				!(await store
+					.list('')
+					.then(() => true)
+					.catch(() => false))
+			)
+				return true;
+			this.unrecoveredImport =
+				cause instanceof ImportRecoveryFailedError
+					? cause.message
+					: `This Workspace could not be opened, because an Import that did not finish could not ` +
+						`be cleared up: ${cause instanceof Error ? cause.message : String(cause)}`;
+			return false;
+		}
+	}
+
 	/** Begin. Returns its own teardown, for the effect that created it. */
 	start(): () => void {
 		this.canChooseFolder = isFolderWorkspaceSupported();
@@ -560,11 +617,18 @@ export class WorkspaceStorage {
 		// It also refreshes the Project list when it changed anything, so the hub shows the restored
 		// name rather than the one the interrupted write was replacing.
 		void ensureOpfsWorkspace(this.workspaceName)
+			// ⚠ **First, before anything at all asks this Workspace a question** (ticket 05). An Import
+			// that did not finish left its provisional files at ordinary Workspace paths under one
+			// durable marker, and until that marker is resolved every reader would see them — the review
+			// mark, the Remote, the journal replay, the interrupted deletions and the route's own Project
+			// read all included. `false` means it could not be resolved, and then none of them run.
+			.then(() => this.#recoverImport(this.session.store))
 			// ⚠ **The first load never goes through `#adopt`** — the session is built in the field
 			// initialiser from the remembered name — so without this the one case the mark exists for is
 			// the one it misses: a user who closed the tab inside a review copy and opened it again. The
 			// banner would be absent on exactly the screen they most need it on.
-			.then(async () => {
+			.then(async (available) => {
+				if (!available) return false;
 				this.review = await this.#markOf(this.session.store);
 				// Both facts about the arriving Workspace, read in the same breath as the mark and for
 				// the same reason: the first load never goes through `#adopt`, so a binding read only
@@ -591,12 +655,19 @@ export class WorkspaceStorage {
 					this.ownWorkspaceName = this.workspaceName;
 					this.ownFolderName = '';
 				}
+				await this.#replayAndReport();
+				return true;
 			})
-			.then(() => this.#replayAndReport())
-			.catch(() => undefined)
-			// Before the Workspace listing, which is not something a Project read has to wait for.
-			.finally(() => this.#finishRecovery())
-			.then(() => this.refreshWorkspaces())
+			// An unresolved Import is the **only** failure that withholds `recovered`: everything else
+			// on this chain has already reported itself, and a route left waiting for ever over a
+			// Remote that would not read would be a worse failure than the one being recovered.
+			.catch(() => this.unrecoveredImport === '')
+			.then((available) => {
+				if (!available) return undefined;
+				// Before the Workspace listing, which is not something a Project read has to wait for.
+				this.#finishRecovery();
+				return this.refreshWorkspaces();
+			})
 			.catch(() => undefined);
 		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
 		// waiting on: Chromium answers from its own heuristics and Firefox may not answer at all until a
@@ -889,6 +960,10 @@ export class WorkspaceStorage {
 		// months later as though it were theirs. Refused here rather than only hidden in the markup: a
 		// guard that lives in a component is one route away from being absent.
 		this.assertNotReviewing('backed up');
+		// And a Workspace whose Import has not been resolved is not walked at all (ticket 05): a Backup
+		// is one of the five readers the marker's gate exists to keep out, and an archive holding half a
+		// Project is one the user restores months later believing it whole.
+		this.assertRecovered('backed up');
 		await this.session.flush().catch(() => undefined);
 		const backup = await exportWorkspaceTar(this.session.store, this.name, { onProgress });
 		await saveFile(backup.fileName, backup.body);
@@ -1176,6 +1251,19 @@ export class WorkspaceStorage {
 		refuseInsideReview(this.name, this.review, verb);
 	}
 
+	/**
+	 * Refuse an action over a Workspace whose interrupted Import could not be resolved (ticket 05).
+	 *
+	 * The second layer under a control that is already absent, for {@link assertNotReviewing}'s
+	 * reason: a guard that lives in a component is one route away from being absent. The sentence
+	 * carries the recovery's own words, because there is one thing to do about it and repeating it
+	 * differently here is how two spellings of the same state come to disagree.
+	 */
+	assertRecovered(verb: string): void {
+		if (this.unrecoveredImport === '') return;
+		throw new Error(`“${this.name}” cannot be ${verb} until it opens. ${this.unrecoveredImport}`);
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ticket 03, ADR-0032, ADR-0033)
 	//
@@ -1199,6 +1287,11 @@ export class WorkspaceStorage {
 		this.legacyRemote = null;
 		this.remote = null;
 		this.baseline = null;
+		// ⚠ **Cleared and then nothing, over a Workspace whose Import could not be recovered** (ticket
+		// 05). Reading a Remote is a read of this Workspace, and the clears above are why the guard is
+		// here rather than at the call: leaving the *previous* Workspace's Remote on screen beside an
+		// unavailable one is how a Publish gets offered over work that is not there.
+		if (this.unrecoveredImport !== '') return;
 		if (metadata !== null) {
 			const migration = await migrateSynchronizationMetadata({
 				metadata,
@@ -1727,6 +1820,11 @@ export class WorkspaceStorage {
 			workspaceKey:
 				backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName)
 		});
+		// ⚠ **Before the mark and before the Remote, because both of those are reads of this
+		// Workspace** (ticket 05). An unresolved Import marker means the arriving Workspace is not
+		// available at all — its provisional files sit at ordinary paths — so a mark, a Remote, a
+		// replay, or the Project the route is about to ask for would all be read over half an Import.
+		const available = await this.#recoverImport(store);
 		// ⚠ **The mark is read before `this.session` is published, and the order is the point.** The
 		// banner, the Publish refusal and the backup refusal are all drawn from it, so a frame in which
 		// the new session is on screen and the mark is still the *previous* Workspace's is a frame in
@@ -1735,7 +1833,7 @@ export class WorkspaceStorage {
 		//
 		// A folder Workspace is never a review copy: a bundle only ever opens into browser storage, so
 		// there is no such file to ask a folder store for.
-		this.review = backing === 'folder' ? null : await this.#markOf(store);
+		this.review = backing === 'folder' || !available ? null : await this.#markOf(store);
 		// ⚠ **No branch on backing here, and that is the rule rather than an omission** (ADR-0032). A
 		// folder Workspace and a browser one may each be bound; the review mark is forced `null` for a
 		// folder above because a bundle only ever opens into browser storage, and no equivalent
@@ -1782,6 +1880,11 @@ export class WorkspaceStorage {
 		// Best-effort and swallowed. A Workspace that cannot be swept is either unreachable — which the
 		// listing is about to say properly — or holding a file it will not give up, and neither is a
 		// reason to refuse to open it.
+		//
+		// Not reached at all when the Import above could not be resolved: the arriving session is on
+		// screen so the failure is reported against the Workspace the user actually chose, and
+		// `recovered` is left unresolved so no route reads it. The next visit retries from the marker.
+		if (!available) return;
 		await store.reclaimAbandonedWrites('').catch(() => undefined);
 		// After the sweep, so the atomic write a replay performs is not reclaimed out from under it.
 		await this.#replayAndReport().catch(() => undefined);

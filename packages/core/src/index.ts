@@ -301,6 +301,15 @@ export {
 	type ImportedProject,
 	type UnreadableImportTransaction
 } from './transfer/project-import-transaction.js';
+// The other half of that gate (ticket 05): what closes it. An outstanding marker is resolved — swept
+// or finished — before the Workspace answers a single question about itself, and a Workspace whose
+// marker cannot be resolved stays unavailable rather than opening over half a Project.
+export {
+	ImportRecoveryFailedError,
+	recoverProjectImport,
+	type ImportRecovery,
+	type ImportRecoveryFailure
+} from './transfer/project-import-recovery.js';
 export {
 	readProjectBundleSource,
 	type ProjectBundleSourceOptions
