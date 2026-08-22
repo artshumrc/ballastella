@@ -28,14 +28,20 @@
 //      module reopens the hole completely, and reads as a cast rather than as the decision it is.
 //
 // What neither layer can see is a path computed at *runtime* from data — an archive entry's own
-// path, a git tree entry's, or a journal entry's. There are exactly **four** of those, and none is
-// fenced: all four are routed, calling `writeAlignmentBytes` like everybody else.
+// path, a git tree entry's, a journal entry's, or a destination allocated for an Import. There are
+// exactly **six** of those, and none is fenced: all six are routed, calling `writeAlignmentBytes`
+// like everybody else.
 //
 //   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
 //   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
 //     Review Workspace (ticket 14).
+//   - `packages/core/src/transfer/project-import-transaction.ts` — one Project being copied into the
+//     Workspace the user already has (ADR-0037), where the path is a Map Image identity allocated
+//     for this Import rather than one anything in the source named.
 //   - `packages/core/src/remote/clone-from-remote.ts` — a published Workspace downloaded out of a
 //     public repository, where the path is an entry in somebody else's git tree.
+//   - `packages/core/src/remote/review-from-remote.ts` — one published Project downloaded into a
+//     Review Workspace, from the same kind of tree entry.
 //   - `packages/core/src/autosave/replay.ts` — an unsaved change being put back from the
 //     write-ahead journal at startup. Its own comment says so at the branch: "the path is runtime
 //     data, so neither `WritablePath` nor the fence can see it."
@@ -50,10 +56,14 @@
 // grep -rn "await writeAlignmentBytes(" --include=*.ts packages apps | grep -v "\.test\."
 // ```
 //
-// Five lines today. Four of them are this list. The fifth is
+// Seven lines today. Six of them are this list. The seventh is
 // `EditorSession.restoreAlignmentChangedElsewhere`, which passes an **image id** rather than a path —
 // so `writeAlignmentBytes` builds the path itself and both layers do see it. Any other line is a new
 // runtime-path writer and belongs above.
+//
+// **The recount found `review-from-remote.ts` missing**, added when Review gained its own downloader
+// and never listed, which is the third time this list has gone stale between recipes. Run the command;
+// do not trust the count.
 //
 // **Two of the escapes were exercised again in ticket 07, and the answers are unchanged.** A path
 // laundered through a `const` template literal in `AlignmentWorkspace.svelte` was caught here, at

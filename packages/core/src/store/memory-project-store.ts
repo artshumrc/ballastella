@@ -14,7 +14,9 @@ import { TempFileWriteStore } from './temp-file-write-store.js';
 export class MemoryProjectStore extends TempFileWriteStore {
 	readonly #files = new Map<StorePath, Bytes>();
 	#unreachable: Error | undefined;
-	#failNextWriteStep: 'bytes' | 'rename' | undefined;
+	#writes = 0;
+	#failAt: { readonly at: number; readonly step: 'bytes' | 'rename' } | undefined;
+	#failNextDelete = false;
 
 	/** Fails every operation with `cause` — the unreachable workspace of ADR-0008. */
 	static unreachable(cause: Error = new Error('Workspace not reachable')): MemoryProjectStore {
@@ -38,7 +40,48 @@ export class MemoryProjectStore extends TempFileWriteStore {
 	 * `'bytes'` is the temporary file never landing, `'rename'` is the move into place failing.
 	 */
 	failNextWrite(step: 'bytes' | 'rename'): void {
-		this.#failNextWriteStep = step;
+		this.failWriteAt(1, step);
+	}
+
+	/**
+	 * Fail the `nth` `write` from now on at `step`, and only that one.
+	 *
+	 * {@link failNextWrite} widened to reach a boundary *inside* a multi-file operation, which is
+	 * where Project Import's atomicity lives: a transaction writing a marker, a closure and the
+	 * marker again has a durable boundary between every pair of those writes, and "the whole
+	 * Workspace, before or after, never a mixture" is a claim about all of them rather than about the
+	 * first. Counting is what makes the matrix exhaustive without the caller knowing how the engine
+	 * is built — `nth` is a position in the sequence of writes the store sees, not a path.
+	 *
+	 * **Assumes the writes are awaited one at a time**, which is the only way an ordinal means
+	 * anything. Every multi-file operation in this codebase writes sequentially, because the store's
+	 * contract is per file and peak memory is deliberately one file.
+	 */
+	failWriteAt(nth: number, step: 'bytes' | 'rename'): void {
+		this.#failAt = { at: this.#writes + nth, step };
+	}
+
+	/**
+	 * Fail the next `delete`, and only that one.
+	 *
+	 * The other half of a transaction's durable boundaries: a protocol whose last step is removing its
+	 * own marker has a failure there that no write fault can reach, and what a Workspace looks like
+	 * after it is the difference between a Project that arrived and one that was rolled back.
+	 */
+	failNextDelete(): void {
+		this.#failNextDelete = true;
+	}
+
+	/**
+	 * Make every further operation fail — the backing going away mid-operation.
+	 *
+	 * {@link unreachable} for a store that is already in flight, and the only way to reach the case
+	 * where an operation's *cleanup* cannot run either: a laptop closed, a folder unmounted, a tab
+	 * losing its OPFS handle. {@link snapshot} still answers, because what the disk holds after that
+	 * is exactly what has to be asserted.
+	 */
+	becomeUnreachable(cause: Error = new Error('Workspace not reachable')): void {
+		this.#unreachable = cause;
 	}
 
 	/**
@@ -63,6 +106,7 @@ export class MemoryProjectStore extends TempFileWriteStore {
 
 	protected async writeBytes(path: StorePath, bytes: Bytes): Promise<void> {
 		this.#assertReachable();
+		this.#writes += 1;
 		this.#failIfArmed('bytes');
 		this.#files.set(path, bytes.slice());
 	}
@@ -83,6 +127,10 @@ export class MemoryProjectStore extends TempFileWriteStore {
 
 	protected async deletePath(path: StorePath): Promise<void> {
 		this.#assertReachable();
+		if (this.#failNextDelete) {
+			this.#failNextDelete = false;
+			throw new Error(`storage went away while ${path} was being deleted`);
+		}
 		this.#files.delete(path);
 	}
 
@@ -98,8 +146,9 @@ export class MemoryProjectStore extends TempFileWriteStore {
 	}
 
 	#failIfArmed(step: 'bytes' | 'rename'): void {
-		if (this.#failNextWriteStep !== step) return;
-		this.#failNextWriteStep = undefined;
-		throw new Error(`storage went away while the write was at the ${step} step`);
+		const armed = this.#failAt;
+		if (armed === undefined || armed.step !== step || armed.at !== this.#writes) return;
+		this.#failAt = undefined;
+		throw new Error(`storage went away while write ${armed.at} was at the ${step} step`);
 	}
 }

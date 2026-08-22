@@ -891,8 +891,13 @@ export function hoistedImageId(archivePath: string): string | null {
  * sequence does not compose it. Deliberately conservative — two names that are distinct on ext4 are
  * treated as colliding — because the cost of that is one offered rename, and the cost of the other
  * way round is somebody's work.
+ *
+ * Exported because Project Import asks the same question of a whole *path* (`foldName` is unaffected
+ * by `/`, so a path folds segment by segment for free): a fresh destination that folds onto a file
+ * the Workspace already holds is the same overwrite by the same mechanism, and two spellings of the
+ * folding rule is how the collision check and the Import check come to disagree about it.
  */
-const foldName = (name: string): string => name.normalize('NFC').toLowerCase();
+export const foldName = (name: string): string => name.normalize('NFC').toLowerCase();
 
 /**
  * A display name to a directory name: `Amsterdam 1625` → `amsterdam-1625`.

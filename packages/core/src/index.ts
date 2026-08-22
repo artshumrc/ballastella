@@ -280,6 +280,27 @@ export {
 	type ProjectImportSourceInput,
 	type UnmetClosureReference
 } from './transfer/project-import-source.js';
+// Putting one Project into the Workspace the user already has (ADR-0037). The write half of the same
+// boundary: one closure written once at fresh destination paths under one recoverable marker, and a
+// Workspace that stays shut while that marker is unresolved rather than a filter at every reader.
+export {
+	IMPORT_TRANSACTION_FORMAT_VERSION,
+	IMPORT_TRANSACTION_PATH,
+	ImportRefusedError,
+	clearImportTransaction,
+	commitProjectImport,
+	discardImportTransaction,
+	parseImportTransaction,
+	readImportTransaction,
+	serialiseImportTransaction,
+	type CommitProjectImportOptions,
+	type ImportRefusal,
+	type ImportTransaction,
+	type ImportTransactionMark,
+	type ImportTransactionState,
+	type ImportedProject,
+	type UnreadableImportTransaction
+} from './transfer/project-import-transaction.js';
 export {
 	readProjectBundleSource,
 	type ProjectBundleSourceOptions
