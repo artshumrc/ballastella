@@ -17,6 +17,12 @@ import {
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
 	openProjectBundle,
+	allocateProjectImport,
+	commitProjectImport,
+	detachImportedProject,
+	readProjectBundleSource,
+	remapProjectImport,
+	serialiseProjectFile,
 	readReviewMark,
 	recoverProjectImport,
 	rememberedFolderName,
@@ -67,7 +73,9 @@ import {
 	type GitHubTokenGrant,
 	type SignInCallback,
 	type JournalStorage,
+	type ClosureFile,
 	type OpenedBundle,
+	type ProjectImportSource,
 	type ProjectStore,
 	type RemoteBindOutcome,
 	type MetadataStorage,
@@ -230,6 +238,32 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
 export const WORKSPACE_BACKINGS = ['browser', 'folder'] as const;
 
 export type WorkspaceBacking = (typeof WORKSPACE_BACKINGS)[number];
+
+/**
+ * The ordinary Workspace an Import offer named when it was opened (ADR-0037).
+ *
+ * ⚠ **Resolved once, when the offer opens, and carried back to the commit.** An Import copies into
+ * *this* Workspace, and the sentence the offer shows says which one — so a switch between reading
+ * that sentence and pressing the button must not silently redirect the copy. {@link
+ * WorkspaceStorage.importBundle} compares the key it is handed against the Workspace that is open
+ * and refuses rather than following the switch.
+ */
+export interface ImportTarget {
+	/** What the offer shows the author, which is {@link WorkspaceStorage.name}. */
+	readonly name: string;
+	/** The Workspace itself, backing included, so a switch is a mismatch rather than a rename. */
+	readonly key: string;
+}
+
+/** What an Import put in the Workspace that was already open. */
+export interface ImportedIntoWorkspace {
+	/** The display name it was allocated, which is not the source's when that one was taken. */
+	readonly name: string;
+	/** The Project's directory, which is its identity (ADR-0008). */
+	readonly directory: string;
+	/** The Workspace it went into, named as the author reads it. */
+	readonly workspace: string;
+}
 
 /**
  * Which named Workspace browser storage was last opened in, kept across visits.
@@ -1273,6 +1307,148 @@ export class WorkspaceStorage {
 		await this.#leaveReview();
 		await this.#removeWorkspace(discarding);
 		await this.refreshWorkspaces();
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// IMPORT: COPYING SOMEBODY ELSE'S PROJECT INTO THE WORKSPACE THAT IS OPEN (ADR-0037)
+	//
+	// ⚠ **The opposite destination from every Review above, and the boundary is the whole design.**
+	// A Review makes a throwaway Workspace and may never touch the author's own; an Import writes into
+	// the Workspace they are looking at and never makes another. So the two share a *source* — the
+	// read-only capability `readProjectBundleSource` returns, which is handed no store at all — and
+	// share nothing else. Nothing below may grow a `discard`, and nothing above may grow a destination.
+
+	/**
+	 * Which Workspace an Import would copy into, or `null` when none may be.
+	 *
+	 * Read when the offer opens, shown in it, and handed back to {@link importBundle}. `null` inside a
+	 * Review Workspace — a reviewed Project is copied by ticket 19's own operation, from the ordinary
+	 * Workspace review began in — and `null` over a Workspace whose interrupted Import has not been
+	 * resolved, which cannot be enumerated and so cannot be allocated against.
+	 */
+	get importTarget(): ImportTarget | null {
+		if (this.review !== null || this.unrecoveredImport !== '') return null;
+		return { name: this.name, key: this.#workspaceKey };
+	}
+
+	/**
+	 * Copy one Project out of a bundle into the Workspace that is already open.
+	 *
+	 * The engine is `@ballastella/core`'s and the order is its own (ADR-0037): the manifest is
+	 * detached before it is remapped, because the remapping serialises what it plans; the Map Image
+	 * identities are minted before anything is allocated, because the destination path set is what a
+	 * transaction is planned over; and the allocated display name is folded in last, because
+	 * `commitProjectImport` writes `project.json` from the source's held-back bytes rather than from
+	 * the file stream. What this method owns is the three things core deliberately does not know: which
+	 * Workspace, what the author is already looking at, and that somebody is waiting.
+	 *
+	 * ⚠ **The target is re-checked immediately before the transaction, not only when the offer
+	 * opened.** The offer names a Workspace in words, and a switcher two clicks away can make that
+	 * sentence a lie while it is on screen. Refusing is the only honest answer: following the switch
+	 * would copy into a Workspace the author never read the offer about, and there is nothing to
+	 * roll back because nothing has been written yet.
+	 *
+	 * ⚠ **Progress is counted from the closure's own files, and there is no percentage.** A bundle is
+	 * a tar and declares no total, but a closure *does* — its path set is known before a byte moves —
+	 * so the two numbers here are both real. A Map Image pyramid is thousands of files over real
+	 * minutes and this is the path ADR-0001 makes the only way in on Firefox, Safari and iPad.
+	 *
+	 * @throws ImportSourceRefusedError, ImportRefusedError, ProjectFormatTooNewError — each with
+	 *   nothing added to the Workspace
+	 */
+	async importBundle(file: File, target: ImportTarget): Promise<ImportedIntoWorkspace> {
+		const announce = (files: number, totalFiles: number, finished: boolean) => {
+			this.transfer = { kind: 'import', subject: file.name, files, totalFiles, finished };
+		};
+		try {
+			const source = await readProjectBundleSource(() => file.stream(), { fileName: file.name });
+			// The moment the transfer was observed, read once and serialised straight into
+			// `project.json`. Nothing holds it and nothing re-reads it, which is the mutable instance
+			// in reactive state the rule below is about.
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity
+			const detached = detachImportedProject(source.project, source.origin, new Date());
+			const plan = await remapProjectImport({
+				...source,
+				project: detached,
+				projectFileBytes: serialiseProjectFile(detached)
+			});
+
+			const store = this.#storeForImport(target);
+			// The Remote's and the Baseline's directory inventories are ticket 17's; an unbound
+			// Workspace has neither, and omitting a member of `ImportDestination` is how "no evidence of
+			// that kind" is spelled.
+			const allocation = allocateProjectImport(plan.closure, {
+				names: this.session.projects.map((project) => project.name),
+				local: await store.list('')
+			});
+			const named = { ...plan.closure.project, name: allocation.name };
+			const total = plan.closure.paths.length;
+			announce(0, total, false);
+			const counted: ProjectImportSource = {
+				...plan.closure,
+				project: named,
+				projectFileBytes: serialiseProjectFile(named),
+				files: () => this.#announcing(plan.closure.files(), total, announce)
+			};
+			await commitProjectImport(store, counted, allocation.destinations, {
+				estimateStorage: estimateStorage
+			});
+			// The Project list this Workspace shows is a walk of its directories, and the Import has just
+			// added one. Refreshed before the finished announcement, so the sentence that says a Project
+			// arrived is not read out over a list that does not hold it yet.
+			await this.session.refresh();
+			announce(total, total, true);
+			return { name: allocation.name, directory: allocation.directory, workspace: this.name };
+		} catch (cause) {
+			// Every refusal has left the Workspace as it was, so the progress line must not be left
+			// mid-count saying a Project is still arriving. What the user needs is the refusal, which the
+			// hub renders as an alert.
+			this.transfer = null;
+			throw cause;
+		}
+	}
+
+	/**
+	 * The closure's files, announcing each one as it goes past.
+	 *
+	 * A passthrough rather than an option on `commitProjectImport`: the transaction's contract is that
+	 * it writes a validated closure and nothing else, and a progress listener threaded through it
+	 * would be a second thing it owes the caller on the rollback path.
+	 */
+	async *#announcing(
+		files: AsyncIterable<ClosureFile>,
+		total: number,
+		announce: (files: number, totalFiles: number, finished: boolean) => void
+	): AsyncIterable<ClosureFile> {
+		let written = 0;
+		for await (const file of files) {
+			written += 1;
+			announce(written, total, false);
+			yield file;
+		}
+	}
+
+	/**
+	 * The store an Import may write to, or the refusal saying why it may not.
+	 *
+	 * @throws Error naming the Workspace the offer named, with nothing written
+	 */
+	#storeForImport(target: ImportTarget): ProjectStore {
+		const current = this.importTarget;
+		if (current === null || current.key !== target.key) {
+			throw new Error(
+				`“${target.name}” is not the Workspace that is open any more, so nothing has been ` +
+					`Imported. Open it again and start the Import from there.`
+			);
+		}
+		return this.session.store;
+	}
+
+	/** This Workspace, backing included, as the synchronization metadata keys it. */
+	get #workspaceKey(): string {
+		return this.backing === 'folder'
+			? folderWorkspaceKey(this.folderName)
+			: opfsWorkspaceKey(this.workspaceName);
 	}
 
 	/**

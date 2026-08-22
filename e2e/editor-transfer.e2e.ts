@@ -363,14 +363,14 @@ const bundleFixture = async (
 	buffer: await buildBundle(files)
 });
 
-/** Open the "Open a Project someone sent me" dialog and hand it a file, without confirming. */
+/** Open the "Review a Project" dialog and hand it a file, without confirming. */
 async function chooseBundle(
 	page: Page,
 	fixture: { name: string; mimeType: string; buffer: Buffer }
 ): Promise<void> {
 	await page.getByTestId('open-bundle').click();
 	await page
-		.getByRole('dialog', { name: 'Open a Project someone sent me' })
+		.getByRole('dialog', { name: 'Review a Project' })
 		.getByLabel('Project bundle')
 		.setInputFiles(fixture);
 }
@@ -387,7 +387,7 @@ async function openBundle(
 	// put back. A test that went on to focus something the moment the banner appeared was acting on a
 	// page still finishing the interaction, and had that focus taken off it a frame later. Waiting here
 	// rather than in each caller: every one of them wants "the bundle is open", not "the banner exists".
-	await expect(page.getByRole('dialog', { name: 'Open a Project someone sent me' })).toBeHidden();
+	await expect(page.getByRole('dialog', { name: 'Review a Project' })).toBeHidden();
 }
 
 const banner = (page: Page) => page.getByTestId('review-banner');
@@ -1235,9 +1235,7 @@ test.describe('a bundle that is refused, with nothing created', () => {
 		const alert = page.getByTestId('bundle-error');
 		await expect(alert).toContainText('could not be read as a Ballastella Project bundle');
 		await expect(alert).toContainText('Nothing has been opened.');
-		await expect(
-			page.getByRole('dialog', { name: 'Open a Project someone sent me' })
-		).toBeVisible();
+		await expect(page.getByRole('dialog', { name: 'Review a Project' })).toBeVisible();
 		// No review copy was left behind, and the user's own Workspace is exactly as it was.
 		expect(await workspaceNames(page)).toEqual(['My Workspace']);
 		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
@@ -1280,7 +1278,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 		await openButton.focus();
 		await page.keyboard.press('Enter');
 
-		const dialog = page.getByRole('dialog', { name: 'Open a Project someone sent me' });
+		const dialog = page.getByRole('dialog', { name: 'Review a Project' });
 		await expect(dialog).toBeVisible();
 		// The file input itself has to be reachable; `setInputFiles` is how a test supplies a file, but
 		// focusing it first is the assertion that a keyboard user can get to it.
@@ -1341,7 +1339,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 				() => (window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled ?? false
 			)
 		).toBe(false);
-		// The trigger is gone — there is no "open a Project someone sent me" inside a review copy — so
+		// The trigger is gone — there is no "Review a Project…" inside a review copy — so
 		// focus lands on the line that says what just happened, which is what a keyboard user needs to
 		// read next.
 		await expect(page.getByTestId('bundle-notice')).toBeFocused();
@@ -1365,13 +1363,11 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 	}) => {
 		const trigger = page.getByTestId('open-bundle');
 		await trigger.click();
-		await expect(
-			page.getByRole('dialog', { name: 'Open a Project someone sent me' })
-		).toBeVisible();
+		await expect(page.getByRole('dialog', { name: 'Review a Project' })).toBeVisible();
 
 		await page.keyboard.press('Escape');
 
-		await expect(page.getByRole('dialog', { name: 'Open a Project someone sent me' })).toBeHidden();
+		await expect(page.getByRole('dialog', { name: 'Review a Project' })).toBeHidden();
 		await expect(trigger).toBeFocused();
 	});
 
@@ -1390,7 +1386,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 		page
 	}) => {
 		await page.getByTestId('open-bundle').click();
-		const dialog = page.getByRole('dialog', { name: 'Open a Project someone sent me' });
+		const dialog = page.getByRole('dialog', { name: 'Review a Project' });
 		await expect(dialog).toBeVisible();
 
 		await dialog.evaluate((element) => {
@@ -1405,6 +1401,329 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 
 		await expect(dialog).toBeHidden();
 		await expect(page.getByRole('button', { name: 'New Project' })).toBeFocused();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// IMPORT: THE INVERSE OF EXPORT (ticket 13, ADR-0037)
+//
+// The engine is exhausted at Seam 1 and without a browser: fresh Map Image identities, repeated
+// references, Alignment rewrites, name and directory allocation against every namespace, the
+// publication reset, provenance inheritance, the atomic transaction and its quota and collision
+// refusals are `project-import-source.test.ts`, `-remapping`, `-allocation`, `-provenance` and
+// `-transaction`.
+//
+// What no seam below can falsify is that the *application* performs the operation it offers: that
+// three actions on one screen mean three different things to the Workspace on disk; that the
+// Workspace named in the offer is the one written to and no other is created; that a Project which
+// arrives under an allocated name is reachable and ordinary afterwards; and that a refusal leaves
+// every byte of real OPFS as it was. Four tests, folded as far as they go.
+
+test.describe('Importing a Project into the Workspace that is open (SPEC stories 1–14)', () => {
+	/**
+	 * A Project already called what the bundle is called, so the allocated name has to differ.
+	 *
+	 * Its Map Image is the bundle's identity too, which is the collision that matters most: under
+	 * ADR-0023 one Workspace holds one Alignment per Map Image, so an Import that reused the incoming
+	 * identity would overwrite the Alignment this Project is drawn by. It is seeded with bytes a
+	 * rewrite would be visible in rather than with a plausible-looking file.
+	 */
+	const MINE = projectFiles({
+		'project.json': projectJson({ name: 'Amsterdam 1625', layers: [] }),
+		// alignment-write-is-the-fixture: the author's own Alignment of the sheet the bundle also holds, seeded so a reused Map Image identity would be visible as an overwrite
+		'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"mine, not the bundle’s"}'
+	});
+
+	/**
+	 * A bundle that has been published and handed on, so the reset and the inheritance are visible.
+	 *
+	 * ⚠ **A real Georeference Annotation, where the Review fixtures above make do with a stub.** An
+	 * Import rewrites the incoming Alignment onto its fresh Map Image identity, and a rewrite goes
+	 * through the domain parser (ADR-0023) — so a placeholder that is enough to tell two files apart
+	 * on disk is refused here, correctly, as not being an Alignment at all.
+	 */
+	const IMPORTABLE = {
+		// alignment-write-is-the-fixture: the Alignment a bundle fixture carries, packed into a tar here; an Import rewrites it onto a fresh identity through the one writer
+		'alignments/amsterdam-1625.json': alignmentJson(AMSTERDAM)
+	};
+
+	const HANDED_ON = projectFiles({
+		...IMPORTABLE,
+		'project.json': projectJson({
+			canonicalUrl: 'https://ada.github.io/atlas/amsterdam-1625/',
+			onFrontPage: true,
+			importProvenance: IMPORT_PROVENANCE
+		})
+	});
+
+	/** The Import offer's file input, addressed through its own dialog. */
+	const importDialog = (page: Page) => page.getByRole('dialog', { name: 'Import a Project' });
+
+	/** Open the Import offer and hand it a file, without confirming. */
+	async function chooseToImport(
+		page: Page,
+		fixture: { name: string; mimeType: string; buffer: Buffer }
+	): Promise<void> {
+		await page.getByTestId('import-project').click();
+		await importDialog(page).getByLabel('Project bundle').setInputFiles(fixture);
+	}
+
+	/** Every path under `directory` in the open Workspace, with its text. */
+	async function filesUnder(page: Page, directory: string): Promise<Record<string, string>> {
+		const all = await everyByteOf(page, 'My Workspace');
+		return Object.fromEntries(
+			Object.entries(all)
+				.filter(([path]) => path.startsWith(`${directory}/`))
+				.map(([path, text]) => [path.slice(directory.length + 1), text])
+		);
+	}
+
+	test.beforeEach(async ({ page }) => {
+		await seedProject(page, 'boston-1775', MINE);
+		await page.reload();
+		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+	});
+
+	// ⚠ **The claim is the destination, and every part of it is about this one Workspace.** Ticket 14's
+	// bundle path answers the same file with a *second* Workspace, so "no other Workspace was created"
+	// is not a formality here: it is the one assertion that tells the two operations apart on disk.
+	test('copies the Project into the Workspace that stays open, under a name of its own', async ({
+		page
+	}) => {
+		const before = await everyByteOf(page, 'My Workspace');
+
+		await page.getByTestId('import-project').click();
+		// Said before a file is chosen, because that is when the author decides which offer they are in.
+		await expect(page.getByTestId('import-destination')).toHaveText('Import into My Workspace');
+		await importDialog(page)
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundleFixture(HANDED_ON));
+		await page.getByTestId('confirm-import').click();
+
+		// The allocated display name and the Workspace, and focus on the sentence carrying them: the
+		// name is not the one the file promised, so a keyboard user put back on the trigger would have
+		// to guess which Project in the list had just arrived.
+		const notice = page.getByTestId('import-notice');
+		await expect(notice).toHaveText(/Imported Amsterdam 1625 \(imported\) into My Workspace\./);
+		await expect(notice).toBeFocused();
+		await expect(importDialog(page)).toBeHidden();
+
+		// No second Workspace, and no switch. This is the whole difference from Review.
+		expect(await workspaceNames(page)).toEqual(['My Workspace']);
+		await expect(banner(page)).toHaveCount(0);
+		await expect(page.getByTestId('projects-count')).toHaveText('2 Projects');
+		await expect(
+			page.getByRole('heading', { level: 3, name: 'Amsterdam 1625 (imported)' })
+		).toBeVisible();
+
+		// Every byte the author already had, unchanged — the seeded Alignment above most of all, which
+		// a reused Map Image identity would have overwritten with the bundle's.
+		const after = await everyByteOf(page, 'My Workspace');
+		for (const [path, text] of Object.entries(before)) expect(after[path]).toBe(text);
+
+		// The imported Project is a detached local copy: off the front page, with no publication
+		// address, carrying the two transfers it has been through and claiming only the second.
+		const directory = Object.keys(after).find(
+			(path) => path.endsWith('/project.json') && !path.startsWith('boston-1775/')
+		);
+		expect(directory).toBeDefined();
+		const imported = JSON.parse(after[directory as string]) as {
+			name: string;
+			canonicalUrl?: string;
+			onFrontPage?: boolean;
+			importProvenance: { kind: string; evidence: string }[];
+			layers: { kind: string; imageId?: string }[];
+		};
+		expect(imported.name).toBe('Amsterdam 1625 (imported)');
+		expect(imported.canonicalUrl).toBeUndefined();
+		expect(imported.onFrontPage).toBe(false);
+		expect(imported.importProvenance.map((entry) => [entry.kind, entry.evidence])).toEqual([
+			['github', 'inherited'],
+			['project-bundle', 'inherited'],
+			['project-bundle', 'observed']
+		]);
+
+		// A fresh Map Image identity, so the author's Alignment of their own sheet is untouched and the
+		// imported Project draws a pyramid of its own.
+		const drawn = imported.layers.find((layer) => layer.kind === 'map')?.imageId;
+		expect(drawn).toBeDefined();
+		expect(drawn).not.toBe('amsterdam-1625');
+		// The pyramid arrives whole and re-stamped: the sheet's own dimensions kept, and its service
+		// identity reset to the placeholder for the fresh Map Image rather than left naming the source.
+		const pyramid = JSON.parse(after[`images/${drawn}/info.json`]) as {
+			width: number;
+			height: number;
+			id?: string;
+		};
+		expect([pyramid.width, pyramid.height]).toEqual([4096, 3072]);
+		expect(pyramid.id).toContain(drawn as string);
+		expect(pyramid.id).not.toContain('amsterdam-1625');
+		expect(after[`alignments/${drawn}.json`]).toContain('georeferencing');
+
+		// Ordinary editable work: renamed with the hub's own control, which no review copy offers and
+		// which writes to the Project this Import created.
+		const card = page.getByRole('heading', { level: 3, name: 'Amsterdam 1625 (imported)' });
+		await page.getByRole('button', { name: 'Rename Amsterdam 1625 (imported)' }).click();
+		const renameDialog = page.getByRole('dialog', { name: 'Rename Project' });
+		await renameDialog.getByRole('textbox').fill('Amsterdam, mine now');
+		await renameDialog.getByRole('button', { name: 'Rename', exact: true }).click();
+		await expect(
+			page.getByRole('heading', { level: 3, name: 'Amsterdam, mine now' })
+		).toBeVisible();
+		await expect(card).toHaveCount(0);
+		await expect
+			.poll(
+				async () =>
+					(await filesUnder(page, directory!.replace('/project.json', '')))['project.json']
+			)
+			.toContain('Amsterdam, mine now');
+	});
+
+	// ⚠ **Three actions, and the offer each one opens says which.** All three take a Project someone
+	// sent: the only thing between "keep this" and "look at it and throw it away" is what the screen
+	// says before a file is chosen, so this asserts the labels *and* that inspecting an offer and
+	// backing out of it is free.
+	test('distinguishes Import, Review, and New Project, and backing out of the offer changes nothing', async ({
+		page
+	}) => {
+		const before = await everyByteOf(page, 'My Workspace');
+		for (const name of [
+			'Import a Project…',
+			'Review a Project…',
+			'Review from GitHub…',
+			'New Project'
+		]) {
+			await expect(page.getByRole('button', { name })).toBeVisible();
+		}
+
+		// Reached and opened from the keyboard alone, rather than `click()`ed: a control taken out of
+		// the tab order passes a pointer test while being unreachable in the app (WCAG 2.4.3).
+		const trigger = page.getByTestId('import-project');
+		await trigger.focus();
+		await page.keyboard.press('Enter');
+		await expect(importDialog(page)).toBeVisible();
+		// The Review offer names the other destination, so the two cannot be read as one operation.
+		await expect(page.getByTestId('import-consequence')).toContainText(
+			'copied into this Workspace'
+		);
+
+		// Escape, with a file already chosen: nothing has been downloaded, nothing written, and focus is
+		// back where the gesture started.
+		await importDialog(page)
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundleFixture(HANDED_ON));
+		await page.keyboard.press('Escape');
+		await expect(importDialog(page)).toBeHidden();
+		await expect(trigger).toBeFocused();
+		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
+
+		// And Cancel, which is the same promise through the other control.
+		await chooseToImport(page, await bundleFixture(HANDED_ON));
+		await importDialog(page).getByRole('button', { name: 'Cancel' }).click();
+		await expect(importDialog(page)).toBeHidden();
+		await expect(trigger).toBeFocused();
+		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
+		expect(await workspaceNames(page)).toEqual(['My Workspace']);
+		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+	});
+
+	// Every way a source can be refused is asserted against real archive bytes at Seam 1. What only a
+	// browser can show is the wiring: that a file picked through the real input reaches that reader,
+	// that the refusal arrives as an alert instead of a console line, that the dialog stays open so the
+	// sentence is not a flash, and — the claim this ticket turns on — that a Workspace which was
+	// *going to be written to* is byte-identical afterwards.
+	test('a refused bundle leaves every path in the Workspace exactly as it was', async ({
+		page
+	}) => {
+		const before = await everyByteOf(page, 'My Workspace');
+
+		await chooseToImport(page, {
+			name: 'holiday.jpg',
+			mimeType: 'application/x-tar',
+			buffer: Buffer.from('not a tar')
+		});
+		await page.getByTestId('confirm-import').click();
+		const alert = page.getByTestId('import-error');
+		await expect(alert).toContainText('Nothing has been added to your Workspace.');
+		await expect(importDialog(page)).toBeVisible();
+
+		// ADR-0010's other refusal, through the same input, because it is the one a colleague really
+		// sends: a Project written by next year's build.
+		await importDialog(page)
+			.getByLabel('Project bundle')
+			.setInputFiles(
+				await bundleFixture(projectFiles({ 'project.json': projectJson({ formatVersion: 99 }) }))
+			);
+		await page.getByTestId('confirm-import').click();
+		await expect(alert).toContainText('newer version of Ballastella');
+		await expect(importDialog(page)).toBeVisible();
+
+		await importDialog(page).getByRole('button', { name: 'Cancel' }).click();
+		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
+		expect(await workspaceNames(page)).toEqual(['My Workspace']);
+		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+	});
+
+	// ⚠ **A pyramid is thousands of files over real minutes, and this is the path ADR-0001 makes the
+	// only way in on Firefox, Safari and iPad.** One announcement at the end would be a still screen
+	// for the whole wait, which is where a scholar concludes the tool has hung — so the region is
+	// watched rather than sampled, and what it must show is *movement*. No percentage: a closure knows
+	// its file count and nothing here invents a denominator it does not have.
+	test('announces file-by-file progress, and says it is done only once the Project is', async ({
+		page
+	}) => {
+		const tiles = Object.fromEntries(
+			Array.from({ length: 60 }, (_, index) => [
+				`images/amsterdam-1625/0,0,256,256/256,256/${index}/default.jpg`,
+				`stands in for tile ${index}`
+			])
+		);
+
+		// Collected from the live region itself, so a run that was too fast for a poll still proves the
+		// intermediate counts were rendered — which is what a screen reader would have read out.
+		await transferStatus(page).evaluate((region) => {
+			const seen: string[] = [];
+			(window as unknown as { e2eProgress?: string[] }).e2eProgress = seen;
+			new MutationObserver(() => {
+				const text = region.textContent?.trim() ?? '';
+				if (text && seen[seen.length - 1] !== text) seen.push(text);
+			}).observe(region, { childList: true, characterData: true, subtree: true });
+		});
+
+		await chooseToImport(page, await bundleFixture(projectFiles({ ...IMPORTABLE, ...tiles })));
+		await page.getByTestId('confirm-import').click();
+		await expect(page.getByTestId('import-notice')).toBeVisible();
+
+		await expect(transferStatus(page)).toHaveAttribute('data-transfer', 'import');
+		await expect(transferStatus(page)).toHaveText(
+			/^Imported amsterdam-1625\.project\.tar: 64 files\.$/
+		);
+		const seen = await page.evaluate(
+			() => (window as unknown as { e2eProgress?: string[] }).e2eProgress ?? []
+		);
+		const moving = seen.filter((text) => /^Importing .* of 64 files\.$/.test(text));
+		expect(moving.length).toBeGreaterThan(1);
+		expect(new Set(moving).size).toBeGreaterThan(1);
+
+		// ⚠ **The success sentence is not allowed to run ahead of the bytes.** It is announced after the
+		// transaction commits, so by the time it is on screen every file the closure named is durable
+		// and the marker that made them provisional is gone.
+		const after = await everyByteOf(page, 'My Workspace');
+		const directory = Object.keys(after)
+			.filter((path) => path.endsWith('/project.json') && !path.startsWith('boston-1775/'))
+			.map((path) => path.slice(0, -'/project.json'.length))[0];
+		const imported = await filesUnder(page, directory);
+		expect(Object.keys(imported).sort()).toEqual([
+			'annotations/warehouses.geojson',
+			'project.json'
+		]);
+		const drawn = (
+			JSON.parse(imported['project.json']) as { layers: { kind: string; imageId?: string }[] }
+		).layers.find((layer) => layer.kind === 'map')?.imageId;
+		expect(Object.keys(after).filter((path) => path.startsWith(`images/${drawn}/`))).toHaveLength(
+			61
+		);
+		expect(after['import.json']).toBeUndefined();
 	});
 });
 

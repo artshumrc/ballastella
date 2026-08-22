@@ -218,7 +218,14 @@ export function workspaceKeyLabel(key: string): string {
  * one of the two places in the app where the user is waiting on something they cannot see.
  */
 export interface TransferState {
-	readonly kind: 'export' | 'open';
+	/**
+	 * Which transfer, because the three count differently.
+	 *
+	 * `'export'` and `'import'` both know their total before they start — an export walks a Project it
+	 * can already list, and an Import is planned over a closure whose path set is decided before a byte
+	 * moves. `'open'` does not: a tar declares no index, so it counts up with no denominator to invent.
+	 */
+	readonly kind: 'export' | 'import' | 'open';
 	/** The Project being moved, by display name where there is one. */
 	readonly subject: string;
 	readonly files: number;

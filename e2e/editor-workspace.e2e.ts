@@ -602,7 +602,7 @@ test.describe('the Workspace’s Map Images', () => {
 		// cannot: a control taken out of the tab order — `tabindex="-1"`, or a `<div>` with a click
 		// handler — passes a test written that way while being unreachable in the app.
 		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
-		await page.getByRole('button', { name: 'Open a Project someone sent me…' }).focus();
+		await page.getByRole('button', { name: 'Review a Project…' }).focus();
 		for (
 			let tab = 0;
 			tab < 40 && !(await trigger.evaluate((node) => node === document.activeElement));

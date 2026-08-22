@@ -363,7 +363,7 @@ test.describe('the pasted credential', () => {
 //
 // **Story 38 is read as a sign-in prompt specifically, not as the word "GitHub" being absent** —
 // decided 2026-08-14, closing the question `publish-to-a-remote`'s TRACKER left open. Story 50's
-// "Review a Project from GitHub…" button sits on the hub of a Workspace that has never published, so
+// "Review from GitHub…" button sits on the hub of a Workspace that has never published, so
 // the two stories only conflict under the broader reading. They are different things: a button a
 // scholar chooses is not a credential asked of one. What 38 protects is that nothing *demands*
 // identity before there is anything to publish, and the sibling test below fences the other half by
@@ -484,7 +484,7 @@ test.describe('a Review Workspace', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles(await oneProjectBundle());
 		await page.getByTestId('confirm-open-bundle').click();

@@ -67,8 +67,9 @@ import { fileURLToPath } from 'node:url';
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
+ * | 2026-08-22 | 654 | Four tests for Import, the inverse of Export. The engine is exhausted at Seam 1 without a browser — fresh Map Image identities, repeated references, name and directory allocation against every namespace, the publication reset, provenance inheritance, and the atomic transaction with its quota and collision refusals are five test files there. What no seam below can falsify is that the *application* performs the operation it offers: that three actions on one screen mean three different things to real OPFS (Import writes into the Workspace that is open, Review creates a second one, New Project creates neither), that the Workspace named in the offer is the one written to and no other is created, that a Project arriving under an allocated name is reachable and ordinary afterwards, and that a refusal leaves every byte as it was. There is no `WorkspaceStorage` harness at Seam 1c to reach any of it, and "no second Workspace exists on disk" is the assertion that tells Import and Review apart at all. One test per claim that cannot fold: the successful copy, the three-way distinction with its two free exits, the two refusals, and the progress a pyramid's wait needs. |
  */
-export const SEAM_2_CEILING = 650;
+export const SEAM_2_CEILING = 654;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

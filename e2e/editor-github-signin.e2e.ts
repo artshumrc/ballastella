@@ -490,7 +490,7 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles(await oneProjectBundle());
 		await page.getByTestId('confirm-open-bundle').click();

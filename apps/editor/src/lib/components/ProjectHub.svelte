@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { tick } from 'svelte';
 	import {
 		describeBytes,
 		parseRemoteReference,
@@ -12,7 +13,7 @@
 	import { describeAlignmentUsers } from '../alignment/used-by.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import MapThumbnail from '../map-images/MapThumbnail.svelte';
-	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
+	import { useWorkspaceHost, type ImportTarget } from '../workspace-storage.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
 
 	/**
@@ -44,15 +45,15 @@
 	let deleting = $state<ProjectSummary | null>(null);
 
 	/**
-	 * The "open a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
+	 * The "review a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
 	 *
-	 * ⚠ **This is not an import, and the difference is the whole of ticket 14.** A bundle opens into a
-	 * *new Review Workspace* and there is no path that merges it into the Workspace this hub is
-	 * showing: under ADR-0023 there is one Alignment per Map Image in a Workspace, so merging
-	 * would either overwrite an Alignment several of the user's own Projects are drawn by, or be
-	 * refused (ADR-0024). So there is no collision to ask about and no folder name to choose —
-	 * the two questions the old import dialog existed to ask — and adding either back would be
-	 * building the merge this design exists to prevent.
+	 * ⚠ **This is not the Import beside it, and it must never become it.** A bundle read here opens
+	 * into a *new Review Workspace* and nothing merges it into the Workspace this hub is showing:
+	 * under ADR-0023 there is one Alignment per Map Image, so laying a colleague's bundle over the
+	 * author's shared pool would overwrite an Alignment several of their Projects are drawn by. Import
+	 * (ADR-0037) answers the same file by copying it in with *fresh* Map Image identities, so there is
+	 * still no collision to ask about here and no folder name to choose — the two questions this
+	 * dialog does not have, and the reason the two offers are two.
 	 */
 	let openingBundle = $state(false);
 	let chosen = $state<FileList | null>(null);
@@ -103,6 +104,7 @@
 		reviewProject = '';
 		reviewError = '';
 		bundleNotice = '';
+		importNotice = '';
 		reviewingRemote = true;
 	};
 
@@ -209,6 +211,7 @@
 		chosen = null;
 		bundleError = '';
 		bundleNotice = '';
+		importNotice = '';
 		openingBundle = true;
 	};
 
@@ -242,6 +245,91 @@
 			bundleError = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			bundleBusy = false;
+		}
+	};
+
+	// ── Import: the inverse of Export (SPEC stories 1–3, 7–14, ADR-0037) ───────────────────
+	//
+	// ⚠ **A different operation from the two dialogs above, and the labels are the difference.** All
+	// three take the same kind of file, so the only thing standing between "keep this colleague's
+	// Project" and "look at it and throw it away" is what the offer says before a file is chosen —
+	// which is why each dialog names its own destination in words rather than sharing a generic
+	// "open a bundle" wizard.
+
+	/** The Import offer, and the Workspace it named when it opened. */
+	let importing = $state(false);
+	let importTarget = $state<ImportTarget | null>(null);
+	let importChosen = $state<FileList | null>(null);
+	/** Why the last Import did not happen, or `''`. Every refusal has left the Workspace as it was. */
+	let importError = $state('');
+	/** Whether an Import is running, so the button cannot be pressed twice. */
+	let importBusy = $state(false);
+	/**
+	 * What the last Import did, in the reader's own words. `''` when nothing has been Imported.
+	 *
+	 * Its own state rather than {@link bundleNotice}'s, because the two are about different
+	 * Workspaces: a bundle's names the review copy the user has just been moved into, and this one
+	 * names the Workspace they never left. Sharing one string would have the finished Import
+	 * overwritten by the next Review, which is the sentence a user needs least.
+	 */
+	let importNotice = $state('');
+	/**
+	 * The line naming what was Imported, focused when the Import finishes.
+	 *
+	 * This is how the allocated result is *reached* rather than merely rendered (SPEC story 9): the
+	 * name a Project arrived under is not always the name on the file, so a keyboard user put back on
+	 * the trigger would have to go looking through the list for a Project they cannot predict.
+	 */
+	let importNoticeLine: HTMLElement | null = $state(null);
+
+	const startImporting = () => {
+		importChosen = null;
+		importError = '';
+		importNotice = '';
+		bundleNotice = '';
+		// ⚠ **Resolved now rather than when the button is pressed.** The sentence below says which
+		// Workspace the Project is going into, and the switcher is two clicks away while it is on
+		// screen; `importBundle` compares this against the Workspace that is open and refuses.
+		importTarget = storage?.importTarget ?? null;
+		importing = true;
+	};
+
+	const cancelImporting = () => {
+		if (importBusy) return;
+		importing = false;
+		importError = '';
+	};
+
+	/**
+	 * Copy the chosen bundle's Project into the Workspace that is open.
+	 *
+	 * Nothing here decides where it goes or what it is called: the destination is the target resolved
+	 * when the offer opened, and the display name is the one core allocated against the Projects
+	 * already on this screen — which is not always the name in the bundle, because a taken name takes
+	 * an `(imported)` suffix. Both are said out loud afterwards, because a Project that arrived under
+	 * a different name than the file promised is one the author would otherwise go looking for.
+	 */
+	const runImport = async () => {
+		const file = importChosen?.item(0);
+		if (!file || importBusy || !storage || !importTarget) return;
+		importError = '';
+		importBusy = true;
+		try {
+			const imported = await storage.importBundle(file, importTarget);
+			importNotice =
+				`Imported ${imported.name} into ${imported.workspace}. It is yours to edit now, ` +
+				`with no connection back to where it came from.`;
+			importing = false;
+			// ⚠ **After the dialog's own restoration, not instead of it.** The trigger is still mounted
+			// — an Import leaves the author on this hub — so `ModalDialog` puts focus back on “Import a
+			// Project…”, which tells a keyboard user nothing about what the press did. Its restore is
+			// idempotent, so moving focus on from it here is the last word rather than a race.
+			await tick();
+			importNoticeLine?.focus();
+		} catch (cause) {
+			importError = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			importBusy = false;
 		}
 	};
 
@@ -421,6 +509,13 @@
 				? `Opened ${transfer.subject}: ${transfer.totalFiles} files.`
 				: `Opening ${transfer.subject}: ${transfer.files} files so far.`;
 		}
+		// An Import does have a denominator: its closure was planned before a byte moved, so both
+		// numbers are real rather than the same one twice.
+		if (transfer.kind === 'import') {
+			return transfer.finished
+				? `Imported ${transfer.subject}: ${transfer.totalFiles} files.`
+				: `Importing ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
+		}
 		return transfer.finished
 			? `Exported ${transfer.subject}: ${transfer.totalFiles} files.`
 			: `Exporting ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
@@ -581,17 +676,38 @@ What else the Hub says about a Project: whether this build can read it.
 				The button is on the hub of their own Workspace, which is one exit away.
 			-->
 				{#if review === null}
+					<!--
+					Import: the inverse of Export, and the **first** of the three because it is what an
+					author reaching for a file someone sent them usually means (SPEC stories 1, 2, 12,
+					ADR-0037). It copies into the Workspace already open, which is what makes it a
+					different action from the two beside it rather than a setting on one of them.
+
+					**Absent inside a review copy.** Copying the reviewed Project out is its own
+					operation with its own destination — the ordinary Workspace review began in — and
+					offering this one here would aim it at the throwaway Workspace instead.
+				-->
+					<button class="btn" data-testid="import-project" onclick={startImporting}>
+						Import a Project…
+					</button>
 					<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
-						Open a Project someone sent me…
+						Review a Project…
 					</button>
 					<!--
 					The same operation from a Remote rather than from a file (SPEC story 50). Absent inside
 					a review copy for the reason above and one more: a reviewer who follows a second link
 					from inside the first would accumulate review copies, which is the mental model
 					ADR-0024 exists to prevent.
+
+					⚠ **Shorter than its dialog's title, and the four labels have to share one line.**
+					The Projects column is pinned to `--workspace-home-measure` (42rem), and with
+					“Review a Project from GitHub…” spelled out here the row wrapped — dropping New
+					Project to a line of its own, pushing the first Project card down, and putting its
+					Delete button underneath the bottom-anchored recovery toast, where a click cannot
+					reach it. The dialog has room for the whole sentence; a button in a pinned column
+					does not.
 				-->
 					<button class="btn" data-testid="review-remote" onclick={startReviewingRemote}>
-						Review a Project from GitHub…
+						Review from GitHub…
 					</button>
 				{/if}
 				<button class="btn btn-primary" onclick={startCreating}>New Project</button>
@@ -626,6 +742,31 @@ What else the Hub says about a Project: whether this build can read it.
 		>
 			{transferMessage}
 		</p>
+
+		{#if importNotice}
+			<!--
+			What the Import did: the display name it was allocated, and the Workspace it went into.
+			Both are said because neither is certain in advance — a taken name takes an `(imported)`
+			suffix — and an author who cannot see which Project arrived cannot find it in the list.
+
+			Focused when the dialog closes, which is how the allocated result is *reached* rather than
+			merely rendered. The Import leaves the author on this hub, so the trigger above is still
+			mounted and `ModalDialog` would restore focus to it — putting a keyboard user back on
+			“Import a Project…” with no word about what the last press did.
+
+			`aria-live="polite"` rather than `role="status"`, this page's settled convention: the
+			transfer line above and the save indicator on the bar already account for that role here.
+		-->
+			<p
+				bind:this={importNoticeLine}
+				tabindex="-1"
+				aria-live="polite"
+				class="mt-4 text-sm opacity-80"
+				data-testid="import-notice"
+			>
+				{importNotice}
+			</p>
+		{/if}
 
 		{#if bundleNotice}
 			<!--
@@ -849,8 +990,95 @@ What else the Hub says about a Project: whether this build can read it.
 </ModalDialog>
 
 <ModalDialog
+	bind:open={() => importing, (open) => (open ? (importing = true) : cancelImporting())}
+	title="Import a Project"
+	dismissable={!importBusy}
+>
+	<!--
+		⚠ **The destination, before the file is chosen** (SPEC story 7). This is the one sentence that
+		tells an author they are about to copy work into their own Workspace rather than look at it in a
+		throwaway one, and both offers take the same kind of file — so it is above the input, not below
+		it, and it names the Workspace rather than saying "this Workspace".
+	-->
+	<p data-testid="import-destination">
+		Import into <strong>{importTarget?.name ?? storage?.name ?? ''}</strong>
+	</p>
+	<label class="floating-label mt-4">
+		<span>Project bundle</span>
+		<!-- The first source, and the only one in this slice: a Published GitHub Project is its own
+		     offer. `.project.tar` is what Export writes; `.tar` is accepted too, because a mail client
+		     that rewrote the name is not the author's fault. -->
+		<input
+			class="file-input w-full"
+			type="file"
+			accept=".tar,application/x-tar"
+			data-testid="import-file"
+			bind:files={importChosen}
+		/>
+	</label>
+	<p class="mt-3 text-sm opacity-70" data-testid="import-consequence">
+		The Project is <strong>copied into this Workspace</strong> as work of your own: yours to edit, to
+		publish, and to back up. Its maps arrive as new Map Images of this Workspace, so nothing you already
+		have is changed or overwritten. There is no connection back afterwards — later changes to the original
+		never travel here, and yours never travel there.
+	</p>
+	{#if storage?.transfer?.kind === 'import' && importBusy}
+		<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real
+		     minutes, and an Import is one of the places a scholar waits on something they cannot see
+		     (workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
+		     without interrupting — the hub's own live region is `aria-live="polite"` and this dialog
+		     is over it, so there is exactly one status role on screen. No percentage: the two numbers
+		     are files, which is what the closure knows. -->
+		<p role="status" class="mt-3 text-sm" data-testid="import-progress">
+			{storage.transfer.files} of {storage.transfer.totalFiles} files copied from
+			{storage.transfer.subject}.
+		</p>
+	{/if}
+	{#if importError}
+		<!-- The refusals: not a tar, no project.json, a missing referenced file, ADR-0010's Project
+		     from a newer version, no room for the closure, a path this Workspace already holds, or a
+		     Workspace that is not the one this offer named any more. Each one has left every path in
+		     this Workspace exactly as it was. -->
+		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+			<p data-testid="import-error">{importError}</p>
+		</div>
+	{/if}
+	{#snippet actions()}
+		<!-- ⚠ **Shown as unavailable while the copy runs, because it is.** An Import cannot be stopped
+		     part way: the transaction is atomic as far as any reader can tell, and abandoning it
+		     halfway is the state its marker exists to make impossible. Escape is refused for the same
+		     reason (`dismissable` above), which is what keeps the dialog on screen to carry the
+		     progress line and any refusal. -->
+		<button
+			class="btn"
+			class:btn-disabled={importBusy}
+			aria-disabled={importBusy}
+			data-testid="cancel-import"
+			onclick={cancelImporting}
+		>
+			Cancel
+		</button>
+		<!-- `aria-disabled` for the *busy* half rather than `disabled`, which leaves the tab order the
+		     moment it is pressed and drops a keyboard user's focus to `<body>` for the length of the
+		     copy (WCAG 2.4.3). `disabled` is still right for "no file chosen yet", because that button
+		     has never been pressed and cannot lose a focus it never had — but only while nothing is
+		     running, or a file input cleared mid-copy would take the focus with it. -->
+		<button
+			class="btn btn-primary"
+			class:btn-disabled={importBusy}
+			aria-disabled={importBusy}
+			data-testid="confirm-import"
+			onclick={() => !importBusy && runImport()}
+			disabled={!importBusy && !importChosen?.length}
+		>
+			{importBusy ? 'Importing…' : 'Import into this Workspace'}
+		</button>
+	{/snippet}
+</ModalDialog>
+
+<ModalDialog
 	bind:open={() => openingBundle, (open) => (open ? (openingBundle = true) : cancelOpeningBundle())}
-	title="Open a Project someone sent me"
+	title="Review a Project"
 	restoreFocusTo={() => bundleNoticeLine}
 >
 	<label class="floating-label">

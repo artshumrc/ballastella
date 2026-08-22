@@ -419,7 +419,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles({
 				name: 'amsterdam-1625.project.tar',

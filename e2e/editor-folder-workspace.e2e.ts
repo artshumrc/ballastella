@@ -1073,7 +1073,7 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles(await bundle());
 		await page.getByTestId('confirm-open-bundle').click();
@@ -1112,7 +1112,7 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles(await bundle());
 		await page.getByTestId('confirm-open-bundle').click();
@@ -1161,7 +1161,7 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 
 		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByRole('dialog', { name: 'Review a Project' })
 			.getByLabel('Project bundle')
 			.setInputFiles(await bundle());
 		await page.getByTestId('confirm-open-bundle').click();
