@@ -1,7 +1,9 @@
-// Seam 1 for the Clone: the engine against the shared fake GitHub, with no browser anywhere.
+// Seam 1 for the transfer half of Open a Workspace from GitHub: the download engine against the
+// shared fake GitHub, with no browser anywhere.
 //
-// What is asserted here is what arrived — the bytes in the destination, the binding written, and the
-// fake's own request counters — rather than which calls were made in which order. The counters are
+// What is asserted here is what arrived — the bytes in the destination and the fake's own request
+// counters — rather than which calls were made in which order. What the *installation* then believes
+// about the Remote is `open-workspace-from-github.test.ts`'s. The counters are
 // the exception, and they are counters *of requests* precisely because the two properties they pin
 // are invisible in the result: a resumed Clone that re-downloaded everything and wrote the same
 // bytes back leaves a Workspace identical to one that skipped them, and a refusal that happened
@@ -16,7 +18,7 @@ import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { RestoreDestination } from '../transfer/restore-workspace-tar.js';
 import { CloneRefusedError, cloneFromRemote } from './clone-from-remote.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
-import { parseRemoteBinding } from './remote-binding.js';
+import { REMOTE_BINDING_PATH } from './remote-binding.js';
 
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -61,7 +63,11 @@ const PUBLISHED: Record<string, string> = {
 };
 
 /**
- * Everything a Clone brings down: the owned namespace, less the binding it writes for itself.
+ * Everything this brings down: the owned namespace, less the `remote.json` in the published tree.
+ *
+ * The binding is **not** written here any more. It is published output (ticket 02) and the
+ * relationship a Workspace actually has is installation-local metadata (ADR-0038), so the transfer
+ * writes neither — see `open-workspace-from-github.ts`.
  */
 const DOWNLOADED = Object.keys(PUBLISHED).filter(
 	(path) => path !== 'remote.json' && !OUTSIDE_NAMESPACE.includes(path)
@@ -96,8 +102,8 @@ const text = async (store: ProjectStore, path: string): Promise<string> =>
  * `fake.fetch`, with one file on the raw host answered by hand.
  *
  * The tree listing is left alone, so the file is still *named* and only its bytes go wrong — which
- * is the only way a Clone fails after it has started, and the only way to reach the state the
- * write-last binding rule is about.
+ * is the only way this fails after it has started, and the only way to reach the state the
+ * "a partial destination claims no Remote" rule is about.
  */
 function rawAnswer(fake: FakeGitHub, path: string, answer: () => Response): FetchFn {
 	return (input, init) =>
@@ -115,7 +121,7 @@ describe('cloneFromRemote', () => {
 		});
 
 		expect(result.workspaceName).toBe(REPOSITORY);
-		expect(await destination.store.list('')).toEqual([...DOWNLOADED, 'remote.json'].sort());
+		expect(await destination.store.list('')).toEqual([...DOWNLOADED].sort());
 		expect(await text(destination.store, 'images/map-1/0/0/1.jpg')).toBe('tile-one-bytes');
 		expect(await text(destination.store, 'atlas/annotations/notes.geojson')).toBe(
 			'{"type":"FeatureCollection","features":[]}'
@@ -184,7 +190,10 @@ describe('cloneFromRemote', () => {
 		);
 	});
 
-	it('binds the result to the repository it was told to clone, not the one on the wire', async () => {
+	it('reports the repository it was told to read, not the one on the wire', async () => {
+		// ⚠ The published tree carries a `remote.json` naming `someone-else/fork`, as a fork's would.
+		// It is filtered out of the download entirely, and the repository reported back is the one the
+		// caller named — which is what `open-workspace-from-github.ts` records the relationship from.
 		const fake = await github();
 		const destination = destinationFor(new MemoryProjectStore());
 
@@ -193,21 +202,10 @@ describe('cloneFromRemote', () => {
 			fetch: fake.fetch
 		});
 
-		expect(result.remote).toEqual({
-			formatVersion: 1,
-			owner: OWNER,
-			repository: REPOSITORY,
-			branch: 'main'
-		});
-		// The published tree carried a binding naming `someone-else/fork`. Read back off disk, because
-		// what matters is the document a later Publish will act on.
-		const written = parseRemoteBinding(await destination.store.read('remote.json' as StorePath));
-		expect(written).toEqual({
-			formatVersion: 1,
-			owner: OWNER,
-			repository: REPOSITORY,
-			branch: 'main'
-		});
+		expect(result.remote).toEqual({ owner: OWNER, repository: REPOSITORY, branch: 'main' });
+		// Nothing writes a binding into the Workspace any more: the relationship is installation-local
+		// metadata, so a partly-filled destination cannot look like synchronized work.
+		await expect(destination.store.read(REMOTE_BINDING_PATH)).rejects.toThrow();
 	});
 
 	describe('resuming an interrupted Clone', () => {
@@ -312,22 +310,21 @@ describe('cloneFromRemote', () => {
 				)
 			});
 
-		it('leaves the Workspace unbound', async () => {
+		it('leaves the files that arrived and nothing that claims a Remote', async () => {
 			// ⚠ **The invariant, asserted rather than left to the order of the code.** A partly filled
-			// Workspace that was *bound* is one the Publish button acts on, and publishing it would
-			// delete from the Remote every owned-namespace path the Clone had not yet fetched — a
-			// scholar's whole site taken down by a Clone somebody interrupted. The binding is therefore
-			// written after the last file, and this is what says so: a later change moving it earlier —
-			// to let a resume read its own Remote back, say — fails here rather than silently.
+			// Workspace that looked bound is one the Publish button acts on, and publishing it would
+			// delete from the Remote every owned-namespace path that had not yet been fetched — a
+			// scholar's whole site taken down by a transfer somebody interrupted. So nothing here writes
+			// a binding at all, and the relationship is recorded by the caller only after everything has
+			// arrived and validated.
 			const fake = await github();
 			const store = new MemoryProjectStore();
 
 			await expect(interrupted(fake, store)).rejects.toMatchObject({ name: 'CloneRefusedError' });
 
-			expect(await store.list('')).not.toContain('remote.json');
-			await expect(store.read('remote.json' as StorePath)).rejects.toThrow();
+			expect(await store.list('')).not.toContain(REMOTE_BINDING_PATH);
 			// And what did arrive is still here, which is the other half of the same design: the files
-			// are kept so a resume is cheap, and only the binding is withheld.
+			// are kept so a resume is cheap.
 			expect(await text(store, 'images/map-1/0/0/0.jpg')).toBe('tile-zero-bytes');
 		});
 

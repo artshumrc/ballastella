@@ -9,7 +9,7 @@
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * IT OFFERS; IT DOES NOT ACT
 	 *
-	 * The whole of why this component exists rather than the route simply calling `cloneFrom`. A URL
+	 * The whole of why this component exists rather than the route simply calling the engine. A URL
 	 * is a thing anyone can send, and one that created a Workspace and switched to it on arrival
 	 * would be a link that rearranges a stranger's editor — minutes of downloading and a Workspace
 	 * they did not ask for, from a repository they have never heard of. So the offer names the
@@ -64,7 +64,7 @@
 		try {
 			const done =
 				link.kind === 'clone'
-					? await storage.cloneFrom({ owner: link.owner, repository: link.repository })
+					? await storage.openFromGitHub({ owner: link.owner, repository: link.repository })
 					: await storage.reviewFrom({
 							owner: link.owner,
 							repository: link.repository,
@@ -103,7 +103,7 @@
 	{:else}
 		<h2 class="font-semibold">
 			{#if link.kind === 'clone'}
-				Open the Workspace published at {remote}?
+				Open a Workspace from GitHub: {remote}?
 			{:else}
 				Review “{link.project}” from {remote}?
 			{/if}
@@ -112,8 +112,9 @@
 			{#if link.kind === 'clone'}
 				You followed a link from a published site. This downloads that whole Workspace into a
 				<strong>new Workspace of your own</strong>, which you can then go on working in. Nothing you
-				already have is changed, and you do not need a GitHub account. Nothing has been downloaded
-				yet.
+				already have is changed, and you do not need a GitHub account. If this computer has already
+				opened {remote}, it takes you back to that Workspace instead of downloading a second copy.
+				Nothing has been downloaded yet.
 			{:else}
 				You followed a link from a published site. This downloads that one Project into a separate
 				<strong>review copy</strong> — a throwaway Workspace holding only that Project. Nothing in this
@@ -138,7 +139,7 @@
 				{#if busy}
 					Downloading…
 				{:else if link.kind === 'clone'}
-					Clone into a new Workspace
+					Open a Workspace from GitHub
 				{:else}
 					Open in a review copy
 				{/if}

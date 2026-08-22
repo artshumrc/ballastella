@@ -6,7 +6,7 @@ import {
 	assertNotReviewing as refuseInsideReview,
 	assertReviewing as refuseOutsideReview,
 	chooseWorkspaceFolder,
-	cloneFromRemote,
+	openWorkspaceFromGitHub,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
@@ -28,7 +28,6 @@ import {
 	browserJournalStorage,
 	discardDeletions,
 	discardJournal,
-	SynchronizationMetadata,
 	browserMetadataStorage,
 	confirmLegacyRemote,
 	discardPublishManifest,
@@ -82,7 +81,6 @@ import {
 	type StoragePersistence,
 	type TransferProgressListener,
 	type WorkspaceBackup,
-	type WorkspaceClone,
 	type WorkspaceRestore,
 	type WorkspaceSize
 } from '@ballastella/core';
@@ -1676,10 +1674,11 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Download a public repository's published Workspace into a **new** one, and switch to it.
+	 * Open a Workspace from GitHub: return to the one this installation already keeps for that
+	 * repository, or download, validate and adopt a new one (SPEC stories 96–104).
 	 *
 	 * ⚠ **No credential is sent, and none is needed** (SPEC, "Import: two operations, both
-	 * unauthenticated"). `cloneFromRemote` takes no token and this passes none — a student with no
+	 * unauthenticated"). Nothing on this path takes a token and this passes none — a student with no
 	 * GitHub account can seed a Workspace from their instructor's Remote, which is the story this
 	 * whole epic is most likely to be used for. The credential store is deliberately not consulted:
 	 * reading it would make the flow behave differently for somebody who happened to be signed in,
@@ -1689,12 +1688,13 @@ export class WorkspaceStorage {
 	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
 	 * cannot, and a subdirectory of the current folder would be a Workspace inside a Workspace.
 	 *
-	 * The quota check happens inside `cloneFromRemote`, before the Workspace is created, against the
-	 * byte total the Remote's own tree listing reports.
+	 * The quota check happens before the Workspace is created, against the byte total the Remote's own
+	 * tree listing reports.
 	 *
-	 * @throws CloneRefusedError with nothing downloaded and no Workspace made
+	 * @returns the sentence to show, which says which Workspace the user is now in
+	 * @throws CloneRefusedError with no Workspace adopted and no synchronization evidence recorded
 	 */
-	async cloneFrom(remote: CloneReference): Promise<WorkspaceClone> {
+	async openFromGitHub(remote: CloneReference): Promise<{ notice: string }> {
 		const subject = describeRemote(remote);
 		// Announced for `openBundle`'s reason: a Map Image's pyramid is thousands of files over
 		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
@@ -1702,33 +1702,33 @@ export class WorkspaceStorage {
 			this.transfer = { kind: 'open', subject, files, totalFiles, finished };
 		};
 		try {
-			const cloned = await cloneFromRemote((preferred) => this.#makeCloneDestination(preferred), {
+			const opened = await openWorkspaceFromGitHub({
 				remote,
+				metadata: this.#metadataStorage,
+				workspaceKey: opfsWorkspaceKey,
+				open: (preferred) => this.#makeOpenDestination(preferred),
 				estimateStorage: estimateStorage,
 				onProgress: ({ files, totalFiles }) => announce(files, totalFiles, false)
 			});
-			// ⚠ **The repository the user named, recorded before the Workspace is adopted** (ADR-0038).
-			// The Clone downloaded a `remote.json` out of somebody's published tree and `cloneFromRemote`
-			// discarded it in favour of this address; writing the relationship here is what stops the
-			// adopt below meeting an uncorroborated legacy binding and asking about a repository the
-			// user has already chosen. No Baseline: establishing one at Open is ticket 11's.
-			if (this.#metadataStorage) {
-				await new SynchronizationMetadata(
-					this.#metadataStorage,
-					opfsWorkspaceKey(cloned.workspaceName)
-				).bindRemote({
-					owner: cloned.remote.owner,
-					repository: cloned.remote.repository,
-					branch: cloned.remote.branch
-				});
+			if (opened.outcome === 'selected') {
+				this.transfer = null;
+				return { notice: await this.#selectOpened(opened.workspaceKey, opened.remote) };
 			}
-			// Only once the Clone has finished. Switching first would leave the user looking at a
-			// half-filled Workspace, and `#adopt` tears down the session they are in.
-			await this.openWorkspace(cloned.workspaceName);
-			announce(cloned.totalFiles, cloned.totalFiles, true);
-			return cloned;
+			// Only once everything has arrived and validated. Switching first would leave the user
+			// looking at a half-filled Workspace, and `#adopt` tears down the session they are in.
+			await this.openWorkspace(opened.workspaceName);
+			announce(opened.transfer.totalFiles, opened.transfer.totalFiles, true);
+			return {
+				notice: opened.baselineRecorded
+					? opened.transfer.notice
+					: // SPEC: a durable store that refused *after* the transfer succeeded is never reported as
+						// a failed Open. The Workspace is bound; what it cannot say is what has changed since.
+						`${opened.transfer.notice} This browser would not keep a record of what the two of ` +
+						`them hold in common, so Ballastella cannot tell what has changed on either side ` +
+						`until the next Publish.`
+			};
 		} catch (cause) {
-			// The progress line must not be left mid-count saying a Clone is still running. What the
+			// The progress line must not be left mid-count saying a download is still running. What the
 			// user needs is the refusal, which the dialog renders as an alert.
 			this.transfer = null;
 			throw cause;
@@ -1736,21 +1736,58 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * A brand new browser-storage Workspace for a Clone to fill, named after the repository.
+	 * Go to the Workspace this installation already keeps for a repository, and say so.
+	 *
+	 * ⚠ **The key names the backing as well as the name**, so a Workspace bound by hand to a chosen
+	 * folder is not selectable from here: this app can open a folder only when the user picks it, and
+	 * guessing would be a silent switch to somebody else's directory. Named rather than ignored — the
+	 * whole point of the lookup is that a second synchronized copy is not made, so the answer to
+	 * "which one" has to be legible even when Ballastella cannot go there itself.
+	 */
+	async #selectOpened(workspaceKey: string, remote: RemoteRelationship): Promise<string> {
+		if (this.backing === 'folder' && folderWorkspaceKey(this.folderName) === workspaceKey) {
+			return (
+				`${describeRemote(remote)} is already open: this Workspace folder is the one this ` +
+				`computer keeps for it. Nothing has been downloaded.`
+			);
+		}
+		// Re-read the directory rather than trust the list this session started with: the record is
+		// durable, so it can name a Workspace another tab of the same installation made.
+		await this.refreshWorkspaces();
+		const named = this.workspaces.find((name) => opfsWorkspaceKey(name) === workspaceKey);
+		if (named === undefined) {
+			return (
+				`${describeRemote(remote)} is already the Remote of a Workspace folder on this computer, ` +
+				`so nothing has been downloaded — one computer keeps one Workspace for one repository. ` +
+				`Open that folder to go on working in it.`
+			);
+		}
+		if (named !== this.workspaceName || this.backing === 'folder') {
+			await this.openWorkspace(named);
+		}
+		return (
+			`Went back to “${named}”, which is the Workspace this computer already keeps for ` +
+			`${describeRemote(remote)}. Nothing has been downloaded and nothing in it has changed.`
+		);
+	}
+
+	/**
+	 * A brand new browser-storage Workspace for an Open to fill, named after the repository.
 	 *
 	 * `createOpfsWorkspace` rather than `ensureOpfsWorkspace`, which is what makes a name collision
-	 * produce `atlas (2)` beside `atlas` rather than a Clone writing into a Workspace the user already
-	 * had. Cloning the same repository twice — to compare a colleague's published work against your
-	 * own copy of it — is exactly the gesture that meets this.
+	 * produce `atlas (2)` beside `atlas` rather than a download writing into a Workspace the user
+	 * already had. Reopening the *same* repository never reaches this — the reverse lookup selects the
+	 * Workspace it already has — so what this now guards is a Workspace of the user's own that happens
+	 * to share the repository's name.
 	 */
-	async #makeCloneDestination(preferred: string): Promise<RestoreDestination> {
+	async #makeOpenDestination(preferred: string): Promise<RestoreDestination> {
 		const name = await createOpfsWorkspace(preferred);
 		await this.refreshWorkspaces();
 		return {
 			name,
 			store: openOpfsWorkspace(name),
-			// ⚠ **Never called by `cloneFromRemote`, unlike a restore's, and that is deliberate.** A
-			// Clone keeps what it has downloaded so that running it again resumes rather than starting
+			// ⚠ **Never called by the download engine, unlike a restore's, and that is deliberate.** An
+			// Open keeps what it has downloaded so that running it again resumes rather than starting
 			// a pyramid over. It is here because `RestoreDestination` requires it, and it is real: were
 			// a caller ever to want the restore behaviour, this is what it would do.
 			discard: async () => {

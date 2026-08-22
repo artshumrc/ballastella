@@ -546,7 +546,7 @@ export {
 	migrateSynchronizationMetadata,
 	type SynchronizationMigration
 } from './remote/migrate-synchronization.js';
-// Cloning a published Workspace back out of a public repository (ADR-0031, ADR-0032). The one
+// Downloading a published Workspace back out of a public repository (ADR-0031, ADR-0032). The one
 // operation in this epic that needs no credential at all, which is what lets a student with no
 // GitHub account seed a Workspace from their instructor's Remote.
 export {
@@ -557,6 +557,15 @@ export {
 	type CloneRefusal,
 	type WorkspaceClone
 } from './remote/clone-from-remote.js';
+// Open a Workspace from GitHub: the transfer above, plus the one thing that makes it a relationship —
+// this installation keeps at most one synchronized Workspace per repository, and reopening returns to
+// it rather than making a second (ADR-0038).
+export {
+	findWorkspaceForRepository,
+	openWorkspaceFromGitHub,
+	type OpenWorkspaceFromGitHubOptions,
+	type OpenedWorkspace
+} from './remote/open-workspace-from-github.js';
 // Reviewing one Project out of a public repository (ADR-0024, ADR-0031). The Clone's sibling and
 // the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
 // unbound and unpublishable.
