@@ -494,6 +494,24 @@ export {
 	type SynchronizationBaseline
 } from './remote/synchronization-metadata.js';
 export { FakeMetadataStorage } from './remote/fake-metadata-storage.js';
+// The durable record of what Ballastella itself has written or deleted since the Baseline, and the
+// Remote Status that can be read off it without touching a byte of a multi-gigabyte Workspace.
+export {
+	LOCALLY_CHANGED,
+	LocalChangeIndex,
+	checkSourceStatus,
+	discardLocalChanges,
+	localChangeKey,
+	type AutomaticStatus,
+	type AutomaticStatusInput,
+	type LocalChangeIndexOptions,
+	type LocalChangeKind,
+	type LocalChangeSource,
+	type LocalChanges
+} from './remote/local-change-index.js';
+// Where those marks come from: composition over `ProjectStore`, so every writer that exists and every
+// writer still to be written is tracked without knowing it.
+export { ManagedProjectStore, manageProjectStore } from './store/managed-project-store.js';
 // Comparing a Workspace, its Remote and their Baseline (ADR-0038). Pure: the callers do the I/O, so
 // the six Remote Status values and every plan are decided by a table rather than by a transfer.
 export {

@@ -4,6 +4,8 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	Autosave,
 	DeletedProjects,
+	LocalChangeIndex,
+	ManagedProjectStore,
 	MapImageInUseError,
 	PublishManifests,
 	SynchronizationMetadata,
@@ -48,6 +50,7 @@ import {
 	listReferencedImages,
 	listWorkspaceMapImages,
 	makeOfflineCopy,
+	manageProjectStore,
 	moveLayer,
 	isControlPointUndo,
 	layerFileRef,
@@ -149,6 +152,28 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
 export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+
+/**
+ * Install local-change tracking around the store an ordinary Workspace is about to be opened from.
+ *
+ * ⚠ **The one place a {@link LocalChangeIndex} is constructed, and both backings go through it.** A
+ * chosen folder and a browser-storage Workspace are marked by the same wrapper — the seam is
+ * `ProjectStore`, so there is nothing backend-specific to get right — and `manageProjectStore` is
+ * idempotent, so a Workspace switched away from and back to is never wrapped twice.
+ *
+ * Untracked where there is no durable metadata store, exactly as the journal and the Baseline are:
+ * a browser that will not keep a record cannot be given one, and its Remote Status reads
+ * `Cannot tell` rather than a fabricated `Up to date`.
+ */
+export function trackLocalChanges(
+	store: ProjectStore,
+	workspaceKey: string,
+	metadataStorage: MetadataStorage | null
+): ProjectStore {
+	return metadataStorage === null
+		? store
+		: manageProjectStore(store, new LocalChangeIndex(metadataStorage, workspaceKey));
+}
 
 /**
  * Whether a Workspace key names **one place** or only a name a user can reproduce anywhere.
@@ -656,6 +681,18 @@ export class EditorSession {
 		return this.#synchronization ?? null;
 	}
 
+	/**
+	 * What Ballastella has written or deleted in this Workspace since its Baseline, or `null` where
+	 * nothing is tracking it (ADR-0038).
+	 *
+	 * The seam an automatic Remote Status check is answered from, and the reason it can be answered at
+	 * all without reading a multi-gigabyte Workspace. `null` is a session whose store was never
+	 * managed — no durable metadata to keep marks in — which reads as `Cannot tell`.
+	 */
+	get localChanges(): ManagedProjectStore | null {
+		return this.#store instanceof ManagedProjectStore ? this.#store : null;
+	}
+
 	/** The v1 manifest reader migration corroborates a legacy binding against, or `null`. */
 	get legacyManifests(): PublishManifests | null {
 		return this.#manifests ?? null;
@@ -665,11 +702,14 @@ export class EditorSession {
 	static opfs(name: string): EditorSession {
 		const journalStorage = browserJournalStorage();
 		const metadataStorage = browserMetadataStorage();
-		return new EditorSession(OpfsProjectStore.open(name), {
-			...(journalStorage ? { journalStorage } : {}),
-			...(metadataStorage ? { metadataStorage } : {}),
-			workspaceKey: opfsWorkspaceKey(name)
-		});
+		return new EditorSession(
+			trackLocalChanges(OpfsProjectStore.open(name), opfsWorkspaceKey(name), metadataStorage),
+			{
+				...(journalStorage ? { journalStorage } : {}),
+				...(metadataStorage ? { metadataStorage } : {}),
+				workspaceKey: opfsWorkspaceKey(name)
+			}
+		);
 	}
 
 	/**

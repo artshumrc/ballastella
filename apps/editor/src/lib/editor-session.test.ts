@@ -9,6 +9,8 @@
 import {
 	DeletedProjects,
 	FakeJournalStorage,
+	FakeMetadataStorage,
+	ManagedProjectStore,
 	MemoryProjectStore,
 	WriteAheadJournal,
 	alignmentPath,
@@ -36,6 +38,7 @@ import {
 	EditorSession,
 	folderWorkspaceKey,
 	opfsWorkspaceKey,
+	trackLocalChanges,
 	workspaceIdentityOf
 } from './editor-session.svelte.js';
 
@@ -1269,5 +1272,55 @@ describe('typing an Annotation’s words costs one write, not one per keystroke 
 		expect(written).toEqual([path]);
 		// And what landed is the last thing typed rather than the first, so coalescing is not dropping.
 		expect(new TextDecoder().decode(await store.read(path))).toContain('Zuiderzee');
+	});
+});
+
+// ── The local-change index, installed around whichever store the Workspace is (ticket 10) ─────
+
+describe('tracking a Workspace’s own changes', () => {
+	it('installs the same tracker for browser storage and for a chosen folder', async () => {
+		const storage = new FakeMetadataStorage();
+		const browser = trackLocalChanges(
+			new MemoryProjectStore(),
+			opfsWorkspaceKey('Marking 2026'),
+			storage
+		);
+		const folder = trackLocalChanges(new MemoryProjectStore(), folderWorkspaceKey('maps'), storage);
+
+		expect(browser).toBeInstanceOf(ManagedProjectStore);
+		expect(folder).toBeInstanceOf(ManagedProjectStore);
+		// Adopting a Workspace already managed — a folder reopened, a Workspace switched back to — must
+		// not stack a second wrapper marking every change twice.
+		expect(trackLocalChanges(browser, opfsWorkspaceKey('Marking 2026'), storage)).toBe(browser);
+	});
+
+	it('leaves the store alone where there is nowhere durable to keep marks', () => {
+		const store = new MemoryProjectStore();
+
+		expect(trackLocalChanges(store, opfsWorkspaceKey('Marking 2026'), null)).toBe(store);
+	});
+
+	it('records what an ordinary authoring action wrote, without any of it knowing', async () => {
+		const storage = new FakeMetadataStorage();
+		const store = trackLocalChanges(
+			new MemoryProjectStore(),
+			opfsWorkspaceKey('Marking 2026'),
+			storage
+		);
+		const session = new EditorSession(store, {
+			metadataStorage: storage,
+			workspaceKey: opfsWorkspaceKey('Marking 2026')
+		});
+		const project = await session.createProject('Marking');
+		if (project === null) throw new Error('expected a Project');
+
+		const changes = session.localChanges;
+		if (changes === null) throw new Error('expected a managed store');
+
+		expect((await changes.localChanges()).written).toEqual([projectFilePath(project.directory)]);
+	});
+
+	it('has no index where the session was given a store nothing manages', () => {
+		expect(new EditorSession(new MemoryProjectStore()).localChanges).toBeNull();
 	});
 });

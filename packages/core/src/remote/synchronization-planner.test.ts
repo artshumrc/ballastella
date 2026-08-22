@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { newAnnotationLayer, newMapLayer } from '../project/layer.js';
 import { newProjectFile, serialiseProjectFile } from '../project/project-file.js';
+import { ManagedProjectStore } from '../store/managed-project-store.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
 import { gitBlobSha } from './blob-sha.js';
+import { FakeMetadataStorage } from './fake-metadata-storage.js';
+import { LocalChangeIndex, checkSourceStatus } from './local-change-index.js';
 import { createFakeGitHub } from './fake-github.js';
 import type { RemoteRepository } from './publish-to-remote.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
@@ -782,10 +785,17 @@ const hashWorkspace = async (store: MemoryProjectStore): Promise<InventoryEntry[
 describe('deliberate planning hashes the whole Workspace', () => {
 	it('finds a chosen-folder edit that never reached the write index, and changes the plan', async () => {
 		const store = new MemoryProjectStore();
-		await store.write('a/project.json', encode('{"formatVersion":1,"name":"A","layers":[]}\n'));
-		await store.write('a/annotations/notes.geojson', encode('{"features":[]}\n'));
+		const managed = new ManagedProjectStore(
+			store,
+			new LocalChangeIndex(new FakeMetadataStorage(), 'folder:maps', { flushInterval: 0 })
+		);
+		await managed.write('a/project.json', encode('{"formatVersion":1,"name":"A","layers":[]}\n'));
+		await managed.write('a/annotations/notes.geojson', encode('{"features":[]}\n'));
 
 		const shared = await hashWorkspace(store);
+		// The Baseline about to be established makes every one of those paths shared, so the index is
+		// emptied exactly as a successful transfer would empty it.
+		await managed.changes.clear();
 		const baseline: SynchronizationBaseline = {
 			remote: REMOTE,
 			commit: 'c0ffee',
@@ -805,11 +815,15 @@ describe('deliberate planning hashes the whole Workspace', () => {
 			[...github.files()].map(async ([path, bytes]) => ({ path, sha: await gitBlobSha(bytes) }))
 		);
 
-		// Somebody edits the same Annotation in the chosen folder, outside every managed write.
+		// Somebody edits the same Annotation in the chosen folder with another program, so it never
+		// crosses the managed store's seam and the index has nothing to say about it.
 		await store.write('a/annotations/notes.geojson', encode('{"features":[{"id":2}]}\n'));
 
-		// The index-shaped view — the Baseline's own SHAs, because nothing marked the path — sees one
-		// inbound change and plans to take it.
+		// The passive check therefore reports one inbound change and no local drift at all, and a plan
+		// built from the same evidence would take the Remote's bytes over the author's own edit.
+		const passive = await checkSourceStatus({ changes: managed, remote, baseline });
+		expect(passive.status).toBe('update-available');
+		expect(passive.written).toEqual([]);
 		const inbound = await gitBlobSha(encode('{"features":[{"id":1}]}\n'));
 		const stale = planWorkspaceUpdate({ local: shared, remote, baseline });
 		if (stale.outcome !== 'planned') throw new Error('expected a plan');

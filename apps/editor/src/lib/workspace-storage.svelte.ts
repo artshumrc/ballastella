@@ -32,6 +32,7 @@ import {
 	browserMetadataStorage,
 	confirmLegacyRemote,
 	discardPublishManifest,
+	discardLocalChanges,
 	discardSynchronizationMetadata,
 	migrateSynchronizationMetadata,
 	journalledWorkspaces,
@@ -90,6 +91,7 @@ import {
 	EditorSession,
 	folderWorkspaceKey,
 	opfsWorkspaceKey,
+	trackLocalChanges,
 	type TransferState
 } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
@@ -933,6 +935,9 @@ export class WorkspaceStorage {
 		// shared with it — standing ready for whatever "Marking 2026" is made next.
 		if (this.#metadataStorage) {
 			await discardSynchronizationMetadata(this.#metadataStorage, opfsWorkspaceKey(name));
+			// The marks are the third installation-local record keyed by this Workspace, and left behind
+			// they would stand ready for whatever Workspace is next made with the same name.
+			await discardLocalChanges(this.#metadataStorage, opfsWorkspaceKey(name));
 		}
 	}
 
@@ -1795,11 +1800,20 @@ export class WorkspaceStorage {
 	}
 
 	async #adopt(
-		store: ProjectStore,
+		rawStore: ProjectStore,
 		backing: WorkspaceBacking,
 		folderName: string,
 		workspaceName = this.workspaceName
 	): Promise<void> {
+		// The key the *arriving* Workspace is, backing included — never the one being left.
+		const workspaceKey =
+			backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName);
+		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and
+		// the session that follows all hold the *same* managed store and its one change index (ticket
+		// 10). A raw store handed to any of them would author bytes this installation then has no
+		// record of, and a Workspace whose Remote Status reads `Up to date` over work GitHub has never
+		// seen is the one failure this index exists to prevent.
+		const store = trackLocalChanges(rawStore, workspaceKey, this.#metadataStorage);
 		const leaving = this.session;
 		// Whatever is still queued belongs to the Workspace it was typed into. Flushed before the
 		// swap, and swallowed if that Workspace has become unreachable — which is often exactly why
@@ -1816,9 +1830,7 @@ export class WorkspaceStorage {
 		const arriving = new EditorSession(store, {
 			...(this.#journalStorage ? { journalStorage: this.#journalStorage } : {}),
 			...(this.#metadataStorage ? { metadataStorage: this.#metadataStorage } : {}),
-			// The key the *arriving* Workspace is, backing included — never the one being left.
-			workspaceKey:
-				backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName)
+			workspaceKey
 		});
 		// ⚠ **Before the mark and before the Remote, because both of those are reads of this
 		// Workspace** (ticket 05). An unresolved Import marker means the arriving Workspace is not
