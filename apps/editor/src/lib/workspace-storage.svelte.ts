@@ -26,7 +26,12 @@ import {
 	browserJournalStorage,
 	discardDeletions,
 	discardJournal,
+	SynchronizationMetadata,
+	browserMetadataStorage,
+	confirmLegacyRemote,
 	discardPublishManifest,
+	discardSynchronizationMetadata,
+	migrateSynchronizationMetadata,
 	journalledWorkspaces,
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
@@ -34,7 +39,6 @@ import {
 	clearRemoteBinding,
 	closedWhileReviewing,
 	describeRemote,
-	readRemoteBinding,
 	readRemoteRights,
 	GITHUB_API_ORIGIN,
 	GITHUB_APP,
@@ -62,7 +66,9 @@ import {
 	type OpenedBundle,
 	type ProjectStore,
 	type RemoteBindOutcome,
-	type RemoteBinding,
+	type MetadataStorage,
+	type RemoteRelationship,
+	type SynchronizationBaseline,
 	type RemoteReference,
 	type RemoteRights,
 	type RestoreDestination,
@@ -360,7 +366,28 @@ export class WorkspaceStorage {
 	 * may each have one, and nothing on this path asks which — `WorkspaceBacking` stays a two-member
 	 * union and gains no third member (ADR-0032).
 	 */
-	remote = $state<RemoteBinding | null>(null);
+	remote = $state<RemoteRelationship | null>(null);
+	/**
+	 * What this installation last saw shared between this Workspace and its Remote, or `null` for
+	 * `Cannot tell` (ADR-0038).
+	 *
+	 * ⚠ **`null` is a determination, not an absence of one.** It is what absence, corruption, a record
+	 * naming another repository, and a Baseline the browser refused to keep all read as, and every one
+	 * of them means the same thing to a reader: nothing here can say how the two sides differ.
+	 */
+	baseline = $state<SynchronizationBaseline | null>(null);
+	/**
+	 * A v1 `remote.json` this installation cannot corroborate, waiting to be confirmed or declined.
+	 *
+	 * ⚠ **Not a Remote.** SPEC: *"A legacy binding without corroborating installation-local evidence
+	 * requires explicit confirmation."* The binding is a file inside the published tree, so a fork, a
+	 * colleague's copied folder and a restored Backup all carry one naming somebody else's repository
+	 * — and lifting it silently would aim a Publish button at a repository the author has never seen.
+	 *
+	 * Held for the length of the session rather than written down: declining is an answer about this
+	 * visit, and the record that would make it permanent is the confirmation itself.
+	 */
+	legacyRemote = $state<RemoteRelationship | null>(null);
 	/**
 	 * Whether a push credential is held right now.
 	 *
@@ -446,6 +473,15 @@ export class WorkspaceStorage {
 	 * of what ticket 20 fixed everywhere else.
 	 */
 	readonly #journalStorage: JournalStorage | null = browserJournalStorage();
+	/**
+	 * Where this installation's synchronization metadata lives, resolved once for the whole app
+	 * (ADR-0038).
+	 *
+	 * IndexedDB rather than `localStorage`, because a Baseline for a Workspace of 40 000 files is a
+	 * couple of megabytes against an origin-wide 5 MB budget the journal already shares — which is how
+	 * the v1 manifest came to be lost *after* a publish had reached GitHub.
+	 */
+	readonly #metadataStorage: MetadataStorage | null = browserMetadataStorage();
 	/**
 	 * The push credential, sealed while a Review Workspace is open (ADR-0033, story 40).
 	 *
@@ -533,7 +569,7 @@ export class WorkspaceStorage {
 				// Both facts about the arriving Workspace, read in the same breath as the mark and for
 				// the same reason: the first load never goes through `#adopt`, so a binding read only
 				// there would be missing on exactly the screen a reload lands on.
-				await this.#readRemote(this.session.store);
+				await this.#readRemote(this.session.store, this.session);
 				// And, when it turns out to be one of the user's own, it is the Workspace the banner's
 				// first exit goes back to. `#adopt` records that on every switch, but the Workspace a
 				// visit *starts* in never goes through it — so without this line a user who opened a
@@ -819,6 +855,13 @@ export class WorkspaceStorage {
 			// repository, standing ready for whichever repository a Workspace made under that name next
 			// is bound to — and ticket 05 judges a publish by it.
 			discardPublishManifest(this.#journalStorage, opfsWorkspaceKey(name));
+		}
+		// **And its Remote relationship and Baseline** (ADR-0038), which carry the same reuse hazard in
+		// the direction that matters most: left behind, they are this installation's claim that a
+		// Workspace called "Marking 2026" belongs to a repository and that its files are already
+		// shared with it — standing ready for whatever "Marking 2026" is made next.
+		if (this.#metadataStorage) {
+			await discardSynchronizationMetadata(this.#metadataStorage, opfsWorkspaceKey(name));
 		}
 	}
 
@@ -1136,13 +1179,81 @@ export class WorkspaceStorage {
 	// repository this Workspace belongs to, knows whether it may write there, and holds a credential
 	// for the length of the tab.
 
-	/** Read the arriving Workspace's binding, and re-answer whether a credential is readable. */
-	async #readRemote(store: ProjectStore): Promise<void> {
-		// Never throws — an unreadable or absent `remote.json` is *unbound*, which is the safe
-		// direction here: the cost is binding again, and the cost the other way is a Publish button
-		// aimed at an address nobody checked.
-		this.remote = await readRemoteBinding(store);
+	/**
+	 * Settle the arriving Workspace's Remote, and re-answer whether a credential is readable.
+	 *
+	 * ⚠ **Migration runs here, before any synchronization action is offered for the Workspace**, and
+	 * this is the only place a `remote.json` is consulted at all. Everything else reads
+	 * {@link SynchronizationMetadata}, so a binding downloaded inside a fork's published tree, carried
+	 * in a Project Bundle, or restored from a Backup cannot become an active Remote.
+	 *
+	 * Never throws. A Workspace whose metadata cannot be read is unbound and `Cannot tell`, which is
+	 * the direction whose cost is binding again rather than a Publish aimed at an unchecked address.
+	 */
+	async #readRemote(store: ProjectStore, session: EditorSession): Promise<void> {
+		const metadata = session.synchronization;
+		this.legacyRemote = null;
+		this.remote = null;
+		this.baseline = null;
+		if (metadata !== null) {
+			const migration = await migrateSynchronizationMetadata({
+				metadata,
+				store,
+				manifests: session.legacyManifests
+			});
+			// A Review Workspace is never bindable (ADR-0024), so it is never asked either — the offer
+			// would be a route into publishing somebody else's Project from a copy built to be thrown
+			// away. `this.review` is settled just above this call, in `#adopt`.
+			this.legacyRemote =
+				migration.kind === 'confirmation-required' && this.review === null
+					? migration.remote
+					: null;
+			this.remote = await metadata.readRemote();
+			this.baseline = this.remote === null ? null : await metadata.readBaseline(this.remote);
+		}
 		this.#refreshCredential();
+	}
+
+	/**
+	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared.
+	 *
+	 * `'unbound'`, `'cannot-tell'`, or `'known'`. The three-way comparison itself is not this
+	 * ticket's: what this answers is whether there is anything to compare against.
+	 */
+	get remoteStatus(): 'unbound' | 'cannot-tell' | 'known' {
+		if (this.remote === null) return 'unbound';
+		return this.baseline === null ? 'cannot-tell' : 'known';
+	}
+
+	/**
+	 * Accept a legacy `remote.json` as this installation's Remote, having named the repository.
+	 *
+	 * ⚠ **No Baseline is written.** There is no evidence about what this machine shared with that
+	 * repository, and an empty Baseline would claim the Remote holds nothing — the reading that
+	 * licenses overwriting all of it. So the Workspace is bound and its status is `Cannot tell` until a
+	 * deliberate Publish establishes real evidence.
+	 *
+	 * @throws Error when the durable store would not keep the relationship
+	 */
+	async acceptLegacyRemote(): Promise<void> {
+		const legacy = this.legacyRemote;
+		const metadata = this.session.synchronization;
+		if (legacy === null || metadata === null) return;
+		if (!(await confirmLegacyRemote(metadata, legacy))) {
+			throw new Error(
+				`This browser would not keep the record that “${this.name}” belongs to ` +
+					`${describeRemote(legacy)}. Site data may be blocked for this site, or browser storage ` +
+					`may be full.`
+			);
+		}
+		this.legacyRemote = null;
+		this.remote = legacy;
+		this.baseline = await metadata.readBaseline(legacy);
+	}
+
+	/** Leave a legacy `remote.json` unlifted. Nothing is written, so the Workspace stays unbound. */
+	declineLegacyRemote(): void {
+		this.legacyRemote = null;
 	}
 
 	#refreshCredential(): void {
@@ -1186,7 +1297,26 @@ export class WorkspaceStorage {
 			remote
 		});
 		if (token !== null) this.#keepPasted(token);
-		this.remote = outcome.binding;
+		const binding = {
+			owner: outcome.binding.owner,
+			repository: outcome.binding.repository,
+			branch: outcome.binding.branch
+		};
+		// ⚠ **The installation-local relationship is what makes this Workspace bound**, and the
+		// `remote.json` `bindWorkspaceToRemote` wrote is now only the Published Site's compatibility
+		// evidence. A store that will not keep this leaves the Workspace unbound, so it is said out
+		// loud rather than reported as a binding that does not exist.
+		const metadata = this.session.synchronization;
+		if (metadata !== null && !(await metadata.bindRemote(binding))) {
+			throw new Error(
+				`Ballastella reached ${describeRemote(binding)}, but this browser would not keep the ` +
+					`record that “${this.name}” belongs to it, so the Workspace is not bound. Site data may ` +
+					`be blocked for this site, or browser storage may be full.`
+			);
+		}
+		this.legacyRemote = null;
+		this.remote = binding;
+		this.baseline = metadata === null ? null : await metadata.readBaseline(binding);
 		return outcome;
 	}
 
@@ -1433,7 +1563,13 @@ export class WorkspaceStorage {
 	 * account rather than to this Workspace, and signing out is its own button.
 	 */
 	async unbindRemote(): Promise<void> {
+		// The installation-local relationship first, because that is the one that decides whether this
+		// Workspace is bound. `remote.json` goes too: left behind, the next visit would find an
+		// uncorroborated legacy binding and offer to lift the very relationship just given up.
+		await this.session.synchronization?.clearRemote();
 		await clearRemoteBinding(this.session.store);
+		this.legacyRemote = null;
+		this.baseline = null;
 		this.remote = null;
 	}
 
@@ -1469,6 +1605,21 @@ export class WorkspaceStorage {
 				estimateStorage: estimateStorage,
 				onProgress: ({ files, totalFiles }) => announce(files, totalFiles, false)
 			});
+			// ⚠ **The repository the user named, recorded before the Workspace is adopted** (ADR-0038).
+			// The Clone downloaded a `remote.json` out of somebody's published tree and `cloneFromRemote`
+			// discarded it in favour of this address; writing the relationship here is what stops the
+			// adopt below meeting an uncorroborated legacy binding and asking about a repository the
+			// user has already chosen. No Baseline: establishing one at Open is ticket 11's.
+			if (this.#metadataStorage) {
+				await new SynchronizationMetadata(
+					this.#metadataStorage,
+					opfsWorkspaceKey(cloned.workspaceName)
+				).bindRemote({
+					owner: cloned.remote.owner,
+					repository: cloned.remote.repository,
+					branch: cloned.remote.branch
+				});
+			}
 			// Only once the Clone has finished. Switching first would leave the user looking at a
 			// half-filled Workspace, and `#adopt` tears down the session they are in.
 			await this.openWorkspace(cloned.workspaceName);
@@ -1567,6 +1718,7 @@ export class WorkspaceStorage {
 
 		const arriving = new EditorSession(store, {
 			...(this.#journalStorage ? { journalStorage: this.#journalStorage } : {}),
+			...(this.#metadataStorage ? { metadataStorage: this.#metadataStorage } : {}),
 			// The key the *arriving* Workspace is, backing included — never the one being left.
 			workspaceKey:
 				backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName)
@@ -1585,7 +1737,7 @@ export class WorkspaceStorage {
 		// folder above because a bundle only ever opens into browser storage, and no equivalent
 		// argument exists for a binding. Read after the mark, so the seal on the credential store is
 		// already answering for the arriving Workspace.
-		await this.#readRemote(store);
+		await this.#readRemote(store, arriving);
 
 		// Before `this.session` is published, so the route effect that re-runs on the swap waits for
 		// the arriving Workspace's replay rather than reading a Project out from under it.

@@ -65,6 +65,8 @@
 	let notices = $state<string[]>([]);
 
 	const bound = $derived(storage.remote);
+	/** A legacy binding waiting to be confirmed or declined, which is not yet a Remote. */
+	const legacy = $derived(storage.legacyRemote);
 
 	/**
 	 * A repository name to prefill `github.com/new` with (story 8).
@@ -249,6 +251,31 @@
 		}
 	}
 
+	async function acceptLegacy(): Promise<void> {
+		reset();
+		const lifted = legacy;
+		working = true;
+		try {
+			await storage.acceptLegacyRemote();
+			outcome =
+				`This Workspace publishes to ${lifted ? describeRemote(lifted) : 'that repository'}. ` +
+				`Ballastella has no record of what is there yet, so it cannot tell what has changed since ` +
+				`the two last agreed — the next publish establishes that record.`;
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			working = false;
+		}
+	}
+
+	function declineLegacy(): void {
+		reset();
+		storage.declineLegacyRemote();
+		outcome =
+			'Left unbound. Nothing has been published and nothing on GitHub has changed. Bind this ' +
+			'Workspace yourself if you do want it to publish somewhere.';
+	}
+
 	async function unbind(): Promise<void> {
 		reset();
 		const was = bound;
@@ -279,11 +306,59 @@
 					This is a review copy of somebody else's Project, so it cannot be bound to a repository
 					and no GitHub sign-in is readable while it is open. Go back to your own Workspace first.
 				</p>
+			{:else if legacy}
+				<!--
+					⚠ **A `remote.json` this installation cannot corroborate** (ADR-0038). The binding is a
+					file inside the published tree, so a fork, a colleague's copied folder and a restored
+					Backup all carry one naming somebody else's repository. Lifting it silently would aim a
+					Publish button at a repository this author has never seen, so it is named and asked
+					about — and until it is answered the Workspace is unbound and there is no bind form
+					underneath to answer it by accident.
+				-->
+				<p class="mt-1 text-sm" data-testid="legacy-remote-offer">
+					This Workspace's files say it was published to
+					<code data-testid="legacy-remote">{describeRemote(legacy)}</code>, but this browser has no
+					record of ever having published there. Only accept this if
+					<code>{describeRemote(legacy)}</code> is your own repository — a copied folder or a fork carries
+					somebody else's address.
+				</p>
+				<div class="mt-3 flex flex-wrap gap-2">
+					<button
+						class="btn btn-primary btn-sm"
+						data-testid="accept-legacy-remote"
+						disabled={working}
+						onclick={() => void acceptLegacy()}
+					>
+						Yes, publish to {describeRemote(legacy)}
+					</button>
+					<button
+						class="btn btn-outline btn-sm"
+						data-testid="decline-legacy-remote"
+						disabled={working}
+						onclick={() => declineLegacy()}
+					>
+						No, leave this Workspace unbound
+					</button>
+				</div>
 			{:else if bound}
 				<p class="mt-1 text-sm opacity-70">
 					Publishing sends this Workspace to
 					<code data-testid="bound-remote">{describeRemote(bound)}</code>, on the branch
 					<code>{bound.branch}</code>, and nowhere else.
+				</p>
+				<!--
+					The Baseline, said in words. `Cannot tell` is a determination rather than a silence — see
+					`NavigationBar`'s note — so it is stated here too, on the screen a scholar comes to when
+					they want to know where their work goes.
+				-->
+				<p class="mt-1 text-sm opacity-70" data-testid="remote-baseline">
+					{#if storage.baseline}
+						Ballastella last agreed with {describeRemote(bound)} at commit
+						<code>{storage.baseline.commit}</code>, over {storage.baseline.files.size} files.
+					{:else}
+						Cannot tell what has changed since this Workspace and {describeRemote(bound)} last agreed:
+						there is no record of it on this computer.
+					{/if}
 				</p>
 				<div class="mt-3 flex flex-wrap gap-2">
 					<button

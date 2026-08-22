@@ -2,7 +2,7 @@ import { expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
-import { openRemoteSettings } from './support/workspace.js';
+import { openRemoteSettings, seedRemoteRelationship } from './support/workspace.js';
 
 /**
  * The two refusals that stop one machine deleting another's afternoon (ticket 05, ADR-0033).
@@ -127,6 +127,12 @@ async function start(
 	await page.goto('./');
 	await emptyBrowserStorage(page);
 	await seed(page, options.workspace ?? {});
+	// ⚠ **The Remote is installation-local now** (ADR-0038): a seeded `remote.json` is the Published
+	// Site's compatibility evidence and binds nothing, so a spec that needs a bound Workspace records
+	// the relationship the way an Open or a bind does.
+	if (options.workspace?.['remote.json']) {
+		await seedRemoteRelationship(page, { owner: OWNER, repository: REPOSITORY });
+	}
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 	return github;

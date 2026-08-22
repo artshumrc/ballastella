@@ -127,6 +127,22 @@
 	 * button used to be, and `packages/core` refuses the binding by any route regardless.
 	 */
 	const publishable = $derived(storage !== null && storage.review === null);
+
+	/**
+	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared
+	 * (ADR-0038).
+	 *
+	 * ⚠ **Text rather than a colour, and stated rather than omitted**, for the reason the publishing
+	 * line above it is: `Cannot tell` is a *determination* — absence, corruption, a record naming
+	 * another repository, or a Baseline this browser refused to keep — and a scholar who is shown
+	 * nothing reads it as "up to date". The three-way comparison itself is not here; what this says is
+	 * whether there is anything to compare against.
+	 */
+	const remoteStatusSentence = $derived(
+		storage === null || storage.remoteStatus !== 'cannot-tell'
+			? ''
+			: 'Cannot tell what has changed since this Workspace and GitHub last agreed.'
+	);
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
 	let newNameField = $state<HTMLInputElement | undefined>();
@@ -278,6 +294,7 @@
 							Publishes to <span data-testid="workspace-remote"
 								>{describeRemote(storage.remote)}</span
 							>. <span data-testid="workspace-credential">{credentialSentence}</span>.
+							<span data-testid="remote-status">{remoteStatusSentence}</span>
 						{:else}
 							No Remote yet, so nothing is published from this Workspace.
 						{/if}

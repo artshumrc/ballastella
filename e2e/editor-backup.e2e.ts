@@ -7,8 +7,12 @@ import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { renderedAnnotationLayers, waitForPaintedAnnotations } from './support/annotations.js';
 import {
 	closeWorkspaceSettings,
+	expectNoRemote,
+	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openWorkspaceSettings
+	openWorkspaceSettings,
+	readRemoteRelationship,
+	seedRemoteRelationship
 } from './support/workspace';
 
 /**
@@ -258,6 +262,17 @@ test.describe('restoring a Workspace', () => {
 	test('creates a new Workspace, switches to it, and leaves the old one untouched', async ({
 		page
 	}) => {
+		// ⚠ **Bound before the backup is taken** (story 158, ADR-0038), so the restore has a Remote
+		// relationship it must fail to carry. `remote.json` travels in the archive — it is inside the
+		// published tree — and the relationship that *makes* a Workspace bound is installation-local, so
+		// neither route can arrive as an active Remote in the restored copy.
+		await seedWorkspace(page, DEFAULT_WORKSPACE, {
+			'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
+		});
+		await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
+		await page.reload();
+		await expectRemoteNamed(page, 'ada/atlas');
+
 		const backup = await backUpToBuffer(page);
 
 		// The backup is now restored into the *same* browser, which is the sharper case: there is
@@ -299,6 +314,14 @@ test.describe('restoring a Workspace', () => {
 		expect(paths).not.toContain(`${restoredName}/index.html`);
 		expect(paths).not.toContain(`${restoredName}/ballastella-site.json`);
 		expect(paths.filter((path) => path.startsWith(`${restoredName}/_app/`))).toEqual([]);
+
+		// ⚠ **And it arrives unbound** (story 158). `restoreWorkspaceTar` strips `remote.json` on the way
+		// in, and nothing wrote an installation-local relationship for a Workspace this browser has
+		// never published from — so a Backup mailed to a colleague cannot aim their Publish button at
+		// the sender's repository.
+		expect(paths).not.toContain(`${restoredName}/remote.json`);
+		expect(await readRemoteRelationship(page, restoredName)).toBeNull();
+		await expectNoRemote(page);
 
 		// Both Projects list on the hub of the Workspace now open, which is the criterion a path
 		// comparison cannot answer: it is `listProjects` that decides what a scholar sees.

@@ -6,6 +6,7 @@ import {
 	DeletedProjects,
 	MapImageInUseError,
 	PublishManifests,
+	SynchronizationMetadata,
 	MapImagePartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
@@ -20,6 +21,7 @@ import {
 	annotationStorePath,
 	assembleWithCanvas,
 	browserJournalStorage,
+	browserMetadataStorage,
 	forgetHeldCopy,
 	deletionsAreNoteworthy,
 	replayIsNoteworthy,
@@ -98,6 +100,7 @@ import {
 	type WorkspaceIdentity,
 	type JournalReplayReport,
 	type JournalStorage,
+	type MetadataStorage,
 	type Layer,
 	type MapLayer,
 	type OfflineCopyPlan,
@@ -282,6 +285,14 @@ export interface EditorSessionOptions {
 	 * left here to be found.
 	 */
 	readonly workspaceKey?: string;
+	/**
+	 * Where this installation's synchronization metadata is kept (ADR-0038).
+	 *
+	 * Optional for the reason {@link journalStorage} is: a context with no IndexedDB cannot hold a
+	 * Remote relationship or a Baseline at all, and a silent stand-in would let the app claim
+	 * synchronization evidence it has no way to keep. Its absence reads as `Cannot tell`.
+	 */
+	readonly metadataStorage?: MetadataStorage;
 }
 
 export class EditorSession {
@@ -308,13 +319,20 @@ export class EditorSession {
 	 */
 	readonly #deleted: DeletedProjects | undefined;
 	/**
-	 * What **this** Workspace's Remote held when its last publish finished (ADR-0033).
+	 * The v1 `localStorage` publish manifest, kept only so migration can read it (ADR-0038).
 	 *
-	 * `undefined` where there can be no journal storage, exactly as {@link #deleted} is. There it is
-	 * simply not recorded, and ticket 05's refusal falls back to saying plainly that it cannot tell —
-	 * which is the answer a browser with no `localStorage` has to give anyway.
+	 * ⚠ **Not a runtime store any more.** What the Remote last held is the Synchronization Baseline in
+	 * {@link #synchronization}; this is consulted once, by `migrateSynchronizationMetadata`, to decide
+	 * whether a v1 Workspace's binding is corroborated by evidence this machine wrote itself.
+	 *
+	 * `undefined` where there can be no journal storage, exactly as {@link #deleted} is.
 	 */
 	readonly #manifests: PublishManifests | undefined;
+	/**
+	 * This Workspace's installation-local Remote relationship and Baseline, or `undefined` where there
+	 * is nowhere durable to keep them.
+	 */
+	readonly #synchronization: SynchronizationMetadata | undefined;
 	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
@@ -592,6 +610,10 @@ export class EditorSession {
 			options.journalStorage && options.workspaceKey
 				? new PublishManifests(options.journalStorage, options.workspaceKey)
 				: undefined;
+		this.#synchronization =
+			options.metadataStorage && options.workspaceKey
+				? new SynchronizationMetadata(options.metadataStorage, options.workspaceKey)
+				: undefined;
 		this.#workspace = new Workspace(store, {
 			autosave: this.#autosave,
 			...(this.#deleted ? { deleted: this.#deleted } : {}),
@@ -622,11 +644,29 @@ export class EditorSession {
 		});
 	}
 
+	/**
+	 * This Workspace's installation-local Remote relationship and Baseline, or `null` where there is
+	 * nowhere durable to keep them — which reads as unbound and `Cannot tell`.
+	 *
+	 * Exposed because the migration decision and the bind/unbind gestures live in
+	 * `WorkspaceStorage`, and both must act on the *same* record this session publishes against.
+	 */
+	get synchronization(): SynchronizationMetadata | null {
+		return this.#synchronization ?? null;
+	}
+
+	/** The v1 manifest reader migration corroborates a legacy binding against, or `null`. */
+	get legacyManifests(): PublishManifests | null {
+		return this.#manifests ?? null;
+	}
+
 	/** The default: a named workspace in OPFS, which every modern browser has (ADR-0001, ADR-0024). */
 	static opfs(name: string): EditorSession {
 		const journalStorage = browserJournalStorage();
+		const metadataStorage = browserMetadataStorage();
 		return new EditorSession(OpfsProjectStore.open(name), {
 			...(journalStorage ? { journalStorage } : {}),
+			...(metadataStorage ? { metadataStorage } : {}),
 			workspaceKey: opfsWorkspaceKey(name)
 		});
 	}
@@ -2333,22 +2373,23 @@ export class EditorSession {
 		return planWorkspaceUpload(this.#store, {
 			token: options.token,
 			remote: options.remote,
-			manifest: this.#lastSeenOn(options.remote),
+			manifest: await this.#lastSharedWith(options.remote),
 			...(options.pending ? { pending: options.pending } : {})
 		});
 	}
 
 	/**
-	 * What this machine last saw on `remote`, or `null` for *we cannot say*.
+	 * What this Workspace and `remote` last shared, or `null` for `Cannot tell`.
 	 *
 	 * ⚠ **The Remote is handed to the record rather than assumed of it**, which is what makes a
-	 * re-bound Workspace safe: `PublishManifests.read` answers `null` for a record naming a different
-	 * repository or branch, so this machine's claim about `ada/atlas` can never stand as evidence
-	 * about `ada/atlas-2`. A session with no journal storage has no record at all and says so, which
-	 * the engine reads as the same "we cannot say" and refuses on rather than guesses at.
+	 * re-bound Workspace safe: `SynchronizationMetadata.readBaseline` answers `null` for a record
+	 * naming a different repository or branch, so this machine's claim about `ada/atlas` can never
+	 * stand as evidence about `ada/atlas-2`. A session with nowhere durable to keep a Baseline has no
+	 * record at all and says so, which the engine reads as the same "we cannot say" and refuses on
+	 * rather than guesses at.
 	 */
-	#lastSeenOn(remote: RemoteRepository): ReadonlyMap<string, string> | null {
-		return this.#manifests?.read(remote)?.files ?? null;
+	async #lastSharedWith(remote: RemoteRepository): Promise<ReadonlyMap<string, string> | null> {
+		return (await this.#synchronization?.readBaseline(remote))?.files ?? null;
 	}
 
 	/**
@@ -2361,11 +2402,11 @@ export class EditorSession {
 	 * Handed the forecast it would publish a site with no `index.html` in it, silently, on the one
 	 * publish that most needs to work: the first.
 	 *
-	 * The manifest goes into `localStorage` rather than into the Workspace, because it records what
-	 * *this machine* last saw on the Remote and a record that travelled with the Workspace would be
-	 * another machine's belief arriving as this one's evidence (ticket 05).
+	 * The Baseline is installation-local rather than a file in the Workspace, because it records what
+	 * *this machine* last shared with the Remote and a record that travelled with the Workspace would
+	 * be another machine's belief arriving as this one's evidence (ADR-0038).
 	 *
-	 * @returns the plan that ran, the commit the branch now holds, and whether the manifest was kept
+	 * @returns the plan that ran, the commit the branch now holds, and whether the Baseline was kept
 	 * @throws RemotePublishRefusedError when the Remote moved past what `replace` agreed to
 	 * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
 	 */
@@ -2391,14 +2432,14 @@ export class EditorSession {
 			totalFiles: number;
 			requestsRemaining: number | null;
 		}) => void;
-	}): Promise<{ commit: string; plan: RemotePublishPlan; manifestKept: boolean }> {
+	}): Promise<{ commit: string; plan: RemotePublishPlan; baselineKept: boolean }> {
 		// Everything pending on disk first, for the same reason `publish` flushes: an Annotation still
 		// inside the autosave debounce would go to a public host missing the edit just made.
 		await this.flush();
 		const request = { token: options.token, remote: options.remote };
 		const plan = await planWorkspaceUpload(this.#store, {
 			...request,
-			manifest: this.#lastSeenOn(options.remote)
+			manifest: await this.#lastSharedWith(options.remote)
 		});
 		const { commit, manifest } = await uploadWorkspace(this.#store, {
 			...request,
@@ -2406,18 +2447,22 @@ export class EditorSession {
 			...(options.replace === undefined ? {} : { replace: options.replace }),
 			...(options.onProgress ? { onProgress: options.onProgress } : {})
 		});
-		// Best effort by construction: a manifest too large for what is left of the origin's 5 MB
-		// answers `false` rather than throwing, because a publish that has already reached GitHub must
-		// not be reported as having failed over a record of it. **Answered onward rather than
-		// swallowed**: the publish succeeded and the record of it did not, and a scholar told neither
-		// meets ticket 05's "we cannot tell what is on the Remote" as a mystery on their next publish.
+		// SPEC: "If durable Baseline storage fails after Remote publication succeeds, report that Publish
+		// succeeded but status is now Cannot tell; never report the Publish as failed and never retain
+		// stale evidence." **Answered onward rather than swallowed**: the publish succeeded and the
+		// record of it did not, and a scholar told neither meets that `Cannot tell` as a mystery on
+		// their next publish.
 		//
-		// A session with no journal storage keeps no manifest at all and never could, which is not the
+		// A session with nowhere durable to keep a Baseline keeps none and never could, which is not the
 		// same news and is not reported as it.
-		const manifestKept =
-			this.#manifests === undefined ||
-			this.#manifests.write({ remote: options.remote, commit, files: manifest });
-		return { commit, plan, manifestKept };
+		const baselineKept =
+			this.#synchronization === undefined ||
+			(await this.#synchronization.writeBaseline({
+				remote: options.remote,
+				commit,
+				files: manifest
+			}));
+		return { commit, plan, baselineKept };
 	}
 
 	/**

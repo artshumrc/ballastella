@@ -376,6 +376,33 @@ export {
 	publishManifestKey,
 	type PublishManifest
 } from './remote/publish-manifest.js';
+// Installation-local synchronization evidence, superseding the v1 `localStorage` manifest above
+// (ADR-0038). The relationship and the Baseline are what *this machine* believes about a Remote, so
+// neither travels in a Workspace, a Backup, a Project Bundle or a published tree.
+export {
+	SYNCHRONIZATION_FORMAT_VERSION,
+	SYNCHRONIZATION_KEY_PREFIX,
+	SynchronizationMetadata,
+	baselineKey,
+	discardSynchronizationMetadata,
+	listRemoteRelationships,
+	remoteRelationshipKey,
+	type MetadataStorage,
+	type RemoteRelationship,
+	type SynchronizationBaseline
+} from './remote/synchronization-metadata.js';
+export { FakeMetadataStorage } from './remote/fake-metadata-storage.js';
+export {
+	IndexedDbMetadataStorage,
+	browserMetadataStorage
+} from './store/indexeddb-metadata-storage.js';
+// Deciding, once per Workspace, what its v1 evidence means — before any synchronization action is
+// offered for it.
+export {
+	confirmLegacyRemote,
+	migrateSynchronizationMetadata,
+	type SynchronizationMigration
+} from './remote/migrate-synchronization.js';
 // Cloning a published Workspace back out of a public repository (ADR-0031, ADR-0032). The one
 // operation in this epic that needs no credential at all, which is what lets a student with no
 // GitHub account seed a Workspace from their instructor's Remote.

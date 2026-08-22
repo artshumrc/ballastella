@@ -134,8 +134,8 @@
 		sent: { remote: string; files: number; uploaded: number } | null;
 		/** The Remote nothing was sent to, or `''` when there was nothing to send to. */
 		notSent: string;
-		/** Whether this machine kept its record of what the Remote now holds (ADR-0033). */
-		manifestKept: boolean;
+		/** Whether this machine kept its Synchronization Baseline for the Remote (ADR-0038). */
+		baselineKept: boolean;
 	} | null>(null);
 
 	/** The record the Workspace's own Published Site carries, and whether it is behind. */
@@ -442,7 +442,7 @@
 			let sent: { remote: string; files: number; uploaded: number } | null = null;
 			/** The Remote this publish did **not** reach, which the result has to say out loud. */
 			let notSent = '';
-			let manifestKept = true;
+			let baselineKept = true;
 			if (bound !== null && credential !== null) {
 				const result = await session.publishToRemote({
 					token: credential,
@@ -464,7 +464,7 @@
 					files: result.plan.files.length,
 					uploaded: result.plan.uploads
 				};
-				manifestKept = result.manifestKept;
+				baselineKept = result.baselineKept;
 			} else if (bound !== null) {
 				// A sign-out during a long publish can remove the credential after the local site is written;
 				// keep the result explicit about the Remote that was not reached.
@@ -480,7 +480,7 @@
 				files: agreed.files.length,
 				sent,
 				notSent,
-				manifestKept
+				baselineKept
 			};
 		} catch (cause) {
 			if (cause instanceof RemotePublishCredentialError) storage.signOut();
@@ -573,10 +573,10 @@
 					`your Published Site is exactly as it was. Publish again once you have signed in and ` +
 					`this goes there without doing the work twice.`
 				: '') +
-			// Said rather than swallowed: the publish reached the Remote and this machine's record of
-			// what it now holds did not survive, which is what the next publish would otherwise meet as
-			// an unexplained "we cannot tell whether somebody else wrote this" (ADR-0033, ticket 05).
-			(published.manifestKept
+			// Said rather than swallowed: the publish reached the Remote and this machine's Baseline for
+			// it did not survive, which is the `Cannot tell` the next publish would otherwise meet as an
+			// unexplained "we cannot tell whether somebody else wrote this" (ADR-0038).
+			(published.baselineKept
 				? ''
 				: ` This browser would not keep the record of what ${sent?.remote ?? 'the Remote'} now ` +
 					`holds, so the next publish cannot tell your own work there from somebody else's.`)

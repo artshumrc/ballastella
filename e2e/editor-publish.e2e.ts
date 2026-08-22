@@ -14,7 +14,12 @@ import {
 } from './support/github-hosts.js';
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
-import { createWorkspace, expectCredential } from './support/workspace.js';
+import {
+	createWorkspace,
+	expectCredential,
+	readBaseline,
+	seedRemoteRelationship
+} from './support/workspace.js';
 
 const DEFAULT_REMOTE_BINDING = {
 	'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
@@ -246,6 +251,10 @@ async function openWorkspace(
 	await page.goto('./');
 	await emptyWorkspace(page);
 	await seed(page, options.unbound ? files : { ...DEFAULT_REMOTE_BINDING, ...files });
+	// ⚠ **The Remote is installation-local now** (ADR-0038): a seeded `remote.json` is the Published
+	// Site's compatibility evidence and binds nothing, so a spec that needs a bound Workspace records
+	// the relationship the way an Open or a bind does.
+	if (!options.unbound) await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 }
@@ -937,21 +946,15 @@ test.describe('publishing to a Remote', () => {
 		expect(github.fileText(OWNER, REPOSITORY, 'CNAME')).toBe('atlas.example\n');
 		expect(github.fileText(OWNER, REPOSITORY, 'docs/guide.md')).toBe('How to\n');
 
-		// ⚠ **The publish manifest is kept, and it is kept *outside* the Workspace** (ADR-0033). It
-		// records what **this machine** last saw on the Remote, which is what ticket 05 refuses an
-		// overwrite on — so a copy inside the Workspace would be packed into a Backup, uploaded by the
-		// very publish it describes, and downloaded by a Clone, at which point another machine's belief
-		// arrives as this one's evidence. `localStorage`, keyed by Workspace and backing, exactly as the
-		// write-ahead journal is.
-		const manifest = await page.evaluate(() => {
-			const key = Object.keys(localStorage).find((name) =>
-				name.startsWith('ballastella.publish-manifest.')
-			);
-			return key === undefined
-				? null
-				: { key, files: Object.keys(JSON.parse(localStorage.getItem(key) ?? '{}').files ?? {}) };
-		});
-		expect(manifest?.key).toBe('ballastella.publish-manifest.opfs%3AMy%20Workspace');
+		// ⚠ **The Synchronization Baseline is kept, and it is kept *outside* the Workspace** (ADR-0038).
+		// It records what **this machine** last shared with the Remote, which is what a conflict check
+		// refuses an overwrite on — so a copy inside the Workspace would be packed into a Backup,
+		// uploaded by the very publish it describes, and downloaded by a Clone, at which point another
+		// machine's belief arrives as this one's evidence. Installation-local, keyed by Workspace and
+		// backing, and in IndexedDB rather than the origin's 5 MB of `localStorage`, which a Workspace of
+		// 40 000 files overran.
+		const manifest = await readBaseline(page);
+		expect(manifest?.commit).toBe(github.head(OWNER, REPOSITORY));
 		// ⚠ **What it holds is every path this publish *wrote*, and not merely the ones it uploaded** —
 		// the distinction a conflict check rests on, because a file skipped as already-present is still
 		// a file this machine put there and may replace. `CNAME`, `README.md` and `docs/guide.md` are
@@ -962,6 +965,12 @@ test.describe('publishing to a Remote', () => {
 		expect(manifest?.files.sort()).toEqual(arrived.filter((path) => !preserved.includes(path)));
 		expect(arrived).toEqual(expect.arrayContaining(preserved));
 		expect(Object.keys(await takeWorkspace(page))).not.toContain('publish-manifest.json');
+		// And nothing of it is in the origin's `localStorage` any more, which is the store this replaces.
+		expect(
+			await page.evaluate(() =>
+				Object.keys(localStorage).filter((name) => name.startsWith('ballastella.publish-manifest.'))
+			)
+		).toEqual([]);
 	});
 
 	test('says nothing needed changing on a second publish, and sends no blob', async ({ page }) => {
