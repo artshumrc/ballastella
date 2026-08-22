@@ -214,6 +214,7 @@ export {
 	TEMP_PATH_SUFFIX,
 	isTempPath,
 	type Bytes,
+	type EnumerableReadOnlyProjectStore,
 	type ProjectStore,
 	type ReadOnlyProjectStore,
 	type StorePath
@@ -230,6 +231,9 @@ export {
 } from './store/workspace-folder.js';
 
 // Handing one Project to somebody else, and reviewing one you were handed (ticket 14, ADR-0024).
+// Importing one into the Workspace already open is a different operation over the same file format —
+// see `project-import-source.ts` below, and ADR-0037.
+//
 // The zip flavour of both is gone: it counted entries in sixteen bits and read a 70,000-entry
 // archive back as 4,464 files with no error, and the refusal that kept that from shipping fired for
 // an ordinary Project with two large scans.
@@ -257,6 +261,33 @@ export {
 	bundleWorkspaceName,
 	type BundleRejection
 } from './transfer/project-bundle.js';
+// Reading one Project out of somewhere else, for Import (ADR-0037). The read-only half of the
+// boundary that replaced ADR-0024's prohibition: a validated closure carries no destination store and
+// no credential, so only the Import engine can combine one with a Workspace the user owns.
+export {
+	ImportSourceRefusedError,
+	createProjectImportSource,
+	gatherProjectClosure,
+	isSharedClosurePath,
+	parseImportedProjectFile,
+	type ClosureFile,
+	type ClosurePath,
+	type ImportSourceRefusal,
+	type OfferedFile,
+	type ProjectClosure,
+	type ProjectImportOrigin,
+	type ProjectImportSource,
+	type ProjectImportSourceInput,
+	type UnmetClosureReference
+} from './transfer/project-import-source.js';
+export {
+	readProjectBundleSource,
+	type ProjectBundleSourceOptions
+} from './transfer/project-bundle-source.js';
+export {
+	readReviewWorkspaceSource,
+	type ReviewWorkspaceSourceOptions
+} from './transfer/review-workspace-source.js';
 // Whole-Workspace backup and restore, as a tar (ticket 13, ADR-0024). Editor-only — a Published
 // Site never backs anything up — but exported from the barrel rather than a subpath, because the
 // modules are plain Web Streams over `ProjectStore` and drag nothing browser-only in with them.
@@ -399,6 +430,13 @@ export {
 	type ReviewedProject,
 	type UnmetReference
 } from './remote/review-from-remote.js';
+// Importing one published Project into the Workspace the user already has open (ADR-0037). The
+// Review's transport with the Import's contract: anonymous, blob-SHA checked, and refused whole rather
+// than reported incomplete.
+export {
+	readRemoteProjectSource,
+	type RemoteProjectSourceOptions
+} from './remote/remote-project-source.js';
 // Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
 // ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
 // that "you cannot push here" is not discovered after four thousand tiles have gone.

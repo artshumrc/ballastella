@@ -34,13 +34,17 @@ import type { TransferProgressListener } from './transfer.js';
 /**
  * The Review Workspace a bundle is opened into, and the way to throw it away again.
  *
- * **A bundle takes the means of *making* a Workspace rather than a store, exactly as restore does,
- * and for a stronger reason.** Restore never overwrites because the user cannot know what a backup
- * predates until they have looked at both. A bundle never opens into an existing Workspace at all —
- * not into the user's own even behind a confirmation (ADR-0024) — because under ADR-0023 there is one
- * Alignment per Map Image in a Workspace, so merging a colleague's bundle would either overwrite
- * an Alignment two of your own Projects are drawn by or be refused. There is no third answer, and the
- * type is where that is enforced: this function is handed no store it could write into.
+ * **A bundle takes the means of *making* a Workspace rather than a store, exactly as restore does.**
+ * Restore never overwrites because the user cannot know what a backup predates until they have looked
+ * at both; a Review never opens into an existing Workspace because a review copy is a thing you throw
+ * away when you have finished looking at it, and the discard below is what makes that free.
+ *
+ * ⚠ **This is a Review, not the only way a bundle can be read.** ADR-0037 added Import, which copies
+ * one Project into the Workspace the user already has open — and it does *not* go through here. A
+ * bundle's reusable read-only source capability is `project-bundle-source.ts`, which is handed no
+ * store at all; the writable ordinary Workspace lives on the Import engine's side of that boundary
+ * and nowhere else. So this type is still one a Review makes and discards, and it must not become the
+ * route by which a bundle reaches somebody's own work.
  *
  * `discard` is what makes "nothing has been opened" true rather than aspirational, and it costs the
  * user nothing because the destination was made moments ago.
@@ -168,11 +172,13 @@ export interface OpenedBundle {
  * 7. **Anything that fails at any point discards the whole Review Workspace.** That is what makes the
  *    refusals' closing sentence true, and it is available because the destination is new.
  *
- * ⚠ **What this does not do, stated rather than implied.** It does not merge, and there is no
- * affordance anywhere that promotes a reviewed Project into the user's own Workspace. That is not an
- * omission to be filled in later: ADR-0024 names it as the fence that makes the rest coherent, since
- * a promotion is the Alignment collision arriving by another route. A scholar who wants a colleague's
- * map in their own research adds the map themselves.
+ * ⚠ **What this does not do, stated rather than implied.** It does not merge, and it does not copy
+ * anything into a Workspace of the user's own. Copying one Project into work the user owns is
+ * **Import** (ADR-0037), which reads the same bundle through `project-bundle-source.ts`, remaps every
+ * incoming Map Image to a fresh identity, and is the only thing allowed to hold a validated closure
+ * and a writable ordinary Workspace at once. Merging into an existing Map Image remains impossible
+ * rather than merely unimplemented: under ADR-0023 there is one Alignment per Map Image, so Import
+ * represents a colleague's reading of a scan as a *distinct* Map Image instead.
  *
  * @throws BundleRejectedError for anything wrong with the archive or with the room to hold it
  * @throws ProjectFormatTooNewError for a Project from a newer version of the app (ADR-0010)

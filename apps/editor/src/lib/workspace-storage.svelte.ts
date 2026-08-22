@@ -886,13 +886,17 @@ export class WorkspaceStorage {
 	/**
 	 * Open a Project somebody sent, into a **new Review Workspace**, and switch to it (SPEC 90–92).
 	 *
-	 * ⚠ **There is no other destination, and that is the whole design rather than a limitation.**
-	 * Under ADR-0023 there is exactly one Alignment per Map Image in a Workspace, so opening a
-	 * colleague's bundle into the user's own would either overwrite an Alignment two of their Projects
-	 * are drawn by, or be refused. ADR-0024's answer is that neither happens: a bundle lands in a
-	 * throwaway Workspace of its own, several of which may exist at once, and two students' conflicting
-	 * Alignments of the same sheet never meet. There is deliberately no promotion out of one — no "keep
-	 * this", no "copy to my Workspace" — because that is the collision arriving by another route.
+	 * ⚠ **A Review's destination is always a Workspace of its own, and that is the operation rather
+	 * than a limitation.** Under ADR-0023 there is exactly one Alignment per Map Image in a Workspace,
+	 * so laying a colleague's bundle over the user's own shared pool would either overwrite an
+	 * Alignment two of their Projects are drawn by, or be refused. A Review's answer is that neither
+	 * happens: the bundle lands in a throwaway Workspace, several of which may exist at once, and two
+	 * students' conflicting Alignments of the same sheet never meet.
+	 *
+	 * **Copying a bundle's Project into the Workspace the user already has open is a different
+	 * operation** — Import (ADR-0037) — which reads the same file through a read-only source capability
+	 * and gives every incoming Map Image a *fresh* identity, so nothing of the user's is overwritten.
+	 * This method is not it and must not become it: what it produces is a review copy.
 	 *
 	 * **Always a browser-storage Workspace, whatever the current backing is**, for the reason
 	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder

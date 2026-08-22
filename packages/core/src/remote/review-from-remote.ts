@@ -1,5 +1,5 @@
 // Downloading **one Project** out of a public repository, into a Review Workspace (ADR-0024,
-// ADR-0031, ADR-0032).
+// ADR-0031, ADR-0032, ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS IS THE BUNDLE PATH WITH A DIFFERENT SOURCE OF BYTES, AND THE REFUSAL IS HALF THE POINT
@@ -7,15 +7,16 @@
 // `open-project-bundle.ts` reads a Project out of a tar into a throwaway Workspace of its own; this
 // reads one out of somebody's Remote into the same kind of Workspace. What arrives is unbound,
 // unpublishable, and carries the banner that says so, because the reason has not changed with the
-// transport: under ADR-0023 there is one Alignment per Map Image in a Workspace, so importing a
-// colleague's Project into the user's own would either overwrite an Alignment two of their own
-// Projects are drawn by, or be refused (ADR-0024, "Why handoff cannot merge"). A new way to *fetch*
-// the Project does not make a third answer available.
+// transport: a review copy is for reading somebody's work as they published it, and a Workspace that
+// is thrown away afterwards is what makes every refusal on this path free.
 //
-// ⚠ **There is no promotion out of the result, by any affordance, in any dialog.** That is not an
-// omission to be filled in later — it is the fence that makes the rest coherent, and this module is
-// the most likely place for it to be helpfully reintroduced. A scholar who wants a colleague's map
-// in their own research adds the map themselves.
+// ⚠ **Nothing reached from here writes into a Workspace of the user's own, and this module is the
+// most likely place for that to be helpfully introduced.** Copying a published Project into work the
+// user owns is **Import** (ADR-0037), and it goes through `remote-project-source.ts` — a read-only
+// source capability with no destination store on it — into the Import engine, which is the one thing
+// allowed to hold a validated closure and a writable ordinary Workspace at the same time. What this
+// module makes is a review copy: unbound, unpublishable, and discarded when the reviewer has
+// finished.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // A SIBLING OF THE CLONE, AND WHERE IT DELIBERATELY DIVERGES
@@ -211,8 +212,8 @@ export interface ReviewedProject {
 	readonly notice: string;
 }
 
-/** One file the Remote holds that this Review is to bring down. */
-type ReviewEntry = RemoteBlob & { readonly path: StorePath };
+/** One file the Remote holds that a Review or an Import is to bring down. */
+export type ReviewEntry = RemoteBlob & { readonly path: StorePath };
 
 /**
  * Read one Project out of a public repository into a **new Review Workspace**.
@@ -352,8 +353,14 @@ export async function reviewFromRemote(
 	}
 }
 
-/** The Remote's whole file list, with the refusals said in a Review's words. */
-async function readReviewTree(
+/**
+ * The Remote's whole file list, with the refusals said in a Review's words.
+ *
+ * Exported for `remote-project-source.ts`, which asks the same question of the same host for an
+ * Import and needs the same sentences: two translations of GitHub's statuses is how a Review and an
+ * Import come to tell a rate-limited class two different things about one repository.
+ */
+export async function readReviewTree(
 	remote: Required<ReviewReference>,
 	fetchFn: FetchFn | undefined
 ): Promise<readonly RemoteBlob[]> {
@@ -392,8 +399,11 @@ async function readReviewTree(
  *
  * It is also the whole of the path validation. The answer is a set of top-level directory names read
  * out of the tree, so a `project` of `../secrets` or `images` is simply not in it.
+ *
+ * Exported for `remote-project-source.ts`: an Import of a published Project has to find it in the same
+ * tree, and it must be refused with the same sentence and the same list of alternatives.
  */
-function findProject(
+export function findProject(
 	remote: Required<ReviewReference>,
 	blobs: readonly RemoteBlob[]
 ): { directory: string; manifest: ReviewEntry } {

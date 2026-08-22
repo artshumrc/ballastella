@@ -15,18 +15,24 @@
 // Workspace-rooted paths it has always occupied, so `hoistedImageId` performs the same split on the
 // way in that it always has and `assertReferencesPresent` works on the same path set.
 //
-// **What did change is where it may be opened.** A bundle carries `alignments/<image-id>.json`, and
-// under ADR-0023 there is exactly one Alignment per Map Image in a Workspace. Opening a
-// colleague's bundle into your own Workspace would therefore either overwrite an Alignment two of
-// your own Projects are drawn by, or be refused — and the propagation risk ADR-0023 accepts is one a
-// user takes on for *their own* edits, not one that arrives inside somebody else's file. So a bundle
-// opens into a **Review Workspace**: a marked, throwaway Workspace holding exactly that one Project,
-// several of which may exist at once. See `project/review-workspace.ts` for the mark, and
-// `open-project-bundle.ts` for the reading.
+// **What did change is what it may be opened *as*.** A bundle carries `alignments/<image-id>.json`,
+// and under ADR-0023 there is exactly one Alignment per Map Image in a Workspace, so a bundle's
+// contents can never be laid straight over an existing Workspace's shared pool. Two readings follow
+// from that, and the format serves both:
 //
-// **There is no promotion out of one.** No "keep this", no "copy to my Workspace". That is precisely
-// what reintroduces the collision, and there is no honest answer to it. It is worth stating here,
-// where the format is defined, because the format is what would otherwise make it look easy.
+//   - **Review** opens the bundle into a marked, throwaway Workspace holding exactly that one
+//     Project, several of which may exist at once. See `project/review-workspace.ts` for the mark and
+//     `open-project-bundle.ts` for the reading.
+//   - **Import** copies the Project into the ordinary Workspace the user already has open (ADR-0037),
+//     giving every incoming Map Image a *fresh* identity so nothing of theirs is overwritten. Its
+//     read-only half is `project-bundle-source.ts`; the writable Workspace belongs to the Import
+//     engine, on the far side of that boundary.
+//
+// ⚠ **The collision is avoided by representation rather than by prohibition, and the difference
+// matters here.** Nothing may write a stranger's `alignments/<id>.json` over the user's own; what
+// Import does instead is make the incoming map a distinct Map Image with an Alignment of its own. It
+// is worth stating where the format is defined, because the archive's Workspace-rooted shared paths
+// are what would otherwise make a straight copy look easy.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A TAR AND NOT A ZIP, ON THIS PATH TOO

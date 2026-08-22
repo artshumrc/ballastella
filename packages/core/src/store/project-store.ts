@@ -155,6 +155,22 @@ export interface ProjectStore {
  */
 export type ReadOnlyProjectStore = Pick<ProjectStore, 'read'>;
 
+/**
+ * {@link ReadOnlyProjectStore} plus the enumeration a **source reader** needs, and nothing else.
+ *
+ * A Project Import source has to find out what a Workspace holds before it can say what one
+ * Project's closure is — which `images/<id>/` files exist, whether an Alignment is there — and
+ * `read` alone cannot answer that. So this adds `list` and `size` and stops: no `write`, no `delete`,
+ * no `reclaimAbandonedWrites`. Under ADR-0037 only the Import engine may hold a validated closure and
+ * a writable ordinary Workspace at once, and this is the capability the Review Workspace source is
+ * given instead of the whole interface.
+ *
+ * Not offered to the viewer, which keeps {@link ReadOnlyProjectStore}: a static host cannot list a
+ * directory, so `createHttpProjectStore` could not satisfy this and must not have to.
+ */
+export type EnumerableReadOnlyProjectStore = ReadOnlyProjectStore &
+	Pick<ProjectStore, 'list' | 'size'>;
+
 /** Rejected from `read` and `size` when nothing is stored at the path. */
 export class PathNotFoundError extends Error {
 	readonly path: StorePath;

@@ -22,14 +22,17 @@
 	// buttons do.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// EXACTLY TWO EXITS, AND WHY THERE IS NO THIRD
+	// EXACTLY TWO EXITS, AND WHY A THIRD IS NOT ONE OF THEM YET
 	//
-	// Back to your own Workspace, and discard this one. There is deliberately **no** "keep this", "copy
-	// to my Workspace", "save a copy", or "promote". ADR-0024 calls that the fence that makes the rest
-	// coherent: under ADR-0023 there is one Alignment per Map Image in a Workspace, so copying a
-	// reviewed Project into the user's own is the collision the whole design exists to avoid, arriving
-	// through a convenience. A scholar who wants a colleague's map in their own research adds the map
-	// themselves.
+	// Back to your own Workspace, and discard this one. There is no "save a copy" and no "promote":
+	// under ADR-0023 there is one Alignment per Map Image in a Workspace, so nothing may lay a reviewed
+	// Project over the user's own shared pool.
+	//
+	// ADR-0037 adds a third exit — **Import**, which copies the reviewed state into the ordinary
+	// Workspace review began from, giving every incoming Map Image a fresh identity so no Alignment of
+	// theirs is touched, and discards this Workspace only after the copy has succeeded. It is not here
+	// yet, and until it is this banner must not imply it: an exit that reads as a copy and performs a
+	// discard is worse than two honest ones.
 
 	import { describeReviewSubject } from '@ballastella/core';
 
