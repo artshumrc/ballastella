@@ -287,7 +287,10 @@
 			const record = await active.readPublishedSite();
 			const planned = await active.planPublish({
 				bundle,
-				editorUrl: deploymentRoot()
+				editorUrl: deploymentRoot(),
+				// The installation-local relationship, written *into* the site so its Front Page can
+				// point back at the repository — never read back out of a site as a binding.
+				repository: storage.remote
 			});
 			if (mine !== planning) return;
 			site = record;

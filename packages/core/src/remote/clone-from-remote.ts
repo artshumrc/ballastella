@@ -76,7 +76,7 @@ import type { EstimateStorage, OpenRestoreDestination } from '../transfer/restor
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
-import { isOwnedPath, remoteProjectDirectories } from './publish-to-remote.js';
+import { isOwnedPath, projectDirectories } from './synchronization-paths.js';
 import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
 import {
 	DEFAULT_REMOTE_BRANCH,
@@ -372,7 +372,7 @@ async function readCloneTree(
 	// wrote on github.com, a `CNAME` carrying their cited address, the workflow that deploys their
 	// Pages site. Downloaded, all of it would become *this* Workspace's content and be published as
 	// the cloner's own — see this module's header.
-	const projects = remoteProjectDirectories(blobs.map((entry) => entry.path));
+	const projects = projectDirectories(blobs.map((entry) => entry.path));
 
 	return blobs.flatMap<CloneEntry>((entry) =>
 		// The binding is written from what the user named rather than downloaded — see

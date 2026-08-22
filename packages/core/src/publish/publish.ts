@@ -37,6 +37,7 @@ import {
 	type BaseMapCacheSize
 } from '../base-map/offline-cache.js';
 import { BASE_MAP_TILE_ROOT } from '../base-map/tile-cache.js';
+import { normaliseRemoteIdentity } from '../remote/remote-binding.js';
 import { referencedMapImages, unusedMapImageBytes } from '../project/map-images.js';
 import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
@@ -102,6 +103,19 @@ export type PublishedProject = {
 	readonly onFrontPage: boolean;
 };
 
+/**
+ * Where a Published Site's files came from, normalised — for its return links and nothing else.
+ *
+ * Structurally a `RemoteRepository`, and deliberately its own type rather than that one: this is a
+ * *published* fact about a site, and a type shared with the relationship would invite a Remote to be
+ * read out of a site record. See {@link PublishedSite.repository}.
+ */
+export type PublishedRepository = {
+	readonly owner: string;
+	readonly repository: string;
+	readonly branch: string;
+};
+
 /** The record a Published Site carries about itself. */
 export type PublishedSite = {
 	readonly formatVersion: number;
@@ -123,6 +137,25 @@ export type PublishedSite = {
 	 * canonical deployment would send a Reader to a stranger's editor.
 	 */
 	readonly editorUrl: string;
+	/**
+	 * The repository this site was published to, or `null` when it was published into a folder.
+	 *
+	 * **Here so the Front Page can offer the way back, and here for nothing else** (SPEC story 146).
+	 * A static host cannot be asked what repository serves it, and the record already says which
+	 * editor published the site but not where the files came from — so the coordinates travel on the
+	 * record, normalised, and the two return links are built from them.
+	 *
+	 * ⚠ **A published field, and published fields cannot bind anything.** The Remote relationship is
+	 * installation-local metadata keyed by Workspace identity; this is evidence about a *site*, in a
+	 * file any Reader can fetch and anyone can edit. Opening, importing, restoring or updating must
+	 * never promote it into a binding — a forked repository's site record would otherwise make the
+	 * fork's owner a publisher to somebody else's repository.
+	 *
+	 * `null` for every site published before the field existed, which is the ordinary tolerant read:
+	 * those sites carry `remote.json` inside the published tree instead, and the viewer falls back to
+	 * it.
+	 */
+	readonly repository: PublishedRepository | null;
 	readonly projects: readonly PublishedProject[];
 	/** This deployment's catalog, travelling with the site (ADR-0020). */
 	readonly baseMap: BaseMapCatalog;
@@ -244,6 +277,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 		viewerVersion: typeof record.viewerVersion === 'string' ? record.viewerVersion : '',
 		publishedAt: typeof record.publishedAt === 'string' ? record.publishedAt : '',
 		editorUrl: parseEditorUrl(record.editorUrl),
+		repository: parsePublishedRepository(record.repository),
 		projects: projects.flatMap((entry) => {
 			const project = entry as Record<string, unknown> | null;
 			const directory = project?.directory;
@@ -314,6 +348,21 @@ function parseEditorUrl(value: unknown): string {
 	url.search = '';
 	url.hash = '';
 	return url.href.endsWith('/') ? url.href : `${url.href}/`;
+}
+
+/**
+ * The repository coordinates a record names, or `null` when it names none this build can act on.
+ *
+ * ⚠ **Through `normaliseRemoteIdentity`, which is the one place GitHub's character sets are applied
+ * to a persisted repository identity.** Both halves are interpolated into a GitHub API path by the
+ * Open and Review engines, and an owner of `ada/../../orgs` retargets every request they make — so a
+ * record served by whoever controls the host is checked here rather than trusted, exactly as
+ * `parseRemoteBinding` checks the file it reads. A record that names no repository is the ordinary
+ * pre-ticket-02 state, not a failure.
+ */
+function parsePublishedRepository(value: unknown): PublishedRepository | null {
+	if (typeof value !== 'object' || value === null) return null;
+	return normaliseRemoteIdentity(value as Record<string, unknown>);
 }
 
 /**
@@ -464,6 +513,8 @@ export type PublishPlan = {
 	readonly canonicalUrl: string | null;
 	/** The address the site will record for the instance publishing it, or `''`. */
 	readonly editorUrl: string;
+	/** The repository the site will record having been published to, or `null`. */
+	readonly repository: PublishedRepository | null;
 	/**
 	 * Project directories whose names collide with something publishing writes. Publishing refuses
 	 * rather than overwriting one — see {@link publishSite}.
@@ -494,6 +545,15 @@ export type PlanPublishOptions = {
 	 * site records no instance and its Front Page carries no return link, which is a working site.
 	 */
 	readonly editorUrl?: string;
+	/**
+	 * The repository this Workspace publishes to, for {@link PublishedSite.repository}.
+	 *
+	 * Passed in rather than read here for the same division `editorUrl` is drawn on, and for a second
+	 * reason: the relationship is installation-local metadata that core's publish module has no
+	 * business reaching for. Omitted — a publish into a folder — the site records no repository and
+	 * its Front Page carries no return link, which is a working site.
+	 */
+	readonly repository?: PublishedRepository | null;
 };
 
 const tiledMapImageSize = async (store: ProjectStore): Promise<WorkspaceSize> => {
@@ -524,6 +584,9 @@ export async function planPublish(
 	// Through the record's own reader, so the plan carries exactly what a Reader will read back — and
 	// an address the reader would refuse is `''` here rather than a link that never appears.
 	const editorUrl = parseEditorUrl(options.editorUrl);
+	// Through the record's own reader too, so a repository the reader would refuse is `null` here
+	// rather than a link that lands on a stranger's repository.
+	const repository = parsePublishedRepository(options.repository);
 
 	// Every Project, whether or not the Front Page lists it: the record is the site's whole account of
 	// itself, and the listing decision travels on each entry rather than by omission (ADR-0032).
@@ -560,6 +623,7 @@ export async function planPublish(
 				viewerVersion: bundle.version,
 				publishedAt: '',
 				editorUrl,
+				repository,
 				projects: listed,
 				catalog,
 				baseMapBundled: baseMapTiles.tiles > 0,
@@ -621,6 +685,7 @@ export async function planPublish(
 		baseMap: catalog,
 		canonicalUrl,
 		editorUrl,
+		repository,
 		collisions,
 		warnings
 	};
@@ -852,6 +917,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		viewerVersion: plan.viewerVersion,
 		publishedAt: now().toISOString(),
 		editorUrl: plan.editorUrl,
+		repository: plan.repository,
 		projects: plan.projects,
 		catalog: plan.baseMap,
 		baseMapBundled: plan.baseMapBundled,
@@ -915,6 +981,7 @@ const siteRecord = (fields: {
 	viewerVersion: string;
 	publishedAt: string;
 	editorUrl: string;
+	repository: PublishedRepository | null;
 	projects: readonly PublishedProject[];
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
@@ -925,6 +992,7 @@ const siteRecord = (fields: {
 	viewerVersion: fields.viewerVersion,
 	publishedAt: fields.publishedAt,
 	editorUrl: fields.editorUrl,
+	repository: fields.repository,
 	projects: fields.projects,
 	baseMap: fields.catalog,
 	baseMapBundled: fields.baseMapBundled,

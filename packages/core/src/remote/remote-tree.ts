@@ -7,7 +7,7 @@
 // *different subsets* of the same listing — but the listing itself is one request, one set of
 // statuses to make sense of, and one 200-response-that-is-not-complete to refuse. Written twice,
 // the two readings could disagree about what a repository holds while both stayed green: the
-// `iiif-hosts` divergence, and the reason `remoteProjectDirectories` is exported rather than
+// `iiif-hosts` divergence, and the reason `projectDirectories` is exported rather than
 // restated. So the reading lives here and the *wording* does not.
 //
 // ⚠ **The refusals carry a kind and nothing else that a user reads.** A Clone's truncation message

@@ -478,6 +478,45 @@ describe('the owned namespace (ADR-0033)', () => {
 		expect(paths).toContain('CNAME');
 		expect(paths).toContain('amsterdam-1625/project.json');
 	});
+
+	/**
+	 * A site an older editor version left on the Remote is replaced, not accumulated beside.
+	 *
+	 * The chunk names in `_app/` are content hashes, so this is the ordinary state of a Remote two
+	 * machines on different builds publish to — and Publish-owned output is exactly the class of path
+	 * where being superseded is not a Conflict and not somebody's scholarship. The Workspace's cached
+	 * tile is the control: it is inside `base-map/` and it is *source*, so it survives a republish
+	 * that removes the glyphs beside it.
+	 */
+	it('removes the Publish-owned output a previous site left and this one does not write', async () => {
+		const store = await seeded({
+			'index.html': '<!doctype html>',
+			'_app/immutable/entry/start.AAAA.js': 'export const start = 1;',
+			'base-map/tiles/9f8/12/2094/1330.mvt': 'tile-bytes',
+			'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}'
+		});
+		const github = await createFakeGitHub({
+			...REMOTE,
+			tree: {
+				'README.md': '# Atlas\n',
+				'_app/immutable/entry/start.OLD.js': 'export const start = 0;',
+				'base-map/fonts/Noto Sans Regular/0-255.pbf': 'glyph-bytes',
+				'robots.txt': 'User-agent: *\n'
+			}
+		});
+
+		await publish(store, github, await claimingEverythingOnTheRemote(github));
+
+		const paths = [...github.files().keys()];
+		expect(paths).toEqual([
+			'.nojekyll',
+			'README.md',
+			'_app/immutable/entry/start.AAAA.js',
+			'amsterdam-1625/project.json',
+			'base-map/tiles/9f8/12/2094/1330.mvt',
+			'index.html'
+		]);
+	});
 });
 
 describe('the refusals, both of which cost the Remote nothing', () => {

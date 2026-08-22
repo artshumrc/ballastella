@@ -13,7 +13,7 @@ import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { ReviewDestination } from '../transfer/open-project-bundle.js';
 import { closedWhileReviewing, memoryCredentialStore } from './credential-store.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
-import { isOwnedPath, remoteProjectDirectories } from './publish-to-remote.js';
+import { isOwnedPath, projectDirectories } from './synchronization-paths.js';
 import { REMOTE_BINDING_FORMAT_VERSION, writeRemoteBinding } from './remote-binding.js';
 import { ReviewRefusedError, reviewFromRemote } from './review-from-remote.js';
 
@@ -195,7 +195,7 @@ describe('reviewFromRemote', () => {
 			fetch: fake.fetch
 		});
 
-		const projects = remoteProjectDirectories(Object.keys(PUBLISHED));
+		const projects = projectDirectories(Object.keys(PUBLISHED));
 		for (const path of await destination.store.list('')) {
 			if (path === 'review.json') continue;
 			expect(isOwnedPath(path, projects)).toBe(true);

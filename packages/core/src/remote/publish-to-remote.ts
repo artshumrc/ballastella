@@ -23,10 +23,7 @@
 // token from one the broker exchanged for a code (ADR-0031). There is no `if (authMethod === …)`
 // here or below here, and there must not be.
 
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { IMAGE_DIRECTORY } from '../project/image-files.js';
-import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import {
 	STATIC_HOSTING_LIMIT_BYTES,
 	crossesHostingLimit,
@@ -34,11 +31,11 @@ import {
 	workspaceSize,
 	type WorkspaceSize
 } from '../project/workspace-size.js';
-import { topLevelSegment, type Bytes, type ProjectStore } from '../store/project-store.js';
-import { JEKYLL_OFF_MARKER, isViewerFile } from '../transfer/viewer-files.js';
+import type { Bytes, ProjectStore } from '../store/project-store.js';
+import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
-import { REMOTE_BINDING_PATH } from './remote-binding.js';
+import { classifyInventory, isOwnedPath, projectDirectories } from './synchronization-paths.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -382,54 +379,6 @@ const EMPTY_BLOB_SHA = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
 
 /** The one message every publish commit carries. One branch, one commit per publish (SPEC). */
 const COMMIT_MESSAGE = 'Publish from Ballastella';
-
-// ── The owned namespace (ADR-0033) ────────────────────────────────────────────────────────────
-
-const OWNED_DIRECTORIES = [`${IMAGE_DIRECTORY}/`, `${ALIGNMENT_DIRECTORY}/`];
-
-/**
- * Every top-level directory **the Remote** holds a `project.json` in.
- *
- * ⚠ **The Remote's tree, never the local Workspace's.** That is the whole of how a Project deleted
- * here is recognised as ours and removed there with its pyramid: it is gone locally, so only the
- * Remote can still say it was a Project. Asked of the Workspace instead, a deleted Project's
- * directory would fall outside the namespace and be preserved forever — ADR-0033's "additive only"
- * leak, arriving through the back door.
- *
- * Exported for `clone-from-remote.ts`, which asks the same question of the same kind of tree.
- */
-export function remoteProjectDirectories(paths: Iterable<string>): Set<string> {
-	const directories = new Set<string>();
-	for (const path of paths) {
-		const [directory, name, ...deeper] = path.split('/');
-		if (directory !== undefined && name === PROJECT_FILE_NAME && deeper.length === 0) {
-			directories.add(directory);
-		}
-	}
-	return directories;
-}
-
-/**
- * Whether a path on the Remote is one a publish may add to, replace, or delete (ADR-0033).
- *
- * Inside it the Remote becomes exactly the Workspace. Outside it nothing is touched, which is why a
- * scholar's `CNAME` survives — publish over it once and their cited address quietly moves back to a
- * `github.io` URL, and the next publish does it again after they fix it.
- *
- * ⚠ **Exported so that a Clone reads exactly this rule, and there is deliberately no second copy of
- * it** (`clone-from-remote.ts`). The two halves have to agree or the namespace leaks: a Clone that
- * brought down a path this predicate excludes would make it Workspace content, and the next publish
- * from that Workspace would push somebody else's `CNAME`, `README.md` and workflows into the
- * cloner's own repository as though the cloner had written them.
- */
-export function isOwnedPath(path: string, remoteProjects: ReadonlySet<string>): boolean {
-	if (isViewerFile(path)) return true;
-	// The binding document is inside the published tree deliberately (ADR-0033), so it is ours to
-	// replace and ours to remove: a Workspace that has been unbound must not leave a stale one there.
-	if (path === REMOTE_BINDING_PATH) return true;
-	if (OWNED_DIRECTORIES.some((directory) => path.startsWith(directory))) return true;
-	return path.includes('/') && remoteProjects.has(topLevelSegment(path));
-}
 
 // ── The transport ─────────────────────────────────────────────────────────────────────────────
 
@@ -807,7 +756,7 @@ export async function planRemotePublish(
 	const remote = head === null ? [] : await readRemoteTree(api, options.remote, head);
 
 	const onRemote = new Set(remote.map((entry) => entry.sha));
-	const projects = remoteProjectDirectories(remote.map((entry) => entry.path));
+	const projects = projectDirectories(remote.map((entry) => entry.path));
 
 	const paths = await store.list('');
 	const held = new Set<string>(paths);
@@ -850,10 +799,10 @@ export async function planRemotePublish(
 	const pending = (options.pending ?? []).filter((file) => !planned.has(file.path));
 	const pendingBytes = pending.reduce((sum, file) => sum + file.bytes, 0);
 
-	// Outside the owned namespace, and not something the Workspace is sending anyway. This is the
+	// Outside Ballastella's namespace, and not something the Workspace is sending anyway. This is the
 	// half that keeps a `CNAME`, a `README.md`, and a `docs/` folder the scholar added.
-	const preserved = remote.filter(
-		(entry) => !held.has(entry.path) && !isOwnedPath(entry.path, projects)
+	const preserved = classifyInventory(remote, projects).outside.filter(
+		(entry) => !held.has(entry.path)
 	);
 	const preservedBytes = preserved.reduce((sum, entry) => sum + entry.bytes, 0);
 

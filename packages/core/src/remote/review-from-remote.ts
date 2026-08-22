@@ -23,7 +23,7 @@
 //
 // The file list, the two hosts, the anonymity and the blob-SHA check are `clone-from-remote.ts`'s and
 // are shared rather than restated — the listing through `remote-tree.ts`, the namespace question
-// through `remoteProjectDirectories`, the byte check through `gitBlobSha`. Four things differ, and
+// through `projectDirectories`, the byte check through `gitBlobSha`. Four things differ, and
 // each is a decision rather than an accident:
 //
 //   1. **The unit is one Project's closure, not the owned namespace.** From the tree it takes
@@ -32,7 +32,7 @@
 //      Project references does not travel, which is the same rule `export-project-bundle.ts` applies
 //      and the whole difference between a handoff and a backup. That closure is *inside* the owned
 //      namespace by construction, so `isOwnedPath` is not applied as a filter here: every path it
-//      takes is either under a directory `remoteProjectDirectories` named or under `images/` or
+//      takes is either under a directory `projectDirectories` named or under `images/` or
 //      `alignments/`. `review-from-remote.test.ts` asserts the containment rather than this module
 //      claiming it.
 //   2. **Nothing is written and no `remote.json` is made.** A Clone binds what it made, last, as
@@ -84,7 +84,7 @@ import { isViewerFile } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import type { CloneReference } from './clone-from-remote.js';
 import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
-import { remoteProjectDirectories } from './publish-to-remote.js';
+import { projectDirectories } from './synchronization-paths.js';
 import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
 import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
 
@@ -392,7 +392,7 @@ export async function readReviewTree(
 /**
  * The Project the user named and its manifest, having established the Remote really holds one.
  *
- * ⚠ **`remoteProjectDirectories` rather than "does `<dir>/project.json` exist"**, so that this asks
+ * ⚠ **`projectDirectories` rather than "does `<dir>/project.json` exist"**, so that this asks
  * the same question of the same kind of tree as the publish and the Clone do — and so that the
  * refusal can name the alternatives, which is the difference between a message a scholar can act on
  * and one that tells them a folder they were sent is not there.
@@ -407,7 +407,7 @@ export function findProject(
 	remote: Required<ReviewReference>,
 	blobs: readonly RemoteBlob[]
 ): { directory: string; manifest: ReviewEntry } {
-	const projects = remoteProjectDirectories(blobs.map((entry) => entry.path));
+	const projects = projectDirectories(blobs.map((entry) => entry.path));
 	const manifest = projects.has(remote.project)
 		? blobs.find((entry) => entry.path === projectFilePath(remote.project))
 		: undefined;

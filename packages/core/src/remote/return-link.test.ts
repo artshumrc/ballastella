@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readReturnLink, returnLinkUrl, withoutReturnLink } from '../index.js';
+import { parsePublishedSite, readReturnLink, returnLinkUrl, withoutReturnLink } from '../index.js';
 
 // SPEC's Seam 1 for "The Front Page's return links". One module holds both halves — the address a
 // Published Site puts in an `href` and the parameters the editor reads back off its own URL — so the
@@ -52,6 +52,64 @@ describe('the link a Published Site sends a Reader back with', () => {
 				project: 'a&clone=someone/else'
 			})
 		).toBe('https://maps.example.edu/ballastella/?review=ada/atlas&p=a%26clone%3Dsomeone%2Felse');
+	});
+});
+
+/**
+ * The record's own coordinates, read back and turned into the two shipped invitation URLs.
+ *
+ * ⚠ **The shapes are the shipped ones**, `?clone=owner/repository` and
+ * `?review=owner/repository&p=directory` (SPEC story 165). Sites carrying those links are in front
+ * of Readers now and the editor's parser reads exactly these two parameters, so where the
+ * coordinates come from may change and the address may not.
+ */
+describe('a site record naming its own repository', () => {
+	const record = (fields: Record<string, unknown>) =>
+		parsePublishedSite(new TextEncoder().encode(JSON.stringify({ projects: [], ...fields })));
+
+	it('builds both invitation URLs from the repository it recorded', () => {
+		const site = record({
+			editorUrl: INSTANCE,
+			repository: { owner: 'ada', repository: 'atlas', branch: 'main' }
+		});
+
+		expect([
+			returnLinkUrl(site.editorUrl, { kind: 'clone', ...site.repository! }),
+			returnLinkUrl(site.editorUrl, {
+				kind: 'review',
+				...site.repository!,
+				project: 'amsterdam-1625'
+			})
+		]).toEqual([
+			'https://maps.example.edu/ballastella/?clone=ada/atlas',
+			'https://maps.example.edu/ballastella/?review=ada/atlas&p=amsterdam-1625'
+		]);
+	});
+
+	// Every site published before the field existed. Those sites carry the repository in `remote.json`
+	// inside the published tree, which the viewer still reads — so the tolerant answer here is
+	// "no repository on the record", never a refusal to read the record at all.
+	it('reads a record written before the field existed as naming no repository', () => {
+		expect(record({ editorUrl: INSTANCE }).repository).toBeNull();
+	});
+
+	// A record is a file on a host somebody else may control, and both halves are interpolated into a
+	// GitHub API path. `ada/../../orgs` would retarget every request the Open engine makes.
+	it.each([
+		[{ owner: 'ada/../../orgs', repository: 'atlas' }],
+		[{ owner: 'ada', repository: '..' }],
+		[{ owner: 'ada', repository: 'atlas?x=1' }],
+		[{ owner: '', repository: 'atlas' }],
+		[{ owner: 'ada' }],
+		['ada/atlas']
+	])('refuses %j, which is not a repository this build may address', (repository) => {
+		expect(record({ editorUrl: INSTANCE, repository }).repository).toBeNull();
+	});
+
+	it('normalises a record that names no branch to the branch a publish writes to', () => {
+		expect(
+			record({ editorUrl: INSTANCE, repository: { owner: 'ada', repository: 'atlas' } }).repository
+		).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 	});
 });
 

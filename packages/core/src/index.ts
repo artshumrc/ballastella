@@ -349,6 +349,7 @@ export {
 	type PublishSiteOptions,
 	type PublishWarning,
 	type PublishedProject,
+	type PublishedRepository,
 	type PublishedSite
 } from './publish/publish.js';
 export {

@@ -111,6 +111,7 @@ import {
 	type ProjectStore,
 	type ProjectSummary,
 	type PublishPlan,
+	type PublishedRepository,
 	type PublishedSite,
 	type ReferencedImage,
 	type RemoteImageService,
@@ -2306,11 +2307,21 @@ export class EditorSession {
 		 * quietly omit it would publish a site with no way back and nothing to say so.
 		 */
 		editorUrl: string;
+		/**
+		 * The repository this Workspace publishes to, so the site can point back at it (SPEC story
+		 * 146) — or `null` for a publish into a folder.
+		 *
+		 * Supplied by the app because the relationship is installation-local metadata held by
+		 * `WorkspaceStorage`, and generated *into* the site rather than synchronized: nothing a
+		 * Published Site says may bind a Workspace.
+		 */
+		repository: PublishedRepository | null;
 	}): Promise<PublishPlan> {
 		return planPublish(this.#store, {
 			bundle: options.bundle,
 			projects: await this.#workspace.listProjects(),
-			editorUrl: options.editorUrl
+			editorUrl: options.editorUrl,
+			repository: options.repository
 		});
 	}
 

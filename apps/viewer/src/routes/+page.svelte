@@ -90,8 +90,8 @@
 		type OpeningViewFit,
 		type OpeningViewOutcome,
 		type ProjectFile,
+		type PublishedRepository,
 		type PublishedSite,
-		type RemoteBinding,
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import { type DrawnLayer, type DrawnOutcome } from '@ballastella/core/render';
@@ -168,14 +168,15 @@
 	/**
 	 * The repository this site was published to, for the return links below — or `null`.
 	 *
-	 * `remote.json` is *inside* the published tree deliberately (ADR-0032), which is what makes the
-	 * repository readable here at all: a static host cannot be asked what it is, and the record says
-	 * which editor published the site but not where the files came from.
+	 * A static host cannot be asked what repository serves it, so this has to be *in* the site. A
+	 * publish records it on `ballastella-site.json`; a site published before that field existed
+	 * carries it in `remote.json` inside the published tree instead (ADR-0032), which is why the
+	 * fallback is a second request rather than an absence.
 	 *
-	 * Never a failure. A site published into a folder rather than to a Remote has no binding, and a
+	 * Never a failure. A site published into a folder rather than to a Remote has neither, and a
 	 * Front Page with one fewer link is the whole of what that costs a Reader.
 	 */
-	let remote = $state<RemoteBinding | null>(null);
+	let remote = $state<PublishedRepository | null>(null);
 
 	let openProject = $state<{ directory: string; file: ProjectFile } | null>(null);
 	let projectError = $state('');
@@ -190,8 +191,12 @@
 				site = record;
 				siteError = '';
 				// Asked for only when there is an instance to link back to, so a site that records no
-				// editor — every site published before ticket 09 — costs its Readers no request at all.
-				remote = record.editorUrl === '' ? null : await readRemoteBinding(siteStore());
+				// editor — every site published before ticket 09 — costs its Readers no request at all;
+				// and only when the record itself does not say, so a current site costs none either.
+				remote =
+					record.editorUrl === ''
+						? null
+						: (record.repository ?? (await readRemoteBinding(siteStore())));
 			} catch (cause) {
 				siteError = describeSiteRecordFailure(cause);
 			}
