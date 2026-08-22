@@ -150,7 +150,9 @@ export {
 	hoistedImageId,
 	isReservedDirectoryName,
 	deletionsAreNoteworthy,
+	takenDirectoryNames,
 	toDirectoryName,
+	unusedDirectoryName,
 	type FinishedDeletions,
 	type RefusedDeletion,
 	type ProjectSummary,
@@ -319,6 +321,15 @@ export {
 	type RemapProjectImportOptions,
 	type RemappedProjectImport
 } from './transfer/project-import-remapping.js';
+// Where the detached closure lands (ticket 07, ADR-0037): a display name allocated against the names
+// the Workspace shows, a directory allocated against the folded union of local, Remote and Baseline
+// evidence (SPEC story 143), and one destination path per closure path — reserved before a transaction
+// can write.
+export {
+	allocateProjectImport,
+	type ImportDestination,
+	type ProjectImportAllocation
+} from './transfer/project-import-allocation.js';
 export {
 	readProjectBundleSource,
 	type ProjectBundleSourceOptions

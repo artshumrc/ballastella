@@ -816,31 +816,43 @@ export class Workspace {
 		}
 	}
 
-	/**
-	 * Every top-level name already in the workspace, folded for comparison.
-	 *
-	 * Not only the ones holding a Project: a new Project must not land inside a directory that is
-	 * already there for some other reason.
-	 */
-	async #takenNames(): Promise<Set<string>> {
-		const paths = await this.#store.list('');
-		return new Set([
-			// Seeded, so `#unusedDirectory` can never *offer* a reserved name either — which matters
-			// because it is what `createProject` and `duplicateProject` land on. An empty Workspace holds
-			// none of these directories yet, so listing alone would say they were free.
-			...RESERVED_DIRECTORY_NAMES.map(foldName),
-			...paths.map((path) => foldName(topLevelSegment(path)))
-		]);
-	}
-
 	async #unusedDirectory(displayName: string): Promise<string> {
-		const taken = await this.#takenNames();
-		const base = toDirectoryName(displayName);
-		if (!taken.has(foldName(base))) return base;
-		for (let suffix = 2; ; suffix += 1) {
-			const candidate = `${base}-${suffix}`;
-			if (!taken.has(foldName(candidate))) return candidate;
-		}
+		return unusedDirectoryName(displayName, takenDirectoryNames(await this.#store.list('')));
+	}
+}
+
+/**
+ * Every top-level name a new Project directory must avoid, folded for comparison.
+ *
+ * Not only the ones holding a Project: a new Project must not land inside a directory that is
+ * already there for some other reason. Seeded with {@link RESERVED_DIRECTORY_NAMES}, so
+ * {@link unusedDirectoryName} can never *offer* a reserved name either — an empty Workspace holds
+ * none of those directories yet, so a listing alone would say they were free.
+ *
+ * Exported for Project Import, which asks the same question of a wider union: the Workspace's own
+ * paths plus the Project directories a Remote or a Synchronization Baseline recognises (SPEC story
+ * 143). A second folding rule is how the two come to disagree about what a filesystem will treat as
+ * one folder.
+ */
+export function takenDirectoryNames(paths: Iterable<string>): Set<string> {
+	const taken = new Set(RESERVED_DIRECTORY_NAMES.map(foldName));
+	for (const path of paths) taken.add(foldName(topLevelSegment(path)));
+	return taken;
+}
+
+/**
+ * The first directory name `displayName` can have that `taken` does not already hold: its slug, then
+ * that slug with `-2`, `-3` and so on.
+ *
+ * `taken` is folded — {@link takenDirectoryNames} is what produces one — and the candidate is folded
+ * against it, because the answer has to be the same whichever spelling arrived first.
+ */
+export function unusedDirectoryName(displayName: string, taken: ReadonlySet<string>): string {
+	const base = toDirectoryName(displayName);
+	if (!taken.has(foldName(base))) return base;
+	for (let suffix = 2; ; suffix += 1) {
+		const candidate = `${base}-${suffix}`;
+		if (!taken.has(foldName(candidate))) return candidate;
 	}
 }
 
