@@ -5,7 +5,7 @@
 // "Where your work is stored" section now goes through here — and because the two-step (menu, then
 // item) is exactly the kind of thing that gets copied slightly differently each time.
 
-import { expect, type Page } from './test.js';
+import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
 
 /** The Workspace control on the bar. Its button carries the Workspace's name. */
 export const workspaceButton = (page: Page) => page.getByTestId('workspace-switcher');
@@ -120,6 +120,19 @@ export async function expectRemoteNamed(page: Page, remote: string): Promise<voi
 	});
 }
 
+/**
+ * What the menu's header says about the Synchronization Baseline (ADR-0038).
+ *
+ * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
+ * stating, and saying nothing when the two sides' history is known is what keeps the sentence
+ * meaningful when it appears.
+ */
+export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
+	await inWorkspaceHeader(page, async () => {
+		await expect(page.getByTestId('remote-status')).toContainText(sentence);
+	});
+}
+
 /** What the menu's header says about the push credential — "Signed in to GitHub", or not. */
 export async function expectCredential(page: Page, sentence: string): Promise<void> {
 	await inWorkspaceHeader(page, async () => {
@@ -145,3 +158,146 @@ export async function expectNoRemote(page: Page): Promise<void> {
 		await expect(page.getByTestId('workspace-credential')).toHaveCount(0);
 	});
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// INSTALLATION-LOCAL SYNCHRONIZATION METADATA (ADR-0038)
+//
+// ⚠ **The record shape is spelled once, here.** It is the app's own — `synchronization-metadata.ts`
+// owns the keys, the format version and the fields — and a second copy per spec is a second thing
+// that drifts from it. A drifted copy fails in the direction that is hardest to read: the app answers
+// `Cannot tell` about a record a test believes it wrote.
+
+/** The installation database and the store the synchronization records live in. */
+const METADATA_DATABASE = 'ballastella';
+const METADATA_DATABASE_VERSION = 2;
+const METADATA_STORE = 'synchronization';
+
+/** `SYNCHRONIZATION_FORMAT_VERSION`. A record of any other version reads as no evidence at all. */
+const METADATA_FORMAT_VERSION = 2;
+
+/** The Workspace key a browser-storage Workspace is filed under — `opfsWorkspaceKey`. */
+export const browserWorkspaceKey = (workspace = DEFAULT_WORKSPACE): string => `opfs:${workspace}`;
+
+/**
+ * Put an installation-local Remote relationship in place, as an Open or a bind would.
+ *
+ * The seam for a spec that needs a *bound* Workspace without going through GitHub. Seeding
+ * `remote.json` alone no longer binds anything: a binding inside the Workspace is now only the
+ * Published Site's compatibility evidence, and lifting it needs corroboration or a confirmation.
+ */
+export async function seedRemoteRelationship(
+	page: Page,
+	options: { owner: string; repository: string; branch?: string; workspace?: string }
+): Promise<void> {
+	await page.evaluate(
+		async ([key, record, database, version, store]) => {
+			const open = indexedDB.open(database as string, version as number);
+			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
+				open.onupgradeneeded = () => {
+					for (const name of ['workspace', store as string]) {
+						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
+					}
+				};
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => reject(open.error);
+			});
+			await new Promise<void>((resolve, reject) => {
+				const transaction = opened.transaction(store as string, 'readwrite');
+				transaction.objectStore(store as string).put(record, key as string);
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+			});
+			opened.close();
+		},
+		[
+			relationshipKey(options.workspace),
+			{
+				formatVersion: METADATA_FORMAT_VERSION,
+				at: new Date().toISOString(),
+				owner: options.owner,
+				repository: options.repository,
+				branch: options.branch ?? 'main'
+			},
+			METADATA_DATABASE,
+			METADATA_DATABASE_VERSION,
+			METADATA_STORE
+		] as const
+	);
+}
+
+/** The stored relationship record, or `null` — for asserting a Workspace arrived unbound. */
+export async function readRemoteRelationship(
+	page: Page,
+	workspace?: string
+): Promise<{ owner: string; repository: string; branch: string } | null> {
+	return page.evaluate(
+		async ([key, database, store]) => {
+			const open = indexedDB.open(database as string);
+			const opened = await new Promise<IDBDatabase | null>((resolve) => {
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => resolve(null);
+			});
+			if (!opened || !opened.objectStoreNames.contains(store as string)) {
+				opened?.close();
+				return null;
+			}
+			const record = await new Promise<unknown>((resolve) => {
+				const request = opened
+					.transaction(store as string, 'readonly')
+					.objectStore(store as string)
+					.get(key as string);
+				request.onsuccess = () => resolve(request.result ?? null);
+				request.onerror = () => resolve(null);
+			});
+			opened.close();
+			return (record ?? null) as { owner: string; repository: string; branch: string } | null;
+		},
+		[relationshipKey(workspace), METADATA_DATABASE, METADATA_STORE] as const
+	);
+}
+
+/**
+ * The stored Synchronization Baseline's commit and paths, or `null` — the evidence a transfer leaves.
+ *
+ * Read out of the installation database behind the app's back, because the point of the assertion is
+ * that the record is durable and *outside* the Workspace: a copy inside it would be packed into a
+ * Backup, uploaded by the very publish it describes, and downloaded by a Clone.
+ */
+export async function readBaseline(
+	page: Page,
+	workspace?: string
+): Promise<{ commit: string; files: string[] } | null> {
+	return page.evaluate(
+		async ([key, database, store]) => {
+			const open = indexedDB.open(database as string);
+			const opened = await new Promise<IDBDatabase | null>((resolve) => {
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => resolve(null);
+			});
+			if (!opened || !opened.objectStoreNames.contains(store as string)) {
+				opened?.close();
+				return null;
+			}
+			const record = await new Promise<unknown>((resolve) => {
+				const request = opened
+					.transaction(store as string, 'readonly')
+					.objectStore(store as string)
+					.get(key as string);
+				request.onsuccess = () => resolve(request.result ?? null);
+				request.onerror = () => resolve(null);
+			});
+			opened.close();
+			if (record === null) return null;
+			const held = record as { commit: string; files: Map<string, string> };
+			return { commit: held.commit, files: [...held.files.keys()] };
+		},
+		[
+			`synchronization/${encodeURIComponent(browserWorkspaceKey(workspace))}/baseline`,
+			METADATA_DATABASE,
+			METADATA_STORE
+		] as const
+	);
+}
+
+const relationshipKey = (workspace?: string): string =>
+	`synchronization/${encodeURIComponent(browserWorkspaceKey(workspace))}/remote`;

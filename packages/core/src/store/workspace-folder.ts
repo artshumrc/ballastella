@@ -8,6 +8,11 @@
 // friction the workspace model exists to remove, and would put a possible prompt inside autosave.
 
 import { FileSystemAccessProjectStore } from './file-system-access-project-store.js';
+import {
+	WORKSPACE_STORE,
+	openInstallationDatabase,
+	transactInstallationDatabase
+} from './installation-database.js';
 
 /**
  * A Workspace is read *and* written, so the grant asked for is always `readwrite`. Asking for
@@ -133,7 +138,7 @@ export async function rememberedFolderName(): Promise<string | null> {
  */
 export async function forgetWorkspaceFolder(): Promise<void> {
 	remembered = null;
-	const database = await openDatabase();
+	const database = await openInstallationDatabase();
 	if (!database) return;
 	try {
 		await transact(database, 'readwrite', (store) => store.delete(FOLDER_KEY));
@@ -175,20 +180,14 @@ const directoryPicker = (): DirectoryPicker | undefined =>
 
 // The handle is persisted in IndexedDB because it is the only browser storage that will hold one:
 // a `FileSystemDirectoryHandle` is serialisable but not stringifiable, so `localStorage` cannot
-// (ADR-0001).
-//
-// Hand-rolled rather than pulling in a wrapper library. This is one database, one object store,
-// one key, and no schema to migrate; the promise plumbing below is smaller than the dependency
-// would be, and it is the only IndexedDB in the app.
+// (ADR-0001). The database itself is `installation-database.ts`, which the synchronization metadata
+// shares.
 
-const DATABASE_NAME = 'ballastella';
-const DATABASE_VERSION = 1;
-const OBJECT_STORE = 'workspace';
 const FOLDER_KEY = 'folder';
 
 async function rememberFolder(folder: FileSystemDirectoryHandle): Promise<void> {
 	remembered = folder;
-	const database = await openDatabase();
+	const database = await openInstallationDatabase();
 	if (!database) return;
 	try {
 		await transact(database, 'readwrite', (store) => store.put(folder, FOLDER_KEY));
@@ -214,7 +213,7 @@ let remembered: FileSystemDirectoryHandle | null | undefined;
 
 async function recallFolder(): Promise<FileSystemDirectoryHandle | null> {
 	if (remembered !== undefined) return remembered;
-	const database = await openDatabase();
+	const database = await openInstallationDatabase();
 	if (!database) return null;
 	try {
 		const stored = await transact(database, 'readonly', (store) => store.get(FOLDER_KEY));
@@ -227,33 +226,8 @@ async function recallFolder(): Promise<FileSystemDirectoryHandle | null> {
 	}
 }
 
-async function openDatabase(): Promise<IDBDatabase | null> {
-	if (typeof indexedDB === 'undefined') return null;
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-		request.onupgradeneeded = () => {
-			if (!request.result.objectStoreNames.contains(OBJECT_STORE)) {
-				request.result.createObjectStore(OBJECT_STORE);
-			}
-		};
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? new Error('IndexedDB could not be opened'));
-		// Another tab is holding the database open at an older version. Not a case this app can
-		// reach with one version, but it must not hang forever if it ever can.
-		request.onblocked = () => reject(new Error('IndexedDB is blocked by another tab'));
-	});
-}
-
-function transact<T>(
+const transact = <T>(
 	database: IDBDatabase,
 	mode: IDBTransactionMode,
 	operation: (store: IDBObjectStore) => IDBRequest<T>
-): Promise<T> {
-	return new Promise((resolve, reject) => {
-		const transaction = database.transaction(OBJECT_STORE, mode);
-		const request = operation(transaction.objectStore(OBJECT_STORE));
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
-		transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB aborted'));
-	});
-}
+): Promise<T> => transactInstallationDatabase(database, WORKSPACE_STORE, mode, operation);

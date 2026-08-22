@@ -78,6 +78,31 @@ const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+$/;
 const isRepositoryName = (value: string): boolean =>
 	REPOSITORY_PATTERN.test(value) && value !== '.' && value !== '..';
 
+/**
+ * `{ owner, repository, branch }` out of untrusted members, or `null` when they are not a repository.
+ *
+ * ⚠ **The one place the character sets are applied to a record read back out of storage**, so that
+ * every reader of a persisted repository identity — the binding document, the installation-local
+ * relationship, a Baseline offered as evidence — agrees about what a repository may be called. Two
+ * readers with their own copies of the rules are two readers that can come to disagree, and the
+ * disagreement is silent: one of them interpolates `ada/..` into an API path.
+ *
+ * An absent or empty branch normalises to {@link DEFAULT_REMOTE_BRANCH}, for the reason
+ * {@link parseRemoteBinding} gives — a record written before anybody thought about branches names
+ * the branch this epic publishes to.
+ */
+export function normaliseRemoteIdentity(record: {
+	readonly owner?: unknown;
+	readonly repository?: unknown;
+	readonly branch?: unknown;
+}): { owner: string; repository: string; branch: string } | null {
+	const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+	const owner = text(record.owner);
+	const repository = text(record.repository);
+	if (!OWNER_PATTERN.test(owner) || !isRepositoryName(repository)) return null;
+	return { owner, repository, branch: text(record.branch) || DEFAULT_REMOTE_BRANCH };
+}
+
 /** Which repository this Workspace is published to. */
 export interface RemoteBinding {
 	readonly formatVersion: number;
@@ -117,19 +142,13 @@ export function parseRemoteBinding(bytes: Bytes): RemoteBinding | null {
 	}
 	if (typeof raw !== 'object' || raw === null) return null;
 	const record = raw as Record<string, unknown>;
-	const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-	const owner = text(record['owner']);
-	const repository = text(record['repository']);
-	if (!OWNER_PATTERN.test(owner) || !isRepositoryName(repository)) return null;
+	const identity = normaliseRemoteIdentity(record);
+	if (identity === null) return null;
 	const formatVersion = record['formatVersion'];
 	return {
 		formatVersion:
 			typeof formatVersion === 'number' ? formatVersion : REMOTE_BINDING_FORMAT_VERSION,
-		owner,
-		repository,
-		// A binding written before anybody thought about branches is a binding to `main`, which is
-		// what every publish in this epic writes to anyway.
-		branch: text(record['branch']) || DEFAULT_REMOTE_BRANCH
+		...identity
 	};
 }
 
