@@ -33,7 +33,12 @@ import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_RAW_ORIGIN } from './github-api.js';
 import { DEFAULT_REMOTE_BRANCH } from './remote-binding.js';
 import { urlPath, type RemoteBlob } from './remote-tree.js';
-import { findProject, readReviewTree, type ReviewReference } from './review-from-remote.js';
+import {
+	findProject,
+	readReviewHeadCommit,
+	readReviewTree,
+	type ReviewReference
+} from './review-from-remote.js';
 
 /** Which Project on which Remote to Import. The Review's reference, unchanged. */
 export interface RemoteProjectSourceOptions {
@@ -60,6 +65,11 @@ export async function readRemoteProjectSource(
 	const remote = { ...options.remote, branch };
 
 	const blobs = await readReviewTree(remote, options.fetch);
+	// ⚠ **A second request, spent only on a repository that answered the first.** The commit is
+	// provenance and nothing else reads it, so it is asked for after the listing rather than before:
+	// a repository that is missing, private, empty or rate-limited is refused without spending one
+	// more of the sixty an anonymous reader gets per hour.
+	const commit = await readReviewHeadCommit(remote, options.fetch);
 	const { directory, manifest } = findProject(remote, blobs);
 	const read = checkedReader(remote, options.fetch);
 
@@ -77,6 +87,7 @@ export async function readRemoteProjectSource(
 			repository: remote.repository,
 			branch,
 			directory,
+			commit,
 			projectName: project.name
 		},
 		project,

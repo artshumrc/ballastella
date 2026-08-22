@@ -10,7 +10,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { createFakeGitHub } from './fake-github.js';
-import { RemoteTreeRefusedError, readRemoteTree, urlPath } from './remote-tree.js';
+import {
+	RemoteTreeRefusedError,
+	readRemoteHeadCommit,
+	readRemoteTree,
+	urlPath
+} from './remote-tree.js';
 
 const REMOTE = { owner: 'ada', repository: 'atlas', branch: 'main' };
 
@@ -257,5 +262,51 @@ describe('against the shared fake GitHub', () => {
 		const cause = await refusal(fake.fetch);
 		expect(cause.refusal).toBe('rate-limited');
 		expect(cause.resetAt).toEqual(new Date(1_800_000_000 * 1000));
+	});
+});
+
+// The commit an Import records as the state it copied (SPEC story 59). One request, anonymous, and
+// the tree listing cannot answer it: `/git/trees/{ref}` reports the tree object's hash, which names
+// no history.
+describe('reading the commit a public branch stands at', () => {
+	it('answers the branch’s commit, and sends no credential', async () => {
+		const fake = await createFakeGitHub({
+			owner: REMOTE.owner,
+			repository: REMOTE.repository,
+			tree: { 'index.html': '<!doctype html>' }
+		});
+
+		expect(await readRemoteHeadCommit(REMOTE, fake.fetch)).toBe(fake.head());
+	});
+
+	it('spells a branch with a slash in it per segment, as this endpoint takes it', async () => {
+		const { fetch, asked } = answering(() =>
+			jsonResponse({ object: { sha: 'a1b2c3', type: 'commit' } })
+		);
+
+		await readRemoteHeadCommit({ ...REMOTE, branch: 'teaching/spring-2026' }, fetch);
+
+		expect(asked[0]?.url).toContain('/git/ref/heads/teaching/spring-2026');
+		expect(asked[0]?.init?.headers).not.toHaveProperty('Authorization');
+	});
+
+	// An answer of this endpoint's shape with nothing in it. Refused rather than recorded as an empty
+	// commit: provenance saying a Project came from no particular state is worse than an Import that
+	// did not happen.
+	it('refuses an answer that names no commit', async () => {
+		const { fetch } = answering(() => jsonResponse({ object: {} }));
+
+		const cause = await readRemoteHeadCommit(REMOTE, fetch).catch((thrown: unknown) => thrown);
+
+		expect(cause).toBeInstanceOf(RemoteTreeRefusedError);
+		expect((cause as RemoteTreeRefusedError).refusal).toBe('refused');
+	});
+
+	it('refuses a branch GitHub does not have, as it refuses a missing repository', async () => {
+		const { fetch } = answering(() => jsonResponse({ message: 'Not Found' }, 404));
+
+		const cause = await readRemoteHeadCommit(REMOTE, fetch).catch((thrown: unknown) => thrown);
+
+		expect((cause as RemoteTreeRefusedError).refusal).toBe('no-repository');
 	});
 });

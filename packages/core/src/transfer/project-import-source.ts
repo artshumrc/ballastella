@@ -78,6 +78,14 @@ export type ProjectImportOrigin =
 			readonly branch: string;
 			/** The Project's directory on the Remote, which is a Project's identity (ADR-0008). */
 			readonly directory: string;
+			/**
+			 * The commit the branch stood at when the Project was read.
+			 *
+			 * **Which state of it, where the fields above say which Project** (SPEC story 59). A commit
+			 * is not a relationship: nothing fetches from it, nothing tracks it, and an Import that
+			 * records one gains no way to hear about the next one.
+			 */
+			readonly commit: string;
 			readonly projectName: string;
 	  }
 	| {

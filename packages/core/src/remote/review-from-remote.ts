@@ -85,7 +85,13 @@ import { gitBlobSha } from './blob-sha.js';
 import type { CloneReference } from './clone-from-remote.js';
 import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
 import { projectDirectories } from './synchronization-paths.js';
-import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
+import {
+	RemoteTreeRefusedError,
+	readRemoteHeadCommit,
+	readRemoteTree,
+	urlPath,
+	type RemoteBlob
+} from './remote-tree.js';
 import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
 
 /**
@@ -367,25 +373,54 @@ export async function readReviewTree(
 	try {
 		return await readRemoteTree(remote, fetchFn);
 	} catch (cause) {
-		if (!(cause instanceof RemoteTreeRefusedError)) {
-			throw new ReviewRefusedError('refused', unreachableMessage(remote, cause));
-		}
-		switch (cause.refusal) {
-			case 'no-repository':
-				throw new ReviewRefusedError('no-repository', noRepositoryMessage(remote));
-			case 'not-public':
-				throw new ReviewRefusedError('no-repository', notPublicMessage(remote));
-			case 'rate-limited':
-				throw new ReviewRefusedError('rate-limited', rateLimitedMessage(remote, cause.resetAt));
-			case 'empty':
-				throw new ReviewRefusedError('empty', emptyMessage(remote));
-			case 'truncated':
-				throw new ReviewRefusedError('truncated', truncatedMessage(cause.listed, remote));
-			case 'unreachable':
-				throw new ReviewRefusedError('refused', unreachableMessage(remote, cause.detail));
-			case 'refused':
-				throw new ReviewRefusedError('refused', refusedMessage(remote, cause.detail));
-		}
+		throw reviewRefusalFor(cause, remote);
+	}
+}
+
+/**
+ * The commit the Remote's branch stands at, with the refusals said in a Review's words.
+ *
+ * Exported for `remote-project-source.ts`: an Import records the commit it copied a Project from
+ * (SPEC story 59), and a repository that cannot be read has to say the same thing here as it says
+ * about the file list one request earlier.
+ */
+export async function readReviewHeadCommit(
+	remote: Required<ReviewReference>,
+	fetchFn: FetchFn | undefined
+): Promise<string> {
+	try {
+		return await readRemoteHeadCommit(remote, fetchFn);
+	} catch (cause) {
+		throw reviewRefusalFor(cause, remote);
+	}
+}
+
+/**
+ * One reading of GitHub's statuses into a Review's sentences, for both of the reads above.
+ *
+ * Returned rather than thrown so the call sites read as `throw`, and written once because the
+ * alternative is a Review and an Import telling a rate-limited class two different things about one
+ * repository — the divergence this module's shared exports exist to prevent.
+ */
+function reviewRefusalFor(cause: unknown, remote: Required<ReviewReference>): ReviewRefusedError {
+	if (!(cause instanceof RemoteTreeRefusedError)) {
+		return new ReviewRefusedError('refused', unreachableMessage(remote, cause));
+	}
+	switch (cause.refusal) {
+		case 'no-repository':
+			return new ReviewRefusedError('no-repository', noRepositoryMessage(remote));
+		case 'not-public':
+			return new ReviewRefusedError('no-repository', notPublicMessage(remote));
+		case 'rate-limited':
+			return new ReviewRefusedError('rate-limited', rateLimitedMessage(remote, cause.resetAt));
+		case 'empty':
+			return new ReviewRefusedError('empty', emptyMessage(remote));
+		case 'truncated':
+			return new ReviewRefusedError('truncated', truncatedMessage(cause.listed, remote));
+		case 'unreachable':
+			return new ReviewRefusedError('refused', unreachableMessage(remote, cause.detail));
+		case 'refused':
+			return new ReviewRefusedError('refused', refusedMessage(remote, cause.detail));
 	}
 }
 

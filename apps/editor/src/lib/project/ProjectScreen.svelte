@@ -88,6 +88,8 @@
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 
+	import { describeImportEvidence, describeImportProvenance } from './import-provenance-text.js';
+
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
@@ -882,6 +884,9 @@
 		return Number.isNaN(when.valueOf()) ? iso : projectDateFormat.format(when);
 	}
 
+	/** The Project's transfer history, oldest first, or nothing for a Project nobody imported. */
+	const provenance = $derived(session.openProject?.importProvenance ?? []);
+
 	function openSettings(): void {
 		settingsOpen = true;
 	}
@@ -1638,6 +1643,44 @@
 					</div>
 				</dl>
 			</section>
+
+			<!--
+				How the Project got here, when it got here from somewhere (ADR-0037).
+
+				⚠ **Read-only, and it says why.** This is a record of transfers, not metadata an author
+				maintains: there is no control in it, and the description separates it from attribution in
+				words, because a list of accounts and filenames beside somebody's maps invites exactly that
+				reading (SPEC story 62). Each entry carries whether Ballastella saw the transfer or was
+				handed a record of one, so a claim nobody checked cannot pass for one this application
+				witnessed (story 64).
+			-->
+			{#if provenance.length > 0}
+				<section class="flex flex-col items-start gap-3 pt-6" data-testid="import-provenance">
+					<h3 class="font-serif text-lg">How this Project got here</h3>
+					<p class="max-w-prose text-sm opacity-70">
+						A read-only record of the transfers that brought this Project into this Workspace. It
+						does not say who made the work or who holds rights in it.
+					</p>
+					<ol class="flex w-full flex-col gap-3 text-sm">
+						{#each provenance as entry, at (at)}
+							<li
+								class="flex flex-col gap-1 border-l-2 border-rule pl-3"
+								data-testid="provenance-entry"
+								data-provenance-kind={entry.kind}
+								data-provenance-evidence={entry.evidence}
+							>
+								<p>{describeImportProvenance(entry)}</p>
+								<p class="text-xs opacity-70">
+									<span data-testid="provenance-evidence">{describeImportEvidence(entry)}</span>
+									<time class="tabular-nums" datetime={entry.observedAt}
+										>{formatProjectUpdatedAt(entry.observedAt)}</time
+									>
+								</p>
+							</li>
+						{/each}
+					</ol>
+				</section>
+			{/if}
 
 			<section class="flex flex-col items-start gap-3 pt-6">
 				<h3 class="font-serif text-lg">Base Map offline</h3>

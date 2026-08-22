@@ -341,8 +341,19 @@ describe('what a source observed about where it came from', () => {
 		});
 	});
 
-	it('records the repository, branch and Project directory of a published Project', async () => {
-		const source = await remoteSource();
+	it('records the repository, branch, Project directory and commit of a published Project', async () => {
+		// The fake here rather than through `remoteSource`, so the commit is compared against the one
+		// the branch really stands at rather than against a shape.
+		const fake = await createFakeGitHub({
+			owner: OWNER,
+			repository: REPOSITORY,
+			tree: WORKSPACE
+		});
+
+		const source = await readRemoteProjectSource({
+			remote: { owner: OWNER, repository: REPOSITORY, project: DIRECTORY },
+			fetch: fake.fetch
+		});
 
 		expect(source.origin).toEqual({
 			kind: 'github',
@@ -350,6 +361,7 @@ describe('what a source observed about where it came from', () => {
 			repository: REPOSITORY,
 			branch: 'main',
 			directory: DIRECTORY,
+			commit: fake.head(),
 			projectName: 'Amsterdam 1625'
 		});
 	});
@@ -372,6 +384,7 @@ describe('what a source observed about where it came from', () => {
 
 		expect(Object.keys(source.origin).sort()).toEqual([
 			'branch',
+			'commit',
 			'directory',
 			'kind',
 			'owner',

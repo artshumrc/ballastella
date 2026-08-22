@@ -1,5 +1,11 @@
 import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
+import {
+	IMPORT_PROVENANCE_KEY,
+	parseImportProvenance,
+	serialiseImportProvenance,
+	type ImportProvenanceEntry
+} from './import-provenance.js';
 import { parseLayers, serialiseLayers, type Layer } from './layer.js';
 
 /** The `project.json` format this build of the app understands (ADR-0010). */
@@ -115,6 +121,18 @@ export interface ProjectFile {
 	 */
 	readonly onFrontPage: boolean;
 	/**
+	 * How this Project reached this Workspace, oldest transfer first (ADR-0037).
+	 *
+	 * **Absent for a Project nobody imported**, which is every Project made here and every one written
+	 * before Import existed — so the field costs those Projects no byte, exactly as `canonicalUrl` and
+	 * `onFrontPage` cost them none. Written only by Import, and read-only everywhere else: it is a
+	 * record of transfers, not metadata an author maintains.
+	 *
+	 * ⚠ **Not attribution, and it must never become it.** See `import-provenance.ts`: an entry names a
+	 * route, and a filename or a repository owner is not the scholar who made the maps.
+	 */
+	readonly importProvenance?: readonly ImportProvenanceEntry[];
+	/**
 	 * Anything else the file carried, kept so that writing it back cannot drop it. The refusal
 	 * below means we never write a file from a newer version, but the same-version case matters
 	 * too: a field added by a build one commit ahead is not worth destroying (ADR-0010).
@@ -217,8 +235,16 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const { formatVersion, name, updatedAt, layers, canonicalUrl, onFrontPage, ...unknownFields } =
-		raw as Record<string, unknown>;
+	const {
+		formatVersion,
+		name,
+		updatedAt,
+		layers,
+		canonicalUrl,
+		onFrontPage,
+		[IMPORT_PROVENANCE_KEY]: importProvenance,
+		...unknownFields
+	} = raw as Record<string, unknown>;
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
@@ -231,6 +257,13 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// dead field for ever. Reading a file that has it must still work, which is why this is a delete
 	// here rather than a refusal: the value is ignored, the Project opens.
 	delete unknownFields[REMOVED_MAP_LAYERS_KEY];
+	// A history of some other shape is **carried rather than dropped**: an `importProvenance` that is
+	// not an array is not a history this build can read, but it is somebody's field and the tolerance
+	// every other unrecognised field here gets applies to it too (ADR-0010).
+	if (importProvenance !== undefined && !Array.isArray(importProvenance)) {
+		unknownFields[IMPORT_PROVENANCE_KEY] = importProvenance;
+	}
+	const provenance = parseImportProvenance(importProvenance);
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
 		throw new ProjectFileUnreadableError('formatVersion is missing or is not an integer');
@@ -256,6 +289,9 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		canonicalUrl:
 			typeof canonicalUrl === 'string' && canonicalUrl.trim() !== '' ? canonicalUrl : null,
 		onFrontPage: onFrontPageOf(onFrontPage),
+		// Absent rather than empty when there is no history, so a Project nobody imported carries no
+		// trace of the field and an empty array from somewhere else does not become one.
+		...(provenance.length === 0 ? {} : { importProvenance: provenance }),
 		unknownFields
 	};
 }
@@ -273,7 +309,8 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		layers,
 		baseMap,
 		canonicalUrl,
-		onFrontPage
+		onFrontPage,
+		importProvenance
 	} = file;
 	const json = JSON.stringify(
 		{
@@ -294,6 +331,11 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// Last of the named fields, so a Project that already carries a canonical stamp keeps its
 			// existing key order too.
 			...(onFrontPage ? {} : { onFrontPage: false }),
+			// Written only by a Project that has been imported, for the third time and for the same
+			// reason: a Project nobody transferred keeps the bytes it had before Import existed.
+			...(importProvenance === undefined || importProvenance.length === 0
+				? {}
+				: { [IMPORT_PROVENANCE_KEY]: serialiseImportProvenance(importProvenance) }),
 			...unknownFields
 		},
 		null,

@@ -141,6 +141,20 @@ export {
 	serialiseProjectFile,
 	type ProjectFile
 } from './project/project-file.js';
+// How a Project reached this Workspace (ADR-0037). Read-only transfer history, and never attribution:
+// the editor renders it, and only an Import writes it.
+export {
+	IMPORT_PROVENANCE_KEY,
+	inheritImportProvenance,
+	parseImportProvenance,
+	serialiseImportProvenance,
+	type ForeignImportProvenance,
+	type GitHubImportProvenance,
+	type ImportProvenanceEntry,
+	type ImportProvenanceEvidence,
+	type ProjectBundleImportProvenance,
+	type ReviewImportProvenance
+} from './project/import-provenance.js';
 export {
 	// Exported because the editor has to recognise it: `createProject` throws it at the one moment a
 	// user can be told, and a refusal the app cannot name is rendered as an unreachable Workspace.
@@ -325,6 +339,12 @@ export {
 // the Workspace shows, a directory allocated against the folded union of local, Remote and Baseline
 // evidence (SPEC story 143), and one destination path per closure path — reserved before a transaction
 // can write.
+// The publication reset and the provenance entry that make an imported Project a detached local copy
+// (ticket 08): applied to a source's manifest before the remapping plans the closure's bytes.
+export {
+	detachImportedProject,
+	observedImportProvenance
+} from './transfer/project-import-provenance.js';
 export {
 	allocateProjectImport,
 	type ImportDestination,

@@ -10,6 +10,7 @@ import {
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { layerRows, openLayerRow } from './support/layers.js';
+import { openProjectSettings } from './support/project-screen.js';
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import {
 	closeWorkspaceSettings,
@@ -264,6 +265,32 @@ const alignmentJson = (at: SheetBox): string =>
 		null,
 		'\t'
 	)}\n`;
+
+/**
+ * A Project that has been handed on twice: published on somebody's site, then sent as a bundle.
+ *
+ * Written as the file spells it, because that is how a real imported Project arrives — the editor
+ * reads this history rather than being told one.
+ */
+const IMPORT_PROVENANCE = [
+	{
+		kind: 'github',
+		owner: 'ada',
+		repository: 'atlas',
+		branch: 'main',
+		directory: 'amsterdam-1625',
+		commit: '9f2c1de4b7a80315c6e5d2f9a1b8c7d6e5f40312',
+		observedAt: '2026-08-01T10:00:00.000Z',
+		evidence: 'inherited'
+	},
+	{
+		kind: 'project-bundle',
+		filename: 'amsterdam-1625.project.tar',
+		projectName: 'Amsterdam 1625',
+		observedAt: '2026-08-22T09:30:00.000Z',
+		evidence: 'observed'
+	}
+];
 
 const projectJson = (overrides: Record<string, unknown> = {}) =>
 	`${JSON.stringify(
@@ -527,6 +554,19 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 });
 
 test.describe('merely opening a Project leaves its files unchanged (write-on-the-map SPEC story 50)', () => {
+	/**
+	 * ⚠ **The Import Provenance assertions are folded in here, and the fold is the argument.**
+	 *
+	 * "Read-only" is two claims: that a reader can see the history, and that seeing it writes nothing.
+	 * The second is exactly what this test already measures over every file in the Workspace, so the
+	 * history is seeded into the same Project rather than into a spec of its own — and the metadata
+	 * permutations behind it are proved at Seam 1 in `project-import-provenance.test.ts`, which is what
+	 * the SPEC's testing decisions ask for.
+	 *
+	 * The Project is seeded with a history rather than imported through the UI because Import has no UI
+	 * yet: tickets 13, 18 and 19 add the three offers. What is asserted here is the surface this
+	 * ticket owns — the Project screen showing a transfer history it will not let anyone edit.
+	 */
 	test('merely opening a Project with a Label leaves every Project file hash-identical', async ({
 		page
 	}) => {
@@ -534,7 +574,10 @@ test.describe('merely opening a Project leaves its files unchanged (write-on-the
 		await seedProject(
 			page,
 			'amsterdam-1625',
-			projectFiles({ 'annotations/warehouses.geojson': ZUIDERZEE_GEOJSON })
+			projectFiles({
+				'annotations/warehouses.geojson': ZUIDERZEE_GEOJSON,
+				'project.json': projectJson({ importProvenance: IMPORT_PROVENANCE })
+			})
 		);
 		await page.reload();
 		const before = await hashesUnder(page, '');
@@ -543,6 +586,29 @@ test.describe('merely opening a Project leaves its files unchanged (write-on-the
 		await waitForOpeningView(page);
 		await waitForStack(page);
 		await waitForPaintedAnnotations(page, ['label']);
+
+		const settings = await openProjectSettings(page);
+		const history = settings.getByTestId('import-provenance');
+		await expect(history).toContainText('read-only record of the transfers');
+		// Not attribution, said in the words the section itself uses (SPEC story 62).
+		await expect(history).toContainText('does not say who made the work');
+
+		const entries = history.getByTestId('provenance-entry');
+		await expect(entries).toHaveCount(2);
+		// The carried entry first, and identified as carried rather than as something checked here.
+		await expect(entries.nth(0)).toHaveAttribute('data-provenance-evidence', 'inherited');
+		await expect(entries.nth(0)).toContainText('ada/atlas');
+		await expect(entries.nth(0)).toContainText('9f2c1de4b7a80315c6e5d2f9a1b8c7d6e5f40312');
+		await expect(entries.nth(0)).toContainText('not checked here');
+		await expect(entries.nth(1)).toHaveAttribute('data-provenance-evidence', 'observed');
+		await expect(entries.nth(1)).toContainText('amsterdam-1625.project.tar');
+		await expect(entries.nth(1)).toContainText('Seen by Ballastella');
+		// Read-only on the screen as well as on disk: the history offers nothing to change it with,
+		// where the name beside it is a field.
+		await expect(history.getByRole('textbox')).toHaveCount(0);
+		await expect(history.getByRole('button')).toHaveCount(0);
+		await expect(settings.getByTestId('project-name-input')).toBeVisible();
+
 		// Let the 400 ms autosave debounce and any resulting flush complete.
 		await page.waitForTimeout(600);
 

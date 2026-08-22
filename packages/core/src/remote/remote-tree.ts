@@ -103,30 +103,9 @@ export class RemoteTreeRefusedError extends Error {
  */
 export const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
-/**
- * Every file the branch's tip holds, from one unauthenticated tree listing.
- *
- * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,
- * which is what lets a student with no GitHub account seed a Workspace from their instructor's
- * Remote (ADR-0031, SPEC "Import: two operations, both unauthenticated"). Sending a credential here
- * would make an account a prerequisite for the operations in this epic that need none, and it would
- * do it silently — the flow would go on working for everybody who had already signed in.
- *
- * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a truncated listing
- */
-export async function readRemoteTree(
-	remote: RemoteTreeReference,
-	fetchFn: FetchFn | undefined
-): Promise<RemoteBlob[]> {
+/** An anonymous GET of the git database, with every status this module has a refusal for. */
+async function anonymousGet(fetchFn: FetchFn | undefined, url: string): Promise<Response> {
 	const request = fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
-	// ⚠ The branch is **one** encoded path parameter here, unlike on the raw host. `/git/trees/{ref}`
-	// takes a single segment, so a branch of `feature/x` spelled per segment would ask for
-	// `/git/trees/feature/x` — a path this endpoint does not have at all, and one whose failure says
-	// nothing about branches.
-	const url =
-		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
-		`/git/trees/${encodeURIComponent(remote.branch)}?recursive=1`;
-
 	let response: Response;
 	try {
 		response = await request(url, { headers: { Accept: 'application/vnd.github+json' } });
@@ -162,6 +141,72 @@ export async function readRemoteTree(
 	if (!response.ok) {
 		throw new RemoteTreeRefusedError('refused', await problemOf(response));
 	}
+	return response;
+}
+
+/**
+ * The commit a public branch stands at, from one unauthenticated ref read.
+ *
+ * **The evidence an Import's provenance records** (SPEC story 59): a repository, a Project directory
+ * and a branch say which Project was copied, and only the commit says which *state* of it. The tree
+ * listing cannot answer this — `/git/trees/{ref}` reports the tree object's own hash, which is not a
+ * commit and names no history — so it is a second request, and it is why an Import spends one more of
+ * the sixty an anonymous reader gets per hour than a Review does.
+ *
+ * ⚠ **The branch can move between this and the tree listing**, and nothing here can prevent that.
+ * What catches it is the blob SHA check every downloaded file goes through: a Project whose bytes
+ * changed under the Import is refused rather than installed with a commit that does not describe it.
+ *
+ * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a branch that is not
+ *   there — `'no-repository'`, which is what GitHub answers for a missing ref
+ */
+export async function readRemoteHeadCommit(
+	remote: RemoteTreeReference,
+	fetchFn: FetchFn | undefined
+): Promise<string> {
+	// ⚠ The branch is spelled **per segment** here, unlike `/git/trees/{ref}`: this path continues
+	// after `heads/`, so a branch of `feature/x` is two segments of it and an encoded slash is a ref
+	// GitHub does not have.
+	const url =
+		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
+		`/git/ref/heads/${urlPath(remote.branch)}`;
+
+	const response = await anonymousGet(fetchFn, url);
+	const body = (await response.json().catch(() => ({}))) as { object?: { sha?: unknown } };
+	const sha = body.object?.sha;
+	// An answer that is this endpoint's shape but carries no SHA is refused rather than recorded as an
+	// empty commit: provenance that says a Project came from nowhere in particular is worse than an
+	// Import that did not happen.
+	if (typeof sha !== 'string' || sha === '') {
+		throw new RemoteTreeRefusedError('refused', 'the branch reported no commit');
+	}
+	return sha;
+}
+
+/**
+ * Every file the branch's tip holds, from one unauthenticated tree listing.
+ *
+ * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,
+ * which is what lets a student with no GitHub account seed a Workspace from their instructor's
+ * Remote (ADR-0031, SPEC "Import: two operations, both unauthenticated"). Sending a credential here
+ * would make an account a prerequisite for the operations in this epic that need none, and it would
+ * do it silently — the flow would go on working for everybody who had already signed in.
+ *
+ * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a truncated listing
+ */
+export async function readRemoteTree(
+	remote: RemoteTreeReference,
+	fetchFn: FetchFn | undefined
+): Promise<RemoteBlob[]> {
+	// ⚠ The branch is **one** encoded path parameter here, unlike on the raw host. `/git/trees/{ref}`
+	// takes a single segment, so a branch of `feature/x` spelled per segment would ask for
+	// `/git/trees/feature/x` — a path this endpoint does not have at all, and one whose failure says
+	// nothing about branches.
+	const url =
+		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
+		`/git/trees/${encodeURIComponent(remote.branch)}?recursive=1`;
+
+	const response = await anonymousGet(fetchFn, url);
 
 	const body = (await response.json().catch(() => ({}))) as {
 		tree?: unknown;

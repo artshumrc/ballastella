@@ -337,3 +337,123 @@ describe('fields this build does not know about', () => {
 		expect(rewritten.somethingNewer).toEqual({ deep: ['value'] });
 	});
 });
+
+describe('Import Provenance (ADR-0037)', () => {
+	const withHistory = (importProvenance: unknown) =>
+		encode({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: [],
+			baseMap: null,
+			importProvenance
+		});
+
+	const OBSERVED = {
+		kind: 'project-bundle',
+		filename: 'amsterdam-1625.project.tar',
+		projectName: 'Amsterdam 1625',
+		observedAt: '2026-08-22T09:30:00.000Z',
+		evidence: 'observed'
+	};
+
+	it('is absent from a Project nobody imported, so its bytes are what they always were', () => {
+		const file = newProjectFile('Amsterdam 1625', new Date(0));
+
+		expect(file.importProvenance).toBeUndefined();
+		expect(JSON.parse(decode(serialiseProjectFile(file)))).not.toHaveProperty('importProvenance');
+	});
+
+	it('round-trips an observed entry', () => {
+		const parsed = parseProjectFile(withHistory([OBSERVED]));
+
+		expect(parsed.importProvenance).toEqual([OBSERVED]);
+		expect(JSON.parse(decode(serialiseProjectFile(parsed))).importProvenance).toEqual([OBSERVED]);
+	});
+
+	/**
+	 * ⚠ **Only the literal `'observed'` is observed** (SPEC story 64).
+	 *
+	 * An entry with no `evidence`, or one from a build that spells it a third way, reads as inherited:
+	 * the direction that costs nothing is the one that does not claim this application witnessed a
+	 * transfer, and reading it the other way would manufacture a witness out of a field this build
+	 * could not make sense of.
+	 */
+	it.each([
+		['inherited', 'inherited'],
+		[undefined, 'inherited'],
+		['verified', 'inherited'],
+		['observed', 'observed']
+	])('reads evidence %s as %s', (evidence, expected) => {
+		const parsed = parseProjectFile(withHistory([{ ...OBSERVED, evidence }]));
+
+		expect(parsed.importProvenance?.[0]?.evidence).toBe(expected);
+	});
+
+	it('keeps a member of an entry that this build does not model', () => {
+		const entry = { ...OBSERVED, sentBy: 'a later build' };
+
+		const rewritten = JSON.parse(
+			decode(serialiseProjectFile(parseProjectFile(withHistory([entry]))))
+		);
+
+		expect(rewritten.importProvenance).toEqual([entry]);
+	});
+
+	// An append-only history whose entries a build can delete is not one, so a kind this build has
+	// never heard of is carried rather than dropped — the discipline `unknownFields` applies to the
+	// document as a whole, applied to the array whose whole contract is that nothing removes from it.
+	it('keeps an entry of a kind this build has never heard of', () => {
+		const entry = {
+			kind: 'zenodo',
+			doi: '10.5281/zenodo.1234567',
+			observedAt: '2026-01-05T08:00:00.000Z',
+			evidence: 'observed'
+		};
+
+		const rewritten = JSON.parse(
+			decode(serialiseProjectFile(parseProjectFile(withHistory([entry]))))
+		);
+
+		expect(rewritten.importProvenance).toEqual([entry]);
+	});
+
+	it('keeps an importProvenance of some other shape entirely, as an unknown field', () => {
+		const parsed = parseProjectFile(withHistory('one day this was a string'));
+
+		expect(parsed.importProvenance).toBeUndefined();
+		expect(JSON.parse(decode(serialiseProjectFile(parsed))).importProvenance).toBe(
+			'one day this was a string'
+		);
+	});
+
+	// The counterpart of "parses to exactly the fields this build understands": that test asks a
+	// Project nobody imported, which cannot see an optional field at all.
+	it('parses an imported Project to exactly the fields this build understands', () => {
+		const parsed = parseProjectFile(withHistory([OBSERVED]));
+
+		expect(Object.keys(parsed).toSorted()).toEqual([
+			'baseMap',
+			'canonicalUrl',
+			'formatVersion',
+			'importProvenance',
+			'layers',
+			'name',
+			'onFrontPage',
+			'unknownFields',
+			'updatedAt'
+		]);
+	});
+
+	it('does not also lodge the history in unknownFields', () => {
+		const parsed = parseProjectFile(withHistory([OBSERVED]));
+
+		expect(parsed.unknownFields).toEqual({});
+	});
+
+	it('serialises byte-identically for an unchanged imported Project', () => {
+		const bytes = serialiseProjectFile(parseProjectFile(withHistory([OBSERVED])));
+
+		expect(serialiseProjectFile(parseProjectFile(bytes))).toEqual(bytes);
+	});
+});
