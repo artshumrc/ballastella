@@ -1,10 +1,19 @@
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 
 // Adapter, `paths.relative`, and compiler options live in svelte.config.js.
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+
+	// Vite 8 no longer widens the dev server's allow list to the pnpm workspace root, so the default
+	// is this app's own directory. `@ballastella/ui`'s `layout.css` is consumed as source and its
+	// `@font-face` rules point at `packages/ui/src/fonts/*.woff2`, which is outside that default: the
+	// stylesheet loads, the font requests 403 with "outside of Vite serving allow list", and the app
+	// silently falls back to system fonts in development only. The repo root is the narrowest scope
+	// that covers every workspace package served as source.
+	server: { fs: { allow: [fileURLToPath(new URL('../..', import.meta.url))] } },
 
 	// **`maplibre-gl` must go through Vite's own pipeline on the server side, or `pnpm dev` is a 500
 	// on every route.** The package ships an ESM build and a CommonJS one. Bundling picks the ESM
