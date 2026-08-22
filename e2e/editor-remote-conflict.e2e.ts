@@ -1,8 +1,15 @@
-import { expect, test, type Page } from './support/test.js';
+import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
-import { openRemoteSettings, seedRemoteRelationship } from './support/workspace.js';
+import {
+	createWorkspace,
+	openRemoteSettings,
+	seedBaseline,
+	seedRemoteRelationship,
+	switchToWorkspace
+} from './support/workspace.js';
+import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
 
 /**
  * The two refusals that stop one machine deleting another's afternoon (ticket 05, ADR-0033).
@@ -334,5 +341,239 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// Replacing is still ADR-0033's mirror: the scholar's own `README.md` is outside the owned
 		// namespace and survives a replace exactly as it survives an ordinary publish.
 		expect(github.fileText(OWNER, REPOSITORY, 'README.md')).toBe('# Atlas\n');
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// REMOTE STATUS (ticket 12; SPEC stories 111–120, 147)
+//
+// **One workflow rather than a second planner matrix.** The six determinations and the table behind
+// them are exhausted at Seam 1 (`synchronization-planner.test.ts`, `local-change-index.test.ts`),
+// and the bounded checking, the retained failure and the per-Workspace isolation at Seam 1 too
+// (`remote-status.test.ts`) — all of it without a browser. What only a browser can settle is that
+// the control is *there*, on every screen, in words, beside a `Saved locally` that stays its own
+// thing; that an authenticated session checks by itself and a signed-out one does not; and that a
+// failed check leaves the last answer on screen rather than reporting agreement.
+//
+// The Baseline is seeded rather than earned through a Publish. Advancing it from a Publish is ticket
+// 16's, and a spec that had to publish to reach each state would be testing publishing five times
+// over to arrive at the thing it wanted to assert.
+
+/** `path → blob SHA` for bytes seeded on the Remote, which is what a Baseline records. */
+async function sharedShas(files: Record<string, string>): Promise<Record<string, string>> {
+	const encoder = new TextEncoder();
+	const shas: Record<string, string> = {};
+	for (const [path, text] of Object.entries(files)) {
+		shas[path] = await gitBlobSha(encoder.encode(text));
+	}
+	return shas;
+}
+
+/** The status control's own words. Never `role="status"` — that is the save indicator's. */
+const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
+
+/** Ask for a check the way an author does, and wait for it to finish. */
+async function checkNow(page: Page): Promise<void> {
+	await page.getByTestId('check-remote-status').click();
+	await expect(remoteStatus(page)).not.toContainText('Checking…');
+}
+
+/** Coming back to the tab, which is the moment an out-of-band commit is worth looking for. */
+const refocus = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event('focus')));
+
+/** How many tree listings this session has asked GitHub for. */
+const listings = (github: GitHubHosts) =>
+	github.requests.filter((path) => path.includes('/git/trees/')).length;
+
+test.describe('Remote Status on the navigation bar', () => {
+	const AMSTERDAM = projectFiles('amsterdam-1625', 'Amsterdam 1625');
+
+	test('is checked explicitly and anonymously while signed out, and never polled', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			workspace: { ...AMSTERDAM, ...boundTo() },
+			onRemote: AMSTERDAM
+		});
+
+		// Bound, with no Baseline yet: `Cannot tell` is a determination and it needs no request, so it
+		// is on screen without a credential and without GitHub having been asked anything.
+		await expect(remoteStatus(page)).toContainText('Cannot tell');
+		expect(listings(github)).toBe(0);
+
+		// ⚠ **`Saved locally` is still the one `status` region on this bar**, and strict mode is the
+		// assertion: a control that had taken that role would make the two facts a scholar most needs
+		// kept apart indistinguishable to a screen reader (SPEC story 111).
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		expect(
+			await remoteStatus(page).evaluate((element) => [
+				element.getAttribute('aria-live'),
+				element.getAttribute('role')
+			])
+		).toEqual(['polite', null]);
+
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			files: await sharedShas(AMSTERDAM)
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+
+		// ⚠ **Signed out, nothing is polled** (SPEC story 115). GitHub allows an anonymous reader sixty
+		// requests an hour *per IP address*, so a seminar room on one campus address checking on every
+		// window focus would spend the room's whole budget on status.
+		await expect(remoteStatus(page)).toContainText('Not checked yet');
+		await refocus(page);
+		await refocus(page);
+		expect(listings(github)).toBe(0);
+
+		// The gesture, reached by the keyboard alone, is what makes status available with no account at
+		// all — and the answer is dated, so a retained one can later be told from a current one.
+		await page.getByTestId('check-remote-status').focus();
+		await page.keyboard.press('Enter');
+		await expect(remoteStatus(page)).toContainText('Up to date');
+		await expect(page.getByTestId('remote-status-checked')).toContainText('Checked at');
+		expect(listings(github)).toBe(1);
+	});
+
+	test('follows a bound Workspace through drift, staleness and a failed check', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			workspace: { ...AMSTERDAM, ...boundTo() },
+			onRemote: { ...AMSTERDAM, 'index.html': '<!doctype html><title>Atlas</title>' }
+		});
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			// A Baseline a Publish wrote: the source paths *and* the generated output it sent, which is
+			// what makes Published Site staleness answerable at all.
+			files: await sharedShas({
+				...AMSTERDAM,
+				'index.html': '<!doctype html><title>Atlas</title>'
+			})
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+
+		// Signing in is the moment an automatic check becomes possible, and it takes one by itself.
+		await signIn(page);
+		await page.keyboard.press('Escape');
+		await expect(remoteStatus(page)).toContainText('Up to date');
+		const afterSignIn = listings(github);
+
+		// ⚠ **Bounded.** Coming back to the tab three times inside the interval is three focus events
+		// and no further listings — the whole reason a focus trigger is affordable (SPEC story 114).
+		await refocus(page);
+		await refocus(page);
+		await refocus(page);
+		await expect(remoteStatus(page)).toContainText('Up to date');
+		expect(listings(github)).toBe(afterSignIn);
+
+		// Another editor version rebuilt the site: different chunk names, identical scholarship. It is
+		// said separately and the source status is untouched (SPEC story 120).
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'index.html': '<!doctype html><title>Atlas, rebuilt</title>'
+		});
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Up to date');
+		await expect(page.getByTestId('published-site-stale')).toContainText('Publish again');
+
+		// The author's own work, which GitHub has never seen.
+		await page.getByRole('button', { name: 'New Project' }).click();
+		await page
+			.getByRole('dialog', { name: 'New Project' })
+			.getByLabel('Project name')
+			.fill('Delft');
+		await page.getByRole('button', { name: 'Create Project' }).click();
+		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Changes to publish');
+
+		// And somebody else's afternoon, arriving on a path this Workspace has not touched. Two safe
+		// changes, and the whole point of the state is that it is not a Conflict.
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'amsterdam-1625/annotations/l2.geojson':
+				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
+		});
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Changes on both sides');
+
+		// Persistent, and it follows the author onto the Project screen — drift stays visible while
+		// they work rather than only on the hub (SPEC story 112).
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		await expect(remoteStatus(page)).toContainText('Changes on both sides');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		// The same path on both sides, which is the one state the passive check may not read as
+		// agreement: it knows `delft/project.json` changed here and cannot compare the bytes.
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'delft/project.json': '{"formatVersion":1,"name":"Delft, theirs"}'
+		});
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Conflict');
+
+		// ⚠ **A failed check is not agreement** (SPEC story 118). The last determination stays, dated,
+		// with an alert beside it saying it is no longer being confirmed — never relabelled `Up to
+		// date`, and never the successful determination `Cannot tell`.
+		const checkedBefore = await page.getByTestId('remote-status-checked').textContent();
+		await page.route('https://api.github.com/**/git/trees/**', (route) =>
+			route.abort('connectionfailed')
+		);
+		await page.getByTestId('check-remote-status').click();
+		const failure = page.getByTestId('remote-status-failure');
+		await expect(failure).toBeVisible();
+		await expect(failure).toContainText('the last one Ballastella was able to work out');
+		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'conflict');
+		await expect(remoteStatus(page)).toContainText('Conflict');
+		await expect(remoteStatus(page)).toContainText('Check failed');
+		expect(await page.getByTestId('remote-status-checked').textContent()).toBe(checkedBefore);
+		// The alert is announced rather than merely rendered: it is inserted at the moment its text
+		// first exists, which a polite region does not reliably announce.
+		expect(await failure.getAttribute('role')).toBe('alert');
+		// And the control that was pressed still holds focus, so an alert appearing beside it does not
+		// drop a keyboard user to the top of the document (WCAG 2.4.3).
+		await expect(page.getByTestId('check-remote-status')).toBeFocused();
+	});
+
+	test('cannot render one Workspace’s pending result beside another’s name', async ({ page }) => {
+		const AMSTERDAM_SHAS = await sharedShas(AMSTERDAM);
+		await start(page, {
+			workspace: { ...AMSTERDAM, ...boundTo() },
+			onRemote: AMSTERDAM
+		});
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			files: AMSTERDAM_SHAS
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await signIn(page);
+		await page.keyboard.press('Escape');
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		// A listing of a large tree takes seconds, and one click switches Workspace inside one of them.
+		let release: (() => void) | undefined;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route('https://api.github.com/**/git/trees/**', async (route) => {
+			await held;
+			await route.fallback();
+		});
+		await page.getByTestId('check-remote-status').click();
+		await expect(remoteStatus(page)).toContainText('Checking…');
+
+		await createWorkspace(page, 'Delft');
+		release?.();
+
+		// The arriving Workspace is bound to nothing, so it has nothing to compare and says so in the
+		// Workspace menu instead. What it must never do is wear the Workspace the author left.
+		await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		await expect(remoteStatus(page)).toContainText('Up to date');
 	});
 });

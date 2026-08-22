@@ -37,6 +37,7 @@ import {
 	SYNCHRONIZATION_KEY_PREFIX
 } from './synchronization-metadata.js';
 import { compareWorkspace } from './synchronization-planner.js';
+import { classifyInventory, recognisedProjectDirectories } from './synchronization-paths.js';
 import type { MetadataStorage, SynchronizationBaseline } from './synchronization-metadata.js';
 import type { InventoryEntry, SourcePath, SourceStatus } from './synchronization-planner.js';
 
@@ -356,6 +357,15 @@ export interface AutomaticStatus {
 	readonly paths: readonly SourcePath[];
 	readonly written: readonly string[];
 	readonly deleted: readonly string[];
+	/**
+	 * Where the Remote's Publish-owned output differs from what the Baseline last shared, sorted.
+	 *
+	 * **Never part of {@link status}** (SPEC story 120): a site built by another editor version has
+	 * different chunk names, which means "republish when you like" and never "somebody changed your
+	 * scholarship". Empty where the Baseline is no evidence about generated output — see
+	 * {@link checkSourceStatus}.
+	 */
+	readonly publishedSiteStale: readonly string[];
 }
 
 /**
@@ -373,9 +383,14 @@ export interface AutomaticStatus {
  * `Up to date` over a genuine Conflict. The deliberate pass hashes and may downgrade it, which is the
  * revision SPEC allows before transfer.
  *
- * ⚠ **Published Site staleness is not answered here** (SPEC story 120): it is a comparison of
- * generated output the index does not track, so it needs the local bytes and belongs to the
- * deliberate pass. Nothing here reports it rather than reporting it wrongly.
+ * ⚠ **Published Site staleness is answered only where the Baseline is evidence about it** (SPEC
+ * story 120). A Publish records `path → blob SHA` for everything it sent, generated output included,
+ * so after one the reconstruction can say whether the site the Remote is serving is still the one
+ * this Workspace built. An Open records source paths only — deliberately, `clone-from-remote.ts` —
+ * so a Baseline holding no generated output at all is no evidence about generated output, and every
+ * `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that holds the
+ * identical bytes. {@link AutomaticStatus.publishedSiteStale} is empty in that case rather than long
+ * and wrong.
  */
 export async function checkSourceStatus(input: AutomaticStatusInput): Promise<AutomaticStatus> {
 	const changes = await input.changes.localChanges();
@@ -391,11 +406,20 @@ export async function checkSourceStatus(input: AutomaticStatusInput): Promise<Au
 	for (const path of written) {
 		if (!baseline.has(path)) local.push({ path, sha: LOCALLY_CHANGED });
 	}
-	const comparison = compareWorkspace({ local, remote: input.remote, baseline: input.baseline });
+	const remote = [...input.remote];
+	const comparison = compareWorkspace({ local, remote, baseline: input.baseline });
+	// The reconstruction's own generated output, which is what decides whether the drift
+	// `compareWorkspace` computed is evidence or merely the Remote's whole site listed back.
+	const projects = recognisedProjectDirectories({
+		local: local.map((entry) => entry.path),
+		remote: remote.map((entry) => entry.path)
+	});
+	const held = classifyInventory(local, projects).publishedOutput.length > 0;
 	return {
 		status: comparison.status,
 		paths: comparison.paths,
 		written: changes.written,
-		deleted: changes.deleted
+		deleted: changes.deleted,
+		publishedSiteStale: held ? comparison.publishedSiteStale : []
 	};
 }

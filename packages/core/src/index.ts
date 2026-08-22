@@ -509,6 +509,23 @@ export {
 	type LocalChangeSource,
 	type LocalChanges
 } from './remote/local-change-index.js';
+// The Remote Status a scholar reads, and the bounded observational checking behind it (ADR-0038).
+// Nothing here transfers a file, writes a Workspace path, or advances a Baseline.
+export {
+	AUTOMATIC_CHECK_INTERVAL_MS,
+	REMOTE_STATUS_LABELS,
+	REMOTE_STATUS_UNCHECKED,
+	RemoteStatusChecker,
+	RemoteStatusUnavailableError,
+	UNCHECKED_REMOTE_STATUS,
+	readRemoteInventory,
+	type RemoteInventoryOptions,
+	type RemoteStatusCheckerOptions,
+	type RemoteStatusObservation,
+	type RemoteStatusRefusal,
+	type RemoteStatusState,
+	type RemoteStatusTrigger
+} from './remote/remote-status.js';
 // Where those marks come from: composition over `ProjectStore`, so every writer that exists and every
 // writer still to be written is tracked without knowing it.
 export { ManagedProjectStore, manageProjectStore } from './store/managed-project-store.js';

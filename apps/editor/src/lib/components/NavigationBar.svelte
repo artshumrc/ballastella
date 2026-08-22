@@ -49,6 +49,7 @@
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
+	import RemoteStatus from './RemoteStatus.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
@@ -590,6 +591,26 @@
 				</p>
 			{/if}
 		</div>
+
+		<!--
+			7. Whether GitHub agrees with this Workspace (SPEC stories 111–118, ADR-0038).
+
+			**Its own region, beside the save indicator and never inside it.** "Saved locally" is about
+			this machine and says nothing about the Remote; a scholar who reads the one as the other
+			publishes over a colleague's afternoon. They sit next to each other because they are the two
+			halves of "where is my work", and they are two controls because they have two remedies.
+
+			Only for an ordinary bound Workspace. A Review Workspace is never bound (ADR-0024) and an
+			unbound one has nothing to compare against — the Workspace menu already states "No Remote
+			yet, so nothing is published from this Workspace" in words, so a second empty control here
+			would be a gap that reads as a rendering fault.
+		-->
+		{#if storage !== null && storage.remote !== null && storage.review === null}
+			<RemoteStatus
+				state={storage.remoteStatusState}
+				onCheck={() => void storage.checkRemoteStatus()}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 

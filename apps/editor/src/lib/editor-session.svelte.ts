@@ -31,6 +31,7 @@ import {
 	baseMapCacheSize as readBaseMapCacheSize,
 	baseMapCacheSizeFor as readBaseMapCacheSizeFor,
 	cachedTilePath,
+	checkSourceStatus,
 	clearBaseMapCache as emptyBaseMapCache,
 	createStoreImageFetch,
 	readCachedTileSource,
@@ -70,6 +71,7 @@ import {
 	publishToRemote as uploadWorkspace,
 	readPublishedSite,
 	readImageLabel,
+	readRemoteInventory,
 	referencedAlignmentAddress,
 	referencedImage,
 	referencedImagePath,
@@ -120,6 +122,7 @@ import {
 	type RemoteImageService,
 	type RemotePublishPlan,
 	type RemoteRepository,
+	type RemoteStatusObservation,
 	type SaveState,
 	type TileCoordinate,
 	type TileFetchResult,
@@ -2441,6 +2444,61 @@ export class EditorSession {
 	 */
 	async #lastSharedWith(remote: RemoteRepository): Promise<ReadonlyMap<string, string> | null> {
 		return (await this.#synchronization?.readBaseline(remote))?.files ?? null;
+	}
+
+	/**
+	 * What this Workspace's Remote Status is now, observed and nothing more (ticket 12, ADR-0038).
+	 *
+	 * ⚠ **Observational, and every clause of that is load-bearing.** It lists Remote metadata; it
+	 * downloads no file bytes, writes no Workspace path, writes no Remote path, and — SPEC story 117 —
+	 * never advances a Baseline. A check that recorded what it saw would adopt another machine's
+	 * afternoon as this one's evidence, and the next Publish would remove it as an ordinary deletion.
+	 *
+	 * ⚠ **No local read, list or hash either** (SPEC story 114). The local half comes from ticket 10's
+	 * durable write index, so the answer costs one GitHub request rather than a walk of tens of
+	 * thousands of pyramid tiles. That is what makes checking on every window focus affordable at all —
+	 * and it is why a *deliberate* Update or Publish still takes the complete read-and-hash pass, which
+	 * is entitled to revise what this displayed.
+	 *
+	 * ⚠ **`mayRequest: false` is what keeps a signed-out session from polling GitHub.** An anonymous
+	 * reader gets sixty requests an hour per IP address (ADR-0031), so automatic anonymous checking
+	 * would spend a shared campus address's whole budget on status. The determinations that need no
+	 * request are still made — a Workspace with no Baseline is `Cannot tell` whatever the Remote holds
+	 * — and anything else answers `'not-attempted'`, which leaves the last determination untouched.
+	 *
+	 * @param token the credential to list with, or `null` to list a public Remote anonymously
+	 */
+	async checkRemoteStatus(options: {
+		remote: RemoteRepository;
+		token: string | null;
+		/** Whether this check may ask GitHub at all. `false` answers from local evidence, or not at all. */
+		mayRequest: boolean;
+	}): Promise<RemoteStatusObservation> {
+		const changes = this.localChanges;
+		const baseline = (await this.#synchronization?.readBaseline(options.remote)) ?? null;
+		// Nothing durable to compare against, or nothing tracking what changed here: `Cannot tell`, and
+		// it is a *determination* rather than a failure — so it is reached without a request, which is
+		// also what lets a signed-out Workspace say it at all.
+		if (changes === null || baseline === null) {
+			return {
+				outcome: 'determined',
+				status: 'cannot-tell',
+				publishedSiteStale: [],
+				requested: false
+			};
+		}
+		if (!options.mayRequest) return { outcome: 'not-attempted' };
+		const found = await checkSourceStatus({
+			changes,
+			remote: await readRemoteInventory({ remote: options.remote, token: options.token }),
+			baseline
+		});
+		return {
+			outcome: 'determined',
+			status: found.status,
+			publishedSiteStale: found.publishedSiteStale,
+			requested: true
+		};
 	}
 
 	/**

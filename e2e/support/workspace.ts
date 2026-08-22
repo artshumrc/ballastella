@@ -291,9 +291,71 @@ export async function readBaseline(
 			const held = record as { commit: string; files: Map<string, string> };
 			return { commit: held.commit, files: [...held.files.keys()] };
 		},
+		[baselineRecordKey(workspace), METADATA_DATABASE, METADATA_STORE] as const
+	);
+}
+
+/**
+ * Put a Synchronization Baseline in place, as a successful Open, Update or Publish would.
+ *
+ * The seam for a spec about *status* rather than about a transfer: the six Remote Status states are a
+ * comparison against this record, so a spec that had to reach each of them through a real Publish
+ * would be testing publishing over and over to arrive at the state it wanted to assert. The record
+ * shape is `synchronization-metadata.ts`'s, spelled once beside the two readers above.
+ *
+ * `files` is `path → blob SHA` for the source paths the two sides last shared. `gitBlobSha` over the
+ * bytes a spec seeded on the Remote is how those SHAs are arrived at, so the record agrees with the
+ * fake exactly rather than by a literal a later fixture edit would silently invalidate.
+ */
+export async function seedBaseline(
+	page: Page,
+	options: {
+		owner: string;
+		repository: string;
+		branch?: string;
+		commit?: string;
+		files: Readonly<Record<string, string>>;
+		workspace?: string;
+	}
+): Promise<void> {
+	await page.evaluate(
+		async ([key, record, database, version, store]) => {
+			const open = indexedDB.open(database as string, version as number);
+			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
+				open.onupgradeneeded = () => {
+					for (const name of ['workspace', store as string]) {
+						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
+					}
+				};
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => reject(open.error);
+			});
+			await new Promise<void>((resolve, reject) => {
+				const transaction = opened.transaction(store as string, 'readwrite');
+				// ⚠ A `Map`, not an object: the store keeps structured-clone data and the reader asks
+				// `files instanceof Map`, so an object here is a record this build reads as no evidence.
+				const held = record as { files: Record<string, string> };
+				transaction
+					.objectStore(store as string)
+					.put({ ...held, files: new Map(Object.entries(held.files)) }, key as string);
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+			});
+			opened.close();
+		},
 		[
-			`synchronization/${encodeURIComponent(browserWorkspaceKey(workspace))}/baseline`,
+			baselineRecordKey(options.workspace),
+			{
+				formatVersion: METADATA_FORMAT_VERSION,
+				at: new Date().toISOString(),
+				owner: options.owner,
+				repository: options.repository,
+				branch: options.branch ?? 'main',
+				commit: options.commit ?? 'seeded-commit',
+				files: options.files
+			},
 			METADATA_DATABASE,
+			METADATA_DATABASE_VERSION,
 			METADATA_STORE
 		] as const
 	);
@@ -301,3 +363,6 @@ export async function readBaseline(
 
 const relationshipKey = (workspace?: string): string =>
 	`synchronization/${encodeURIComponent(browserWorkspaceKey(workspace))}/remote`;
+
+const baselineRecordKey = (workspace?: string): string =>
+	`synchronization/${encodeURIComponent(browserWorkspaceKey(workspace))}/baseline`;

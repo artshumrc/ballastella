@@ -59,6 +59,8 @@ import {
 	writeGrantRecord,
 	GitHubCallbackRefusedError,
 	GitHubSignInError,
+	RemoteStatusChecker,
+	UNCHECKED_REMOTE_STATUS,
 	type CloneReference,
 	type CredentialStorage,
 	type CredentialStore,
@@ -73,6 +75,7 @@ import {
 	type SynchronizationBaseline,
 	type RemoteReference,
 	type RemoteRights,
+	type RemoteStatusState,
 	type RestoreDestination,
 	type ReviewDestination,
 	type ReviewMark,
@@ -379,6 +382,15 @@ export class WorkspaceStorage {
 	 */
 	baseline = $state<SynchronizationBaseline | null>(null);
 	/**
+	 * What the Remote Status control shows: the last determination, when it was reached, whether a
+	 * check is running, and any failure since (ticket 12).
+	 *
+	 * ⚠ **Separate from {@link EditorSession.saveState}, which is the whole point of it.** "Saved
+	 * locally" is a fact about this machine and says nothing about whether GitHub agrees; a scholar
+	 * who reads the one as the other publishes over a colleague's afternoon (SPEC story 111).
+	 */
+	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
+	/**
 	 * A v1 `remote.json` this installation cannot corroborate, waiting to be confirmed or declined.
 	 *
 	 * ⚠ **Not a Remote.** SPEC: *"A legacy binding without corroborating installation-local evidence
@@ -482,6 +494,16 @@ export class WorkspaceStorage {
 	unrecoveredImport = $state('');
 
 	#teardownFlushOnHide: (() => void) | undefined;
+	/**
+	 * The Remote Status checker of the Workspace that is open, or `null` while nothing is bound.
+	 *
+	 * ⚠ **One per Workspace, replaced on every switch, and the old one closed.** A listing of a large
+	 * tree takes seconds, and a click switches Workspace in one of them — so a result arriving
+	 * afterwards would render one Workspace's drift beside another's name. Closing makes every
+	 * completion still in flight a no-op, which is the same per-Workspace keying
+	 * `SynchronizationMetadata` and the write index already have.
+	 */
+	#statusChecker: RemoteStatusChecker | null = null;
 	/**
 	 * Where the write-ahead journal lives, resolved once for the whole app.
 	 *
@@ -601,6 +623,15 @@ export class WorkspaceStorage {
 	start(): () => void {
 		this.canChooseFolder = isFolderWorkspaceSupported();
 		this.#teardownFlushOnHide = this.session.installFlushOnHide();
+		// ⚠ **Window focus, because that is when a Remote has had time to change.** An out-of-band
+		// commit — a colleague publishing, an edit made on github.com — happens while this tab is not
+		// the one being looked at, so coming back to it is the one moment worth spending a request on.
+		// A timer would spend them while nobody is reading; `RemoteStatusChecker` bounds the rate,
+		// because switching back from a facsimile viewer is not a rare event.
+		const onFocus = (): void => {
+			void this.#statusChecker?.check('focus');
+		};
+		window.addEventListener('focus', onFocus);
 		if (this.#journalStorage === null) {
 			this.unprotected =
 				`This browser is not letting Ballastella keep a copy of an edit while it is being ` +
@@ -687,6 +718,9 @@ export class WorkspaceStorage {
 				.catch(() => undefined);
 		}
 		return () => {
+			window.removeEventListener('focus', onFocus);
+			this.#statusChecker?.close();
+			this.#statusChecker = null;
 			this.#teardownFlushOnHide?.();
 			this.#teardownFlushOnHide = undefined;
 		};
@@ -1312,6 +1346,55 @@ export class WorkspaceStorage {
 			this.baseline = this.remote === null ? null : await metadata.readBaseline(this.remote);
 		}
 		this.#refreshCredential();
+		this.#watchRemoteStatus(session);
+	}
+
+	/**
+	 * Give the arriving Workspace its own Remote Status checker, and take the first reading.
+	 *
+	 * ⚠ **An automatic check needs a credential, or an answer that needs no request** (SPEC story
+	 * 115). A signed-out session must not poll: GitHub allows an anonymous reader sixty requests an
+	 * hour *per IP address*, so a seminar room on one campus address checking on every window focus
+	 * spends the room's whole budget on status and then cannot open a Workspace at all. What is left
+	 * for a signed-out author is {@link checkRemoteStatus}, which they press.
+	 *
+	 * The determination that needs no request is still made: a Workspace with no Baseline is
+	 * `Cannot tell` whatever the Remote holds, and `EditorSession.checkRemoteStatus` reaches that
+	 * before it would reach the network. Hence the third clause — the two must agree, or a signed-out
+	 * session would be polling after all.
+	 */
+	#watchRemoteStatus(session: EditorSession): void {
+		this.#statusChecker?.close();
+		this.#statusChecker = null;
+		this.remoteStatusState = UNCHECKED_REMOTE_STATUS;
+		const remote = this.remote;
+		if (remote === null) return;
+		const checker = new RemoteStatusChecker({
+			observe: (trigger) => {
+				// A gesture may read a public Remote with no credential; an automatic check may not.
+				const mayRequest = trigger === 'explicit' || this.credential !== null;
+				if (!mayRequest && this.baseline !== null) return null;
+				return session.checkRemoteStatus({ remote, token: this.credential, mayRequest });
+			},
+			now: () => Date.now(),
+			onChange: (state) => {
+				// The switch is what this guards: a Workspace left behind renders nothing here.
+				if (this.#statusChecker === checker) this.remoteStatusState = state;
+			}
+		});
+		this.#statusChecker = checker;
+		void checker.check('open');
+	}
+
+	/**
+	 * Check the Remote's status now, because the author asked (SPEC story 115).
+	 *
+	 * Never throttled, and the only check that may list a public Remote anonymously — which is what
+	 * makes status available at all to somebody who has not signed in. It sends no credential it does
+	 * not already hold and asks for none.
+	 */
+	async checkRemoteStatus(): Promise<void> {
+		await this.#statusChecker?.check('explicit');
 	}
 
 	/**
@@ -1349,6 +1432,7 @@ export class WorkspaceStorage {
 		this.legacyRemote = null;
 		this.remote = legacy;
 		this.baseline = await metadata.readBaseline(legacy);
+		this.#watchRemoteStatus(this.session);
 	}
 
 	/** Leave a legacy `remote.json` unlifted. Nothing is written, so the Workspace stays unbound. */
@@ -1357,7 +1441,13 @@ export class WorkspaceStorage {
 	}
 
 	#refreshCredential(): void {
-		this.signedIn = this.#credentials.read() !== null;
+		const held = this.#credentials.read() !== null;
+		const gained = held && !this.signedIn;
+		this.signedIn = held;
+		// A sign-in is the moment a bound Workspace can be checked automatically for the first time, and
+		// waiting for the next window focus would leave the control reading "Not checked yet" beside a
+		// header that has just said who the author is signed in as.
+		if (gained) void this.#statusChecker?.check('open');
 	}
 
 	/**
@@ -1417,6 +1507,7 @@ export class WorkspaceStorage {
 		this.legacyRemote = null;
 		this.remote = binding;
 		this.baseline = metadata === null ? null : await metadata.readBaseline(binding);
+		this.#watchRemoteStatus(this.session);
 		return outcome;
 	}
 
@@ -1671,6 +1762,9 @@ export class WorkspaceStorage {
 		this.legacyRemote = null;
 		this.baseline = null;
 		this.remote = null;
+		// Nothing left to compare against, so the control goes rather than reporting a Remote that is
+		// no longer this Workspace's.
+		this.#watchRemoteStatus(this.session);
 	}
 
 	/**
