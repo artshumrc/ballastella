@@ -310,6 +310,15 @@ export {
 	type ImportRecovery,
 	type ImportRecoveryFailure
 } from './transfer/project-import-recovery.js';
+// Turning one validated closure into a detached one (ticket 06, ADR-0037): a fresh identity for every
+// incoming Map Image, and every path, Layer, Alignment and pyramid stamp rewritten onto it, so nothing
+// the Import writes can be something the user already has.
+export {
+	remapProjectImport,
+	type MintImageId,
+	type RemapProjectImportOptions,
+	type RemappedProjectImport
+} from './transfer/project-import-remapping.js';
 export {
 	readProjectBundleSource,
 	type ProjectBundleSourceOptions
