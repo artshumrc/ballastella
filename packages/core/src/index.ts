@@ -494,6 +494,29 @@ export {
 	type SynchronizationBaseline
 } from './remote/synchronization-metadata.js';
 export { FakeMetadataStorage } from './remote/fake-metadata-storage.js';
+// Comparing a Workspace, its Remote and their Baseline (ADR-0038). Pure: the callers do the I/O, so
+// the six Remote Status values and every plan are decided by a table rather than by a transfer.
+export {
+	comparePath,
+	compareWorkspace,
+	planWorkspacePublish,
+	planWorkspaceUpdate,
+	type GraphFailure,
+	type GraphVerdict,
+	type GraphViolation,
+	type InventoryEntry,
+	type PathChoice,
+	type PathComparison,
+	type PlanRefusal,
+	type PlanResult,
+	type SourcePath,
+	type SourceStatus,
+	type SynchronizationInput,
+	type WorkspaceComparison,
+	type WorkspacePublishOptions,
+	type WorkspacePublishPlan,
+	type WorkspaceUpdatePlan
+} from './remote/synchronization-planner.js';
 export {
 	IndexedDbMetadataStorage,
 	browserMetadataStorage

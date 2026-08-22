@@ -36,6 +36,7 @@ import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
 import { classifyInventory, isOwnedPath, projectDirectories } from './synchronization-paths.js';
+import { comparePath } from './synchronization-planner.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -720,9 +721,20 @@ function detectConflict(
 		return { reason: 'unknown', paths, message: cannotTellMessage(remote, paths.length, removed) };
 	}
 
+	// ⚠ **Asked of the shared three-way table rather than restated here.** The two rows a publish
+	// must refuse are `inbound` — the Remote changed and this Workspace did not — and `conflict`, both
+	// sides changed differently; `outbound` and `converged` are ours to replace. Written out as two
+	// inequalities this said the same thing, and a second spelling of it is how the passive Remote
+	// Status and this refusal come to disagree about the same three SHAs (ADR-0038).
 	const foreign = owned
-		.filter((entry) => wouldWrite.get(entry.path) !== entry.sha)
-		.filter((entry) => manifest.get(entry.path) !== entry.sha)
+		.filter((entry) => {
+			const comparison = comparePath(
+				manifest.get(entry.path) ?? null,
+				wouldWrite.get(entry.path) ?? null,
+				entry.sha
+			);
+			return comparison === 'inbound' || comparison === 'conflict';
+		})
 		.map((entry) => entry.path)
 		.sort();
 	if (foreign.length === 0) return null;
