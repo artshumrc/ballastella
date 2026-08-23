@@ -313,7 +313,7 @@ describe('binding a Workspace', () => {
 //
 // ADR-0024's *"restoring a backup creates a new named Workspace and switches to it — it never
 // overwrites and never merges"*, applied to a repository. What it catches is a Workspace that would
-// publish *less* than the Remote already holds: a second machine, and a Clone that stopped part way
+// publish *less* than the Remote already holds: a second machine, and an Open that stopped part way
 // through and was then bound by hand.
 describe('binding to a Remote that already carries Projects this Workspace has not got', () => {
 	/** A published Workspace's site record, as it sits at the root of a Remote (ADR-0032). */
@@ -357,7 +357,7 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		return store;
 	};
 
-	it('refuses, names the Project, and points at Clone', async () => {
+	it('refuses, names the Project, and points at Open a Workspace from GitHub', async () => {
 		const store = await holding('amsterdam-1625');
 		const remote = await published();
 
@@ -370,7 +370,7 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		expect(refusal).toBeInstanceOf(RemoteBindRefusedError);
 		expect((refusal as RemoteBindRefusedError).refusal).toBe('projects-not-here');
 		expect((refusal as Error).message).toContain('“Florida 1657”');
-		expect((refusal as Error).message).toContain('Clone ada/atlas');
+		expect((refusal as Error).message).toContain('Open ada/atlas from GitHub');
 		// Nothing written: a refusal has to leave the Workspace exactly as it was, which is what makes
 		// "a refused bind keeps no credential" true one layer up.
 		expect(await readRemoteBinding(store)).toBeNull();
@@ -389,21 +389,21 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		expect(outcome.binding).toEqual(await readRemoteBinding(store));
 	});
 
-	// The half ticket 07's review asked for: a Clone leaves an interrupted Workspace *unbound* so
+	// The half ticket 07's review asked for: an Open leaves an interrupted Workspace *unbound* so
 	// that Publish has no target, and binding it by hand is the one route left into the same loss.
 	//
 	// ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 	// │ THE COUPLING THIS RESTS ON: A CLONE WRITES `[...files, ...manifests]`, MANIFESTS LAST.    │
 	// └──────────────────────────────────────────────────────────────────────────────────────────┘
 	//
-	// A partial Clone is a Workspace missing files *within* Projects it has, and the check above is at
+	// A partial Open is a Workspace missing files *within* Projects it has, and the check above is at
 	// Project granularity — so on its own it would see nothing wrong. What makes it adequate is
 	// `clone-from-remote.ts`'s write order: manifests are held back to the end, so an interrupted
-	// Clone always lacks at least one `project.json`, and `listProjects` matches nothing but a
+	// Open always lacks at least one `project.json`, and `listProjects` matches nothing but a
 	// top-level directory holding one (ADR-0008). The Project therefore reads as absent and the bind
-	// is refused. That coupling is documented on the Clone side and load-bearing here: reorder that
+	// is refused. That coupling is documented on the transfer side and load-bearing here: reorder that
 	// loop and this refusal stops catching the Workspace it was written for, silently.
-	it('refuses a Clone stopped part way, which has a Project’s files but not its project.json', async () => {
+	it('refuses an Open stopped part way, which has a Project’s files but not its project.json', async () => {
 		const store = await holding('amsterdam-1625');
 		// Florida's Annotation arrived before the laptop was closed; the `project.json` that would make
 		// it a Project is written last and never did.

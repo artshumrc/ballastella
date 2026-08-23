@@ -184,7 +184,9 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 		await page.getByTestId('bind-remote').click();
 	}
 
-	test('is refused, names the Project, and points at Clone', async ({ page }) => {
+	test('is refused, names the Project, and points at Open a Workspace from GitHub', async ({
+		page
+	}) => {
 		await start(page, {
 			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 			onRemote: {
@@ -200,7 +202,7 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 
 		const problem = page.getByTestId('remote-problem');
 		await expect(problem).toContainText('“Florida 1657”');
-		await expect(problem).toContainText(`Clone ${REMOTE}`);
+		await expect(problem).toContainText(`Open ${REMOTE} from GitHub`);
 		// The binding is what a Publish button aims at, so a refused bind must leave none — otherwise
 		// the next press is the one that deletes the Project just named.
 		await expect(page.getByTestId('remote-outcome')).toHaveText('');
@@ -235,7 +237,8 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		const github = await start(page, {
 			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() },
 			// A Remote somebody has already published to, and a browser that has never published to it:
-			// a Clone, a second machine, or storage cleared since. All three look the same from here.
+			// an Open from GitHub, a second machine, or storage cleared since. All three look the same
+			// from here.
 			onRemote: {
 				'ballastella-site.json': siteRecord([
 					{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }
@@ -251,10 +254,10 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		const refusal = dialog.getByTestId('publish-conflict');
 		await expect(refusal).toHaveAttribute('data-conflict', 'unknown-history');
 		await expect(refusal).toContainText('nothing here can tell');
-		// Said as the ordinary state it is: every Workspace cloned from a Remote is in it until it has
+		// Said as the ordinary state it is: every Workspace opened from a Remote is in it until it has
 		// published once, and a scholar meeting an alarm on the first press learns to force (story 24).
 		await expect(refusal).toContainText('not a sign that anything has gone wrong');
-		await expect(refusal).toContainText(`Clone ${REMOTE}`);
+		await expect(refusal).toContainText(`Open ${REMOTE} from GitHub`);
 
 		// Nothing sent, and the button that would send it is inert with the reason above it.
 		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
@@ -274,7 +277,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 	// button `aria-disabled` with the sentence explaining it suppressed: a dead button with nothing on
 	// screen accounting for it, which is the failure this whole epic exists to remove. Reachable from a
 	// quota refusal that could not keep the manifest, a cleared browser — and the first publish from a
-	// complete Clone, which is story 24 itself.
+	// complete Open, which is story 24 itself.
 	test('says nothing needs changing when the Remote matches, even with no record of publishing it', async ({
 		page
 	}) => {

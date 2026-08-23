@@ -81,8 +81,8 @@ export type RemoteBindRefusal =
 	/**
 	 * The Remote carries Projects this Workspace has not got, so publishing to it would delete them.
 	 *
-	 * The remedy is Clone, never a merge: ADR-0024 refuses to answer the collision, and there is no
-	 * honest resolution for two Alignments of one sheet.
+	 * The remedy is Open a Workspace from GitHub, never a merge: ADR-0024 refuses to answer the
+	 * collision, and there is no honest resolution for two Alignments of one sheet.
 	 */
 	| 'projects-not-here'
 	/** Anything else GitHub said. */
@@ -360,10 +360,11 @@ function unreachableMessage(remote: RemoteReference, cause: unknown): string {
 /**
  * What the subset refusal says, and where it sends the scholar instead.
  *
- * ⚠ **It names the Projects, and it names Clone.** "This Workspace is missing work" is not something
- * anybody can act on; *"“Amsterdam 1625” is on it and is not here"* is. And the remedy has to be on
- * the same screen as the refusal, because the alternative a scholar will otherwise reach for is to
- * bind anyway from a second machine and publish — which is the loss this refusal exists to prevent.
+ * ⚠ **It names the Projects, and it names Open a Workspace from GitHub.** "This Workspace is
+ * missing work" is not something anybody can act on; *"“Amsterdam 1625” is on it and is not here"*
+ * is. And the remedy has to be on the same screen as the refusal, because the alternative a scholar
+ * will otherwise reach for is to bind anyway from a second machine and publish — which is the loss
+ * this refusal exists to prevent.
  */
 function notHereMessage(remote: RemoteReference, missing: readonly PublishedProject[]): string {
 	const names = missing.map((project) => `“${project.name || project.directory}”`).join(', ');
@@ -372,10 +373,10 @@ function notHereMessage(remote: RemoteReference, missing: readonly PublishedProj
 		`${describeRemote(remote)} already carries work from Ballastella, and ${names} ${are} on it ` +
 		`that this Workspace has not got. Publishing this Workspace there would delete ` +
 		`${missing.length === 1 ? 'it' : 'them'}, so nothing has been bound and the token has not been ` +
-		`kept. Clone ${describeRemote(remote)} instead: that brings the whole of it down into a new ` +
-		`Workspace of its own, and never overwrites or merges anything you already have. If this ` +
-		`Workspace is a copy that stopped part way through downloading, cloning again is the way to ` +
-		`finish it.`
+		`kept. Open ${describeRemote(remote)} from GitHub instead: that brings the whole of it down ` +
+		`into a new Workspace of its own, and never overwrites or merges anything you already have. ` +
+		`If this Workspace is a copy that stopped part way through downloading, opening it from ` +
+		`GitHub again is the way to finish it.`
 	);
 }
 

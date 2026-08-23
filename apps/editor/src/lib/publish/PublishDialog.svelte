@@ -942,7 +942,7 @@
 							is a statement about *whose* the files on the Remote are, and `unknown` is raised on
 							nothing more than "no manifest, and the owned namespace is not empty" — which is the
 							state of a Workspace whose Remote matches it byte for byte, the ordinary first press
-							after a complete Clone (story 24). Rendered conflict-first, that Workspace was shown a
+							after a complete Open from GitHub (story 24). Rendered conflict-first, that Workspace was shown a
 							refusal, offered a replace that armed and then changed nothing, and left with a
 							`aria-disabled` Publish button and the sentence explaining it suppressed. Nothing here
 							would change anything anywhere, so there is nothing to refuse and nothing at stake.
@@ -957,7 +957,8 @@
 							<!--
 								⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
 								whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
-								scope" item 3) — and the two ways on are Clone or replace, never a merge. The second
+								scope" item 3) — and the two ways on are Open a Workspace from GitHub or replace, never a
+								merge. The second
 								is a two-step: this button only *arms* it, and the confirm button below then says
 								what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
 

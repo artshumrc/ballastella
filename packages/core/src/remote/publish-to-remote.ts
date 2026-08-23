@@ -1082,9 +1082,9 @@ function describePaths(paths: readonly string[]): string {
 function remedies(remote: RemoteRepository): string {
 	const where = `${remote.owner}/${remote.repository}`;
 	return (
-		`There are two ways on. Clone ${where} into a new Workspace to see what is on it — that never ` +
-		`overwrites or merges anything, so this Workspace is left exactly as it is. Or publish anyway, ` +
-		`replacing what is there with this Workspace. Either way, nothing in ${where} that this ` +
+		`There are two ways on. Open ${where} from GitHub into a new Workspace to see what is on it — ` +
+		`that never overwrites or merges anything, so this Workspace is left exactly as it is. Or ` +
+		`publish anyway, replacing what is there with this Workspace. Either way, nothing in ${where} that this ` +
 		`Workspace has no file for is touched: a README, a CNAME, or a workflow you added on GitHub is ` +
 		`left exactly as it is.`
 	);
@@ -1198,7 +1198,7 @@ function movedSinceAgreedMessage(remote: RemoteRepository, unseen: readonly stri
  *
  * The other reader is a partial Clone, a second machine, or a stale Backup, and for them publishing
  * takes work down. `removed` is what separates the two and it is not a guess: after a *complete*
- * Clone it is empty by construction, because every owned path on the Remote is a path the Workspace
+ * Open it is empty by construction, because every owned path on the Remote is a path the Workspace
  * holds or the local publish is about to write. So a plain sentence when nothing would go, and a
  * warning naming the count and the paths when something would — which is the half the old wording
  * left out altogether, while "publish over" said *overwrite* about files that would be deleted.
@@ -1224,7 +1224,7 @@ function cannotTellMessage(
 		return (
 			`${opening} Publishing would replace ${one ? 'it' : 'every one of them'} with this ` +
 			`Workspace's own copy, and take nothing down: this Workspace has a file for ` +
-			`${one ? 'it' : 'each of them'}. That is the ordinary state of a Workspace cloned from ` +
+			`${one ? 'it' : 'each of them'}. That is the ordinary state of a Workspace opened from ` +
 			`${where}, one published from another computer, and one whose browser storage has been ` +
 			`cleared since — it is not a sign that anything has gone wrong. ${remedies(remote)}`
 		);
@@ -1234,7 +1234,7 @@ function cannotTellMessage(
 	return (
 		`${opening} ${count === 1 ? 'One of them is' : `${count} of them are`} not in this Workspace ` +
 		`at all, so publishing would delete ${count === 1 ? 'it' : 'them'} from ${where}: ` +
-		`${describePaths(removed)}. That is what a Workspace that was cloned only part of the way, or ` +
+		`${describePaths(removed)}. That is what a Workspace that was opened only part of the way, or ` +
 		`that has not caught up with another computer, looks like from here — and it is also what a ` +
 		`Project deliberately deleted here looks like, which is why this is a refusal rather than a ` +
 		`guess. ${remedies(remote)}`

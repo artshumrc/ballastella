@@ -940,7 +940,7 @@ describe('a publish that would overwrite another machine', () => {
 	 * The desktop's afternoon, arriving on the Remote after the laptop last looked.
 	 *
 	 * Both Workspaces start as copies of one another with the same evidence about the Remote, which
-	 * is what two machines bound to one repository are: the second is a Clone of the first, or the
+	 * is what two machines bound to one repository are: the second was opened from the first, or the
 	 * same Workspace restored from a Backup. Then one of them does an afternoon's work.
 	 *
 	 * @returns the fake, the laptop's Workspace, and the evidence the laptop still holds
@@ -1246,7 +1246,7 @@ describe('a publish that would overwrite another machine', () => {
 
 		// SPEC story 154: *"an empty side or a byte-for-byte equal deliberate Update or Publish plan
 		// establishes a Baseline safely"*. This is the commonest reader of that sentence — a Workspace
-		// whose browser storage was cleared, or the first publish from a complete Clone — and refusing
+		// whose browser storage was cleared, or the first publish from a complete Open — and refusing
 		// it is a dead Publish button over a Remote that is already exactly this Workspace.
 		it('establishes a Baseline where the two source namespaces are already equal', async () => {
 			const store = await smallWorkspace();
@@ -1283,7 +1283,7 @@ describe('a publish that would overwrite another machine', () => {
 
 			expect(plan.conflict?.reason).toBe('unknown-history');
 			expect(plan.conflict?.message).toContain('nothing here can tell');
-			// Said as the ordinary state it is, because every Workspace cloned from a Remote is in it
+			// Said as the ordinary state it is, because every Workspace opened from a Remote is in it
 			// until it has published once (story 24).
 			expect(plan.conflict?.message).toContain('not a sign that anything has gone wrong');
 			// ⚠ **And it does not threaten a deletion, because there is none.** Every source path on the
@@ -1299,7 +1299,7 @@ describe('a publish that would overwrite another machine', () => {
 
 		// ⚠ **The same refusal, and the reader it must not be reassuring to.** With no Baseline the two
 		// cases are told apart by one number: how many source paths on the Remote this publish would
-		// not write, which is how many it would *remove*. A partial Clone, a second machine, and a
+		// not write, which is how many it would *remove*. A partial Open, a second machine, and a
 		// stale Backup are all here and none of them is ordinary.
 		it('names what would be taken down when the Remote holds work this Workspace has not got', async () => {
 			const store = await smallWorkspace();
@@ -1324,7 +1324,7 @@ describe('a publish that would overwrite another machine', () => {
 
 		// The website the local publish is about to write is Publish-owned output on both sides, so it
 		// is no part of the source comparison at all — which is what keeps the warning above away from
-		// the *first* publish from a complete Clone, the one press story 24 is entirely about.
+		// the *first* publish from a complete Open, the one press story 24 is entirely about.
 		it('does not read the website the Remote already serves as source it cannot attribute', async () => {
 			const store = await seeded({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}'
