@@ -384,13 +384,12 @@ export interface AutomaticStatus {
  * revision SPEC allows before transfer.
  *
  * ⚠ **Published Site staleness is answered only where the Baseline is evidence about it** (SPEC
- * story 120). A Publish records `path → blob SHA` for everything it sent, generated output included,
- * so after one the reconstruction can say whether the site the Remote is serving is still the one
- * this Workspace built. An Open records source paths only — deliberately, `clone-from-remote.ts` —
- * so a Baseline holding no generated output at all is no evidence about generated output, and every
- * `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that holds the
- * identical bytes. {@link AutomaticStatus.publishedSiteStale} is empty in that case rather than long
- * and wrong.
+ * story 120). A Baseline holding no generated output at all is no evidence about generated output,
+ * and every `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that
+ * holds the identical bytes — so {@link AutomaticStatus.publishedSiteStale} is empty in that case
+ * rather than long and wrong. Both an Open and a Publish record source paths only (ADR-0038), so a
+ * passive check answers nothing here today; a Baseline that did carry generated output would be
+ * compared by the same rule.
  */
 export async function checkSourceStatus(input: AutomaticStatusInput): Promise<AutomaticStatus> {
 	const changes = await input.changes.localChanges();

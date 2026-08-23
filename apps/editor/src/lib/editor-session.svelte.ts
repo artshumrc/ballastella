@@ -68,7 +68,7 @@ import {
 	planRemotePublish as planWorkspaceUpload,
 	projectFilePath,
 	publishSite,
-	publishToRemote as uploadWorkspace,
+	publishWorkspaceToRemote as publishWorkspace,
 	readPublishedSite,
 	readImageLabel,
 	readRemoteInventory,
@@ -125,6 +125,7 @@ import {
 	type RemoteRepository,
 	type RemoteStatusObservation,
 	type SaveState,
+	type SynchronizationBaseline,
 	type TileCoordinate,
 	type TileFetchResult,
 	type TransferProgress,
@@ -2440,7 +2441,7 @@ export class EditorSession {
 		return planWorkspaceUpload(this.#store, {
 			token: options.token,
 			remote: options.remote,
-			manifest: await this.#lastSharedWith(options.remote),
+			baseline: await this.#lastSharedWith(options.remote),
 			...(options.pending ? { pending: options.pending } : {})
 		});
 	}
@@ -2455,8 +2456,8 @@ export class EditorSession {
 	 * record at all and says so, which the engine reads as the same "we cannot say" and refuses on
 	 * rather than guesses at.
 	 */
-	async #lastSharedWith(remote: RemoteRepository): Promise<ReadonlyMap<string, string> | null> {
-		return (await this.#synchronization?.readBaseline(remote))?.files ?? null;
+	async #lastSharedWith(remote: RemoteRepository): Promise<SynchronizationBaseline | null> {
+		return (await this.#synchronization?.readBaseline(remote)) ?? null;
 	}
 
 	/**
@@ -2622,34 +2623,19 @@ export class EditorSession {
 		}) => void;
 	}): Promise<{ commit: string; plan: RemotePublishPlan; baselineKept: boolean }> {
 		// Everything pending on disk first, for the same reason `publish` flushes: an Annotation still
-		// inside the autosave debounce would go to a public host missing the edit just made.
+		// inside the autosave debounce would go to a public host missing the edit just made. The write
+		// index is flushed for the other direction: `clearShared` below narrows the record on disk, and
+		// marks still only in memory would survive it.
 		await this.flush();
-		const request = { token: options.token, remote: options.remote };
-		const plan = await planWorkspaceUpload(this.#store, {
-			...request,
-			manifest: await this.#lastSharedWith(options.remote)
-		});
-		const { commit, manifest } = await uploadWorkspace(this.#store, {
-			...request,
-			plan,
+		await this.localChanges?.flushChanges();
+		const { commit, plan, baselineKept } = await publishWorkspace(this.#store, {
+			token: options.token,
+			remote: options.remote,
+			...(this.#synchronization === undefined ? {} : { metadata: this.#synchronization }),
+			...(this.localChanges === null ? {} : { changes: this.localChanges.changes }),
 			...(options.replace === undefined ? {} : { replace: options.replace }),
 			...(options.onProgress ? { onProgress: options.onProgress } : {})
 		});
-		// SPEC: "If durable Baseline storage fails after Remote publication succeeds, report that Publish
-		// succeeded but status is now Cannot tell; never report the Publish as failed and never retain
-		// stale evidence." **Answered onward rather than swallowed**: the publish succeeded and the
-		// record of it did not, and a scholar told neither meets that `Cannot tell` as a mystery on
-		// their next publish.
-		//
-		// A session with nowhere durable to keep a Baseline keeps none and never could, which is not the
-		// same news and is not reported as it.
-		const baselineKept =
-			this.#synchronization === undefined ||
-			(await this.#synchronization.writeBaseline({
-				remote: options.remote,
-				commit,
-				files: manifest
-			}));
 		return { commit, plan, baselineKept };
 	}
 

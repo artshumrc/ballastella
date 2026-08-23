@@ -271,10 +271,24 @@ async function openPublishDialog(page: Page) {
  * Publish, and wait for the announced result.
  *
  */
+/**
+ * The one fake GitHub a spec's publishes all reach.
+ *
+ * ⚠ **One per spec, and that is a correctness requirement now rather than tidiness.** Installing the
+ * routes again builds a *new* repository with nothing in it, and Publish is baseline-aware: a Remote
+ * that has lost every source path this machine's Baseline says it holds is an inbound deletion, so
+ * the second publish is correctly refused and directed to Update. The reset was invisible while the
+ * conflict check could only see the Remote's own tree.
+ */
+const gitHubOf = new WeakMap<Page, Promise<GitHubHosts>>();
+
 async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>) {
-	await routeGitHubHosts(page, {
-		repositories: [{ owner: 'ada', name: 'atlas' }]
-	});
+	let hosts = gitHubOf.get(page);
+	if (hosts === undefined) {
+		hosts = routeGitHubHosts(page, { repositories: [{ owner: 'ada', name: 'atlas' }] });
+		gitHubOf.set(page, hosts);
+	}
+	await hosts;
 	if (await dialog.getByTestId('publish-token-field').count()) {
 		const token = dialog.getByTestId('publish-token-field');
 		await token.fill(DEFAULT_PUBLISH_TOKEN);
@@ -955,15 +969,23 @@ test.describe('publishing to a Remote', () => {
 		// 40 000 files overran.
 		const manifest = await readBaseline(page);
 		expect(manifest?.commit).toBe(github.head(OWNER, REPOSITORY));
-		// ⚠ **What it holds is every path this publish *wrote*, and not merely the ones it uploaded** —
-		// the distinction a conflict check rests on, because a file skipped as already-present is still
-		// a file this machine put there and may replace. `CNAME`, `README.md` and `docs/guide.md` are
-		// the other exclusion and the sharper one: they were carried into the commit from the tree
-		// listing, with SHAs nothing here has read bytes for, so claiming them would be this machine
-		// asserting authorship of files it never sent.
-		const preserved = ['CNAME', 'README.md', 'docs/guide.md'];
-		expect(manifest?.files.sort()).toEqual(arrived.filter((path) => !preserved.includes(path)));
-		expect(arrived).toEqual(expect.arrayContaining(preserved));
+		// ⚠ **What it holds is the *source* this publish wrote, and not merely the paths it uploaded** —
+		// the distinction the refusal rests on, because a file skipped as already-present is still a
+		// file this machine put there and may replace. Two things are excluded. `CNAME`, `README.md`
+		// and `docs/guide.md` were carried into the commit from the tree listing, with SHAs nothing
+		// here has read bytes for, so claiming them would be this machine asserting authorship of
+		// files it never sent. And the generated site — `index.html`, `_app/**`, `.nojekyll`,
+		// `remote.json`, `ballastella-site.json`, the Base Map's fonts and sprites — is Publish-owned
+		// output: it is sent every time and it is never shared *source*, or two editor versions would
+		// read each other's chunk names as changed scholarship (SPEC stories 120, 145).
+		expect(manifest?.files.sort()).toEqual([
+			'alignments/aaa.json',
+			'amsterdam-1625/annotations/l2.geojson',
+			'amsterdam-1625/project.json',
+			'images/aaa/0,0,256,256/256,256/0/default.jpg',
+			'images/aaa/info.json'
+		]);
+		expect(arrived).toEqual(expect.arrayContaining(['CNAME', 'README.md', 'docs/guide.md']));
 		expect(Object.keys(await takeWorkspace(page))).not.toContain('publish-manifest.json');
 		// And nothing of it is in the origin's `localStorage` any more, which is the store this replaces.
 		expect(
@@ -1228,18 +1250,28 @@ test.describe('publishing to a Remote', () => {
 	test('says a token that cannot push cannot push, before anything is written', async ({
 		page
 	}) => {
-		await start(page, {
+		const github = await start(page, {
 			hosts: { repositories: [{ owner: OWNER, name: REPOSITORY, push: false }] }
 		});
+		const before = github.head(OWNER, REPOSITORY);
 
 		const dialog = await signIn(page);
 
 		const notice = dialog.getByTestId('publish-no-push');
 		await expect(notice).toContainText(REMOTE);
 		await expect(notice).toContainText('Contents: Read and write');
-		// It is a notice and not a refusal: the forecast is still shown, because the sentence is about
-		// what the publish will meet rather than about anything that has already gone wrong.
-		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+		// ⚠ **And the publish is refused before it begins, not merely warned about** (SPEC story 106).
+		// Publishing reads the account's permission before it lists a tree, so there is no forecast to
+		// show and no button to press through: pressing on would write the whole website into the
+		// Workspace and then meet the same refusal, which is minutes of work for a transfer that
+		// cannot complete.
+		await expect(dialog.getByTestId('publish-budget')).toBeHidden();
+		await expect(dialog.getByTestId('publish-upload-problem')).toContainText('cannot push to it');
+		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
+			'aria-disabled',
+			'true'
+		);
+		expect(github.head(OWNER, REPOSITORY)).toBe(before);
 	});
 
 	/**

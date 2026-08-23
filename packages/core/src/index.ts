@@ -468,6 +468,12 @@ export {
 	type RemoteRepository,
 	type RemoteTreeEntry
 } from './remote/publish-to-remote.js';
+export {
+	publishWorkspaceToRemote,
+	type PublishWorkspaceOptions,
+	type SharedStateRecorder,
+	type WorkspacePublished
+} from './remote/synchronization-publish.js';
 // What this machine last saw on the Remote. Local only and keyed per Workspace, because it is
 // evidence about a Remote rather than a fact about a Workspace — see the module header.
 export {

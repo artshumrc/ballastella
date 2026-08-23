@@ -206,6 +206,12 @@
 			});
 			if (mine !== planning) return;
 			upload = forecast;
+			// ⚠ **A refusal here is a statement about the Remote, and the bar has to agree with it.** The
+			// forecast has just listed the tree and found source this Workspace has not taken in; a
+			// status control still reading `Up to date` beside a dialog saying the Remote has moved is
+			// the disagreement ADR-0038 exists to remove. Only on a refusal, so an ordinary open still
+			// costs the one listing it always did.
+			if (forecast.conflict !== null) await storage.checkRemoteStatus();
 		} catch (cause) {
 			// Outside the guard: the credential is dead whichever run found that out, and leaving it in
 			// place would put the next publish's discovery of it after the upload has started.
@@ -401,6 +407,16 @@
 	const conflict = $derived(upload?.conflict ?? null);
 	/** Whether the confirm button would refuse: a standing conflict the scholar has not answered. */
 	const blockedByConflict = $derived(conflict !== null && !replacing);
+	/**
+	 * Whether the forecast itself was refused, so there is nothing to press through to.
+	 *
+	 * ⚠ **A read-only account is the case this exists for** (SPEC story 106). Publishing checks the
+	 * account's permission before it lists a tree, so the refusal is here rather than at the first
+	 * blob — and pressing Publish anyway would write the whole website into the Workspace before
+	 * meeting the same refusal a second time, which is minutes of work for a transfer that cannot
+	 * complete. A truncated tree and a repository GitHub cannot show arrive the same way.
+	 */
+	const blockedByProblem = $derived(uploadProblem !== '');
 
 	/**
 	 * What the confirm button says, which has to be what pressing it does. The button is rendered only
@@ -416,8 +432,17 @@
 
 	const run = async () => {
 		const agreed = plan;
-		if (!agreed || remote === null || !signedIn || publishing || nothingToDo || blockedByConflict)
+		if (
+			!agreed ||
+			remote === null ||
+			!signedIn ||
+			publishing ||
+			nothingToDo ||
+			blockedByConflict ||
+			blockedByProblem
+		) {
 			return;
+		}
 		publishing = true;
 		failure = '';
 		/** Whether the viewer has reached the Workspace, so a later refusal does not deny it. */
@@ -501,6 +526,16 @@
 		} finally {
 			publishing = false;
 			progress = null;
+			// SPEC story 131's counterpart on the outbound side: whatever happened, the Remote or this
+			// machine's evidence about it has moved, and the status on the bar was worked out against the
+			// Workspace as it was before any of it. Re-read the Baseline rather than assume it — a
+			// refused `writeBaseline` discards the stale record, so the honest answer afterwards is the
+			// `null` this finds — and then recompute.
+			const bound = storage.remote;
+			if (bound !== null) {
+				storage.baseline = (await session.synchronization?.readBaseline(bound)) ?? null;
+				await storage.checkRemoteStatus();
+			}
 		}
 	};
 
@@ -942,9 +977,12 @@
 							>
 								<p>{conflict.message}</p>
 								<p class="text-sm">
-									Cloning is in the Workspace menu at the top left, under <strong
-										>Remote repository…</strong
-									>. It makes a new Workspace and leaves this one exactly as it is.
+									{#if conflict.reason === 'remote-changes' || conflict.reason === 'changes-on-both-sides'}
+										<strong>Update from GitHub</strong> is on the navigation bar, beside the Remote status.
+									{:else}
+										Opening it in a new Workspace is in the Workspace menu at the top left, under
+										<strong>Remote repository…</strong>. It leaves this one exactly as it is.
+									{/if}
 								</p>
 								<button
 									class="btn btn-sm"
@@ -1036,7 +1074,11 @@
 			<button
 				class="btn btn-primary"
 				class:btn-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
-				aria-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
+				aria-disabled={publishing ||
+					plan === null ||
+					nothingToDo ||
+					blockedByConflict ||
+					blockedByProblem}
 				onclick={run}
 			>
 				{confirmLabel}

@@ -247,7 +247,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		const dialog = await signIn(page);
 
 		const refusal = dialog.getByTestId('publish-conflict');
-		await expect(refusal).toHaveAttribute('data-conflict', 'unknown');
+		await expect(refusal).toHaveAttribute('data-conflict', 'unknown-history');
 		await expect(refusal).toContainText('nothing here can tell');
 		// Said as the ordinary state it is: every Workspace cloned from a Remote is in it until it has
 		// published once, and a scholar meeting an alarm on the first press learns to force (story 24).
@@ -317,10 +317,13 @@ test.describe('a publish that would overwrite work this browser has never seen',
 
 		const dialog = await openPublishDialog(page);
 		const refusal = dialog.getByTestId('publish-conflict');
-		await expect(refusal).toHaveAttribute('data-conflict', 'changed');
+		await expect(refusal).toHaveAttribute('data-conflict', 'remote-changes');
 		await expect(refusal).toContainText('amsterdam-1625/annotations/l2.geojson');
-		// Both remedies, on the one screen: the clone, and the replace.
-		await expect(refusal).toContainText(`Clone ${REMOTE}`);
+		// Both remedies, on the one screen. The first is Update from GitHub rather than a second
+		// Workspace: with a Baseline this machine can tell whose the file is, so bringing it in is safe
+		// and keeps this Workspace's own unpublished work (SPEC story 133).
+		await expect(refusal).toContainText('Update from GitHub first');
+		await expect(refusal).toContainText('is on the navigation bar');
 		await expect(dialog.getByTestId('publish-replace')).toBeVisible();
 		// ⚠ **And the three budgets beside it, not instead of it.** A conflict is where the replacement
 		// tree is largest and where the scholar is being asked to press through a warning, so it is the
@@ -341,6 +344,11 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// Replacing is still ADR-0033's mirror: the scholar's own `README.md` is outside the owned
 		// namespace and survives a replace exactly as it survives an ordinary publish.
 		expect(github.fileText(OWNER, REPOSITORY, 'README.md')).toBe('# Atlas\n');
+		// ⚠ **And the status on the bar is recomputed by the publish, not by the next window focus.**
+		// The evidence this machine holds has just moved and the Remote with it, so a control still
+		// reading `Changes to publish` beside a finished publish is the one moment an author is most
+		// likely to press it again (SPEC story 131's counterpart on the outbound side).
+		await expect(remoteStatus(page)).toContainText('Up to date');
 	});
 });
 

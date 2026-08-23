@@ -269,7 +269,7 @@ describe('a successful check', () => {
 				{ path: 'index.html', sha: 'newer' },
 				{ path: '_app/immutable/entry/start.js', sha: 'newer' }
 			],
-			// A Baseline a Publish wrote, so it is evidence about generated output as well as source.
+			// A Baseline carrying generated output as well as source, so it is evidence about both.
 			baseline: baseline([
 				['atlas/project.json', 's1'],
 				['index.html', 'ours'],
@@ -290,8 +290,8 @@ describe('a successful check', () => {
 				{ path: 'atlas/project.json', sha: 's1' },
 				{ path: 'index.html', sha: 'published' }
 			],
-			// What an Open records: source paths only (`clone-from-remote.ts`). The Workspace holds the
-			// site's files too, so calling every one of them drift would be a long and wrong notice.
+			// What an Open and a Publish both record: source paths only (ADR-0038). The Workspace holds
+			// the site's files too, so calling every one of them drift would be a long and wrong notice.
 			baseline: baseline([['atlas/project.json', 's1']])
 		});
 

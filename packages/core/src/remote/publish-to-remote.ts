@@ -35,8 +35,10 @@ import type { Bytes, ProjectStore } from '../store/project-store.js';
 import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
-import { classifyInventory, isOwnedPath, projectDirectories } from './synchronization-paths.js';
-import { comparePath } from './synchronization-planner.js';
+import { classifyInventory, recognisedProjectDirectories } from './synchronization-paths.js';
+import { planWorkspacePublish } from './synchronization-planner.js';
+import type { SynchronizationBaseline } from './synchronization-metadata.js';
+import type { PlanRefusal } from './synchronization-planner.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -89,22 +91,20 @@ export type RemotePublishWarning = {
 };
 
 /**
- * Why a publish will not go ahead without being told to replace what is there (ADR-0033).
+ * Why an ordinary publish will not go ahead without being told to replace what is there (ADR-0038).
  *
  * One refusal with two remedies, never a per-file choice and never a merge: three-way merging
  * `project.json`, a GeoJSON or an Alignment is the collision ADR-0024 refuses to answer, and there
  * is no honest resolution for two Alignments of one sheet.
+ *
+ * ⚠ **The reason is {@link planWorkspacePublish}'s, not a second vocabulary.** The passive Remote
+ * Status, Update's refusals and this one are the same three-way table asked the same question, and a
+ * spelling of its own here is how the bar comes to say `Update available` while the dialog says
+ * nothing is wrong.
  */
 export type RemotePublishConflict = {
-	/**
-	 * `changed` — the Remote holds owned paths that are neither what this publish would write nor
-	 * what the manifest last saw, so somebody else wrote them.
-	 *
-	 * `unknown` — there is no manifest for this Remote and its owned namespace is not empty, so
-	 * nothing here can say whose the files are. ADR-0033: *"say plainly that we cannot tell."*
-	 */
-	readonly reason: 'changed' | 'unknown';
-	/** The owned paths at stake, sorted. Naming them is the whole of the reporting: there is no diff. */
+	readonly reason: PlanRefusal;
+	/** The source paths at stake, sorted. Naming them is the whole of the reporting: there is no diff. */
 	readonly paths: readonly string[];
 	/** The refusal, in the words the user should see, naming the files and both remedies. */
 	readonly message: string;
@@ -151,6 +151,20 @@ export type RemotePublishPlan = {
 	readonly pending: readonly PendingLocalFile[];
 	/** Paths on the Remote outside the owned namespace, carried into the new tree untouched. */
 	readonly preserved: readonly RemoteTreeEntry[];
+	/**
+	 * The Workspace's source namespace, `path -> blob SHA`: the Baseline a success may record.
+	 *
+	 * ⚠ **Source only, and the exclusion is the point.** A Publish regenerates its own viewer output
+	 * and mirrors it, so recording `_app/**` and `index.html` as shared *source* would make every
+	 * chunk name another editor version writes look like inbound scholarship (SPEC stories 120, 145).
+	 * Generated differences are Published Site staleness and nothing else.
+	 *
+	 * It is a forecast like the rest of the plan; {@link publishToRemote} records the SHAs it actually
+	 * sent, and uses this only to know which of them are source.
+	 */
+	readonly source: ReadonlyMap<string, string>;
+	/** Owned source paths the Remote holds that this publish takes down, sorted. */
+	readonly removed: readonly string[];
 	/**
 	 * Whether the Remote's tree already holds exactly what this publish would write.
 	 *
@@ -294,25 +308,25 @@ export type PlanRemotePublishOptions = RemotePublishOptions & {
 	 */
 	readonly pending?: readonly PendingLocalFile[];
 	/**
-	 * `path → blob SHA` as this machine last saw the Remote, or `null` for *we cannot say*.
+	 * What this installation last saw this Workspace and this Remote share, or `null` for *we cannot
+	 * say* (ADR-0038).
 	 *
 	 * ⚠ **Evidence about a Remote, and the caller has to have checked it is about *this* one.**
-	 * `PublishManifests.read` takes the repository and answers `null` for a record naming another, so
-	 * handing it the branch's map is safe; a map assembled any other way is a claim this engine cannot
-	 * validate and would act on. The map itself is deliberately a plain `path → sha` rather than the
-	 * stored record, so that nothing here depends on where the record is kept.
+	 * `SynchronizationMetadata.readBaseline` takes the repository and answers `null` for a record
+	 * naming another, so handing it that record is safe; one assembled any other way is a claim this
+	 * engine cannot validate and would act on.
 	 *
-	 * ⚠ **It must be built from what a publish or a Clone actually *wrote*, never from what a tree
-	 * *listed*.** A partial download that recorded the whole listing would make every path it never
-	 * fetched look like a path this machine had seen — and {@link RemotePublishPlan.conflict} would
-	 * then bless the deletion of all of them as a legitimate removal, which is most of somebody's site
-	 * taken down by an interrupted transfer.
+	 * ⚠ **It must be built from what a transfer actually *wrote*, never from what a tree *listed*.** A
+	 * partial download that recorded the whole listing would make every path it never fetched look
+	 * like a path this machine had seen — and the refusal below would then bless the deletion of all
+	 * of them as a legitimate removal, which is most of somebody's site taken down by an interrupted
+	 * transfer.
 	 *
-	 * Absent or `null` is the honest answer for a first publish, for a manifest lost with browser
+	 * Absent or `null` is the honest answer for a first publish, for a Baseline lost with browser
 	 * storage, and for one written about a different repository — and it is refused rather than
-	 * guessed at: see {@link RemotePublishConflict}'s `unknown`.
+	 * guessed at: see {@link PlanRefusal}'s `unknown-history`.
 	 */
-	readonly manifest?: ReadonlyMap<string, string> | null;
+	readonly baseline?: SynchronizationBaseline | null;
 };
 
 export type PublishToRemoteOptions = RemotePublishOptions & {
@@ -369,14 +383,6 @@ const GITLINK_MODE = '160000';
 const REQUESTS_BEYOND_BLOBS = 3;
 
 const EMPTY_FILE: Bytes = new Uint8Array(0);
-
-/**
- * git's blob SHA for a file of no bytes — `sha1("blob 0\0")`, and the same in every repository.
- *
- * Written out rather than computed because {@link gitBlobSha} is async and this is compared inside a
- * synchronous decision. `publish-to-remote.test.ts` asserts the two agree, so it cannot drift.
- */
-const EMPTY_BLOB_SHA = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
 
 /** The one message every publish commit carries. One branch, one commit per publish (SPEC). */
 const COMMIT_MESSAGE = 'Publish from Ballastella';
@@ -497,9 +503,36 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 /**
+ * Establish that this repository exists and that this credential may push to it (SPEC story 106).
+ *
+ * ⚠ **A publish's first request, before the tree is listed and long before a blob is sent.** Every
+ * request the forecast makes is a GET, so a credential with `Contents: Read` and nothing else plans
+ * perfectly and meets its 403 at the first blob — after the local publish has written the whole
+ * website into the Workspace and after minutes of uploading a pyramid. The rights are read when a
+ * Remote is bound and when a token is pasted and at no other moment, so neither answers the question
+ * *now*: an account whose access was withdrawn this morning still reads as signed in.
+ *
+ * It also subsumes the repository-existence probe the ref read used to make on a 404: GitHub answers
+ * 404 for a repository that does not exist **and** for one the credential cannot see, so a typo'd
+ * name and a revoked token would otherwise be planned as a full upload with no warning.
+ *
+ * @throws RemotePublishRefusedError when there is no such repository, or the account cannot push
+ */
+async function assertPushable(api: RemoteApi, remote: RemoteRepository): Promise<void> {
+	const response = await api.call('');
+	if (response.status === 404) throw new RemotePublishRefusedError(noRepositoryMessage(remote));
+	if (!response.ok) throw await failureFrom(response, api, 'blobs', 0, 0);
+	const body = (await response.json().catch(() => ({}))) as { permissions?: { push?: unknown } };
+	// `false` for a token with no write permission **and** for a response carrying no `permissions` at
+	// all, exactly as `readRemoteRights` reads it. Both mean this publish cannot complete.
+	if (body.permissions?.push !== true) throw new RemotePublishRefusedError(readOnlyMessage(remote));
+}
+
+/**
  * The branch's current commit, or `null` when the repository has no ref at all.
  *
- * @throws RemotePublishRefusedError when there is no such repository, or none this token can see
+ * Called after {@link assertPushable}, so a 404 here is a branch this repository has not got rather
+ * than a repository nobody can see.
  */
 async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<string | null> {
 	const response = await api.call(`/git/ref/heads/${branchPath(remote.branch)}`);
@@ -508,19 +541,8 @@ async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<strin
 	// unticked — the sequence ticket 03's "create the repository" link walks them through — so read as
 	// an ordinary refusal it kills the *first* publish, the one publish nobody can have got wrong yet.
 	if (response.status === 409) return null;
-	if (response.status === 404) {
-		// ⚠ GitHub answers 404 for a repository that does not exist *and* for one the credential
-		// cannot see, so a typo'd name and a revoked token look exactly like an empty repository here.
-		// Left unasked, both are planned as a full upload with no warning and surface at the first blob
-		// as "GitHub refused this publish: Not Found". One request buys the difference, before anything
-		// is sent. This is legibility at plan time, not the bind-time rights check (ticket 03).
-		const repository = await api.call('');
-		if (repository.status === 404) {
-			throw new RemotePublishRefusedError(noRepositoryMessage(remote));
-		}
-		if (!repository.ok) throw await failureFrom(repository, api, 'blobs', 0, 0);
-		return null;
-	}
+	// A repository proven to exist a request ago, so this is a branch it does not hold yet.
+	if (response.status === 404) return null;
 	if (!response.ok) throw await failureFrom(response, api, 'blobs', 0, 0);
 	const body = (await response.json()) as { object?: { sha?: unknown } };
 	const sha = body.object?.sha;
@@ -645,100 +667,39 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
 }
 
 /**
- * Whether anybody but this Workspace has written inside the owned namespace (ADR-0033).
+ * Whether an ordinary publish may go ahead, and what to say when it may not (ADR-0038).
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────┐
- * │ THE COMPARISON IS PER FILE, AND A BARE COMMIT-SHA COMPARISON IS THE REJECTED ALTERNATIVE. │
+ * │ THE DECISION IS `planWorkspacePublish`'S. WHAT IS DONE HERE IS THE WORDING FOR IT.        │
  * └──────────────────────────────────────────────────────────────────────────────────────────┘
  *
  * A publish that refused whenever the branch's head had moved would refuse after the scholar edited
  * their own `README.md` on github.com — a file no publish here touches. ADR-0033 names that and
  * refuses it, and the reason is behavioural rather than aesthetic: a check that cries wolf is a
  * check people learn to force through, and the one time it is right is then the one time it is
- * dismissed.
+ * dismissed. So the question is asked per source path against the Baseline, by the one
+ * implementation of SPEC's table that the Remote Status control and Update from GitHub also read.
  *
- * Three answers per owned path on the Remote, and only the third is a conflict:
- *
- * | The Remote's blob SHA is | Meaning |
- * | --- | --- |
- * | what this publish would write | already up to date |
- * | what the manifest last saw | ours, and safe to replace **or delete** |
- * | neither | somebody else wrote it |
- *
- * ⚠ **The deletion case is the destructive one, and it is the second row that licenses it.** A path
- * this publish would *not* write is a path it would remove — a Project deleted here since the last
- * publish, whose whole pyramid goes with it. That is right when the manifest says this machine put
- * the file there, and it is the loss this refusal exists to prevent when it does not: a Workspace
+ * ⚠ **A deletion is the destructive half, and only the Baseline licenses it.** A source path this
+ * publish would *not* write is a path the mirror removes — a Project deleted here since the last
+ * publish, whose whole pyramid goes with it. That is right when the Baseline says this machine put
+ * the file there, and it is the loss the refusal exists to prevent when it does not: a Workspace
  * missing paths it has never seen would otherwise take the whole of somebody's site down with one
- * press.
- *
- * @param owned every path the Remote holds inside the owned namespace, with its blob SHA
- * @param wouldWrite `path → blob SHA` for the tree this publish would post
- * @param willArrive paths the local publish is about to write into the Workspace, which the tree
- *   above does not carry yet — a pending path is a path the Remote is about to *gain*, and counted
- *   as a removal it would make a first publish from a complete Clone read as a deletion of the
- *   whole website
+ * press. Which is why no Baseline is `unknown-history` rather than *nothing was there*.
  */
-function detectConflict(
-	all: readonly RemoteTreeEntry[],
-	wouldWrite: ReadonlyMap<string, string>,
-	willArrive: ReadonlySet<string>,
-	manifest: ReadonlyMap<string, string> | null,
+function refusalOf(
+	refused: { readonly reason: PlanRefusal; readonly paths: readonly string[] },
+	removed: readonly string[],
 	remote: RemoteRepository
-): RemotePublishConflict | null {
-	// ⚠ **An empty `.nojekyll` is never somebody's work, and counting it as such accuses the scholar
-	// of a conflict over a file this tool wrote itself.** `seedEmptyRepository` puts exactly that file
-	// in exactly that state to bring the branch into being, so a first publish that does not finish
-	// leaves it behind with no manifest — and the retry, on a repository that holds one empty file and
-	// nothing else, would report that it cannot tell whose work is there. It can: the file has no
-	// content to be anybody's.
-	const owned = all.filter(
-		(entry) => !(entry.path === JEKYLL_OFF_MARKER && entry.sha === EMPTY_BLOB_SHA)
-	);
-	// Nothing of ours is there, so there is nothing to overwrite and nothing to be uncertain about —
-	// which is what makes a first publish to an empty repository, and to one holding only a `README`,
-	// go ahead with no manifest at all.
-	if (owned.length === 0) return null;
-
-	const paths = owned.map((entry) => entry.path).sort();
-	// ⚠ **What a publish would *remove*, which is the only destructive half and the one number that
-	// tells the two no-manifest cases apart.** An owned path this publish neither writes nor is about
-	// to write is a path the mirror deletes (ADR-0033). After a complete Clone the set is empty by
-	// construction, so the commonest reader of the sentence below is told nothing would be taken
-	// down; for a partial Clone, a second machine, or a stale Backup it is not empty and is often
-	// most of somebody's site.
-	const removed = owned
-		.filter((entry) => !wouldWrite.has(entry.path) && !willArrive.has(entry.path))
-		.map((entry) => entry.path)
-		.sort();
-
-	// ⚠ **No manifest is "we cannot say", never "nothing was there".** A first publish from this
-	// browser, a manifest lost with the browser's storage, and a record about a different repository
-	// all arrive here as `null`, and every one of them is a Workspace that may be older than what is
-	// on the Remote. Guessing costs somebody else's work; refusing costs one press of the second
-	// remedy (ADR-0033).
-	if (manifest === null) {
-		return { reason: 'unknown', paths, message: cannotTellMessage(remote, paths.length, removed) };
-	}
-
-	// ⚠ **Asked of the shared three-way table rather than restated here.** The two rows a publish
-	// must refuse are `inbound` — the Remote changed and this Workspace did not — and `conflict`, both
-	// sides changed differently; `outbound` and `converged` are ours to replace. Written out as two
-	// inequalities this said the same thing, and a second spelling of it is how the passive Remote
-	// Status and this refusal come to disagree about the same three SHAs (ADR-0038).
-	const foreign = owned
-		.filter((entry) => {
-			const comparison = comparePath(
-				manifest.get(entry.path) ?? null,
-				wouldWrite.get(entry.path) ?? null,
-				entry.sha
-			);
-			return comparison === 'inbound' || comparison === 'conflict';
-		})
-		.map((entry) => entry.path)
-		.sort();
-	if (foreign.length === 0) return null;
-	return { reason: 'changed', paths: foreign, message: foreignWriteMessage(remote, foreign) };
+): RemotePublishConflict {
+	const paths = [...refused.paths].sort();
+	const message =
+		refused.reason === 'unknown-history'
+			? cannotTellMessage(remote, paths.length, removed)
+			: refused.reason === 'conflict'
+				? bothSidesMessage(remote, paths)
+				: remoteChangesMessage(remote, paths, refused.reason === 'changes-on-both-sides');
+	return { reason: refused.reason, paths, message };
 }
 
 /**
@@ -764,11 +725,13 @@ export async function planRemotePublish(
 		throw new RemotePublishRefusedError(tooManyFilesMessage(workspace.files));
 	}
 
+	// Before the tree listing, and long before a blob: SPEC story 106.
+	await assertPushable(api, options.remote);
+
 	const head = await readHead(api, options.remote);
 	const remote = head === null ? [] : await readRemoteTree(api, options.remote, head);
 
 	const onRemote = new Set(remote.map((entry) => entry.sha));
-	const projects = projectDirectories(remote.map((entry) => entry.path));
 
 	const paths = await store.list('');
 	const held = new Set<string>(paths);
@@ -799,6 +762,15 @@ export async function planRemotePublish(
 		});
 	}
 	files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+
+	// The union of all three inventories, exactly as `compareSource` takes it: a Project deleted here
+	// is still recognised as ours from the Remote or the Baseline, so its whole directory stays inside
+	// the owned namespace and its pyramid is removed rather than silently preserved forever.
+	const projects = recognisedProjectDirectories({
+		local: files.map((file) => file.path),
+		remote: remote.map((entry) => entry.path),
+		baseline: options.baseline?.files.keys() ?? []
+	});
 
 	// What the local publish will add, minus whatever it is about to overwrite: a second publish
 	// rewrites the whole viewer over the copy already in the Workspace, so its file list arrives here
@@ -836,6 +808,23 @@ export async function planRemotePublish(
 		});
 	}
 
+	// ⚠ **The decision, asked of ticket 09's planner and asked twice on purpose.** The first call is
+	// the ordinary Publish and answers whether it may go ahead; the second is the Publish anyway,
+	// which never refuses and is therefore the one that can say what either mode would settle. Both
+	// are pure over the same three inventories, so this costs no request and cannot disagree with the
+	// Remote Status on the bar.
+	//
+	// The pending viewer files are deliberately absent from `local`: every one of them is Publish-owned
+	// output, which is not source and cannot be inbound change or a Conflict (SPEC story 120).
+	const comparison = {
+		local: files.map((file) => ({ path: file.path, sha: file.sha })),
+		remote: remote.map((entry) => ({ path: entry.path, sha: entry.sha })),
+		baseline: options.baseline ?? null
+	};
+	const ordinary = planWorkspacePublish(comparison);
+	const anyway = planWorkspacePublish(comparison, { replace: true });
+	const settled = anyway.outcome === 'planned' ? anyway.plan : null;
+
 	// The tree this publish would post, path by path, against the one the Remote holds. Compared by
 	// size *and* entry, so a Remote holding one extra owned path — a Project deleted here since the
 	// last publish — is a difference rather than a subset that looks like a match.
@@ -857,13 +846,12 @@ export async function planRemotePublish(
 		pending,
 		preserved,
 		unchanged,
-		conflict: detectConflict(
-			remote.filter((entry) => isOwnedPath(entry.path, projects)),
-			wouldWrite,
-			new Set(pending.map((file) => file.path)),
-			options.manifest ?? null,
-			options.remote
-		),
+		source: settled?.advances ?? new Map<string, string>(),
+		removed: settled?.removed ?? [],
+		conflict:
+			ordinary.outcome === 'refused'
+				? refusalOf(ordinary, settled?.removed ?? [], options.remote)
+				: null,
 		uploads,
 		uploadBytes,
 		workspace,
@@ -883,25 +871,35 @@ export async function planRemotePublish(
  * rather than an hour: the plan computed each file's blob SHA locally, and a SHA already in the
  * Remote's tree is bytes already there (SPEC story 15).
  *
- * ⚠ **The manifest it returns is built from what was actually sent**, entry by entry, as the loop
+ * ⚠ **The Baseline it returns is built from what was actually sent**, entry by entry, as the loop
  * below fills `written` — never from the plan and never from the tree the Remote listed. A record
- * assembled from a listing would claim paths a stopped publish never reached, and the next publish's
- * {@link detectConflict} would read that claim as permission to delete them. That is why
- * `plan.preserved` goes into the *tree* and not into the manifest: its SHAs come straight from the
- * listing, and nothing here has seen their bytes. Harmless while a preserved path is non-owned by
- * construction and {@link detectConflict} reads only owned paths — and it stops being harmless the
- * moment a path changes hands, when the Remote gains a `project.json` for a directory whose files
- * were preserved last time and those unverified SHAs become licence to delete them.
+ * assembled from a listing would claim paths a stopped publish never reached, and the next publish
+ * would read that claim as permission to delete them. That is why `plan.preserved` goes into the
+ * *tree* and not into the Baseline: its SHAs come straight from the listing, and nothing here has
+ * seen their bytes. Harmless while a preserved path is outside Ballastella's namespace by
+ * construction — and it stops being harmless the moment a path changes hands, when the Remote gains
+ * a `project.json` for a directory whose files were preserved last time and those unverified SHAs
+ * become licence to delete them.
  *
- * @returns the new commit, and the publish manifest — `path → blob SHA` for every path this publish
- *   wrote, which a caller persists so the next publish can tell its own work from somebody else's
+ * ⚠ **Generated output is sent and is not recorded**, which is the one asymmetry here (SPEC stories
+ * 120, 145). The commit holds `index.html` and the whole of `_app/**` because a Published Site needs
+ * them; the source Baseline holds neither, because a chunk name another editor version writes is
+ * staleness to republish and never scholarship somebody changed.
+ *
+ * @returns the new commit; the source Baseline a caller persists so the next transfer can tell its
+ *   own work from somebody else's; and the source paths whose local-change marks that Baseline now
+ *   accounts for
  * @throws RemotePublishRefusedError when the plan carries a conflict `replace` does not cover
  * @throws RemotePublishRateLimitedError when the hourly budget runs out part way through
  */
 export async function publishToRemote(
 	store: ProjectStore,
 	options: PublishToRemoteOptions
-): Promise<{ readonly commit: string; readonly manifest: ReadonlyMap<string, string> }> {
+): Promise<{
+	readonly commit: string;
+	readonly baseline: ReadonlyMap<string, string>;
+	readonly shared: readonly string[];
+}> {
 	const { plan, remote } = options;
 	// Before anything is read, hashed, or sent — see {@link PublishToRemoteOptions.replace}.
 	if (plan.conflict !== null) {
@@ -1024,9 +1022,16 @@ export async function publishToRemote(
 	});
 	if (!moved.ok) throw await failureFrom(moved, api, 'ref', sent, total());
 
+	const baseline = new Map(
+		written.filter((entry) => plan.source.has(entry.path)).map((entry) => [entry.path, entry.sha])
+	);
 	return {
 		commit: commitSha,
-		manifest: new Map(written.map((entry) => [entry.path, entry.sha]))
+		baseline,
+		// ⚠ **The removals belong here too.** A Project deleted in this Workspace is a `deleted` mark
+		// the index holds and a path the Baseline no longer carries, so a caller clearing only the
+		// Baseline's own keys would leave the mark standing for a path neither side has any more.
+		shared: [...baseline.keys(), ...plan.removed].sort()
 	};
 }
 
@@ -1086,19 +1091,74 @@ function remedies(remote: RemoteRepository): string {
 }
 
 /**
- * What a foreign write says, naming the files it is about.
+ * What a credential that may read and not write says (SPEC story 106).
  *
- * Files rather than "the remote has changed", because the two remedies below need a scholar to be
- * able to recognise the work: "somebody has published here" is not something they can weigh, and
- * `amsterdam-1625/annotations/notes.json` is.
+ * ⚠ **It is a refusal rather than a warning, and it arrives before the local publish runs.** The
+ * same news said at sign-in is a notice beside a Publish button that still works — every request a
+ * forecast makes is a GET — and the 403 then arrives at the first blob, with the whole website
+ * already written into the Workspace and nothing on the Remote to show for it.
  */
-function foreignWriteMessage(remote: RemoteRepository, paths: readonly string[]): string {
+function readOnlyMessage(remote: RemoteRepository): string {
+	const where = `${remote.owner}/${remote.repository}`;
+	return (
+		`The GitHub account you are signed in with can read ${where} but cannot push to it, so this ` +
+		`publish would stop part way through and nothing has been sent. Sign in again with a ` +
+		`fine-grained personal access token that has “Contents: Read and write” for ${where}, or ask ` +
+		`whoever owns it for write access. Update from GitHub needs no write access at all, so ` +
+		`bringing that repository's work into this Workspace still works.`
+	);
+}
+
+/**
+ * What Remote source change says, naming the files it is about.
+ *
+ * Files rather than "the remote has changed", because the two remedies need a scholar to be able to
+ * recognise the work: "somebody has published here" is not something they can weigh, and
+ * `amsterdam-1625/annotations/notes.json` is.
+ *
+ * ⚠ **The first remedy is Update from GitHub, not a Clone** (SPEC story 133). Bringing the Remote's
+ * work in is the whole point of the refusal: it leaves this Workspace's own unpublished changes
+ * alone, and publishing afterwards sends a Remote that is the complete current Workspace rather than
+ * one missing an afternoon.
+ */
+function remoteChangesMessage(
+	remote: RemoteRepository,
+	paths: readonly string[],
+	alsoLocal: boolean
+): string {
 	const count = paths.length;
 	return (
-		`${remote.owner}/${remote.repository} holds ${count === 1 ? 'a file' : `${count} files`} this ` +
-		`Workspace has never seen, so publishing now would replace work done somewhere else — from ` +
-		`another computer, or by somebody else. Nothing has been sent. ` +
-		`${count === 1 ? 'It is' : 'They are'}: ${describePaths(paths)}. ${remedies(remote)}`
+		`${remote.owner}/${remote.repository} holds ${count === 1 ? 'a change' : `${count} changes`} ` +
+		`this Workspace has not taken in yet, so publishing now would replace work done somewhere ` +
+		`else — from another computer, or by somebody else. Nothing has been sent. ` +
+		`${count === 1 ? 'It is' : 'They are'}: ${describePaths(paths)}. Update from GitHub first — ` +
+		`that brings ${count === 1 ? 'it' : 'them'} in and leaves this Workspace's own unpublished ` +
+		`work alone${alsoLocal ? ', and there is some of that here' : ''} — and then publish, so that ` +
+		`${remote.owner}/${remote.repository} becomes the whole of this Workspace rather than a state ` +
+		`missing somebody's afternoon. Or publish anyway, replacing what is there with this Workspace. ` +
+		`Either way, nothing in ${remote.owner}/${remote.repository} that this Workspace has no file ` +
+		`for is touched: a README, a CNAME, or a workflow you added on GitHub is left exactly as it is.`
+	);
+}
+
+/**
+ * What a path changed on both sides says.
+ *
+ * ⚠ **Update is not offered, because Update refuses this too.** A Conflict is the one row of SPEC's
+ * table with no safe inbound answer — Ballastella will not choose between two versions of an
+ * Annotation or two Alignments of one sheet (ADR-0024) — so the only way on from here is the
+ * deliberate local-wins replacement, and saying "Update first" would send the author round a loop.
+ */
+function bothSidesMessage(remote: RemoteRepository, paths: readonly string[]): string {
+	const where = `${remote.owner}/${remote.repository}`;
+	const count = paths.length;
+	return (
+		`${count === 1 ? 'One file has' : `${count} files have`} been changed both here and on ` +
+		`${where} since the two last shared state: ${describePaths(paths)}. Ballastella will not ` +
+		`choose between two versions of your work, so nothing has been sent and Update from GitHub ` +
+		`will refuse this for the same reason. Open ${where} in a new Workspace to see what is there ` +
+		`— that changes nothing on either side — or publish anyway, replacing what is there with this ` +
+		`Workspace. Either way, nothing in ${where} that this Workspace has no file for is touched.`
 	);
 }
 
