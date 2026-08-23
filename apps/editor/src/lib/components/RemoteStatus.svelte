@@ -28,11 +28,23 @@
 
 	let {
 		state,
-		onCheck
+		onCheck,
+		update,
+		notice,
+		failure,
+		onUpdate
 	}: {
 		state: RemoteStatusState;
 		/** Check now, because the author asked. Never throttled — see `RemoteStatusChecker`. */
 		onCheck: () => void;
+		/** An Update in flight, as files done out of files planned, or `null` for none. */
+		update: { files: number; totalFiles: number } | null;
+		/** What the last Update did, or `''`. */
+		notice: string;
+		/** Why the last Update did not happen, or `''`. */
+		failure: string;
+		/** Bring the Remote's changes in, because the author asked (SPEC story 121). */
+		onUpdate: () => void;
 	} = $props();
 
 	/**
@@ -59,6 +71,9 @@
 			? ''
 			: new Date(state.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 	);
+
+	/** Whether an Update is running, which is the one state that makes the control inert. */
+	const running = $derived(update !== null);
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
@@ -108,11 +123,74 @@
 		>
 			Check Remote Status
 		</button>
+		<!--
+			The inbound half, and the *only* way Remote work reaches a Workspace (SPEC story 121).
+
+			**Always offered, and never armed by a status.** An Update is refused with a sentence when
+			there is nothing to take, when a path changed on both sides, and when the Remote has deleted
+			something — so hiding or disabling it against the last determination would replace six
+			legible refusals with a control that does nothing and says nothing about why. It is also the
+			reason a status check never applies anything: the two gestures are separate because their
+			consequences are.
+
+			`aria-disabled` and never `disabled`, for the reason the check beside it uses the same: a
+			`disabled` button leaves the tab order the instant it is pressed.
+		-->
+		<button
+			type="button"
+			class="btn btn-xs"
+			class:btn-disabled={running}
+			aria-disabled={running}
+			data-testid="update-from-github"
+			onclick={() => {
+				if (!running) onUpdate();
+			}}
+		>
+			Update from GitHub
+		</button>
 	</div>
 
 	{#if checkedAt !== ''}
 		<p class="text-xs text-base-content opacity-70" data-testid="remote-status-checked">
 			Checked at {checkedAt}
+		</p>
+	{/if}
+
+	<!--
+		What an Update is doing, and what it did (SPEC stories 121–124).
+
+		Polite and `aria-atomic`, for the reason the determination above is: "412 of 900 files" on its
+		own says nothing about what is being counted, and a screen reader hearing the count change
+		without the sentence around it has to work out which transfer it belongs to.
+	-->
+	{#if update !== null}
+		<p
+			aria-live="polite"
+			aria-atomic="true"
+			class="text-xs text-base-content opacity-70"
+			data-testid="update-progress"
+		>
+			Updating from GitHub: {update.files} of {update.totalFiles}
+			{update.totalFiles === 1 ? 'file' : 'files'}.
+		</p>
+	{/if}
+
+	{#if notice}
+		<p aria-live="polite" class="max-w-md text-sm text-base-content" data-testid="update-outcome">
+			{notice}
+		</p>
+	{/if}
+
+	<!--
+		Why the Update did not happen.
+
+		`role="alert"`, and for the reason the check's failure above it is: it is inserted at the
+		moment its text first exists, which a polite region does not reliably announce — and a refusal
+		nobody hears is an author who believes the Remote's changes are now in their Workspace.
+	-->
+	{#if failure}
+		<p role="alert" class="max-w-md text-sm text-warning" data-testid="update-failure">
+			{failure}
 		</p>
 	{/if}
 

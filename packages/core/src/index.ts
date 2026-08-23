@@ -583,6 +583,32 @@ export {
 	type OpenWorkspaceFromGitHubOptions,
 	type OpenedWorkspace
 } from './remote/open-workspace-from-github.js';
+// Update from GitHub: the explicit inbound transfer, which takes the Remote's own additions and
+// replacements, keeps local-only work, and publishes nothing (ADR-0038). Anonymous, like the Open
+// above — inbound synchronization is not publishing authority.
+export {
+	UPDATE_BEFORE_DIRECTORY,
+	UPDATE_DOWNLOAD_CONCURRENCY,
+	UPDATE_TRANSACTION_FORMAT_VERSION,
+	UPDATE_TRANSACTION_PATH,
+	UpdateRefusedError,
+	clearUpdateTransaction,
+	parseUpdateTransaction,
+	readUpdateTransaction,
+	recoverWorkspaceUpdate,
+	serialiseUpdateTransaction,
+	updateFromGitHub,
+	type UnreadableUpdateTransaction,
+	type UpdateBeforeImage,
+	type UpdateFromGitHubOptions,
+	type UpdateRecovery,
+	type UpdateReference,
+	type UpdateRefusal,
+	type UpdateTransaction,
+	type UpdateTransactionMark,
+	type UpdateTransactionState,
+	type WorkspaceUpdate
+} from './remote/update-from-github.js';
 // Reviewing one Project out of a public repository (ADR-0024, ADR-0031). The Clone's sibling and
 // the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
 // unbound and unpublishable.

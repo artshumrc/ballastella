@@ -609,6 +609,10 @@
 			<RemoteStatus
 				state={storage.remoteStatusState}
 				onCheck={() => void storage.checkRemoteStatus()}
+				update={storage.updateProgress}
+				notice={storage.updateNotice}
+				failure={storage.updateFailure}
+				onUpdate={() => void storage.updateFromRemote()}
 			/>
 		{/if}
 	{/if}

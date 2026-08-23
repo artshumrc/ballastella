@@ -425,6 +425,25 @@ export class WorkspaceStorage {
 	 */
 	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
 	/**
+	 * An Update from GitHub in flight, as files done out of files planned, or `null` for none.
+	 *
+	 * ⚠ **Here rather than in {@link transfer}, which the hub owns.** The Update control lives on the
+	 * navigation bar and is therefore on every screen, so its progress has to be renderable beside it
+	 * — an author who starts an Update and walks into a Project must not lose sight of a transfer that
+	 * is rewriting files underneath them.
+	 */
+	updateProgress = $state<{ files: number; totalFiles: number } | null>(null);
+	/** What the last Update did, in the words a scholar reads, or `''`. */
+	updateNotice = $state('');
+	/**
+	 * Why the last Update did not happen, or `''`.
+	 *
+	 * Kept apart from {@link updateNotice} because they are announced differently: a refusal is
+	 * inserted at the moment its text first exists and is owed an alert, and a success is a polite
+	 * report of something the author was watching.
+	 */
+	updateFailure = $state('');
+	/**
 	 * A v1 `remote.json` this installation cannot corroborate, waiting to be confirmed or declined.
 	 *
 	 * ⚠ **Not a Remote.** SPEC: *"A legacy binding without corroborating installation-local evidence
@@ -1543,6 +1562,11 @@ export class WorkspaceStorage {
 		this.#statusChecker?.close();
 		this.#statusChecker = null;
 		this.remoteStatusState = UNCHECKED_REMOTE_STATUS;
+		// The arriving Workspace wears none of the Workspace the author left: an Update's progress, its
+		// report and its refusal are all claims about one Workspace's files.
+		this.updateProgress = null;
+		this.updateNotice = '';
+		this.updateFailure = '';
 		const remote = this.remote;
 		if (remote === null) return;
 		const checker = new RemoteStatusChecker({
@@ -1571,6 +1595,60 @@ export class WorkspaceStorage {
 	 */
 	async checkRemoteStatus(): Promise<void> {
 		await this.#statusChecker?.check('explicit');
+	}
+
+	/**
+	 * Bring the Remote's changes into this Workspace, because the author asked (ticket 14).
+	 *
+	 * ⚠ **Explicit, and reachable from nowhere but a control that says so.** No status check, no
+	 * window focus, no open and no publish reaches this. SPEC story 121 is that Remote work never
+	 * changes a Workspace silently, and the way that is kept true is that there is exactly one caller.
+	 *
+	 * ⚠ **Every phase is guarded by which Workspace this is.** An Update is minutes of downloading and
+	 * one click switches Workspaces inside it: the transfer itself is aimed at the session it started
+	 * on and stays aimed there, which is right — those are the files the author asked about — but the
+	 * progress, the report and the recomputed status must not appear beside another Workspace's name.
+	 *
+	 * Resolves rather than rejecting: the control is a persistent one on the navigation bar with no
+	 * dialog to catch a throw, so the refusal is rendered beside it as an alert.
+	 */
+	async updateFromRemote(): Promise<void> {
+		const remote = this.remote;
+		if (remote === null || this.updateProgress !== null) return;
+		const session = this.session;
+		const key = this.#workspaceKey;
+		const mine = () => this.session === session && this.#workspaceKey === key;
+
+		this.updateNotice = '';
+		this.updateFailure = '';
+		this.updateProgress = { files: 0, totalFiles: 0 };
+		try {
+			const { update, baselineKept } = await session.updateFromRemote({
+				remote,
+				onProgress: (progress) => {
+					if (mine()) this.updateProgress = progress;
+				}
+			});
+			if (!mine()) return;
+			// Re-read rather than assumed: `writeBaseline` discards the previous record when it cannot
+			// keep the new one, so the honest answer after a refused write is the `null` this reads.
+			this.baseline = (await session.synchronization?.readBaseline(remote)) ?? null;
+			this.updateNotice = baselineKept
+				? update.notice
+				: // SPEC: a durable store that refused *after* the transfer succeeded is never reported as
+					// a failed Update. The files are here; what this browser cannot say is what has changed.
+					`${update.notice} This browser would not keep a record of what the two of them now ` +
+					`hold in common, so Ballastella cannot tell what has changed on either side until the ` +
+					`next Publish.`;
+			// SPEC story 131: the next required action has to be clear the moment the Update finishes,
+			// and the status on screen was worked out against the Workspace as it was before it.
+			this.updateProgress = null;
+			await this.checkRemoteStatus();
+		} catch (cause) {
+			if (mine()) this.updateFailure = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			if (mine()) this.updateProgress = null;
+		}
 	}
 
 	/**

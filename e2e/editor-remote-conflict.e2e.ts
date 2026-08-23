@@ -577,3 +577,147 @@ test.describe('Remote Status on the navigation bar', () => {
 		await expect(remoteStatus(page)).toContainText('Up to date');
 	});
 });
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// UPDATE FROM GITHUB (ticket 14; SPEC stories 105, 121–124, 128–131)
+//
+// **One complete inbound workflow, and the matrix stays at Seam 1.** Every three-way decision, every
+// refusal, the SHA verification, the rollback and the Baseline arithmetic are exhausted in
+// `packages/core/src/remote/update-from-github.test.ts` against the same fake GitHub, with no
+// browser and with complete before-and-after snapshots of the Workspace. What no seam below can
+// falsify is that the *application* performs the operation it offers: that the control on the bar is
+// the only thing that applies anything, that a real OPFS Workspace ends up holding the Remote's
+// Project as ordinary work while the author's own unpublished Project is still there, that the
+// Remote's head has not moved, and that the status beside it is recomputed against what the Update
+// left rather than what was there before.
+
+/** A Project whose Layer names its Annotation the way a real `project.json` does: Project-relative. */
+const syncProject = (directory: string, name: string): Record<string, string> => ({
+	[`${directory}/project.json`]: `${JSON.stringify(
+		{
+			formatVersion: 1,
+			name,
+			updatedAt: '2026-01-02T03:04:05.000Z',
+			layers: [
+				{
+					id: 'l2',
+					name: 'Warehouses',
+					visible: true,
+					order: 0,
+					kind: 'annotation',
+					geojsonRef: 'annotations/l2.geojson',
+					defaultStyle: {}
+				}
+			],
+			baseMap: 'physical'
+		},
+		null,
+		'\t'
+	)}\n`,
+	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
+});
+
+/** Hold one raw-host path until the returned function is called, so progress can be observed. */
+async function holdRawFile(page: Page, path: string): Promise<() => void> {
+	let release: (() => void) | undefined;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route(`https://raw.githubusercontent.com/**/${path}`, async (route) => {
+		await held;
+		await route.fallback();
+	});
+	return () => release?.();
+}
+
+test.describe('Update from GitHub', () => {
+	const ATLAS = syncProject('atlas-1625', 'Atlas 1625');
+	const THEIRS = '{"type":"FeatureCollection","features":[{"id":"their-afternoon"}]}';
+
+	test('brings the Remote’s work in when the author asks, and never before', async ({ page }) => {
+		const github = await start(page, {
+			workspace: { ...ATLAS, ...boundTo() },
+			onRemote: ATLAS
+		});
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			files: await sharedShas(ATLAS)
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await signIn(page);
+		await page.keyboard.press('Escape');
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		// The author's own afternoon, which GitHub has never seen and this Update must not touch.
+		await page.getByRole('button', { name: 'New Project' }).click();
+		await page
+			.getByRole('dialog', { name: 'New Project' })
+			.getByLabel('Project name')
+			.fill('Leiden');
+		await page.getByRole('button', { name: 'Create Project' }).click();
+		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
+
+		// And somebody else's: a Project published from another machine, and a change to a file this
+		// Workspace has not touched. Two safe changes on different paths (SPEC story 129).
+		await github.commitFiles(OWNER, REPOSITORY, {
+			...syncProject('delft', 'Delft'),
+			'atlas-1625/annotations/l2.geojson': THEIRS
+		});
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Changes on both sides');
+
+		// ⚠ **Nothing has arrived, and that is the whole of story 121.** Coming back to the tab and
+		// asking for the status again are both observations: neither downloads a byte.
+		await refocus(page);
+		await checkNow(page);
+		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
+
+		// The gesture, reached by the keyboard alone, with its progress reported while it runs.
+		const head = github.head(OWNER, REPOSITORY);
+		const release = await holdRawFile(page, 'delft/annotations/l2.geojson');
+		await page.getByTestId('update-from-github').focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('update-progress')).toContainText('files');
+		release();
+
+		const outcome = page.getByTestId('update-outcome');
+		await expect(outcome).toContainText('Brought');
+		await expect(outcome).toContainText('Nothing has been published');
+		await expect(page.getByTestId('update-progress')).toHaveCount(0);
+
+		// ⚠ **Inbound only.** The branch has not moved and the file the other machine wrote is still
+		// the one on GitHub: receiving somebody's work cannot make this author's work public (story 122).
+		expect(github.head(OWNER, REPOSITORY)).toBe(head);
+		expect(github.fileText(OWNER, REPOSITORY, 'atlas-1625/annotations/l2.geojson')).toBe(THEIRS);
+		expect(github.fileText(OWNER, REPOSITORY, 'leiden/project.json')).toBe(null);
+
+		// The author's unpublished Project is still here (story 128), and the Remote's is here as
+		// ordinary work that opens (story 123).
+		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
+		await page.getByRole('link', { name: 'Delft' }).click();
+		await expect(page.getByTestId('project-name')).toHaveText('Delft');
+
+		// And the next required action is on screen already: the Baseline advanced only for what is now
+		// shared, so the Project GitHub has never seen is still Changes to publish (stories 130, 131).
+		await expect(remoteStatus(page)).toContainText('Changes to publish');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		// Finally: a switch inside a transfer. The Workspace the Update was aimed at is the one it
+		// writes to, and the one that arrives wears none of it.
+		await github.commitFiles(OWNER, REPOSITORY, { 'atlas-1625/annotations/l9.geojson': '{}' });
+		const holdAgain = await holdRawFile(page, 'atlas-1625/annotations/l9.geojson');
+		await page.getByTestId('update-from-github').click();
+		await expect(page.getByTestId('update-progress')).toContainText('files');
+		await createWorkspace(page, 'Elsewhere');
+		holdAgain();
+
+		await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+		await expect(page.getByTestId('update-outcome')).toHaveCount(0);
+		// Nothing was written into it either: it is a new Workspace and it holds no Projects at all.
+		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('update-outcome')).toHaveCount(0);
+	});
+});

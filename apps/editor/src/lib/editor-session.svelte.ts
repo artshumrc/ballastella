@@ -72,6 +72,7 @@ import {
 	readPublishedSite,
 	readImageLabel,
 	readRemoteInventory,
+	updateFromGitHub,
 	referencedAlignmentAddress,
 	referencedImage,
 	referencedImagePath,
@@ -131,7 +132,8 @@ import {
 	type ViewerBundle,
 	type ViewerBundleFile,
 	type WorkspaceMapImage,
-	type WorkspaceSize
+	type WorkspaceSize,
+	type WorkspaceUpdate
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
@@ -2506,6 +2508,67 @@ export class EditorSession {
 			publishedSiteStale: found.publishedSiteStale,
 			requested: true
 		};
+	}
+
+	/**
+	 * Bring the Remote's own additions and replacements into this Workspace (ticket 14, ADR-0038).
+	 *
+	 * ⚠ **Everything pending is written down first, and both flushes are load-bearing.** The engine
+	 * reads and hashes every file in the Workspace to build its plan, so an Annotation still inside
+	 * the autosave debounce would be hashed as the bytes *before* the edit — and the Remote's version
+	 * of that path would then look like a safe inbound replacement of work the author had just done.
+	 * The write index is flushed for the other direction: `clearShared` below narrows the record on
+	 * disk, and marks still only in memory would survive it.
+	 *
+	 * ⚠ **No credential is passed and none is taken** (SPEC story 105). Inbound synchronization reads
+	 * a public repository anonymously; an author who cannot push to their instructor's Remote can
+	 * still receive from it, and consulting the credential store here would make the flow behave
+	 * differently for whoever happened to be signed in.
+	 *
+	 * The evidence is recorded in the order SPEC gives: the Baseline first, and the index narrowed
+	 * only if it was kept. A refused Baseline write leaves `Cannot tell` beside a *successful* Update
+	 * — never an Update reported as failed after the bytes have arrived — and `writeBaseline` has
+	 * already discarded the stale record rather than leaving one that describes the state before.
+	 *
+	 * @returns what arrived, and whether the Baseline advance was kept
+	 * @throws UpdateRefusedError for every refusal there is, with the Workspace as it was
+	 */
+	async updateFromRemote(options: {
+		remote: RemoteRepository;
+		onProgress?: (progress: { files: number; totalFiles: number }) => void;
+	}): Promise<{ update: WorkspaceUpdate; baselineKept: boolean }> {
+		await this.flush();
+		await this.localChanges?.flushChanges();
+
+		const update = await updateFromGitHub(this.#store, {
+			remote: options.remote,
+			baseline: (await this.#synchronization?.readBaseline(options.remote)) ?? null,
+			estimateStorage: () => navigator.storage.estimate(),
+			...(options.onProgress
+				? { onProgress: ({ files, totalFiles }) => options.onProgress?.({ files, totalFiles }) }
+				: {})
+		});
+
+		// The inbound writes crossed the managed store like any other, so they are in the index as
+		// this Workspace's own changes until the Baseline that makes them shared is durable.
+		await this.localChanges?.flushChanges();
+		const baselineKept =
+			this.#synchronization === undefined ||
+			(await this.#synchronization.writeBaseline({
+				remote: options.remote,
+				commit: update.commit,
+				files: update.baseline
+			}));
+		// ⚠ **Only the paths the Update made shared, and only once the Baseline is durable.** Clearing
+		// the whole index would report the author's untouched local-only work as shared with a Remote
+		// that has never seen it (SPEC story 130); clearing anything at all under a refused Baseline
+		// write would drop the record of local changes there is now no evidence to compare against.
+		if (baselineKept) await this.localChanges?.changes.clearShared(update.shared);
+
+		// The hub's list is what an inbound Project appears in, and the Update wrote its `project.json`
+		// underneath every reader (SPEC story 123).
+		this.projects = await this.#workspace.listProjects();
+		return { update, baselineKept };
 	}
 
 	/**
