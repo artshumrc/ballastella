@@ -957,10 +957,10 @@
 							<!--
 								⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
 								whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
-								scope" item 3) — and the two ways on are Open a Workspace from GitHub or replace, never a
-								merge. The second
-								is a two-step: this button only *arms* it, and the confirm button below then says
-								what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
+								scope" item 3) — and the two ways on are Open a Workspace from GitHub or replace,
+								never a merge. The second is a two-step: this button only *arms* it, and the
+								confirm button below then says what pressing it does. That is `ProjectHub`'s
+								deletion pattern, for its reason.
 
 								⚠ **Beside the budgets rather than instead of them.** A conflict is where the
 								replacement tree is largest and where the scholar is being asked to press through a

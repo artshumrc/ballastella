@@ -382,8 +382,8 @@ test.describe('opening a published Workspace', () => {
 		const button = page.getByTestId('open-from-github');
 		await expect(button).toHaveAttribute('aria-disabled', 'true');
 		// The *native* attribute, read off the element: `toBeDisabled()` counts `aria-disabled` as
-		// disabled too, so `not.toBeDisabled()` beside the line above can only pass on a transfer that
-		// already finished — which is what it used to do, and why it never saw the property it names.
+		// disabled too, so `not.toBeDisabled()` beside the line above passes only on a transfer that has
+		// already finished, never seeing the property it names.
 		expect(await button.evaluate((element) => (element as HTMLButtonElement).disabled)).toBe(false);
 		await button.focus();
 		await expect(button).toBeFocused();

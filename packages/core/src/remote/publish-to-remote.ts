@@ -512,9 +512,9 @@ function encodeBase64(bytes: Uint8Array): string {
  * Remote is bound and when a token is pasted and at no other moment, so neither answers the question
  * *now*: an account whose access was withdrawn this morning still reads as signed in.
  *
- * It also subsumes the repository-existence probe the ref read used to make on a 404: GitHub answers
- * 404 for a repository that does not exist **and** for one the credential cannot see, so a typo'd
- * name and a revoked token would otherwise be planned as a full upload with no warning.
+ * It is also the repository-existence check, which is why the ref read does not need one: GitHub
+ * answers 404 for a repository that does not exist **and** for one the credential cannot see, so a
+ * typo'd name and a revoked token would otherwise be planned as a full upload with no warning.
  *
  * @throws RemotePublishRefusedError when there is no such repository, or the account cannot push
  */

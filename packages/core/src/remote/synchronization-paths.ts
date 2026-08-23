@@ -100,8 +100,8 @@ export function recognisedProjectDirectories(inventories: PathInventories): Set<
  * Which of the three a path is, given the recognised Project directories.
  *
  * ⚠ **`remote.json` is published output, and it is the one entry here that has to be argued for.**
- * It is no longer the Remote relationship — that is installation-local metadata now — but a Publish
- * still writes it so an old Published Site's return links keep working, and an unbound Workspace
+ * It is not the Remote relationship — that is installation-local metadata — but a Publish still
+ * writes it so an older Published Site's return links keep working, and an unbound Workspace
  * must not leave a stale one on the Remote. Publish-owned is exactly that: ours to write and ours to
  * remove, never inbound, and never authored local state a synchronization could resurrect.
  */

@@ -1228,7 +1228,7 @@ describe('a publish that would overwrite another machine', () => {
 			expect((await planWithNoEvidence(store, github)).conflict).toBeNull();
 		});
 
-		// The same rule, and the case that used to be a special one: a `.nojekyll` somebody typed into
+		// The same rule, and the case that most invites a special one: a `.nojekyll` somebody typed into
 		// is still Publish-owned output, so it is overwritten rather than treated as scholarship this
 		// Workspace has never seen. Generated output contributes Published Site staleness and nothing
 		// else (SPEC stories 120, 145), which is what stops two editor versions refusing to publish at
