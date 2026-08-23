@@ -371,6 +371,16 @@ function legacyPublishedByEditor(): SiteFiles {
 	};
 }
 
+/**
+ * Either invitation back to the editor, by the words the bar renders.
+ *
+ * ⚠ **The two are deliberately different sentences** (SPEC stories 72 and 77): a Project offers
+ * “Open in Ballastella”, whose offer has Import and Review behind it, and the Front Page offers the
+ * whole Workspace out of GitHub. So an absence claim has to name both, or it passes because it was
+ * looking for the wrong one.
+ */
+const RETURN_LINK = /^(Open in Ballastella|Open a Workspace from GitHub)$/;
+
 /** Wait until the Reader's map has built its stack, so assertions are about a drawn map. */
 async function mapReady(page: Page): Promise<void> {
 	await expect(page.getByTestId('reader-map-pane')).toBeVisible();
@@ -971,7 +981,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// ⚠ **The reassurance about opening this Workspace in Ballastella is absent, and that is the
 			// claim** (SPEC story 55). This fixture records no editor instance and carries no
 			// `remote.json` — the state of a site published into a folder, and of every site published
-			// before this epic — so the bar offers no "Open in Ballastella". A sentence saying what
+			// before this epic — so the bar offers no "Open a Workspace from GitHub". A sentence saying what
 			// following that link costs would be describing a control that is nowhere on the screen.
 			// **The other half of this pair is in `leads back to the editor that published it`**, which
 			// asserts the same sentence *present* on a site that does offer the link; neither half means
@@ -1131,7 +1141,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// On the bar, with the other things that are true on every screen, rather than buried in a
 			// paragraph of prose halfway down the Front Page (SPEC story 9).
 			const bar = page.getByTestId('navigation-bar');
-			const clone = bar.getByRole('link', { name: 'Open in Ballastella' });
+			const clone = bar.getByRole('link', { name: 'Open a Workspace from GitHub' });
 			await expect(clone).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
 
 			// And the sentence that says what following it costs, on the one screen that offers it
@@ -1156,7 +1166,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 			await expect(bar.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 			await expect(bar.getByTestId('all-projects')).toBeVisible();
 
-			const review = bar.getByRole('link', { name: 'Review this Project in Ballastella' });
+			// One link, and the offer behind it is where Import and Review are chosen between (story 72).
+			const review = bar.getByRole('link', { name: 'Open in Ballastella' });
 			await expect(review).toHaveAttribute(
 				'href',
 				`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
@@ -1171,6 +1182,27 @@ test.describe('a Published Site a Reader arrives at', () => {
 			await bar.getByTestId('site-name').click();
 			await expect(bar.getByTestId('page-heading')).toHaveText('Front Page');
 		}
+
+		// ⚠ **And a site published before the record carried its repository builds the same two
+		// addresses** (SPEC story 78). Those sites are in front of Readers now, with the coordinates in
+		// `remote.json` inside the published tree instead — so the fallback is what keeps their route
+		// back to Ballastella, and it must produce the current invitations rather than the old ones.
+		await site.close();
+		site = await published(legacyPublishedByEditor());
+		const served = site.sites[0]!;
+		const bar = page.getByTestId('navigation-bar');
+
+		await page.goto(served.url);
+		await expect(bar.getByRole('link', { name: 'Open a Workspace from GitHub' })).toHaveAttribute(
+			'href',
+			`${EDITOR_INSTANCE}?clone=ada/atlas`
+		);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await expect(bar.getByRole('link', { name: 'Open in Ballastella' })).toHaveAttribute(
+			'href',
+			`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
+		);
 	});
 
 	/**
@@ -1194,7 +1226,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 		await page.goto(served.url);
 
 		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
-		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: RETURN_LINK })).toHaveCount(0);
 		await expect(page.getByTestId('site-problem')).toHaveCount(0);
 		// Every site published before ticket 09 is in this state, and the binding is a whole extra
 		// round trip on the Front Page of every one of them.
@@ -1213,7 +1245,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 		await page.goto(site.sites[0]!.url);
 
 		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
-		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: RETURN_LINK })).toHaveCount(0);
 		await expect(page.getByTestId('site-problem')).toHaveCount(0);
 		expect(seen.failures).toEqual([]);
 	});
@@ -3956,7 +3988,7 @@ test.describe('a Reader on a phone', () => {
 			// rather than this app's and folds with the rest.
 			const menu = bar.getByTestId('bar-menu');
 			await expect(menu).toBeVisible();
-			await expect(bar.getByRole('link', { name: /in Ballastella$/ })).toBeHidden();
+			await expect(bar.getByRole('link', { name: RETURN_LINK })).toBeHidden();
 
 			await menu.focus();
 			await page.keyboard.press('Enter');
@@ -3964,7 +3996,7 @@ test.describe('a Reader on a phone', () => {
 			await expect(bar.getByTestId('theme-toggle')).toBeVisible();
 			await expect(bar.getByTestId('all-projects')).toBeVisible();
 
-			const link = bar.getByRole('link', { name: /in Ballastella$/ });
+			const link = bar.getByRole('link', { name: RETURN_LINK });
 			await expect(link).toBeVisible();
 			const box = (await link.boundingBox())!;
 			expect(box.width, `link width at ${where || 'the Front Page'}`).toBeLessThanOrEqual(375);

@@ -117,6 +117,66 @@ const PUBLISHED: Record<string, string> = {
 	...Object.fromEntries(OUTSIDE_NAMESPACE.map((path) => [path, `${path}, the scholar's own\n`]))
 };
 
+/**
+ * A real Georeference Annotation over `map-1`, as `serialiseAlignment` writes one.
+ *
+ * ⚠ **Only the Import fixture needs this.** A Review copies an Alignment's bytes across without
+ * reading them, so the stub above is enough to prove which files travelled; an Import *remaps* every
+ * Alignment onto the Map Image identity it mints, so it parses them and refuses one that is not a
+ * Georeference Annotation. Both fixtures are deliberate: the stub keeps the Review's byte assertions
+ * legible, and this keeps the Import's refusals about the Import.
+ */
+const GEOREFERENCED_MAP_1 = JSON.stringify({
+	type: 'Annotation',
+	'@context': [
+		'http://iiif.io/api/extension/georef/1/context.json',
+		'http://iiif.io/api/presentation/3/context.json'
+	],
+	motivation: 'georeferencing',
+	target: {
+		type: 'SpecificResource',
+		source: { id: 'https://unset.invalid/map-1', type: 'ImageService3', width: 4096, height: 3072 },
+		selector: {
+			type: 'SvgSelector',
+			value:
+				'<svg width="4096" height="3072"><polygon points="0,0 4096,0 4096,3072 0,3072" /></svg>'
+		}
+	},
+	body: {
+		type: 'FeatureCollection',
+		transformation: { type: 'polynomial', options: { order: 1 } },
+		features: [
+			[
+				[100, 100],
+				[4.88, 52.375]
+			],
+			[
+				[3900, 100],
+				[4.92, 52.375]
+			],
+			[
+				[3900, 2900],
+				[4.92, 52.36]
+			],
+			[
+				[100, 2900],
+				[4.88, 52.36]
+			]
+		].map(([resourceCoords, coordinates]) => ({
+			type: 'Feature',
+			properties: { resourceCoords },
+			geometry: { type: 'Point', coordinates }
+		}))
+	}
+});
+
+/** The same published Workspace, with an Alignment an Import can really remap. */
+const IMPORTABLE: Record<string, string> = {
+	...PUBLISHED,
+	// alignment-write-is-the-fixture: the Alignment as it sits on the Remote, seeded into the fake GitHub rather than into any Workspace — the Import under test is what writes one, through the remapping
+	'alignments/map-1.json': GEOREFERENCED_MAP_1
+};
+
 /** Everything reviewing the Amsterdam Project brings down, and nothing else. */
 const AMSTERDAM_CLOSURE = [
 	'alignments/map-1.json',
@@ -494,6 +554,88 @@ test.describe('arriving on a link from a Published Site', () => {
 		expect(new URL(page.url()).searchParams.get('p')).toBe(AMSTERDAM);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(page.getByTestId('project-screen')).toBeVisible();
+	});
+
+	/**
+	 * The other half of what one link now offers: keeping the Project rather than looking at it
+	 * (SPEC stories 4, 5, 74 and 80).
+	 *
+	 * ⚠ **One test, because the claims are one workflow and none of them survives on its own.** That
+	 * the Import writes into the Workspace the offer *named* is only observable against the Workspace
+	 * that already existed; that it made no second one is what tells Import from Review at all; and
+	 * that a published tree's own `remote.json` did not become this Workspace's Remote is a fact
+	 * about the same Workspace after the same operation. The engine's refusals, the closure and the
+	 * allocation are exhausted at Seam 1 (`project-import-source.test.ts`,
+	 * `project-import-own-remote.test.ts`) and the offer's controls at Seam 1c
+	 * (`return-link-offer.dom.test.ts`).
+	 *
+	 * ⚠ **`rejectCredential`, and nothing signs in.** A reader who was sent a link is very often
+	 * somebody with no GitHub account, so a request that attached an `Authorization` header anywhere
+	 * would 401 here rather than passing unnoticed.
+	 */
+	test('can Import that Project into the Workspace the reader is already in', async ({ page }) => {
+		const github = await start(page, {
+			repositories: [{ owner: OWNER, name: REPOSITORY, files: IMPORTABLE }],
+			rejectCredential: true
+		});
+
+		await page.goto(LINK);
+
+		// The destination in words, beside the other answer and the way out (stories 74–76).
+		await expect(page.getByTestId('import-return-link')).toContainText(DEFAULT_WORKSPACE);
+		await expect(accept(page)).toContainText('review copy');
+		await expect(page.getByTestId('dismiss-return-link')).toBeVisible();
+
+		await page.getByTestId('import-return-link').click();
+
+		await expect(page.getByTestId('return-link-outcome')).toContainText('Amsterdam 1625');
+		await expect(page.getByTestId('return-link-outcome')).toContainText(DEFAULT_WORKSPACE);
+		// The Workspace the reader never left, and no review copy anywhere.
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		await expect(banner(page)).toBeHidden();
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+
+		// What arrived is the Project's closure as ordinary work — and **not** the publisher's own
+		// files, the other Project, or the `remote.json` sitting in the published root.
+		const paths = Object.keys(await everyByteOf(page, DEFAULT_WORKSPACE));
+		// ⚠ **The Map Image is a fresh identity, not the publisher's** (ADR-0037). An Import mints one,
+		// so the closure cannot be compared to the Remote's own paths — which is exactly the difference
+		// from the Review above, and the reason the identity is read out of the result rather than
+		// written into the expectation.
+		const minted = [
+			...new Set(paths.filter((at) => at.startsWith('images/')).map((at) => at.split('/')[1]))
+		];
+		expect(minted).toEqual([expect.not.stringMatching(/^map-1$/)]);
+		expect(paths.sort()).toEqual(
+			[
+				`alignments/${minted[0]}.json`,
+				`${AMSTERDAM}/annotations/warehouses.geojson`,
+				`${AMSTERDAM}/project.json`,
+				`images/${minted[0]}/0,0,256,256/256,256/0/default.jpg`,
+				`images/${minted[0]}/info.json`
+			].sort()
+		);
+		for (const path of NOT_THIS_PROJECT) expect(paths).not.toContain(path);
+
+		// ⚠ **Story 80: the published tree names `someone-else/fork`, and this Workspace is still
+		// unbound.** A copied or forked repository choosing a stranger's Remote is the failure the
+		// separation between published metadata and local binding exists to prevent, so the bind form
+		// is what the Remote screen shows.
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remote-repository-field')).toBeVisible();
+		await expect(page.getByTestId('bound-remote')).toHaveCount(0);
+		await closeRemoteSettings(page);
+
+		// Closing the offer leaves the reader on the Project they came for, addressed by where it
+		// landed rather than by the link's own directory.
+		await page.getByTestId('dismiss-return-link').click();
+		await expect.poll(() => new URL(page.url()).searchParams.get('p')).toBe(AMSTERDAM);
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+
+		// Anonymous throughout — `rejectCredential` would have 401'd anything carrying a token — and
+		// one raw request per file of the closure, plus the `project.json` the source reads and parses
+		// before it will plan a closure at all.
+		expect(github.rawGets(OWNER, REPOSITORY)).toBe(AMSTERDAM_CLOSURE.length + 1);
 	});
 
 	test('confirming makes the review copy, holding that one Project', async ({ page }) => {

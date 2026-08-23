@@ -23,6 +23,7 @@ import {
 	readImportEvidence,
 	detachImportedProject,
 	readProjectBundleSource,
+	readRemoteProjectSource,
 	remapProjectImport,
 	serialiseProjectFile,
 	readReviewMark,
@@ -1420,8 +1421,9 @@ export class WorkspaceStorage {
 	// ⚠ **The opposite destination from every Review above, and the boundary is the whole design.**
 	// A Review makes a throwaway Workspace and may never touch the author's own; an Import writes into
 	// the Workspace they are looking at and never makes another. So the two share a *source* — the
-	// read-only capability `readProjectBundleSource` returns, which is handed no store at all — and
-	// share nothing else. Nothing below may grow a `discard`, and nothing above may grow a destination.
+	// read-only capability `readProjectBundleSource` and `readRemoteProjectSource` return, which is
+	// handed no store at all — and share nothing else. Nothing below may grow a `discard`, and nothing
+	// above may grow a destination.
 
 	/**
 	 * Which Workspace an Import would copy into, or `null` when none may be.
@@ -1439,13 +1441,60 @@ export class WorkspaceStorage {
 	/**
 	 * Copy one Project out of a bundle into the Workspace that is already open.
 	 *
+	 * The bundle's own refusals — a malformed archive, a Project from a newer version of the app —
+	 * are the source's, before the Import below has a destination to plan against.
+	 *
+	 * @throws ImportSourceRefusedError, ImportRefusedError, ProjectFormatTooNewError — each with
+	 *   nothing added to the Workspace
+	 */
+	async importBundle(file: File, target: ImportTarget): Promise<ImportedIntoWorkspace> {
+		return this.#importProject(
+			() => readProjectBundleSource(() => file.stream(), { fileName: file.name }),
+			file.name,
+			target
+		);
+	}
+
+	/**
+	 * Copy one Project off somebody's Published Site into the Workspace that is already open.
+	 *
+	 * ⚠ **The same operation as {@link importBundle}, with the bytes coming off GitHub instead of a
+	 * file** (ADR-0037). Everything that makes an Import an Import — the detachment, the remapping,
+	 * ticket 17's Remote evidence, the allocation and the atomic transaction — is below, shared, so
+	 * the two sources cannot come to disagree about what arriving work is.
+	 *
+	 * ⚠ **Anonymous, and no credential is read** (SPEC story 6). A reader of a public Published Site
+	 * is very often somebody with no GitHub account, and the source reads the repository the same way
+	 * {@link reviewFrom} does: unauthenticated, or not at all.
+	 *
+	 * ⚠ **Nothing about the published tree binds this Workspace** (story 80). The source offers a
+	 * Project's closure and an observed origin; a Workspace `remote.json` sitting in the published
+	 * root is not part of either, and the origin travels as provenance rather than as a relationship.
+	 *
+	 * @throws ReviewRefusedError, ImportSourceRefusedError, ImportRefusedError,
+	 *   ProjectFormatTooNewError — each with nothing added to the Workspace
+	 */
+	async importRemoteProject(
+		remote: ReviewReference,
+		target: ImportTarget
+	): Promise<ImportedIntoWorkspace> {
+		return this.#importProject(
+			() => readRemoteProjectSource({ remote }),
+			`${describeRemote(remote)} · ${remote.project}`,
+			target
+		);
+	}
+
+	/**
+	 * The Import itself, over whichever source the caller opened.
+	 *
 	 * The engine is `@ballastella/core`'s and the order is its own (ADR-0037): the manifest is
 	 * detached before it is remapped, because the remapping serialises what it plans; the Map Image
 	 * identities are minted before anything is allocated, because the destination path set is what a
 	 * transaction is planned over; and the allocated display name is folded in last, because
 	 * `commitProjectImport` writes `project.json` from the source's held-back bytes rather than from
-	 * the file stream. What this method owns is the three things core deliberately does not know: which
-	 * Workspace, what the author is already looking at, and that somebody is waiting.
+	 * the file stream. What this method owns is the three things core deliberately does not know:
+	 * which Workspace, what the author is already looking at, and that somebody is waiting.
 	 *
 	 * ⚠ **The target is re-checked immediately before the transaction, not only when the offer
 	 * opened.** The offer names a Workspace in words, and a switcher two clicks away can make that
@@ -1457,16 +1506,17 @@ export class WorkspaceStorage {
 	 * a tar and declares no total, but a closure *does* — its path set is known before a byte moves —
 	 * so the two numbers here are both real. A Map Image pyramid is thousands of files over real
 	 * minutes and this is the path ADR-0001 makes the only way in on Firefox, Safari and iPad.
-	 *
-	 * @throws ImportSourceRefusedError, ImportRefusedError, ProjectFormatTooNewError — each with
-	 *   nothing added to the Workspace
 	 */
-	async importBundle(file: File, target: ImportTarget): Promise<ImportedIntoWorkspace> {
+	async #importProject(
+		read: () => Promise<ProjectImportSource>,
+		subject: string,
+		target: ImportTarget
+	): Promise<ImportedIntoWorkspace> {
 		const announce = (files: number, totalFiles: number, finished: boolean) => {
-			this.transfer = { kind: 'import', subject: file.name, files, totalFiles, finished };
+			this.transfer = { kind: 'import', subject, files, totalFiles, finished };
 		};
 		try {
-			const source = await readProjectBundleSource(() => file.stream(), { fileName: file.name });
+			const source = await read();
 			// The moment the transfer was observed, read once and serialised straight into
 			// `project.json`. Nothing holds it and nothing re-reads it, which is the mutable instance
 			// in reactive state the rule below is about.

@@ -284,15 +284,19 @@
 	$effect(() => {
 		// The whole-Workspace invitation belongs to the Front Page and the Project's to a Project: a
 		// Reader looking at one piece of work is offered that piece of work.
+		//
+		// ⚠ **The two are labelled apart, and only the Project's says “Open in Ballastella”** (SPEC
+		// stories 72 and 77). A Project's link raises an offer with two answers behind it — keep this
+		// work, or look at it in a review copy — so naming either one here would be a navbar deciding
+		// something the Reader has not been asked yet. The Front Page's is one operation and says
+		// which: a whole Workspace, out of GitHub, next to the author's own.
 		if (openDirectory === null) {
 			returnLink.current =
-				cloneLink === null ? null : { href: cloneLink, label: 'Open in Ballastella' };
+				cloneLink === null ? null : { href: cloneLink, label: 'Open a Workspace from GitHub' };
 			return;
 		}
 		returnLink.current =
-			reviewLink === null
-				? null
-				: { href: reviewLink, label: 'Review this Project in Ballastella' };
+			reviewLink === null ? null : { href: reviewLink, label: 'Open in Ballastella' };
 	});
 
 	/**
@@ -1290,7 +1294,7 @@
 			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
 			this expression and nothing else — because the sentence is *about* the invitation. A site
 			published into a folder, and every site published before this epic, records no instance or
-			no repository, so the bar carries no "Open in Ballastella" and this would be telling a
+			no repository, so the bar carries no "Open a Workspace from GitHub" and this would be telling a
 			Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
 			drift into a page that offers the link without the sentence or the sentence without the link.
 		-->

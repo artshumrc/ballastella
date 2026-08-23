@@ -4,7 +4,7 @@
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
-	 * What a link from a Published Site would do, and the press that does it (SPEC stories 49–51).
+	 * What a link from a Published Site would do, and the press that does it (SPEC stories 72–77).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * IT OFFERS; IT DOES NOT ACT
@@ -17,6 +17,16 @@
 	 * nothing.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ONE LINK, TWO ANSWERS, AND THE VOCABULARY IS THE DIFFERENCE
+	 *
+	 * A Published *Project* carries one “Open in Ballastella” rather than competing Import and Review
+	 * links, because the choice between keeping somebody's work and looking at it is a decision to
+	 * put in front of a reader once they have arrived, not two links to tell them apart in a navbar
+	 * (stories 72–75). So the Project invitation raises **both** offers here and names the Workspace
+	 * an Import would go into, in words. The whole-repository invitation keeps its single answer:
+	 * opening a Workspace from GitHub is one operation, and there is nothing to choose between.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * NOT A DIALOG, AND NOT A CREDENTIAL
 	 *
 	 * Rendered in the page above whichever screen `?p=` chose, in the shape the sign-in outcome
@@ -25,9 +35,9 @@
 	 * so that its outcome survives the Workspace switch underneath it — the route does not remount,
 	 * and the sentence is about the Workspace the visitor has just been moved into.
 	 *
-	 * ⚠ **Both operations are unauthenticated and nothing here asks for a sign-in** (SPEC stories 48
-	 * and 50). A student with no GitHub account is the person this link is most likely to reach, and
-	 * a credential prompt in front of it would be the one thing that stops them.
+	 * ⚠ **Every operation here is unauthenticated and nothing asks for a sign-in** (SPEC stories 5
+	 * and 6). A student with no GitHub account is the person this link is most likely to reach, and a
+	 * credential prompt in front of it would be the one thing that stops them.
 	 */
 	let {
 		storage,
@@ -37,48 +47,113 @@
 		storage: WorkspaceStorage;
 		link: ReturnLink;
 		/**
-		 * Take this offer off the page — `'declined'` when it was turned down having done nothing, and
-		 * `'finished'` when what it offered has already happened.
+		 * Take this offer off the page, and say what the route has to put right behind it.
 		 *
-		 * The two are not interchangeable to the page underneath: a declined Review leaves a `?p=`
-		 * naming a Project this Workspace has not got, and a finished one leaves a `?p=` naming the
-		 * Project the visitor came to read. The route acts on the difference.
+		 * `'declined'` was turned down having done nothing; `'finished'` is an operation that left the
+		 * visitor in the Workspace it made; `'imported'` names the directory the Project was allocated
+		 * in the Workspace they never left.
+		 *
+		 * The three are not interchangeable to the page underneath: a declined Review leaves a `?p=`
+		 * naming a Project this Workspace has not got, a finished one leaves a `?p=` naming the
+		 * Project the visitor came to read, and an Import may have allocated a different directory
+		 * from the one the link named. The route acts on the difference.
 		 */
-		ondismiss: (reason: 'declined' | 'finished') => void;
+		ondismiss: (
+			outcome: { reason: 'declined' | 'finished' } | { reason: 'imported'; directory: string }
+		) => void;
 	} = $props();
 
 	/** What the operation did, in the words the user should see, or `''`. */
 	let outcome = $state('');
 	/** Why it did not happen. Its own state, so a refusal is an alert rather than a status. */
 	let problem = $state('');
-	/** Whether it is running, so the button cannot be pressed twice. */
-	let busy = $state(false);
+	/**
+	 * Which choice is running, or `''`.
+	 *
+	 * Which one, rather than merely that one is: both Project choices are on screen together, and a
+	 * pair of buttons that both say “Downloading…” does not tell a visitor what they pressed.
+	 */
+	let running = $state<'' | 'import' | 'accept'>('');
+	const busy = $derived(running !== '');
+	/** Where an Import put the Project, once one has, so the route can go to it. */
+	let importedInto = $state('');
 
 	const remote = $derived(describeRemote(link));
 
-	async function accept(): Promise<void> {
+	/**
+	 * The Workspace an Import would copy into, or `null` when none may be.
+	 *
+	 * ⚠ **Read live rather than captured when the offer was raised**, which is the opposite of the
+	 * hub's Import dialog and for the reason that dialog is modal and this is not: the switcher is
+	 * reachable the whole time this is on screen, so a name captured on arrival is a sentence that
+	 * quietly stops being true. Reading it here keeps the Workspace named and the Workspace written
+	 * to the same one; `importRemoteProject` re-checks it anyway, which is the layer that catches a
+	 * switch mid-download.
+	 */
+	const importTarget = $derived(storage.importTarget);
+
+	/** Run one of the choices, with the busy state and the refusal handling they share. */
+	async function choose(
+		which: 'import' | 'accept',
+		operation: () => Promise<string>
+	): Promise<void> {
 		if (busy) return;
 		outcome = '';
 		problem = '';
-		busy = true;
+		running = which;
 		try {
-			const done =
-				link.kind === 'clone'
-					? await storage.openFromGitHub({ owner: link.owner, repository: link.repository })
-					: await storage.reviewFrom({
-							owner: link.owner,
-							repository: link.repository,
-							project: link.project
-						});
-			// The engines' own sentences, which say which Workspace the visitor is now in — the one
-			// thing they cannot work out for themselves after the screen has changed underneath them.
-			outcome = done.notice;
+			outcome = await operation();
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
-			busy = false;
+			running = '';
 		}
 	}
+
+	const openWorkspace = (): Promise<void> =>
+		choose('accept', async () => {
+			if (link.kind !== 'clone') return '';
+			// The engine's own sentence, which says which Workspace the visitor is now in — the one
+			// thing they cannot work out for themselves after the screen has changed underneath them.
+			const { notice } = await storage.openFromGitHub({
+				owner: link.owner,
+				repository: link.repository
+			});
+			return notice;
+		});
+
+	const review = (): Promise<void> =>
+		choose('accept', async () => {
+			if (link.kind !== 'review') return '';
+			const { notice } = await storage.reviewFrom({
+				owner: link.owner,
+				repository: link.repository,
+				project: link.project
+			});
+			return notice;
+		});
+
+	const importProject = (): Promise<void> =>
+		choose('import', async () => {
+			const target = importTarget;
+			if (link.kind !== 'review' || target === null) return '';
+			const done = await storage.importRemoteProject(
+				{ owner: link.owner, repository: link.repository, project: link.project },
+				target
+			);
+			importedInto = done.directory;
+			// The allocated name, because a Workspace that already held a Project of that name gives
+			// the arriving one another — and a scholar who is not told goes looking for the first.
+			return (
+				`Imported ${done.name} into ${done.workspace}. It is yours to edit now, ` +
+				`with no connection back to where it came from.`
+			);
+		});
+
+	const close = () =>
+		ondismiss(
+			importedInto === '' ? { reason: 'finished' } : { reason: 'imported', directory: importedInto }
+		);
 </script>
 
 <!--
@@ -93,19 +168,13 @@
 >
 	{#if outcome}
 		<p data-testid="return-link-outcome">{outcome}</p>
-		<button
-			class="btn mt-3 btn-sm"
-			data-testid="dismiss-return-link"
-			onclick={() => ondismiss('finished')}
-		>
-			Close
-		</button>
+		<button class="btn mt-3 btn-sm" data-testid="dismiss-return-link" onclick={close}>Close</button>
 	{:else}
 		<h2 class="font-semibold">
 			{#if link.kind === 'clone'}
 				Open a Workspace from GitHub: {remote}?
 			{:else}
-				Review “{link.project}” from {remote}?
+				Open “{link.project}” from {remote}?
 			{/if}
 		</h2>
 		<p class="mt-1 max-w-prose text-sm opacity-70">
@@ -116,10 +185,12 @@
 				opened {remote}, it takes you back to that Workspace instead of downloading a second copy.
 				Nothing has been downloaded yet.
 			{:else}
-				You followed a link from a published site. This downloads that one Project into a separate
-				<strong>review copy</strong> — a throwaway Workspace holding only that Project. Nothing in this
-				Workspace is changed, nothing from the review copy can be brought back into it, and you do not
-				need a GitHub account. Nothing has been downloaded yet.
+				You followed a link from a published site, and there are two things you can do with that
+				Project. <strong>Import</strong> copies it into the Workspace you are in as work of your own
+				— yours to edit, publish and back up, with no connection back to where it came from.
+				<strong>A review copy</strong>
+				puts it in a separate throwaway Workspace, so you can look at it without adding it to anything.
+				Either way you do not need a GitHub account. Nothing has been downloaded yet.
 			{/if}
 		</p>
 
@@ -129,14 +200,35 @@
 				order the moment it is pressed, dropping a keyboard user's focus to `<body>` for the length
 				of a download that runs in minutes (WCAG 2.4.3).
 			-->
+			{#if link.kind === 'review' && importTarget !== null}
+				<!--
+					⚠ **The destination in words, and it is the primary choice** (SPEC story 74). A reader
+					who followed a link is being asked to keep somebody's work; "this Workspace" would not
+					tell them which one, and the switcher is two clicks away.
+
+					**Absent when there is nothing to Import into** — inside a review copy, or over a
+					Workspace whose interrupted Import has not been resolved. Reviewing still works, so the
+					choice is withheld rather than offered and refused.
+				-->
+				<button
+					class="btn btn-primary btn-sm"
+					class:btn-disabled={busy}
+					aria-disabled={busy}
+					data-testid="import-return-link"
+					onclick={() => void importProject()}
+				>
+					{running === 'import' ? 'Downloading…' : `Import into “${importTarget.name}”`}
+				</button>
+			{/if}
 			<button
-				class="btn btn-primary btn-sm"
+				class="btn btn-sm"
+				class:btn-primary={link.kind === 'clone'}
 				class:btn-disabled={busy}
 				aria-disabled={busy}
 				data-testid="accept-return-link"
-				onclick={() => void accept()}
+				onclick={() => void (link.kind === 'clone' ? openWorkspace() : review())}
 			>
-				{#if busy}
+				{#if running === 'accept'}
 					Downloading…
 				{:else if link.kind === 'clone'}
 					Open a Workspace from GitHub
@@ -145,7 +237,7 @@
 				{/if}
 			</button>
 			<!--
-				Shown as unavailable while the download runs, because it is: neither operation can be
+				Shown as unavailable while the download runs, because it is: no operation here can be
 				stopped part way, and a button that looks pressable and answers nothing is worse than one
 				that says so.
 			-->
@@ -154,7 +246,7 @@
 				class:btn-disabled={busy}
 				aria-disabled={busy}
 				data-testid="dismiss-return-link"
-				onclick={() => !busy && ondismiss('declined')}
+				onclick={() => !busy && ondismiss({ reason: 'declined' })}
 			>
 				No thanks
 			</button>
@@ -174,7 +266,8 @@
 
 	{#if problem}
 		<!-- The refusals: no such public repository, no Project by that name, a truncated file list, no
-		     room to hold it, or a Project from a newer version. Each has left nothing behind. -->
+		     room to hold it, a Project this Workspace already synchronizes, or one from a newer
+		     version. Each has left nothing behind. -->
 		<div role="alert" class="mt-3 alert flex-col items-start alert-error">
 			<p data-testid="return-link-problem">{problem}</p>
 		</div>

@@ -232,17 +232,31 @@
 	<ReturnLinkOffer
 		{storage}
 		link={returnLink}
-		ondismiss={(reason) => {
-			// ⚠ **Turning down a Review takes its `?p=` with it.** The review link's Project is named in
-			// the parameter that addresses one (ADR-0008), and before the Review has run this Workspace
-			// has no such Project — so dismissing the offer alone would leave the visitor looking at
-			// “There is no Project called “amsterdam-1625” in this Workspace”, with the one thing on the
-			// page that explained where that name came from now gone. Declining a link leaves the editor
-			// as the visitor found it, which is its own hub.
+		ondismiss={(outcome) => {
+			// ⚠ **Turning down a Project invitation takes its `?p=` with it.** The link's Project is
+			// named in the parameter that addresses one (ADR-0008), and before anything has been
+			// fetched this Workspace has no such Project — so dismissing the offer alone would leave the
+			// visitor looking at “There is no Project called “amsterdam-1625” in this Workspace”, with
+			// the one thing on the page that explained where that name came from now gone. Declining a
+			// link leaves the editor as the visitor found it, which is its own hub.
 			//
-			// Not after the Review has run: by then `?p=` names a Project that is here, and it is the
-			// one the visitor came to read.
-			if (reason === 'declined' && returnLink?.kind === 'review') void strip('');
+			// Not after a Review: by then `?p=` names a Project that is here, and it is the one the
+			// visitor came to read.
+			if (outcome.reason === 'declined' && returnLink?.kind === 'review') void strip('');
+			// ⚠ **And an Import is addressed by where it landed, not by where it came from.** A
+			// Workspace that already held a Project of that name allocates the arriving one another
+			// directory, so the link's own `?p=` would name nothing here — which is the same dead end
+			// declining avoids, reached from the other side.
+			//
+			// ⚠ **Opened explicitly, because the address may not have changed.** The screen behind the
+			// offer has been sitting on this very `?p=` since the visitor landed, failing to find a
+			// Project that was not here yet; a `goto` to the address it is already on raises no
+			// navigation, so the effect that opens Projects never runs and the reader is left looking
+			// at the dead end their Import has just fixed.
+			if (outcome.reason === 'imported') {
+				const { directory } = outcome;
+				void strip(`?p=${encodeURIComponent(directory)}`).then(() => session?.open(directory));
+			}
 			returnLink = null;
 		}}
 	/>
