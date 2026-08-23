@@ -184,7 +184,9 @@ export {
 	parseReviewMark,
 	readReviewMark,
 	serialiseReviewMark,
-	type ReviewMark
+	type ReviewMark,
+	type ReviewOrigin,
+	type ReviewOriginBacking
 } from './project/review-workspace.js';
 // ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: ticket 15 warns before a
 // Workspace grows and ticket 16 warns again at publish, from the same two functions rather than two
@@ -242,8 +244,11 @@ export {
 	forgetWorkspaceFolder,
 	grantWorkspaceFolder,
 	isFolderWorkspaceSupported,
+	releaseWorkspaceFolder,
 	rememberedFolderName,
-	reopenWorkspaceFolder
+	reopenRetainedWorkspaceFolder,
+	reopenWorkspaceFolder,
+	retainWorkspaceFolder
 } from './store/workspace-folder.js';
 
 // Handing one Project to somebody else, and reviewing one you were handed (ticket 14, ADR-0024).
@@ -258,6 +263,13 @@ export {
 	type ExportProjectBundleOptions,
 	type ProjectBundle
 } from './transfer/export-project-bundle.js';
+export {
+	ReviewDestinationUnavailableError,
+	refuseReviewDestination,
+	reviewCopyStillHere,
+	reviewImportOrigin,
+	type ReviewDestinationRefusal
+} from './transfer/project-import-review.js';
 export {
 	BUNDLE_LIMITS,
 	assertReferencesPresent,

@@ -150,7 +150,8 @@ const MARK: ReviewMark = {
 	formatVersion: REVIEW_MARK_FORMAT_VERSION,
 	project: 'Amsterdam 1625',
 	directory: DIRECTORY,
-	openedAt: '2026-08-22T10:00:00.000Z'
+	openedAt: '2026-08-22T10:00:00.000Z',
+	origin: null
 };
 
 function seed(files: Record<string, string>): MemoryProjectStore {

@@ -16,7 +16,8 @@ import {
 	REVIEW_MARK_FORMAT_VERSION,
 	REVIEW_MARK_PATH,
 	serialiseReviewMark,
-	type ReviewMark
+	type ReviewMark,
+	type ReviewOrigin
 } from '../project/review-workspace.js';
 import { describeBytes } from '../project/workspace-size.js';
 import { hoistedImageId, isReservedDirectoryName, toDirectoryName } from '../project/workspace.js';
@@ -53,6 +54,15 @@ export interface ReviewDestination {
 	/** The name the Review Workspace really got. Ticket 12 suffixes rather than refusing. */
 	readonly name: string;
 	readonly store: ProjectStore;
+	/**
+	 * The ordinary Workspace this Review is beginning from, for the mark to record, or `null`.
+	 *
+	 * ⚠ **Supplied by whoever makes the destination, because that is the only thing that knows it.**
+	 * Core is handed a Workspace to fill; which Workspace the reviewer was in a moment ago is a fact
+	 * about the application, and the alternative — reading it back at Import time — is the guess
+	 * {@link ReviewOrigin} exists to rule out.
+	 */
+	readonly origin: ReviewOrigin | null;
 	/** Throw the whole Review Workspace away, with everything opening it has written. */
 	discard(): Promise<void>;
 }
@@ -209,7 +219,8 @@ export async function openProjectBundle(
 			formatVersion: REVIEW_MARK_FORMAT_VERSION,
 			project: preferredWorkspace,
 			directory: '',
-			openedAt: now().toISOString()
+			openedAt: now().toISOString(),
+			origin: destination.origin
 		});
 
 		const outcome = await drainInto(store, reader, directory, limits, options);
@@ -240,7 +251,8 @@ export async function openProjectBundle(
 			formatVersion: REVIEW_MARK_FORMAT_VERSION,
 			project: project.name || preferredWorkspace,
 			directory,
-			openedAt: now().toISOString()
+			openedAt: now().toISOString(),
+			origin: destination.origin
 		});
 
 		const files = outcome.files + 1;
@@ -255,8 +267,8 @@ export async function openProjectBundle(
 			notice:
 				`Opened “${project.name || directory}” into a review copy called ` +
 				`“${destination.name}”. It is a throwaway Workspace: your own Workspaces have not been ` +
-				`touched, nothing here can be copied into them, and discarding this one removes ` +
-				`everything in it.` +
+				`touched, nothing here reaches one unless you ask for it with Import, and discarding ` +
+				`this one removes everything in it.` +
 				(outcome.declined.length === 0
 					? ''
 					: ` ${outcome.declined.length} ${

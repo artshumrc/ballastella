@@ -2,7 +2,11 @@ import { packTar, unpackTar, type TarEntry } from 'modern-tar';
 import { describe, expect, it } from 'vitest';
 
 import { ProjectFormatTooNewError } from '../project/project-file.js';
-import { readReviewMark, REVIEW_MARK_PATH } from '../project/review-workspace.js';
+import {
+	readReviewMark,
+	REVIEW_MARK_PATH,
+	type ReviewOrigin
+} from '../project/review-workspace.js';
 import { readRemoteBinding } from '../remote/remote-binding.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
@@ -156,7 +160,10 @@ const handBuiltFrom = (files: Record<string, string>): Promise<Uint8Array<ArrayB
  * was thrown away" and "nothing was written into it" are different claims and only the first one
  * makes the refusals' closing sentence true.
  */
-function destination(name = 'Amsterdam 1625'): {
+function destination(
+	name = 'Amsterdam 1625',
+	origin: ReviewOrigin | null = null
+): {
 	open: (preferred: string) => Promise<ReviewDestination>;
 	store: MemoryProjectStore;
 	asked: string[];
@@ -174,6 +181,7 @@ function destination(name = 'Amsterdam 1625'): {
 			return {
 				name,
 				store,
+				origin,
 				discard: async () => {
 					discarded = true;
 					for (const path of await store.list('')) await store.delete(path);
@@ -326,9 +334,21 @@ describe('a bundle opens into a Review Workspace', () => {
 	});
 
 	// The mark is what makes the banner appear, and it names what was opened. Criterion 5's core half.
-	it('marks the Workspace, naming the Project that was opened', async () => {
+	//
+	// ⚠ **And which Workspace the reviewer was in when they opened it** (ADR-0037): the destination
+	// supplies that, because core is handed a Workspace to fill and has no way to know what the app
+	// left behind. It is written now rather than looked up at Import time, which is the whole
+	// difference between "the Workspace review began from" and "whichever one is open when you press
+	// the button".
+	it('marks the Workspace, naming the Project that was opened and where review began', async () => {
 		const source = seed(twoProjectsTwoMaps());
-		const into = destination();
+		const origin: ReviewOrigin = {
+			workspaceKey: 'opfs:My Workspace',
+			backing: 'browser',
+			name: 'My Workspace',
+			folderReference: ''
+		};
+		const into = destination('Amsterdam 1625', origin);
 
 		await openProjectBundle(streamOf(await bundleOf(source, 'amsterdam-1625')), into.open, {
 			fileName: 'amsterdam-1625.project.tar',
@@ -339,7 +359,8 @@ describe('a bundle opens into a Review Workspace', () => {
 			formatVersion: 1,
 			project: 'Amsterdam 1625',
 			directory: 'amsterdam-1625',
-			openedAt: '2026-08-08T09:00:00.000Z'
+			openedAt: '2026-08-08T09:00:00.000Z',
+			origin
 		});
 	});
 

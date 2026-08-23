@@ -436,11 +436,17 @@ test.describe('reviewing one Project from a Remote', () => {
 		expect(github.requests).toEqual([`/repos/${OWNER}/${REPOSITORY}/git/trees/main`]);
 	});
 
-	test('offers nothing that copies, promotes, or merges the reviewed Project', async ({ page }) => {
-		// ADR-0024's fence, re-asserted at the route that creates the Workspace: promotion is the
-		// Alignment collision arriving through a convenience, and this is the likeliest place for it to
-		// be helpfully reintroduced.
-		await start(page);
+	// ⚠ **The fence moved with ADR-0037 and did not go away, so this asserts where it is now.** There
+	// is still no promote and no merge — under ADR-0023 nothing may lay a reviewed Project over the
+	// reader's own shared pool — and the one route out is Import, which copies into the Workspace
+	// review began from with fresh Map Image identities. What must not exist is a convenience that
+	// reads as one and performs the other.
+	test('offers Import into the Workspace review began from, and nothing that promotes or merges', async ({
+		page
+	}) => {
+		// The published tree with an Alignment an Import can really remap: a Review carries an
+		// Alignment's bytes across without reading them, and an Import parses every one of them.
+		await start(page, { repositories: [{ owner: OWNER, name: REPOSITORY, files: IMPORTABLE }] });
 
 		await review(page);
 		await expect(banner(page)).toBeVisible();
@@ -450,15 +456,50 @@ test.describe('reviewing one Project from a Remote', () => {
 			/copy to my workspace/i,
 			/save a copy/i,
 			/promote/i,
-			/move to my workspace/i,
-			/import into/i
+			/move to my workspace/i
 		]) {
 			await expect(page.getByRole('button', { name: forbidden })).toHaveCount(0);
 		}
-		// Both routes into a review copy are gone from inside one, so a reviewer cannot treat it as a
+		// Both routes *into* a review copy are gone from inside one, so a reviewer cannot treat it as a
 		// place things accumulate.
 		await expect(page.getByTestId('open-bundle')).toHaveCount(0);
 		await expect(page.getByTestId('review-remote')).toHaveCount(0);
+
+		// The one deliberate route out, naming the Workspace the reader was in when they followed the
+		// link — recorded by the Review that made this Workspace, not looked up now.
+		await expect(page.getByTestId('import-review')).toHaveText(
+			`Import into “${DEFAULT_WORKSPACE}”`
+		);
+		await page.getByTestId('import-review').click();
+		await page.getByTestId('confirm-import-review').click();
+
+		// Landed there, with the review copy gone only after the copy arrived. The announcement is
+		// awaited first because it is the last thing the operation does: the banner goes when the
+		// destination is adopted, which is *before* the review copy is discarded.
+		await expect(banner(page)).toBeHidden();
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('review-announcement')).toContainText(
+			'discarded the review copy'
+		);
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+		const stored = await everyByteOf(page, DEFAULT_WORKSPACE);
+		const directory = Object.keys(stored).find((path) => path.endsWith('/project.json'));
+		expect(directory).toBeDefined();
+		const imported = JSON.parse(stored[directory as string]) as {
+			name: string;
+			importProvenance: { kind: string; evidence: string }[];
+			layers: { kind: string; imageId?: string }[];
+		};
+		expect(imported.name).toBe('Amsterdam 1625');
+		// A review Import records the review, not the repository behind it: what this build observed is
+		// a copy taken out of a Workspace on this computer (ADR-0037).
+		expect(imported.importProvenance.map((entry) => [entry.kind, entry.evidence])).toEqual([
+			['review', 'observed']
+		]);
+		// A fresh Map Image identity, so nothing of the reader's own could have been overwritten.
+		const drawn = imported.layers.find((layer) => layer.kind === 'map')?.imageId;
+		expect(drawn).toBeDefined();
+		expect(drawn).not.toBe('map-1');
 	});
 
 	test('two review copies from two repositories coexist, and my own Workspace is untouched', async ({

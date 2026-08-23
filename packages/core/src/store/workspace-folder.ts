@@ -173,6 +173,84 @@ export async function grantWorkspaceFolder(
 	return new FileSystemAccessProjectStore(folder);
 }
 
+/**
+ * Keep a **second, independent** hold on a folder grant, and answer with the reference to ask for it
+ * back by (ADR-0037).
+ *
+ * ⚠ **Separate from the single slot {@link rememberedFolderName} reads, which is the whole reason it
+ * exists.** That slot is "the folder to offer to reopen next visit", and it is overwritten the moment
+ * the user picks another folder. A Review Workspace's origin has to outlive exactly that: a reviewer
+ * opens a bundle from their folder Workspace, wanders into browser storage and back into a
+ * *different* folder, and the copy they then Import must still land in the folder they were in when
+ * they opened it. A remembered *name* would not do either — two folders can share one, and a folder
+ * deleted and recreated under the same name is a different place holding different work.
+ *
+ * The reference is opaque and means nothing outside this installation's IndexedDB. `null` where there
+ * is no IndexedDB at all, which is a Review that cannot record a folder origin rather than one that
+ * records a bad one.
+ */
+export async function retainWorkspaceFolder(
+	folder: FileSystemDirectoryHandle
+): Promise<string | null> {
+	const database = await openInstallationDatabase();
+	if (!database) return null;
+	const reference = `${RETAINED_PREFIX}${crypto.randomUUID()}`;
+	try {
+		await transact(database, 'readwrite', (store) => store.put(folder, reference));
+	} finally {
+		database.close();
+	}
+	return reference;
+}
+
+/**
+ * Ask for a retained folder back, or `null` when this installation no longer holds that grant.
+ *
+ * **Must be called from a user gesture**, for {@link reopenWorkspaceFolder}'s reason:
+ * `requestPermission()` needs transient user activation.
+ *
+ * A folder that has been deleted — or replaced by another folder of the same name, which is a
+ * different entry — is *not* reported here. Permission survives the folder, so this resolves and the
+ * first `list` fails, which is where ADR-0008's "Workspace not reachable" belongs and where the
+ * Import that asked for it refuses.
+ *
+ * @throws FolderPermissionDeniedError when the user declines
+ */
+export async function reopenRetainedWorkspaceFolder(
+	reference: string
+): Promise<FileSystemAccessProjectStore | null> {
+	if (!reference.startsWith(RETAINED_PREFIX)) return null;
+	const database = await openInstallationDatabase();
+	if (!database) return null;
+	let stored: unknown;
+	try {
+		stored = await transact(database, 'readonly', (store) => store.get(reference));
+	} finally {
+		database.close();
+	}
+	if (!(stored instanceof FileSystemDirectoryHandle)) return null;
+	return grantWorkspaceFolder(stored);
+}
+
+/**
+ * Let a retained grant go.
+ *
+ * Called when the Review Workspace that was holding it is gone, in either of the two ways that
+ * happens. A reference nothing holds any more is a handle this installation keeps for a Workspace
+ * that no longer exists; the folder itself is untouched, and the user's own grant to it — the one
+ * {@link reopenWorkspaceFolder} uses — is a different record and stays where it is.
+ */
+export async function releaseWorkspaceFolder(reference: string): Promise<void> {
+	if (!reference.startsWith(RETAINED_PREFIX)) return;
+	const database = await openInstallationDatabase();
+	if (!database) return;
+	try {
+		await transact(database, 'readwrite', (store) => store.delete(reference));
+	} finally {
+		database.close();
+	}
+}
+
 const directoryPicker = (): DirectoryPicker | undefined =>
 	typeof globalThis === 'undefined'
 		? undefined
@@ -184,6 +262,12 @@ const directoryPicker = (): DirectoryPicker | undefined =>
 // shares.
 
 const FOLDER_KEY = 'folder';
+
+/**
+ * What a retained grant's key begins with, so it cannot collide with {@link FOLDER_KEY} and so a
+ * reference from somewhere else — a mark somebody hand-edited — is refused rather than looked up.
+ */
+const RETAINED_PREFIX = 'retained:';
 
 async function rememberFolder(folder: FileSystemDirectoryHandle): Promise<void> {
 	remembered = folder;

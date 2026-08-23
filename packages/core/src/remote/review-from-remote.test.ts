@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { readReviewMark } from '../project/review-workspace.js';
+import { readReviewMark, type ReviewOrigin } from '../project/review-workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { ReviewDestination } from '../transfer/open-project-bundle.js';
@@ -100,7 +100,11 @@ const withoutFiles = (...paths: string[]): Record<string, string> =>
 	Object.fromEntries(Object.entries(PUBLISHED).filter(([path]) => !paths.includes(path)));
 
 /** A destination whose store and discards are inspectable. */
-function destinationFor(store: ProjectStore = new MemoryProjectStore(), name = REPOSITORY) {
+function destinationFor(
+	store: ProjectStore = new MemoryProjectStore(),
+	name = REPOSITORY,
+	origin: ReviewOrigin | null = null
+) {
 	let opened = 0;
 	let discarded = 0;
 	return {
@@ -116,6 +120,7 @@ function destinationFor(store: ProjectStore = new MemoryProjectStore(), name = R
 			return {
 				name: preferred === REPOSITORY ? name : preferred,
 				store,
+				origin,
 				discard: async () => {
 					discarded += 1;
 					for (const path of await store.list('')) await store.delete(path as StorePath);
@@ -238,9 +243,31 @@ describe('reviewFromRemote', () => {
 			formatVersion: 1,
 			project: 'Amsterdam 1625',
 			directory: AMSTERDAM,
-			openedAt: '2026-05-01T09:00:00.000Z'
+			openedAt: '2026-05-01T09:00:00.000Z',
+			origin: null
 		});
 		expect(result.notice).toContain('review copy');
+	});
+
+	// ADR-0037. The same fact the bundle path records, from the other source of bytes: which of the
+	// reader's own Workspaces this review copy was opened from, written now rather than looked up when
+	// the Import runs — by which time they may be standing in a different one.
+	it('records the ordinary Workspace review began from, as the destination supplies it', async () => {
+		const fake = await github();
+		const origin: ReviewOrigin = {
+			workspaceKey: 'folder:maps',
+			backing: 'folder',
+			name: 'maps',
+			folderReference: 'retained:8f1c'
+		};
+		const destination = destinationFor(new MemoryProjectStore(), REPOSITORY, origin);
+
+		await reviewFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		});
+
+		expect((await readReviewMark(destination.store))?.origin).toEqual(origin);
 	});
 
 	it('writes no remote.json, and binding what it made is refused', async () => {

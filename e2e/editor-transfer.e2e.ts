@@ -15,6 +15,7 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import {
 	closeWorkspaceSettings,
 	createWorkspace,
+	expectWorkspaceNamed,
 	openWorkspaceMenu,
 	openWorkspaceSettings,
 	switchToWorkspace
@@ -913,9 +914,11 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		).toContainText('review copy');
 	});
 
-	// Criterion 9. There is deliberately no "keep this", "copy to my Workspace", or "save a copy":
-	// promotion is the Alignment collision arriving through a convenience (ADR-0024).
-	test('offers nothing that copies, promotes, or merges the reviewed Project', async ({ page }) => {
+	// Criterion 9, as ADR-0037 leaves it. There is still no "keep this", no "save a copy" and no
+	// "promote": promotion is the Alignment collision arriving through a convenience, and Import is
+	// not one — it is a deliberate copy into a named Workspace, with fresh Map Image identities, and
+	// it says so before it is confirmed.
+	test('offers nothing that promotes or merges the reviewed Project', async ({ page }) => {
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
 
@@ -924,8 +927,7 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 			/copy to my workspace/i,
 			/save a copy/i,
 			/promote/i,
-			/move to my workspace/i,
-			/import into/i
+			/move to my workspace/i
 		]) {
 			await expect(page.getByRole('button', { name: forbidden })).toHaveCount(0);
 		}
@@ -1741,6 +1743,199 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 // size are walks of the same real OPFS, and a Backup is a third. So this is one test with three
 // restarts in it rather than three tests — the subject is a single workflow, "what the next visit
 // does with an outstanding marker", and the three markers are the three answers it can have.
+
+test.describe('Importing the review copy back into the Workspace review began from (ticket 19)', () => {
+	/**
+	 * The author's own work, seeded with an Alignment a reused Map Image identity would overwrite.
+	 *
+	 * The same fixture the direct Import uses, for the same reason: under ADR-0023 a Workspace holds
+	 * one Alignment per Map Image, so a review Import that carried the incoming identity across would
+	 * silently replace the sheet this Project is drawn by.
+	 */
+	const MINE = projectFiles({
+		'project.json': projectJson({ name: 'Amsterdam 1625', layers: [] }),
+		// alignment-write-is-the-fixture: the author's own Alignment of the sheet the review copy also holds, seeded so a reused Map Image identity would be visible as an overwrite
+		'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"mine, not the review copy’s"}'
+	});
+
+	/** A bundle carrying a real Georeference Annotation, which an Import rewrites onto a fresh id. */
+	const REVIEWABLE = projectFiles({
+		// alignment-write-is-the-fixture: the Alignment a bundle fixture carries, packed into a tar here; a review Import rewrites it onto a fresh identity through the one writer
+		'alignments/amsterdam-1625.json': alignmentJson(AMSTERDAM)
+	});
+
+	const importDialog = (page: Page) =>
+		page.getByRole('dialog', { name: `Import into “${DEFAULT_WORKSPACE}”` });
+
+	test.beforeEach(async ({ page }) => {
+		// A successful Import opens the Project it made, which is the Project screen and therefore the
+		// Base Map — served from the committed fixture, behind this suite's network fence.
+		await routeBaseMapArchive(page);
+		await seedProject(page, 'boston-1775', MINE);
+		await page.reload();
+		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+	});
+
+	// ⚠ **The claim is the *destination*, and the wandering in the middle is what makes it a claim at
+	// all.** The reviewer opens a bundle from their own Workspace, leaves it for a second Workspace,
+	// comes back, edits what they were sent, and then Imports. A destination resolved when the button
+	// is pressed would land the copy in "Somewhere else"; the one written into the mark before the
+	// first Project byte landed still says which Workspace review began from.
+	test('copies the reviewed state as edited into the recorded Workspace, then discards the copy', async ({
+		page
+	}) => {
+		const before = await everyByteOf(page, DEFAULT_WORKSPACE);
+		await openBundle(page, await bundleFixture(REVIEWABLE));
+		await expect(banner(page)).toBeVisible();
+
+		// A review copy is editable on purpose, and what an Import keeps is what is on screen.
+		await page.getByRole('button', { name: 'Rename Amsterdam 1625' }).click();
+		const renaming = page.getByRole('dialog', { name: 'Rename Project' });
+		await renaming.getByLabel('New name').fill('Amsterdam 1625, marked');
+		await renaming.getByRole('button', { name: 'Rename' }).click();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625, marked' })).toBeVisible();
+
+		// Away and back, which is what the banner's first exit is for and what a later switch must not
+		// redirect. The offer still names the Workspace review began from.
+		await createWorkspace(page, 'Somewhere else');
+		await switchToWorkspace(page, 'amsterdam-1625');
+		await expect(banner(page)).toBeVisible();
+		const offer = page.getByTestId('import-review');
+		await expect(offer).toHaveText(`Import into “${DEFAULT_WORKSPACE}”`);
+
+		// Both consequences, before the confirmation: what is copied, and when the copy goes.
+		await offer.click();
+		await expect(importDialog(page).getByTestId('import-review-state')).toContainText(
+			'as it is now'
+		);
+		await expect(importDialog(page).getByTestId('import-review-consequence')).toContainText(
+			'discarded once the copy has succeeded'
+		);
+		// Backing out is free: reading what the offer says costs nothing, which is what makes saying
+		// both consequences before the confirmation worth doing at all.
+		await importDialog(page).getByRole('button', { name: 'Cancel' }).click();
+		await expect(importDialog(page)).toBeHidden();
+		await expect(banner(page)).toBeVisible();
+		expect(await workspaceNames(page)).toEqual([
+			DEFAULT_WORKSPACE,
+			'Somewhere else',
+			'amsterdam-1625'
+		]);
+
+		await offer.click();
+		await page.getByTestId('confirm-import-review').click();
+
+		// Back in the recorded Workspace with the imported Project open — not in "Somewhere else", and
+		// not on the hub.
+		await expect(banner(page)).toBeHidden();
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('review-announcement')).toContainText(
+			`Imported “Amsterdam 1625, marked” into “${DEFAULT_WORKSPACE}”`
+		);
+		// Opened rather than merely listed (story 87): the address names the Project that arrived and
+		// the Project screen is what is on it.
+		await expect.poll(() => new URL(page.url()).searchParams.get('p')).not.toBeNull();
+		await expect(page.getByTestId('edit-project-name')).toBeVisible();
+		// And only then is the review copy gone.
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'Somewhere else']);
+
+		const after = await everyByteOf(page, DEFAULT_WORKSPACE);
+		// Every byte the author already had, the seeded Alignment above most of all.
+		for (const [path, text] of Object.entries(before)) expect(after[path]).toBe(text);
+
+		const directory = Object.keys(after).find(
+			(path) => path.endsWith('/project.json') && !path.startsWith('boston-1775/')
+		);
+		expect(directory).toBeDefined();
+		const imported = JSON.parse(after[directory as string]) as {
+			name: string;
+			onFrontPage?: boolean;
+			importProvenance: { kind: string; evidence: string; projectName?: string }[];
+			layers: { kind: string; imageId?: string }[];
+		};
+		// The reviewer's own edit, not the name the bundle carried.
+		expect(imported.name).toBe('Amsterdam 1625, marked');
+		expect(imported.onFrontPage).toBe(false);
+		expect(imported.importProvenance).toEqual([
+			{
+				kind: 'review',
+				projectName: 'Amsterdam 1625',
+				observedAt: expect.any(String),
+				evidence: 'observed'
+			}
+		]);
+		// A fresh Map Image identity and its Alignment rewritten onto it, exactly as every other
+		// Import — which is what leaves the author's own sheet above untouched.
+		const drawn = imported.layers.find((layer) => layer.kind === 'map')?.imageId;
+		expect(drawn).toBeDefined();
+		expect(drawn).not.toBe('amsterdam-1625');
+		expect(after[`alignments/${drawn}.json`]).toContain('georeferencing');
+	});
+
+	// Story 163, and the half that matters most: a refusal must not be the thing that loses the
+	// afternoon. The recorded Workspace is deleted behind the app's back — a second tab, or the user
+	// in another window — so the destination is gone by the time the button is pressed.
+	test('refuses a destination that is gone, leaving the review copy open and byte-identical', async ({
+		page
+	}) => {
+		await openBundle(page, await bundleFixture(REVIEWABLE));
+		await expect(banner(page)).toBeVisible();
+		const before = await everyByteOf(page, 'amsterdam-1625');
+
+		await page.evaluate(async (name) => {
+			await (await navigator.storage.getDirectory()).removeEntry(name, { recursive: true });
+		}, DEFAULT_WORKSPACE);
+
+		await page.getByTestId('import-review').click();
+		await page.getByTestId('confirm-import-review').click();
+
+		const said = page.getByTestId('review-announcement');
+		await expect(said).toContainText(`“${DEFAULT_WORKSPACE}”`);
+		await expect(said).toContainText('not there any more');
+		await expect(said).toContainText('this review copy is still here');
+		// Still inside it, still holding every byte, and still able to leave normally.
+		await expect(banner(page)).toBeVisible();
+		await expectWorkspaceNamed(page, 'amsterdam-1625');
+		expect(await everyByteOf(page, 'amsterdam-1625')).toEqual(before);
+		// And nothing was created to import into: a Workspace made to receive a copy is a Workspace
+		// the author never made, and the review copy would have been deleted into it.
+		expect(await workspaceNames(page)).toEqual(['amsterdam-1625']);
+	});
+
+	// Story 162's other side. Every review copy made before ADR-0037 records no origin, and there is
+	// nothing to infer one from — the Workspace that is open is this throwaway one. So the offer is
+	// absent, a sentence says why, and the copy is otherwise an ordinary review copy.
+	test('offers no Import over a review copy that records no Workspace, and says why', async ({
+		page
+	}) => {
+		await openBundle(page, await bundleFixture(REVIEWABLE));
+		await expect(banner(page)).toBeVisible();
+
+		// The mark as an older build wrote one: everything else about it, and no origin.
+		await page.evaluate(async (name) => {
+			const root = await navigator.storage.getDirectory();
+			const workspace = await root.getDirectoryHandle(name);
+			const file = await workspace.getFileHandle('review.json');
+			const mark = JSON.parse(await (await file.getFile()).text()) as Record<string, unknown>;
+			delete mark['origin'];
+			const writable = await file.createWritable();
+			await writable.write(JSON.stringify(mark));
+			await writable.close();
+		}, 'amsterdam-1625');
+		await page.reload();
+
+		await expect(banner(page)).toBeVisible();
+		await expect(page.getByTestId('import-review')).toHaveCount(0);
+		await expect(page.getByTestId('review-import-unavailable')).toContainText(
+			'does not record which of your Workspaces it was opened from'
+		);
+		// Reviewable and discardable as it always was — only Import is refused.
+		await expect(page.getByTestId('leave-review')).toBeVisible();
+		await page.getByTestId('discard-review').click();
+		await page.getByTestId('confirm-discard-review').click();
+		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
+	});
+});
 
 test.describe('an Import that did not finish (ticket 05)', () => {
 	/** The Workspace the author already had, which a swept Import must leave exactly as it is. */

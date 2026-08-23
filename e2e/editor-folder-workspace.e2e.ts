@@ -1130,6 +1130,87 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 		expect(await everyPathInFolder(page)).toEqual(['my-own-work/project.json']);
 	});
 
+	// ⚠ **The case a display name cannot express, which is why a folder origin retains the grant
+	// itself** (ADR-0037). Two folders on one machine may share a name; a folder can be deleted and
+	// another made in its place. So the Review mark records an installation-local reference to the
+	// *granted handle*, and the Import asks for that exact folder back — through a real
+	// `requestPermission()`, from the reviewer's own press.
+	test('imports the review copy into the folder it was opened from, and only then discards it', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'My own work');
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Review a Project' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible();
+
+		// The offer names the folder, not the browser Workspace the review copy is actually in.
+		await expect(page.getByTestId('import-review')).toHaveText(`Import into “${PICKED_FOLDER}”`);
+		await page.getByTestId('import-review').click();
+		await page.getByTestId('confirm-import-review').click();
+
+		// Back in the folder, with the Project copied into it as real files, and the review copy gone
+		// only after that.
+		await expect(page.getByTestId('review-banner')).toBeHidden();
+		await inFolder(page);
+		await expect(page.getByTestId('review-announcement')).toContainText(`into “${PICKED_FOLDER}”`);
+		const paths = await everyPathInFolder(page);
+		expect(paths).toContain('my-own-work/project.json');
+		// A second Project directory in the folder, whatever the allocator named it — the reviewer's
+		// own work beside it, untouched.
+		expect(
+			paths.filter((path) => path.endsWith('/project.json') && !path.startsWith('my-own-work/'))
+		).toHaveLength(1);
+		expect(await opfsWorkspaces(page)).not.toContain('assignment 7');
+	});
+
+	// Story 163 at the backing where it is likeliest: a folder grant is a thing a browser restart, a
+	// revoked permission or a second thought can take away. The refusal must not be what loses the
+	// afternoon's reading, so the review copy stays open and is still an ordinary review copy after it.
+	//
+	// ⚠ **The sibling case — a folder deleted and another put in its place under the same name — is
+	// not assertable in this harness, and saying so is better than a test that looks like it covers
+	// it.** It is why a folder origin retains the *grant* rather than the name: a real File System
+	// Access handle names one directory entry, so a replacement raises `NotFoundError` and
+	// `#reopenReviewOrigin` refuses it as gone. The handles here come from OPFS, which is the only
+	// source of a real one an automated browser has (see this file's header), and Chromium resolves an
+	// OPFS handle by path — so the replacement is reachable through the old handle and the Import
+	// succeeds, which is the harness disagreeing with the browsers this feature ships to rather than
+	// the app. The refusal's own wording is asserted at Seam 1 in `project-import-review.test.ts`.
+	test('refuses when the folder grant is declined, leaving the review copy open', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await createProject(page, 'My own work');
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Review a Project' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible();
+
+		await page.evaluate((key) => localStorage.setItem(key, 'denied'), PERMISSION_KEY);
+		await page.getByTestId('import-review').click();
+		await page.getByTestId('confirm-import-review').click();
+
+		const said = page.getByTestId('review-announcement');
+		await expect(said).toContainText(`the folder “${PICKED_FOLDER}”`);
+		await expect(said).toContainText('not given permission');
+		await expect(said).toContainText('this review copy is still here');
+		// Still inside it, and still able to leave normally once the grant comes back.
+		await expect(page.getByTestId('review-banner')).toBeVisible();
+		await expectWorkspaceNamed(page, 'assignment 7');
+		expect(await opfsWorkspaces(page)).toContain('assignment 7');
+	});
+
 	// ⚠ **The arrangement in which "leave, then delete" leaves nothing, and deletes the Workspace the
 	// user is still inside.** Every step below is one the app offers and none of them is a mistake:
 	//

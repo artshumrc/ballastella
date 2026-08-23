@@ -19,6 +19,13 @@ import {
 	openOpfsWorkspace,
 	openProjectBundle,
 	allocateProjectImport,
+	readReviewWorkspaceSource,
+	refuseReviewDestination,
+	releaseWorkspaceFolder,
+	reopenRetainedWorkspaceFolder,
+	retainWorkspaceFolder,
+	reviewCopyStillHere,
+	reviewImportOrigin,
 	commitProjectImport,
 	readImportEvidence,
 	detachImportedProject,
@@ -33,6 +40,9 @@ import {
 	reopenWorkspaceFolder,
 	restoreWorkspaceTar,
 	reviewFromRemote,
+	FileSystemAccessProjectStore,
+	SynchronizationMetadata,
+	Workspace,
 	workspaceSize,
 	requestPersistentStorage,
 	browserJournalStorage,
@@ -51,6 +61,7 @@ import {
 	clearRemoteBinding,
 	closedWhileReviewing,
 	describeRemote,
+	describeReviewSubject,
 	readRemoteRights,
 	GITHUB_API_ORIGIN,
 	GITHUB_APP,
@@ -91,6 +102,7 @@ import {
 	type RestoreDestination,
 	type ReviewDestination,
 	type ReviewMark,
+	type ReviewOrigin,
 	type ReviewReference,
 	type ReviewedProject,
 	type StoragePersistence,
@@ -260,6 +272,37 @@ export interface ImportTarget {
 	readonly key: string;
 }
 
+/**
+ * The ordinary Workspace one Import is writing into, resolved and read once.
+ *
+ * ⚠ **Not always the Workspace that is open, which is why it is a value rather than `this`.** A
+ * direct Import copies into the Workspace the author is looking at; a review Import copies into the
+ * one the reviewer *was* looking at when they opened the review copy, which is a Workspace this tab
+ * has not adopted and must not adopt until the copy has committed (ADR-0037). Everything the engine
+ * needs about a destination is on this, so the two paths share one transaction and cannot come to
+ * disagree about what an arriving Project is.
+ */
+interface ImportInto {
+	/** The Workspace as the author reads it, for the result and for the refusals. */
+	readonly name: string;
+	readonly store: ProjectStore;
+	/** Every path it holds now, walked once and used for allocation and for the Remote evidence. */
+	readonly local: readonly string[];
+	/** The display names its Projects already have, so an arriving one is disambiguated. */
+	readonly names: readonly string[];
+	readonly remote: RemoteRelationship | null;
+	readonly baseline: SynchronizationBaseline | null;
+	/** Make what has just arrived visible, before the finished announcement claims it has. */
+	settle: () => Promise<void>;
+}
+
+/** The recorded review origin, opened but not adopted. See `WorkspaceStorage.importReview`. */
+interface ReopenedOrigin {
+	/** The granted folder, when the origin is one, so the switch after the commit reuses this grant. */
+	readonly folder: FileSystemAccessProjectStore | null;
+	readonly into: ImportInto;
+}
+
 /** What an Import put in the Workspace that was already open. */
 export interface ImportedIntoWorkspace {
 	/** The display name it was allocated, which is not the source's when that one was taken. */
@@ -268,6 +311,19 @@ export interface ImportedIntoWorkspace {
 	readonly directory: string;
 	/** The Workspace it went into, named as the author reads it. */
 	readonly workspace: string;
+}
+
+/**
+ * What a review Import did, and anything it left for the reviewer to finish.
+ *
+ * ⚠ **`incomplete` is never a reason the copy failed.** A review Import that does not commit throws;
+ * this type only exists past the commit, where the Project is durably in the author's own Workspace
+ * and the only thing that can still go wrong is tidying up the review copy behind it. Rolling the
+ * Import back to tidy would destroy the work the whole operation existed to keep.
+ */
+export interface ImportedFromReview extends ImportedIntoWorkspace {
+	/** What still needs doing, in the words the reviewer should see, or `''` when nothing does. */
+	readonly incomplete: string;
 }
 
 /**
@@ -590,6 +646,17 @@ export class WorkspaceStorage {
 
 	#teardownFlushOnHide: (() => void) | undefined;
 	/**
+	 * The granted folder behind the open Workspace, or `null` while it is browser-backed.
+	 *
+	 * ⚠ **The raw store, kept because the handle is the only durable name a folder has.** What the
+	 * session holds is that store wrapped in the local-change index, and a wrapper has no `folder` on
+	 * it; what {@link reopenable} holds is a *name*, which two folders may share and which survives a
+	 * folder being deleted and another made in its place. A Review Workspace opened from a folder has
+	 * to be able to ask for that exact folder again (ADR-0037), and this is what it retains a grant
+	 * from.
+	 */
+	#folderStore: FileSystemAccessProjectStore | null = null;
+	/**
 	 * The Remote Status checker of the Workspace that is open, or `null` while nothing is bound.
 	 *
 	 * ⚠ **One per Workspace, replaced on every switch, and the old one closed.** A listing of a large
@@ -873,6 +940,7 @@ export class WorkspaceStorage {
 			const store = await chooseWorkspaceFolder();
 			// The picker was closed without choosing. Nothing happened, so nothing is said.
 			if (!store) return;
+			this.#folderStore = store;
 			await this.#adopt(store, 'folder', store.folderName);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
@@ -888,6 +956,7 @@ export class WorkspaceStorage {
 				this.reopenable = null;
 				return;
 			}
+			this.#folderStore = store;
 			await this.#adopt(store, 'folder', store.folderName);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
@@ -1294,13 +1363,56 @@ export class WorkspaceStorage {
 		// destination gives and one more: a teacher opening thirty submissions named after the same
 		// assignment needs thirty Workspaces, not one opened thirty times.
 		const name = await createOpfsWorkspace(preferred);
+		const origin = await this.#reviewOrigin();
 		return {
 			name,
 			store: openOpfsWorkspace(name),
+			origin,
 			discard: async () => {
+				if (origin?.folderReference) await releaseWorkspaceFolder(origin.folderReference);
 				await deleteOpfsWorkspace(name);
 				await this.refreshWorkspaces();
 			}
+		};
+	}
+
+	/**
+	 * The ordinary Workspace a Review beginning now would be Imported back into (ADR-0037).
+	 *
+	 * ⚠ **Resolved here, once, and never again.** This is the moment the reviewer is unambiguously
+	 * standing in the Workspace they are opening somebody's work *from*; everything after it — the
+	 * banner's first exit, the switcher, a folder chosen for something else — can move them, and an
+	 * Import that asked the question later would answer it about wherever they had got to.
+	 *
+	 * ⚠ **A Review opened from inside a Review carries the first one's origin forward**, rather than
+	 * naming the throwaway Workspace it is standing in or falling back on the last Workspace of the
+	 * user's own. A reviewer who opens a second bundle while reading the first is still, in the only
+	 * sense this operation cares about, working out of the Workspace they started in — and that
+	 * Workspace was written down explicitly rather than inferred, which is the whole test. A review
+	 * copy whose own mark records none passes none on.
+	 *
+	 * `null` for a folder Workspace this installation cannot retain a grant for, which is a Review
+	 * that cannot be Imported rather than one that Imports somewhere else.
+	 */
+	async #reviewOrigin(): Promise<ReviewOrigin | null> {
+		if (this.review !== null) return this.review.origin;
+		if (this.backing === 'folder') {
+			const folder = this.#folderStore;
+			if (folder === null) return null;
+			const folderReference = await retainWorkspaceFolder(folder.folder).catch(() => null);
+			if (folderReference === null) return null;
+			return {
+				workspaceKey: folderWorkspaceKey(this.folderName),
+				backing: 'folder',
+				name: this.folderName,
+				folderReference
+			};
+		}
+		return {
+			workspaceKey: opfsWorkspaceKey(this.workspaceName),
+			backing: 'browser',
+			name: this.workspaceName,
+			folderReference: ''
 		};
 	}
 
@@ -1408,10 +1520,16 @@ export class WorkspaceStorage {
 	async discardReview(): Promise<void> {
 		refuseOutsideReview(this.name, this.review);
 		const discarding = this.workspaceName;
+		const held = this.review?.origin?.folderReference ?? '';
 		this.workspaces = this.workspaces.filter((name) => name !== discarding);
 		this.reviewWorkspaces = this.reviewWorkspaces.filter((name) => name !== discarding);
 		await this.#leaveReview();
 		await this.#removeWorkspace(discarding);
+		// The grant this review copy was holding on its origin's folder. Kept until now because the
+		// copy could have been Imported at any moment up to it; after the Workspace is gone it is a
+		// handle to a folder for something that no longer exists. The user's *own* grant to that same
+		// folder is a different record and is not touched.
+		if (held) await releaseWorkspaceFolder(held).catch(() => undefined);
 		await this.refreshWorkspaces();
 	}
 
@@ -1451,7 +1569,7 @@ export class WorkspaceStorage {
 		return this.#importProject(
 			() => readProjectBundleSource(() => file.stream(), { fileName: file.name }),
 			file.name,
-			target
+			() => this.#openImportTarget(target)
 		);
 	}
 
@@ -1481,8 +1599,181 @@ export class WorkspaceStorage {
 		return this.#importProject(
 			() => readRemoteProjectSource({ remote }),
 			`${describeRemote(remote)} · ${remote.project}`,
-			target
+			() => this.#openImportTarget(target)
 		);
+	}
+
+	/**
+	 * The ordinary Workspace this review copy would be Imported into, or `null` for one that names
+	 * none (ADR-0037).
+	 *
+	 * What the banner asks the reviewer to confirm is drawn from this, and its being `null` is what
+	 * makes the offer absent over a review copy made before there was an origin to record. The
+	 * structural refusal is {@link importReview}'s, which does not consult the control.
+	 */
+	get reviewImportDestination(): ReviewOrigin | null {
+		return this.review?.origin ?? null;
+	}
+
+	/**
+	 * Copy the Project as the reviewer has it now into the Workspace review began from, and only then
+	 * throw the review copy away (SPEC stories 83–91, 162, 163).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ORDER IS THE SAFETY, AND IT IS THE ONLY THING HERE THAT IS NOT SHARED
+	 *
+	 * 1. The recorded destination is reopened **before anything is read**, so a reviewer whose folder
+	 *    is unplugged or whose Workspace is deleted meets a refusal while still standing in the copy
+	 *    they were reading, byte for byte as they left it.
+	 * 2. The Project is read through the read-only source capability over the *review copy's* store —
+	 *    its current state, the reviewer's own edits included — and never from the bundle or the
+	 *    published tree it arrived from.
+	 * 3. The Import is the shared engine's, unchanged: fresh Map Image identities, the allocation, the
+	 *    publication reset, the appended provenance, the quota check and one atomic commit.
+	 * 4. Only once that has committed is the destination switched to and the Project opened.
+	 * 5. Only once *that* has happened is the review copy deleted.
+	 *
+	 * ⚠ **Past step 3 nothing rolls back.** There is durable work of the author's own in their own
+	 * Workspace from that moment, and a failure to switch, to open or to discard is reported as
+	 * something left to do — see {@link ImportedFromReview.incomplete} — never repaired by deleting
+	 * the Project that arrived.
+	 *
+	 * Must be called from a click or a keypress: a folder origin is reopened through
+	 * `requestPermission()`, which needs transient user activation (ADR-0012).
+	 *
+	 * @throws ReviewDestinationUnavailableError with both Workspaces exactly as they were
+	 * @throws ImportSourceRefusedError, ImportRefusedError, ProjectFormatTooNewError — each with
+	 *   nothing added to the destination and the review copy still open
+	 */
+	async importReview(): Promise<ImportedFromReview> {
+		refuseOutsideReview(this.name, this.review);
+		this.assertRecovered('copied out of');
+		const mark = this.review as ReviewMark;
+		const origin = reviewImportOrigin(mark);
+		const reviewWorkspace = this.workspaceName;
+		const reopened = await this.#reopenReviewOrigin(origin);
+
+		// ⚠ **A store of its own over the review copy, not `this.session.store`.** The session is
+		// replaced the moment the destination is switched to, and the closure's bytes are read lazily —
+		// so a source holding the session's store would be reading through a store belonging to a
+		// Workspace this tab has left. This one is addressed by name and outlives the swap.
+		const source = openOpfsWorkspace(reviewWorkspace);
+		const imported = await this.#importProject(
+			() => readReviewWorkspaceSource({ store: source, mark }),
+			describeReviewSubject(mark),
+			() => Promise.resolve(reopened.into)
+		);
+
+		let incomplete = '';
+		try {
+			if (reopened.folder === null) await this.#switchTo(origin.name);
+			else {
+				this.#folderStore = reopened.folder;
+				await this.#adopt(reopened.folder, 'folder', reopened.folder.folderName);
+			}
+			// "Open or identify the imported Project" (story 87), before the copy it came from goes.
+			await this.session.open(imported.directory);
+			this.workspaces = this.workspaces.filter((name) => name !== reviewWorkspace);
+			this.reviewWorkspaces = this.reviewWorkspaces.filter((name) => name !== reviewWorkspace);
+			await this.#removeWorkspace(reviewWorkspace);
+			if (origin.folderReference) {
+				await releaseWorkspaceFolder(origin.folderReference).catch(() => undefined);
+			}
+		} catch (cause) {
+			incomplete = `${reviewCopyStillHere(reviewWorkspace, imported.name)} ${
+				cause instanceof Error ? cause.message : String(cause)
+			}`;
+		}
+		await this.refreshWorkspaces();
+		return { ...imported, incomplete };
+	}
+
+	/**
+	 * Ask for the recorded ordinary Workspace back, and read what an Import into it needs.
+	 *
+	 * ⚠ **Reopened, not adopted.** The reviewer is still inside the review copy while this runs and
+	 * stays there until the Import has committed, so the destination is a store, a listing and its
+	 * installation-local synchronization evidence — never `this.session`. Every way it can fail
+	 * refuses here, before a single byte of the closure has been read.
+	 *
+	 * @throws ReviewDestinationUnavailableError with both Workspaces untouched
+	 */
+	async #reopenReviewOrigin(origin: ReviewOrigin): Promise<ReopenedOrigin> {
+		const folder = origin.backing === 'folder' ? await this.#regainFolder(origin) : null;
+		if (folder === null && origin.backing === 'browser') {
+			// ⚠ **Asked of the OPFS root rather than answered by opening it.** `openOpfsWorkspace`
+			// creates at the first write, so an Import into a deleted Workspace would silently make a
+			// new empty one and call that the destination — a Workspace the author never made, with
+			// somebody else's Project in it and the review copy deleted behind it.
+			const existing = await listOpfsWorkspaces().catch(() => {
+				refuseReviewDestination(origin, 'unreachable');
+			});
+			if (!existing.includes(origin.name)) refuseReviewDestination(origin, 'gone');
+		}
+		const raw: ProjectStore = folder ?? openOpfsWorkspace(origin.name);
+		// The folder's *current* name, because a folder that has been renamed is still the folder the
+		// grant names — and ticket 01's key is built from the name, so it has to be built from this one.
+		const key = folder === null ? origin.workspaceKey : folderWorkspaceKey(folder.folderName);
+		const store = trackLocalChanges(raw, key, this.#metadataStorage);
+
+		let local: readonly string[];
+		try {
+			local = await store.list('');
+		} catch (cause) {
+			// A handle whose directory is not there is the deleted folder and the folder replaced by
+			// another of the same name — the two cases a display name cannot tell apart and a grant can.
+			// Anything else is a Workspace that exists and will not answer.
+			refuseReviewDestination(
+				origin,
+				cause instanceof DOMException && cause.name === 'NotFoundError' ? 'gone' : 'unreachable'
+			);
+		}
+
+		const metadata =
+			this.#metadataStorage === null
+				? null
+				: new SynchronizationMetadata(this.#metadataStorage, key);
+		const remote = (await metadata?.readRemote().catch(() => null)) ?? null;
+		const baseline =
+			remote === null ? null : ((await metadata?.readBaseline(remote).catch(() => null)) ?? null);
+
+		return {
+			folder,
+			into: {
+				name: folder === null ? origin.name : folder.folderName,
+				store,
+				local,
+				names: (await new Workspace(store).listProjects()).map((project) => project.name),
+				remote,
+				baseline,
+				// Nothing to make visible yet: the destination is not on screen, and adopting it is what
+				// lists it — which happens after the commit, not inside it.
+				settle: () => Promise.resolve()
+			}
+		};
+	}
+
+	/**
+	 * Ask for the retained folder grant back, in the words a refusal needs.
+	 *
+	 * @throws ReviewDestinationUnavailableError
+	 */
+	async #regainFolder(origin: ReviewOrigin): Promise<FileSystemAccessProjectStore> {
+		let folder: FileSystemAccessProjectStore | null;
+		try {
+			folder = await reopenRetainedWorkspaceFolder(origin.folderReference);
+		} catch (cause) {
+			// `FolderPermissionDeniedError` is the answer that matters and the only one a user can act
+			// on; anything else from the grant is a folder this browser cannot offer back either.
+			refuseReviewDestination(
+				origin,
+				cause instanceof FolderPermissionDeniedError ? 'permission-denied' : 'unreachable'
+			);
+		}
+		// This installation no longer holds the grant — a cleared site, another profile, a browser that
+		// would not keep it. There is no second way to ask for one exact folder back.
+		if (folder === null) refuseReviewDestination(origin, 'gone');
+		return folder;
 	}
 
 	/**
@@ -1496,11 +1787,13 @@ export class WorkspaceStorage {
 	 * the file stream. What this method owns is the three things core deliberately does not know:
 	 * which Workspace, what the author is already looking at, and that somebody is waiting.
 	 *
-	 * ⚠ **The target is re-checked immediately before the transaction, not only when the offer
-	 * opened.** The offer names a Workspace in words, and a switcher two clicks away can make that
-	 * sentence a lie while it is on screen. Refusing is the only honest answer: following the switch
-	 * would copy into a Workspace the author never read the offer about, and there is nothing to
-	 * roll back because nothing has been written yet.
+	 * ⚠ **The destination is a thunk, resolved after the source has been read and not before.** For a
+	 * direct Import that is what re-checks the target immediately before the transaction rather than
+	 * only when the offer opened: the offer names a Workspace in words, and a switcher two clicks away
+	 * can make that sentence a lie while it is on screen. Refusing is the only honest answer, and
+	 * there is nothing to roll back because nothing has been written yet. A review Import resolves its
+	 * destination *first* — before a byte of the closure is read — and the thunk simply hands back
+	 * what it already holds; see {@link importReview} for why that order is the safety there.
 	 *
 	 * ⚠ **Progress is counted from the closure's own files, and there is no percentage.** A bundle is
 	 * a tar and declares no total, but a closure *does* — its path set is known before a byte moves —
@@ -1510,7 +1803,7 @@ export class WorkspaceStorage {
 	async #importProject(
 		read: () => Promise<ProjectImportSource>,
 		subject: string,
-		target: ImportTarget
+		openInto: () => Promise<ImportInto>
 	): Promise<ImportedIntoWorkspace> {
 		const announce = (files: number, totalFiles: number, finished: boolean) => {
 			this.transfer = { kind: 'import', subject, files, totalFiles, finished };
@@ -1528,8 +1821,8 @@ export class WorkspaceStorage {
 				projectFileBytes: serialiseProjectFile(detached)
 			});
 
-			const store = this.#storeForImport(target);
-			const local = await store.list('');
+			const into = await openInto();
+			const store = into.store;
 			// ⚠ **The Remote is asked before anything is allocated, and one that will not answer refuses
 			// the Import** (ticket 17). A bound Workspace's Remote may hold a Project this installation
 			// has never seen, and a directory allocated as free because a failed listing did not mention
@@ -1537,14 +1830,14 @@ export class WorkspaceStorage {
 			// Project this Workspace already synchronizes is refused, which is why the observed origin is
 			// handed over rather than only the closure.
 			const evidence = await readImportEvidence(source.origin, {
-				remote: this.remote,
-				baseline: this.baseline,
-				local,
+				remote: into.remote,
+				baseline: into.baseline,
+				local: into.local,
 				token: this.credential
 			});
 			const allocation = allocateProjectImport(plan.closure, {
-				names: this.session.projects.map((project) => project.name),
-				local,
+				names: into.names,
+				local: into.local,
 				...evidence
 			});
 			const named = { ...plan.closure.project, name: allocation.name };
@@ -1562,9 +1855,9 @@ export class WorkspaceStorage {
 			// The Project list this Workspace shows is a walk of its directories, and the Import has just
 			// added one. Refreshed before the finished announcement, so the sentence that says a Project
 			// arrived is not read out over a list that does not hold it yet.
-			await this.session.refresh();
+			await into.settle();
 			announce(total, total, true);
-			return { name: allocation.name, directory: allocation.directory, workspace: this.name };
+			return { name: allocation.name, directory: allocation.directory, workspace: into.name };
 		} catch (cause) {
 			// Every refusal has left the Workspace as it was, so the progress line must not be left
 			// mid-count saying a Project is still arriving. What the user needs is the refusal, which the
@@ -1608,6 +1901,27 @@ export class WorkspaceStorage {
 			);
 		}
 		return this.session.store;
+	}
+
+	/**
+	 * The open Workspace as a destination, re-checked at the moment the transaction is about to be
+	 * planned.
+	 *
+	 * The listing is taken here rather than by the caller so that it is the *same* listing the target
+	 * check licensed: a walk taken before the check would describe a Workspace the author may have
+	 * switched away from since.
+	 */
+	async #openImportTarget(target: ImportTarget): Promise<ImportInto> {
+		const store = this.#storeForImport(target);
+		return {
+			name: this.name,
+			store,
+			local: await store.list(''),
+			names: this.session.projects.map((project) => project.name),
+			remote: this.remote,
+			baseline: this.baseline,
+			settle: () => this.session.refresh()
+		};
 	}
 
 	/** This Workspace, backing included, as the synchronization metadata keys it. */
@@ -2463,6 +2777,10 @@ export class WorkspaceStorage {
 			if (backing === 'browser') this.ownWorkspaceName = workspaceName;
 			rememberOwnWorkspace(this.ownWorkspaceName, this.ownFolderName);
 		}
+		// The grant belongs to the folder that is open, so a switch into browser storage lets it go —
+		// what remains reachable is the *remembered* folder, which is a different record and a gesture
+		// away. A retained grant a Review Workspace is holding is untouched by this.
+		if (backing === 'browser') this.#folderStore = null;
 		this.reopenable = backing === 'folder' ? folderName : this.reopenable;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a

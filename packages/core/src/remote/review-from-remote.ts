@@ -303,7 +303,8 @@ export async function reviewFromRemote(
 				formatVersion: REVIEW_MARK_FORMAT_VERSION,
 				project: project.name || directory,
 				directory,
-				openedAt: now().toISOString()
+				openedAt: now().toISOString(),
+				origin: destination.origin
 			})
 		);
 
@@ -346,8 +347,8 @@ export async function reviewFromRemote(
 			notice:
 				`Opened “${project.name || directory}” from ${describeRemote(remote)} into a review copy ` +
 				`called “${destination.name}”. It is a throwaway Workspace: your own Workspaces have not ` +
-				`been touched, nothing here can be copied into them, and discarding this one removes ` +
-				`everything in it.` +
+				`been touched, nothing here reaches one unless you ask for it with Import, and ` +
+				`discarding this one removes everything in it.` +
 				unmetSentence(unmet)
 		};
 	} catch (cause) {

@@ -58,6 +58,48 @@ export const REVIEW_MARK_PATH = 'review.json' as StorePath;
  */
 export const REVIEW_MARK_FORMAT_VERSION = 1;
 
+/**
+ * Where a Review Workspace's backing is, in the two words the app already uses for it.
+ *
+ * Spelled here rather than imported from the editor, because the mark is a file in a Workspace and
+ * core is what reads and writes it. The editor's `WORKSPACE_BACKINGS` is the same two members and
+ * assigns straight into this.
+ */
+export type ReviewOriginBacking = 'browser' | 'folder';
+
+/**
+ * The **one** ordinary Workspace a Review began from, as an Import may ask for it back (ADR-0037).
+ *
+ * ⚠ **Recorded when the review copy is made, and never rewritten.** A reviewer moves between
+ * Workspaces while a review copy is open — that is what the banner's first exit is for — so an Import
+ * that resolved its destination at the moment it ran would copy somebody else's work into whichever
+ * Workspace happened to be open when they pressed the button. There is exactly one honest
+ * destination, and it is the one they were in when they opened the thing they are reading.
+ *
+ * ⚠ **A display name is not identity, and for a folder it is barely a hint.** Two folders on one
+ * machine may be called `maps`, a folder can be deleted and another created in its place, and a
+ * Workspace folder is reached through a *grant* rather than through a path this application could
+ * write down. So a folder origin carries {@link folderReference} — an installation-local reference to
+ * the granted handle itself — and {@link name} is only for the sentences the reviewer reads.
+ */
+export interface ReviewOrigin {
+	/**
+	 * The installation-local Workspace key the synchronization metadata is already keyed by:
+	 * `opfs:<name>` for browser storage, `folder:<name>` for a chosen folder.
+	 */
+	readonly workspaceKey: string;
+	readonly backing: ReviewOriginBacking;
+	/** What the Workspace is called, for what the reviewer is asked to confirm. Never identity. */
+	readonly name: string;
+	/**
+	 * The installation-local reference to the granted folder handle, for a folder backing.
+	 *
+	 * `''` for a browser-backed origin, which needs none: an OPFS Workspace is reached by its name in
+	 * a root this application owns, and there is no grant to lose.
+	 */
+	readonly folderReference: string;
+}
+
 /** What a Review Workspace knows about itself. */
 export interface ReviewMark {
 	readonly formatVersion: number;
@@ -72,6 +114,14 @@ export interface ReviewMark {
 	readonly directory: string;
 	/** ISO 8601, so a teacher with thirty of these can tell which is this morning's. */
 	readonly openedAt: string;
+	/**
+	 * The ordinary Workspace this Review began from, or `null` when none was recorded.
+	 *
+	 * `null` for every review copy made before ADR-0037 and for one opened where no ordinary
+	 * Workspace could be named. Such a copy stays reviewable, editable and discardable; what it cannot
+	 * do is Import, because there is no destination to Import *into* that is not a guess.
+	 */
+	readonly origin: ReviewOrigin | null;
 }
 
 export function serialiseReviewMark(mark: ReviewMark): Bytes {
@@ -102,8 +152,35 @@ export function parseReviewMark(bytes: Bytes): ReviewMark | null {
 		formatVersion,
 		project: text(record['project']),
 		directory: text(record['directory']),
-		openedAt: text(record['openedAt'])
+		openedAt: text(record['openedAt']),
+		origin: parseReviewOrigin(record['origin'])
 	};
+}
+
+/**
+ * The origin a mark carries, or `null` for one that names no Workspace this build could ask for back.
+ *
+ * ⚠ **Stricter than the rest of this file, and in the opposite direction.** Everything above answers
+ * "there is a mark here" as generously as it can, because the cost of a missed mark is an afternoon's
+ * work in a throwaway Workspace. This answers "there is a destination here" as meanly as it can, for
+ * the mirror reason: an origin half-read is a Workspace half-named, and the operation it licenses
+ * copies work into somebody's own research and then deletes the copy it came from. A key that is not
+ * a string, a backing this build does not know, or a folder origin with no grant reference behind it
+ * is no destination at all — and no destination refuses, rather than guessing at one.
+ */
+function parseReviewOrigin(raw: unknown): ReviewOrigin | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	const record = raw as Record<string, unknown>;
+	const workspaceKey = record['workspaceKey'];
+	const backing = record['backing'];
+	if (typeof workspaceKey !== 'string' || workspaceKey === '') return null;
+	if (backing !== 'browser' && backing !== 'folder') return null;
+	const name = typeof record['name'] === 'string' ? record['name'] : '';
+	const folderReference =
+		typeof record['folderReference'] === 'string' ? record['folderReference'] : '';
+	if (backing === 'folder' && folderReference === '') return null;
+	if (name === '') return null;
+	return { workspaceKey, backing, name, folderReference };
 }
 
 /**
@@ -141,7 +218,8 @@ const unreadableMark = (): ReviewMark => ({
 	formatVersion: REVIEW_MARK_FORMAT_VERSION,
 	project: '',
 	directory: '',
-	openedAt: ''
+	openedAt: '',
+	origin: null
 });
 
 /** An action a Review Workspace does not get, or one only a Review Workspace gets. */

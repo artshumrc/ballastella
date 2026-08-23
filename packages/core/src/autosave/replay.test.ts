@@ -1042,6 +1042,7 @@ describe('replayJournal', () => {
 		const into = (name: string) => async () => ({
 			name,
 			store: store as MemoryProjectStore,
+			origin: null,
 			discard: async () => undefined
 		});
 

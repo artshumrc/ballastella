@@ -20,7 +20,8 @@ const mark = {
 	formatVersion: REVIEW_MARK_FORMAT_VERSION,
 	project: 'Amsterdam 1625',
 	directory: 'amsterdam-1625',
-	openedAt: '2026-08-08T09:00:00.000Z'
+	openedAt: '2026-08-08T09:00:00.000Z',
+	origin: null
 };
 
 describe('the mark that makes a Workspace a review copy', () => {
@@ -88,7 +89,8 @@ describe('the mark that makes a Workspace a review copy', () => {
 			formatVersion: 99,
 			project: 'Amsterdam 1625',
 			directory: 'a',
-			openedAt: ''
+			openedAt: '',
+			origin: null
 		});
 	});
 
@@ -98,6 +100,90 @@ describe('the mark that makes a Workspace a review copy', () => {
 		expect(toDirectoryName('review.json')).not.toBe(REVIEW_MARK_PATH);
 		expect(toDirectoryName('Review')).not.toBe(REVIEW_MARK_PATH);
 		expect(REVIEW_MARK_PATH).toContain('.');
+	});
+});
+
+// ⚠ **The one part of the mark read *meanly*, and the asymmetry is the point** (ADR-0037). Every
+// other field above is read as generously as possible, because a missed mark is an afternoon's work
+// in a throwaway Workspace. An origin is the destination an Import copies into and then discards the
+// review copy behind, so a half-read one is refused: no destination is a refusal to Import, and a
+// guessed destination is somebody else's work landing in a Workspace nobody named.
+describe('the ordinary Workspace a review copy records as its origin', () => {
+	const browserOrigin = {
+		workspaceKey: 'opfs:My Workspace',
+		backing: 'browser' as const,
+		name: 'My Workspace',
+		folderReference: ''
+	};
+	const folderOrigin = {
+		workspaceKey: 'folder:maps',
+		backing: 'folder' as const,
+		name: 'maps',
+		folderReference: 'retained:8f1c'
+	};
+
+	it.each([
+		['a browser-storage Workspace', browserOrigin],
+		['a chosen folder, with the grant to ask for it back by', folderOrigin]
+	])('round-trips %s', (_case, origin) => {
+		expect(parseReviewMark(serialiseReviewMark({ ...mark, origin }))?.origin).toEqual(origin);
+	});
+
+	// Every review copy made before ADR-0037 is this one. It stays a mark — reviewable, editable,
+	// discardable — and only Import is refused over it.
+	it('is absent from a mark written before there was one, which is still a mark', async () => {
+		const store = new MemoryProjectStore();
+		store.plant(
+			REVIEW_MARK_PATH,
+			encode(
+				JSON.stringify({
+					formatVersion: REVIEW_MARK_FORMAT_VERSION,
+					project: 'Amsterdam 1625',
+					directory: 'amsterdam-1625',
+					openedAt: '2026-08-08T09:00:00.000Z'
+				})
+			)
+		);
+
+		const found = await readReviewMark(store);
+
+		expect(found).not.toBeNull();
+		expect(found?.project).toBe('Amsterdam 1625');
+		expect(found?.origin).toBeNull();
+	});
+
+	it.each([
+		['not an object', '"opfs:My Workspace"'],
+		['carrying no key', '{"backing":"browser","name":"My Workspace","folderReference":""}'],
+		['carrying an empty key', '{"workspaceKey":"","backing":"browser","name":"x"}'],
+		[
+			'naming a backing this build has none of',
+			'{"workspaceKey":"k","backing":"remote","name":"x"}'
+		],
+		[
+			'naming no Workspace the reviewer could recognise',
+			'{"workspaceKey":"k","backing":"browser","name":""}'
+		],
+		[
+			'a folder with no grant behind it, which is a name and not a place',
+			'{"workspaceKey":"folder:maps","backing":"folder","name":"maps","folderReference":""}'
+		]
+	])('is no origin at all when it is %s', (_case, origin) => {
+		const parsed = parseReviewMark(
+			encode(`{"formatVersion":1,"project":"p","directory":"d","openedAt":"","origin":${origin}}`)
+		);
+
+		expect(parsed).not.toBeNull();
+		expect(parsed?.origin).toBeNull();
+	});
+
+	// The unreadable-mark answer names nothing it does not know, and a destination is the last thing
+	// to invent for a Workspace whose own mark could not be read.
+	it('is absent from the mark answered for a file that would not read', async () => {
+		const store = new MemoryProjectStore();
+		store.plant(REVIEW_MARK_PATH, encode('{ not json'));
+
+		expect((await readReviewMark(store))?.origin).toBeNull();
 	});
 });
 
@@ -133,7 +219,13 @@ describe('what a Review Workspace may and may not be asked to do', () => {
 		expect(() =>
 			assertNotReviewing(
 				'assignment 3',
-				{ formatVersion: REVIEW_MARK_FORMAT_VERSION, project: '', directory: '', openedAt: '' },
+				{
+					formatVersion: REVIEW_MARK_FORMAT_VERSION,
+					project: '',
+					directory: '',
+					openedAt: '',
+					origin: null
+				},
 				'published'
 			)
 		).toThrow(/a Project somebody sent you.*cannot be published/s);
