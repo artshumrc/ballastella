@@ -1041,10 +1041,14 @@ test.describe('publishing to a Remote', () => {
 
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 
-		await expect(dialog.getByTestId('publish-progress')).toContainText(
+		const progress = dialog.getByTestId('publish-progress');
+		await expect(progress).toContainText(
 			/Uploading: \d+ of \d+ files\. \d+ GitHub requests left this hour\./,
 			{ timeout: 60_000 }
 		);
+		// The total the line is counting towards, kept so the finished publish can be held to it.
+		const announced = Number(/of (\d+) files/.exec((await progress.textContent()) ?? '')?.[1]);
+		expect(announced).toBeGreaterThan(0);
 		// The control that started it says so, and does it with `aria-disabled`: a `disabled` button
 		// leaves the tab order the moment it is pressed, dropping focus to `<body>` for the length of
 		// the publish (WCAG 2.4.3).
@@ -1062,6 +1066,11 @@ test.describe('publishing to a Remote', () => {
 		// a screen reader would read out again on the next publish.
 		await expect(page.getByTestId('publish-progress')).toHaveText('');
 		expect(github.files(OWNER, REPOSITORY)).toContain('index.html');
+		// ⚠ **And the count it was climbing towards is the transfer that happened**, not the plan it
+		// started from: every file the line promised was uploaded, one blob apiece. A progress line
+		// counting something else — the tree's entries, the Workspace's files — would leave a scholar
+		// watching a number that never arrives where it said it would (SPEC story 149).
+		expect(github.blobPosts()).toBe(announced);
 	});
 
 	test('refuses a truncated tree, quoting the file count, and sends nothing', async ({ page }) => {

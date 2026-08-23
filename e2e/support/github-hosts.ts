@@ -172,6 +172,16 @@ export type GitHubHosts = {
 	 * resumed Clone re-downloaded nothing is asserting the same number the domain tests assert.
 	 */
 	rawGets(owner: string, name: string): number;
+	/**
+	 * The most byte reads that were ever in flight at once, across every repository.
+	 *
+	 * A transfer's *shape* rather than its size, and the only counter here that can see it: a Workspace
+	 * of ten thousand pyramid tiles fetched with one `Promise.all` and one fetched six at a time ask
+	 * for the same paths and arrive at the same bytes, so no assertion on {@link rawRequests} or on
+	 * what landed can tell them apart. Measured where the handler runs, so it reads 1 unless the spec
+	 * holds the responses open long enough for an overlap to exist.
+	 */
+	peakRawInFlight(): number;
 	/** Age every token the sign-in issued, as eight hours passing would. */
 	expireSignIn(): void;
 	/** Refuse the broker's refresh endpoint, so an expired sign-in cannot be renewed. */
@@ -213,6 +223,8 @@ export async function routeGitHubHosts(
 ): Promise<GitHubHosts> {
 	const requests: string[] = [];
 	const rawRequests: string[] = [];
+	let rawInFlight = 0;
+	let peakRawInFlight = 0;
 	const fakes = new Map<string, FakeGitHub>();
 
 	// The sign-in surface hangs off the first repository's fake, so a token it issues is one that
@@ -340,12 +352,18 @@ export async function routeGitHubHosts(
 		const fake = owner && name ? fakes.get(key(owner, name)) : undefined;
 		if (!fake) return notFound(route);
 
-		const response = await fake.fetch(route.request().url());
-		await route.fulfill({
-			status: response.status,
-			headers: Object.fromEntries(response.headers),
-			body: Buffer.from(await response.arrayBuffer())
-		});
+		rawInFlight += 1;
+		peakRawInFlight = Math.max(peakRawInFlight, rawInFlight);
+		try {
+			const response = await fake.fetch(route.request().url());
+			await route.fulfill({
+				status: response.status,
+				headers: Object.fromEntries(response.headers),
+				body: Buffer.from(await response.arrayBuffer())
+			});
+		} finally {
+			rawInFlight -= 1;
+		}
 	});
 
 	const decoder = new TextDecoder();
@@ -368,6 +386,7 @@ export async function routeGitHubHosts(
 			await fake.commitFiles(files);
 		},
 		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0,
+		peakRawInFlight: () => peakRawInFlight,
 		expireSignIn: () => primary?.expireIssuedTokens(),
 		refuseRefresh: () => {
 			if (primary !== null) primary.refuseRefresh = true;

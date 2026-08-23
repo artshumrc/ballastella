@@ -3,13 +3,16 @@ import { type Page } from '@playwright/test';
 
 import { projectNameField } from './support/project-screen';
 import {
+	closeRemoteSettings,
 	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
+	openRemoteSettings,
 	openWorkspaceMenu,
 	openWorkspaceSettings
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { routeGitHubHosts } from './support/github-hosts.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -1276,5 +1279,230 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 		await expect(page.getByTestId('review-announcement')).toContainText(
 			'was not given permission to read and write the folder'
 		);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE BACKING IS NOT A SYNCHRONIZATION SEMANTIC (ticket 21; SPEC story 150)
+//
+// **One lifecycle, run on a chosen folder, against what browser storage sends for the same bytes.**
+// Every domain claim underneath it is exhausted at Seam 1 over both real backings: the shared
+// adapter suite (`project-store-suite.ts`) for the bytes, and `describeUpdateTransaction` — run from
+// `opfs-project-store.browser.test.ts` and `file-system-access-project-store.browser.test.ts` —
+// for the transaction, its sixteen durable boundaries, the recovery choice and the resulting
+// Baseline. None of that needs Playwright, and duplicating it here would be a second matrix.
+//
+// What no seam below can falsify is the wiring: that a Workspace whose files are in a folder the
+// user picked gets the same Remote relationship, the same six determinations, the same destructive
+// confirmation and the same committed source bytes as one in browser storage. `WorkspaceBacking` is
+// a two-member union and the synchronization code branches on neither member — this is the
+// assertion that says so about the *applications*, and it is the only place a real
+// `FileSystemDirectoryHandle` and a Remote meet at all.
+test.describe('synchronizing a folder Workspace', () => {
+	const OWNER = 'ada';
+	const FROM_BROWSER = 'browser-atlas';
+	const FROM_FOLDER = 'folder-atlas';
+	/** A token of the right shape. Its value never matters: the fake looks only for a credential. */
+	const TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
+
+	/** One Project, seeded byte-for-byte into whichever backing is being driven. */
+	const SOURCE: Record<string, string> = {
+		'amsterdam-1625/project.json': `${JSON.stringify(
+			{
+				formatVersion: 1,
+				name: 'Amsterdam 1625',
+				updatedAt: '2026-01-02T03:04:05.000Z',
+				layers: [
+					{
+						id: 'l2',
+						name: 'Warehouses',
+						visible: true,
+						order: 0,
+						kind: 'annotation',
+						geojsonRef: 'annotations/l2.geojson',
+						defaultStyle: {}
+					}
+				],
+				baseMap: 'physical'
+			},
+			null,
+			'\t'
+		)}\n`,
+		'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
+	};
+
+	/** A second Project, as another machine's publish leaves it on the Remote. */
+	const THEIRS: Record<string, string> = {
+		'delft/project.json': `${JSON.stringify(
+			{
+				formatVersion: 1,
+				name: 'Delft',
+				updatedAt: '2026-02-03T04:05:06.000Z',
+				layers: [],
+				baseMap: 'physical'
+			},
+			null,
+			'\t'
+		)}\n`
+	};
+
+	/**
+	 * Write files straight into a directory in OPFS, bypassing the app.
+	 *
+	 * The picked folder is a directory in OPFS — that is the only source of a real
+	 * `FileSystemDirectoryHandle` an automated browser has — so one helper seeds both backings, and
+	 * the two Workspaces really do start from identical bytes rather than from two Projects made by
+	 * two runs of the same clicks a second apart.
+	 */
+	async function seedInto(page: Page, directory: string | null): Promise<void> {
+		await page.evaluate(
+			async ([directory, files]) => {
+				const root = await navigator.storage.getDirectory();
+				const base =
+					directory === null
+						? await workspaceRoot()
+						: await root.getDirectoryHandle(directory as string, { create: true });
+				for (const [full, text] of Object.entries(files as Record<string, string>)) {
+					const segments = full.split('/');
+					let handle = base;
+					for (const segment of segments.slice(0, -1)) {
+						handle = await handle.getDirectoryHandle(segment, { create: true });
+					}
+					const file = await handle.getFileHandle(segments[segments.length - 1]!, {
+						create: true
+					});
+					const writable = await file.createWritable();
+					await writable.write(text);
+					await writable.close();
+				}
+			},
+			[directory, SOURCE] as const
+		);
+	}
+
+	/** Bind the open Workspace, from the Remote settings dialog where an author binds. */
+	async function bindTo(page: Page, repository: string): Promise<void> {
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-repository-field').fill(`${OWNER}/${repository}`);
+		await page.getByTestId('remote-token-field').fill(TOKEN);
+		await page.getByTestId('bind-remote').click();
+		await expect(page.getByTestId('remote-outcome')).toContainText(
+			`This Workspace is bound to ${OWNER}/${repository}`
+		);
+		await closeRemoteSettings(page);
+	}
+
+	/** Publish the open Workspace to its Remote and wait for the Remote to be named in the result. */
+	async function publish(page: Page, repository: string): Promise<void> {
+		await page.getByRole('button', { name: 'Publish…' }).click();
+		const dialog = page.getByRole('dialog');
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await dialog.getByRole('button', { name: /^Publish/ }).click();
+		await expect(page.getByTestId('publish-status')).toContainText(
+			`Sent to ${OWNER}/${repository}`,
+			{ timeout: 120_000 }
+		);
+	}
+
+	const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
+
+	/** Ask for a check the way an author does, and wait for it to finish. */
+	async function checkNow(page: Page): Promise<void> {
+		await page.getByTestId('check-remote-status').click();
+		await expect(remoteStatus(page)).not.toContainText('Checking…');
+	}
+
+	test('sends the same bytes and reads the same states as browser storage does', async ({
+		page
+	}) => {
+		const github = await routeGitHubHosts(page, {
+			repositories: [
+				{ owner: OWNER, name: FROM_BROWSER, files: { 'README.md': '# Atlas\n' } },
+				{ owner: OWNER, name: FROM_FOLDER, files: { 'README.md': '# Atlas\n' } }
+			]
+		});
+		await installDirectoryPicker(page);
+		await page.goto('./');
+		await emptyBrowserStorage(page);
+		await forgetRememberedFolder(page);
+		await page.evaluate(() => localStorage.clear());
+
+		// ── The control: the same Project, published out of browser storage ───────────────────────
+		await seedInto(page, null);
+		await page.reload();
+		await inBrowserStorage(page);
+		await bindTo(page, FROM_BROWSER);
+		await publish(page, FROM_BROWSER);
+
+		// ── The same Project, in a folder the user picked ─────────────────────────────────────────
+		//
+		// Seeded before the folder is chosen rather than after: a folder Workspace resumes only from a
+		// gesture (ADR-0012), so a reload here would land back on browser storage.
+		await seedInto(page, PICKED_FOLDER);
+		await chooseFolder(page);
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await bindTo(page, FROM_FOLDER);
+		await publish(page, FROM_FOLDER);
+
+		// ⚠ **Byte-equivalent, path by path.** Only the source closure is compared: a published site
+		// carries its own build stamp, so `index.html` differing between two publishes seconds apart
+		// says nothing about the backing. What the two Remotes must agree on to the byte is the
+		// scholarship — and `remote.json` is deliberately not in it, because each names its own
+		// repository.
+		for (const path of Object.keys(SOURCE)) {
+			expect(github.fileText(OWNER, FROM_FOLDER, path)).toBe(
+				github.fileText(OWNER, FROM_BROWSER, path)
+			);
+			expect(github.fileText(OWNER, FROM_FOLDER, path)).toBe(SOURCE[path]);
+		}
+		// And a Publish earns a Baseline in the folder Workspace exactly as it does in the other one,
+		// which is what makes every determination below answerable at all.
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		// ── Somebody else's afternoon, arriving on the folder's Remote ────────────────────────────
+		await github.commitFiles(OWNER, FROM_FOLDER, THEIRS);
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Update available');
+
+		await page.getByTestId('update-from-github').click();
+		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
+		// In the folder, as real files: the transfer wrote through the File System Access adapter and
+		// the bytes are the Remote's own.
+		expect(await everyPathInFolder(page)).toContain('delft/project.json');
+		expect(await readInFolder(page, 'delft/project.json')).toBe(THEIRS['delft/project.json']);
+		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		// ── And a destructive one, which is refused until it is confirmed ─────────────────────────
+		const before = await everyPathInFolder(page);
+		await github.commitFiles(OWNER, FROM_FOLDER, { 'delft/project.json': null });
+		await page.getByTestId('update-from-github').click();
+		const dialog = page.getByRole('dialog', {
+			name: 'Update will remove work from this Workspace'
+		});
+		await expect(dialog.getByTestId('deletion-preview-projects')).toContainText('Delft');
+
+		// Cancelling writes nothing to the folder, and puts focus back where it came from.
+		await dialog.getByTestId('cancel-deletions').click();
+		await expect(dialog).toBeHidden();
+		await expect(page.getByTestId('update-from-github')).toBeFocused();
+		expect(await everyPathInFolder(page)).toEqual(before);
+
+		await page.getByTestId('update-from-github').click();
+		await dialog.getByTestId('confirm-deletions').click();
+		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
+		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
+		// Nothing of the removed Project is left in the folder, and the Project the Remote kept is
+		// untouched — which is the transaction's own claim, seen through the adapter it ran on. The
+		// folder also holds the site the Publish above materialised, which is why this asks about the
+		// Projects rather than about every path.
+		const after = await everyPathInFolder(page);
+		expect(after.filter((path) => path.startsWith('delft/'))).toEqual([]);
+		expect(after).toEqual(expect.arrayContaining(Object.keys(SOURCE)));
+		expect(await readInFolder(page, 'amsterdam-1625/project.json')).toBe(
+			SOURCE['amsterdam-1625/project.json']
+		);
+		await expect(remoteStatus(page)).toContainText('Up to date');
 	});
 });

@@ -1,7 +1,7 @@
-import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
+import { DEFAULT_WORKSPACE, expect, test, type Page, type Route } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
+import { GITHUB_RAW_ORIGIN, routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
@@ -11,6 +11,7 @@ import {
 	switchToWorkspace
 } from './support/workspace.js';
 import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
+import { UPDATE_DOWNLOAD_CONCURRENCY } from '../packages/core/src/remote/update-from-github.js';
 
 /**
  * The two refusals that stop one machine deleting another's afternoon (ticket 05, ADR-0033).
@@ -331,13 +332,27 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// worst state in this dialog to be the one that hides story 9's two numbers.
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
-		// Taking the second one is two presses, the shape every irreversible action here has — and the
-		// confirm button then says what pressing it does rather than "Publish".
-		await dialog.getByTestId('publish-replace').click();
-		await expect(
-			dialog.getByRole('button', { name: 'Publish anyway, replacing it' })
-		).toBeVisible();
-		await confirm(page, dialog);
+		// ⚠ **Dismissal first, and from the keyboard.** ADR-0016's `<dialog>` + `showModal()`: Escape
+		// closes it and focus comes back to the control that opened it, rather than to the document
+		// (WCAG 2.4.3). A refusal a keyboard user can only leave by pointer is a refusal they cannot
+		// leave.
+		await page.keyboard.press('Escape');
+		await expect(dialog).toBeHidden();
+		await expect(page.getByRole('button', { name: 'Publish…' })).toBeFocused();
+		await openPublishDialog(page);
+
+		// Taking the second remedy is two presses, the shape every irreversible action here has — and
+		// both of them are reachable and operable from the keyboard alone (story 148). The confirm
+		// button then says what pressing it does rather than "Publish".
+		await dialog.getByTestId('publish-replace').focus();
+		await page.keyboard.press('Enter');
+		const anyway = dialog.getByRole('button', { name: 'Publish anyway, replacing it' });
+		await expect(anyway).toBeVisible();
+		await anyway.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+			timeout: 120_000
+		});
 
 		expect(github.fileText(OWNER, REPOSITORY, 'amsterdam-1625/annotations/l2.geojson')).toBe(
 			'{"type":"FeatureCollection","features":[]}'
@@ -393,6 +408,25 @@ const refocus = (page: Page) => page.evaluate(() => window.dispatchEvent(new Eve
 /** How many tree listings this session has asked GitHub for. */
 const listings = (github: GitHubHosts) =>
 	github.requests.filter((path) => path.includes('/git/trees/')).length;
+
+/**
+ * The same count, once it has stopped moving.
+ *
+ * ⚠ **The status control is not the only thing here that lists a tree**: the publish dialog takes one
+ * of its own for the breakdown, and closing the dialog does not cancel it. Sampled the moment the
+ * dialog goes, the number can be one short of the truth — and the bound asserted against it then
+ * fails on a request the spec itself caused rather than on a poll the product made.
+ */
+async function settledListings(page: Page, github: GitHubHosts): Promise<number> {
+	let previous = -1;
+	for (let sample = 0; sample < 40; sample += 1) {
+		const now = listings(github);
+		if (now === previous) return now;
+		previous = now;
+		await page.waitForTimeout(250);
+	}
+	throw new Error('The tree-listing count never settled.');
+}
 
 test.describe('Remote Status on the navigation bar', () => {
 	const AMSTERDAM = projectFiles('amsterdam-1625', 'Amsterdam 1625');
@@ -470,7 +504,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await signIn(page);
 		await page.keyboard.press('Escape');
 		await expect(remoteStatus(page)).toContainText('Up to date');
-		const afterSignIn = listings(github);
+		const afterSignIn = await settledListings(page, github);
 
 		// ⚠ **Bounded.** Coming back to the tab three times inside the interval is three focus events
 		// and no further listings — the whole reason a focus trigger is affordable (SPEC story 114).
@@ -643,6 +677,23 @@ test.describe('Update from GitHub', () => {
 	const ATLAS = syncProject('atlas-1625', 'Atlas 1625');
 	const THEIRS = '{"type":"FeatureCollection","features":[{"id":"their-afternoon"}]}';
 
+	/**
+	 * Enough extra inbound files that `UPDATE_DOWNLOAD_CONCURRENCY` is a limit rather than a ceiling
+	 * nothing reaches.
+	 *
+	 * They are unreferenced Layers beside the Project's own, which the graph check allows — only a
+	 * directory with no `project.json` and an Alignment with no Map Image are violations. A transfer
+	 * of two files cannot tell "six at a time" from "all at once", and the difference is the whole of
+	 * story 149: a Workspace of ten thousand pyramid tiles fetched with one `Promise.all` opens ten
+	 * thousand sockets.
+	 */
+	const INBOUND_LAYERS = Object.fromEntries(
+		Array.from({ length: 12 }, (_, index) => [
+			`delft/annotations/spare-${index}.geojson`,
+			`{"type":"FeatureCollection","features":[{"id":"spare-${index}"}]}`
+		])
+	);
+
 	test('brings the Remote’s work in when the author asks, and never before', async ({ page }) => {
 		const github = await start(page, {
 			workspace: { ...ATLAS, ...boundTo() },
@@ -672,6 +723,7 @@ test.describe('Update from GitHub', () => {
 		// Workspace has not touched. Two safe changes on different paths (SPEC story 129).
 		await github.commitFiles(OWNER, REPOSITORY, {
 			...syncProject('delft', 'Delft'),
+			...INBOUND_LAYERS,
 			'atlas-1625/annotations/l2.geojson': THEIRS
 		});
 		await checkNow(page);
@@ -684,17 +736,56 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
 
 		// The gesture, reached by the keyboard alone, with its progress reported while it runs.
+		//
+		// Every byte read is slowed down so that requests genuinely overlap: the bound below is a
+		// property of a transfer in flight, and a fake that answers instantly makes any limit look
+		// like 1. Installed after the fake's own handler, so it is consulted first and falls back.
 		const head = github.head(OWNER, REPOSITORY);
+		const transferred = Object.keys(INBOUND_LAYERS).length + 3;
+		const slowly = async (route: Route) => {
+			await new Promise((resolve) => setTimeout(resolve, 40));
+			await route.fallback();
+		};
+		await page.route(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 		const release = await holdRawFile(page, 'delft/annotations/l2.geojson');
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('update-progress')).toContainText('files');
+
+		// ⚠ **Per file, and it settles at what has actually arrived** (story 149). One file is held
+		// open, so the count has one deterministic resting place short of the total rather than a
+		// number the test was lucky to catch mid-transfer — and a progress line that counted the plan
+		// rather than the transfer would sit at the total from the first moment.
+		const progress = page.getByTestId('update-progress');
+		await expect(progress).toHaveText(
+			`Updating from GitHub: ${transferred - 1} of ${transferred} files.`,
+			{ timeout: 30_000 }
+		);
+		// Announced rather than only drawn, and atomic: "14 of 15" read on its own says nothing about
+		// what is being counted.
+		expect(
+			await progress.evaluate((element) => [
+				element.getAttribute('aria-live'),
+				element.getAttribute('aria-atomic')
+			])
+		).toEqual(['polite', 'true']);
+		// And a long transfer never strands a keyboard user at the top of the document.
+		expect(await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')).not.toBe('BODY');
 		release();
 
 		const outcome = page.getByTestId('update-outcome');
 		await expect(outcome).toContainText('Brought');
 		await expect(outcome).toContainText('Nothing has been published');
 		await expect(page.getByTestId('update-progress')).toHaveCount(0);
+
+		// ⚠ **Bounded, and the outcome agrees with the count.** No assertion on the paths requested or
+		// on what landed can tell six at a time from all at once, so the peak overlap is measured at
+		// the transport; and the sentence names the same files the progress line counted.
+		expect(github.peakRawInFlight()).toBeLessThanOrEqual(UPDATE_DOWNLOAD_CONCURRENCY);
+		expect(github.peakRawInFlight()).toBeGreaterThan(1);
+		await expect(outcome).toContainText(`${transferred - 1} new files and 1 changed file`);
+		expect(github.rawGets(OWNER, REPOSITORY)).toBe(transferred);
+		// Named, so this removes the delay and leaves the fake's own handler for the leg below.
+		await page.unroute(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 
 		// ⚠ **Inbound only.** The branch has not moved and the file the other machine wrote is still
 		// the one on GitHub: receiving somebody's work cannot make this author's work public (story 122).
@@ -769,7 +860,10 @@ test.describe('Update from GitHub', () => {
 		);
 
 		// ── Cancel: nothing here, nothing there, and focus back where it came from (story 127) ───
-		await dialog.getByTestId('cancel-deletions').click();
+		// Operated from the keyboard, like the control that opened it: a destructive question a scholar
+		// can only answer with a pointer is one they cannot decline.
+		await dialog.getByTestId('cancel-deletions').focus();
+		await page.keyboard.press('Enter');
 		await expect(dialog).toBeHidden();
 		await expect(page.getByTestId('update-from-github')).toBeFocused();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
@@ -783,7 +877,8 @@ test.describe('Update from GitHub', () => {
 		// ── Confirm: the Project goes, and the one the Remote kept does not ───────────────────────
 		await page.getByTestId('update-from-github').click();
 		await expect(dialog).toBeVisible();
-		await dialog.getByTestId('confirm-deletions').click();
+		await dialog.getByTestId('confirm-deletions').focus();
+		await page.keyboard.press('Enter');
 
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);

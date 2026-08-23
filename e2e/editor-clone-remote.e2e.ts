@@ -344,21 +344,35 @@ test.describe('opening a published Workspace', () => {
 	});
 
 	test('reports per-file progress while it runs, and stays keyboard operable', async ({ page }) => {
-		await start(page);
+		const github = await start(page);
 
+		// ⚠ **The Project's own manifest is held, and it is downloaded last** — `cloneFromRemote` keeps
+		// manifests back from the transfer as well as from the write, so this is the one file whose
+		// being held leaves the count with a resting place rather than a moment the assertion has to be
+		// lucky enough to catch.
+		let release: (() => void) | undefined;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(`**/amsterdam-1625/project.json`, async (route) => {
+			await held;
+			await route.fallback();
+		});
+
+		// Started from the keyboard alone, which is the half a `click()` cannot show: an Open a scholar
+		// with no pointer cannot begin is one they cannot do (SPEC story 148).
 		await openRemoteSettings(page);
 		await page.getByTestId('open-repository-field').fill(REMOTE);
-		await page.getByTestId('open-from-github').click();
+		await page.getByTestId('open-from-github').focus();
+		await page.keyboard.press('Enter');
 
-		// `role="status"`, so it reaches assistive technology rather than only the screen. Raced
-		// against a transfer of eight files, so the assertion is that it appears and counts rather than
-		// that it stops on a particular number.
+		// `role="status"`, so it reaches assistive technology rather than only the screen. And it
+		// settles on what has actually arrived: a line counting the plan rather than the transfer would
+		// read the total from the first moment (SPEC story 149).
 		const progress = page.getByTestId('open-progress');
-		await expect(progress).toContainText(
-			`of ${DOWNLOADED.length} files downloaded from ${REMOTE}`,
-			{
-				timeout: 10_000
-			}
+		await expect(progress).toHaveText(
+			`${DOWNLOADED.length - 1} of ${DOWNLOADED.length} files downloaded from ${REMOTE}.`,
+			{ timeout: 30_000 }
 		);
 		await expect(progress).toHaveAttribute('role', 'status');
 		// ⚠ **`aria-disabled` while busy and never `disabled`.** A `disabled` button leaves the tab
@@ -367,11 +381,19 @@ test.describe('opening a published Workspace', () => {
 		// says it is unavailable.
 		const button = page.getByTestId('open-from-github');
 		await expect(button).toHaveAttribute('aria-disabled', 'true');
-		await expect(button).not.toBeDisabled();
+		// The *native* attribute, read off the element: `toBeDisabled()` counts `aria-disabled` as
+		// disabled too, so `not.toBeDisabled()` beside the line above can only pass on a transfer that
+		// already finished — which is what it used to do, and why it never saw the property it names.
+		expect(await button.evaluate((element) => (element as HTMLButtonElement).disabled)).toBe(false);
 		await button.focus();
 		await expect(button).toBeFocused();
+		// And a transfer that runs in minutes never strands a keyboard user on the document itself.
+		expect(await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')).not.toBe('BODY');
 
+		release?.();
 		await expect(outcome(page)).toContainText('Opened');
+		// One request per file and no more: the count the line settled on is the transfer it named.
+		expect(github.rawGets(OWNER, REPOSITORY)).toBe(DOWNLOADED.length);
 	});
 });
 
