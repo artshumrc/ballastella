@@ -20,6 +20,7 @@ import {
 	openProjectBundle,
 	allocateProjectImport,
 	commitProjectImport,
+	readImportEvidence,
 	detachImportedProject,
 	readProjectBundleSource,
 	remapProjectImport,
@@ -1478,12 +1479,23 @@ export class WorkspaceStorage {
 			});
 
 			const store = this.#storeForImport(target);
-			// The Remote's and the Baseline's directory inventories are ticket 17's; an unbound
-			// Workspace has neither, and omitting a member of `ImportDestination` is how "no evidence of
-			// that kind" is spelled.
+			const local = await store.list('');
+			// ⚠ **The Remote is asked before anything is allocated, and one that will not answer refuses
+			// the Import** (ticket 17). A bound Workspace's Remote may hold a Project this installation
+			// has never seen, and a directory allocated as free because a failed listing did not mention
+			// it is a Conflict the author meets at some later Publish. It is also where an Import of the
+			// Project this Workspace already synchronizes is refused, which is why the observed origin is
+			// handed over rather than only the closure.
+			const evidence = await readImportEvidence(source.origin, {
+				remote: this.remote,
+				baseline: this.baseline,
+				local,
+				token: this.credential
+			});
 			const allocation = allocateProjectImport(plan.closure, {
 				names: this.session.projects.map((project) => project.name),
-				local: await store.list('')
+				local,
+				...evidence
 			});
 			const named = { ...plan.closure.project, name: allocation.name };
 			const total = plan.closure.paths.length;

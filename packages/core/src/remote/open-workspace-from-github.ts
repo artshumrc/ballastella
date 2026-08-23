@@ -61,7 +61,7 @@ import {
 	type CloneReference,
 	type WorkspaceClone
 } from './clone-from-remote.js';
-import { describeRemote, normaliseRemoteIdentity } from './remote-binding.js';
+import { describeRemote, normaliseRemoteIdentity, remoteIdentityKey } from './remote-binding.js';
 import {
 	SynchronizationMetadata,
 	listRemoteRelationships,
@@ -151,9 +151,9 @@ export async function findWorkspaceForRepository(
 	storage: MetadataStorage,
 	remote: RemoteRelationship
 ): Promise<string | null> {
-	const wanted = comparisonKey(remote);
+	const wanted = remoteIdentityKey(remote);
 	const found = (await listRemoteRelationships(storage))
-		.filter((held) => comparisonKey(held.remote) === wanted)
+		.filter((held) => remoteIdentityKey(held.remote) === wanted)
 		.map((held) => held.workspaceKey)
 		.sort();
 	return found[0] ?? null;
@@ -216,10 +216,6 @@ async function openOrSelect(
 	};
 }
 
-/** What a repository is *the same repository* as, for the lookup. See this module's header. */
-const comparisonKey = (remote: RemoteRelationship): string =>
-	`${remote.owner.toLowerCase()}/${remote.repository.toLowerCase()}#${remote.branch}`;
-
 /**
  * Opens of one repository, one after another. See this module's header for what the race costs.
  *
@@ -230,7 +226,7 @@ const comparisonKey = (remote: RemoteRelationship): string =>
 const running = new Map<string, Promise<unknown>>();
 
 async function oneAtATime<T>(remote: RemoteRelationship, work: () => Promise<T>): Promise<T> {
-	const key = comparisonKey(remote);
+	const key = remoteIdentityKey(remote);
 	// `.then(work, work)` rather than `.finally`: the queue must advance whether the Open ahead
 	// succeeded or refused, and a refusal that stalled the queue would leave the repository unopenable
 	// for the life of the tab.

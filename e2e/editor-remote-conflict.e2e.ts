@@ -2,6 +2,7 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
+import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
 	openRemoteSettings,
@@ -804,5 +805,93 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
 		await expect(page.getByTestId('publish')).toHaveCount(0);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// IMPORT INTO A BOUND WORKSPACE (ticket 17; SPEC stories 49, 50, 161)
+//
+// **One workflow, and it is the only place the three halves meet.** The allocation table, the
+// own-Remote refusal, the inventory refusal and what each of them leaves behind are exhausted at
+// Seam 1 (`project-import-own-remote.test.ts`, `project-import-allocation.test.ts`) against a real
+// store and the same fake repository. What only a browser can settle is that the *application* wires
+// them together: that the hub's Import asks GitHub what this Workspace's Remote holds before it
+// allocates a directory, that the arriving Project registers in the change index the status control
+// on the bar reads, and that the ordinary Publish — told nothing about Imports — carries it.
+test.describe('Importing a Project into a bound Workspace', () => {
+	const MINE = syncProject('delft', 'Delft');
+	/**
+	 * A Project of this Workspace's own Remote that this installation has never seen.
+	 *
+	 * ⚠ **Its directory is the slug the incoming Project wants**, and its *name* is not: the display
+	 * name is allocated against what this Workspace shows and nothing here shows it, so a suffix on the
+	 * directory can only have come from the Remote's listing (SPEC story 161).
+	 */
+	const ONLY_ON_GITHUB = syncProject('amsterdam-1625', 'Amsterdam 1625, revised');
+
+	test('reserves the Remote’s own directories, and publishes as ordinary local work', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			workspace: { ...MINE, ...boundTo() },
+			onRemote: { ...MINE, ...ONLY_ON_GITHUB }
+		});
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			files: await sharedShas(MINE)
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await signIn(page);
+		await page.keyboard.press('Escape');
+
+		await page.getByTestId('import-project').click();
+		await page
+			.getByRole('dialog', { name: 'Import a Project' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await oneProjectBundle());
+		await page.getByTestId('confirm-import').click();
+
+		// The name the bundle carried, because nothing on this screen was called it.
+		await expect(page.getByTestId('import-notice')).toContainText('Imported Amsterdam 1625 into');
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+
+		// ⚠ **The imported files are local work and nothing else** (SPEC story 49). Nothing was sent and
+		// no Baseline was advanced, so the status control — which reads ticket 10's write index — reports
+		// local drift over a Remote whose head has not moved. It is `Changes on both sides` rather than
+		// `Changes to publish` because the Project this installation had never seen is still inbound
+		// work: the Import placed itself around it without adopting it.
+		const before = github.head(OWNER, REPOSITORY);
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Changes on both sides');
+		expect(github.head(OWNER, REPOSITORY)).toBe(before);
+
+		// Taking that inbound work leaves the Import as the only difference between the two sides, which
+		// is what makes the publish below an ordinary one rather than a conflict.
+		await page.getByTestId('update-from-github').click();
+		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
+		await expect(remoteStatus(page)).toContainText('Changes to publish');
+
+		// ⚠ **And the ordinary Publish carries it, having been told nothing about Imports** (SPEC story
+		// 50). Publish owns the whole Workspace namespace, which is why an imported Project needs no
+		// outbound route of its own. The directory is the claim: `amsterdam-1625` was free everywhere
+		// this browser could see and taken on the Remote, so an Import allocated without that listing
+		// would have arrived here as two unrelated Projects at one path.
+		await confirm(page, await openPublishDialog(page));
+		expect(github.fileText(OWNER, REPOSITORY, 'amsterdam-1625-2/project.json')).toContain(
+			'Amsterdam 1625'
+		);
+		expect(github.fileText(OWNER, REPOSITORY, 'amsterdam-1625/project.json')).toContain(
+			'Amsterdam 1625, revised'
+		);
+		expect(github.fileText(OWNER, REPOSITORY, 'delft/project.json')).toContain('Delft');
+		// ⚠ **And there is still exactly one Remote relationship, at the Workspace** (SPEC story 51).
+		// An imported Project gets no binding, no Baseline and no Publish action of its own, so the
+		// published tree carries one `remote.json` rather than one per Project.
+		expect(github.files(OWNER, REPOSITORY).filter((path) => path.endsWith('remote.json'))).toEqual([
+			'remote.json'
+		]);
+		await expect(remoteStatus(page)).toContainText('Up to date');
 	});
 });

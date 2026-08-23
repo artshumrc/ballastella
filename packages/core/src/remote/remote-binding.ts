@@ -231,3 +231,32 @@ export function parseRemoteReference(
 	if (repository === undefined || !isRepositoryName(repository)) return null;
 	return { owner, repository };
 }
+
+/**
+ * What makes two repository references **the same Remote**, as one comparable string.
+ *
+ * ⚠ **The owner and the repository fold case and the branch does not.** GitHub treats an account and
+ * a repository name case-insensitively — `Ada/Atlas` and `ada/atlas` are one repository and one
+ * Published Site — while git refs are byte-compared, so `main` and `Main` are two branches and a
+ * Workspace synchronized with one has no relationship with the other.
+ *
+ * ⚠ **The one rule, asked rather than restated.** An Open selects an existing Workspace by it and an
+ * Import refuses its own Remote by it; two spellings of "the same repository" would let an Import be
+ * refused as a duplicate of a Workspace no Open would ever have reused, or worse, the other way
+ * round.
+ *
+ * An absent or empty branch is {@link DEFAULT_REMOTE_BRANCH}, exactly as
+ * {@link normaliseRemoteIdentity} reads one.
+ */
+export const remoteIdentityKey = (remote: {
+	readonly owner: string;
+	readonly repository: string;
+	readonly branch?: string;
+}): string =>
+	`${remote.owner.toLowerCase()}/${remote.repository.toLowerCase()}#${remote.branch || DEFAULT_REMOTE_BRANCH}`;
+
+/** Whether two references name one repository and one branch. {@link remoteIdentityKey}'s rule. */
+export const isSameRemote = (
+	one: { readonly owner: string; readonly repository: string; readonly branch?: string },
+	other: { readonly owner: string; readonly repository: string; readonly branch?: string }
+): boolean => remoteIdentityKey(one) === remoteIdentityKey(other);

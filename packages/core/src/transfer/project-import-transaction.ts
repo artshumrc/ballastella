@@ -130,6 +130,21 @@ export type ImportRefusal =
 	| 'import-in-progress'
 	/** The planned destinations are not one fresh path per closure path. A defect, not a user error. */
 	| 'plan-mismatch'
+	/**
+	 * A bound Workspace's Remote could not be inventoried, so nothing may be allocated against it.
+	 *
+	 * Refused before anything here runs (ticket 17): the directories a Project may not take include
+	 * those a Remote nobody has looked at is using, and a listing that failed is no evidence that
+	 * they are free.
+	 */
+	| 'remote-unavailable'
+	/**
+	 * The Project is the one this Workspace already synchronizes with its own Remote.
+	 *
+	 * Not an Import at all but a second, detached copy of the author's own work (ticket 17, SPEC
+	 * stories 69–71). Also refused before anything here runs.
+	 */
+	| 'own-remote'
 	/** A destination is taken, or would be taken on a filesystem that folds names. */
 	| 'destination-exists'
 	/** The browser does not have room for the closure and its marker. */

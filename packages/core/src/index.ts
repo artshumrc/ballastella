@@ -350,6 +350,16 @@ export {
 	type ImportDestination,
 	type ProjectImportAllocation
 } from './transfer/project-import-allocation.js';
+// What a bound Workspace's one Remote adds to an Import (ticket 17, ADR-0038): the current Remote
+// inventory that allocation reserves directories from — refused rather than guessed at when GitHub
+// will not answer — and the refusal of an Import of the Project this Workspace already synchronizes.
+export {
+	assertNotOwnRemote,
+	readImportEvidence,
+	type ImportEvidence,
+	type ImportIntoWorkspace,
+	type OwnRemoteCheck
+} from './transfer/project-import-own-remote.js';
 export {
 	readProjectBundleSource,
 	type ProjectBundleSourceOptions
