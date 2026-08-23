@@ -129,6 +129,7 @@ import {
 	type TileFetchResult,
 	type TransferProgress,
 	type UndoRecord,
+	type UpdateDeletionPreview,
 	type ViewerBundle,
 	type ViewerBundleFile,
 	type WorkspaceMapImage,
@@ -335,6 +336,8 @@ export interface EditorSessionOptions {
 
 export class EditorSession {
 	readonly #workspace: Workspace;
+	/** Which Workspace this session is, for an Update's durable record of one. `''` when unkeyed. */
+	readonly #workspaceKey: string;
 	readonly #autosave: Autosave;
 	/** The write-ahead journal for **this** Workspace, or `undefined` where there can be none. */
 	readonly #journal: WriteAheadJournal | undefined;
@@ -625,6 +628,7 @@ export class EditorSession {
 
 	constructor(store: ProjectStore, options: EditorSessionOptions = {}) {
 		this.#store = store;
+		this.#workspaceKey = options.workspaceKey ?? '';
 		this.#journalStorage = options.journalStorage;
 		this.#journal =
 			options.journalStorage && options.workspaceKey
@@ -2511,7 +2515,8 @@ export class EditorSession {
 	}
 
 	/**
-	 * Bring the Remote's own additions and replacements into this Workspace (ticket 14, ADR-0038).
+	 * Bring the Remote's own additions, replacements and confirmed deletions into this Workspace
+	 * (tickets 14 and 15, ADR-0038).
 	 *
 	 * ⚠ **Everything pending is written down first, and both flushes are load-bearing.** The engine
 	 * reads and hashes every file in the Workspace to build its plan, so an Annotation still inside
@@ -2536,6 +2541,8 @@ export class EditorSession {
 	async updateFromRemote(options: {
 		remote: RemoteRepository;
 		onProgress?: (progress: { files: number; totalFiles: number }) => void;
+		/** Show what would be removed and answer whether to go ahead (SPEC stories 126, 127). */
+		confirmDeletion?: (preview: UpdateDeletionPreview) => Promise<boolean>;
 	}): Promise<{ update: WorkspaceUpdate; baselineKept: boolean }> {
 		await this.flush();
 		await this.localChanges?.flushChanges();
@@ -2544,6 +2551,8 @@ export class EditorSession {
 			remote: options.remote,
 			baseline: (await this.#synchronization?.readBaseline(options.remote)) ?? null,
 			estimateStorage: () => navigator.storage.estimate(),
+			workspace: this.#workspaceKey,
+			...(options.confirmDeletion ? { confirmDeletion: options.confirmDeletion } : {}),
 			...(options.onProgress
 				? { onProgress: ({ files, totalFiles }) => options.onProgress?.({ files, totalFiles }) }
 				: {})

@@ -13,6 +13,7 @@ import {
 	exportWorkspaceTar,
 	forgetWorkspaceFolder,
 	ImportRecoveryFailedError,
+	UpdateRefusedError,
 	isFolderWorkspaceSupported,
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
@@ -25,6 +26,7 @@ import {
 	serialiseProjectFile,
 	readReviewMark,
 	recoverProjectImport,
+	recoverWorkspaceUpdate,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
 	restoreWorkspaceTar,
@@ -91,6 +93,7 @@ import {
 	type ReviewedProject,
 	type StoragePersistence,
 	type TransferProgressListener,
+	type UpdateDeletionPreview,
 	type WorkspaceBackup,
 	type WorkspaceRestore,
 	type WorkspaceSize
@@ -545,6 +548,43 @@ export class WorkspaceStorage {
 	 * from — so the recovery offered here is a reload.
 	 */
 	unrecoveredImport = $state('');
+	/**
+	 * Why this Workspace is not available, because an interrupted Update could not be resolved
+	 * (ticket 15).
+	 *
+	 * {@link unrecoveredImport}'s twin, and for the identical reason: an Update writes the Remote's
+	 * bytes at ordinary Workspace paths and removes others, all under one durable marker, so while
+	 * that marker is unresolved every reader would see a Project list assembled out of two states —
+	 * the Project the Update was removing still listed, the one it was adding half there. SPEC story
+	 * 141 is that either the complete inbound change set is visible or the old Workspace is, and the
+	 * way that is kept true for a reader is that nothing enumerates until the marker is gone.
+	 *
+	 * Read through {@link unavailable}, which is what every guard and every route consults: the two
+	 * unresolved transactions differ in which engine left them and in nothing a caller cares about.
+	 */
+	unrecoveredUpdate = $state('');
+
+	/**
+	 * Why this Workspace may not be enumerated, opened, backed up or published at all, or `''`.
+	 *
+	 * ⚠ **One question with two answers, deliberately asked once.** An Import (ticket 05) and an
+	 * Update (ticket 15) both leave provisional state at ordinary Workspace paths under a durable
+	 * marker, and a guard that consulted one of them was a guard that let the other through — which is
+	 * a Project list, a Backup or a Publish over half a transfer.
+	 */
+	get unavailable(): string {
+		return this.unrecoveredImport || this.unrecoveredUpdate;
+	}
+
+	/**
+	 * The deletions an Update is waiting to be told about, or `null` when it is not (story 126).
+	 *
+	 * ⚠ **State rather than a callback into a component**, because the transfer outlives the screen it
+	 * was started from: the Update control is on the navigation bar, and an author who starts one and
+	 * walks into a Project must still be the one asked. Whatever renders this owns answering it, and
+	 * {@link answerDeletionPreview} is the only way to answer.
+	 */
+	deletionPreview = $state<UpdateDeletionPreview | null>(null);
 
 	#teardownFlushOnHide: (() => void) | undefined;
 	/**
@@ -557,6 +597,8 @@ export class WorkspaceStorage {
 	 * `SynchronizationMetadata` and the write index already have.
 	 */
 	#statusChecker: RemoteStatusChecker | null = null;
+	/** Whatever is waiting on {@link deletionPreview}, or `null`. See {@link answerDeletionPreview}. */
+	#answerDeletion: ((confirmed: boolean) => void) | null = null;
 	/**
 	 * Where the write-ahead journal lives, resolved once for the whole app.
 	 *
@@ -638,7 +680,7 @@ export class WorkspaceStorage {
 	 *
 	 * `false` is not "it failed" so much as "nothing may read this Workspace": the marker is left
 	 * exactly where it is, which is the durable evidence the next visit retries from, and
-	 * {@link unrecoveredImport} is what the routes render instead of a Project list.
+	 * {@link unavailable} is what the routes render instead of a Project list.
 	 *
 	 * Cleared first, so a second Workspace's answer is never the first's.
 	 */
@@ -670,6 +712,49 @@ export class WorkspaceStorage {
 						`be cleared up: ${cause instanceof Error ? cause.message : String(cause)}`;
 			return false;
 		}
+	}
+
+	/**
+	 * Resolve an outstanding Update, or leave this Workspace unavailable (ticket 15).
+	 *
+	 * {@link WorkspaceStorage.#recoverImport}'s twin, and the two are always run as a pair: either
+	 * marker unresolved means nothing may read the Workspace, and there is no order in which one of
+	 * them is safe to skip. The backing is asked directly for the same reason it is there — an
+	 * unreachable folder is a state this app already renders, with a way back on the screen, and
+	 * relabelling it as an unfinished Update would take that away and offer a reload instead.
+	 */
+	async #recoverUpdate(store: ProjectStore): Promise<boolean> {
+		this.unrecoveredUpdate = '';
+		try {
+			await recoverWorkspaceUpdate(store);
+			return true;
+		} catch (cause) {
+			if (
+				!(await store
+					.list('')
+					.then(() => true)
+					.catch(() => false))
+			)
+				return true;
+			this.unrecoveredUpdate =
+				cause instanceof UpdateRefusedError
+					? cause.message
+					: `This Workspace could not be opened, because an Update from GitHub that did not ` +
+						`finish could not be cleared up: ${cause instanceof Error ? cause.message : String(cause)}`;
+			return false;
+		}
+	}
+
+	/**
+	 * Resolve both kinds of unfinished transfer, in the order they were written.
+	 *
+	 * The Import first, because it is the older machinery and because an Import that cannot be
+	 * resolved shuts the Workspace anyway — running the Update recovery over it would be reading a
+	 * Workspace this app has already decided it may not read.
+	 */
+	async #recoverTransfers(store: ProjectStore): Promise<boolean> {
+		if (!(await this.#recoverImport(store))) return false;
+		return this.#recoverUpdate(store);
 	}
 
 	/** Begin. Returns its own teardown, for the effect that created it. */
@@ -706,7 +791,7 @@ export class WorkspaceStorage {
 			// durable marker, and until that marker is resolved every reader would see them — the review
 			// mark, the Remote, the journal replay, the interrupted deletions and the route's own Project
 			// read all included. `false` means it could not be resolved, and then none of them run.
-			.then(() => this.#recoverImport(this.session.store))
+			.then(() => this.#recoverTransfers(this.session.store))
 			// ⚠ **The first load never goes through `#adopt`** — the session is built in the field
 			// initialiser from the remembered name — so without this the one case the mark exists for is
 			// the one it misses: a user who closed the tab inside a review copy and opened it again. The
@@ -745,7 +830,7 @@ export class WorkspaceStorage {
 			// An unresolved Import is the **only** failure that withholds `recovered`: everything else
 			// on this chain has already reported itself, and a route left waiting for ever over a
 			// Remote that would not read would be a worse failure than the one being recovered.
-			.catch(() => this.unrecoveredImport === '')
+			.catch(() => this.unavailable === '')
 			.then((available) => {
 				if (!available) return undefined;
 				// Before the Workspace listing, which is not something a Project read has to wait for.
@@ -1346,7 +1431,7 @@ export class WorkspaceStorage {
 	 * resolved, which cannot be enumerated and so cannot be allocated against.
 	 */
 	get importTarget(): ImportTarget | null {
-		if (this.review !== null || this.unrecoveredImport !== '') return null;
+		if (this.review !== null || this.unavailable !== '') return null;
 		return { name: this.name, key: this.#workspaceKey };
 	}
 
@@ -1492,8 +1577,8 @@ export class WorkspaceStorage {
 	 * differently here is how two spellings of the same state come to disagree.
 	 */
 	assertRecovered(verb: string): void {
-		if (this.unrecoveredImport === '') return;
-		throw new Error(`“${this.name}” cannot be ${verb} until it opens. ${this.unrecoveredImport}`);
+		if (this.unavailable === '') return;
+		throw new Error(`“${this.name}” cannot be ${verb} until it opens. ${this.unavailable}`);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1523,7 +1608,7 @@ export class WorkspaceStorage {
 		// 05). Reading a Remote is a read of this Workspace, and the clears above are why the guard is
 		// here rather than at the call: leaving the *previous* Workspace's Remote on screen beside an
 		// unavailable one is how a Publish gets offered over work that is not there.
-		if (this.unrecoveredImport !== '') return;
+		if (this.unavailable !== '') return;
 		if (metadata !== null) {
 			const migration = await migrateSynchronizationMetadata({
 				metadata,
@@ -1567,6 +1652,11 @@ export class WorkspaceStorage {
 		this.updateProgress = null;
 		this.updateNotice = '';
 		this.updateFailure = '';
+		// ⚠ **And a deletion preview least of all.** It names Projects in the Workspace the author has
+		// just left, and its Remove button would delete them out from under a screen showing another
+		// Workspace's Projects. Answered `false` rather than merely hidden: the transfer that raised it
+		// is waiting on it (SPEC story 127 — declining changes nothing).
+		this.#closeDeletionPreview(false);
 		const remote = this.remote;
 		if (remote === null) return;
 		const checker = new RemoteStatusChecker({
@@ -1627,7 +1717,12 @@ export class WorkspaceStorage {
 				remote,
 				onProgress: (progress) => {
 					if (mine()) this.updateProgress = progress;
-				}
+				},
+				// ⚠ **Declined by default when the Workspace has moved on.** A preview raised over a
+				// Workspace the author has since switched away from would be a dialog naming files they
+				// cannot see, and answering it `true` would delete them behind their back.
+				confirmDeletion: (preview) =>
+					mine() ? this.#askAboutDeletions(preview) : Promise.resolve(false)
 			});
 			if (!mine()) return;
 			// Re-read rather than assumed: `writeBaseline` discards the previous record when it cannot
@@ -1645,10 +1740,57 @@ export class WorkspaceStorage {
 			this.updateProgress = null;
 			await this.checkRemoteStatus();
 		} catch (cause) {
-			if (mine()) this.updateFailure = cause instanceof Error ? cause.message : String(cause);
+			if (!mine()) return;
+			// ⚠ **A decline is a notice, not an alert.** The author looked at what would go and said no,
+			// and reporting their own answer back to them as a failure — in the warning colour, through
+			// `role="alert"` — is this app telling them something went wrong when nothing did.
+			if (cause instanceof UpdateRefusedError && cause.refusal === 'cancelled') {
+				this.updateNotice = cause.message;
+				return;
+			}
+			this.updateFailure = cause instanceof Error ? cause.message : String(cause);
 		} finally {
-			if (mine()) this.updateProgress = null;
+			if (mine()) {
+				this.updateProgress = null;
+				// Whatever happened, nothing is waiting to be asked any more. A preview left on screen
+				// after the operation that raised it has gone is a confirmation for a transfer that
+				// no longer exists.
+				this.#closeDeletionPreview(false);
+			}
 		}
+	}
+
+	/**
+	 * Put the deletions on screen and wait for the author's answer (SPEC stories 126, 127).
+	 *
+	 * Resolves `false` for every way of not saying yes — the Cancel button, Escape, the dialog being
+	 * closed, the Workspace being switched underneath it — because "no" is the answer that changes
+	 * nothing, and a promise that never settled would leave the Update running for ever.
+	 */
+	#askAboutDeletions(preview: UpdateDeletionPreview): Promise<boolean> {
+		// A second preview cannot arise — `updateFromRemote` refuses to start while one is in flight —
+		// but a stale resolver would be a transfer waiting on a promise nothing will settle.
+		this.#closeDeletionPreview(false);
+		return new Promise<boolean>((resolve) => {
+			this.#answerDeletion = resolve;
+			this.deletionPreview = preview;
+		});
+	}
+
+	/**
+	 * Answer the deletion preview on screen: `true` removes the files, `false` changes nothing.
+	 *
+	 * The only way to answer it, and the only thing that closes it.
+	 */
+	answerDeletionPreview(confirmed: boolean): void {
+		this.#closeDeletionPreview(confirmed);
+	}
+
+	#closeDeletionPreview(confirmed: boolean): void {
+		const answer = this.#answerDeletion;
+		this.#answerDeletion = null;
+		this.deletionPreview = null;
+		answer?.(confirmed);
 	}
 
 	/**
@@ -2221,7 +2363,7 @@ export class WorkspaceStorage {
 		// Workspace** (ticket 05). An unresolved Import marker means the arriving Workspace is not
 		// available at all — its provisional files sit at ordinary paths — so a mark, a Remote, a
 		// replay, or the Project the route is about to ask for would all be read over half an Import.
-		const available = await this.#recoverImport(store);
+		const available = await this.#recoverTransfers(store);
 		// ⚠ **The mark is read before `this.session` is published, and the order is the point.** The
 		// banner, the Publish refusal and the backup refusal are all drawn from it, so a frame in which
 		// the new session is on screen and the mark is still the *previous* Workspace's is a frame in

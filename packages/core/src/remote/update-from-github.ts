@@ -1,5 +1,5 @@
-// Update from GitHub: bringing a Remote's own additions and replacements into a Workspace that is
-// already synchronized with it (ADR-0038, SPEC stories 105, 121–124, 128–131).
+// Update from GitHub: bringing a Remote's own additions, replacements and confirmed deletions into a
+// Workspace that is already synchronized with it (ADR-0038, SPEC stories 105, 121–131, 141).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EXPLICIT, INBOUND, AND NEITHER HALF OF THAT IS NEGOTIABLE
@@ -41,40 +41,58 @@
 //     against the SHA the listing named, which is what catches a rewritten copy from a proxy.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// DELETIONS ARE NOT THIS TICKET'S, AND THE REFUSAL IS THE POINT
+// A DELETION IS APPLIED ONLY AFTER SOMEBODY HAS BEEN SHOWN WHAT GOES
 //
-// A plan carrying a Remote deletion is refused **before anything is written**, named, and handed to
-// the destructive-confirmation flow that ticket 15 builds. Applying it silently and ignoring it
-// silently are the same failure with different symptoms: one removes work nobody agreed to lose, the
-// other reports an Update as complete while the two sides still differ.
+// A plan carrying a Remote deletion is not refused and not applied quietly. It is described —
+// {@link UpdateDeletionPreview}, which names the Projects by the name their author gave them and the
+// Map Images by their identity — and handed to {@link UpdateFromGitHubOptions.confirmDeletion}
+// before a byte is written or a before-image taken. Declining is a no-op on all three states: this
+// Workspace, the Remote, and the Baseline (SPEC story 127).
+//
+// ⚠ **A caller that passes no confirmer cannot delete.** The plan is refused `'deletion'` instead,
+// which is the same direction the confirmation itself points: applying the additions and dropping
+// the deletions would report an Update as complete over two sides that still differ, and the next
+// status check would say so with nothing to explain it.
+//
+// A path the Remote deleted whose local bytes have *changed* is not a deletion at all. It is
+// `comparePath`'s Conflict row — baseline, local and remote all differ — so the whole Update is
+// refused and neither side is touched, and no confirmation is asked for something that is not on
+// offer (SPEC story 126).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE TRANSACTION, AND WHY IT IS NOT IMPORT'S
 //
 // `project-import-transaction.ts` writes provisional bytes straight to their final paths, and that
 // is available to it only because every path an Import writes is freshly allocated. An Update
-// replaces paths that already hold the author's work, so the same trick would overwrite the thing it
-// is supposed to be able to give back. So a replaced path's previous bytes are copied to a reserved
-// before-image first, and one durable marker names every addition and every before-image:
+// replaces and removes paths that already hold the author's work, so the same trick would overwrite
+// the thing it is supposed to be able to give back. So every path that is about to be replaced *or
+// removed* has its previous bytes copied to a reserved before-image first, and one durable marker
+// names the whole operation:
 //
-//   1. the marker, `'writing'`, naming what is about to change;
-//   2. a before-image of every path being replaced;
+//   1. the marker, `'writing'`, naming every addition, replacement and deletion;
+//   2. a before-image of every path being replaced and every path being removed;
 //   3. every planned file, fetched and SHA-checked, written to its final path;
-//   4. the marker rewritten `'committed'` — the boundary, past which nothing is rolled back;
-//   5. the before-images removed, then the marker.
+//   4. every deletion carried out;
+//   5. the marker rewritten `'committed'` — the boundary, past which nothing is rolled back;
+//   6. the before-images removed, then the marker.
 //
-// Anything that fails before step 4 restores every before-image, removes every addition, and then
-// refuses — so the Workspace the caller is told about is the Workspace they started with. A marker
-// left behind by a tab that died is resolved by {@link recoverWorkspaceUpdate}, which runs before
-// this plans anything: `'writing'` is rolled back and `'committed'` is finished, exactly as an
-// Import's two states are opposite instructions.
+// Anything that fails before step 5 restores every before-image, removes every addition, and then
+// refuses — so the Workspace the caller is told about is the Workspace they started with. **The
+// deletions are inside that window rather than after it**, which is what the before-images of the
+// paths being removed are for: a deletion list is carried out one path at a time, and a failure part
+// way along it — or a write that failed while a deletion had already gone through — has to be able to
+// put every one of them back.
 //
-// ⚠ **Ticket 15 extends this seam for deletions**, which need a before-image of a path that is going
-// away rather than of one being replaced, and it owns making the recovery a startup gate.
+// A marker left behind by a tab that died is resolved by {@link recoverWorkspaceUpdate}, which runs
+// before this plans anything *and* before the application enumerates the Workspace at all:
+// `'writing'` is rolled back and `'committed'` is finished, exactly as an Import's two states are
+// opposite instructions. So a reader of this Workspace sees the complete old state or the complete
+// new one, never a Project list assembled out of both (SPEC story 141).
 
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
-import { PROJECT_FILE_NAME } from '../project/project-file.js';
+import { IMAGE_DIRECTORY } from '../project/image-files.js';
+import { PROJECT_FILE_NAME, parseProjectFile } from '../project/project-file.js';
 import { describeBytes } from '../project/workspace-size.js';
 import { createHttpProjectStore } from '../store/http-project-store.js';
 import {
@@ -92,6 +110,7 @@ import {
 	readRemoteTree,
 	urlPath
 } from './remote-tree.js';
+import { projectDirectories } from './synchronization-paths.js';
 import { planWorkspaceUpdate } from './synchronization-planner.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { EstimateStorage } from '../transfer/restore-workspace-tar.js';
@@ -126,8 +145,13 @@ export const UPDATE_TRANSACTION_PATH = 'update.json' as StorePath;
  */
 export const UPDATE_BEFORE_DIRECTORY = 'update-before/';
 
-/** The format version of the marker itself, separate from a Project's. */
-export const UPDATE_TRANSACTION_FORMAT_VERSION = 1;
+/**
+ * The format version of the marker itself, separate from a Project's.
+ *
+ * `2` since ticket 15 added the deletions, which a build that only knows `1` would leave out of a
+ * rollback — so the number is what tells a reader of a stray marker which of the two wrote it.
+ */
+export const UPDATE_TRANSACTION_FORMAT_VERSION = 2;
 
 /** How far an Update had got. The two states are opposite instructions — see the module header. */
 export type UpdateTransactionState =
@@ -136,7 +160,7 @@ export type UpdateTransactionState =
 	/** Every inbound path is durable and **nothing may be rolled back**; the residue is swept. */
 	| 'committed';
 
-/** One path this Update replaces, and where its previous bytes are being kept. */
+/** One path this Update replaces or removes, and where its previous bytes are being kept. */
 export interface UpdateBeforeImage {
 	readonly path: StorePath;
 	readonly image: StorePath;
@@ -147,11 +171,36 @@ export interface UpdateTransaction {
 	readonly formatVersion: number;
 	/** Names this transaction, so a report can say which one it means. */
 	readonly transaction: string;
+	/**
+	 * Which Workspace this Update was aimed at, or `''` when the caller named none.
+	 *
+	 * Recorded for `startedAt`'s reason rather than compared against anything: the marker lives inside
+	 * the Workspace it belongs to, so nothing can hand it to another one. What it buys is a stray file
+	 * in a chosen folder that says which Workspace it is a record of, in a report and to whoever finds
+	 * it with a file browser open.
+	 */
+	readonly workspace: string;
 	readonly state: UpdateTransactionState;
+	/**
+	 * The Remote commit this Update was bringing in, or `''`.
+	 *
+	 * With the three path sets below, the whole of the state it intended to leave: those paths, at
+	 * this commit's bytes. A marker is then legible on its own — which commit, which files, how far —
+	 * without the Baseline it never got as far as writing.
+	 */
+	readonly commit: string;
 	/** Paths the Update creates that the Workspace did not hold. Removed on a rollback. */
 	readonly added: readonly StorePath[];
 	/** Paths the Update replaces, each with the before-image restored on a rollback. */
 	readonly replaced: readonly UpdateBeforeImage[];
+	/**
+	 * Paths the Update removes, each with the before-image restored on a rollback.
+	 *
+	 * Separate from {@link replaced} because the two are undone from the same evidence but *done*
+	 * differently, and a rollback that could not tell them apart would put a deleted path back as an
+	 * addition to remove next time.
+	 */
+	readonly deleted: readonly UpdateBeforeImage[];
 	/** ISO 8601, for a report and for whoever is reading the Workspace with a file browser open. */
 	readonly startedAt: string;
 }
@@ -197,9 +246,32 @@ export function parseUpdateTransaction(bytes: Bytes): UpdateTransaction | null {
 	if (!Array.isArray(added) || added.some((path) => typeof path !== 'string' || path === '')) {
 		return null;
 	}
-	if (!Array.isArray(replaced)) return null;
+	const replacedImages = beforeImages(replaced);
+	// ⚠ **Absent is an empty list and unreadable is not.** A marker written by the build before ticket
+	// 15 has no `deleted` member at all and had no deletions to undo, so reading it as none is exact;
+	// a member that is there and will not parse is a marker whose deletions cannot be named, and
+	// reading *that* as none is a file that never gets given back.
+	const deleted = record['deleted'];
+	const deletedImages = deleted === undefined ? [] : beforeImages(deleted);
+	if (replacedImages === null || deletedImages === null) return null;
+	return {
+		formatVersion: record['formatVersion'],
+		transaction: typeof record['transaction'] === 'string' ? record['transaction'] : '',
+		workspace: typeof record['workspace'] === 'string' ? record['workspace'] : '',
+		state,
+		commit: typeof record['commit'] === 'string' ? record['commit'] : '',
+		added: added as StorePath[],
+		replaced: replacedImages,
+		deleted: deletedImages,
+		startedAt: typeof record['startedAt'] === 'string' ? record['startedAt'] : ''
+	};
+}
+
+/** One of the marker's two before-image lists, or `null` when it is not one. */
+function beforeImages(raw: unknown): UpdateBeforeImage[] | null {
+	if (!Array.isArray(raw)) return null;
 	const images: UpdateBeforeImage[] = [];
-	for (const entry of replaced) {
+	for (const entry of raw) {
 		if (typeof entry !== 'object' || entry === null) return null;
 		const { path, image } = entry as Record<string, unknown>;
 		// One unreadable entry is a foreign or truncated marker rather than an Update missing one path,
@@ -208,14 +280,7 @@ export function parseUpdateTransaction(bytes: Bytes): UpdateTransaction | null {
 		if (typeof image !== 'string' || image === '') return null;
 		images.push({ path: path as StorePath, image: image as StorePath });
 	}
-	return {
-		formatVersion: record['formatVersion'],
-		transaction: typeof record['transaction'] === 'string' ? record['transaction'] : '',
-		state,
-		added: added as StorePath[],
-		replaced: images,
-		startedAt: typeof record['startedAt'] === 'string' ? record['startedAt'] : ''
-	};
+	return images;
 }
 
 /**
@@ -292,9 +357,15 @@ export async function recoverWorkspaceUpdate(store: ProjectStore): Promise<Updat
 	};
 }
 
-/** Put every replaced path back, remove every addition, and only then remove the marker. */
+/**
+ * Put every displaced path back, remove every addition, and only then remove the marker.
+ *
+ * ⚠ **A removed path and a replaced one are restored identically and from the same evidence.** The
+ * two lists are separate because they are *applied* differently — see {@link UpdateTransaction.deleted} —
+ * and undoing either is the same act: the before-image's bytes go back where they came from.
+ */
 async function rollBack(store: ProjectStore, marker: UpdateTransaction): Promise<void> {
-	for (const { path, image } of marker.replaced) {
+	for (const { path, image } of [...marker.replaced, ...marker.deleted]) {
 		let bytes: Bytes;
 		try {
 			bytes = await store.read(image);
@@ -312,7 +383,7 @@ async function rollBack(store: ProjectStore, marker: UpdateTransaction): Promise
 
 /** Remove the before-images and then the marker. The whole of finishing a committed Update. */
 async function sweep(store: ProjectStore, marker: UpdateTransaction): Promise<void> {
-	for (const { image } of marker.replaced) await store.delete(image);
+	for (const { image } of [...marker.replaced, ...marker.deleted]) await store.delete(image);
 	await clearUpdateTransaction(store);
 }
 
@@ -335,13 +406,24 @@ export type UpdateRefusal =
 	/** No Baseline, and two non-empty sides that cannot be attributed (SPEC story 153). */
 	| 'unknown-history'
 	/**
-	 * The plan removes something, and destructive confirmation is not built yet (ticket 15).
+	 * The plan removes something and the caller offered no way to confirm it.
 	 *
 	 * ⚠ **A refusal rather than a partial Update**, and the paths are named. Applying the additions
 	 * and quietly dropping the deletions would report an Update as complete over two sides that still
-	 * differ, and the next status check would say so with nothing to explain it.
+	 * differ, and the next status check would say so with nothing to explain it. The application
+	 * always passes {@link UpdateFromGitHubOptions.confirmDeletion}, so this is what a caller that has
+	 * no screen to ask on gets.
 	 */
 	| 'deletion'
+	/**
+	 * The deletions were shown and declined. Nothing was written, and nothing is wrong (story 127).
+	 *
+	 * Its own member rather than one of the failures above, because it is the one refusal whose remedy
+	 * is nothing at all: an author who looked at what would go and decided against it has been served
+	 * exactly, and a caller announcing this the way it announces `'conflict'` would be reporting their
+	 * own decision back to them as a problem.
+	 */
+	| 'cancelled'
 	/** A file the tree listed could not be fetched, or arrived as bytes the tree did not name. */
 	| 'incomplete'
 	/** What would arrive would not be a Workspace this app can open. */
@@ -400,6 +482,65 @@ export interface UpdateFromGitHubOptions {
 	readonly now?: () => Date;
 	/** Names the transaction. Injected so a test's marker is byte-for-byte predictable. */
 	readonly transaction?: () => string;
+	/** Which Workspace this is, recorded in the marker. See {@link UpdateTransaction.workspace}. */
+	readonly workspace?: string;
+	/**
+	 * Show what the Update would remove and answer whether to go ahead (SPEC stories 126, 127).
+	 *
+	 * ⚠ **Called before the marker exists, before a before-image is taken, and before a byte is
+	 * fetched.** `false` is not a failure: nothing has been written, nothing on GitHub has been
+	 * touched, and the Baseline is the one the Workspace already had. Asked only when the plan
+	 * actually removes something — an Update that adds and replaces is not a destructive one and does
+	 * not stop to ask.
+	 *
+	 * Absent, the plan is refused `'deletion'` rather than applied. See {@link UpdateRefusal}.
+	 */
+	readonly confirmDeletion?: (preview: UpdateDeletionPreview) => boolean | Promise<boolean>;
+}
+
+/** One Project a confirmed Update would remove completely, named the way its author knows it. */
+export interface RemovedProject {
+	/** The Workspace directory, which is what a file browser and the Remote's tree both call it. */
+	readonly directory: string;
+	/**
+	 * The display name in its own `project.json`.
+	 *
+	 * The directory again when that manifest cannot be read or parsed: a name is what the author
+	 * recognises, and refusing to describe a Project whose manifest is broken would withhold the
+	 * confirmation over exactly the Project most worth confirming.
+	 */
+	readonly name: string;
+}
+
+/**
+ * What a confirmed Update would take away, in the terms the author has to be asked in.
+ *
+ * ⚠ **Projects and Map Images rather than paths, and that is the whole reason this type exists.** A
+ * list of forty tile paths under `images/map-1/` is not a question anybody can answer; "the Map Image
+ * `map-1` and everything drawn on it" is. Paths are still carried — {@link paths} for the operation's
+ * own record and {@link remaining} for what neither of the two groupings accounts for — so nothing is
+ * described away.
+ */
+export interface UpdateDeletionPreview {
+	/** The repository the deletions are coming from. */
+	readonly remote: RemoteRelationship;
+	/** Projects every one of whose files goes, by directory and display name, sorted. */
+	readonly projects: readonly RemovedProject[];
+	/** Map Image identities every one of whose files goes, sorted. */
+	readonly mapImages: readonly string[];
+	/** Every path the Update would remove, sorted. */
+	readonly paths: readonly string[];
+	/**
+	 * Removed paths that no removed Project or Map Image above accounts for, sorted.
+	 *
+	 * A Project losing one Annotation, an Alignment for a Map Image that stays, a cached Base Map
+	 * tile. Listed rather than summed away: the two groupings above are the *legible* part of a
+	 * deletion and this is the rest of it, and a confirmation that showed only the legible part would
+	 * be asking about less than it was about to do.
+	 */
+	readonly remaining: readonly string[];
+	/** The question, in the words the author should be asked it in. Says that Update will remove them. */
+	readonly message: string;
 }
 
 /** What an Update brought in, and what it entitles the caller to record. */
@@ -412,6 +553,8 @@ export interface WorkspaceUpdate {
 	readonly added: readonly string[];
 	/** Paths whose locally unchanged bytes were replaced by the Remote's, sorted. */
 	readonly replaced: readonly string[];
+	/** Paths the Remote no longer holds, removed here after the author confirmed it, sorted. */
+	readonly removed: readonly string[];
 	/** Local-only changes this Update left alone. Still Changes to publish afterwards. */
 	readonly retained: readonly string[];
 	readonly totalFiles: number;
@@ -451,9 +594,10 @@ type PlannedFile = {
 export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
 
 /**
- * Bring a Remote's own additions and replacements into this Workspace (SPEC stories 123, 124).
+ * Bring a Remote's own additions, replacements and confirmed deletions into this Workspace
+ * (SPEC stories 123–127, 141).
  *
- * The order is the design, and it is what makes every refusal before step 6 free:
+ * The order is the design, and it is what makes every refusal before step 7 free:
  *
  * 1. **Any outstanding transaction is resolved**, so nothing is planned over a half-finished Update.
  * 2. **The Remote's commit, then its tree at that commit** — two anonymous requests.
@@ -461,12 +605,20 @@ export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
  *    see an out-of-band edit to a chosen folder, and this pass is entitled to revise the status the
  *    author was shown.
  * 4. **The plan** — ticket 09's, which owns every three-way decision. A Conflict, a graph-invalid
- *    combination and an unattributable pair of sides are refused here.
- * 5. **A deletion-bearing plan is refused by name**, for ticket 15.
- * 6. **Every prospective `project.json` is gathered and the whole graph validated**, so a combination
+ *    combination and an unattributable pair of sides are refused here. A path the Remote deleted and
+ *    this Workspace changed is one of those Conflicts and never reaches step 6.
+ * 5. **Every prospective `project.json` is gathered and the whole graph validated**, so a combination
  *    that would not open is refused before a byte of it is visible.
- * 7. **The transaction**: the marker, the before-images, the fetch-and-verify, the commit.
+ * 6. **The deletions, if any, are described and confirmed** — and a decline stops here, having
+ *    written nothing at all.
+ * 7. **The transaction**: the marker, the before-images, the fetch-and-verify, the deletions, the
+ *    commit.
  * 8. **The Baseline the caller may record**, advanced only where the two sides now share bytes.
+ *
+ * ⚠ **The confirmation is step 6 rather than step 5, and it is not a free reordering.** The graph
+ * check is what decides whether the deletions are even on offer: a combination that would leave the
+ * Workspace incomplete is a Conflict, and asking somebody to confirm removing a Project and *then*
+ * refusing the Update is a question that was never real.
  *
  * @throws UpdateRefusedError for every refusal there is. Only `'unresolved-residue'` leaves the
  *   Workspace other than exactly as it was.
@@ -500,7 +652,6 @@ export async function updateFromGitHub(
 	// The first plan settles what would change; the second, below, judges the result it would leave.
 	const planned = planWorkspaceUpdate({ ...inventory, baseline: options.baseline });
 	if (planned.outcome !== 'planned') throw asPlanRefusal(remote, planned);
-	assertNoDeletion(remote, planned.plan);
 
 	const source = createHttpProjectStore({
 		resolve: (path) =>
@@ -521,7 +672,6 @@ export async function updateFromGitHub(
 		projectFiles: manifests.byShaOnly
 	});
 	if (judged.outcome !== 'planned') throw asPlanRefusal(remote, judged);
-	assertNoDeletion(remote, judged.plan);
 	const plan = judged.plan;
 
 	const files: PlannedFile[] = plan.changes
@@ -533,9 +683,14 @@ export async function updateFromGitHub(
 			effect: change.effect === 'replace' ? 'replace' : 'add',
 			fetched: manifests.byPath.get(change.path) ?? null
 		}));
+	const removals = plan.changes
+		.filter((change) => change.effect === 'delete')
+		.map((change) => change.path as StorePath)
+		.sort();
 
-	await assertRoomToUpdate(store, files, options.estimateStorage);
-	const transferred = await transfer(store, source, remote, files, options);
+	await confirmRemovals(store, remote, local, removals, options.confirmDeletion);
+	await assertRoomToUpdate(store, files, removals, options.estimateStorage);
+	const transferred = await transfer(store, source, remote, files, removals, commit, options);
 
 	return {
 		remote,
@@ -548,12 +703,13 @@ export async function updateFromGitHub(
 			.filter((file) => file.effect === 'replace')
 			.map((file) => file.path)
 			.sort(),
+		removed: removals,
 		retained: plan.retained,
 		totalFiles: files.length,
 		totalBytes: transferred,
 		baseline: advancedBaseline(options.baseline, plan),
 		shared: [...plan.advances.keys(), ...plan.retires].sort(),
-		notice: updateNotice(remote, plan, files)
+		notice: updateNotice(remote, plan, files, removals)
 	};
 }
 
@@ -669,27 +825,126 @@ const isProjectManifest = (path: string): boolean => {
 	return segments.length === 2 && segments[1] === PROJECT_FILE_NAME;
 };
 
-/** Refuse a plan that removes anything, by name, before a byte moves. See {@link UpdateRefusal}. */
-function assertNoDeletion(remote: RemoteRelationship, plan: WorkspaceUpdatePlan): void {
-	const removals = plan.changes
-		.filter((change) => change.effect === 'delete')
-		.map((change) => change.path)
-		.sort();
+/**
+ * Ask about the deletions and refuse unless they are confirmed. **Before anything is written.**
+ *
+ * Silent when the plan removes nothing: an Update that only adds and replaces is not a destructive
+ * one, and a confirmation raised over it would train the author to click through the one that matters.
+ */
+async function confirmRemovals(
+	store: ProjectStore,
+	remote: RemoteRelationship,
+	local: readonly InventoryEntry[],
+	removals: readonly StorePath[],
+	confirm: UpdateFromGitHubOptions['confirmDeletion']
+): Promise<void> {
 	if (removals.length === 0) return;
-	throw new UpdateRefusedError('deletion', deletionMessage(remote, removals), { paths: removals });
+	if (confirm === undefined) {
+		throw new UpdateRefusedError('deletion', deletionMessage(remote, removals), {
+			paths: [...removals]
+		});
+	}
+	const preview = await describeRemovals(store, remote, local, removals);
+	if (await confirm(preview)) return;
+	throw new UpdateRefusedError('cancelled', cancelledMessage(remote), { paths: [...removals] });
+}
+
+/**
+ * What the deletions come to, in Projects and Map Images (SPEC story 126).
+ *
+ * ⚠ **Grouped from the Workspace as it is now, not from the Remote's tree.** A Project is removed
+ * *completely* when every file this Workspace holds under its directory is going, and that is a claim
+ * about the local side: the Remote is precisely the side that no longer has them. The same for a Map
+ * Image and its pyramid.
+ */
+async function describeRemovals(
+	store: ProjectStore,
+	remote: RemoteRelationship,
+	local: readonly InventoryEntry[],
+	removals: readonly StorePath[]
+): Promise<UpdateDeletionPreview> {
+	const going = new Set<string>(removals);
+	const held = local.map((entry) => entry.path);
+	const emptied = (prefix: string): boolean => {
+		const under = held.filter((path) => path.startsWith(prefix));
+		return under.length > 0 && under.every((path) => going.has(path));
+	};
+
+	// Every removed path one of the two groupings below already speaks for, so {@link
+	// UpdateDeletionPreview.remaining} is the rest of the deletion rather than a second telling of it.
+	const accounted = new Set<string>();
+	const claim = (prefix: string): void => {
+		for (const path of held) if (path.startsWith(prefix)) accounted.add(path);
+	};
+
+	const projects: RemovedProject[] = [];
+	for (const directory of [...projectDirectories(held)].sort()) {
+		if (!emptied(`${directory}/`)) continue;
+		projects.push({ directory, name: await displayName(store, directory) });
+		claim(`${directory}/`);
+	}
+
+	const identities = new Set(
+		held
+			.filter((path) => path.startsWith(`${IMAGE_DIRECTORY}/`))
+			.map((path) => path.split('/')[1] ?? '')
+	);
+	const mapImages: string[] = [];
+	for (const imageId of [...identities].sort()) {
+		if (imageId === '' || !emptied(`${IMAGE_DIRECTORY}/${imageId}/`)) continue;
+		mapImages.push(imageId);
+		claim(`${IMAGE_DIRECTORY}/${imageId}/`);
+		// ⚠ **The Alignment belongs to the Map Image, not to the leftovers.** It lives beside the
+		// pyramid rather than inside it, so a purely prefix-shaped accounting would list
+		// `alignments/map-1.json` as an unexplained extra file in the same breath as saying the Map Image
+		// it is the Alignment *for* is going.
+		accounted.add(`${ALIGNMENT_DIRECTORY}/${imageId}.json`);
+	}
+
+	const remaining = removals.filter((path) => !accounted.has(path)).sort();
+
+	return {
+		remote,
+		projects,
+		mapImages,
+		paths: [...removals],
+		remaining,
+		message: removalMessage(remote, projects, mapImages, remaining, removals)
+	};
+}
+
+/**
+ * The name in a Project's own `project.json`, or its directory when that cannot be had.
+ *
+ * The directory is a real answer rather than a placeholder — it is what the author sees in a file
+ * browser and what the Remote's tree calls it — and withholding the confirmation because a manifest
+ * will not parse would withhold it over exactly the Project most worth asking about.
+ */
+async function displayName(store: ProjectStore, directory: string): Promise<string> {
+	try {
+		const file = parseProjectFile(
+			await store.read(`${directory}/${PROJECT_FILE_NAME}` as StorePath)
+		);
+		return file.name === '' ? directory : file.name;
+	} catch {
+		return directory;
+	}
 }
 
 /**
  * Refuse an Update there is no room for, **before the marker exists**.
  *
- * ⚠ **The inbound bytes *and* a before-image of every path being replaced.** The before-images are
- * the whole of what makes a failed Update recoverable, and an accounting that left them out would
- * refuse to run out of room in the one place — half way through the replacements — where running out
- * of room cannot be undone. Silent when the browser will not answer, for `cloneFromRemote`'s reason.
+ * ⚠ **The inbound bytes *and* a before-image of every path being replaced or removed.** The
+ * before-images are the whole of what makes a failed Update recoverable, and an accounting that left
+ * them out would refuse to run out of room in the one place — half way through the replacements —
+ * where running out of room cannot be undone. A deletion looks free and is not: its before-image is
+ * written before the file goes, so the peak is the old bytes twice over. Silent when the browser will
+ * not answer, for `cloneFromRemote`'s reason.
  */
 async function assertRoomToUpdate(
 	store: ProjectStore,
 	files: readonly PlannedFile[],
+	removals: readonly StorePath[],
 	estimateStorage: EstimateStorage | undefined
 ): Promise<void> {
 	if (!estimateStorage) return;
@@ -703,13 +958,14 @@ async function assertRoomToUpdate(
 		needed += file.bytes;
 		if (file.effect === 'replace') needed += await store.size(file.path).catch(() => 0);
 	}
+	for (const path of removals) needed += await store.size(path).catch(() => 0);
 	const free = quota - usage;
 	if (free >= needed) return;
 
 	throw new UpdateRefusedError(
 		'insufficient-quota',
 		`This Update needs about ${describeBytes(needed)} — the files coming from GitHub, and a copy ` +
-			`of each file it replaces so it can be undone — and there is ${describeBytes(
+			`of each file it replaces or removes so it can be undone — and there is ${describeBytes(
 				Math.max(0, free)
 			)} free. Nothing has been changed. Delete a Workspace you no longer need, or free space on ` +
 			`this device, and try again.`
@@ -717,7 +973,7 @@ async function assertRoomToUpdate(
 }
 
 /**
- * The transaction: the marker, the before-images, the fetch-and-verify, the commit.
+ * The transaction: the marker, the before-images, the fetch-and-verify, the deletions, the commit.
  *
  * @returns the total bytes written
  * @throws UpdateRefusedError, having put the Workspace back as it was — or `'unresolved-residue'`
@@ -727,13 +983,17 @@ async function transfer(
 	source: { read(path: StorePath): Promise<Bytes> },
 	remote: RemoteRelationship,
 	files: readonly PlannedFile[],
+	removals: readonly StorePath[],
+	commit: string,
 	options: UpdateFromGitHubOptions
 ): Promise<number> {
 	const now = options.now ?? (() => new Date());
 	const marker: UpdateTransaction = {
 		formatVersion: UPDATE_TRANSACTION_FORMAT_VERSION,
 		transaction: options.transaction?.() ?? crypto.randomUUID(),
+		workspace: options.workspace ?? '',
 		state: 'writing',
+		commit,
 		added: files
 			.filter((file) => file.effect === 'add')
 			.map((file) => file.path)
@@ -747,6 +1007,12 @@ async function transfer(
 				image: `${UPDATE_BEFORE_DIRECTORY}${index}` as StorePath
 			}))
 			.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)),
+		// ⚠ **A separate numbering, prefixed**, so a deletion's before-image can never be given the
+		// same name as a replacement's — which would be one of the two paths silently never given back.
+		deleted: removals.map((path, index) => ({
+			path,
+			image: `${UPDATE_BEFORE_DIRECTORY}d${index}` as StorePath
+		})),
 		startedAt: now().toISOString()
 	};
 
@@ -759,7 +1025,7 @@ async function transfer(
 	await store.write(UPDATE_TRANSACTION_PATH, serialiseUpdateTransaction(marker));
 	try {
 		report(null);
-		for (const { path, image } of marker.replaced) {
+		for (const { path, image } of [...marker.replaced, ...marker.deleted]) {
 			await store.write(image, await store.read(path));
 		}
 		await eachInTurn(files, UPDATE_DOWNLOAD_CONCURRENCY, async (file) => {
@@ -769,6 +1035,12 @@ async function transfer(
 			bytes += content.byteLength;
 			report(file.path);
 		});
+		// ⚠ **After the writes and before the commit.** Last, because an addition that fails is then a
+		// rollback that has fewer paths to put back; and inside the window, because every path here has
+		// a before-image and a deletion list is carried out one path at a time. Not concurrent: there is
+		// nothing to wait for, and doing them in the order the marker names them is what makes an
+		// interrupted deletion list a prefix rather than a scattering.
+		for (const { path } of marker.deleted) await store.delete(path);
 		report(null);
 		await store.write(
 			UPDATE_TRANSACTION_PATH,
@@ -1025,11 +1297,57 @@ function deletionMessage(remote: RemoteRelationship, paths: readonly string[]): 
 	return (
 		`${describeRemote(remote)} has had ${paths.length === 1 ? 'a file' : `${paths.length} files`} ` +
 		`deleted since this Workspace last agreed with it, and removing work from your Workspace is a ` +
-		`step Ballastella will not take without asking you about it by name first. That confirmation ` +
-		`is not built yet, so nothing has been changed — not the deletions, and not the other changes ` +
-		`that came with them. ${paths.length === 1 ? 'The file is' : 'The files are'}: ` +
-		`${paths.join(', ')}.`
+		`step Ballastella will not take without asking you about it by name first. There is nowhere to ` +
+		`ask, so nothing has been changed — not the deletions, and not the other changes that came ` +
+		`with them. ${paths.length === 1 ? 'The file is' : 'The files are'}: ${paths.join(', ')}.`
 	);
+}
+
+function cancelledMessage(remote: RemoteRelationship): string {
+	return (
+		`The Update was not carried out, so nothing in this Workspace has been removed or changed. ` +
+		`${describeRemote(remote)} is exactly as it was too, and the record of what the two of them ` +
+		`last shared is unchanged — so asking again shows you the same thing.`
+	);
+}
+
+/**
+ * The question the author is asked before anything goes (SPEC story 126).
+ *
+ * ⚠ **It says what Update will do, not what it might do.** The confirmation is the last point at
+ * which the answer is still no, so the sentence has to be the whole of the consequence: which
+ * Projects, which Map Images, how much else, and that Update removes them from this Workspace.
+ */
+function removalMessage(
+	remote: RemoteRelationship,
+	projects: readonly RemovedProject[],
+	mapImages: readonly string[],
+	remaining: readonly string[],
+	paths: readonly string[]
+): string {
+	const named = [
+		...projects.map((project) => `the Project “${project.name}” (${project.directory})`),
+		...mapImages.map((imageId) => `the Map Image ${imageId}`)
+	];
+	const rest =
+		remaining.length === 0
+			? ''
+			: ` ${named.length === 0 ? 'It removes' : 'It also removes'} ` +
+				`${count(remaining.length, 'file')}: ${remaining.join(', ')}.`;
+	return (
+		`${describeRemote(remote)} no longer holds ${count(paths.length, 'file')} this Workspace and ` +
+		`GitHub last agreed on, and Update will remove ${paths.length === 1 ? 'it' : 'them'} from this ` +
+		`Workspace.` +
+		(named.length === 0 ? '' : ` That removes ${sentenceList(named)} completely.`) +
+		rest +
+		` Nothing on GitHub is changed either way, and your own unpublished work is left alone.`
+	);
+}
+
+/** `a`, `a and b`, `a, b and c` — a list a person reads rather than one a program prints. */
+function sentenceList(parts: readonly string[]): string {
+	if (parts.length <= 1) return parts[0] ?? '';
+	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1] as string}`;
 }
 
 function missingFileMessage(remote: RemoteRelationship, path: string, cause: unknown): string {
@@ -1097,10 +1415,11 @@ function unreachableMessage(remote: RemoteRelationship, cause: unknown): string 
 function updateNotice(
 	remote: RemoteRelationship,
 	plan: WorkspaceUpdatePlan,
-	files: readonly PlannedFile[]
+	files: readonly PlannedFile[],
+	removals: readonly StorePath[]
 ): string {
 	const named = describeRemote(remote);
-	if (files.length === 0) {
+	if (files.length === 0 && removals.length === 0) {
 		return (
 			`${named} holds nothing this Workspace does not already have, so nothing has been ` +
 			`downloaded.` +
@@ -1108,6 +1427,18 @@ function updateNotice(
 				? ''
 				: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
 					`${plan.retained.length === 1 ? 'is' : 'are'} still here to publish.`)
+		);
+	}
+	const retained =
+		plan.retained.length === 0
+			? ''
+			: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
+				`${plan.retained.length === 1 ? 'was' : 'were'} left untouched and ` +
+				`${plan.retained.length === 1 ? 'is' : 'are'} still there to publish.`;
+	if (files.length === 0) {
+		return (
+			`Removed ${count(removals.length, 'file')} from this Workspace, which ${named} no longer ` +
+			`has. Nothing has been published: ${named} is exactly as it was.${retained}`
 		);
 	}
 	const added = files.filter((file) => file.effect === 'add').length;
@@ -1118,14 +1449,14 @@ function updateNotice(
 	]
 		.filter((part) => part !== '')
 		.join(' and ');
+	// ⚠ **A deletion is reported in the same breath as what arrived, never left implicit.** The
+	// author confirmed it, which is precisely why the report has to say it happened: a confirmation
+	// followed by a notice about new files only is one they cannot tell from a refusal.
+	const took =
+		removals.length === 0 ? '' : ` Removed ${count(removals.length, 'file')} GitHub no longer has.`;
 	return (
-		`Brought ${brought} into this Workspace from ${named}. Nothing has been published: ${named} ` +
-		`is exactly as it was.` +
-		(plan.retained.length === 0
-			? ''
-			: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
-				`${plan.retained.length === 1 ? 'was' : 'were'} left untouched and ` +
-				`${plan.retained.length === 1 ? 'is' : 'are'} still there to publish.`)
+		`Brought ${brought} into this Workspace from ${named}.${took} Nothing has been published: ` +
+		`${named} is exactly as it was.${retained}`
 	);
 }
 

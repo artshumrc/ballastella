@@ -720,4 +720,81 @@ test.describe('Update from GitHub', () => {
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 		await expect(page.getByTestId('update-outcome')).toHaveCount(0);
 	});
+	test('names what a deletion would take, and takes nothing until it is confirmed', async ({
+		page
+	}) => {
+		// Two Projects both sides hold. The Remote loses one of them entirely.
+		const both = { ...ATLAS, ...syncProject('delft', 'Delft') };
+		const github = await start(page, {
+			workspace: { ...both, ...boundTo() },
+			onRemote: both
+		});
+		await seedBaseline(page, {
+			owner: OWNER,
+			repository: REPOSITORY,
+			files: await sharedShas(both)
+		});
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await signIn(page);
+		await page.keyboard.press('Escape');
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'delft/project.json': null,
+			'delft/annotations/l2.geojson': null
+		});
+		// After the other machine's commit, so what this pins is that *Update* moves nothing.
+		const head = github.head(OWNER, REPOSITORY);
+
+		// ── The preview, reached from the control and naming the Project by its own name ──────────
+		await page.getByTestId('update-from-github').focus();
+		await page.keyboard.press('Enter');
+		const dialog = page.getByRole('dialog', {
+			name: 'Update will remove work from this Workspace'
+		});
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByTestId('deletion-preview-projects')).toContainText('Delft');
+		await expect(dialog.getByTestId('deletion-preview-message')).toContainText(
+			'will remove them from this Workspace'
+		);
+
+		// ── Cancel: nothing here, nothing there, and focus back where it came from (story 127) ───
+		await dialog.getByTestId('cancel-deletions').click();
+		await expect(dialog).toBeHidden();
+		await expect(page.getByTestId('update-from-github')).toBeFocused();
+		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toBeVisible();
+		// The Remote is untouched by the *asking*, and so is the record of what the two sides shared:
+		// the status still reads the drift it read before, rather than agreement it never reached.
+		expect(github.head(OWNER, REPOSITORY)).toBe(head);
+		await checkNow(page);
+		await expect(remoteStatus(page)).toContainText('Update available');
+
+		// ── Confirm: the Project goes, and the one the Remote kept does not ───────────────────────
+		await page.getByTestId('update-from-github').click();
+		await expect(dialog).toBeVisible();
+		await dialog.getByTestId('confirm-deletions').click();
+
+		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
+		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toBeVisible();
+		// And the two sides now agree, which is the whole point of applying a deletion rather than
+		// refusing it: a synchronized deletion that did not apply comes back at every status check.
+		await expect(remoteStatus(page)).toContainText('Up to date');
+
+		// ── An Update whose record cannot be read shuts the Workspace, rather than showing half of
+		// one (SPEC story 141). Folded in here rather than given its own test because it needs exactly
+		// this Workspace: a marker over real Projects, which is what makes "the list is absent" mean
+		// something. The engine's own recovery is asserted per durable boundary at Seam 1.
+		await seed(page, { 'update.json': '{ not a marker' });
+		await page.reload();
+
+		await expect(page.getByTestId('unrecovered-import')).toBeVisible();
+		// Nothing enumerates: no Project list, and the Publish control the bar offers over a Workspace
+		// it can read is not there either.
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
+		await expect(page.getByTestId('publish')).toHaveCount(0);
+	});
 });

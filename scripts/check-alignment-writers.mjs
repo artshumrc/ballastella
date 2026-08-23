@@ -29,8 +29,8 @@
 //
 // What neither layer can see is a path computed at *runtime* from data — an archive entry's own
 // path, a git tree entry's, a journal entry's, or a destination allocated for an Import. There are
-// exactly **six** of those, and none is fenced: all six are routed, calling `writeAlignmentBytes`
-// like everybody else.
+// exactly **seven** of those, and none is fenced: all seven are routed, calling
+// `writeAlignmentBytes` like everybody else.
 //
 //   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
 //   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
@@ -40,6 +40,9 @@
 //     for this Import rather than one anything in the source named.
 //   - `packages/core/src/remote/clone-from-remote.ts` — a published Workspace downloaded out of a
 //     public repository, where the path is an entry in somebody else's git tree.
+//   - `packages/core/src/remote/update-from-github.ts` — the inbound half of synchronization, from
+//     the same kind of tree entry, and the one writer with a *fourth* case: a rollback putting back
+//     the Alignment the Update itself had displaced or removed.
 //   - `packages/core/src/remote/review-from-remote.ts` — one published Project downloaded into a
 //     Review Workspace, from the same kind of tree entry.
 //   - `packages/core/src/autosave/replay.ts` — an unsaved change being put back from the
@@ -56,7 +59,7 @@
 // grep -rn "await writeAlignmentBytes(" --include=*.ts packages apps | grep -v "\.test\."
 // ```
 //
-// Seven lines today. Six of them are this list. The seventh is
+// Eight lines today. Seven of them are this list. The eighth is
 // `EditorSession.restoreAlignmentChangedElsewhere`, which passes an **image id** rather than a path —
 // so `writeAlignmentBytes` builds the path itself and both layers do see it. Any other line is a new
 // runtime-path writer and belongs above.

@@ -23,8 +23,11 @@
 	import {
 		REMOTE_STATUS_LABELS,
 		REMOTE_STATUS_UNCHECKED,
-		type RemoteStatusState
+		type RemoteStatusState,
+		type UpdateDeletionPreview
 	} from '@ballastella/core';
+
+	import ModalDialog from './ModalDialog.svelte';
 
 	let {
 		state,
@@ -32,7 +35,9 @@
 		update,
 		notice,
 		failure,
-		onUpdate
+		onUpdate,
+		deletionPreview,
+		onAnswerDeletions
 	}: {
 		state: RemoteStatusState;
 		/** Check now, because the author asked. Never throttled — see `RemoteStatusChecker`. */
@@ -45,6 +50,10 @@
 		failure: string;
 		/** Bring the Remote's changes in, because the author asked (SPEC story 121). */
 		onUpdate: () => void;
+		/** What the Update in flight would remove, while it waits to be told (SPEC story 126). */
+		deletionPreview: UpdateDeletionPreview | null;
+		/** Answer that question. `false` for every way of not saying yes (SPEC story 127). */
+		onAnswerDeletions: (confirmed: boolean) => void;
 	} = $props();
 
 	/**
@@ -74,6 +83,15 @@
 
 	/** Whether an Update is running, which is the one state that makes the control inert. */
 	const running = $derived(update !== null);
+
+	/**
+	 * The Update button, so the dialog's focus goes back to the control that opened it (WCAG 2.4.3).
+	 *
+	 * A plain binding rather than `$state`: nothing renders from it, and `restoreFocusTo` reads it at
+	 * the moment the dialog closes. (`$state` is also unavailable here — the `state` prop above shadows
+	 * the rune's name.)
+	 */
+	let updateButton: HTMLButtonElement | undefined;
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
@@ -127,16 +145,17 @@
 			The inbound half, and the *only* way Remote work reaches a Workspace (SPEC story 121).
 
 			**Always offered, and never armed by a status.** An Update is refused with a sentence when
-			there is nothing to take, when a path changed on both sides, and when the Remote has deleted
-			something — so hiding or disabling it against the last determination would replace six
-			legible refusals with a control that does nothing and says nothing about why. It is also the
-			reason a status check never applies anything: the two gestures are separate because their
-			consequences are.
+			there is nothing to take and when a path changed on both sides, and it stops to ask when the
+			Remote has deleted something — so hiding or disabling it against the last determination would
+			replace legible refusals and one real question with a control that does nothing and says
+			nothing about why. It is also the reason a status check never applies anything: the two
+			gestures are separate because their consequences are.
 
 			`aria-disabled` and never `disabled`, for the reason the check beside it uses the same: a
 			`disabled` button leaves the tab order the instant it is pressed.
 		-->
 		<button
+			bind:this={updateButton}
 			type="button"
 			class="btn btn-xs"
 			class:btn-disabled={running}
@@ -230,3 +249,89 @@
 		</p>
 	{/if}
 </div>
+
+<!--
+	What the Update would remove, before it removes any of it (SPEC stories 126, 127).
+
+	⚠ **A modal, and it has to be.** This is the last point at which the answer is still no, and the
+	rest of the application — the Project links behind it, the Publish button, the Workspace switcher —
+	is all things whose consequences the author has not yet been asked about. `ModalDialog` brings the
+	focus trap, Escape and focus restoration with it (ADR-0016), and restoration lands on the Update
+	button that opened it, which is where a keyboard user expects to be put back.
+
+	⚠ **Every way out that is not the confirm button answers `false`.** Escape, the backdrop and
+	Cancel all mean the same thing, and the transfer is waiting on an answer — so a route out that
+	settled nothing would leave the Update running for ever behind a dialog that has gone.
+
+	⚠ **Mounted whatever the answer is, and never inside an `{#if}`.** `ModalDialog` closes the native
+	`<dialog>` and restores focus from an effect on `open`; unmounted at the moment of the answer it
+	never runs either, the element leaves the document while it is still the top layer, and a keyboard
+	user is dropped on `<body>` — which is exactly the restoration this dialog was given
+	`restoreFocusTo` for. Measured: the first cut did this, and the e2e focus assertion caught it.
+
+	The Projects and Map Images are named, not counted: "3 files will be removed" is not a question
+	anybody can answer, and the whole reason `UpdateDeletionPreview` exists is that "the Project
+	*Amsterdam 1625*" is.
+-->
+<ModalDialog
+	bind:open={() => deletionPreview !== null, (open) => !open && onAnswerDeletions(false)}
+	title="Update will remove work from this Workspace"
+	restoreFocusTo={() => updateButton}
+>
+	{#if deletionPreview !== null}
+		<p data-testid="deletion-preview-message">{deletionPreview.message}</p>
+
+		{#if deletionPreview.projects.length > 0}
+			<h3 class="mt-4 font-semibold">
+				{deletionPreview.projects.length === 1 ? 'Project' : 'Projects'} that will be removed
+			</h3>
+			<ul class="list-disc pl-6" data-testid="deletion-preview-projects">
+				{#each deletionPreview.projects as project (project.directory)}
+					<li>{project.name} <span class="opacity-70">({project.directory})</span></li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if deletionPreview.mapImages.length > 0}
+			<h3 class="mt-4 font-semibold">
+				{deletionPreview.mapImages.length === 1 ? 'Map Image' : 'Map Images'} that will be removed
+			</h3>
+			<ul class="list-disc pl-6" data-testid="deletion-preview-map-images">
+				{#each deletionPreview.mapImages as imageId (imageId)}
+					<li>{imageId}</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if deletionPreview.remaining.length > 0}
+			<h3 class="mt-4 font-semibold">
+				And {deletionPreview.remaining.length}
+				other {deletionPreview.remaining.length === 1 ? 'file' : 'files'}
+			</h3>
+			<ul class="list-disc pl-6 text-sm" data-testid="deletion-preview-remaining">
+				{#each deletionPreview.remaining as path (path)}
+					<li>{path}</li>
+				{/each}
+			</ul>
+		{/if}
+	{/if}
+
+	{#snippet actions()}
+		<button
+			type="button"
+			class="btn btn-sm"
+			data-testid="cancel-deletions"
+			onclick={() => onAnswerDeletions(false)}
+		>
+			Cancel
+		</button>
+		<button
+			type="button"
+			class="btn btn-error btn-sm"
+			data-testid="confirm-deletions"
+			onclick={() => onAnswerDeletions(true)}
+		>
+			Remove them and update
+		</button>
+	{/snippet}
+</ModalDialog>

@@ -6,6 +6,7 @@ import {
 	plantAbandonedWriteIn,
 	scratchDirectory
 } from './directory-handle-fixture.js';
+import { describeUpdateTransaction } from '../remote/update-transaction-suite.js';
 import { OpfsProjectStore } from './opfs-project-store.js';
 import { describeProjectStore } from './project-store-suite.js';
 
@@ -99,6 +100,18 @@ it('keeps two named Workspaces’ Projects apart, each invisible to the other', 
 		await root.removeEntry(name, { recursive: true });
 	}
 });
+
+/**
+ * Update from GitHub over real browser storage (ticket 15).
+ *
+ * The engine and its fault matrix are exhausted at Seam 1 over the memory store. What this adds is
+ * the backing an author's own Workspace actually uses underneath the transaction: real two-step
+ * writes, real deletes, real before-images in a real directory — and the same four claims the chosen
+ * folder answers, so the two cannot drift.
+ */
+describeUpdateTransaction('browser storage', async () =>
+	OpfsProjectStore.open(`Update ${crypto.randomUUID()}`)
+);
 
 it('reports OPFS as supported in a browser', () => {
 	expect(OpfsProjectStore.isSupported()).toBe(true);

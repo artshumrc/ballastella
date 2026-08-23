@@ -6,6 +6,7 @@ import {
 	plantAbandonedWriteIn,
 	scratchDirectory
 } from './directory-handle-fixture.js';
+import { describeUpdateTransaction } from '../remote/update-transaction-suite.js';
 import { FileSystemAccessProjectStore } from './file-system-access-project-store.js';
 import { describeProjectStore } from './project-store-suite.js';
 import {
@@ -44,6 +45,19 @@ describeProjectStore('FileSystemAccessProjectStore', async () => {
 		plantAbandonedWrite: (path) => plantAbandonedWriteIn(directory, path)
 	};
 });
+
+/**
+ * Update from GitHub over a chosen folder (ticket 15).
+ *
+ * ⚠ **The same suite, unchanged, and that is the assertion.** SPEC's requirement is that the two
+ * backings produce the same committed files, the same rollback-or-forward choice, the same Project
+ * and Map Image lists and the same Baseline — so a claim spelled differently here would be the place
+ * the two quietly stopped agreeing.
+ */
+describeUpdateTransaction(
+	'a chosen folder',
+	async () => new FileSystemAccessProjectStore(await scratchDirectory('folder-update'))
+);
 
 it('names the folder, so the app can tell the user which folder their Workspace is', async () => {
 	const directory = await scratchDirectory('named');

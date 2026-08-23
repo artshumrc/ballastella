@@ -29,7 +29,8 @@ import {
 	UpdateRefusedError,
 	recoverWorkspaceUpdate,
 	serialiseUpdateTransaction,
-	updateFromGitHub
+	updateFromGitHub,
+	type UpdateDeletionPreview
 } from './update-from-github.js';
 
 const OWNER = 'ada';
@@ -65,6 +66,14 @@ const SHARED: Record<string, string> = {
 	'images/map-1/0/0/0.jpg': 'tile-zero',
 	// alignment-write-is-the-fixture: the Alignment as it sits on both sides, seeded into the fake and the store rather than written by the code under test
 	'alignments/map-1.json': '{"formatVersion":1,"controlPoints":[]}'
+};
+
+/** A second Project, so a deletion that takes one whole Project can be seen not to take the other. */
+const DELFT: Record<string, string> = {
+	'delft/project.json': projectFile('Delft 1650', [
+		newAnnotationLayer({ id: 'l3', name: 'Canals' })
+	]),
+	'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 };
 
 /** What a Publish generates, and what the scholar's own repository holds beside it. */
@@ -351,7 +360,7 @@ describe('updateFromGitHub', () => {
 		expect(fake.rawGets).toBe(0);
 	});
 
-	it('refuses a deletion-bearing plan by name, without writing anything', async () => {
+	it('refuses a deletion-bearing plan by name when there is nowhere to confirm it', async () => {
 		const fake = await github(SHARED);
 		const store = await workspace(SHARED);
 		const baseline = await sharedBaseline();
@@ -367,9 +376,153 @@ describe('updateFromGitHub', () => {
 		expect(refused.refusal).toBe('deletion');
 		expect(refused.paths).toEqual(['images/map-1/0/0/0.jpg']);
 		expect(refused.message).toContain('images/map-1/0/0/0.jpg');
-		expect(refused.message).toContain('not built yet');
 		expect(await snapshot(store)).toEqual(before);
 		expect(fake.rawGets).toBe(0);
+	});
+
+	// ── Confirmed deletions (SPEC stories 125–127) ────────────────────────────────────────────
+	//
+	// The confirmer is a function the caller passes, so what a test asserts is the whole of the
+	// contract: what it was shown, and what the Workspace holds afterwards for each of its two answers.
+
+	/** An Update that shows the deletions to `answer` and records the preview it was handed. */
+	const confirming = (
+		store: ProjectStore,
+		fake: FakeGitHub,
+		baseline: SynchronizationBaseline | null,
+		answer: boolean
+	) => {
+		const shown: UpdateDeletionPreview[] = [];
+		const run = updateFromGitHub(store, {
+			remote: REMOTE,
+			baseline,
+			fetch: fake.fetch,
+			confirmDeletion: (preview) => {
+				shown.push(preview);
+				return answer;
+			}
+		});
+		return { run, shown };
+	};
+
+	it('removes a locally unchanged path the Remote deleted, once it is confirmed', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace(SHARED);
+		const baseline = await sharedBaseline();
+		// A deletion and an addition together: one operation, and the whole of it applies.
+		await fake.commitFiles({
+			'images/map-1/0/0/0.jpg': null,
+			'images/map-1/0/0/1.jpg': 'a tile they added'
+		});
+
+		const { run, shown } = confirming(store, fake, baseline, true);
+		const result = await run;
+
+		const kept = Object.fromEntries(
+			Object.entries(SHARED).filter(([path]) => path !== 'images/map-1/0/0/0.jpg')
+		);
+		expect(await snapshot(store)).toEqual({
+			...kept,
+			'images/map-1/0/0/1.jpg': 'a tile they added'
+		});
+		expect(result.removed).toEqual(['images/map-1/0/0/0.jpg']);
+		expect(result.added).toEqual(['images/map-1/0/0/1.jpg']);
+		expect(shown).toHaveLength(1);
+		// The Baseline no longer claims the two sides share the deleted path, so it cannot come back.
+		expect(result.baseline.has('images/map-1/0/0/0.jpg')).toBe(false);
+		expect(result.baseline.get('images/map-1/0/0/1.jpg')).toBe(
+			await gitBlobSha(encode('a tile they added'))
+		);
+		expect(result.notice).toContain('Removed 1 file');
+		// And nothing of the transaction is left behind.
+		expect(await store.list(UPDATE_BEFORE_DIRECTORY)).toEqual([]);
+		expect(await store.list(UPDATE_TRANSACTION_PATH)).toEqual([]);
+	});
+
+	it('names the Projects and Map Images that go, and lists what neither accounts for', async () => {
+		// A whole Project, a whole Map Image with its Alignment, and one file that is neither.
+		const held = { ...SHARED, ...DELFT, 'base-map/tiles/physical/1/2/3.png': 'a cached tile' };
+		const fake = await github(held);
+		const store = await workspace(held);
+		const baseline = await baselineOf(held);
+		await fake.commitFiles({
+			'amsterdam-1625/project.json': null,
+			'amsterdam-1625/annotations/l2.geojson': null,
+			'images/map-1/info.json': null,
+			'images/map-1/0/0/0.jpg': null,
+			// alignment-write-is-the-fixture: a deletion on the *Remote's* tree, which is the input this test is about — no Workspace write
+			'alignments/map-1.json': null,
+			'base-map/tiles/physical/1/2/3.png': null
+		});
+
+		const { run, shown } = confirming(store, fake, baseline, true);
+		await run;
+
+		const preview = shown[0] as UpdateDeletionPreview;
+		expect(preview.projects).toEqual([{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }]);
+		expect(preview.mapImages).toEqual(['map-1']);
+		// The Alignment is the Map Image's, so the one genuinely unexplained file is the cached tile.
+		expect(preview.remaining).toEqual(['base-map/tiles/physical/1/2/3.png']);
+		expect(preview.paths).toHaveLength(6);
+		expect(preview.message).toContain('Amsterdam 1625');
+		expect(preview.message).toContain('the Map Image map-1');
+		expect(preview.message).toContain('will remove them from this Workspace');
+		// The Project the Remote kept is untouched, which is what makes the naming worth having.
+		expect(await snapshot(store)).toEqual(DELFT);
+	});
+
+	it('writes nothing at all when the deletions are declined', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace(SHARED);
+		const baseline = await sharedBaseline();
+		await fake.commitFiles({ 'images/map-1/0/0/0.jpg': null });
+		const before = await snapshot(store);
+		const head = fake.head();
+
+		const { run } = confirming(store, fake, baseline, false);
+		const refused = await refusal(run);
+
+		expect(refused.refusal).toBe('cancelled');
+		expect(refused.paths).toEqual(['images/map-1/0/0/0.jpg']);
+		// All three states, and the marker was never written: a declined preview is an observation.
+		expect(await snapshot(store)).toEqual(before);
+		expect(fake.head()).toBe(head);
+		expect(fake.rawGets).toBe(0);
+		expect(await store.list(UPDATE_TRANSACTION_PATH)).toEqual([]);
+	});
+
+	it('never asks about a deleted path this Workspace changed: that is a Conflict', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace({
+			...SHARED,
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["my afternoon"]}'
+		});
+		const baseline = await sharedBaseline();
+		await fake.commitFiles({ 'amsterdam-1625/annotations/l2.geojson': null });
+		const before = await snapshot(store);
+
+		const { run, shown } = confirming(store, fake, baseline, true);
+		const refused = await refusal(run);
+
+		expect(refused.refusal).toBe('conflict');
+		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l2.geojson']);
+		// ⚠ **Not offered as a deletion at all**, and the local bytes are still the author's own. A
+		// confirmation over this row is a question whose "yes" throws away work GitHub never saw.
+		expect(shown).toEqual([]);
+		expect(await snapshot(store)).toEqual(before);
+	});
+
+	it('does not stop to ask when the plan removes nothing', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace(SHARED);
+		await fake.commitFiles({ 'images/map-1/0/0/1.jpg': 'a tile they added' });
+
+		const { run, shown } = confirming(store, fake, await sharedBaseline(), false);
+		await run;
+
+		// The answer above is `false`, so an Update that asked would have been refused.
+		expect(shown).toEqual([]);
+		expect(await store.read('images/map-1/0/0/1.jpg' as StorePath)).toBeDefined();
 	});
 
 	it('refuses a combination that would leave the Workspace incomplete', async () => {
@@ -583,9 +736,12 @@ describe('updateFromGitHub', () => {
 		serialiseUpdateTransaction({
 			formatVersion: UPDATE_TRANSACTION_FORMAT_VERSION,
 			transaction: 'interrupted',
+			workspace: 'Atlas',
 			state,
+			commit: 'c0ffee',
 			added: [],
 			replaced: [],
+			deleted: [],
 			startedAt: '2026-08-01T09:00:00.000Z',
 			...body
 		} as Parameters<typeof serialiseUpdateTransaction>[0]);

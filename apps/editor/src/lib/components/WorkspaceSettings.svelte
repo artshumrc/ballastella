@@ -382,22 +382,22 @@
 				</p>
 			{/if}
 
-			{#if storage.unrecoveredImport}
+			{#if storage.unavailable}
 				<!--
-					Ticket 05: a Backup is one of the readers the Import marker's gate keeps out, so it is
-					absent rather than present and refused — the same arrangement as the review copy above,
-					and for a sharper reason: an archive holding half an Import is one the author restores
-					months later believing it whole. Restoring still works, because it always makes a *new*
-					Workspace and never touches this one.
+					Tickets 05 and 15: a Backup is one of the readers a transfer marker's gate keeps out, so
+					it is absent rather than present and refused — the same arrangement as the review copy
+					above, and for a sharper reason: an archive holding half an Import or half an Update is
+					one the author restores months later believing it whole. Restoring still works, because
+					it always makes a *new* Workspace and never touches this one.
 				-->
 				<p class="text-sm text-warning" data-testid="no-backup-unrecovered">
 					This Workspace has not opened yet, so it is not backed up. Reload the page to finish
-					clearing up the Import that did not finish.
+					clearing up the transfer that did not finish.
 				</p>
 			{/if}
 
 			<div class="flex flex-wrap gap-2">
-				{#if storage.review === null && !storage.unrecoveredImport}
+				{#if storage.review === null && !storage.unavailable}
 					<button
 						class="btn btn-primary btn-sm"
 						data-testid="back-up-workspace"

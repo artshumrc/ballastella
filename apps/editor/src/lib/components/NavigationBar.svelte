@@ -127,13 +127,13 @@
 	 * already had: the review copy holds somebody else's work, the hub says so in words where the
 	 * button used to be, and `packages/core` refuses the binding by any route regardless.
 	 *
-	 * Absent for the same reason over a Workspace whose interrupted Import could not be resolved
-	 * (ticket 05). A publish plan is a walk of the Workspace, and until the marker is resolved that
-	 * walk would include provisional files — which is what the whole gate exists to prevent, and the
-	 * hub is already saying why in words.
+	 * Absent for the same reason over a Workspace whose interrupted Import (ticket 05) or Update
+	 * (ticket 15) could not be resolved. A publish plan is a walk of the Workspace, and until the
+	 * marker is resolved that walk would include provisional files — which is what the whole gate
+	 * exists to prevent, and the hub is already saying why in words.
 	 */
 	const publishable = $derived(
-		storage !== null && storage.review === null && storage.unrecoveredImport === ''
+		storage !== null && storage.review === null && storage.unavailable === ''
 	);
 
 	/**
@@ -613,6 +613,8 @@
 				notice={storage.updateNotice}
 				failure={storage.updateFailure}
 				onUpdate={() => void storage.updateFromRemote()}
+				deletionPreview={storage.deletionPreview}
+				onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
 			/>
 		{/if}
 	{/if}
