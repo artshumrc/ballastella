@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -184,6 +186,21 @@
 	}
 
 	/**
+	 * Put focus on the editor's own landmark, once whichever screen is now on it has rendered.
+	 *
+	 * `<main>` with `tabIndex = -1` is this app's settled answer for "that news is done with, look at
+	 * the work" — `RecoveredEdits` dismisses onto it, and `ReturnLinkOffer` lands there when nothing
+	 * underneath it is about to change.
+	 */
+	async function landOnTheEditor(): Promise<void> {
+		await tick();
+		const main = document.querySelector('main');
+		if (!(main instanceof HTMLElement)) return;
+		main.tabIndex = -1;
+		main.focus();
+	}
+
+	/**
 	 * The hub, or the Project by name. Falls back to the folder until `project.json` is read.
 	 *
 	 * **The `session` guard is load-bearing, not defensive.** SvelteKit throws on
@@ -242,7 +259,15 @@
 			//
 			// Not after a Review: by then `?p=` names a Project that is here, and it is the one the
 			// visitor came to read.
-			if (outcome.reason === 'declined' && returnLink?.kind === 'review') void strip('');
+			// ⚠ **Focus is put back after the navigation, because the navigation replaces `<main>`.** The
+			// offer lands on the landmark before it goes (see `ReturnLinkOffer`), which is right whenever
+			// the screen underneath stays — but dropping `?p=` swaps the Project branch for the hub, so
+			// the element that was focused is unmounted and a visitor who declined a link is left on
+			// `<body>` after all (SPEC story 95). `keepFocus` cannot help with a node that no longer
+			// exists.
+			if (outcome.reason === 'declined' && returnLink?.kind === 'review') {
+				void strip('').then(landOnTheEditor);
+			}
 			// ⚠ **And an Import is addressed by where it landed, not by where it came from.** A
 			// Workspace that already held a Project of that name allocates the arriving one another
 			// directory, so the link's own `?p=` would name nothing here — which is the same dead end

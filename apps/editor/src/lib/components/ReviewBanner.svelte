@@ -40,6 +40,8 @@
 	// mark, which was written before the first Project byte landed, so a reviewer who has wandered
 	// between Workspaces since is told where the copy is going rather than being followed.
 
+	import { tick } from 'svelte';
+
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { describeReviewSubject } from '@ballastella/core';
@@ -58,6 +60,49 @@
 	let importing = $state(false);
 	/** What the last exit did or would not do, announced. `''` when nothing has happened. */
 	let announcement = $state('');
+	/**
+	 * Why an Import did not happen, or `''`. Its own state so a refusal is an alert (SPEC story 94).
+	 *
+	 * ⚠ **Not {@link announcement}.** A refused Import is text inserted at the moment it first exists,
+	 * which a polite region does not reliably announce — and it is the one outcome here that leaves the
+	 * reviewer with something to decide rather than somewhere new to be. The refusals it carries name
+	 * the recorded Workspace and say the review copy is still whole, which is CONTRIBUTING's split
+	 * between a status and an error.
+	 */
+	let importProblem = $state('');
+	/**
+	 * The line naming the imported Project, focused once the recorded Workspace has been adopted.
+	 *
+	 * ⚠ **The banner is gone by then and so is every control in it** (SPEC story 95). A successful
+	 * Import switches to the recorded Workspace, which makes `review` null, which unmounts the button
+	 * that was pressed and the dialog's own restoration target with it — so focus would land on
+	 * `<body>` at the top of a screen the reviewer has never seen. This line is outside that block for
+	 * the same reason the announcement is, and it names the Project and the Workspace it arrived in,
+	 * which is what the reviewer needs to read next.
+	 */
+	let announcementLine: HTMLElement | null = $state(null);
+	/**
+	 * The Import control, so a refusal can put focus back on it.
+	 *
+	 * ⚠ **The element, not `document.activeElement` when the confirmation was answered.** By then
+	 * focus is on the confirm button, which stays in the document inside a `<dialog>` that has closed
+	 * — so restoring "where it was" would leave a keyboard user on a control they cannot see. This is
+	 * where the retry is, and it is still mounted because a refused Import leaves the review copy open.
+	 */
+	let importButton: HTMLElement | null = $state(null);
+	/**
+	 * Per-file progress while the reviewed Project is copied, or `''`.
+	 *
+	 * The transfer is the shared engine's, so it is the same count the hub's own Import announces; what
+	 * is different here is that there is no dialog left to carry it — the confirmation closes before
+	 * the copy begins — so the banner's own region says it. A pyramid is thousands of files over real
+	 * minutes, and story 93 is that the wait is not silent.
+	 */
+	const importProgress = $derived.by(() => {
+		const transfer = storage?.transfer;
+		if (!importing || !transfer || transfer.kind !== 'import' || transfer.finished) return '';
+		return `Copying ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
+	});
 
 	/**
 	 * The ordinary Workspace an Import would copy into, or `null` for a review copy that names none.
@@ -125,8 +170,10 @@
 	 * is rebuilt from the app's root rather than patched.
 	 */
 	async function importReviewed(): Promise<void> {
+		if (importing) return;
 		confirmingImport = false;
 		if (!storage) return;
+		importProblem = '';
 		importing = true;
 		try {
 			const imported = await storage.importReview();
@@ -139,8 +186,17 @@
 				noScroll: true,
 				keepFocus: true
 			}).catch(() => undefined);
+			// ⚠ **After the navigation, because that is what unmounts the banner.** `keepFocus` keeps
+			// whatever focus the switch left, which by now is nothing the reviewer can see: the button
+			// they pressed went with the review copy. See {@link announcementLine}.
+			await tick();
+			announcementLine?.focus();
 		} catch (cause) {
-			announcement = cause instanceof Error ? cause.message : String(cause);
+			importProblem = cause instanceof Error ? cause.message : String(cause);
+			// The review copy is still open and every byte of it is still there, so the reviewer is put
+			// back on the control they pressed — which is where they retry, or leave from.
+			await tick();
+			importButton?.focus();
 		} finally {
 			importing = false;
 		}
@@ -185,11 +241,19 @@
 			{/if}
 		</p>
 		{#if destination !== null}
+			<!--
+				`aria-disabled` for the running state and never `disabled`: the confirmation closes onto
+				this button before the copy begins, and a `disabled` button leaves the tab order the moment
+				it is given focus back — dropping a keyboard user onto `<body>` for the length of a copy
+				that runs in minutes (WCAG 2.4.3, SPEC story 95).
+			-->
 			<button
+				bind:this={importButton}
 				class="btn btn-primary btn-sm"
+				class:btn-disabled={importing}
+				aria-disabled={importing}
 				data-testid="import-review"
-				disabled={importing}
-				onclick={() => (confirmingImport = true)}
+				onclick={() => !importing && (confirmingImport = true)}
 			>
 				Import into “{destination.name}”
 			</button>
@@ -216,12 +280,51 @@
 	have heard it either. Announcing something and destroying the region that announces it is worse
 	than saying nothing, because it looks like a courtesy that was paid.
 
-	Always rendered and empty when idle, for the reason every other live region in this app is: one
-	inserted at the same moment as its first text is not reliably announced. `aria-live="polite"`
-	rather than `role="status"`, this app's settled convention wherever the save indicator is also on
-	screen — which since ticket 04 is every screen.
+	Always rendered and `sr-only` when idle rather than wrapped in an `{#if}`, so the region is the
+	same node throughout: one inserted at the same moment as its first text is not reliably announced,
+	and an empty `<p>` has no line box, so it costs no space either way. `aria-live="polite"` rather
+	than `role="status"`, this app's settled convention wherever the save indicator is also on screen
+	— which since ticket 04 is every screen.
+
+	⚠ **Visible and focusable when it says anything, because it is where a successful Import lands**
+	(SPEC story 95). An Import's result is a Project in *another* Workspace, and every control that
+	could have held focus went with the review copy — so focus has to go somewhere the reviewer can
+	see, and this sentence names what arrived and where.
 -->
-<p aria-live="polite" class="sr-only" data-testid="review-announcement">{announcement}</p>
+<p
+	bind:this={announcementLine}
+	tabindex="-1"
+	aria-live="polite"
+	class="px-4 text-sm"
+	class:sr-only={announcement === ''}
+	class:py-2={announcement !== ''}
+	data-testid="review-announcement"
+>
+	{announcement}
+</p>
+
+<!--
+	How far the copy has got, in the same persistent-region shape. The confirmation is closed by the
+	time the transfer starts, so without this the wait is silent (SPEC story 93). Not a second
+	`role="status"`: the save indicator on the bar owns that role on every screen.
+-->
+<p
+	aria-live="polite"
+	class="px-4 text-sm"
+	class:sr-only={importProgress === ''}
+	data-testid="review-import-progress"
+>
+	{importProgress}
+</p>
+
+{#if importProblem}
+	<!-- The refusals: a recorded Workspace that is gone or unreachable, a folder grant declined, no
+	     room for the closure, a Project this Workspace already synchronizes. Each has left the review
+	     copy open and holding every byte, which is what the sentence says. -->
+	<div role="alert" class="m-4 alert flex-col items-start alert-error">
+		<p data-testid="review-import-problem">{importProblem}</p>
+	</div>
+{/if}
 
 {#if review !== null && storage !== null && destination !== null}
 	<ModalDialog

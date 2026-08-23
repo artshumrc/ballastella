@@ -1627,6 +1627,33 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
 		expect(await workspaceNames(page)).toEqual(['My Workspace']);
 		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+
+		// ⚠ **The third action, from the keyboard, because it is the one that creates rather than
+		// copies** (SPEC story 92). It sits in the same row as the two above and is the control an
+		// author reaches for by mistake, so "these three are told apart" is only true if all three can
+		// be operated the same way.
+		const fresh = page.getByRole('button', { name: 'New Project' });
+		await fresh.focus();
+		await page.keyboard.press('Enter');
+		const creating = page.getByRole('dialog', { name: 'New Project' });
+		await expect(creating).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(creating).toBeHidden();
+		await expect(fresh).toBeFocused();
+		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
+
+		await page.keyboard.press('Enter');
+		await expect(creating).toBeVisible();
+		await creating.getByLabel('Project name').fill('Boston 1776');
+		const confirmNew = creating.getByRole('button', { name: 'Create Project' });
+		await confirmNew.focus();
+		await page.keyboard.press('Enter');
+		await expect(creating).toBeHidden();
+		await expect(page.getByRole('link', { name: 'Boston 1776' })).toBeVisible();
+		await expect(page.getByTestId('projects-count')).toHaveText('2 Projects');
+		// Creating a Project leaves the author on the hub, so the trigger is still there and is where
+		// focus belongs — nothing was copied, so there is no arrival to be sent to.
+		await expect(fresh).toBeFocused();
 	});
 
 	// Every way a source can be refused is asserted against real archive bytes at Seam 1. What only a
@@ -1822,16 +1849,63 @@ test.describe('Importing the review copy back into the Workspace review began fr
 			'amsterdam-1625'
 		]);
 
-		await offer.click();
-		await page.getByTestId('confirm-import-review').click();
+		// ⚠ **From the keyboard alone from here, and the button is watched while it runs** (SPEC story
+		// 95). The confirmation closes onto this button *before* the copy begins, so a `disabled` one
+		// would be removed from the tab order at the moment focus was handed back to it — dropping a
+		// keyboard user onto `<body>` for the length of a copy that runs in minutes over a pyramid.
+		// Watched with a `MutationObserver` rather than polled, because the flip is permanent damage
+		// however briefly the attribute lasts on this fixture.
+		await offer.focus();
+		await offer.evaluate((button) => {
+			(window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled = (
+				button as HTMLButtonElement
+			).disabled;
+			new MutationObserver(() => {
+				if ((button as HTMLButtonElement).disabled) {
+					(window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled = true;
+				}
+			}).observe(button, { attributes: true, attributeFilter: ['disabled'] });
+		});
+		await page.keyboard.press('Enter');
+		const confirm = page.getByTestId('confirm-import-review');
+		await confirm.focus();
+		// Collected from the region itself: the confirmation is closed by the time the transfer starts,
+		// so the banner's own line is the only thing saying the wait is going somewhere (story 93), and
+		// a run too fast to poll still proves the counts a screen reader would have read out.
+		await page.getByTestId('review-import-progress').evaluate((region) => {
+			const seen: string[] = [];
+			(window as unknown as { e2eCopying?: string[] }).e2eCopying = seen;
+			new MutationObserver(() => {
+				const text = region.textContent?.trim() ?? '';
+				if (text && seen[seen.length - 1] !== text) seen.push(text);
+			}).observe(region, { childList: true, characterData: true, subtree: true });
+		});
+		await page.keyboard.press('Enter');
 
 		// Back in the recorded Workspace with the imported Project open — not in "Somewhere else", and
 		// not on the hub.
 		await expect(banner(page)).toBeHidden();
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await expect(page.getByTestId('review-announcement')).toContainText(
+		const said = page.getByTestId('review-announcement');
+		await expect(said).toContainText(
 			`Imported “Amsterdam 1625, marked” into “${DEFAULT_WORKSPACE}”`
 		);
+		// ⚠ **Focus is on the result, and it is the only thing left that could hold it.** Every control
+		// in the banner went with the review copy, the dialog's own restoration target with them, so
+		// without this a reviewer who has been waiting on a copy lands on `<body>` — at the top of a
+		// Workspace they have not seen since they left it.
+		await expect(said).toBeFocused();
+		await expect(said).toBeVisible();
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled ?? false
+			)
+		).toBe(false);
+		const copying = (
+			await page.evaluate(() => (window as unknown as { e2eCopying?: string[] }).e2eCopying ?? [])
+		).filter((text) => /^Copying .* of 5 files\.$/.test(text));
+		expect(copying.length).toBeGreaterThan(1);
+		expect(new Set(copying).size).toBeGreaterThan(1);
 		// Opened rather than merely listed (story 87): the address names the Project that arrived and
 		// the Project screen is what is on it.
 		await expect.poll(() => new URL(page.url()).searchParams.get('p')).not.toBeNull();
@@ -1886,13 +1960,21 @@ test.describe('Importing the review copy back into the Workspace review began fr
 			await (await navigator.storage.getDirectory()).removeEntry(name, { recursive: true });
 		}, DEFAULT_WORKSPACE);
 
-		await page.getByTestId('import-review').click();
+		const offer = page.getByTestId('import-review');
+		await offer.click();
 		await page.getByTestId('confirm-import-review').click();
 
-		const said = page.getByTestId('review-announcement');
-		await expect(said).toContainText(`“${DEFAULT_WORKSPACE}”`);
-		await expect(said).toContainText('not there any more');
-		await expect(said).toContainText('this review copy is still here');
+		// ⚠ **An alert, and not the polite line the successful outcomes use** (SPEC story 94). It is
+		// text that first exists at the moment it is needed, which a polite region does not reliably
+		// announce — and it names the Workspace it could not reach and says the review copy is whole,
+		// which is the domain language a reviewer can act on.
+		const refusal = page.getByTestId('review-import-problem');
+		await expect(refusal).toContainText(`“${DEFAULT_WORKSPACE}”`);
+		await expect(refusal).toContainText('not there any more');
+		await expect(refusal).toContainText('this review copy is still here');
+		await expect(page.getByRole('alert').filter({ has: refusal })).toBeVisible();
+		// And focus is back on the offer, which is where the retry is and what the way out is beside.
+		await expect(offer).toBeFocused();
 		// Still inside it, still holding every byte, and still able to leave normally.
 		await expect(banner(page)).toBeVisible();
 		await expectWorkspaceNamed(page, 'amsterdam-1625');

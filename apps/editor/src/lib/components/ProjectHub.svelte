@@ -98,6 +98,12 @@
 	let reviewError = $state('');
 	/** Whether a Review is running, so the button cannot be pressed twice. */
 	let reviewBusy = $state(false);
+	/** How far this Review's download has got, or `''` when none is running. */
+	const reviewProgress = $derived.by(() => {
+		const moving = storage?.transfer;
+		if (!reviewBusy || !moving) return '';
+		return `${moving.files} of ${moving.totalFiles} files downloaded from ${moving.subject}.`;
+	});
 
 	const startReviewingRemote = () => {
 		reviewRepository = '';
@@ -281,6 +287,12 @@
 	 * the trigger would have to go looking through the list for a Project they cannot predict.
 	 */
 	let importNoticeLine: HTMLElement | null = $state(null);
+	/** How far this Import's copy has got, or `''` when none is running. */
+	const importProgress = $derived.by(() => {
+		const moving = storage?.transfer;
+		if (!importBusy || moving?.kind !== 'import') return '';
+		return `${moving.files} of ${moving.totalFiles} files copied from ${moving.subject}.`;
+	});
 
 	const startImporting = () => {
 		importChosen = null;
@@ -1022,18 +1034,27 @@ What else the Hub says about a Project: whether this build can read it.
 		have is changed or overwritten. There is no connection back afterwards — later changes to the original
 		never travel here, and yours never travel there.
 	</p>
-	{#if storage?.transfer?.kind === 'import' && importBusy}
-		<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real
-		     minutes, and an Import is one of the places a scholar waits on something they cannot see
-		     (workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
-		     without interrupting — the hub's own live region is `aria-live="polite"` and this dialog
-		     is over it, so there is exactly one status role on screen. No percentage: the two numbers
-		     are files, which is what the closure knows. -->
-		<p role="status" class="mt-3 text-sm" data-testid="import-progress">
-			{storage.transfer.files} of {storage.transfer.totalFiles} files copied from
-			{storage.transfer.subject}.
-		</p>
-	{/if}
+	<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real minutes,
+	     and an Import is one of the places a scholar waits on something they cannot see
+	     (workspace-and-layers SPEC story 96). No percentage: the two numbers are files, which is what
+	     the closure knows.
+
+	     `aria-live="polite"` and **not** `role="status"`, which is CONTRIBUTING's mandated pattern and
+	     this app's settled convention: the save indicator on the navigation bar owns that role on
+	     every screen, and a second one makes `getByRole('status')` ambiguous — which is a hint that a
+	     screen-reader user would have to disambiguate as well.
+
+	     Persistent and empty when idle, for the reason every other live region here is: one inserted
+	     at the same moment as its first text is not reliably announced. An empty `<p>` has no line
+	     box, so it costs no space either. -->
+	<p
+		aria-live="polite"
+		class="text-sm"
+		class:mt-3={importProgress !== ''}
+		data-testid="import-progress"
+	>
+		{importProgress}
+	</p>
 	{#if importError}
 		<!-- The refusals: not a tar, no project.json, a missing referenced file, ADR-0010's Project
 		     from a newer version, no room for the closure, a path this Workspace already holds, or a
@@ -1168,17 +1189,19 @@ What else the Hub says about a Project: whether this build can read it.
 		need a GitHub account or a token. Nothing in this Workspace is changed, nothing from the review copy
 		can be brought back into it, and a review copy is never published.
 	</p>
-	{#if storage?.transfer && reviewBusy}
-		<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real
-		     minutes, and this is one of the places a scholar waits on something they cannot see
-		     (workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
-		     without interrupting — the hub's own live region is `aria-live="polite"` and this dialog is
-		     over it, so there is exactly one status role on screen. -->
-		<p role="status" class="mt-3 text-sm" data-testid="review-progress">
-			{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
-			{storage.transfer.subject}.
-		</p>
-	{/if}
+	<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real minutes,
+	     and this is one of the places a scholar waits on something they cannot see
+	     (workspace-and-layers SPEC story 96). `aria-live="polite"` rather than `role="status"`, and
+	     persistent rather than inserted with its first text: see the Import dialog's own progress line
+	     above for both arguments. -->
+	<p
+		aria-live="polite"
+		class="text-sm"
+		class:mt-3={reviewProgress !== ''}
+		data-testid="review-progress"
+	>
+		{reviewProgress}
+	</p>
 	{#if reviewError}
 		<!-- The refusals: no such public repository, no Project by that name, a truncated file list,
 		     no room to hold it, bytes that are not the ones the file list named, or ADR-0010's Project

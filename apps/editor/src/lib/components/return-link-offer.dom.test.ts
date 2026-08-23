@@ -3,8 +3,15 @@
 // ⚠ **The subject is the offer, not the transfer.** What arrives when a choice is pressed is
 // `remote-project-source.ts`'s and `review-from-remote.ts`'s at Seam 1, and that the applications
 // really write it into real OPFS is `e2e/editor-review-remote.e2e.ts`'s. What only this seam can
-// say cheaply is which choices a link raises, which Workspace the Import one names, and that
-// declining calls nothing at all — three claims per link kind, and none of them needs a browser.
+// say cheaply is which choices a link raises, which Workspace the Import one names, that declining
+// calls nothing at all, and where focus lands after each of the three presses — none of which needs
+// a browser.
+//
+// ⚠ **Focus is asserted here rather than in `e2e/`.** Every press unmounts the button that made it,
+// which is the whole of the defect (SPEC story 95): the outcome replaces the offer's buttons, and
+// declining takes the offer off the page. Neither needs a real transfer, real OPFS or a real
+// Workspace switch to be true or false, so both are claims about this component and belong at the
+// seam that can make them for a hundredth of the cost.
 
 import type { ReturnLink } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -63,8 +70,16 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
+/**
+ * The offer, under the `<main>` every editor screen has.
+ *
+ * The landmark is part of the subject: declining puts focus on it, because the section the pressed
+ * button lives in is about to be taken off the page by the route.
+ */
 function offer(link: ReturnLink, storage: WorkspaceStorage, ondismiss = vi.fn()): typeof ondismiss {
-	mounted = mount(ReturnLinkOffer, { target: document.body, props: { storage, link, ondismiss } });
+	const main = document.createElement('main');
+	document.body.append(main);
+	mounted = mount(ReturnLinkOffer, { target: main, props: { storage, link, ondismiss } });
 	flushSync();
 	return ondismiss;
 }
@@ -179,6 +194,74 @@ describe('a link naming one published Project', () => {
 
 		expect(absent('import-return-link')).toBe(true);
 		expect(at('accept-return-link').textContent).toContain('review copy');
+	});
+});
+
+/**
+ * Where a press leaves a keyboard user (SPEC story 95).
+ *
+ * Every one of the three buttons is gone by the time its own work is finished — two are replaced by
+ * the outcome and the third is unmounted with the whole offer — so `<body>` is where focus went, at
+ * the top of a page that had changed underneath the reader.
+ */
+describe('focus after a press, which the press itself unmounts', () => {
+	test('an Import lands on the line naming the Project and the Workspace', async () => {
+		const { storage } = fakeStorage();
+		offer(REVIEW, storage);
+
+		await press('import-return-link');
+
+		expect(document.activeElement).toBe(at('return-link-outcome'));
+		expect(at('return-link-outcome').textContent).toContain('Harbour maps');
+	});
+
+	test('a review copy lands on the line naming the review copy', async () => {
+		const { storage } = fakeStorage();
+		offer(REVIEW, storage);
+
+		await press('accept-return-link');
+
+		expect(document.activeElement).toBe(at('return-link-outcome'));
+	});
+
+	// Turning it down leaves the editor as the visitor found it, so focus goes to the work rather
+	// than to the top of the document.
+	test('declining lands on the editor’s own landmark', () => {
+		const { storage } = fakeStorage();
+		offer(REVIEW, storage);
+
+		at('dismiss-return-link').click();
+		flushSync();
+
+		expect(document.activeElement).toBe(document.querySelector('main'));
+		expect(document.activeElement).not.toBe(document.body);
+	});
+
+	/**
+	 * A refusal keeps the reader inside the offer, which is where the retry is.
+	 *
+	 * The alert is inserted rather than announced politely, because it is text that first exists at
+	 * the moment it is needed (SPEC story 94), and every button is still there — so nothing has to
+	 * move focus at all.
+	 */
+	test('a refusal is an alert, and leaves focus on the choice that was pressed', async () => {
+		const { storage, importRemoteProject } = fakeStorage();
+		importRemoteProject.mockRejectedValue(
+			new Error('There is no Project called “amsterdam-1625” on ada/atlas.')
+		);
+		offer(REVIEW, storage);
+
+		const pressed = at('import-return-link');
+		pressed.focus();
+		pressed.click();
+		await vi.waitFor(() => {
+			flushSync();
+			at('return-link-problem');
+		});
+
+		expect(at('return-link-problem').closest('[role="alert"]')).toBeTruthy();
+		expect(at('return-link-problem').textContent).toContain('Project');
+		expect(document.activeElement).toBe(pressed);
 	});
 });
 

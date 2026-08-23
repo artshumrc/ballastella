@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	import { describeRemote, type ReturnLink } from '@ballastella/core';
 
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -77,6 +79,15 @@
 	const busy = $derived(running !== '');
 	/** Where an Import put the Project, once one has, so the route can go to it. */
 	let importedInto = $state('');
+	/**
+	 * The line saying what the press did, focused once it does (SPEC story 95).
+	 *
+	 * ⚠ **Every choice here unmounts the button that was pressed.** The outcome replaces the whole
+	 * offer, so on success focus would land on `<body>` — after minutes of downloading, at the top of
+	 * a page that has changed underneath the reader. This line names the Project and the Workspace,
+	 * which is the result they came for, and the Close button beside it is the way on.
+	 */
+	let outcomeLine: HTMLElement | null = $state(null);
 
 	const remote = $derived(describeRemote(link));
 
@@ -103,6 +114,10 @@
 		running = which;
 		try {
 			outcome = await operation();
+			// See {@link outcomeLine}. After the operation, because the line it focuses is rendered by
+			// the same update that closes the offer's own buttons.
+			await tick();
+			outcomeLine?.focus();
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -150,10 +165,28 @@
 			);
 		});
 
-	const close = () =>
+	const close = () => {
+		landOnTheEditor();
 		ondismiss(
 			importedInto === '' ? { reason: 'finished' } : { reason: 'imported', directory: importedInto }
 		);
+	};
+
+	/**
+	 * Put focus on the editor itself, because the route is about to take this offer off the page.
+	 *
+	 * ⚠ **Before `ondismiss`, not after.** The parent unmounts this section in the update that call
+	 * causes, and `focus()` on a node that has left the document is a silent no-op — so whatever moved
+	 * focus has to move it while the control pressed is still there. `<main>` with `tabIndex = -1` is
+	 * this app's settled answer for "the news is done with, look at the work" (`RecoveredEdits`), and
+	 * it is on both screens a link can land on.
+	 */
+	function landOnTheEditor(): void {
+		const main = document.querySelector('main');
+		if (!(main instanceof HTMLElement)) return;
+		main.tabIndex = -1;
+		main.focus();
+	}
 </script>
 
 <!--
@@ -167,7 +200,7 @@
 	data-testid="return-link-offer"
 >
 	{#if outcome}
-		<p data-testid="return-link-outcome">{outcome}</p>
+		<p bind:this={outcomeLine} tabindex="-1" data-testid="return-link-outcome">{outcome}</p>
 		<button class="btn mt-3 btn-sm" data-testid="dismiss-return-link" onclick={close}>Close</button>
 	{:else}
 		<h2 class="font-semibold">
@@ -246,7 +279,7 @@
 				class:btn-disabled={busy}
 				aria-disabled={busy}
 				data-testid="dismiss-return-link"
-				onclick={() => !busy && ondismiss({ reason: 'declined' })}
+				onclick={() => !busy && (landOnTheEditor(), ondismiss({ reason: 'declined' }))}
 			>
 				No thanks
 			</button>

@@ -1201,7 +1201,9 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 		await page.getByTestId('import-review').click();
 		await page.getByTestId('confirm-import-review').click();
 
-		const said = page.getByTestId('review-announcement');
+		// An alert rather than the polite line the successful outcomes use: a refused Import is text
+		// inserted at the moment it is needed, and it names the folder it could not reach.
+		const said = page.getByTestId('review-import-problem');
 		await expect(said).toContainText(`the folder “${PICKED_FOLDER}”`);
 		await expect(said).toContainText('not given permission');
 		await expect(said).toContainText('this review copy is still here');

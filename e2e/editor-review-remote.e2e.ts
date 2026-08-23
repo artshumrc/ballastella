@@ -282,8 +282,28 @@ test.describe('reviewing one Project from a Remote', () => {
 	test('makes a review copy holding that one Project, and switches to it', async ({ page }) => {
 		await start(page);
 
-		await review(page);
+		// ⚠ **Every control on this path from the keyboard alone** (SPEC story 92). The trigger, both
+		// fields and the confirmation, reached and pressed without a pointer: one taken out of the tab
+		// order passes a `click()` while being unreachable in the app.
+		const trigger = page.getByTestId('review-remote');
+		await trigger.focus();
+		await page.keyboard.press('Enter');
+		const dialog = page.getByRole('dialog', { name: 'Review a Project from GitHub' });
+		await expect(dialog).toBeVisible();
+		const repository = page.getByTestId('review-repository-field');
+		await repository.focus();
+		await expect(repository).toBeFocused();
+		await page.keyboard.type(REMOTE);
+		const project = page.getByTestId('review-project-field');
+		await project.focus();
+		await page.keyboard.type(AMSTERDAM);
+		const confirm = page.getByTestId('confirm-review-remote');
+		await confirm.focus();
+		await page.keyboard.press('Enter');
 
+		// The trigger is gone — there is no "Review from GitHub…" inside a review copy — so focus lands
+		// on the line saying which review copy the reader is now in.
+		await expect(notice(page)).toBeFocused();
 		await expect(notice(page)).toContainText('Amsterdam 1625');
 		await expect(notice(page)).toContainText(REMOTE);
 		await expect(notice(page)).toContainText('review copy');
@@ -627,10 +647,36 @@ test.describe('arriving on a link from a Published Site', () => {
 		await expect(accept(page)).toContainText('review copy');
 		await expect(page.getByTestId('dismiss-return-link')).toBeVisible();
 
-		await page.getByTestId('import-return-link').click();
+		// ⚠ **Reached and pressed from the keyboard alone, and watched while it runs** (SPEC story 95).
+		// A control taken out of the tab order passes a pointer test while being unreachable in the app,
+		// and the button that was pressed is the one focus has to survive on: this download is minutes
+		// long over a pyramid, and `disabled` would drop a keyboard user onto `<body>` for all of it.
+		const importing = page.getByTestId('import-return-link');
+		await importing.focus();
+		await expect(importing).toBeFocused();
+		await importing.evaluate((button) => {
+			(window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled = (
+				button as HTMLButtonElement
+			).disabled;
+			new MutationObserver(() => {
+				if ((button as HTMLButtonElement).disabled) {
+					(window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled = true;
+				}
+			}).observe(button, { attributes: true, attributeFilter: ['disabled'] });
+		});
+		await page.keyboard.press('Enter');
 
-		await expect(page.getByTestId('return-link-outcome')).toContainText('Amsterdam 1625');
-		await expect(page.getByTestId('return-link-outcome')).toContainText(DEFAULT_WORKSPACE);
+		const said = page.getByTestId('return-link-outcome');
+		await expect(said).toContainText('Amsterdam 1625');
+		await expect(said).toContainText(DEFAULT_WORKSPACE);
+		// The pressed button is replaced by this line, so this is where focus has to be: the offer is
+		// not a dialog and has no trigger left to be restored to.
+		await expect(said).toBeFocused();
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { e2eWentDisabled?: boolean }).e2eWentDisabled ?? false
+			)
+		).toBe(false);
 		// The Workspace the reader never left, and no review copy anywhere.
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
 		await expect(banner(page)).toBeHidden();
@@ -669,9 +715,14 @@ test.describe('arriving on a link from a Published Site', () => {
 
 		// Closing the offer leaves the reader on the Project they came for, addressed by where it
 		// landed rather than by the link's own directory.
-		await page.getByTestId('dismiss-return-link').click();
+		const done = page.getByTestId('dismiss-return-link');
+		await done.focus();
+		await page.keyboard.press('Enter');
 		await expect.poll(() => new URL(page.url()).searchParams.get('p')).toBe(AMSTERDAM);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		// The offer has gone with the press, so focus is on the work rather than on `<body>` at the top
+		// of the document.
+		await expect(page.locator('main')).toBeFocused();
 
 		// Anonymous throughout — `rejectCredential` would have 401'd anything carrying a token — and
 		// one raw request per file of the closure, plus the `project.json` the source reads and parses
@@ -683,9 +734,17 @@ test.describe('arriving on a link from a Published Site', () => {
 		await start(page);
 		await page.goto(LINK);
 
-		await accept(page).click();
+		// The other answer to the same link, from the keyboard, for the reason the Import beside it is:
+		// a reader who followed a link is the person likeliest to be using one (SPEC story 92).
+		await accept(page).focus();
+		await expect(accept(page)).toBeFocused();
+		await page.keyboard.press('Enter');
 
-		await expect(page.getByTestId('return-link-outcome')).toContainText('Amsterdam 1625');
+		const said = page.getByTestId('return-link-outcome');
+		await expect(said).toContainText('Amsterdam 1625');
+		// The button pressed is replaced by this line, and the offer is not a dialog with a trigger to
+		// be restored to — so this is the only place focus can be that a reader can see.
+		await expect(said).toBeFocused();
 		await expect(banner(page)).toBeVisible();
 		await expectWorkspaceNamed(page, REPOSITORY);
 		// What arrived, rather than what was said: the Project's closure and the mark that makes this
@@ -726,10 +785,18 @@ test.describe('arriving on a link from a Published Site', () => {
 		await page.goto(LINK);
 		await expect(offer(page)).toBeVisible();
 
-		await page.getByTestId('dismiss-return-link').click();
+		// From the keyboard, because turning a link down has to cost one press and no pointer.
+		const decline = page.getByTestId('dismiss-return-link');
+		await decline.focus();
+		await expect(decline).toBeFocused();
+		await page.keyboard.press('Enter');
 
 		await expect(offer(page)).toHaveCount(0);
 		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+		// ⚠ **The button that was pressed went with the offer**, so without somewhere to send focus a
+		// visitor who declined a link would be left on `<body>`, tabbing in from the top of a page they
+		// had already read (SPEC story 95). `<main>` is where the editor's own work is.
+		await expect(page.locator('main')).toBeFocused();
 		await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0);
 		await expect.poll(() => new URL(page.url()).searchParams.get('p')).toBeNull();
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
