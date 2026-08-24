@@ -98,8 +98,8 @@
 	that a pressed shortcut did not look implemented. There is one now.
 
 	`defaultPrevented` stands this down for a keypress the outgoing `UndoControl` has already taken.
-	Both are on the window while the three unmigrated actions still go through `UndoSlot`, and one
-	keypress must move one history.
+	Both are on the window while `UndoSlot` still exists, and one keypress must move one history —
+	though nothing offers the slot a record any more. Ticket 7 removes it.
 -->
 <svelte:window
 	onkeydown={(event) => {

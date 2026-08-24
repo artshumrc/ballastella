@@ -2,7 +2,13 @@
 	import { AlignmentPairing } from './pairing.svelte.js';
 
 	/**
-	 * The newest pairing built for a Map Image, which is the one an undo has to act on.
+	 * The newest pairing built for a Map Image, which is the one an undo used to have to act on.
+	 *
+	 * ⚠ **Nothing reads this any more.** An Alignment edit is a Step of this Map Image's Edit History
+	 * (ADR-0039), and a Step holds the file either side of the gesture — so undo re-reads and the
+	 * pairing is rebuilt from disk, and there is no instance to resolve. It is kept for the length of
+	 * the expand-contract, with `UndoSlot` and everything under it; ticket 7 removes them together.
+	 * The argument below is what it was for.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THIS IS MODULE STATE AND NOT A CAPTURED INSTANCE
@@ -19,11 +25,11 @@
 	 * was drawing any more. Resolving the pairing here, when the closure runs, is what makes "the live
 	 * pairing" one fact rather than one per component instance.
 	 *
-	 * Not cleared when the component is destroyed, and that is the point: `UndoControl` is mounted on the
-	 * Layers pane too, so a Control Point undo can be pressed with no workspace on screen, and this is
-	 * the pairing it acts on there — the newest one for that image, which is the one that made the edit.
-	 * It is only ever consulted for a record naming this same Map Image, so a leftover entry for a
-	 * map nobody is aligning cannot be reached — an image id is a random identifier (ADR-0015).
+	 * Not cleared when the component is destroyed, and that was the point: `UndoControl` is mounted on
+	 * the Layers pane too, so a Control Point undo could be pressed with no workspace on screen, and
+	 * this was the pairing it acted on there — the newest one for that image, which is the one that
+	 * made the edit. That premise is the one this epic reverses: the affordance now stays on the
+	 * screen the edit was made on.
 	 */
 	let live: { readonly imageId: string; readonly pairing: AlignmentPairing } | null = null;
 </script>
@@ -44,6 +50,7 @@
 		DEFAULT_DISTORTION_VIEW,
 		MINIMUM_CONTROL_POINTS,
 		MINIMUM_MASK_VERTICES,
+		alignmentPath,
 		canSolve,
 		detectFold,
 		imagePaneSourceFor,
@@ -265,10 +272,9 @@
 	$effect(() => {
 		void imageId;
 		generation += 1;
-		// For the same reason, and only for a Control Point record: an offer to put back point 3 of a map
-		// that is no longer on screen describes an edit the user cannot watch happen. A pending undo of a
-		// deleted Layer or Annotation is about the Project rather than about one image, and survives.
-		session.forgetUndoOfOtherImages(imageId);
+		// Nothing here forgets another map's undo any more: an Edit History is keyed by Map Image
+		// (ADR-0039), so the history this screen declares cannot offer an edit made to a map that is not
+		// on it, and there is nothing left to clear.
 		pairing = undefined;
 		warped = null;
 		concurrentEditOutcome = '';
@@ -353,6 +359,30 @@
 		if (live?.imageId === imageId) loadAlignment(imageId, live.pane);
 	};
 
+	/**
+	 * What the session's write-back count stood at when this screen last acted on it, or `null` before
+	 * it has looked. A plain `let`: it is written by the effect that reads it.
+	 */
+	let rebuiltAt: number | null = null;
+
+	/**
+	 * Rebuild the pairing when an Edit History has written this Alignment back (ADR-0039).
+	 *
+	 * **A rebuild and not a patch, and the selection is lost with it.** Control Point ids are minted
+	 * per session and are not in the file, so the Alignment that comes back from an undo has fresh
+	 * ones and nothing on screen can be matched to it. That is the accepted cost of a Step holding
+	 * bytes, and it is what makes the id-matching this component used to do unnecessary rather than
+	 * merely unused.
+	 */
+	$effect(() => {
+		const written = session.alignmentsWrittenBack;
+		const seenBefore = rebuiltAt !== null;
+		rebuiltAt = written;
+		// The first run is this screen taking the count, not a write-back to answer: the pairing it
+		// would rebuild is the one the pane has just read.
+		if (seenBefore) reload();
+	});
+
 	const loadAlignment = (wanted: string, pane: ImagePane): void => {
 		if (destroyed) return;
 		livePane = { imageId: wanted, pane };
@@ -407,6 +437,43 @@
 	const save = (current: AlignmentPairing): void => {
 		void session.writeAlignment(current.alignment);
 	};
+
+	/**
+	 * This Map Image's Edit History (ADR-0039).
+	 *
+	 * **Keyed by the Map Image and not by the Project**, because that is what an Alignment is keyed by
+	 * (ADR-0023): the file belongs to the Workspace and is shared by every Project that draws the map,
+	 * so reaching it from a second Project must reach the same history rather than a second one
+	 * offering to reverse the same edits twice (SPEC story 5).
+	 */
+	const history = $derived(session.historyFor(imageId));
+
+	/**
+	 * One completed gesture, written, as one Step of that history.
+	 *
+	 * **One gesture is one Step and nothing is merged** — four Crop corners moved are four Steps
+	 * (SPEC story 27), which is what lets a scholar back out of the one corner they got wrong.
+	 *
+	 * **The pairing is mutated here and the write is what the Step wraps**, which is not a shortcut:
+	 * a Step's images are the *file's*, either side of the write, and the pairing is in memory — so
+	 * moving the mutation inside the Step would buy nothing and would make the panes wait on a flush
+	 * before drawing what the scholar has just done.
+	 *
+	 * The write is *awaited* inside the Step rather than fired the way {@link save} fires it, because
+	 * the `after` image is read from disk the moment the Step's gesture resolves.
+	 *
+	 * The label is the sentence the control will say — verb, then subject, in the scholar's own words
+	 * (SPEC story 42).
+	 */
+	const asStep = (label: string, current: AlignmentPairing, gesture: () => void): void => {
+		gesture();
+		void history.step(label, [alignmentPath(imageId)], () =>
+			session.writeAlignment(current.alignment)
+		);
+	};
+
+	/** The Map Image as a Step's sentence names it — `quotedName`'s rule, for a map rather than a Layer. */
+	const quotedMapName = $derived(mapName === '' ? 'with no name' : `\u201c${mapName}\u201d`);
 
 	/**
 	 * Reversing a Control Point edit: put the pair back, then write, exactly as the edit itself did.
@@ -479,7 +546,13 @@
 	 * `onmove`, so no state changes during a drag or a held arrow key, and the closure the handle calls
 	 * still carries where the point started. Dragging a Control Point is the easiest thing in this
 	 * application to mis-aim, which is why ADR-0014 refuses to ship without an undo of it.
+	 *
+	 * ⚠ **Nothing calls this any more.** Moving a Control Point is a Step of this Map Image's Edit
+	 * History (ADR-0039), which writes its own byte images back and therefore needs neither the record
+	 * nor {@link putBack}'s id-matching. Kept for the length of the expand-contract: `UndoSlot` and
+	 * everything under it goes in one change rather than four.
 	 */
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- removed with `UndoSlot` itself.
 	const rememberMove = (point: ControlPoint): void => {
 		const record: ControlPointMovedUndo = {
 			kind: 'control-point-moved',
@@ -502,7 +575,10 @@
 	 * The index is taken among the *drafts* rather than from the ordinal, because a pending half is a
 	 * draft too — and because the ordinal is derived from position (ADR-0022), so the position is the
 	 * thing that has to go back.
+	 *
+	 * ⚠ **Nothing calls this any more** — see {@link rememberMove}.
 	 */
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- removed with `UndoSlot` itself.
 	const rememberDelete = (current: AlignmentPairing, point: ControlPoint): void => {
 		const at = current.drafts.findIndex((draft) => draft.id === point.id);
 		if (at === -1) return;
@@ -617,16 +693,14 @@
 			label: halfLabel(point.ordinal, 'Map Image'),
 			selected: point.id === current.selectedId,
 			onselect: () => current.toggleSelected(point.id),
-			ondelete: () => {
-				rememberDelete(current, point);
-				current.remove(point.id);
-				save(current);
-			},
-			onmoveend: (to) => {
-				rememberMove(point);
-				current.moveResource(point.id, to);
-				save(current);
-			}
+			ondelete: () =>
+				asStep(`Undo delete of Control Point ${point.ordinal}`, current, () =>
+					current.remove(point.id)
+				),
+			onmoveend: (to) =>
+				asStep(`Undo move of Control Point ${point.ordinal}`, current, () =>
+					current.moveResource(point.id, to)
+				)
 		}));
 
 		const waiting = current.pending;
@@ -677,15 +751,16 @@
 				maskPreview = current.resourceMask.map((vertex, at) => (at === index ? to : vertex));
 			},
 			onmoveend: (to) => {
-				current.moveMaskVertex(index, to);
-				maskPreview = null;
-				// Rounded, because the sentence is "the corner went where I pushed it" and not a
-				// coordinate readout — and a nudge is one screen pixel, which is a sub-pixel move when
-				// the pane is zoomed out.
-				maskDone(
-					`Resource Mask corner ${index + 1} moved to ${Math.round(to.x)}, ${Math.round(to.y)}.`
-				);
-				save(current);
+				asStep(`Undo the Crop of ${quotedMapName}`, current, () => {
+					current.moveMaskVertex(index, to);
+					maskPreview = null;
+					// Rounded, because the sentence is "the corner went where I pushed it" and not a
+					// coordinate readout — and a nudge is one screen pixel, which is a sub-pixel move when
+					// the pane is zoomed out.
+					maskDone(
+						`Resource Mask corner ${index + 1} moved to ${Math.round(to.x)}, ${Math.round(to.y)}.`
+					);
+				});
 			},
 			ondelete: () => {
 				if (current.removeMaskVertex(index)) {
@@ -741,16 +816,14 @@
 			label: halfLabel(point.ordinal, 'Base Map'),
 			selected: point.id === current.selectedId,
 			onselect: () => current.toggleSelected(point.id),
-			ondelete: () => {
-				rememberDelete(current, point);
-				current.remove(point.id);
-				save(current);
-			},
-			onmoveend: (to) => {
-				rememberMove(point);
-				current.moveGeo(point.id, to);
-				save(current);
-			}
+			ondelete: () =>
+				asStep(`Undo delete of Control Point ${point.ordinal}`, current, () =>
+					current.remove(point.id)
+				),
+			onmoveend: (to) =>
+				asStep(`Undo move of Control Point ${point.ordinal}`, current, () =>
+					current.moveGeo(point.id, to)
+				)
 		}));
 
 		const waiting = current.pending;
@@ -772,32 +845,47 @@
 	const clickMapImage = (point: ResourcePoint): void => {
 		const current = pairing;
 		if (!current) return;
-		const completing = current.pending?.half === 'geo';
-		current.clickMapImage(point);
 		// Written only when a pair actually came into existence. Placing the *first* half writes
 		// nothing at all, which is what makes Escape leave no trace on disk. **Not "no file"** — since
 		// ADR-0023 there has been an `alignments/<id>.json` from the moment the Map Image was
 		// added, so what a mis-started pair must not do is *touch* it: no write, not even one whose
 		// bytes would come out the same. In a Workspace kept in git or Dropbox a rewrite is a change to
 		// sync whatever it says, which is why the test beside this counts writes and not only bytes.
-		if (completing) save(current);
+		//
+		// And by the same rule it is only the completing click that opens a Step: a half nobody
+		// finished changed no file, so there is nothing to put back.
+		if (current.pending?.half !== 'geo') {
+			current.clickMapImage(point);
+			return;
+		}
+		asStep(placingLabel(current), current, () => current.clickMapImage(point));
 	};
 
 	const clickBaseMap = (point: GeoPoint): void => {
 		const current = pairing;
 		if (!current) return;
-		const completing = current.pending?.half === 'resource';
-		current.clickBaseMap(point);
-		if (completing) save(current);
+		if (current.pending?.half !== 'resource') {
+			current.clickBaseMap(point);
+			return;
+		}
+		asStep(placingLabel(current), current, () => current.clickBaseMap(point));
 	};
+
+	/**
+	 * What the bar will say about the pair this click is completing.
+	 *
+	 * Read before the click lands, because the ordinal is the pair's position in the list (ADR-0022)
+	 * and the pair being made goes on the end.
+	 */
+	const placingLabel = (current: AlignmentPairing): string =>
+		`Undo placing Control Point ${current.controlPoints.length + 1}`;
 
 	const removePair = (id: string): void => {
 		const current = pairing;
 		if (!current) return;
 		const point = current.controlPoints.find((one) => one.id === id);
-		if (point) rememberDelete(current, point);
-		current.remove(id);
-		save(current);
+		if (!point) return;
+		asStep(`Undo delete of Control Point ${point.ordinal}`, current, () => current.remove(id));
 	};
 </script>
 
@@ -924,13 +1012,14 @@
 									onclick={() => {
 										const current = pairing;
 										if (!current) return;
-										current.resetMask();
-										maskPreview = null;
-										maskDone(
-											'The whole sheet is the map again, with ' +
-												`${current.resourceMask.length} Resource Mask corners.`
-										);
-										save(current);
+										asStep(`Undo the Crop reset of ${quotedMapName}`, current, () => {
+											current.resetMask();
+											maskPreview = null;
+											maskDone(
+												'The whole sheet is the map again, with ' +
+													`${current.resourceMask.length} Resource Mask corners.`
+											);
+										});
 									}}
 								>
 									Show the whole sheet again
@@ -1519,8 +1608,9 @@
 								if (!current) return;
 								// Every Control Point survives, because this touches one field. Written now rather
 								// than on a timer: choosing a type is a discrete act (ADR-0017 rule 1).
-								current.setTransformationType(type);
-								save(current);
+								asStep(`Undo the transformation of ${quotedMapName}`, current, () =>
+									current.setTransformationType(type)
+								);
 							}}
 						/>
 					</div>

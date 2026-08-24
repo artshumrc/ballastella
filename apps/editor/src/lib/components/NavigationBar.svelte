@@ -480,9 +480,9 @@
 			that declares nothing draws nothing here, which is how Workspace Home is undo-free without
 			being named and how a screen added later is undo-free until it says otherwise.
 
-			`UndoControl` beside it, still serving the three gestures that have not become Steps yet. It
-			is second so that the Edit History takes a shortcut first: the newer of the two is the one a
-			scholar has just used.
+			`UndoControl` beside it, drawing nothing: every gesture it used to serve is a Step now, and
+			the slot behind it goes with ticket 7. It is second so that the Edit History takes a shortcut
+			first.
 		-->
 		<div class="flex items-center gap-2" data-testid="undo-slot">
 			{#if editHistorySlot.history !== null}

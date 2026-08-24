@@ -23,6 +23,7 @@
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
 	import { pageChrome } from '@ballastella/ui';
+	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -116,6 +117,27 @@
 		];
 		pageChrome.showBreadcrumbs('editor-align', breadcrumbs);
 		return () => pageChrome.clear('editor-align');
+	});
+
+	/**
+	 * This screen's Edit History, declared for the navigation bar (ADR-0039, SPEC stories 1 and 55).
+	 *
+	 * **Keyed by Map Image id and not by Project.** An Alignment belongs to the Workspace and is
+	 * shared by every Project that draws that map (ADR-0023), so the same Alignment reached from a
+	 * second Project is the same Edit History (SPEC story 5) — and a different map is a different one
+	 * (SPEC story 4).
+	 *
+	 * Declared only once there is a Map Image to name, so this route's own recoveries — no Project, no
+	 * `?layer=`, a link from another Workspace — draw no controls rather than controls for nothing.
+	 * The teardown is what leaves the Project screen with its own history and none of this one's,
+	 * which is the defect this epic exists to close (SPEC story 2).
+	 */
+	$effect(() => {
+		const current = session;
+		const mapImage = layer?.imageId;
+		if (!current || mapImage === undefined) return;
+		editHistorySlot.show('editor-align', current.historyFor(mapImage));
+		return () => editHistorySlot.clear('editor-align');
 	});
 </script>
 

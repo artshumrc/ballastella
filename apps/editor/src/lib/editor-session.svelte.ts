@@ -20,6 +20,7 @@ import {
 	WriteAheadJournal,
 	Workspace,
 	addLayer,
+	ALIGNMENT_DIRECTORY,
 	alignmentPath,
 	annotationStorePath,
 	assembleWithCanvas,
@@ -430,6 +431,19 @@ export class EditorSession {
 	annotationsWrittenBack = $state(0);
 
 	/**
+	 * How many times an Edit History has written an Alignment back.
+	 *
+	 * The Align screen's cue to re-read. Control Point ids are minted per session and are not in the
+	 * file, so an Alignment that has just been written back has fresh ones and the pairing on screen
+	 * has to be rebuilt from it rather than patched (ADR-0039).
+	 *
+	 * A counter rather than an image id, as with {@link annotationsWrittenBack}: only the screen
+	 * showing a Map Image declares that map's Edit History, so the one re-read this can provoke is
+	 * the one that was asked for.
+	 */
+	alignmentsWrittenBack = $state(0);
+
+	/**
 	 * The opacity drag now under way, and the Step held open for it, or `null`.
 	 *
 	 * A drag reports every position it passes through, and each one is an ordinary debounced write —
@@ -459,7 +473,10 @@ export class EditorSession {
 			}
 		},
 		writeBack: async (path, bytes) => {
-			if (bytes === null) {
+			const imageId = alignmentImageId(path);
+			if (imageId !== null) {
+				await this.#writeAlignmentBack(imageId, bytes);
+			} else if (bytes === null) {
 				await this.#store.delete(path);
 			} else {
 				await this.#autosave.commit(path, bytes);
@@ -477,6 +494,10 @@ export class EditorSession {
 			if (this.openDirectory !== null && path.startsWith(`${this.openDirectory}/annotations/`)) {
 				this.annotationsWrittenBack += 1;
 			}
+			// And for an Alignment, which the Align screen cannot patch in place: Control Point ids are
+			// minted per session and are not in the file, so what came back has fresh ones and the
+			// pairing has to be rebuilt from it (ADR-0039).
+			if (imageId !== null) this.alignmentsWrittenBack += 1;
 			this.saveError = '';
 		}
 	};
@@ -1716,6 +1737,55 @@ export class EditorSession {
 	 */
 	#rememberAlignmentOnDisk(imageId: string, written: Bytes | null): void {
 		if (written) this.#alignmentOnDisk.set(imageId, written);
+	}
+
+	/**
+	 * Put one side of an Alignment Step's images back on disk (ADR-0039, SPEC stories 24–29).
+	 *
+	 * **Through `writeAlignmentBytes`, verbatim.** One module owns `alignments/<image-id>.json` and
+	 * every caller of it names its intent (ticket 18), so an Edit History cannot reach `Autosave` the
+	 * way it does for every other path. Verbatim rather than re-serialised for the reason a Step holds
+	 * bytes at all: `Alignment.unmodelled` means a round trip through this build's model can differ
+	 * from the document the scholar's colleague wrote.
+	 *
+	 * A `replace`, said in the words the scholar read: the Step's own label is on the control they
+	 * pressed, which is what {@link AlignmentWrite}'s `discarding` field asks for.
+	 *
+	 * **Behind whatever is already writing this map's file**, for the reason
+	 * {@link #alignmentWriteInFlight} gives at length — and the baseline moves with it, for the reason
+	 * {@link #rememberAlignmentOnDisk} gives: a write that changed the bytes and left the baseline
+	 * alone makes the *next* ordinary save report a colleague who does not exist.
+	 *
+	 * The queue takes a `write` that must not reject, so a failure is carried out of it and thrown
+	 * from here instead: whether the history's cursor moves is decided by whether this resolves.
+	 */
+	async #writeAlignmentBack(imageId: string, bytes: Bytes | null): Promise<void> {
+		let failure: unknown = null;
+		await this.#behindAlignmentWritesFor(imageId, async () => {
+			try {
+				if (bytes === null) {
+					// The gesture created the Alignment and reversing it takes the file away again. Deleting
+					// an `AlignmentPath` needs no intent — only writing one is fenced.
+					await this.#store.delete(alignmentPath(imageId));
+					this.#alignmentOnDisk.set(imageId, null);
+					return;
+				}
+				await writeAlignmentBytes(this.#alignmentFile, {
+					imageId,
+					bytes,
+					write: {
+						intent: 'replace',
+						discarding:
+							'the Alignment edit named on the control the user pressed, which is what this ' +
+							'screen’s Edit History was asked to reverse'
+					}
+				});
+				this.#alignmentOnDisk.set(imageId, bytes);
+			} catch (cause) {
+				failure = cause;
+			}
+		});
+		if (failure !== null) throw failure;
 	}
 
 	/**
@@ -3634,6 +3704,21 @@ export class EditorSession {
  * the one sentence that says what undo will give back.
  */
 const quotedName = (name: string): string => (name === '' ? 'with no name' : `“${name}”`);
+
+/**
+ * The Map Image id of an `alignments/<id>.json`, or `null` for any other path.
+ *
+ * What tells {@link EditorSession}'s {@link HistoryFiles} that a Step's file is an Alignment and so
+ * has one owning writer, rather than being an ordinary `Autosave` path.
+ */
+function alignmentImageId(path: StorePath): string | null {
+	const segments = path.split('/');
+	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
+	const name = segments[1] ?? '';
+	return name.endsWith('.json') && name.length > '.json'.length
+		? name.slice(0, -'.json'.length)
+		: null;
+}
 
 /**
  * A failure that is about one Project rather than about the Workspace, described for a reader.

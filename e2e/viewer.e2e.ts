@@ -41,7 +41,7 @@ test('the built bundle carries no publishing machinery and no alignment route', 
 		'still fetched from the library that holds',
 		'is a Project whose folder has',
 		'Waiting for the matching place on the Base Map',
-		'the Alignment on screen is no longer the one it was recorded against'
+		'Move it instead, or show the whole sheet again.'
 	];
 
 	const files: string[] = [];

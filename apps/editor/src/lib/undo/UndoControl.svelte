@@ -75,8 +75,8 @@
 	Edit History, and `EditHistoryControls` is where the three shortcuts now are.
 
 	`defaultPrevented` stands this down for a keypress those controls have already taken. Both are on
-	the window while the three unmigrated actions still go through `UndoSlot`, and one keypress must
-	move one history.
+	the window while `UndoSlot` still exists, and one keypress must move one history — though nothing
+	offers the slot a record any more, so this control is never drawn. Ticket 7 removes it.
 -->
 <svelte:window
 	onkeydown={(event) => {

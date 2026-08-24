@@ -64,9 +64,6 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
  * state).
  */
 
-/** The outgoing single-slot undo affordance, still serving the two Control Point gestures. */
-const undoButton = (page: Page) => page.getByTestId('undo');
-
 /**
  * The Edit History's two controls, drawn for whatever history the screen on show declares (ADR-0039).
  *
@@ -202,17 +199,18 @@ async function openWorkspace(page: Page): Promise<void> {
  * Leave the alignment workspace for the Layers pane and come back, **without reloading the page**.
  *
  * The two in-app links rather than `page.goto`, and that is the whole of the helper: a reload builds a
- * new session and the undo slot goes with it, so a round trip by URL would assert nothing at all about
- * a record surviving. What the round trip does to the workspace is the point — it is destroyed and
- * rebuilt, with a fresh `AlignmentPairing` read from the file, while the record stays where it was.
+ * new session and every Edit History goes with it, so a round trip by URL would assert nothing at all
+ * about a history surviving. What the round trip does to the workspace is the point — it is destroyed
+ * and rebuilt, with a fresh `AlignmentPairing` read from the file, while the Steps stay where they
+ * were: a history is keyed by Map Image and outlives the screen that draws it (ADR-0039).
  *
  * @param resuming how many Control Points the rebuilt pairing must show before it is safe to click
  */
 async function throughLayersAndBack(page: Page, resuming: number): Promise<void> {
 	// Out of the alignment route onto the Project — which *is* the Layer stack since ticket 04 — and
 	// back into aligning. Two in-app links rather than three, and still not one reload, which is the
-	// whole of the helper: the undo record has to survive the workspace being destroyed and rebuilt,
-	// and the stack being drawn on the way is what destroys it.
+	// whole of the helper: the Steps have to survive the workspace being destroyed and rebuilt, and
+	// the stack being drawn on the way is what destroys it.
 	await page.getByTestId('back-to-project').click();
 	await expect(addMapImageButton(page)).toBeVisible();
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
@@ -367,8 +365,8 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		expect(await half.getAttribute('data-resource-x')).not.toBe(wasAtPixel);
 
 		// The affordance names what it will reverse. A bare "Undo" does not answer the user's question.
-		await expect(undoButton(page)).toHaveText('Undo move of Control Point 1');
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
+		await editHistoryUndo(page).click();
 
 		// Byte-identical, which is stronger than "the coordinates are close": the file the undo wrote is
 		// the file the move overwrote.
@@ -379,13 +377,20 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await expect(half).toHaveAttribute('data-resource-x', wasAtPixel as string);
 		expect(await rowText(page, 1)).toBe(wasAt);
 
-		// One level, not a stack: a second undo does nothing, and is not offered.
-		await expect(undoButton(page)).toHaveCount(0);
-		await expect(page.getByTestId('undo-outcome')).toContainText(
+		// The one Step in this history is spent, so that end of it is empty — and absent rather than
+		// disabled, which is how "there is nothing to undo" stays one piece of state (SPEC story 45).
+		await expect(editHistoryUndo(page)).toHaveCount(0);
+		await expect(page.getByTestId('edit-history-outcome')).toContainText(
 			'Undone: move of Control Point 1.'
 		);
 		await page.keyboard.press('Control+z');
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
+
+		// And the other end is not: an undo pressed by mistake is itself reversible (SPEC story 7).
+		await expect(editHistoryRedo(page)).toHaveAttribute(
+			'aria-label',
+			'Redo move of Control Point 1'
+		);
 	});
 
 	test('ignores a pane that finishes opening after its alignment route was destroyed', async ({
@@ -404,6 +409,10 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 
 		await page.getByTestId('back-to-project').click();
 		await expect(addMapImageButton(page)).toBeVisible();
+		// ⚠ **The reported defect, on the screen it was reported on** (SPEC story 1). The edit was made
+		// while aligning, and the Project screen's own Edit History is empty — so the bar offers nothing
+		// here rather than offering to reverse a Control Point that is not on this screen.
+		await expect(editHistoryUndo(page)).toHaveCount(0);
 		await delayNextReadOf(page, 'info.json', 3000);
 
 		// This workspace starts opening, but is destroyed before its Map Image pane calls `onpane`.
@@ -417,25 +426,32 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await expect(controlPointRows(page)).toHaveCount(3);
 		await page.waitForTimeout(3500);
 
-		await undoButton(page).click();
+		// …and back on the Align screen it is offered again, still naming the move (SPEC story 2).
+		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
+		await editHistoryUndo(page).click();
 		await saved(page);
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
 		expect(await rowText(page, 1)).toBe(wasAt);
 	});
 
 	/**
-	 * The record outlives the component that made it, and reversing it has to act on the pairing that is
-	 * on screen **now**.
+	 * The Edit History outlives the component that made it, and reversing a Step has to act on the
+	 * pairing that is on screen **now**.
 	 *
-	 * `EditorSession.open` returns early for the Project already showing, and `forgetUndoOfOtherImages`
-	 * drops a Control Point record only for a *different* Map Image — so a trip to the Layers pane
-	 * and back leaves the pending undo exactly where it was while the workspace builds a fresh
-	 * `AlignmentPairing` out of the file. That is the ticket's premise working, and it is also what made
-	 * a restore closure that had captured its pairing dangerous: undoing wrote *that* object's whole
-	 * Alignment, so a Control Point placed after coming back was deleted out of the file with nothing on
-	 * screen moving and the affordance claiming only that a point had been put back.
+	 * `EditorSession.open` returns early for the Project already showing, and a history is keyed by Map
+	 * Image rather than by Project (ADR-0039) — so a trip to the Layers pane and back leaves this
+	 * Alignment's Steps exactly where they were while the workspace builds a fresh `AlignmentPairing`
+	 * out of the file. That is the epic's premise working, and it is also what made a restore closure
+	 * that had captured its pairing dangerous: undoing wrote *that* object's whole Alignment, so a
+	 * Control Point placed after coming back was deleted out of the file with nothing on screen moving
+	 * and the affordance claiming only that a point had been put back.
+	 *
+	 * **Byte Steps make that unrepresentable, and the walk back is what shows it.** A Step holds the
+	 * file either side of one gesture, so there is no pairing instance in it to go stale: the pair made
+	 * after the round trip is its own Step, undone first, and the move behind it comes back to the
+	 * bytes it overwrote whichever component was on screen when it was made.
 	 */
-	test('reverses the pairing now on screen, keeping a pair made after the round trip', async ({
+	test('walks back through a pair made after a round trip to the move behind it', async ({
 		page
 	}) => {
 		test.setTimeout(150_000);
@@ -452,38 +468,55 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		// The destructive change is on disk before anything else happens, as everywhere in this file.
 		await saved(page);
 		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(before);
+		const afterMove = await storedAlignment(page, imageId);
 
 		await throughLayersAndBack(page, 3);
 		// It survived the route change, which is what makes the rest of this test worth asserting.
-		await expect(undoButton(page)).toHaveText('Undo move of Control Point 1');
+		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
 
 		// A fourth pair, made after the remount: it exists only in the pairing now on screen, and never
-		// existed in the one the record was made on.
+		// existed in the one the move was made on.
 		await makePairs(page, 4);
 		await waitForStored(page, imageId, 4);
 		await saved(page);
 		const fourth = await rowText(page, 4);
+		const afterFourth = await storedAlignment(page, imageId);
 
-		await undoButton(page).click();
+		// **The newest Step first, and only that one.** The three originals are the file as the move
+		// left it, so the fourth pair went and nothing else did.
+		await expect(editHistoryUndo(page)).toHaveText('Undo placing Control Point 4');
+		await editHistoryUndo(page).click();
 		await saved(page);
-		await waitForStored(page, imageId, 4);
+		await expect(controlPointRows(page)).toHaveCount(3);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(afterMove);
 
-		// **Four pairs, not three.** The three originals are the file as it was before the move — so the
-		// move really was reversed — and the fourth is untouched beside them.
+		// …and then the move behind it, byte for byte, on a pairing built long after it was recorded.
+		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
+		await editHistoryUndo(page).click();
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
 		const after = JSON.parse((await storedAlignment(page, imageId)) as string);
-		expect(after.body.features.slice(0, 3)).toEqual(beforeMove.body.features);
-		expect(after.body.features).toHaveLength(4);
+		expect(after.body.features).toEqual(beforeMove.body.features);
 
 		// And on screen, which is the half that was silently not happening: the handle is drawn back at
-		// the image pixel it started from, in a list that still has the fourth pair in it.
-		await expect(controlPointRows(page)).toHaveCount(4);
+		// the image pixel it started from, in a rebuilt list of three.
+		await expect(controlPointRows(page)).toHaveCount(3);
 		await expect(imagePoints(page).first()).toHaveAttribute(
 			'data-resource-x',
 			wasAtPixel as string
 		);
 		expect(await rowText(page, 1)).toBe(wasAt);
+		await expect(editHistoryUndo(page)).toHaveCount(0);
+
+		// Both directions, back to where the walk started (SPEC story 8).
+		await editHistoryRedo(page).click();
+		await saved(page);
+		await editHistoryRedo(page).click();
+		await saved(page);
+		await expect(controlPointRows(page)).toHaveCount(4);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(afterFourth);
 		expect(await rowText(page, 4)).toBe(fourth);
-		await expect(undoButton(page)).toHaveCount(0);
+		await expect(editHistoryRedo(page)).toHaveCount(0);
 	});
 });
 
@@ -507,7 +540,7 @@ test.describe('a deleted Control Point pair (SPEC story 38)', () => {
 
 		await saved(page);
 		await waitForStored(page, imageId, 2);
-		await expect(undoButton(page)).toHaveText('Undo delete of Control Point 2');
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of Control Point 2');
 
 		// The standard shortcut, from wherever the user's hands are — here the document rather than the
 		// affordance, because a deleted handle has taken the focus with it.
@@ -518,7 +551,7 @@ test.describe('a deleted Control Point pair (SPEC story 38)', () => {
 		expect(await rowText(page, 3)).toBe(third);
 		await saved(page);
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
-		await expect(undoButton(page)).toHaveCount(0);
+		await expect(editHistoryUndo(page)).toHaveCount(0);
 	});
 });
 

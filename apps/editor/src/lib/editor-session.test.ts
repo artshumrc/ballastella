@@ -18,6 +18,7 @@ import {
 	acceptRemoteImageService,
 	emptyAnnotationCollection,
 	fingerprintOf,
+	fullImageResourceMask,
 	newAnnotationLayer,
 	newAnnotation,
 	newMapLayer,
@@ -29,6 +30,7 @@ import {
 	readHeldCopies,
 	readJournal,
 	serialiseProjectFile,
+	type Alignment,
 	type AnnotationLayer,
 	type Bytes,
 	type StorePath
@@ -1682,5 +1684,222 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 
 		const names = (session.openProject?.layers ?? []).map((layer) => layer.name);
 		expect(names).toEqual(['Hinterland roads', 'Trade routes']);
+	});
+});
+
+/**
+ * The Alignment's own Edit History, driven the way the Align screen drives it (ticket 5, ADR-0039).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THE GESTURES ARE SPELLED OUT HERE RATHER THAN CALLED
+ *
+ * The six gestures live in `AlignmentWorkspace.svelte`, between two live map panes, so there is no
+ * function on this class to call. What is asserted at this seam is the half that is *not* the
+ * component: a Step wrapped around `writeAlignment`, and what `writeBack` then does with an
+ * `alignments/<image-id>.json` — which is the half a browser cannot see and the half the fence,
+ * the baseline and byte identity all live on. Each test therefore opens its Step exactly as the
+ * component's `asStep` does: mutate, then wrap the write.
+ *
+ * The screen scoping and the pairing rebuild are Seam 2's, in `editor-undo.e2e.ts`.
+ */
+describe('the Alignment’s Edit History (ADR-0039)', () => {
+	const MAP = 'floride-1657';
+	const OTHER_MAP = 'nieuw-amsterdam-1660';
+	const IMAGE = { width: 1000, height: 800 };
+
+	/** A Project with a Map Image on it, its starter Alignment written by the add. */
+	async function overAnAlignment(): Promise<{
+		store: MemoryProjectStore;
+		session: EditorSession;
+		alignment: Alignment;
+	}> {
+		const store = new MemoryProjectStore();
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+		);
+		for (const map of [MAP, OTHER_MAP]) {
+			await store.write(
+				imageInfoPath(map),
+				new TextEncoder().encode(JSON.stringify(IMAGE)) as Bytes
+			);
+		}
+		const session = new EditorSession(store);
+		await session.open(DIRECTORY);
+		await session.addWorkspaceMap(MAP);
+		await session.flush();
+		return { store, session, alignment: await session.readAlignment(MAP, IMAGE) };
+	}
+
+	/**
+	 * One gesture, as the Align screen opens it: the pairing is mutated and the *write* is the Step.
+	 *
+	 * @param next the Alignment as the gesture has left it
+	 */
+	const gesture = (session: EditorSession, label: string, next: Alignment): Promise<void> =>
+		session
+			.historyFor(next.imageId)
+			.step(label, [alignmentPath(next.imageId)], () => session.writeAlignment(next));
+
+	const withPair = (alignment: Alignment, at: number): Alignment => ({
+		...alignment,
+		controlPoints: [
+			...alignment.controlPoints,
+			{
+				id: `p${at}`,
+				ordinal: alignment.controlPoints.length + 1,
+				resource: { x: 10 * at, y: 20 * at },
+				geo: { lng: 4.9 + at / 100, lat: 52.3 + at / 100 }
+			}
+		]
+	});
+
+	const nudgedCorner = (alignment: Alignment, at: number): Alignment => ({
+		...alignment,
+		resourceMask: alignment.resourceMask.map((vertex, index) =>
+			index === at ? { x: vertex.x + 1, y: vertex.y + 1 } : vertex
+		)
+	});
+
+	// SPEC stories 24–29, and acceptance criterion 1: the file is byte-identical to what it was
+	// before the gesture, which is stronger than "equivalent" — `Alignment.unmodelled` means a
+	// re-serialisation of the same document can differ, and a scholar's colleague wrote some of it.
+	it.each([
+		['Undo placing Control Point 2', (ground: Alignment) => withPair(ground, 2)],
+		[
+			'Undo move of Control Point 1',
+			(ground: Alignment) => ({
+				...ground,
+				controlPoints: ground.controlPoints.map((point) => ({
+					...point,
+					resource: { x: 99, y: 99 }
+				}))
+			})
+		],
+		['Undo delete of Control Point 1', (ground: Alignment) => ({ ...ground, controlPoints: [] })],
+		['Undo the Crop of “La Floride”', (ground: Alignment) => nudgedCorner(ground, 0)],
+		[
+			'Undo the Crop reset of “La Floride”',
+			(ground: Alignment) => ({ ...ground, resourceMask: fullImageResourceMask(IMAGE) })
+		],
+		[
+			'Undo the transformation of “La Floride”',
+			(ground: Alignment) => ({ ...ground, transformationType: 'thinPlateSpline' as const })
+		]
+	])('undoes and redoes %s, byte for byte', async (label, edit) => {
+		const { store, session, alignment } = await overAnAlignment();
+		// The ground each gesture is performed on: a placed pair and a cropped sheet, so that the
+		// deletion and the reset have something to take away.
+		await gesture(session, 'Undo placing Control Point 1', withPair(alignment, 1));
+		await gesture(
+			session,
+			'Undo the Crop of “La Floride”',
+			nudgedCorner(withPair(alignment, 1), 2)
+		);
+		const ground = await session.readAlignment(MAP, IMAGE);
+		const before = await store.read(alignmentPath(MAP));
+
+		await gesture(session, label, edit(ground));
+		await session.flush();
+		expect(await store.read(alignmentPath(MAP))).not.toEqual(before);
+
+		const history = session.historyFor(MAP);
+		expect(history.undoable?.label).toBe(label);
+		expect(await history.undo()).toBe(true);
+		await session.flush();
+		expect(await store.read(alignmentPath(MAP))).toEqual(before);
+
+		// SPEC story 7: an undo pressed by mistake is not itself irreversible.
+		const after = await store.read(alignmentPath(MAP));
+		expect(await history.redo()).toBe(true);
+		await session.flush();
+		expect(await store.read(alignmentPath(MAP))).not.toEqual(after);
+	});
+
+	/**
+	 * Acceptance criterion 4, and the reason `writeBack` moves the baseline.
+	 *
+	 * A write that changed the bytes and left the baseline alone makes the *next* ordinary save
+	 * report a concurrent change that never happened — a frightening sentence about a colleague who
+	 * does not exist, which teaches a scholar to dismiss the real one.
+	 */
+	it('leaves the next ordinary save with nothing to report', async () => {
+		const { session, alignment } = await overAnAlignment();
+		await gesture(session, 'Undo placing Control Point 1', withPair(alignment, 1));
+		await session.flush();
+
+		expect(await session.historyFor(MAP).undo()).toBe(true);
+		await session.flush();
+		// The pairing is rebuilt from disk after a write-back, which is what the screen does — and it
+		// is `readAlignment` that resets the baseline for a *read*. The next save must be clean even
+		// without one, because the undo is what wrote the file.
+		await session.writeAlignment(withPair(alignment, 2));
+		await session.flush();
+
+		expect(session.alignmentChangedElsewhere).toBeNull();
+	});
+
+	// SPEC story 27 and acceptance criterion 5. There is no merging anywhere in this epic: four
+	// corners are four Steps, so a scholar can back out of the one they got wrong.
+	it('makes four Crop corner moves four Steps', async () => {
+		const { session, alignment } = await overAnAlignment();
+		const history = session.historyFor(MAP);
+
+		let cropped = alignment;
+		for (let corner = 0; corner < 4; corner += 1) {
+			cropped = nudgedCorner(cropped, corner);
+			await gesture(session, 'Undo the Crop of “La Floride”', cropped);
+		}
+		await session.flush();
+		const fourCorners = cropped.resourceMask;
+
+		for (let back = 0; back < 4; back += 1) {
+			expect(history.undoable?.label).toBe('Undo the Crop of “La Floride”');
+			expect(await history.undo()).toBe(true);
+		}
+		await session.flush();
+
+		expect(history.undoable).toBeNull();
+		expect((await session.readAlignment(MAP, IMAGE)).resourceMask).toEqual(alignment.resourceMask);
+		expect(fourCorners).not.toEqual(alignment.resourceMask);
+	});
+
+	// SPEC stories 4 and 5. Keyed by Map Image, so a second map offers its own edits and never the
+	// first's — and one Alignment is one history however many Projects draw it (ADR-0023).
+	it('gives each Map Image its own history, and keeps the first’s intact', async () => {
+		const { session, alignment } = await overAnAlignment();
+		await session.addWorkspaceMap(OTHER_MAP);
+		await session.flush();
+		const other = await session.readAlignment(OTHER_MAP, IMAGE);
+
+		await gesture(session, 'Undo placing Control Point 1', withPair(alignment, 1));
+		await gesture(session, 'Undo the transformation of “Nieuw Amsterdam”', {
+			...other,
+			transformationType: 'polynomial2'
+		});
+		await session.flush();
+
+		expect(session.historyFor(OTHER_MAP).undoable?.label).toBe(
+			'Undo the transformation of “Nieuw Amsterdam”'
+		);
+		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
+		// The Alignment is the Workspace's, so the Project it was reached from is not part of its key.
+		await session.open(null);
+		await session.open(DIRECTORY);
+		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
+	});
+
+	// The cue the Align screen rebuilds its pairing on: Control Point ids are minted per session and
+	// are not in the file, so an Alignment written back cannot be patched into the one on screen.
+	it('says an Alignment has been written back, so the screen can re-read it', async () => {
+		const { session, alignment } = await overAnAlignment();
+		await gesture(session, 'Undo placing Control Point 1', withPair(alignment, 1));
+		await session.flush();
+		const quiet = session.alignmentsWrittenBack;
+
+		expect(await session.historyFor(MAP).undo()).toBe(true);
+		await session.flush();
+
+		expect(session.alignmentsWrittenBack).toBe(quiet + 1);
 	});
 });
