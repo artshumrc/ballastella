@@ -88,6 +88,8 @@
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 
+	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
+
 	import { describeImportEvidence, describeImportProvenance } from './import-provenance-text.js';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -128,6 +130,17 @@
 			}
 		]);
 		return () => pageChrome.clear('editor-project');
+	});
+
+	/**
+	 * This screen's Edit History, declared for the navigation bar (ADR-0039, SPEC story 55).
+	 *
+	 * The Project's own, keyed by its directory, so walking to `/align` and back finds the same one —
+	 * and so a screen that declares nothing, Workspace Home among them, draws no controls at all.
+	 */
+	$effect(() => {
+		editHistorySlot.show('editor-project', session.historyFor(openDirectory));
+		return () => editHistorySlot.clear('editor-project');
 	});
 
 	const resolution = $derived(

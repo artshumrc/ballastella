@@ -45,6 +45,8 @@
 
 	import PublishDialog from '$lib/publish/PublishDialog.svelte';
 	import { publishControlLabel, type PublishProgress } from '$lib/publish/publish-progress.js';
+	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
+	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
@@ -468,11 +470,24 @@
 {#snippet end()}
 	{#if session !== null}
 		<!--
-			4. The way back from the last destructive action (SPEC story 12, ADR-0014). A slot rather
-			than a button, because `UndoControl` renders nothing when there is nothing to undo — absent
-			is the honest state, and it still has to be one identifiable place on the bar.
+			4. The way back from the last edits made on this screen (SPEC stories 1 and 55, ADR-0039). A
+			slot rather than a button, because either control renders nothing when its end of the history
+			is empty — absent is the honest state, and it still has to be one identifiable place on the
+			bar.
+
+			**The Edit History is the screen's, and the bar never switches on route.** A screen declares
+			one from an effect whose teardown clears it, exactly as it declares its page chrome; a screen
+			that declares nothing draws nothing here, which is how Workspace Home is undo-free without
+			being named and how a screen added later is undo-free until it says otherwise.
+
+			`UndoControl` beside it, still serving the three gestures that have not become Steps yet. It
+			is second so that the Edit History takes a shortcut first: the newer of the two is the one a
+			scholar has just used.
 		-->
-		<div data-testid="undo-slot">
+		<div class="flex items-center gap-2" data-testid="undo-slot">
+			{#if editHistorySlot.history !== null}
+				<EditHistoryControls history={editHistorySlot.history} />
+			{/if}
 			<UndoControl {session} />
 		</div>
 

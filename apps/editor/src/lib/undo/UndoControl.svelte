@@ -18,6 +18,8 @@
 
 	import { describeUndo } from '@ballastella/core';
 
+	import Toast from '$lib/toasts/Toast.svelte';
+
 	import type { EditorSession } from '../editor-session.svelte.js';
 
 	let { session }: { session: EditorSession } = $props();
@@ -30,8 +32,8 @@
 	 *
 	 * The button *disappears* when it is pressed — the slot is empty — so without this a keyboard or
 	 * screen-reader user gets no confirmation at all, and the thing undo has to convey above everything
-	 * else is reassurance. `aria-live` rather than `role="status"`, because the save indicator already
-	 * owns that role on both pages where this is mounted.
+	 * else is reassurance. A toast rather than a line beneath the bar: that is this app's pattern for a
+	 * transient outcome (ADR-0016), and the stack owns the announcement.
 	 */
 	let announced = $state('');
 
@@ -69,11 +71,16 @@
 <!--
 	The standard shortcut, on the window: the user's hands are wherever the mis-aimed gesture left them
 	— on a canvas, on a handle, on the Layer list — and "Ctrl+Z only works if you have not moved the
-	focus" is not an undo affordance. `Ctrl+Shift+Z` is deliberately not handled: redo is out of scope
-	for v1, and swallowing it would make it look implemented.
+	focus" is not an undo affordance. `Ctrl+Shift+Z` is not handled here: redo belongs to the screen's
+	Edit History, and `EditHistoryControls` is where the three shortcuts now are.
+
+	`defaultPrevented` stands this down for a keypress those controls have already taken. Both are on
+	the window while the three unmigrated actions still go through `UndoSlot`, and one keypress must
+	move one history.
 -->
 <svelte:window
 	onkeydown={(event) => {
+		if (event.defaultPrevented) return;
 		if (event.key !== 'z' && event.key !== 'Z') return;
 		if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
 		if (typing(event.target)) return;
@@ -83,25 +90,16 @@
 	}}
 />
 
-<div class="flex flex-col items-start">
-	{#if record !== null}
-		<button
-			type="button"
-			class="btn btn-sm btn-warning"
-			data-testid="undo"
-			data-undo-kind={record.kind}
-			onclick={() => void undo()}
-		>
-			{label}
-		</button>
-	{/if}
-
-	<p
-		class="min-h-6 text-sm opacity-70"
-		aria-live="polite"
-		aria-atomic="true"
-		data-testid="undo-done"
+{#if record !== null}
+	<button
+		type="button"
+		class="btn btn-sm btn-warning"
+		data-testid="undo"
+		data-undo-kind={record.kind}
+		onclick={() => void undo()}
 	>
-		{announced}
-	</p>
-</div>
+		{label}
+	</button>
+{/if}
+
+<Toast text={announced} testid="undo-outcome" tone="info" />

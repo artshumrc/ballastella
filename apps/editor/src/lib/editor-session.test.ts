@@ -14,6 +14,7 @@ import {
 	MemoryProjectStore,
 	WriteAheadJournal,
 	alignmentPath,
+	annotationPath,
 	acceptRemoteImageService,
 	emptyAnnotationCollection,
 	fingerprintOf,
@@ -1322,5 +1323,146 @@ describe('tracking a Workspace’s own changes', () => {
 
 	it('has no index where the session was given a store nothing manages', () => {
 		expect(new EditorSession(new MemoryProjectStore()).localChanges).toBeNull();
+	});
+});
+
+describe('the Project screen’s Edit History (ADR-0039)', () => {
+	/** A session on one Project holding `count` Annotation Layers, each with a distinct document. */
+	async function withAnnotationLayers(count: number): Promise<{
+		store: MemoryProjectStore;
+		session: EditorSession;
+		layerIds: string[];
+	}> {
+		const store = new MemoryProjectStore();
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+		);
+		const session = new EditorSession(store);
+		await session.open(DIRECTORY);
+		const layerIds: string[] = [];
+		for (let at = 0; at < count; at += 1) {
+			const layer = await session.addAnnotationLayer(`Layer ${at + 1}`);
+			if (layer === null) throw new Error('expected an Annotation Layer');
+			layerIds.push(layer.id);
+		}
+		await session.flush();
+		return { store, session, layerIds };
+	}
+
+	const layerIdsOf = (session: EditorSession): string[] =>
+		(session.openProject?.layers ?? []).map((layer) => layer.id);
+
+	it('names the deleted Layer in the sentence the bar will say', async () => {
+		const { session, layerIds } = await withAnnotationLayers(1);
+
+		expect(await session.deleteLayer(layerIds[0] as string)).toBe(true);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo delete of the Layer “Layer 1”'
+		);
+	});
+
+	// The fallback `describeUndo` has always used, kept so a Layer nobody named is still identifiable.
+	it('falls back to “with no name” for a Layer the scholar never named', async () => {
+		const { session, layerIds } = await withAnnotationLayers(1);
+		await session.typeLayerName(layerIds[0] as string, '');
+		await session.flush();
+
+		await session.deleteLayer(layerIds[0] as string);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo delete of the Layer with no name'
+		);
+	});
+
+	// SPEC stories 19 and 54. The bytes rather than a re-serialisation of a parsed model: an
+	// Annotation Layer's document is the scholar's own writing, and undo must not rewrite it.
+	it('puts the stack entry and the Layer’s file back byte-identically', async () => {
+		const { store, session, layerIds } = await withAnnotationLayers(2);
+		const doomed = layerIds[0] as string;
+		const path = `${DIRECTORY}/${annotationPath(doomed)}`;
+		const fileBefore = await store.read(path);
+		const stackBefore = session.openProject?.layers;
+
+		await session.deleteLayer(doomed);
+		await session.flush();
+		// The deletion really reached storage before anything is undone, so the undo below cannot be
+		// satisfied by a revert to the last saved state.
+		expect(await store.list(path)).toEqual([]);
+		expect(layerIdsOf(session)).toEqual([layerIds[1]]);
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+
+		expect(await store.read(path)).toEqual(fileBefore);
+		expect(session.openProject?.layers).toEqual(stackBefore);
+	});
+
+	// SPEC story 7: an undo pressed by mistake is not itself irreversible.
+	it('deletes it again on redo', async () => {
+		const { store, session, layerIds } = await withAnnotationLayers(1);
+		const doomed = layerIds[0] as string;
+		const path = `${DIRECTORY}/${annotationPath(doomed)}`;
+
+		await session.deleteLayer(doomed);
+		await session.historyFor(DIRECTORY).undo();
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([doomed]);
+
+		expect(await session.historyFor(DIRECTORY).redo()).toBe(true);
+		await session.flush();
+
+		expect(layerIdsOf(session)).toEqual([]);
+		expect(await store.list(path)).toEqual([]);
+	});
+
+	// SPEC stories 6, 10 and 11, driven through the gesture rather than against the class directly.
+	it('walks back five deletions in order, and a sixth forgets the first', async () => {
+		const { session, layerIds } = await withAnnotationLayers(6);
+		const history = session.historyFor(DIRECTORY);
+
+		let afterTheFirstDeletion: string[] = [];
+		for (const [at, id] of layerIds.entries()) {
+			await session.deleteLayer(id);
+			if (at === 0) afterTheFirstDeletion = layerIdsOf(session);
+		}
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([]);
+
+		for (let step = 0; step < 5; step += 1) expect(await history.undo()).toBe(true);
+		await session.flush();
+
+		// Back to the stack the first deletion left, and no further: that Step is off the end of a
+		// five-deep history, so its Layer stays gone rather than the sixth deletion being refused.
+		expect(layerIdsOf(session)).toEqual(afterTheFirstDeletion);
+		expect(history.undoable).toBeNull();
+	});
+
+	// The placement today's `open()` already has: after the "already showing it" return, so moving
+	// between one Project's screens keeps the history and opening it afresh does not.
+	it('keeps the history while the same Project stays open', async () => {
+		const { session, layerIds } = await withAnnotationLayers(1);
+		await session.deleteLayer(layerIds[0] as string);
+
+		await session.open(DIRECTORY);
+
+		expect(session.historyFor(DIRECTORY).undoable).not.toBeNull();
+	});
+
+	it('drops the history when the Project is opened afresh', async () => {
+		const { session, layerIds } = await withAnnotationLayers(1);
+		await session.deleteLayer(layerIds[0] as string);
+
+		await session.open(null);
+		await session.open(DIRECTORY);
+
+		expect(session.historyFor(DIRECTORY).undoable).toBeNull();
+	});
+
+	// One history per subject, so the screen that declares it gets the same one every time.
+	it('gives one subject the same history every time it is asked', async () => {
+		const { session } = await withAnnotationLayers(0);
+
+		expect(session.historyFor(DIRECTORY)).toBe(session.historyFor(DIRECTORY));
+		expect(session.historyFor('another-project')).not.toBe(session.historyFor(DIRECTORY));
 	});
 });

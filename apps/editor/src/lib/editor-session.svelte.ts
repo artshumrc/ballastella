@@ -4,6 +4,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	Autosave,
 	DeletedProjects,
+	EditHistory,
 	LocalChangeIndex,
 	ManagedProjectStore,
 	MapImageInUseError,
@@ -63,6 +64,7 @@ import {
 	openDecodeAndCropSource,
 	parseAlignment,
 	parseAnnotations,
+	parseProjectFile,
 	partitionByOfflineCopy,
 	planPublish,
 	planRemotePublish as planWorkspaceUpload,
@@ -99,6 +101,7 @@ import {
 	type FetchFn,
 	type FetchTilesOptions,
 	type GeoBounds,
+	type HistoryFiles,
 	type MapImageSource,
 	type IngestProgress,
 	type IngestedImage,
@@ -387,6 +390,55 @@ export class EditorSession {
 	 * "the last destructive action". {@link undoable} is its projection into reactive state.
 	 */
 	readonly #undo = new UndoSlot();
+
+	/**
+	 * One Edit History per subject — a Project directory, and from ticket 5 a Map Image id (ADR-0039).
+	 *
+	 * Held here rather than by a screen because a history outlives the screen that draws it: walking
+	 * from the Project screen to `/align` and back must find the same one. Created on first use and
+	 * dropped with the session, which is what makes switching Workspace leave none behind (SPEC story
+	 * 41) — a new Workspace is a new `EditorSession`.
+	 *
+	 * A `SvelteMap` because `svelte/prefer-svelte-reactivity` requires one, and as with
+	 * {@link #alignmentOnDisk} that is free rather than merely tolerable: nothing reads this in a
+	 * reactive context. What a screen renders is the history's own subscription, not this.
+	 */
+	readonly #histories = new SvelteMap<string, EditHistory>();
+
+	/**
+	 * How every Edit History reads and writes the files it holds.
+	 *
+	 * Ordinary writes go through {@link Autosave}, so an undo coalesces and flushes like any other
+	 * edit and there is no bespoke save path (ADR-0017). `null` deletes, which is how redo of a
+	 * restored file removes it again.
+	 */
+	readonly #historyFiles: HistoryFiles = {
+		flush: () => this.flush(),
+		read: async (path) => {
+			try {
+				return await this.#store.read(path);
+			} catch (cause) {
+				// No file is an image in its own right: it is what a Step records for a file the gesture
+				// created, and what undo writes back to remove it again.
+				if (cause instanceof PathNotFoundError) return null;
+				throw cause;
+			}
+		},
+		writeBack: async (path, bytes) => {
+			if (bytes === null) {
+				await this.#store.delete(path);
+			} else {
+				await this.#autosave.commit(path, bytes);
+			}
+			// The document on screen is the one in memory, and a history writes bytes rather than
+			// calling the mutators that keep it. Without this the Layer would be back in the file and
+			// absent from the stack until something re-read it.
+			if (this.openDirectory !== null && path === projectFilePath(this.openDirectory)) {
+				this.openProject = bytes === null ? null : parseProjectFile(bytes);
+			}
+			this.saveError = '';
+		}
+	};
 
 	status = $state<WorkspaceStatus>('loading');
 	/** The underlying failure, shown beneath "Workspace not reachable" so it is diagnosable. */
@@ -1128,6 +1180,11 @@ export class EditorSession {
 		// and it is *after* the "already showing it" return above, so moving between the panes of one
 		// Project leaves a pending undo alone.
 		this.#undo.clear();
+		// And the Edit History of the Project being opened, for the same reason and in the same place:
+		// this is where the Project changed, and a history taken before it was last closed describes
+		// files a scholar has not seen since. Only that Project's — another's is nothing this opening
+		// disturbs.
+		if (directory !== null) this.#histories.get(directory)?.discard();
 		this.images = [];
 		this.referencedImages = [];
 		this.referencedImageErrors = [];
@@ -2886,6 +2943,21 @@ export class EditorSession {
 	}
 
 	/**
+	 * The Edit History of one subject — a Project directory — created on first use (ADR-0039).
+	 *
+	 * A screen asks for its own and declares it to the navigation bar; the bar draws the controls for
+	 * whatever is declared and nothing when nothing is, which is how a screen added later is undo-free
+	 * until it says otherwise (SPEC story 55).
+	 */
+	historyFor(subject: string): EditHistory {
+		const standing = this.#histories.get(subject);
+		if (standing) return standing;
+		const made = new EditHistory(this.#historyFiles);
+		this.#histories.set(subject, made);
+		return made;
+	}
+
+	/**
 	 * Reverse the last destructive action (SPEC story 38).
 	 *
 	 * **A mutation like any other**, so it coalesces and flushes through the same {@link Autosave} as
@@ -2911,14 +2983,14 @@ export class EditorSession {
 	}
 
 	/**
-	 * Delete a Layer, and the file it draws, so that undo can put both back (SPEC stories 38, 49).
+	 * Delete a Layer, and the file it draws, as one Step of the Project's Edit History (SPEC story 19).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER, WHICH IS THE CREATION ORDER IN REVERSE
 	 *
-	 *   1. flush, so the bytes about to be recorded are the ones the user can see, and so no debounced
-	 *      write can land after the file has gone and put it back unrecorded;
-	 *   2. read the referenced file, which is the only copy the undo record will have;
+	 *   1. flush, so the bytes the Step's images hold are the ones the user can see, and so no
+	 *      debounced write can land after the file has gone and put it back unrecorded;
+	 *   2. read the referenced file, to learn whether there is one to remove;
 	 *   3. `project.json`, losing the Layer;
 	 *   4. the referenced file.
 	 *
@@ -2931,6 +3003,11 @@ export class EditorSession {
 	 * Image and its Alignment belong to the Workspace and may be drawn by other Projects, so removing the
 	 * Layer must leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where
 	 * that decision lives. Only an Annotation Layer has a file of this Project's to take with it.
+	 *
+	 * **The images are the Edit History's, taken either side of the whole gesture** (ADR-0039). This
+	 * method no longer reads the file to keep a copy of it: `step()` does that for every declared path,
+	 * which is what makes a restored file byte-identical to the deleted one without a restore path of
+	 * its own.
 	 *
 	 * **Nothing records the deletion, because nothing has to** (ADR-0023). A map Layer used to be
 	 * created by an Alignment write, so deleting one and then nudging a Control Point put a *new* Layer
@@ -2945,49 +3022,67 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		const opened = this.openProject;
 		if (!directory || !opened) return false;
-		const at = opened.layers.findIndex((layer) => layer.id === id);
-		const layer = opened.layers[at];
+		const layer = opened.layers.find((one) => one.id === id);
 		if (!layer) return false;
 
-		// Everything pending, before anything is read: an Annotation typed into a moment ago is still
-		// inside its debounce window, and recording the bytes without it would make undo restore the
-		// file as it was one keystroke ago.
-		await this.flush();
 		const ref = layerFileRef(layer);
-		const path = ref === '' ? '' : `${directory}/${ref}`;
-		let bytes: Bytes | null = null;
-		if (path !== '') {
-			try {
-				bytes = await this.#store.read(path);
-			} catch (cause) {
-				// No file is the ordinary case for a Layer nothing has been put in yet. Anything else is
-				// not: deleting a file we could not read would be deleting work we cannot give back.
-				if (!(cause instanceof PathNotFoundError)) {
-					this.saveError = cause instanceof Error ? cause.message : String(cause);
+		// The files this gesture writes, declared rather than inferred: an Annotation Layer's document
+		// goes with the entry `project.json` loses. A map Layer answers `''` and declares only
+		// `project.json`, which is ADR-0023 — its Map Image and its Alignment are the Workspace's.
+		//
+		// **The file is named first, because that is the order undo writes them back in.** A Layer whose
+		// reference names a file that is not there is a Project this build's own import refuses — and,
+		// on screen, a restored Layer that mounts before its document exists reads an empty one and
+		// paints nothing. `#restoreLayer` put the file first for exactly this reason.
+		const paths =
+			ref === ''
+				? [projectFilePath(directory)]
+				: [`${directory}/${ref}`, projectFilePath(directory)];
+
+		return this.historyFor(directory).step(
+			`Undo delete of the Layer ${quotedName(layer.name)}`,
+			paths,
+			async () => {
+				// Everything pending, before anything is read: an Annotation typed into a moment ago is
+				// still inside its debounce window, and deleting the file without it would take a
+				// keystroke the scholar can still see.
+				await this.flush();
+				const path = ref === '' ? '' : `${directory}/${ref}`;
+				let present = false;
+				if (path !== '') {
+					try {
+						await this.#store.read(path);
+						present = true;
+					} catch (cause) {
+						// No file is the ordinary case for a Layer nothing has been put in yet. Anything else
+						// is not: deleting a file we could not read would be deleting work we cannot give
+						// back.
+						if (!(cause instanceof PathNotFoundError)) {
+							this.saveError = cause instanceof Error ? cause.message : String(cause);
+							return false;
+						}
+					}
+				}
+
+				// Taken again after the await, never from the snapshot above: `#addMapLayer` and
+				// `addAnnotationLayer` both had to learn this, and the document is the one whose loss is
+				// "not one annotation but the map of everything" (ADR-0017 rule 4).
+				const project = this.openProject;
+				if (!project || !project.layers.some((one) => one.id === id)) return false;
+				this.openProject = { ...project, layers: removeLayer(project.layers, id) };
+				await this.#write(directory);
+				if (this.saveError !== '') {
+					// The document did not reach storage, so the Layer has not been deleted. Put the stack
+					// back as it was rather than leaving the screen claiming a deletion the file does not
+					// carry.
+					this.openProject = project;
 					return false;
 				}
+
+				if (present) await this.#store.delete(path);
+				return true;
 			}
-		}
-
-		// Taken again after the await, never from the snapshot above: `#addMapLayer` and
-		// `addAnnotationLayer` both had to learn this, and the document is the one whose loss is "not one
-		// annotation but the map of everything" (ADR-0017 rule 4).
-		const project = this.openProject;
-		if (!project || !project.layers.some((one) => one.id === id)) return false;
-		this.openProject = { ...project, layers: removeLayer(project.layers, id) };
-		await this.#write(directory);
-		if (this.saveError !== '') {
-			// The document did not reach storage, so the Layer has not been deleted. Put the stack back as
-			// it was rather than leaving the screen claiming a deletion the file does not carry.
-			this.openProject = project;
-			return false;
-		}
-
-		if (path !== '' && bytes !== null) await this.#store.delete(path);
-
-		const undo: UndoRecord = { kind: 'layer-deleted', at, layer, path: ref, bytes };
-		this.record(undo, () => this.#restoreLayer(undo));
-		return true;
+		);
 	}
 
 	/**
@@ -3001,7 +3096,14 @@ export class EditorSession {
 	 *
 	 * A map Layer has no file to put back — its Map Image and its Alignment were never removed
 	 * (ADR-0023) — so for one of those this is the stack and nothing else.
+	 *
+	 * ⚠ **Nothing calls this any more.** Deleting a Layer is a Step of the Project's Edit History
+	 * (ADR-0039), which writes its own byte images back. It is kept for the length of the
+	 * expand-contract: `UndoRecord` still carries a `layer-deleted` kind while the other three
+	 * gestures go through `UndoSlot`, and removing the slot and everything under it is one change
+	 * rather than four.
 	 */
+	// eslint-disable-next-line no-unused-private-class-members -- removed with `UndoSlot` itself.
 	async #restoreLayer(record: UndoRecord): Promise<void> {
 		if (record.kind !== 'layer-deleted') return;
 		const directory = this.openDirectory;
@@ -3300,6 +3402,14 @@ export class EditorSession {
 		}
 	}
 }
+
+/**
+ * A Layer's own name in quotation marks, for the sentence an Edit History's controls say.
+ *
+ * The fallback is `describeUndo`'s, unchanged: a Layer nobody named still has to be identifiable in
+ * the one sentence that says what undo will give back.
+ */
+const quotedName = (name: string): string => (name === '' ? 'with no name' : `“${name}”`);
 
 /**
  * A failure that is about one Project rather than about the Workspace, described for a reader.

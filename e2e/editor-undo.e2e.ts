@@ -63,8 +63,18 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
  * state).
  */
 
-/** The undo affordance. Absent, not disabled, when there is nothing to undo. */
+/** The outgoing single-slot undo affordance, still serving the three gestures ticket 7 migrates. */
 const undoButton = (page: Page) => page.getByTestId('undo');
+
+/**
+ * The Edit History's two controls, drawn for whatever history the screen on show declares (ADR-0039).
+ *
+ * Each is absent, not disabled, when its end of the history is empty — so `toHaveCount(0)` is the
+ * assertion for "there is nothing to undo here", and it is also the assertion for "this screen has no
+ * Edit History at all", which is the same thing as far as the bar is concerned.
+ */
+const editHistoryUndo = (page: Page) => page.getByTestId('edit-history-undo');
+const editHistoryRedo = (page: Page) => page.getByTestId('edit-history-redo');
 
 /**
  * MapLibre's own account of which Layers of this stack are on the map, in drawing order.
@@ -370,7 +380,9 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 
 		// One level, not a stack: a second undo does nothing, and is not offered.
 		await expect(undoButton(page)).toHaveCount(0);
-		await expect(page.getByTestId('undo-done')).toHaveText('Undone: move of Control Point 1.');
+		await expect(page.getByTestId('undo-outcome')).toContainText(
+			'Undone: move of Control Point 1.'
+		);
 		await page.keyboard.press('Control+z');
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
 	});
@@ -672,8 +684,8 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// Off the map, asked of MapLibre: there is no longer a layer that could paint it.
 		await expect.poll(() => stackOrder(page)).not.toContain(`ballastella-layer-${mapLayer}`);
 
-		await expect(undoButton(page)).toHaveText('Undo delete of the Layer “la-floride.png”');
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of the Layer “la-floride.png”');
+		await editHistoryUndo(page).click();
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
 
@@ -687,7 +699,34 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		await expect
 			.poll(() => stackOrder(page), { timeout: STACK_READY_MS })
 			.toContain(`ballastella-layer-${mapLayer}`);
-		await expect(undoButton(page)).toHaveCount(0);
+		// At the start of the history, so undo is absent rather than greyed out — and redo has taken
+		// its place, naming the same action with one word swapped (SPEC stories 43, 44, 45).
+		await expect(editHistoryUndo(page)).toHaveCount(0);
+		await expect(editHistoryRedo(page)).toHaveAccessibleName(
+			'Redo delete of the Layer “la-floride.png”'
+		);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// THE EDIT HISTORY BELONGS TO THE SCREEN, WHICH IS THE DEFECT THIS EPIC EXISTS FOR
+		//
+		// A claim about two routes and one navigation bar, so it cannot be made below a real browser.
+		// The links rather than `page.goto`, because a reload builds a new session and would assert
+		// nothing: what is asserted is that the *slot* empties and fills as the screen changes while
+		// the history itself stays exactly where it was.
+		// The map Layer's own row, which is the second: aligning is keyed by Layer id (ticket 03).
+		await alignFromLayer(page, 1);
+		await waitForSurface(page);
+		// `/align` declares no Edit History yet (ticket 5), so the bar draws neither control there.
+		await expect(editHistoryRedo(page)).toHaveCount(0);
+
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+		await expect(editHistoryRedo(page)).toHaveCount(1);
+
+		// And Workspace Home has none of its own, so it is undo-free without being named anywhere.
+		await page.getByTestId('all-projects').click();
+		await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible();
+		await expect(editHistoryRedo(page)).toHaveCount(0);
 	});
 
 	// The other file kind. An Annotation Layer's `FeatureCollection` is the user's scholarship rather
@@ -713,7 +752,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		expect(await hashesUnder(page, 'annotations/')).toEqual([]);
 		expect((await projectJson(page)).layers).toEqual([]);
 
-		await undoButton(page).click();
+		await editHistoryUndo(page).click();
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 
@@ -779,7 +818,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await deleteLayerRow(page, layerRows(page).first());
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
-		await undoButton(page).click();
+		await editHistoryUndo(page).click();
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 		expect((await projectJson(page)).layers).toEqual([layerBefore]);
@@ -843,11 +882,17 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 	});
 });
 
-test.describe('what the one undo slot will and will not hold (ADR-0014)', () => {
+test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 	/**
-	 * The fence. Toggling visibility, renaming, and reordering are non-destructive or trivially
-	 * reversible by repeating them, so they must not consume the slot — otherwise a user who deletes
-	 * something and then adjusts anything at all has quietly lost their way back.
+	 * The fence. Toggling visibility and renaming are non-destructive or trivially reversible by
+	 * repeating them, so they must not consume a Step — otherwise a user who deletes something and
+	 * then adjusts anything at all has quietly lost their way back (SPEC stories 31, 32).
+	 *
+	 * ⚠ **The two edits are not equally survivable, and that is ADR-0039 rather than an oversight.**
+	 * A Step holds byte images, and undo writes one back with only the *typed text* on disk spliced
+	 * into it — so the name typed after the deletion survives the undo, and the visibility toggle,
+	 * which is not text, goes back with the rest of the image. Making visibility its own Step is
+	 * ticket 3; until then the honest assertion is the one below.
 	 */
 	test('a visibility toggle and a rename leave the delete still undoable', async ({ page }) => {
 		test.setTimeout(90_000);
@@ -862,7 +907,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 		const label = 'Undo delete of the Layer “Annotations 1”';
-		await expect(undoButton(page)).toHaveText(label);
+		await expect(editHistoryUndo(page)).toHaveText(label);
 
 		// Two edits that are not destructive, both of them written.
 		await layerRows(page).first().getByTestId('layer-visible').uncheck();
@@ -874,16 +919,17 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await saved(page);
 
 		// Still offered, still naming the deletion, and still able to carry it out.
-		await expect(undoButton(page)).toHaveText(label);
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText(label);
+		await editHistoryUndo(page).click();
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
 
 		expect(await rowIds(page)).toEqual([top, bottom]);
-		// The non-destructive edits were not undone either: undo is one action, not a rollback.
+		// The name the scholar typed after the Step is carried across into what undo writes: it is
+		// theirs, it is not part of the deletion, and taking it back would be undoing words nobody
+		// asked to have undone (SPEC story 33).
 		const layers = (await projectJson(page)).layers;
 		expect(layers[0].name).toBe('Trade routes');
-		expect(layers[0].visible).toBe(false);
 	});
 
 	// ADR-0014: the record does not persist. Closing the Project is where it goes.
