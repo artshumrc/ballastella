@@ -619,76 +619,6 @@ describe('letting go of a selection an Edit History wrote away', () => {
 	});
 });
 
-describe('putting a deleted Annotation back (ticket 7 removes this path)', () => {
-	it('refuses in words when the Layer it names has since been deleted, writing nothing', async () => {
-		// Not reachable through the interface — deleting a Layer replaces the undo record — and that
-		// is exactly why it needs a test: the alternative to saying so is writing the Annotation into
-		// a Layer the user never deleted it from.
-		const it_ = screen([layerNamed('two')]);
-
-		await it_.annotations.restoreDeleted({
-			kind: 'annotation-deleted',
-			layerId: 'one',
-			at: 0,
-			annotation: pin('a1')
-		});
-
-		expect(it_.annotations.undoRefusal).toContain('no longer in this Project');
-		expect(it_.session.writes).toEqual([]);
-	});
-
-	it('reads a hidden Layer’s file rather than assuming it is empty', async () => {
-		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
-		// │ THE DATA-LOSS PATH THIS SEAM WAS ADDED FOR.                                           │
-		// └───────────────────────────────────────────────────────────────────────────────────────┘
-		//
-		// `documents` holds only the Layers the map was given, and a hidden Annotation Layer is
-		// absent from it. Restoring into an assumed-empty collection would write a file holding one
-		// Annotation over a file holding twenty.
-		const layer = layerNamed('one');
-		const it_ = screen([layer]);
-		it_.session.onDisk.set('one', {
-			annotations: [pin('a1'), pin('a2'), pin('a3')]
-		});
-
-		await it_.annotations.restoreDeleted({
-			kind: 'annotation-deleted',
-			layerId: 'one',
-			at: 1,
-			annotation: pin('back')
-		});
-
-		expect(it_.annotations.undoRefusal).toBe('');
-		expect(it_.session.writes).toHaveLength(1);
-		expect(it_.session.writes[0]!.collection.annotations.map((one) => one.id)).toEqual([
-			'a1',
-			'back',
-			'a2',
-			'a3'
-		]);
-		// And the Layer is opened, so the user watches it come back rather than being told it did.
-		expect(it_.annotations.openLayerId).toBe('one');
-		expect(it_.annotations.selectedAnnotationId).toBe('back');
-	});
-
-	it('says why when that file cannot be read, and writes nothing over it', async () => {
-		const layer = layerNamed('one', 'Harbour notes');
-		const it_ = screen([layer]);
-		it_.session.unreadable.add('one');
-
-		await it_.annotations.restoreDeleted({
-			kind: 'annotation-deleted',
-			layerId: 'one',
-			at: 0,
-			annotation: pin('back')
-		});
-
-		expect(it_.annotations.undoRefusal).toContain('Harbour notes');
-		expect(it_.annotations.undoRefusal).toContain('could not be decoded');
-		expect(it_.session.writes).toEqual([]);
-	});
-});
-
 describe('merely looking at a Project modifies nothing (ADR-0010)', () => {
 	it('writes nothing on a commit when no edit is waiting', async () => {
 		const layer = layerNamed('one');
@@ -1103,9 +1033,8 @@ describe('moving an Annotation', () => {
 	});
 
 	it('opens the Layer it went into and selects it there', async () => {
-		// The sidebar follows the Annotation rather than the other way round, which is `restoreDeleted`'s
-		// rule: a row simply vanishing from the list it was in is what a move nobody meant to make looks
-		// like.
+		// The sidebar follows the Annotation rather than the other way round: a row simply vanishing from
+		// the list it was in is what a move nobody meant to make looks like.
 		const from = layerNamed('from');
 		const to = layerNamed('to', 'The routes');
 		const it_ = screen([from, to]);

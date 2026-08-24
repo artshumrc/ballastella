@@ -16,7 +16,6 @@ import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	ReservedDirectoryNameError,
-	UndoSlot,
 	WriteAheadJournal,
 	Workspace,
 	addLayer,
@@ -47,7 +46,6 @@ import {
 	imageSizeFromInfo,
 	ingestImageFile,
 	fetchTilesIntoCache,
-	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
@@ -55,7 +53,6 @@ import {
 	makeOfflineCopy,
 	manageProjectStore,
 	moveLayer,
-	isControlPointUndo,
 	layerFileRef,
 	newAlignment,
 	newAnnotationLayer,
@@ -133,7 +130,6 @@ import {
 	type TileCoordinate,
 	type TileFetchResult,
 	type TransferProgress,
-	type UndoRecord,
 	type UpdateDeletionPreview,
 	type ViewerBundle,
 	type ViewerBundleFile,
@@ -398,15 +394,6 @@ export class EditorSession {
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
 	#openGeneration = 0;
 	/**
-	 * The one destructive action that can be reversed (ADR-0014, ticket 11).
-	 *
-	 * Here rather than in a component because it is one slot for the whole session — the four covered
-	 * actions happen in two different panes, and two slots would mean two things each claiming to be
-	 * "the last destructive action". {@link undoable} is its projection into reactive state.
-	 */
-	readonly #undo = new UndoSlot();
-
-	/**
 	 * One Edit History per subject — a Project directory, and from ticket 5 a Map Image id (ADR-0039).
 	 *
 	 * Held here rather than by a screen because a history outlives the screen that draws it: walking
@@ -573,15 +560,6 @@ export class EditorSession {
 	openDirectory = $state<string | null>(null);
 	openProject = $state<ProjectFile | null>(null);
 	projectProblem = $state<ProjectProblem | null>(null);
-
-	/**
-	 * What undo would reverse, or `null` when there is nothing to reverse (SPEC story 38).
-	 *
-	 * Rendered by `UndoControl`, which names the action rather than saying "Undo": a bare button after
-	 * an accidental delete does not answer the question the user actually has. `null` is what makes "a
-	 * second undo does nothing **and is not offered**" one fact rather than two.
-	 */
-	undoable = $state<UndoRecord | null>(null);
 
 	/**
 	 * The Map Images **the Workspace** holds, and the ingest running now if one is (ADR-0023).
@@ -793,11 +771,6 @@ export class EditorSession {
 		});
 		this.#autosave.subscribe((state) => {
 			this.saveState = state;
-		});
-		// The same shape as the save state above: a plain core object that publishes, projected into
-		// reactive state here, so there is one implementation of the semantics and one thing that renders.
-		this.#undo.subscribe((record) => {
-			this.undoable = record;
 		});
 	}
 
@@ -1237,15 +1210,11 @@ export class EditorSession {
 		this.openDirectory = directory;
 		this.openProject = null;
 		this.projectProblem = null;
-		// The undo record is cleared when the Project is closed and does not persist (ADR-0014). Here
-		// rather than on navigation, because this is the one place that knows the Project has changed —
-		// and it is *after* the "already showing it" return above, so moving between the panes of one
-		// Project leaves a pending undo alone.
-		this.#undo.clear();
-		// And the Edit History of the Project being opened, for the same reason and in the same place:
-		// this is where the Project changed, and a history taken before it was last closed describes
-		// files a scholar has not seen since. Only that Project's — another's is nothing this opening
-		// disturbs.
+		// The Edit History of the Project being opened goes, and this is the place that knows the
+		// Project has changed: a history taken before it was last closed describes files a scholar has
+		// not seen since. It is *after* the "already showing it" return above, so moving between the
+		// panes of one Project leaves its Steps alone. Only that Project's — another's is nothing this
+		// opening disturbs.
 		if (directory !== null) this.#histories.get(directory)?.discard();
 		this.images = [];
 		this.referencedImages = [];
@@ -3157,21 +3126,8 @@ export class EditorSession {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// SINGLE-LEVEL UNDO (ADR-0014, SPEC story 38)
+	// THE EDIT HISTORIES (ADR-0039)
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-
-	/**
-	 * Record a destructive action and how to reverse it.
-	 *
-	 * Called by whoever owns the state that changed — the pairing drafts for a Control Point, the
-	 * Layers pane for an Annotation, this class for a Layer — because those are three different
-	 * places and a session that reached into all of them would be the command-object architecture
-	 * ADR-0014 defers. What is central is the *slot*: one record, replaced by the next destructive
-	 * action, and no non-destructive path calls this at all.
-	 */
-	record(record: UndoRecord, apply: () => Promise<void>): void {
-		this.#undo.offer(record, apply);
-	}
 
 	/**
 	 * The Edit History of one subject — a Project directory — created on first use (ADR-0039).
@@ -3202,31 +3158,6 @@ export class EditorSession {
 	 */
 	#discardHistory(subject: string): void {
 		this.#histories.get(subject)?.discard();
-	}
-
-	/**
-	 * Reverse the last destructive action (SPEC story 38).
-	 *
-	 * **A mutation like any other**, so it coalesces and flushes through the same {@link Autosave} as
-	 * the action it reverses — there is no bespoke save path here and nothing that reads "the last
-	 * saved state", which is what makes undo work after autosave has already written the deletion to
-	 * disk (ADR-0017's consequence). The slot is emptied before the work starts, so a second press has
-	 * nothing to find and a slow undo cannot run twice.
-	 */
-	async undo(): Promise<void> {
-		await this.#undo.take()?.();
-	}
-
-	/**
-	 * Forget an undo that belongs to a Map Image the user is no longer aligning.
-	 *
-	 * A Control Point record names its image, and an affordance offering to put back a point that is
-	 * not on screen — in a pane showing a different map — is worse than no affordance: it describes an
-	 * edit the user cannot see happen. Everything else in the slot is about the Project rather than
-	 * about one image, so it survives.
-	 */
-	forgetUndoOfOtherImages(imageId: string): void {
-		this.#undo.clearIf((record) => isControlPointUndo(record) && record.imageId !== imageId);
 	}
 
 	/**
@@ -3280,7 +3211,7 @@ export class EditorSession {
 		// **The file is named first, because that is the order undo writes them back in.** A Layer whose
 		// reference names a file that is not there is a Project this build's own import refuses — and,
 		// on screen, a restored Layer that mounts before its document exists reads an empty one and
-		// paints nothing. `#restoreLayer` put the file first for exactly this reason.
+		// paints nothing.
 		const paths =
 			ref === ''
 				? [projectFilePath(directory)]
@@ -3330,52 +3261,6 @@ export class EditorSession {
 				return true;
 			}
 		);
-	}
-
-	/**
-	 * Put a deleted Layer and its file back — the undo of {@link deleteLayer}, in reverse order again.
-	 *
-	 * The file first, so the reference never names a file that is not there, and through
-	 * {@link Autosave} like every other write. The bytes come from the record rather than from anything
-	 * on disk, which is what makes the restored file byte-identical to the deleted one: a
-	 * re-serialisation of a parsed model would be merely equivalent, and ticket 09 asserts these files
-	 * survive display-state edits byte-for-byte.
-	 *
-	 * A map Layer has no file to put back — its Map Image and its Alignment were never removed
-	 * (ADR-0023) — so for one of those this is the stack and nothing else.
-	 *
-	 * ⚠ **Nothing calls this any more.** Deleting a Layer is a Step of the Project's Edit History
-	 * (ADR-0039), which writes its own byte images back. It is kept for the length of the
-	 * expand-contract: `UndoRecord` still carries a `layer-deleted` kind while the other three
-	 * gestures go through `UndoSlot`, and removing the slot and everything under it is one change
-	 * rather than four.
-	 */
-	// eslint-disable-next-line no-unused-private-class-members -- removed with `UndoSlot` itself.
-	async #restoreLayer(record: UndoRecord): Promise<void> {
-		if (record.kind !== 'layer-deleted') return;
-		const directory = this.openDirectory;
-		if (!directory || !this.openProject) return;
-
-		if (record.path !== '' && record.bytes !== null) {
-			try {
-				await this.#autosave.commit(`${directory}/${record.path}`, record.bytes);
-				this.saveError = '';
-			} catch (cause) {
-				// Without its file the Layer would be a reference to nothing, so the entry is not restored
-				// either: the state to be in is the one the delete left, with the failure said.
-				this.saveError = cause instanceof Error ? cause.message : String(cause);
-				return;
-			}
-		}
-
-		const project = this.openProject;
-		if (!project) return;
-		const layers = insertLayerAt(project.layers, record.layer, record.at);
-		// The array it was given means a Layer with this id is already back — `parseLayers` drops a
-		// duplicate id, so writing one would produce a document whose next read loses one of the two.
-		if (layers === project.layers) return;
-		this.openProject = { ...project, layers };
-		await this.#write(directory);
 	}
 
 	/**
@@ -3739,8 +3624,8 @@ export class EditorSession {
 /**
  * A Layer's own name in quotation marks, for the sentence an Edit History's controls say.
  *
- * The fallback is `describeUndo`'s, unchanged: a Layer nobody named still has to be identifiable in
- * the one sentence that says what undo will give back.
+ * A Layer nobody named still has to be identifiable in the one sentence that says what undo will
+ * give back, which is what the fallback phrase is for.
  */
 const quotedName = (name: string): string => (name === '' ? 'with no name' : `“${name}”`);
 

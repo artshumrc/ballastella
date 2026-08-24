@@ -43,7 +43,7 @@ import {
 import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 /**
- * SPEC's Seam 2 for single-level undo (story 38, ADR-0014): the four destructive actions undone in the
+ * SPEC's Seam 2 for the Edit History of a screen (ADR-0039): gestures walked back and forward in the
  * running app, **after autosave has already written each of them to disk**.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -54,14 +54,24 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
  * last saved state passes a naive test and fails every one of these. Each test therefore does three
  * things in order: waits for the indicator, reads the file and asserts the destructive change is
  * really in it, and only then undoes. Weakening any of those three makes the suite pass with the
- * behaviour broken, which is the whole failure this ticket exists to prevent.
+ * behaviour broken, which is the whole failure this suite exists to prevent.
  *
- * The assertions are on **the bytes in OPFS and what the page rendered**, never on the undo record's
- * internals: undo is state-heavy and almost entirely invisible, which is exactly the shape that
- * produces a green test over a broken feature. Byte identity is the strongest form available — a
- * restored `alignments/*.json` or `annotations/*.geojson` has to be the file that was deleted, not a
+ * The assertions are on **the bytes in OPFS and what the page rendered**, never on a Step's internals:
+ * undo is state-heavy and almost entirely invisible, which is exactly the shape that produces a green
+ * test over a broken feature. Byte identity is the strongest form available — a restored
+ * `alignments/*.json` or `annotations/*.geojson` has to be the file that was deleted, not a
  * re-serialisation of a parsed model that is merely equivalent (the same bar ticket 09 set for display
  * state).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT THE TWO ALIGNMENT ROUND-TRIP TESTS ARE FOR
+ *
+ * "ignores a pane that finishes opening after its alignment route was destroyed" and "walks back
+ * through a pair made after a round trip to the move behind it" are bugs somebody has already paid
+ * for: the single-level undo held a restore closure over the `AlignmentPairing` the gesture happened
+ * on, and a route change built a new one — so undo wrote a superseded object's whole Alignment, with
+ * nothing on screen moving. Byte Steps make that unrepresentable, because a Step holds the file either
+ * side of one gesture and there is no pairing instance in it to go stale. These two are what prove it.
  */
 
 /**
@@ -182,8 +192,8 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
  * **By URL, so this is a reload and a new `EditorSession`** — which is what the callers below want:
  * the resurrection trap has to survive the page being closed and opened again, and a tombstone is the
  * only thing that can carry it there. Anything asserting what survives a *route change* must use the
- * links instead, because a reload throws the undo record away with the session it was held in
- * (ADR-0014 does not persist it). {@link throughLayersAndBack} is that route.
+ * links instead, because a reload throws every Edit History away with the session it was held in
+ * (ADR-0039 does not persist one). {@link throughLayersAndBack} is that route.
  */
 async function openWorkspace(page: Page): Promise<void> {
 	await page.goto('/?p=amsterdam-1625');

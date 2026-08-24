@@ -1,39 +1,3 @@
-<script module lang="ts">
-	import { AlignmentPairing } from './pairing.svelte.js';
-
-	/**
-	 * The newest pairing built for a Map Image, which is the one an undo used to have to act on.
-	 *
-	 * ⚠ **Nothing reads this any more.** An Alignment edit is a Step of this Map Image's Edit History
-	 * (ADR-0039), and a Step holds the file either side of the gesture — so undo re-reads and the
-	 * pairing is rebuilt from disk, and there is no instance to resolve. It is kept for the length of
-	 * the expand-contract, with `UndoSlot` and everything under it; ticket 7 removes them together.
-	 * The argument below is what it was for.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHY THIS IS MODULE STATE AND NOT A CAPTURED INSTANCE
-	 *
-	 * **An undo record outlives this component.** The slot lives on `EditorSession`, and the session is
-	 * not closed by a route change: `open` returns early for the Project already showing, and
-	 * {@link EditorSession.forgetUndoOfOtherImages} drops a Control Point record only for a *different*
-	 * image. So going to the Layers pane and back destroys this component and builds a new
-	 * `AlignmentPairing` while the pending undo stays exactly where it was.
-	 *
-	 * The restore closure used to capture the pairing it was recorded on. Undo then wrote *that*
-	 * object's whole Alignment — so a Control Point placed after coming back was overwritten out of the
-	 * file, and the pairing on screen did not move, because the instance being reversed was one nothing
-	 * was drawing any more. Resolving the pairing here, when the closure runs, is what makes "the live
-	 * pairing" one fact rather than one per component instance.
-	 *
-	 * Not cleared when the component is destroyed, and that was the point: `UndoControl` is mounted on
-	 * the Layers pane too, so a Control Point undo could be pressed with no workspace on screen, and
-	 * this was the pairing it acted on there — the newest one for that image, which is the one that
-	 * made the edit. That premise is the one this epic reverses: the affordance now stays on the
-	 * screen the edit was made on.
-	 */
-	let live: { readonly imageId: string; readonly pairing: AlignmentPairing } | null = null;
-</script>
-
 <script lang="ts">
 	// The Map Image beside the Base Map, and the pairing between them (SPEC stories 30 and 32–37).
 	//
@@ -56,8 +20,6 @@
 		imagePaneSourceFor,
 		type Alignment,
 		type ControlPoint,
-		type ControlPointDeletedUndo,
-		type ControlPointMovedUndo,
 		type DistortionView,
 		type FetchFn,
 		type GeoPoint,
@@ -81,6 +43,7 @@
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import DistortionControls from './DistortionControls.svelte';
 	import { mapImageSourceOf } from './map-source.svelte.js';
+	import { AlignmentPairing } from './pairing.svelte.js';
 	import TransformationPicker from './TransformationPicker.svelte';
 
 	let {
@@ -132,9 +95,6 @@
 
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
-	/** Why the last undo declined, or `''`. Cleared by the next attempt — see {@link putBack}. */
-	let undoRefused = $state('');
-
 	/**
 	 * What the user's answer to a concurrent edit did, or `''` (ticket 07, ADR-0023).
 	 *
@@ -392,10 +352,6 @@
 				const stored = await session.readAlignment(wanted, pane.image);
 				if (destroyed || mine !== generation) return;
 				pairing = new AlignmentPairing(wanted, pane.image, stored);
-				// The one place a pairing comes into existence, and so the one place {@link live} is set: a
-				// pending undo recorded before this component was last destroyed has to reverse *this*
-				// object, not the one it was recorded on.
-				live = { imageId: wanted, pairing };
 				// The Alignment **as it was read**, before the user has touched it. Framing on the pairing
 				// instead would be framing on a value that changes with every placed pair.
 				//
@@ -474,124 +430,6 @@
 
 	/** The Map Image as a Step's sentence names it — `quotedName`'s rule, for a map rather than a Layer. */
 	const quotedMapName = $derived(mapName === '' ? 'with no name' : `\u201c${mapName}\u201d`);
-
-	/**
-	 * Reversing a Control Point edit: put the pair back, then write, exactly as the edit itself did.
-	 *
-	 * **No bespoke save path**, which is ADR-0017's rule for undo as much as for anything else — and
-	 * awaited rather than fired, so the save indicator reaches "Saved" for the undo the way it does for
-	 * the edit.
-	 *
-	 * **The pairing is resolved here rather than captured when the record was made**, because a route
-	 * change destroys this component and leaves the record standing — see {@link live}. Reversing the
-	 * instance the gesture happened on would write an Alignment that has since been replaced, silently
-	 * discarding every pair made after coming back.
-	 *
-	 * **The recorded id is translated when the pairing has been rebuilt.** Control Point ids are minted
-	 * per session and are not in the file, so a pairing rebuilt from disk numbers the same pairs
-	 * differently and `restoreControlPoint`, which matches by id, found nothing — the round trip's undo
-	 * was a no-op. `core` deliberately does not guess at that, because from an array of drafts alone a
-	 * pair that was deleted and a pair that was renumbered look the same, and putting a moved pair's old
-	 * coordinates onto some *other* pair is a worse bug than the one being fixed. Here the two are
-	 * distinguishable: `recordedOn` is the instance the gesture happened on, so a different instance
-	 * means a rebuild, and only then is the ordinal — which is what the file actually stores position as
-	 * (ADR-0022) — used to find the pair again.
-	 *
-	 * **A refusal is said out loud rather than returned to nobody.** Every way this can decline used to
-	 * return silently, which left the undo button consumed and the save indicator settling on "Saved"
-	 * over an edit that never happened. That is the precise failure this ticket exists to prevent, so it
-	 * is now the one thing the user is told about.
-	 */
-	const putBack = async (
-		record: ControlPointMovedUndo | ControlPointDeletedUndo,
-		recordedOn: AlignmentPairing | undefined
-	): Promise<void> => {
-		undoRefused = '';
-		const current = live?.imageId === record.imageId ? live.pairing : null;
-		const wanted = current === recordedOn ? record : renumbered(record, current);
-		if (!current || !wanted || !current.restore(wanted)) {
-			undoRefused =
-				'That Control Point could not be put back — the Alignment on screen is no longer the one it was recorded against. Nothing has been written.';
-			return;
-		}
-		await session.writeAlignment(current.alignment);
-	};
-
-	/**
-	 * The record with its ids re-pointed at the pair now holding its ordinal, or `null` if there is none.
-	 *
-	 * Only for a pairing rebuilt from disk — see {@link putBack}. `controlPoints` is the numbered list
-	 * itself, so "the pair that is number 7" is read from the same place the label, the file and the
-	 * undo affordance's wording all read it, rather than being counted again here.
-	 */
-	const renumbered = (
-		record: ControlPointMovedUndo | ControlPointDeletedUndo,
-		current: AlignmentPairing | null
-	): ControlPointMovedUndo | ControlPointDeletedUndo | null => {
-		if (!current) return null;
-		if (record.kind === 'control-point-deleted') {
-			// A deletion is spliced back in at its index rather than found by id, so it survives a rebuild
-			// as it stands. Its id could collide with one the rebuilt pairing has since minted, and
-			// `restoreControlPoint` refuses on a collision — which is now visible rather than silent.
-			return record;
-		}
-		const at = current.controlPoints[record.ordinal - 1];
-		return at ? { ...record, pointId: at.id } : null;
-	};
-
-	/**
-	 * Record where a pair was before this gesture moved it (SPEC story 38).
-	 *
-	 * Called with the point as it was *rendered*, which is its pre-gesture value: nothing here sets
-	 * `onmove`, so no state changes during a drag or a held arrow key, and the closure the handle calls
-	 * still carries where the point started. Dragging a Control Point is the easiest thing in this
-	 * application to mis-aim, which is why ADR-0014 refuses to ship without an undo of it.
-	 *
-	 * ⚠ **Nothing calls this any more.** Moving a Control Point is a Step of this Map Image's Edit
-	 * History (ADR-0039), which writes its own byte images back and therefore needs neither the record
-	 * nor {@link putBack}'s id-matching. Kept for the length of the expand-contract: `UndoSlot` and
-	 * everything under it goes in one change rather than four.
-	 */
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- removed with `UndoSlot` itself.
-	const rememberMove = (point: ControlPoint): void => {
-		const record: ControlPointMovedUndo = {
-			kind: 'control-point-moved',
-			imageId,
-			pointId: point.id,
-			ordinal: point.ordinal,
-			resource: point.resource,
-			geo: point.geo
-		};
-		// Read now, not inside the closure: the whole question {@link putBack} asks is whether the pairing
-		// it is about to reverse is still the one this gesture happened on, and reading `live` when the
-		// closure runs would compare that pairing against itself and always say yes.
-		const recordedOn = live?.pairing;
-		session.record(record, () => putBack(record, recordedOn));
-	};
-
-	/**
-	 * Record a pair about to be deleted, with the index that is what restores its ordinal.
-	 *
-	 * The index is taken among the *drafts* rather than from the ordinal, because a pending half is a
-	 * draft too — and because the ordinal is derived from position (ADR-0022), so the position is the
-	 * thing that has to go back.
-	 *
-	 * ⚠ **Nothing calls this any more** — see {@link rememberMove}.
-	 */
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- removed with `UndoSlot` itself.
-	const rememberDelete = (current: AlignmentPairing, point: ControlPoint): void => {
-		const at = current.drafts.findIndex((draft) => draft.id === point.id);
-		if (at === -1) return;
-		const record: ControlPointDeletedUndo = {
-			kind: 'control-point-deleted',
-			imageId,
-			ordinal: point.ordinal,
-			at,
-			point: { id: point.id, resource: point.resource, geo: point.geo }
-		};
-		const recordedOn = live?.pairing;
-		session.record(record, () => putBack(record, recordedOn));
-	};
 
 	const controlPoints = $derived(pairing?.controlPoints ?? []);
 
@@ -1348,18 +1186,6 @@
 					</div>
 				{/if}
 			</div>
-
-			<!--
-		An undo that declined. `role="alert"` rather than a polite region, and beside the pairing
-		instead of replacing it the way {@link failure} does: the user has just pressed a button whose
-		label promised to put a Control Point back, and nothing on screen moved. Being told is the
-		difference between "the app refused" and "the app lost my work".
-	-->
-			{#if undoRefused}
-				<div role="alert" class="alert max-w-prose alert-warning" data-testid="undo-refused">
-					<p>{undoRefused}</p>
-				</div>
-			{/if}
 
 			<!--
 		An Alignment that changed somewhere else while it was open here (ticket 07, ADR-0023).

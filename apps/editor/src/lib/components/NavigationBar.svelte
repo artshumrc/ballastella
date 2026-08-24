@@ -47,7 +47,6 @@
 	import { publishControlLabel, type PublishProgress } from '$lib/publish/publish-progress.js';
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
-	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -479,16 +478,11 @@
 			one from an effect whose teardown clears it, exactly as it declares its page chrome; a screen
 			that declares nothing draws nothing here, which is how Workspace Home is undo-free without
 			being named and how a screen added later is undo-free until it says otherwise.
-
-			`UndoControl` beside it, drawing nothing: every gesture it used to serve is a Step now, and
-			the slot behind it goes with ticket 7. It is second so that the Edit History takes a shortcut
-			first.
 		-->
 		<div class="flex items-center gap-2" data-testid="undo-slot">
 			{#if editHistorySlot.history !== null}
 				<EditHistoryControls history={editHistorySlot.history} />
 			{/if}
-			<UndoControl {session} />
 		</div>
 
 		<!--

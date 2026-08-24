@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
-import type { Annotation } from '../annotation/annotation.js';
-import { UndoSlot } from '../undo/undo.js';
+import { EditHistory } from '../undo/edit-history.js';
 import { Autosave } from './autosave.js';
 import { installFlushOnHide } from './flush-on-hide.js';
 import {
@@ -22,14 +21,6 @@ import {
 
 const utf8 = new TextEncoder();
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-
-/** The Annotation an undo record carries. Its contents are irrelevant here; its presence is not. */
-const ANNOTATION = {
-	type: 'Feature',
-	id: 'a1',
-	geometry: { type: 'Point', coordinates: [0, 0] },
-	properties: {}
-} as unknown as Annotation;
 
 /**
  * A `localStorage` that can be made to refuse, and whose contents are inspectable.
@@ -762,51 +753,65 @@ describe('Autosave with a journal (ADR-0017 rule 3, as amended by ticket 20)', (
  * capture-time one succeed. It is red with that call removed.
  */
 /**
- * ADR-0014's single-level undo, against the journal (ticket 20 constraint 5).
+ * An Edit History's undo, against the journal (ADR-0039, ticket 20 constraint 5).
  *
  * ⚠ **This is the test the e2e version was mistaken for.** `editor-workspace.e2e.ts` types a name
- * and types it back, which is a re-edit and not `UndoSlot` at all — review caught that, and it left
- * the actual claim ("a replayed journal entry cannot resurrect an edit the user undid before
- * leaving") resting on a reading of the code rather than on anything red.
+ * and types it back, which is a re-edit and not a Step at all — review caught that, and it left the
+ * actual claim ("a replayed journal entry cannot resurrect an edit the user undid before leaving")
+ * resting on a reading of the code rather than on anything red.
  *
- * The mechanism is exercised for real here: a genuine `UndoSlot` holding a genuine restore closure
- * that goes through the same `Autosave`, against a store whose writes **never settle** — which is
- * the only state in which the journal is what carries the file, and therefore the only state in
- * which the question has an answer.
+ * The mechanism is exercised for real here: a genuine `EditHistory` whose `writeBack` goes through
+ * the same `Autosave` as every other edit, against a store whose writes **stop settling** the moment
+ * the undo is pressed — which is the only state in which the journal is what carries the file, and
+ * therefore the only state in which the question has an answer.
  */
-describe('single-level undo across a save (ADR-0014)', () => {
-	it('leaves the journal holding what was restored, never the deletion', async () => {
+describe('undoing a Step across a save (ADR-0039)', () => {
+	it('leaves the journal holding what was put back, never the deletion', async () => {
 		const storage = new FakeStorage();
 		const store = new MemoryProjectStore();
-		// Nothing lands, so whatever is in the journal is what a reload would put back.
-		vi.spyOn(store, 'write').mockImplementation(() => new Promise<void>(() => {}));
 		const autosave = new Autosave(store, {
 			debounceMs: 10_000,
 			journal: new WriteAheadJournal(storage, 'W')
 		});
 		const path = 'a/annotations/l.geojson';
-		const undo = new UndoSlot();
+		const held = '{"features":[ANNOTATION]}';
+		await store.write(path, utf8.encode(held));
 
-		// The deletion, exactly as the editor performs it: write the collection without the
-		// Annotation, and offer the way back.
-		void autosave.commit(path, utf8.encode('{"features":[]}'));
-		undo.offer({ kind: 'annotation-deleted', layerId: 'l', at: 0, annotation: ANNOTATION }, () =>
-			autosave.commit(path, utf8.encode('{"features":[ANNOTATION]}'))
+		const history = new EditHistory({
+			flush: () => autosave.flush(),
+			read: async (at) => {
+				try {
+					return await store.read(at);
+				} catch {
+					return null;
+				}
+			},
+			// The session's routing, in miniature: a write-back is an ordinary edit and goes through the
+			// same `Autosave`, which is the whole reason the journal has anything to say about it.
+			writeBack: (at, bytes) => (bytes === null ? store.delete(at) : autosave.commit(at, bytes))
+		});
+
+		// The deletion, exactly as the editor performs it: one Step, whose gesture writes the
+		// collection without the Annotation.
+		await history.step('Undo delete of this Annotation', [path], () =>
+			autosave.commit(path, utf8.encode('{"features":[]}'))
 		);
-		expect(readJournal(storage, 'W').entries.map((entry) => text(entry.bytes))).toEqual([
-			'{"features":[]}'
-		]);
+		expect(text(await store.read(path))).toBe('{"features":[]}');
 
-		// Not awaited: the restore's own store write never settles either, which is the point.
-		void undo.take()?.();
-		await Promise.resolve();
+		// Nothing lands from here on, so whatever is in the journal is what a reload would put back.
+		// Mocked *after* the Step rather than before it: `step` flushes and reads either side of the
+		// gesture, and a write that never settles would leave it with no after-image to hold.
+		vi.spyOn(store, 'write').mockImplementation(() => new Promise<void>(() => {}));
+
+		// Not awaited: the undo's own store write never settles either, which is the point.
+		void history.undo();
 
 		// The journal holds one entry per path and the last write wins, in it exactly as in the store.
 		// Were it otherwise, a scholar who deleted an Annotation, took it back, and closed the tab
 		// would find it deleted again at the next startup.
-		expect(readJournal(storage, 'W').entries.map((entry) => text(entry.bytes))).toEqual([
-			'{"features":[ANNOTATION]}'
-		]);
+		await vi.waitFor(() =>
+			expect(readJournal(storage, 'W').entries.map((entry) => text(entry.bytes))).toEqual([held])
+		);
 	});
 });
 

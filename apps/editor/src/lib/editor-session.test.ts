@@ -1369,7 +1369,7 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		);
 	});
 
-	// The fallback `describeUndo` has always used, kept so a Layer nobody named is still identifiable.
+	// A Layer nobody named still has to be identifiable in the sentence the bar says about it.
 	it('falls back to “with no name” for a Layer the scholar never named', async () => {
 		const { session, layerIds } = await withAnnotationLayers(1);
 		await session.typeLayerName(layerIds[0] as string, '');

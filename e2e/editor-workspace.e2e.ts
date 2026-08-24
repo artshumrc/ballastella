@@ -1023,13 +1023,13 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 
 	/**
 	 * ⚠ **This is a re-edit, not an undo, and calling it one was wrong.** Two `fill()`s exercise the
-	 * debounce and the journal's last-write-wins; they do not touch `UndoSlot` at all, so this test
-	 * says nothing about ADR-0014 however it is named. Review caught that.
+	 * debounce and the journal's last-write-wins; they do not touch an Edit History at all, so this
+	 * test says nothing about undo however it is named. Review caught that.
 	 *
 	 * It is kept because superseding *is* worth pinning at this seam — a journal that appended rather
-	 * than replaced would fail here. The ADR-0014 claim is pinned where the mechanism actually lives,
-	 * in `journal.test.ts`'s "single-level undo across a save", which drives a real `UndoSlot` against
-	 * a store whose writes never settle: the only state in which the journal is what carries the file.
+	 * than replaced would fail here. The undo claim is pinned where the mechanism actually lives, in
+	 * `journal.test.ts`'s "undoing a Step across a save", which drives a real `EditHistory` against a
+	 * store whose writes stop settling: the only state in which the journal is what carries the file.
 	 */
 	test('replays the last edit to a file, not an earlier one', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');

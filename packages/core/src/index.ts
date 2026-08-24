@@ -1037,21 +1037,8 @@ export {
 	type RemoteImageLimits
 } from './remote-image/fetch-remote-image.js';
 
-// Single-level undo (ADR-0014, ticket 11). Editor-only in practice — a Published Site has nothing to
-// undo — but here rather than in the app because it is where the record shapes, the wording of the
-// affordance, and the one-slot semantics can be asserted without a browser.
-export {
-	UndoSlot,
-	describeUndo,
-	isControlPointUndo,
-	layerFileRef,
-	restoreControlPoint,
-	type AnnotationDeletedUndo,
-	type ControlPointDeletedUndo,
-	type ControlPointMovedUndo,
-	type LayerDeletedUndo,
-	type UndoRecord
-} from './undo/undo.js';
+// Which file a Layer draws, so a deletion and the Step that reverses it name the same one (ADR-0023).
+export { layerFileRef } from './undo/undo.js';
 
 // The Edit History of one screen (ADR-0039): the last few edits made on it, each one reversible and
 // repeatable. Framework-free and here rather than in the app for the same reason `Autosave` is —

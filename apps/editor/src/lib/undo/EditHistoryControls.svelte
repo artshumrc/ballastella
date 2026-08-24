@@ -97,9 +97,8 @@
 	`Ctrl+Shift+Z` is no longer swallowed: it was, deliberately, while there was no redo to reach, so
 	that a pressed shortcut did not look implemented. There is one now.
 
-	`defaultPrevented` stands this down for a keypress the outgoing `UndoControl` has already taken.
-	Both are on the window while `UndoSlot` still exists, and one keypress must move one history —
-	though nothing offers the slot a record any more. Ticket 7 removes it.
+	`defaultPrevented` stands this down for a keypress something nearer the gesture has already taken:
+	one press must move one history, and a control on the window is the last thing to see it.
 -->
 <svelte:window
 	onkeydown={(event) => {

@@ -31,7 +31,6 @@ import {
 	styleForNewAnnotation,
 	styleForNewLabel,
 	removeAnnotation,
-	insertAnnotationAt,
 	moveAnnotation,
 	setGeometry,
 	setLineStyle,
@@ -39,7 +38,6 @@ import {
 	setText,
 	type Annotation,
 	type AnnotationCollection,
-	type AnnotationDeletedUndo,
 	type AnnotationGeometry,
 	type AnnotationLayer,
 	type GeoPoint,
@@ -88,9 +86,8 @@ export interface AnnotationEdges {
  *
  * Verb, then subject, in the scholar's own words where they typed them — the convention every Step
  * in this application follows, and `quotedName`'s rule for a Layer beside it: quotation marks around
- * a title somebody typed, and a phrase naming the thing where they typed none. The fallback is
- * `describeUndo`'s, unchanged, so an untitled shape reads in the bar the way it already reads in the
- * prose this class writes for its vertices.
+ * a title somebody typed, and a phrase naming the thing where they typed none. An untitled shape
+ * reads in the bar the way it already reads in the prose this class writes for its vertices.
  */
 const undoLabel = (verb: string, annotation: Annotation): string => {
 	const title = annotation.properties.title;
@@ -164,22 +161,11 @@ export class AnnotationEditing {
 	titlingId = $state<string | null>(null);
 
 	/**
-	 * Why an undo did not happen, or `''`.
-	 *
-	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
-	 * would look exactly like an undo that worked — and the one thing this feature has to convey is
-	 * whether the user's work is back. `UndoControl` announces the success; a refusal has to be said
-	 * from here, because it is this screen that knows which Layer the record named.
-	 */
-	undoRefusal = $state('');
-
-	/**
 	 * Why an Annotation could not be moved into another Layer, or `''`.
 	 *
-	 * Separate from {@link undoRefusal} because it is a different sentence about a different gesture,
-	 * and the two are said in different places on the screen. The one thing that can refuse a move is
-	 * a target Layer whose file will not read — see {@link moveAnnotationToLayer}, which will not
-	 * write a Layer holding one Annotation over a Layer holding twenty.
+	 * The one thing that can refuse a move is a target Layer whose file will not read — see
+	 * {@link moveAnnotationToLayer}, which will not write a Layer holding one Annotation over a Layer
+	 * holding twenty.
 	 */
 	moveRefusal = $state('');
 
@@ -370,10 +356,10 @@ export class AnnotationEditing {
 	/**
 	 * The same, into a Layer named outright rather than whichever one is chosen.
 	 *
-	 * **Undo is why this exists**, and it is the only caller that needs it: an `AnnotationDeletedUndo`
-	 * carries the Layer the Annotation was in precisely so it cannot be restored into another one, and
-	 * the picker may well have moved between the deletion and the undo. Everything else edits what the
-	 * user is looking at, which is what {@link commitAnnotations} is for.
+	 * **Moving an Annotation between Layers is why this exists**, and it is the only caller that needs
+	 * it: the gesture writes two named Layers' collections, neither of them necessarily the one chosen.
+	 * Everything else edits what the user is looking at, which is what {@link commitAnnotations} is
+	 * for.
 	 */
 	async commitAnnotationsIn(
 		layer: AnnotationLayer,
@@ -700,61 +686,6 @@ export class AnnotationEditing {
 		await this.commitAnnotations(removeAnnotation(collection, id), {
 			label: undoLabel('delete of', annotation)
 		});
-	}
-
-	/**
-	 * Put a deleted Annotation back **into the Layer it was deleted from**.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
-	 *
-	 * {@link openLayerId} is a working choice the user is free to change, and nothing stops them
-	 * changing it between the deletion and the undo — another Layer's row is a few pixels from the
-	 * affordance. An undo that wrote into whichever Layer happened to be open would take an Annotation
-	 * out of one `.geojson` and put it into another, which is not an undo of anything: it is a move the
-	 * user did not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists
-	 * for exactly this, and this is where it is spent.
-	 *
-	 * The sidebar follows the record rather than the other way round — the Layer the Annotation came
-	 * from is *opened* — so the user watches the Annotation come back instead of being told it did, the
-	 * same reason `AlignmentPairing.restore` selects the pair it put back.
-	 *
-	 * Restored into that Layer's collection **as it is now** rather than into a snapshot: whatever else
-	 * has been drawn or edited in it since must survive an undo of one deletion.
-	 */
-	async restoreDeleted(record: AnnotationDeletedUndo): Promise<void> {
-		this.undoRefusal = '';
-		const layer = this.#annotationLayers.find((one) => one.id === record.layerId);
-		if (!layer) {
-			// Not reachable through the interface — deleting a Layer is itself one of the four recorded
-			// actions, so it replaces this record rather than orphaning it. Said rather than silently
-			// redirected all the same, because the alternative to saying so is writing the Annotation into
-			// a Layer the user never deleted it from.
-			this.undoRefusal =
-				`The Annotation could not be put back: the Annotation Layer it was in is no longer in ` +
-				'this Project.';
-			return;
-		}
-		let collection = this.#edges.documents()[layer.id] as AnnotationCollection | undefined;
-		if (collection === undefined) {
-			// Only a Layer that has since been hidden gets here: `documents` holds the Layers the map is
-			// given, and a hidden one is absent from it. Read rather than assumed empty — assuming would
-			// write a file holding one Annotation over a file holding twenty.
-			try {
-				collection = await this.#edges.session().readAnnotations(layer);
-			} catch (cause) {
-				this.undoRefusal =
-					`The Annotation could not be put back: ${layer.name || 'its Annotation Layer'} could ` +
-					`not be read. ${cause instanceof Error ? cause.message : String(cause)}`;
-				return;
-			}
-		}
-		this.openLayerId = layer.id;
-		this.selectAnnotation(record.annotation.id);
-		await this.commitAnnotationsIn(
-			layer,
-			insertAnnotationAt(collection, record.annotation, record.at)
-		);
 	}
 
 	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */

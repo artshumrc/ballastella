@@ -25,12 +25,9 @@ import {
 	newAlignment,
 	removeMaskVertex,
 	resetMaskToFullImage,
-	restoreControlPoint,
 	toDraftControlPoints,
 	type Alignment,
 	type ControlPoint,
-	type ControlPointDeletedUndo,
-	type ControlPointMovedUndo,
 	type DraftControlPoint,
 	type GeoPoint,
 	type ResourcePoint,
@@ -250,30 +247,6 @@ export class AlignmentPairing {
 	remove(id: string): void {
 		this.drafts = this.drafts.filter((draft) => draft.id !== id);
 		if (this.selectedId === id) this.selectedId = null;
-	}
-
-	/**
-	 * Put a moved or deleted pair back where it was (ticket 11, ADR-0014).
-	 *
-	 * The prior value comes from the record rather than from anything on disk, which is the whole point:
-	 * autosave has almost certainly written the move or the deletion already, so "revert to the last
-	 * saved state" would restore exactly the mistake. `restoreControlPoint` is in core, so *what* it
-	 * means to put a pair back — in place for a move, at its own index for a deletion, which is what
-	 * restores its ordinal — is one definition with unit tests rather than arithmetic here.
-	 *
-	 * The restored pair is selected, so both panes highlight what came back (ADR-0022 contract 4) and
-	 * the user can see the undo happen rather than being told it happened.
-	 *
-	 * @returns whether anything changed, so the caller can skip a write of an unchanged Alignment
-	 */
-	restore(record: ControlPointMovedUndo | ControlPointDeletedUndo): boolean {
-		const before = this.drafts;
-		this.drafts = [...restoreControlPoint(before, record)];
-		if (this.drafts.length === before.length && this.drafts.every((d, at) => d === before[at])) {
-			return false;
-		}
-		this.selectedId = record.kind === 'control-point-moved' ? record.pointId : record.point.id;
-		return true;
 	}
 
 	#click(half: PendingHalf, at: ResourcePoint | GeoPoint): void {

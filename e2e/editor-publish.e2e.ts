@@ -748,8 +748,8 @@ test.describe('publishing a Workspace', () => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
 		// Reached by tabbing rather than by clicking (SPEC story 95). From the wordmark, which is the
-		// control before it on the bar — `UndoControl` sits between them and renders nothing at all
-		// when there is nothing to undo, which is the state a freshly seeded Workspace is in.
+		// control before it on the bar — the Edit History slot sits between them and renders nothing at
+		// all when there is nothing to undo, which is the state a freshly seeded Workspace is in.
 		//
 		// Both are in the bar's main row, which runs breadcrumb, wordmark, the screen's own actions,
 		// and the theme toggle last. Starting from the wordmark is what makes this a single `Tab` on

@@ -1394,24 +1394,10 @@
 					{/if}
 
 					<!--
-						Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a
-						status, and it is here rather than inside `UndoControl` — which is on the navigation bar —
-						because the refusal is this screen's knowledge: the record names an Annotation Layer, and
-						only the thing holding the stack can say that Layer is not there any more.
-					-->
-					<p
-						class="mt-2 max-w-prose text-sm text-warning"
-						aria-live="polite"
-						aria-atomic="true"
-						data-testid="undo-refused"
-					>
-						{annotations.undoRefusal}
-					</p>
-
-					<!--
-						Why an Annotation did not move into the Layer it was dropped on. Beside the undo's refusal
-						rather than folded into it: they are two gestures, and a sentence that could be about
-						either is a sentence a scholar has to work out.
+						Why an Annotation did not move into the Layer it was dropped on. `aria-live="polite"` is
+						ADR-0016's mandated method for a status, and it is here rather than on the navigation bar
+						because the refusal is this screen's knowledge: only the thing holding the stack can say
+						that a target Layer's file would not read.
 					-->
 					<p
 						class="mt-2 max-w-prose text-sm text-warning"
