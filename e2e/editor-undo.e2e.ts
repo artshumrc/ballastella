@@ -998,16 +998,13 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 	 * over a real MapLibre canvas and the leader is drawn between two measured boxes, so "the panel
 	 * closed and the line went with it" cannot be asserted against a DOM implementation with no layout.
 	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHAT THIS TEST REPLACED, AND WHY THAT ONE HAD NOTHING LEFT TO SAY
-	 *
-	 * "The record is cleared when the Project is closed" (ADR-0014) stood here, driven by deleting an
-	 * Annotation and watching the single slot empty. ADR-0039 answers the same question differently and
-	 * in two places: an Edit History belongs to its subject, so it survives leaving the screen and is
-	 * dropped when the Project is opened afresh — asserted at the unit seam, over a memory store, in
-	 * `editor-session.test.ts` — while *what the bar draws* is the slot the screen declares, asserted a
-	 * few tests above on the walk from `/align` to the Project screen to Workspace Home. Neither half
-	 * needed a browser; this does, and the Seam 2 budget is one test either way (ADR-0039).
+	 * **A history's own lifetime is asserted away from here, which is why it is not asserted twice.**
+	 * That an Edit History belongs to its subject — surviving a walk off the screen, dropped when the
+	 * Project is opened afresh — is a claim about a memory store and is made in
+	 * `editor-session.test.ts`; that the bar draws whatever the screen on show declares is made a few
+	 * tests above, on the walk from `/align` to the Project screen to Workspace Home. Neither needs a
+	 * browser, and the Seam 2 budget is why anything that does not have one does not get one
+	 * (ADR-0039).
 	 */
 	test('undoing the drawing of an Annotation closes the Inspector it was open on', async ({
 		page

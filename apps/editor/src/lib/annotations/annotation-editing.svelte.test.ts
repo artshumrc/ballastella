@@ -1164,7 +1164,7 @@ async function realSession(): Promise<{
 describe('an Annotation gesture undone and redone against the store', () => {
 	/**
 	 * Draw, delete, move and restyle, each one gesture and each reversible on its own — with the
-	 * before-image put back byte for byte, because nothing here typed anything for the carry-across
+	 * `before` image put back byte for byte, because nothing here typed anything for the carry-across
 	 * rule to bring along.
 	 */
 	const gestures: [string, (it_: Awaited<ReturnType<typeof realSession>>) => Promise<void>][] = [
@@ -1250,7 +1250,7 @@ describe('an Annotation gesture undone and redone against the store', () => {
 	});
 
 	/**
-	 * SPEC story 34, and the other face of the same rule: an Annotation absent from the before-image
+	 * SPEC story 34, and the other face of the same rule: an Annotation absent from the `before` image
 	 * has nothing for its words to be carried onto, so undoing its creation takes them with it rather
 	 * than putting it back as a fragment of itself.
 	 */

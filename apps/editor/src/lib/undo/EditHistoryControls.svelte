@@ -94,8 +94,9 @@
 	a canvas, on a handle, on the Layer list — and "Ctrl+Z only works if you have not moved the focus"
 	is not an undo affordance.
 
-	`Ctrl+Shift+Z` is no longer swallowed: it was, deliberately, while there was no redo to reach, so
-	that a pressed shortcut did not look implemented. There is one now.
+	All three are handled here rather than only `Ctrl+Z`: a shortcut this window swallows without acting
+	on looks implemented and is not, so a key is claimed only where there is a Step at that end of the
+	history to reach.
 
 	`defaultPrevented` stands this down for a keypress something nearer the gesture has already taken:
 	one press must move one history, and a control on the window is the last thing to see it.

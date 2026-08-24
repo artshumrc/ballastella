@@ -800,7 +800,7 @@ describe('undoing a Step across a save (ADR-0039)', () => {
 
 		// Nothing lands from here on, so whatever is in the journal is what a reload would put back.
 		// Mocked *after* the Step rather than before it: `step` flushes and reads either side of the
-		// gesture, and a write that never settles would leave it with no after-image to hold.
+		// gesture, and a write that never settles would leave it with no `after` image to hold.
 		vi.spyOn(store, 'write').mockImplementation(() => new Promise<void>(() => {}));
 
 		// Not awaited: the undo's own store write never settles either, which is the point.

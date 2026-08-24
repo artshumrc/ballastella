@@ -331,8 +331,8 @@
 	 * **A rebuild and not a patch, and the selection is lost with it.** Control Point ids are minted
 	 * per session and are not in the file, so the Alignment that comes back from an undo has fresh
 	 * ones and nothing on screen can be matched to it. That is the accepted cost of a Step holding
-	 * bytes, and it is what makes the id-matching this component used to do unnecessary rather than
-	 * merely unused.
+	 * bytes, and it is why nothing here tries to match the Alignment that arrives against the one on
+	 * screen point by point.
 	 */
 	$effect(() => {
 		const written = session.alignmentsWrittenBack;

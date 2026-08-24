@@ -10,7 +10,7 @@
 // application; two byte images are right for all of them at once, including a gesture added later
 // that nobody thought about here.
 //
-// Three constraints inherited from the single-level undo this replaces, all still load-bearing:
+// Three constraints hold whatever a Step is made of, and each is load-bearing here:
 //
 //  1. **The images are held in memory, independent of write state.** With ADR-0017's sub-second
 //     per-file debounce, "revert to the last saved state" is useless — by the time the scholar

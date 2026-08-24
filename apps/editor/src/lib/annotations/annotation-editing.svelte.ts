@@ -339,7 +339,7 @@ export class AnnotationEditing {
 	 *
 	 * `options.label` makes the write one Step of the Project's Edit History, over the Layer's own
 	 * `.geojson` and nothing else. **The memory half happens outside it**, in
-	 * {@link commitAnnotationsIn}: a Step's before-image is read from the store, so the gesture's
+	 * {@link commitAnnotationsIn}: a Step's `before` image is read from the store, so the gesture's
 	 * bytes must not reach the store until that read has happened — but the map must repaint with the
 	 * gesture rather than after a store read, which is the same split `#applyLayerChange` makes for
 	 * the Layer stack.
@@ -672,9 +672,9 @@ export class AnnotationEditing {
 	 * *absent* (ADR-0009): an undo that rebuilt the Annotation from the controls' current values would
 	 * silently turn a dotted conjectural route into a solid certain one.
 	 *
-	 * **Nothing is recorded after the write, because nothing has to be.** A deletion the store refused
-	 * used to be kept out of the record by recording it afterwards; `step()` pushes nothing when the
-	 * gesture leaves the file as it found it, which is the same guarantee by construction.
+	 * **Nothing is recorded after the write, because nothing has to be.** A deletion the store refuses
+	 * leaves the file as `step()` found it, and `step()` pushes no Step for that — so a refused
+	 * deletion cannot reach the bar as something to take back.
 	 */
 	async deleteSelected(): Promise<void> {
 		const collection = this.#activeCollection;
@@ -717,7 +717,7 @@ export class AnnotationEditing {
 	 * **A discrete choice is one Step; a slider still under the pointer is not.** `debounce` is the
 	 * caller saying the gesture is not over (ADR-0017 rule 2), and a Step per position a range
 	 * reported would spend a five-deep history on one drag. So a colour, a marker size and a line
-	 * style each open a Step, and what a released slider leaves behind is the before-image of
+	 * style each open a Step, and what a released slider leaves behind is the `before` image of
 	 * whichever gesture comes next.
 	 */
 	async styleSelected(

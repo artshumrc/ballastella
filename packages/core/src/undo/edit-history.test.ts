@@ -48,8 +48,8 @@ function seam(options?: { depth?: number; byteCeiling?: number }) {
 }
 
 describe('a gesture wrapped as a Step', () => {
-	// The crux, unchanged from the outgoing slot: with a sub-second per-file debounce the edit *is*
-	// the last saved state by the time undo is reached, so the images are taken around a flush.
+	// The crux: with a sub-second per-file debounce the edit *is* the last saved state by the time undo
+	// is reached, so the images are taken around a flush.
 	it('records what the gesture wrote and puts it back', async () => {
 		const { autosave, history, held } = seam();
 		autosave.queue(NOTES, encode('the first reading'));
@@ -299,7 +299,8 @@ describe('discard', () => {
 });
 
 describe('subscribe', () => {
-	// The app depends on the immediate call, exactly as it did with the outgoing slot.
+	// The app depends on the immediate call: a control mounted against a history that already holds
+	// Steps has to be told about them without waiting for the next one.
 	it('calls its listener once immediately, on every change, and stops when unsubscribed', async () => {
 		const { autosave, history } = seam();
 		const seen: (string | null)[] = [];

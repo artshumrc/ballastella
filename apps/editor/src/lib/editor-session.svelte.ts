@@ -278,7 +278,7 @@ type MapLayerAdded = {
 interface OpacityDrag {
 	readonly id: string;
 	/**
-	 * Every position reported so far, in the order they arrived and behind the before-image being
+	 * Every position reported so far, in the order they arrived and behind the `before` image being
 	 * taken. Extended by each one, and awaited by the release.
 	 */
 	applied: Promise<void>;
@@ -3078,7 +3078,7 @@ export class EditorSession {
 		if (directory === null) return;
 		const write = this.#applyLayerChange(directory, change);
 		if (write === null) return;
-		// **The bytes are queued behind the drag's before-image, and queued synchronously.** A range
+		// **The bytes are queued behind the drag's `before` image, and queued synchronously.** A range
 		// reports positions faster than a store read answers and the release arrives in the same task as
 		// the last of them, so a write that ran ahead of the image — or a release that closed the Step
 		// while one was still queued — would put bytes the scholar never saw in it.
@@ -3098,8 +3098,8 @@ export class EditorSession {
 	 * The Step one opacity drag will fill, opened on the first position it reports.
 	 *
 	 * The gesture handed to `step()` is a promise resolved when the drag ends, which is what makes the
-	 * whole drag one Step: the before-image is read when the first position arrives and the
-	 * after-image once the last one has been flushed. Synchronous, so that the positions arriving
+	 * whole drag one Step: the `before` image is read when the first position arrives and the
+	 * `after` image once the last one has been flushed. Synchronous, so that the positions arriving
 	 * behind it join this drag rather than each opening a Step of its own.
 	 *
 	 * `null` where there is nothing to record against — no open Project — and the caller writes
@@ -3199,8 +3199,8 @@ export class EditorSession {
 	 * Layer must leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where
 	 * that decision lives. Only an Annotation Layer has a file of this Project's to take with it.
 	 *
-	 * **The images are the Edit History's, taken either side of the whole gesture** (ADR-0039). This
-	 * method no longer reads the file to keep a copy of it: `step()` does that for every declared path,
+	 * **The images are the Edit History's, taken either side of the whole gesture** (ADR-0039).
+	 * Nothing here reads the file to keep a copy of it: `step()` does that for every declared path,
 	 * which is what makes a restored file byte-identical to the deleted one without a restore path of
 	 * its own.
 	 *
@@ -3292,11 +3292,11 @@ export class EditorSession {
 		const drag = this.#opacityDrag;
 		if (drag) {
 			// The drag is over, so its Step closes: `step()` flushes what the last position left pending
-			// and reads the after-image from that. There is no `#write` to do here — the flush is the
+			// and reads the `after` image from that. There is no `#write` to do here — the flush is the
 			// commit, and doing both would stamp a second `updatedAt` for one gesture.
 			this.#opacityDrag = null;
 			// Every position reported so far, applied first: one still queued would land after the
-			// after-image had been read and go unrecorded.
+			// `after` image had been read and go unrecorded.
 			await drag.applied;
 			drag.end();
 			await drag.step;
@@ -3350,7 +3350,7 @@ export class EditorSession {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THE TWO HALVES ARE SEPARATE, WHICH IS ABOUT STEPS RATHER THAN ABOUT WRITING
 	 *
-	 * A Step's before-image is read from the store, so the gesture's own bytes must not reach the
+	 * A Step's `before` image is read from the store, so the gesture's own bytes must not reach the
 	 * store until that read has happened — otherwise undo would write the edit back over itself. But
 	 * the *screen* must not wait for a store read to show what the scholar just did: the row a
 	 * reorder moved has to be under the pointer for the next click, and a list still in its old order
@@ -3481,7 +3481,7 @@ export class EditorSession {
 		// both would be a Project Step reaching into an Alignment's neighbour.
 		if (label !== undefined) {
 			// **The indicator is told here rather than by the write**, for the reason
-			// {@link #applyLayerChange} records: a Step reads its before-image before the gesture's bytes
+			// {@link #applyLayerChange} records: a Step reads its `before` image before the gesture's bytes
 			// go out, and a screen reading `Saved locally` across that read would be reporting an edit
 			// that exists and is unwritten as a written one. {@link Autosave}'s own subscription carries
 			// it from there.
