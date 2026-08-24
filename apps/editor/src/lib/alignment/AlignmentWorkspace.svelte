@@ -220,7 +220,7 @@
 	let destroyed = false;
 
 	// A pane or Alignment read can finish after route navigation has destroyed this workspace. Neither
-	// may replace the module-level pairing used by Undo with an instance that is no longer on screen.
+	// may build a pairing for a component that is no longer on screen.
 	onDestroy(() => {
 		destroyed = true;
 		generation += 1;

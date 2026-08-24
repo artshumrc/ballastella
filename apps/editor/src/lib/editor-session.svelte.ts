@@ -3142,11 +3142,16 @@ export class EditorSession {
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
-	 * The Edit History of one subject — a Project directory — created on first use (ADR-0039).
+	 * The Edit History of one subject — a Project directory or a Map Image id — created on first use
+	 * (ADR-0039).
 	 *
 	 * A screen asks for its own and declares it to the navigation bar; the bar draws the controls for
 	 * whatever is declared and nothing when nothing is, which is how a screen added later is undo-free
 	 * until it says otherwise (SPEC story 55).
+	 *
+	 * **A Map Image and not a Project on the Alignment side**, because that is what an Alignment is
+	 * keyed by: the file belongs to the Workspace and is shared by every Project that draws the map,
+	 * so reaching it from a second Project reaches the same history (ADR-0023, SPEC story 5).
 	 */
 	historyFor(subject: string): EditHistory {
 		const standing = this.#histories.get(subject);

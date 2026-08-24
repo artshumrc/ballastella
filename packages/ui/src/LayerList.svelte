@@ -220,9 +220,10 @@
 		 *
 		 * No confirmation dialog, and that is a decision rather than an omission: ticket 09 deliberately
 		 * shipped `removeLayer` with no button at all, on the reasoning that the affordance belongs with
-		 * the single-level undo that makes it safe (ADR-0014). The undo is that safety, and it works after
-		 * autosave has written the deletion — which a dialog does not give you, since a user who means to
-		 * delete confirms without reading and one who does not needs the way back either way.
+		 * the undo that makes it safe. That safety is the screen's Edit History (ADR-0039), which holds
+		 * the deleted Layer's file and works after autosave has written the deletion — which a dialog
+		 * does not give you, since a user who means to delete confirms without reading and one who does
+		 * not needs the way back either way.
 		 */
 		ondelete?: (id: string) => void;
 		/**

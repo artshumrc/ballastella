@@ -683,7 +683,7 @@
 	 *
 	 * The row that had the selection goes with the Annotation, so the keyboard is handed the row that
 	 * takes its place — or the last one, when what was deleted was last. The deletion itself, and the
-	 * undo record it writes, are `AnnotationEditing.deleteSelected`'s.
+	 * Step it opens, are `AnnotationEditing.deleteSelected`'s.
 	 *
 	 * ⚠ **When there is no Annotation left, the keyboard goes to *New Annotation* in the same card.**
 	 * Deleting the only Annotation in a Layer is the commonest delete of all — it undoes a shape drawn by
