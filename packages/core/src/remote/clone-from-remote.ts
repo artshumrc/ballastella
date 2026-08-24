@@ -369,7 +369,7 @@ export async function cloneFromRemote(
 	// Remote that would open as a broken Workspace is refused *before* the caller adopts it or records
 	// a Baseline about it. `compareWorkspace` is ticket 09's one reading of those rules; a second
 	// reading here is how the Update and the Open come to disagree about what a valid Workspace is.
-	const verified = await verifiedSource(remote, destination.store, entries, manifests);
+	const verified = await verifiedSource(remote, destination.store, entries, manifests, declined);
 
 	const projects = manifests.map((entry) => entry.path.slice(0, -PROJECT_FILE_NAME.length - 1));
 
@@ -412,7 +412,8 @@ async function verifiedSource(
 	remote: Required<CloneReference>,
 	store: ProjectStore,
 	entries: readonly CloneEntry[],
-	manifests: readonly CloneEntry[]
+	manifests: readonly CloneEntry[],
+	declined: readonly string[]
 ): Promise<ReadonlyMap<string, string>> {
 	// Read back off disk rather than kept from the download: on a resumed Open the manifest may have
 	// been skipped, so the bytes never passed through this call at all.
@@ -456,9 +457,16 @@ async function verifiedSource(
 
 	// `paths` is the source classification of the inventory, so the viewer's own files are already
 	// out. `local` is the SHA either side carried, which is the same one on both.
+	//
+	// ⚠ **A declined Alignment is left out.** The Remote's bytes for it were never written — the
+	// Workspace kept the Alignment it already had for that Map Image — so recording the Remote's SHA
+	// would be a Baseline claiming the two sides share bytes that are not here, and the first status
+	// check would read `Up to date` over an Alignment GitHub has never seen (SPEC story 99). Absent, it
+	// is an unattributable path, which is what it is.
+	const withheld = new Set(declined);
 	const source = new Map<string, string>();
 	for (const path of comparison.paths) {
-		if (path.local !== null) source.set(path.path, path.local);
+		if (path.local !== null && !withheld.has(path.path)) source.set(path.path, path.local);
 	}
 	return source;
 }

@@ -201,6 +201,20 @@ describe('installation-local synchronization metadata', () => {
 			expect(await metadata.readBaseline(ATLAS_2)).toBeNull();
 		});
 
+		// GitHub owner and repository names are case-insensitive, and `remoteIdentityKey` is where this
+		// codebase says so — the Open that reuses a Workspace and the Import that refuses its own Remote
+		// both ask it. Compared byte for byte here, re-binding by pasting a differently-cased address
+		// would throw away a Baseline that describes this very Remote and report `Cannot tell` over
+		// evidence there is (SPEC story 151).
+		it('is evidence about the repository it names however that name is cased', async () => {
+			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
+			await metadata.writeBaseline(baseline());
+
+			expect(
+				await metadata.readBaseline({ owner: 'Ada', repository: 'Atlas', branch: 'main' })
+			).toEqual(baseline());
+		});
+
 		it('is no evidence about another branch of the repository it names', async () => {
 			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
 			await metadata.writeBaseline(baseline());

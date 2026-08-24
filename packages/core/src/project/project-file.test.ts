@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { parseImportProvenance } from './import-provenance.js';
 import { readBaseMapId } from '../base-map/project.js';
 import {
 	CURRENT_FORMAT_VERSION,
@@ -425,6 +426,21 @@ describe('Import Provenance (ADR-0037)', () => {
 		expect(JSON.parse(decode(serialiseProjectFile(parsed))).importProvenance).toBe(
 			'one day this was a string'
 		);
+	});
+
+	// The carried field and a real history cannot both be written under one key, and the history is
+	// the one this build is appending to: a transfer that let the unreadable value win would report a
+	// Project imported and leave no trace that it ever was (SPEC story 65).
+	it('lets a transfer append over an importProvenance of some other shape', () => {
+		const parsed = parseProjectFile(withHistory('one day this was a string'));
+
+		// Through the parser, because that is how a real appended entry reaches a `ProjectFile`.
+		const appended = parseImportProvenance([OBSERVED]);
+		const rewritten = JSON.parse(
+			decode(serialiseProjectFile({ ...parsed, importProvenance: appended }))
+		);
+
+		expect(rewritten.importProvenance).toEqual([OBSERVED]);
 	});
 
 	// The counterpart of "parses to exactly the fields this build understands": that test asks a

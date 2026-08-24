@@ -279,6 +279,11 @@ describe('cloneFromRemote', () => {
 			// the failure `restore-workspace-tar.ts` was rewritten to escape.
 			expect(result.notice).toContain('alignments/map-1.json');
 			expect(result.notice).toContain('already had one for the same Map Image');
+			// ⚠ And it is **not** in the source the caller records as the initial Baseline. The Remote's
+			// bytes for that path were never written, so a Baseline holding the Remote's SHA for it would
+			// claim the two sides share an Alignment they do not — and the first status check would read
+			// `Up to date` over Control Points GitHub has never seen (SPEC story 99).
+			expect(result.source.has('alignments/map-1.json')).toBe(false);
 		});
 
 		it('re-fetches a file whose bytes here differ from the Remote', async () => {

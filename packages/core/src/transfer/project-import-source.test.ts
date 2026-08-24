@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ProjectFormatTooNewError } from '../project/project-file.js';
 import { REVIEW_MARK_FORMAT_VERSION, type ReviewMark } from '../project/review-workspace.js';
+import { GITHUB_RAW_ORIGIN } from '../remote/github-api.js';
 import { createFakeGitHub } from '../remote/fake-github.js';
 import { readRemoteProjectSource } from '../remote/remote-project-source.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
@@ -365,6 +366,41 @@ describe('what a source observed about where it came from', () => {
 			commit: fake.head(),
 			projectName: 'Amsterdam 1625'
 		});
+	});
+
+	// ⚠ **The commit is the state the bytes came from, or it is not a fact Ballastella observed.** A
+	// branch moves; a long pyramid copy is minutes of raw reads. Read against the branch, a push
+	// landing mid-copy hands over bytes the tree never named — the SHA check calls that tampering and
+	// refuses the whole Import — and the recorded commit would name a tree nothing was verified
+	// against (SPEC stories 59, 61).
+	it('copies one commit, and keeps copying it when the branch moves underneath', async () => {
+		const fake = await createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree: WORKSPACE });
+		const at = fake.head();
+		let pushed = false;
+		// The push lands on the first byte read, which is `project.json` — so every closure read after
+		// it is one the branch would answer differently.
+		const fetch: typeof globalThis.fetch = async (input, init) => {
+			const response = await fake.fetch(input, init);
+			if (!pushed && new URL(String(input)).origin === GITHUB_RAW_ORIGIN) {
+				pushed = true;
+				await fake.commitFiles({
+					[`${DIRECTORY}/annotations/warehouses.geojson`]: '{"type":"FeatureCollection"}'
+				});
+			}
+			return response;
+		};
+
+		const source = await readRemoteProjectSource({
+			remote: { owner: OWNER, repository: REPOSITORY, project: DIRECTORY },
+			fetch
+		});
+		const files = await delivered(source);
+
+		expect(fake.head()).not.toBe(at);
+		expect(source.origin).toMatchObject({ kind: 'github', commit: at });
+		expect(files['annotations/warehouses.geojson']).toBe(
+			'{"type":"FeatureCollection","features":[]}'
+		);
 	});
 
 	it('records what the Review mark says the review copy holds', async () => {

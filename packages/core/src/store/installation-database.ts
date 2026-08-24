@@ -45,7 +45,16 @@ export async function openInstallationDatabase(): Promise<IDBDatabase | null> {
 	});
 }
 
-/** One request against one object store, as a promise that rejects on an abort as well as an error. */
+/**
+ * One request against one object store, as a promise that rejects on an abort as well as an error.
+ *
+ * ⚠ **Resolved on the transaction's commit, not on the request's success.** A `put` succeeds long
+ * before the transaction commits, and IndexedDB checks quota at commit — so a Baseline written by a
+ * browser at its quota would report itself durable and be rolled back a tick later. Everything the
+ * caller then does on the strength of it (narrowing the change index, calling the Publish's evidence
+ * kept) is done over a record that is not there. A failed write must read as failed, so that Remote
+ * Status says `Cannot tell` rather than describing work GitHub has never seen as shared.
+ */
 export function transactInstallationDatabase<T>(
 	database: IDBDatabase,
 	storeName: string,
@@ -55,7 +64,7 @@ export function transactInstallationDatabase<T>(
 	return new Promise((resolve, reject) => {
 		const transaction = database.transaction(storeName, mode);
 		const request = operation(transaction.objectStore(storeName));
-		request.onsuccess = () => resolve(request.result);
+		transaction.oncomplete = () => resolve(request.result);
 		request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
 		transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB aborted'));
 	});

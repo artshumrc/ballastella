@@ -38,7 +38,7 @@
 // publication succeeds, report that Publish succeeded but status is now Cannot tell; never report the
 // Publish as failed and never retain stale evidence."*
 
-import { normaliseRemoteIdentity } from './remote-binding.js';
+import { isSameRemote, normaliseRemoteIdentity } from './remote-binding.js';
 import type { RemoteRepository } from './publish-to-remote.js';
 
 /**
@@ -325,14 +325,12 @@ function decodeBaseline(
 ): SynchronizationBaseline | null {
 	const identity = decodeIdentity(stored);
 	if (identity === null) return null;
-	// A claim about somewhere else, which is no claim about here.
-	if (
-		identity.owner !== remote.owner ||
-		identity.repository !== remote.repository ||
-		identity.branch !== remote.branch
-	) {
-		return null;
-	}
+	// A claim about somewhere else, which is no claim about here — asked through `isSameRemote` so
+	// that "the same repository" means here exactly what it means to the Open that reuses a Workspace
+	// and the Import that refuses its own Remote. Compared byte for byte, re-binding `ada/atlas` by
+	// pasting `github.com/Ada/Atlas` would throw away a Baseline that describes this very Remote and
+	// report `Cannot tell` over evidence there is (SPEC story 151).
+	if (!isSameRemote(identity, remote)) return null;
 	const record = stored as Partial<StoredBaseline>;
 	if (typeof record.commit !== 'string' || record.commit === '') return null;
 	if (!(record.files instanceof Map)) return null;

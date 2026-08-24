@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte';
 
 import {
 	DEFAULT_WORKSPACE_NAME,
+	ManagedProjectStore,
 	FolderPermissionDeniedError,
 	assertNotReviewing as refuseInsideReview,
 	assertReviewing as refuseOutsideReview,
@@ -1651,6 +1652,12 @@ export class WorkspaceStorage {
 		const mark = this.review as ReviewMark;
 		const origin = reviewImportOrigin(mark);
 		const reviewWorkspace = this.workspaceName;
+		// ⚠ **Everything the reviewer typed is written down before the copy reads a byte.** This action
+		// says it imports the *current* reviewed state (SPEC story 84) and the review copy is deleted at
+		// the end of it, so an Annotation still inside the autosave debounce would be copied as the bytes
+		// before the edit and then destroyed with the Workspace that held it — the one unrecoverable
+		// outcome on this path.
+		await this.session.flush().catch(() => undefined);
 		const reopened = await this.#reopenReviewOrigin(origin);
 
 		// ⚠ **A store of its own over the review copy, not `this.session.store`.** The session is
@@ -1663,6 +1670,16 @@ export class WorkspaceStorage {
 			describeReviewSubject(mark),
 			() => Promise.resolve(reopened.into)
 		);
+
+		// ⚠ **The destination's change index is made durable before the switch builds another one.** The
+		// Import wrote through the managed store `#reopenReviewOrigin` opened, and its marks are on a
+		// debounce; the session that follows opens the same Workspace key and loads the record off disk,
+		// so marks still in memory would be read as absent and then overwritten. The imported Project
+		// would be missing from the index entirely and a bound Workspace would report `Up to date` over
+		// a Project GitHub has never seen (SPEC story 49).
+		if (reopened.into.store instanceof ManagedProjectStore) {
+			await reopened.into.store.flushChanges();
+		}
 
 		let incomplete = '';
 		try {

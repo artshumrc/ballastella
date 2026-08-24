@@ -732,6 +732,40 @@ describe('planning without a Baseline', () => {
 		expect([...result.plan.advances]).toEqual([]);
 	});
 
+	// The one Update that adopts a whole Remote unexamined if nothing checks it. Every row is
+	// `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which
+	// here is nothing — and a Remote that would open as a broken Workspace would be taken whole on the
+	// very transfer that establishes the evidence for every later one (SPEC story 136).
+	it('refuses to establish one from a Remote whose Project names a Map Image it does not hold', async () => {
+		const project = await projectFile('Amsterdam', MAP_LAYER);
+		const result = planWorkspaceUpdate({
+			local: [],
+			remote: entries({ 'amsterdam-1625/project.json': project.sha }),
+			baseline: null,
+			projectFiles: new Map([[project.sha, project.bytes]])
+		});
+
+		if (result.outcome !== 'refused') throw new Error('expected a refusal');
+		expect(result.reason).toBe('conflict');
+		expect(result.message).toContain('Nothing has been changed.');
+	});
+
+	it('still establishes one from a Remote that is a whole Workspace', async () => {
+		const project = await projectFile('Amsterdam', MAP_LAYER);
+		const result = planWorkspaceUpdate({
+			local: [],
+			remote: entries({
+				'amsterdam-1625/project.json': project.sha,
+				'images/map-1/info.json': SHA.a
+			}),
+			baseline: null,
+			projectFiles: new Map([[project.sha, project.bytes]])
+		});
+
+		if (result.outcome !== 'planned') throw new Error('expected a plan');
+		expect(result.plan.establishesBaseline).toBe(true);
+	});
+
 	it('refuses Update when differing non-empty local and Remote work cannot be attributed', () => {
 		const result = planWorkspaceUpdate(
 			input({ 'a/project.json': SHA.a }, { 'a/project.json': SHA.b }, null)

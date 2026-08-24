@@ -561,19 +561,9 @@ export function planWorkspaceUpdate(input: SynchronizationInput): PlanResult<Wor
 	};
 
 	if (graph.outcome === 'failed') return failed(graph.failures);
-	if (graph.outcome === 'invalid') {
-		return {
-			outcome: 'refused',
-			reason: 'conflict',
-			paths: graph.violations.map((violation) => violation.path),
-			message:
-				`Updating would leave this Workspace incomplete: ` +
-				`${graph.violations.map((violation) => violation.detail).join(' ')} ` +
-				`Nothing has been changed.`
-		};
-	}
+	if (graph.outcome === 'invalid') return brokenWorkspace(graph.violations);
 
-	if (!comparison.hasBaseline) return establishForUpdate(comparison, workspace);
+	if (!comparison.hasBaseline) return establishForUpdate(comparison, workspace, input.projectFiles);
 
 	const conflicts = bucket(comparison, 'conflict');
 	if (conflicts.length > 0) {
@@ -628,16 +618,36 @@ export function planWorkspaceUpdate(input: SynchronizationInput): PlanResult<Wor
 	};
 }
 
+/** The refusal an Update gives for a result that would not be a Workspace (SPEC story 136). */
+const brokenWorkspace = (
+	violations: readonly GraphViolation[]
+): PlanResult<WorkspaceUpdatePlan> => ({
+	outcome: 'refused',
+	reason: 'conflict',
+	paths: violations.map((violation) => violation.path),
+	message:
+		`Updating would leave this Workspace incomplete: ` +
+		`${violations.map((violation) => violation.detail).join(' ')} ` +
+		`Nothing has been changed.`
+});
+
 /**
  * An Update with no Baseline at all.
  *
  * Refuses only what cannot be attributed — both sides non-empty and different (SPEC story 153) — and
  * otherwise establishes the Baseline for what the two sides genuinely share, which is nothing at all
  * when the Remote's source namespace is empty.
+ *
+ * ⚠ **Its own graph check, because `prospectiveSource` cannot describe this plan.** Every row is
+ * `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which for
+ * the ordinary case here, an empty Workspace taking a whole Remote, is nothing at all. Judged by
+ * that, a Remote whose `project.json` names a Map Image nobody ever pushed would be refused once
+ * there is a Baseline and adopted whole on the one Update that establishes one (SPEC story 136).
  */
 function establishForUpdate(
 	comparison: SourceComparison,
-	workspace: WorkspaceComparison
+	workspace: WorkspaceComparison,
+	projectFiles: ReadonlyMap<string, Uint8Array> | undefined
 ): PlanResult<WorkspaceUpdatePlan> {
 	const { localSource, remoteSource } = comparison;
 	if (localSource.size > 0 && remoteSource.size > 0 && !sameNamespace(localSource, remoteSource)) {
@@ -654,6 +664,12 @@ function establishForUpdate(
 				`them side by side.`
 		};
 	}
+
+	// Past the refusal above the two sides agree wherever they overlap, so the Workspace this would
+	// leave is simply their union.
+	const graph = validateGraph(new Map([...localSource, ...remoteSource]), projectFiles);
+	if (graph.outcome === 'failed') return failed(graph.failures);
+	if (graph.outcome === 'invalid') return brokenWorkspace(graph.violations);
 
 	const changes: PathChoice[] = [];
 	const advances = new Map<string, string>();
@@ -673,7 +689,7 @@ function establishForUpdate(
 			advances,
 			retires: [],
 			establishesBaseline: true,
-			comparison: workspace
+			comparison: { ...workspace, graph }
 		}
 	};
 }

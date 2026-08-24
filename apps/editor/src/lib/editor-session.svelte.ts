@@ -2578,6 +2578,17 @@ export class EditorSession {
 		// The hub's list is what an inbound Project appears in, and the Update wrote its `project.json`
 		// underneath every reader (SPEC story 123).
 		this.projects = await this.#workspace.listProjects();
+		// ⚠ **And the Project on screen is read again, because the Update may have replaced it.** Update
+		// is reachable from the navigation bar with a Project open, and `openProject` is the model every
+		// Layer edit spreads over before writing it back — so an inbound `project.json` left unread would
+		// be silently undone by the next `addLayer`, taking the Layer the Update had just brought in
+		// (SPEC story 124). `openProject` is blanked first because `open` returns early for the Project it
+		// is already showing.
+		const showing = this.openDirectory;
+		if (showing !== null) {
+			this.openProject = null;
+			await this.open(showing);
+		}
 		return { update, baselineKept };
 	}
 

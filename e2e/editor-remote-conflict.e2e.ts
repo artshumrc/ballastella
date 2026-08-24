@@ -66,6 +66,21 @@ const projectFiles = (directory: string, name: string): Record<string, string> =
 	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
 });
 
+/** The same Project with a second Annotation Layer, as another machine would publish it. */
+const withSecondLayer = (directory: string, name: string): string => {
+	const project = JSON.parse(syncProject(directory, name)[`${directory}/project.json`] as string);
+	project.layers.push({
+		id: 'l3',
+		name: 'Wharves',
+		visible: true,
+		order: 1,
+		kind: 'annotation',
+		geojsonRef: 'annotations/l3.geojson',
+		defaultStyle: {}
+	});
+	return `${JSON.stringify(project, null, '\t')}\n`;
+};
+
 /** A site record as a published Remote carries one, listing whichever Projects it was given. */
 const siteRecord = (projects: { directory: string; name: string }[]): string =>
 	JSON.stringify({
@@ -822,6 +837,31 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 		await expect(page.getByTestId('update-outcome')).toHaveCount(0);
+
+		// ⚠ **And the Project on screen reads the Update too, not only the hub's list.** The control is
+		// on the navigation bar, so an Update lands while a Project is open — and `project.json` is the
+		// document every Layer edit spreads over before writing it back. Left unread, the next ordinary
+		// edit writes the pre-Update Layer stack back over the Remote's, silently taking the Layer the
+		// Update had just brought in (stories 124, 141).
+		await expect(page.getByRole('heading', { level: 1, name: 'Delft' })).toBeVisible();
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'delft/project.json': withSecondLayer('delft', 'Delft'),
+			'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
+		});
+		await checkNow(page);
+		await page.getByTestId('update-from-github').click();
+		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
+
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(3);
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+		// Off disk rather than off the screen: the question is what the edit wrote, not what it drew.
+		await page.reload();
+		await expect(page.getByTestId('layer-row')).toHaveCount(3);
 	});
 	test('names what a deletion would take, and takes nothing until it is confirmed', async ({
 		page

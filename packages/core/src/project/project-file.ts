@@ -312,6 +312,14 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		onFrontPage,
 		importProvenance
 	} = file;
+	const history =
+		importProvenance === undefined || importProvenance.length === 0 ? null : importProvenance;
+	const carried =
+		history !== null && IMPORT_PROVENANCE_KEY in unknownFields
+			? Object.fromEntries(
+					Object.entries(unknownFields).filter(([key]) => key !== IMPORT_PROVENANCE_KEY)
+				)
+			: unknownFields;
 	const json = JSON.stringify(
 		{
 			formatVersion,
@@ -333,10 +341,13 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			...(onFrontPage ? {} : { onFrontPage: false }),
 			// Written only by a Project that has been imported, for the third time and for the same
 			// reason: a Project nobody transferred keeps the bytes it had before Import existed.
-			...(importProvenance === undefined || importProvenance.length === 0
-				? {}
-				: { [IMPORT_PROVENANCE_KEY]: serialiseImportProvenance(importProvenance) }),
-			...unknownFields
+			...(history === null ? {} : { [IMPORT_PROVENANCE_KEY]: serialiseImportProvenance(history) }),
+			// Spread last so nothing carried shadows a field an edit changed — with the one key this
+			// build models under `importProvenance` taken out of it when there is a history to write.
+			// `parseProjectFile` keeps a non-array `importProvenance` here on purpose, and spread over a
+			// modelled history it would silently drop the entry a transfer had just appended (SPEC
+			// story 65).
+			...carried
 		},
 		null,
 		'\t'

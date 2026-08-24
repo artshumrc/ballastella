@@ -64,14 +64,19 @@ export async function readRemoteProjectSource(
 	const branch = options.remote.branch ?? DEFAULT_REMOTE_BRANCH;
 	const remote = { ...options.remote, branch };
 
-	const blobs = await readReviewTree(remote, options.fetch);
-	// ⚠ **A second request, spent only on a repository that answered the first.** The commit is
-	// provenance and nothing else reads it, so it is asked for after the listing rather than before:
-	// a repository that is missing, private, empty or rate-limited is refused without spending one
-	// more of the sixty an anonymous reader gets per hour.
+	// ⚠ **The commit is resolved first and everything after it is read *at* that commit.** It is what
+	// the Import records as the state it copied (SPEC story 59), and a branch is a moving target: a
+	// push landing between the listing and the last pyramid tile would have the tree, the bytes and
+	// the recorded commit describing three different trees — and the SHA check below would refuse the
+	// Import as tampering. Pinned, a push during a long copy is simply not in it, and the provenance
+	// entry names a commit whose tree every byte was verified against, which is the only thing that
+	// makes it a fact Ballastella observed (SPEC story 61).
 	const commit = await readReviewHeadCommit(remote, options.fetch);
+	const at = { ...remote, branch: commit };
+
+	const blobs = await readReviewTree(at, options.fetch);
 	const { directory, manifest } = findProject(remote, blobs);
-	const read = checkedReader(remote, options.fetch);
+	const read = checkedReader(at, options.fetch);
 
 	const projectFileBytes = await read(manifest.path, manifest.sha);
 	const project = parseImportedProjectFile(projectFileBytes);
