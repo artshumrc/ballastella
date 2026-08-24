@@ -6,8 +6,8 @@
 // an Annotation written into the wrong file, or a file holding twenty Annotations overwritten with
 // one — and none of them has a gesture in the interface that produces it on demand.
 //
-// The fake writer is four methods, which is the whole of what this class asks of `EditorSession`.
-// That is the measurement of the carve: 369 lines of the Project screen now depend on four
+// The fake writer is three methods, which is the whole of what this class asks of `EditorSession`.
+// That is the measurement of the carve: 369 lines of the Project screen now depend on three
 // functions rather than on a 2500-line session, OPFS, and a map.
 //
 // ⚠ **`.svelte.test.ts`, not `.test.ts`, and that is load-bearing.** `screen()` below builds the
@@ -20,6 +20,11 @@
 
 import {
 	DEFAULT_ANNOTATION_COLOR,
+	MemoryProjectStore,
+	annotationPath,
+	newProjectFile,
+	projectFilePath,
+	serialiseProjectFile,
 	newAnnotation,
 	newAnnotationLayer,
 	parseAnnotations,
@@ -29,10 +34,13 @@ import {
 	type AnnotationCollection,
 	type AnnotationGeometry,
 	type AnnotationLayer,
+	type Bytes,
 	type Layer,
-	type UndoRecord
+	type StorePath
 } from '@ballastella/core';
 import { describe, expect, it } from 'vitest';
+
+import { EditorSession } from '../editor-session.svelte.js';
 
 import { AnnotationEditing, type AnnotationWriter } from './annotation-editing.svelte.js';
 
@@ -41,6 +49,8 @@ interface Write {
 	layerId: string;
 	collection: AnnotationCollection;
 	debounce: boolean;
+	/** The sentence the Edit History's controls would say, or `undefined` for a write that is no Step. */
+	label: string | undefined;
 }
 
 class FakeWriter implements AnnotationWriter {
@@ -50,7 +60,6 @@ class FakeWriter implements AnnotationWriter {
 	/** Layer ids whose read throws, standing in for a file that is there and unreadable. */
 	readonly unreadable = new Set<string>();
 	pending = false;
-	recorded: { record: UndoRecord; apply: () => Promise<void> } | null = null;
 
 	async readAnnotations(layer: AnnotationLayer): Promise<AnnotationCollection> {
 		if (this.unreadable.has(layer.id)) throw new Error('the file could not be decoded');
@@ -60,17 +69,18 @@ class FakeWriter implements AnnotationWriter {
 	async writeAnnotations(
 		layer: AnnotationLayer,
 		collection: AnnotationCollection,
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
-		this.writes.push({ layerId: layer.id, collection, debounce: options.debounce === true });
+		this.writes.push({
+			layerId: layer.id,
+			collection,
+			debounce: options.debounce === true,
+			label: options.label
+		});
 	}
 
 	hasPendingAnnotationWrite(): boolean {
 		return this.pending;
-	}
-
-	record(record: UndoRecord, apply: () => Promise<void>): void {
-		this.recorded = { record, apply };
 	}
 }
 
@@ -119,6 +129,9 @@ const layerNamed = (id: string, name = id): AnnotationLayer =>
 
 const pin = (id: string, lng = 0, lat = 0): Annotation =>
 	newAnnotation({ id, geometry: { type: 'Point', coordinates: [lng, lat] } });
+
+const titled = (id: string, title: string): Annotation =>
+	newAnnotation({ id, geometry: { type: 'Point', coordinates: [0, 0] }, title });
 
 describe('which Layer is drawn into', () => {
 	it('draws into nothing at all when no Layer is open', async () => {
@@ -439,25 +452,174 @@ describe('editing a shape', () => {
 	});
 });
 
-describe('undoing a deletion', () => {
-	it('records the Layer the Annotation was in, after the write and not before', async () => {
+/**
+ * Which Annotation gestures open a Step, and what the bar says about each (ADR-0039, SPEC stories
+ * 20–23).
+ *
+ * The label is the whole of what this class knows about an Edit History, so it is the whole of what
+ * there is to assert here: a labelled write is a Step and an unlabelled one is not, and the sentence
+ * is the one a scholar reads on the control before pressing it.
+ */
+describe('the four gestures that become Steps', () => {
+	const drawnInto = (annotations: Annotation[] = []) => {
 		const layer = layerNamed('one');
 		const it_ = screen([layer]);
-		it_.put(layer, { annotations: [pin('a1'), pin('a2')] });
+		it_.put(layer, { annotations });
 		it_.annotations.openLayer('one');
+		return it_;
+	};
+
+	it('names the shape just drawn, by the title it arrived with', async () => {
+		const it_ = drawnInto();
+
+		await it_.annotations.placePin({ lng: 4.9, lat: 52.4 }, 'Fort Amsterdam');
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([
+			'Undo drawing “Fort Amsterdam”'
+		]);
+	});
+
+	it('names an untitled shape the way the undo control has always named one', async () => {
+		const it_ = drawnInto();
+		it_.annotations.drawing.choose('point');
+
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.4 });
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([
+			'Undo drawing this Annotation'
+		]);
+	});
+
+	it('names the deletion of the Annotation that was selected', async () => {
+		const it_ = drawnInto([pin('a1'), titled('a2', 'The old quay')]);
 		it_.annotations.selectAnnotation('a2');
 
 		await it_.annotations.deleteSelected();
 
 		expect(it_.session.writes).toHaveLength(1);
 		expect(it_.session.writes[0]!.collection.annotations.map((one) => one.id)).toEqual(['a1']);
-		expect(it_.session.recorded?.record).toMatchObject({
-			kind: 'annotation-deleted',
-			layerId: 'one',
-			at: 1
-		});
+		expect(it_.session.writes[0]!.label).toBe('Undo delete of “The old quay”');
 	});
 
+	it('names a vertex being moved as moving the Annotation it belongs to', async () => {
+		const it_ = drawnInto([titled('a1', 'Trade route')]);
+		it_.annotations.selectAnnotation('a1');
+
+		await it_.annotations.reshape(0, { lng: 9, lat: 9 });
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual(['Undo moving “Trade route”']);
+	});
+
+	it('names a colour and a line style as restyling, one Step each', async () => {
+		const it_ = drawnInto([titled('a1', 'Trade route')]);
+		it_.annotations.selectAnnotation('a1');
+
+		await it_.annotations.styleSelected({ 'marker-color': '#d32f2f' });
+		await it_.annotations.lineStyleSelected('dotted');
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([
+			'Undo restyling “Trade route”',
+			'Undo restyling “Trade route”'
+		]);
+	});
+
+	/**
+	 * A slider still under the pointer is not a completed gesture (ADR-0017 rule 1), and a Step per
+	 * position a range reported would spend a five-deep history on one drag.
+	 */
+	it('opens no Step for a style still inside its debounce window', async () => {
+		const it_ = drawnInto([titled('a1', 'Trade route')]);
+		it_.annotations.selectAnnotation('a1');
+
+		await it_.annotations.styleSelected({ 'stroke-width': 4 }, { debounce: true });
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([undefined]);
+	});
+
+	/** Typed text is never a Step and is never reverted by one (SPEC stories 30, 33). */
+	it('opens no Step for a title or a description being typed', async () => {
+		const it_ = drawnInto([pin('a1')]);
+		it_.annotations.selectAnnotation('a1');
+
+		await it_.annotations.typeText({ title: 'Fort Amsterdam' });
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([undefined]);
+	});
+
+	/**
+	 * The two gestures that are not among the four. Moving an Annotation between Layers writes two
+	 * documents, and ADR-0039's disjointness invariant is that a Step names the files one gesture
+	 * wrote — so neither is offered as a Step at all rather than as one that names half of what it did.
+	 */
+	it('opens no Step for a reorder inside the Layer, or for a move between Layers', async () => {
+		const to = layerNamed('two');
+		const it_ = screen([layerNamed('one'), to]);
+		it_.put(layerNamed('one'), { annotations: [pin('a1'), pin('a2')] });
+		it_.annotations.openLayer('one');
+
+		await it_.annotations.moveAnnotationTo('a1', 1);
+		await it_.annotations.moveAnnotationToLayer('a2', 'two');
+
+		expect(it_.session.writes.map((write) => write.label)).toEqual([
+			undefined,
+			undefined,
+			undefined
+		]);
+	});
+});
+
+/**
+ * SPEC stories 52 and 53: undo writes bytes, so the Annotation the Inspector is describing can simply
+ * cease to exist. One test clears the one value the Inspector and the row's highlight are both read
+ * from, so the two ends of a selection cannot disagree.
+ */
+describe('letting go of a selection an Edit History wrote away', () => {
+	it('clears the selection when the collection just read no longer holds it', () => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [pin('a1'), pin('a2')] });
+		it_.annotations.openLayer('one');
+		it_.annotations.selectAnnotation('a2');
+
+		// What an undo of the Step that drew it leaves on disk, read back into the screen's record.
+		it_.put(layer, { annotations: [pin('a1')] });
+		it_.annotations.releaseMissingSelection();
+
+		expect(it_.annotations.selectedAnnotationId).toBeNull();
+		expect(it_.annotations.selectedAnnotation).toBeNull();
+	});
+
+	it('keeps a selection the collection still holds, so an unrelated undo closes nothing', () => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [pin('a1'), pin('a2')] });
+		it_.annotations.openLayer('one');
+		it_.annotations.selectAnnotation('a2');
+
+		it_.put(layer, { annotations: [pin('a2')] });
+		it_.annotations.releaseMissingSelection();
+
+		expect(it_.annotations.selectedAnnotationId).toBe('a2');
+	});
+
+	/**
+	 * A hidden Layer is absent from `documents` altogether, so there is no collection to test the
+	 * selection against — and letting go on that would drop a selection over a read rather than over
+	 * an undo.
+	 */
+	it('keeps the selection when the open Layer’s document is not in hand', () => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.annotations.openLayer('one');
+		it_.annotations.selectAnnotation('a2');
+
+		it_.annotations.releaseMissingSelection();
+
+		expect(it_.annotations.selectedAnnotationId).toBe('a2');
+	});
+});
+
+describe('putting a deleted Annotation back (ticket 7 removes this path)', () => {
 	it('refuses in words when the Layer it names has since been deleted, writing nothing', async () => {
 		// Not reachable through the interface — deleting a Layer replaces the undo record — and that
 		// is exactly why it needs a test: the alternative to saying so is writing the Annotation into
@@ -997,5 +1159,191 @@ describe('moving an Annotation', () => {
 		it_.annotations.openLayer('two');
 
 		expect(it_.annotations.moveTargets.map((target) => target.id)).toEqual(['one', 'three']);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE FOUR GESTURES AGAINST A REAL SESSION AND A REAL STORE (ADR-0039, SPEC stories 20–23, 34)
+//
+// Everything above hands this class a fake writer, because what it asserts is what the class
+// *decides*. These assert what the application does: `MemoryProjectStore` under a real `Autosave`
+// under a real `EditorSession`, so a gesture opens a real Step, and undo and redo write real bytes
+// back through the same save path as the gesture they reverse.
+//
+// **The assertion is byte identity**, which is the strongest form available and the bar ADR-0039
+// sets: a `.geojson` is the scholar's own writing, and undo must give back the file rather than a
+// re-serialisation of a parsed model that merely happens to be equivalent. Where the carry-across
+// rule applies the assertion is the pair — the reverted half from the image and the typed half from
+// the file as it stands.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+const DIRECTORY = 'amsterdam-1625';
+
+/** A Project open on one empty Annotation Layer, with this class wired to the real session. */
+async function realSession(): Promise<{
+	store: MemoryProjectStore;
+	session: EditorSession;
+	annotations: AnnotationEditing;
+	layer: AnnotationLayer;
+	path: StorePath;
+	/** The Layer's bytes as they stand. */
+	bytes(): Promise<Bytes>;
+	/** Everything pending, landed, so a read sees what the gesture wrote. */
+	settle(): Promise<void>;
+}> {
+	const store = new MemoryProjectStore();
+	await store.write(
+		projectFilePath(DIRECTORY),
+		serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+	);
+	const session = new EditorSession(store);
+	await session.open(DIRECTORY);
+	const layer = await session.addAnnotationLayer('Trade routes');
+	if (layer === null) throw new Error('expected an Annotation Layer');
+	await session.flush();
+
+	let documents = $state<Record<string, unknown>>({
+		[layer.id]: await session.readAnnotations(layer)
+	});
+	const annotations = new AnnotationEditing({
+		session: () => session,
+		layers: () => session.openProject?.layers ?? [],
+		documents: () => documents,
+		replaceDocument: (layerId, collection) => {
+			documents = { ...documents, [layerId]: collection };
+		}
+	});
+	annotations.openLayer(layer.id);
+
+	const path = `${DIRECTORY}/${annotationPath(layer.id)}`;
+	return {
+		store,
+		session,
+		annotations,
+		layer,
+		path,
+		bytes: () => store.read(path),
+		settle: async () => {
+			await session.flush();
+			// The screen re-reads what a history wrote, which is what `documents` is for: without it the
+			// next gesture would edit the collection as it was before the undo.
+			documents = { ...documents, [layer.id]: await session.readAnnotations(layer) };
+		}
+	};
+}
+
+describe('an Annotation gesture undone and redone against the store', () => {
+	/**
+	 * Draw, delete, move and restyle, each one gesture and each reversible on its own — with the
+	 * before-image put back byte for byte, because nothing here typed anything for the carry-across
+	 * rule to bring along.
+	 */
+	const gestures: [string, (it_: Awaited<ReturnType<typeof realSession>>) => Promise<void>][] = [
+		[
+			'drawing',
+			async (it_) => {
+				it_.annotations.drawing.choose('point');
+				await it_.annotations.placePoint({ lng: 4.9, lat: 52.4 });
+			}
+		],
+		[
+			'deleting',
+			async (it_) => {
+				await it_.annotations.deleteSelected();
+			}
+		],
+		[
+			'moving a vertex',
+			async (it_) => {
+				await it_.annotations.reshape(0, { lng: 5.1, lat: 52.1 });
+			}
+		],
+		[
+			'restyling',
+			async (it_) => {
+				await it_.annotations.styleSelected({ 'marker-color': '#d32f2f' });
+			}
+		]
+	];
+
+	for (const [what, gesture] of gestures) {
+		it(`puts the file back byte-identically after ${what}, and forward again on redo`, async () => {
+			const it_ = await realSession();
+			// Something to delete, move and restyle. Its own Step, walked past by the assertions below,
+			// which is also how they prove undo reaches the Step it names rather than the last write.
+			it_.annotations.drawing.choose('point');
+			await it_.annotations.placePoint({ lng: 4.78, lat: 52.4 });
+			await it_.settle();
+
+			const before = await it_.bytes();
+			await gesture(it_);
+			await it_.settle();
+			const after = await it_.bytes();
+			// The gesture really reached storage, so the undo below cannot be satisfied by a revert to
+			// the last saved state (ADR-0017's consequence).
+			expect(after).not.toEqual(before);
+
+			const history = it_.session.historyFor(DIRECTORY);
+			expect(await history.undo()).toBe(true);
+			await it_.settle();
+			expect(await it_.bytes()).toEqual(before);
+
+			expect(await history.redo()).toBe(true);
+			await it_.settle();
+			expect(await it_.bytes()).toEqual(after);
+		});
+	}
+
+	// SPEC story 33, on the other format: words typed after a Step are the scholar's and are not part
+	// of the gesture that Step records, so undoing it must not take them back.
+	it('carries a description typed after a Step across the undo of that Step', async () => {
+		const it_ = await realSession();
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.78, lat: 52.4 });
+		await it_.settle();
+		const kept = it_.annotations.selectedAnnotationId as string;
+
+		// The Step to be undone, and then the typing that must survive it.
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 5.02, lat: 52.34 });
+		await it_.settle();
+		it_.annotations.selectAnnotation(kept);
+		await it_.annotations.typeText({ description: 'Attested in the 1625 toll register.' });
+		await it_.annotations.commitAnnotationEdit();
+		await it_.settle();
+
+		expect(await it_.session.historyFor(DIRECTORY).undo()).toBe(true);
+		await it_.settle();
+
+		const back = parseAnnotations(await it_.bytes(), { path: 'annotations' });
+		expect(back.annotations).toHaveLength(1);
+		expect(back.annotations[0]!.properties.description).toBe('Attested in the 1625 toll register.');
+	});
+
+	/**
+	 * SPEC story 34, and the other face of the same rule: an Annotation absent from the before-image
+	 * has nothing for its words to be carried onto, so undoing its creation takes them with it rather
+	 * than putting it back as a fragment of itself.
+	 */
+	it('takes an Annotation’s typed words with it when its creation is undone', async () => {
+		const it_ = await realSession();
+		const empty = await it_.bytes();
+
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.4 });
+		await it_.settle();
+		await it_.annotations.typeText({
+			title: 'Fort Amsterdam',
+			description: 'The fort at the mouth of the river.'
+		});
+		await it_.annotations.commitAnnotationEdit();
+		await it_.settle();
+		expect(await it_.bytes()).not.toEqual(empty);
+
+		expect(await it_.session.historyFor(DIRECTORY).undo()).toBe(true);
+		await it_.settle();
+
+		// Byte for byte the document the Layer was added with: no fragment, and no words left behind.
+		expect(await it_.bytes()).toEqual(empty);
 	});
 });

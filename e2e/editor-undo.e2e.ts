@@ -28,6 +28,7 @@ import {
 	drawShape,
 	editAnnotationText,
 	hashesUnder,
+	inspector,
 	projectJson,
 	readProjectFile,
 	reopenLayers,
@@ -63,7 +64,7 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
  * state).
  */
 
-/** The outgoing single-slot undo affordance, still serving the three gestures ticket 7 migrates. */
+/** The outgoing single-slot undo affordance, still serving the two Control Point gestures. */
 const undoButton = (page: Page) => page.getByTestId('undo');
 
 /**
@@ -556,8 +557,17 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		// On disk, before the undo: the file the user would have been left with.
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
 
-		await expect(undoButton(page)).toHaveText('Undo delete of “Fort Amsterdam”');
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of “Fort Amsterdam”');
+		await editHistoryUndo(page).click();
+		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
+		// the indicator is still saying what the gesture before it left it saying — so waiting for
+		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
+		// The deletion is now what redo offers, in the same sentence with one word swapped (SPEC story 7).
+		await expect(editHistoryRedo(page)).toHaveAttribute(
+			'aria-label',
+			'Redo delete of “Fort Amsterdam”'
+		);
 		await saved(page);
 
 		expect(await readProjectFile(page, `annotations/${layerId}.geojson`)).toBe(before);
@@ -567,16 +577,22 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		// And it is on the map again, which is the half no assertion about state can see.
 		const painted = await waitForPaintedAnnotations(page, [annotationId]);
 		expect(painted[annotationId]?.length ?? 0).toBeGreaterThan(0);
-		await expect(undoButton(page)).toHaveCount(0);
+
+		// The drawing and the line style that preceded the deletion are still behind the cursor, which is
+		// what makes this a history rather than a slot (SPEC story 6).
+		await expect(editHistoryUndo(page)).toHaveText('Undo restyling “Fort Amsterdam”');
 	});
 
 	/**
 	 * Which Annotation Layer is being drawn into is a **working choice**, not part of the work, and
 	 * nothing stops a user changing it between the deletion and the undo — the picker sits a few
-	 * centimetres from the affordance. `AnnotationDeletedUndo` carries the Layer the Annotation was in
-	 * "so it cannot be restored into another one", and this is that claim asserted: an undo that read
-	 * the chosen Layer instead would take the Annotation out of one `.geojson` and put it into another,
-	 * which is not an undo of anything — it is a move into a file the user was not looking at.
+	 * centimetres from the affordance. An undo that wrote into whichever Layer happened to be open
+	 * would take the Annotation out of one `.geojson` and put it into another, which is not an undo of
+	 * anything: it is a move into a file the user was not looking at.
+	 *
+	 * A Step names the files its gesture wrote (ADR-0039), so the file is no longer a lookup that can
+	 * go wrong — and this is the scenario that proved it could, kept because the class of defect is
+	 * what the assertion is about rather than the mechanism that used to cause it.
 	 */
 	test('goes back into the Layer it was deleted from, not the one chosen when Undo is pressed', async ({
 		page
@@ -614,8 +630,13 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		await openLayerRow(page, rowFor(page, places));
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 
-		await expect(undoButton(page)).toHaveText('Undo delete of “Fort Amsterdam”');
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of “Fort Amsterdam”');
+		await editHistoryUndo(page).click();
+		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
+		// the indicator is still saying what the gesture before it left it saying — so waiting for
+		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
+		await expect(editHistoryRedo(page)).toHaveCount(1);
 		await saved(page);
 
 		// Byte for byte back where it came from, and the chosen Layer's file is the one it was.
@@ -625,19 +646,16 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		expect(back?.id).toBe(annotationId);
 		expect(back?.properties).toEqual(deleted?.properties);
 
-		// The sidebar followed the record — the Layer the Annotation came from is the one now open — so
-		// the user *watches* it come back rather than being told it happened somewhere they are not
-		// looking. Asserted on `aria-expanded`, which is what the app promises a screen reader.
-		await expect(rowFor(page, routes).getByTestId('layer-disclosure')).toHaveAttribute(
+		// The Layer the scholar had open stays open: a Step writes bytes and moves nothing about the
+		// sidebar, so the row that was on screen is still the row under the pointer. Its own Layer's
+		// contents are where the Annotation is, which is what the file assertions above say and what
+		// opening that row now shows.
+		await expect(rowFor(page, places).getByTestId('layer-disclosure')).toHaveAttribute(
 			'aria-expanded',
 			'true'
 		);
-		await expect(rowFor(page, places).getByTestId('layer-disclosure')).toHaveAttribute(
-			'aria-expanded',
-			'false'
-		);
+		await openLayerRow(page, rowFor(page, routes));
 		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
-		await expect(page.getByTestId('undo-refused')).toHaveText('');
 		const restored = await waitForPaintedAnnotations(page, [annotationId]);
 		expect(restored[annotationId]?.length ?? 0).toBeGreaterThan(0);
 	});
@@ -932,23 +950,51 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 		expect(layers[0].name).toBe('Trade routes');
 	});
 
-	// ADR-0014: the record does not persist. Closing the Project is where it goes.
-	test('the record is cleared when the Project is closed', async ({ page }) => {
+	/**
+	 * SPEC stories 52 and 53, and a claim only the running app can make: the Inspector is a real panel
+	 * over a real MapLibre canvas and the leader is drawn between two measured boxes, so "the panel
+	 * closed and the line went with it" cannot be asserted against a DOM implementation with no layout.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHAT THIS TEST REPLACED, AND WHY THAT ONE HAD NOTHING LEFT TO SAY
+	 *
+	 * "The record is cleared when the Project is closed" (ADR-0014) stood here, driven by deleting an
+	 * Annotation and watching the single slot empty. ADR-0039 answers the same question differently and
+	 * in two places: an Edit History belongs to its subject, so it survives leaving the screen and is
+	 * dropped when the Project is opened afresh — asserted at the unit seam, over a memory store, in
+	 * `editor-session.test.ts` — while *what the bar draws* is the slot the screen declares, asserted a
+	 * few tests above on the walk from `/align` to the Project screen to Workspace Home. Neither half
+	 * needed a browser; this does, and the Seam 2 budget is one test either way (ADR-0039).
+	 */
+	test('undoing the drawing of an Annotation closes the Inspector it was open on', async ({
+		page
+	}) => {
 		test.setTimeout(90_000);
-		await annotating(page);
-		await drawPin(page, 0.5, 0.5);
-		await selectAnnotation(page);
-		await deleteAnnotation(page);
+		const layerId = await annotating(page);
+		await drawPin(page, 0.45, 0.45);
+		// A shape just drawn arrives selected so that it can be titled, so the Inspector is open on it
+		// and the leader is drawn from its row to the mark — without either, this test asserts nothing.
+		await expect(inspector(page)).toHaveCount(1);
+		// `data-drawn` rather than the element, which is always there: an SVG polyline with no `points`
+		// is otherwise indistinguishable from one nobody asked for (see `LeaderLine.svelte`).
+		await expect(page.getByTestId('leader-line')).toHaveAttribute('data-drawn', 'yes');
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
+
+		await expect(editHistoryUndo(page)).toHaveText('Undo drawing this Annotation');
+		await editHistoryUndo(page).click();
+
+		// The panel describing an Annotation that is no longer there goes, and the selection goes with
+		// it — one value, so the row's highlight and the leader cannot disagree with the panel.
+		await expect(inspector(page)).toHaveCount(0);
+		await expect(page.getByTestId('leader-line')).toHaveAttribute('data-drawn', 'no');
+		await expect(page.getByTestId('annotation-row')).toHaveCount(0);
 		await saved(page);
-		await expect(undoButton(page)).toHaveCount(1);
-
-		// Out to the hub, which is what closing a Project is (ADR-0008: it is selected by `?p=`).
-		await page.getByTestId('all-projects').click();
-		await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible();
-		await expect(undoButton(page)).toHaveCount(0);
-
-		await reopenLayers(page);
-		await expect(undoButton(page)).toHaveCount(0);
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
+		// And nothing is said about the panel closing: the toast already reports what was undone, and a
+		// second sentence about a side effect of it is noise.
+		await expect(page.getByTestId('edit-history-outcome')).toContainText(
+			'Undone: drawing this Annotation.'
+		);
 	});
 
 	/**
@@ -968,12 +1014,15 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
 
 		for (let press = 0; press < 200; press += 1) {
-			if (await undoButton(page).evaluate((element) => element === document.activeElement)) break;
+			if (await editHistoryUndo(page).evaluate((element) => element === document.activeElement)) {
+				break;
+			}
 			await page.keyboard.press('Tab');
 		}
-		await expect(undoButton(page)).toBeFocused();
+		await expect(editHistoryUndo(page)).toBeFocused();
 
 		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
 		await saved(page);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 	});
@@ -1001,8 +1050,8 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 		await name.click();
 		await name.press('Control+z');
 
-		// Ours did not fire: the Annotation is still deleted and the affordance is still offered.
-		await expect(undoButton(page)).toHaveCount(1);
+		// Ours did not fire: the Annotation is still deleted and the affordance still names its deletion.
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of this Annotation');
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 	});
 });
@@ -1077,15 +1126,19 @@ test.describe('a deleted Label (write-on-the-map stories 42 and 43)', () => {
 		await expect.poll(async () => 'label' in (await renderedAnnotationLayers(page))).toBe(false);
 
 		await openLayerRow(page, rowFor(page, otherLayerId));
-		await expect(undoButton(page)).toHaveText('Undo delete of “Zuiderzee”');
-		await undoButton(page).click();
+		await expect(editHistoryUndo(page)).toHaveText('Undo delete of “Zuiderzee”');
+		await editHistoryUndo(page).click();
+		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
+		// the indicator is still saying what the gesture before it left it saying — so waiting for
+		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
+		await expect(editHistoryRedo(page)).toHaveCount(1);
 		await saved(page);
 
 		await expect.poll(() => hashesUnder(page, 'annotations/')).toEqual(before);
-		await expect(rowFor(page, layerId).getByTestId('layer-disclosure')).toHaveAttribute(
-			'aria-expanded',
-			'true'
-		);
+		// A Step writes bytes and moves nothing about the sidebar, so the Layer the Label went back
+		// into is opened here rather than being expected to have opened itself.
+		await openLayerRow(page, rowFor(page, layerId));
 		await expect(
 			page
 				.getByTestId('annotation-row')
@@ -1161,10 +1214,10 @@ test.describe('a deleted Label (write-on-the-map stories 42 and 43)', () => {
 		expect(await readProjectFile(page, `annotations/${layerId}.geojson`)).not.toBe(before);
 		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
 
-		await undoButton(page).click();
+		await editHistoryUndo(page).click();
+		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
 		await saved(page);
 		expect(await readProjectFile(page, `annotations/${layerId}.geojson`)).toBe(before);
-		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
 		await expect(
 			page
 				.getByTestId('annotation-row')

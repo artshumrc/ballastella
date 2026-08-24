@@ -257,6 +257,10 @@
 		// so this must not also re-read on every edit — it would race the write and snap the map back to
 		// the bytes on disk. `reloadAt` is bumped only where a fresh read is genuinely wanted.
 		void reloadAt;
+		// An Edit History writes bytes rather than calling the mutators that keep `documents`
+		// (ADR-0039), so a Step walked back or forward is one of those genuine wants: without this the
+		// Annotation would be in the file and absent from the map until something else re-read it.
+		void session?.annotationsWrittenBack;
 		const current = session;
 		const wanted = untrack(() => withDocuments);
 		if (!current) return;
@@ -280,6 +284,9 @@
 			if (mine !== generation) return;
 			documents = read;
 			unreadable = failures;
+			// The collection on screen is now the one on disk, so an Annotation that is no longer in it
+			// takes the Inspector and the row's highlight with it (SPEC stories 52, 53).
+			annotations.releaseMissingSelection();
 		})();
 	});
 
@@ -2186,11 +2193,15 @@
 
 	What holds the invariant is that **every transition writes `selectedAnnotationId` and replaces the
 	collection in one synchronous task**, so `selectedAnnotation` never resolves to `null` on a flush in
-	between: `#addDrawn` selects and then commits, and `restoreDeleted` puts the Annotation back and
-	selects it. An `await` slipped between those two writes would leave one flush with the id naming an
-	Annotation the collection has not got, this block would go false for that frame, and the fault would
-	be a duplicated element id rather than anything visible — so the ordering is load-bearing and silent
-	if broken.
+	between: `#addDrawn` selects the shape it drew and then commits it. An `await` slipped between those
+	two writes would leave one flush with the id naming an Annotation the collection has not got, this
+	block would go false for that frame, and the fault would be a duplicated element id rather than
+	anything visible — so the ordering is load-bearing and silent if broken.
+
+	**Going false because the Annotation is genuinely gone is the other thing entirely**, and it is what
+	`releaseMissingSelection` is for: an Edit History writes bytes, so undo can remove the Annotation
+	this panel describes. There is no incoming panel in that case — the selection is cleared by the same
+	read that took the Annotation away — so the outgoing one has the id to itself.
 -->
 {#snippet mapOverlay()}
 	{#if annotations.selectedAnnotation}

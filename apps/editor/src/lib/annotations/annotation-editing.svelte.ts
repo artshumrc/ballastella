@@ -37,14 +37,14 @@ import {
 	setLineStyle,
 	setStyle,
 	setText,
+	type Annotation,
 	type AnnotationCollection,
 	type AnnotationDeletedUndo,
 	type AnnotationGeometry,
 	type AnnotationLayer,
 	type GeoPoint,
 	type Layer,
-	type LineStyle,
-	type UndoRecord
+	type LineStyle
 } from '@ballastella/core';
 
 import type { AnnotationDragPreview, BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
@@ -54,20 +54,24 @@ import { AnnotationDrawing } from './drawing.svelte.js';
 /**
  * What this layer needs of `EditorSession`, and nothing more.
  *
- * **Four methods rather than the session**, which is what makes this class testable without one:
- * `EditorSession` is ~2500 lines reaching OPFS, the autosave timer, the undo slot and the Base Map
- * cache, and none of that is a dependency of "put a vertex in a collection and write it".
+ * **Three methods rather than the session**, which is what makes this class testable without one:
+ * `EditorSession` is ~2500 lines reaching OPFS, the autosave timer, the Edit Histories and the Base
+ * Map cache, and none of that is a dependency of "put a vertex in a collection and write it".
  * `EditorSession` satisfies this structurally, so nothing is adapted at the call site.
+ *
+ * **A `label` is how a gesture becomes a Step**, and it is the whole of what this class knows about
+ * an Edit History (ADR-0039): the sentence the bar will say is built where the gesture is, and the
+ * session turns it into a Step over the one file it writes. No label, no Step — which is what keeps
+ * a typed title out of the history without this class naming what it is not.
  */
 export interface AnnotationWriter {
 	readAnnotations(layer: AnnotationLayer): Promise<AnnotationCollection>;
 	writeAnnotations(
 		layer: AnnotationLayer,
 		collection: AnnotationCollection,
-		options?: { debounce?: boolean }
+		options?: { debounce?: boolean; label?: string }
 	): Promise<void>;
 	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean;
-	record(record: UndoRecord, apply: () => Promise<void>): void;
 }
 
 /** The three edges ticket 05 named, and the one write back through the middle of them. */
@@ -78,6 +82,21 @@ export interface AnnotationEdges {
 	/** Replace one Layer's collection in the screen's `documents` record. */
 	replaceDocument: (layerId: string, collection: AnnotationCollection) => void;
 }
+
+/**
+ * The sentence an Edit History's controls say about a gesture on one Annotation (SPEC story 42).
+ *
+ * Verb, then subject, in the scholar's own words where they typed them — the convention every Step
+ * in this application follows, and `quotedName`'s rule for a Layer beside it: quotation marks around
+ * a title somebody typed, and a phrase naming the thing where they typed none. The fallback is
+ * `describeUndo`'s, unchanged, so an untitled shape reads in the bar the way it already reads in the
+ * prose this class writes for its vertices.
+ */
+const undoLabel = (verb: string, annotation: Annotation): string => {
+	const title = annotation.properties.title;
+	const subject = title === undefined || title === '' ? 'this Annotation' : `“${title}”`;
+	return `Undo ${verb} ${subject}`;
+};
 
 export class AnnotationEditing {
 	/**
@@ -290,6 +309,34 @@ export class AnnotationEditing {
 	}
 
 	/**
+	 * Let go of a selection the Layer's document no longer holds (SPEC stories 52, 53).
+	 *
+	 * Called where a Layer's collection has just been read again, which is how an Edit History's
+	 * write-back reaches this screen: a Step holds file images and writes one back, so the Annotation
+	 * a scholar had open can simply cease to exist — undone into a state it was never in, or redone
+	 * out of one it was.
+	 *
+	 * **One test for both ends of the selection.** The Inspector is drawn from `selectedAnnotation`
+	 * and the Annotation list's highlight from `selectedAnnotationId`, so a panel describing something
+	 * that is not there and a row still marked as chosen are the same fault; clearing the one value
+	 * both are read from is what makes them unable to disagree. The leader line follows the selection
+	 * and needs no rule of its own.
+	 *
+	 * **Silent.** The toast already says what was undone, and a second message about a panel closing
+	 * is noise.
+	 */
+	releaseMissingSelection(): void {
+		const id = this.selectedAnnotationId;
+		if (id === null) return;
+		const collection = this.#activeCollection;
+		// A Layer whose document is not in hand — hidden, or still being read — says nothing about
+		// whether the selection is still there, and letting go on it would drop a selection over a read.
+		if (!collection) return;
+		if (findAnnotation(collection, id)) return;
+		this.selectAnnotation(null);
+	}
+
+	/**
 	 * An Annotation was clicked on the map: open the Layer it lives in and select it.
 	 *
 	 * **Not routed through {@link openLayer}**, which clears the selection — and a selection is
@@ -301,10 +348,19 @@ export class AnnotationEditing {
 		this.selectAnnotation(annotationId);
 	}
 
-	/** Replace the active Layer's collection in memory and write it. */
+	/**
+	 * Replace the active Layer's collection in memory and write it.
+	 *
+	 * `options.label` makes the write one Step of the Project's Edit History, over the Layer's own
+	 * `.geojson` and nothing else. **The memory half happens outside it**, in
+	 * {@link commitAnnotationsIn}: a Step's before-image is read from the store, so the gesture's
+	 * bytes must not reach the store until that read has happened — but the map must repaint with the
+	 * gesture rather than after a store read, which is the same split `#applyLayerChange` makes for
+	 * the Layer stack.
+	 */
 	async commitAnnotations(
 		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
 		const layer = this.#activeLayer;
 		if (!layer) return;
@@ -322,7 +378,7 @@ export class AnnotationEditing {
 	async commitAnnotationsIn(
 		layer: AnnotationLayer,
 		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
 		if (next === this.#edges.documents()[layer.id]) return;
 		this.#edges.replaceDocument(layer.id, next);
@@ -418,7 +474,9 @@ export class AnnotationEditing {
 		// and titling it is the next gesture; a Pin dropped on a Place already carries the words the
 		// scholar typed, so opening a field on them would be an edit nobody asked for.
 		if (title === undefined) this.titlingId = annotation.id;
-		await this.commitAnnotations(addAnnotation(collection, annotation));
+		await this.commitAnnotations(addAnnotation(collection, annotation), {
+			label: undoLabel('drawing', annotation)
+		});
 	}
 
 	/**
@@ -498,7 +556,9 @@ export class AnnotationEditing {
 		}
 
 		const next = this.#geometryWithVertex(geometry, index, to);
-		const write = this.commitAnnotations(setGeometry(collection, annotation.id, next));
+		const write = this.commitAnnotations(setGeometry(collection, annotation.id, next), {
+			label: undoLabel('moving', annotation)
+		});
 		this.dragPreview = null;
 		await write;
 	}
@@ -584,9 +644,8 @@ export class AnnotationEditing {
 	 * would write a file holding one Annotation over a file holding twenty.
 	 *
 	 * The sidebar follows the Annotation: the target Layer is opened and the Annotation selected in
-	 * it, so the user watches where their work went instead of being told. That is `restoreDeleted`'s
-	 * rule, and it matters more here — the row simply vanishing from the list it was in is exactly
-	 * what a move nobody meant to make would look like.
+	 * it, so the user watches where their work went instead of being told — the row simply vanishing
+	 * from the list it was in is exactly what a move nobody meant to make would look like.
 	 */
 	async moveAnnotationToLayer(id: string, toLayerId: string): Promise<void> {
 		this.moveRefusal = '';
@@ -620,34 +679,27 @@ export class AnnotationEditing {
 	}
 
 	/**
-	 * Delete the selected Annotation, recording what it takes away.
+	 * Delete the selected Annotation, as one Step of the Project's Edit History.
 	 *
-	 * The record holds the Annotation itself, so every one of its `properties` comes back — including
-	 * `stroke-dasharray`, where "solid" is the property being *absent* (ADR-0009): an undo that rebuilt
-	 * the Annotation from the controls' current values would silently turn a dotted conjectural route
-	 * into a solid certain one.
+	 * The Step holds the file either side of the deletion, so every one of the Annotation's
+	 * `properties` comes back — including `stroke-dasharray`, where "solid" is the property being
+	 * *absent* (ADR-0009): an undo that rebuilt the Annotation from the controls' current values would
+	 * silently turn a dotted conjectural route into a solid certain one.
+	 *
+	 * **Nothing is recorded after the write, because nothing has to be.** A deletion the store refused
+	 * used to be kept out of the record by recording it afterwards; `step()` pushes nothing when the
+	 * gesture leaves the file as it found it, which is the same guarantee by construction.
 	 */
 	async deleteSelected(): Promise<void> {
 		const collection = this.#activeCollection;
-		const layer = this.#activeLayer;
 		const id = this.selectedAnnotationId;
-		if (!collection || !layer || !id) return;
-		const at = collection.annotations.findIndex((one) => one.id === id);
-		const annotation = collection.annotations[at];
-		// A refusal is about the record that is being replaced, so it goes with it.
-		this.undoRefusal = '';
-		this.selectAnnotation(null);
-		await this.commitAnnotations(removeAnnotation(collection, id));
+		if (!collection || !id) return;
+		const annotation = findAnnotation(collection, id);
 		if (!annotation) return;
-		const record: AnnotationDeletedUndo = {
-			kind: 'annotation-deleted',
-			layerId: layer.id,
-			at,
-			annotation
-		};
-		// Recorded *after* the write, so a deletion the store refused is not offered as something to undo
-		// — the same discipline `writeAlignment` follows when it counts a write.
-		this.#edges.session().record(record, () => this.restoreDeleted(record));
+		this.selectAnnotation(null);
+		await this.commitAnnotations(removeAnnotation(collection, id), {
+			label: undoLabel('delete of', annotation)
+		});
 	}
 
 	/**
@@ -728,7 +780,15 @@ export class AnnotationEditing {
 		await this.#edges.session().writeAnnotations(layer, collection);
 	}
 
-	/** Set style properties on the selected Annotation, by their exact simplestyle names. */
+	/**
+	 * Set style properties on the selected Annotation, by their exact simplestyle names.
+	 *
+	 * **A discrete choice is one Step; a slider still under the pointer is not.** `debounce` is the
+	 * caller saying the gesture is not over (ADR-0017 rule 2), and a Step per position a range
+	 * reported would spend a five-deep history on one drag. So a colour, a marker size and a line
+	 * style each open a Step, and what a released slider leaves behind is the before-image of
+	 * whichever gesture comes next.
+	 */
 	async styleSelected(
 		style: Record<string, unknown>,
 		options: { debounce?: boolean } = {}
@@ -736,7 +796,12 @@ export class AnnotationEditing {
 		const collection = this.#activeCollection;
 		const id = this.selectedAnnotationId;
 		if (!collection || !id) return;
-		await this.commitAnnotations(setStyle(collection, id, style), options);
+		const annotation = findAnnotation(collection, id);
+		if (!annotation) return;
+		await this.commitAnnotations(setStyle(collection, id, style), {
+			...options,
+			...(options.debounce ? {} : { label: undoLabel('restyling', annotation) })
+		});
 	}
 
 	/** Set the selected Annotation's line style. Stores the tuple; solid is its absence (ADR-0009). */
@@ -744,6 +809,10 @@ export class AnnotationEditing {
 		const collection = this.#activeCollection;
 		const id = this.selectedAnnotationId;
 		if (!collection || !id) return;
-		await this.commitAnnotations(setLineStyle(collection, id, line));
+		const annotation = findAnnotation(collection, id);
+		if (!annotation) return;
+		await this.commitAnnotations(setLineStyle(collection, id, line), {
+			label: undoLabel('restyling', annotation)
+		});
 	}
 }

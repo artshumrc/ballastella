@@ -420,6 +420,16 @@ export class EditorSession {
 	readonly #histories = new SvelteMap<string, EditHistory>();
 
 	/**
+	 * How many times an Edit History has written an Annotation Layer's document back.
+	 *
+	 * A counter rather than a path, because what the Project screen does with it is re-read every
+	 * Layer's document: it holds one record for Alignments and collections together, and a Step may
+	 * name a Layer whose row is not even on screen. Bumped only by {@link #historyFiles}, so an
+	 * ordinary edit — which changes the in-memory collection itself — costs no read at all.
+	 */
+	annotationsWrittenBack = $state(0);
+
+	/**
 	 * The opacity drag now under way, and the Step held open for it, or `null`.
 	 *
 	 * A drag reports every position it passes through, and each one is an ordinary debounced write —
@@ -459,6 +469,13 @@ export class EditorSession {
 			// absent from the stack until something re-read it.
 			if (this.openDirectory !== null && path === projectFilePath(this.openDirectory)) {
 				this.openProject = bytes === null ? null : parseProjectFile(bytes);
+			}
+			// The same problem for an Annotation Layer's collection, which is the Project screen's rather
+			// than this class's: it holds the map Layers' Alignments in the same record. So this says a
+			// fresh read is due and the screen does it, which is also where a selection the write-back
+			// took away is let go of (SPEC stories 52, 53).
+			if (this.openDirectory !== null && path.startsWith(`${this.openDirectory}/annotations/`)) {
+				this.annotationsWrittenBack += 1;
 			}
 			this.saveError = '';
 		}
@@ -3437,12 +3454,42 @@ export class EditorSession {
 	async writeAnnotations(
 		layer: AnnotationLayer,
 		collection: AnnotationCollection,
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
 		const directory = this.openDirectory;
 		if (!directory) return;
 		const path = annotationStorePath(directory, layer.id);
 		const bytes = serialiseAnnotations(collection);
+		const { label } = options;
+		// **No label, no Step**, the same convention `#changeLayers` follows: a gesture is recorded
+		// because its caller said so, which is what keeps a typed title out of the history without
+		// anything here having to name what a title is not (SPEC stories 30, 33).
+		//
+		// **The Layer's own document and nothing else**, which is ADR-0039's disjointness invariant on
+		// this side: an Annotation is content, `project.json` is untouched by it, and a Step that named
+		// both would be a Project Step reaching into an Alignment's neighbour.
+		if (label !== undefined) {
+			// **The indicator is told here rather than by the write**, for the reason
+			// {@link #applyLayerChange} records: a Step reads its before-image before the gesture's bytes
+			// go out, and a screen reading `Saved locally` across that read would be reporting an edit
+			// that exists and is unwritten as a written one. {@link Autosave}'s own subscription carries
+			// it from there.
+			this.saveState = 'saving';
+			await this.historyFor(directory).step(label, [path], () =>
+				this.#putAnnotations(path, collection, bytes, options)
+			);
+			return;
+		}
+		await this.#putAnnotations(path, collection, bytes, options);
+	}
+
+	/** One Annotation Layer's bytes out through {@link Autosave}, on the timer or now. */
+	async #putAnnotations(
+		path: StorePath,
+		collection: AnnotationCollection,
+		bytes: Bytes,
+		options: { debounce?: boolean }
+	): Promise<void> {
 		if (options.debounce) {
 			// Rule 2's per-file timer. Nothing is recorded for this path: the write happens on the timer
 			// rather than here, and the counter exists to assert that a *gesture* costs one write.
