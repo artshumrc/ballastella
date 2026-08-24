@@ -699,12 +699,14 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		await expect
 			.poll(() => stackOrder(page), { timeout: STACK_READY_MS })
 			.toContain(`ballastella-layer-${mapLayer}`);
-		// At the start of the history, so undo is absent rather than greyed out — and redo has taken
-		// its place, naming the same action with one word swapped (SPEC stories 43, 44, 45).
-		await expect(editHistoryUndo(page)).toHaveCount(0);
+		// Redo has appeared, naming the same action with one word swapped (SPEC stories 43, 44) — and
+		// undo has moved back one place, to the Annotation Layer this test added at the top, which is
+		// its own Step since ticket 3 (SPEC stories 6, 15). Whether a control is absent rather than
+		// greyed out at each end of the history is asserted at Seam 1c.
 		await expect(editHistoryRedo(page)).toHaveAccessibleName(
 			'Redo delete of the Layer “la-floride.png”'
 		);
+		await expect(editHistoryUndo(page)).toHaveText('Undo adding the Layer “Annotations 1”');
 
 		// ─────────────────────────────────────────────────────────────────────────────────────
 		// THE EDIT HISTORY BELONGS TO THE SCREEN, WHICH IS THE DEFECT THIS EPIC EXISTS FOR
@@ -884,17 +886,16 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 
 test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 	/**
-	 * The fence. Toggling visibility and renaming are non-destructive or trivially reversible by
-	 * repeating them, so they must not consume a Step — otherwise a user who deletes something and
-	 * then adjusts anything at all has quietly lost their way back (SPEC stories 31, 32).
+	 * The fence. Naming things stays the browser's to undo (SPEC story 30), so a rename must not
+	 * consume a Step — otherwise a user who deletes something and then tidies a name has quietly lost
+	 * their way back (SPEC stories 31, 32).
 	 *
-	 * ⚠ **The two edits are not equally survivable, and that is ADR-0039 rather than an oversight.**
-	 * A Step holds byte images, and undo writes one back with only the *typed text* on disk spliced
-	 * into it — so the name typed after the deletion survives the undo, and the visibility toggle,
-	 * which is not text, goes back with the rest of the image. Making visibility its own Step is
-	 * ticket 3; until then the honest assertion is the one below.
+	 * **And it must not cost the scholar the name either.** A Step holds byte images, and undo writes
+	 * one back with the typed text on disk spliced into it (ADR-0039), so the name typed after the
+	 * deletion survives the undo of that deletion (SPEC story 33). The pair is the assertion: the
+	 * reverted half comes from the image and the typed half from the file as it stands.
 	 */
-	test('a visibility toggle and a rename leave the delete still undoable', async ({ page }) => {
+	test('a rename leaves the delete still undoable, and survives it', async ({ page }) => {
 		test.setTimeout(90_000);
 		await annotating(page);
 		await page.getByTestId('add-annotation-layer').click();
@@ -909,8 +910,7 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 		const label = 'Undo delete of the Layer “Annotations 1”';
 		await expect(editHistoryUndo(page)).toHaveText(label);
 
-		// Two edits that are not destructive, both of them written.
-		await layerRows(page).first().getByTestId('layer-visible').uncheck();
+		// An edit that is the browser's to undo, and written.
 		// Renaming starts at the pencil in an open card since the Layers revision.
 		const renaming = await openLayerRow(page, layerRows(page).first());
 		await renaming.getByTestId('layer-rename').click();

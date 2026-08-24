@@ -277,6 +277,20 @@ type MapLayerAdded = {
 	readonly alignment: InitialAlignment;
 };
 
+/** One opacity drag in progress, and the Edit History Step held open across it. */
+interface OpacityDrag {
+	readonly id: string;
+	/**
+	 * Every position reported so far, in the order they arrived and behind the before-image being
+	 * taken. Extended by each one, and awaited by the release.
+	 */
+	applied: Promise<void>;
+	/** Ends the gesture the Step is wrapped around. */
+	readonly end: () => void;
+	/** The Step itself, awaited by whoever ends it so the last position is written before they return. */
+	readonly step: Promise<void>;
+}
+
 /** The outcome of {@link EditorSession.addReferencedMap}. */
 export type ReferencedMapAdded = {
 	/** The new Layer, or the one this Project already had for this Map Image. */
@@ -404,6 +418,16 @@ export class EditorSession {
 	 * reactive context. What a screen renders is the history's own subscription, not this.
 	 */
 	readonly #histories = new SvelteMap<string, EditHistory>();
+
+	/**
+	 * The opacity drag now under way, and the Step held open for it, or `null`.
+	 *
+	 * A drag reports every position it passes through, and each one is an ordinary debounced write —
+	 * but the Step spans the whole gesture, so undo goes back to where the drag started rather than to
+	 * a value inside it (SPEC story 17). Opened by {@link #openOpacityStep} and closed by
+	 * {@link commitLayerEdit}, which is what the range's `change` event reaches.
+	 */
+	#opacityDrag: OpacityDrag | null = null;
 
 	/**
 	 * How every Edit History reads and writes the files it holds.
@@ -1851,9 +1875,25 @@ export class EditorSession {
 		if (raced) return { layer: raced, alignment };
 
 		const layer = newMapLayer({ id: crypto.randomUUID(), name, imageId });
-		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
-		await this.#write(directory);
-		return this.saveError === '' ? { layer, alignment } : null;
+		// **`project.json` and nothing else**, which is the disjointness invariant ADR-0039 rests on and
+		// is load-bearing here: this gesture also wrote a starter Alignment, and undoing it must leave
+		// that Alignment and the Map Image exactly where they are. It mirrors the deletion, which leaves
+		// both alone for the same reason (ADR-0023) — they are the Workspace's, and another Project may
+		// be drawing them.
+		const written = await this.historyFor(directory).step(
+			`Undo adding the Map Image ${quotedName(name)}`,
+			[projectFilePath(directory)],
+			async () => {
+				// Taken again inside the Step, because `step()` flushes before it takes its image: nothing
+				// captured before an await is written after one without first being confirmed still current.
+				const current = this.openProject;
+				if (!current || this.openDirectory !== directory) return false;
+				this.openProject = { ...current, layers: addLayer(current.layers, layer) };
+				await this.#write(directory);
+				return this.saveError === '';
+			}
+		);
+		return written ? { layer, alignment } : null;
 	}
 
 	/**
@@ -2878,20 +2918,29 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || !this.openProject) return null;
 		const layer = newAnnotationLayer({ id: crypto.randomUUID(), name });
-		try {
-			await this.#autosave.commit(
-				annotationStorePath(directory, layer.id),
-				emptyAnnotationCollection()
-			);
-		} catch (cause) {
-			this.saveError = cause instanceof Error ? cause.message : String(cause);
-			return null;
-		}
-		const project = this.openProject;
-		if (!project) return null;
-		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
-		await this.#write(directory);
-		return layer;
+		// Both files the gesture writes, the document first, which is the order undo writes them back
+		// in: a Layer whose reference names a file that is not there is a Project the importer refuses,
+		// and on screen it is a row that reads an empty document and paints nothing.
+		return this.historyFor(directory).step(
+			`Undo adding the Layer ${quotedName(name)}`,
+			[annotationStorePath(directory, layer.id), projectFilePath(directory)],
+			async () => {
+				try {
+					await this.#autosave.commit(
+						annotationStorePath(directory, layer.id),
+						emptyAnnotationCollection()
+					);
+				} catch (cause) {
+					this.saveError = cause instanceof Error ? cause.message : String(cause);
+					return null;
+				}
+				const project = this.openProject;
+				if (!project) return null;
+				this.openProject = { ...project, layers: addLayer(project.layers, layer) };
+				await this.#write(directory);
+				return layer;
+			}
+		);
 	}
 
 	/**
@@ -2907,22 +2956,94 @@ export class EditorSession {
 
 	/** SPEC story 50. A discrete act, so it is written now rather than debounced. */
 	async showLayer(id: string, visible: boolean): Promise<void> {
-		await this.#changeLayers((layers) => setLayerVisible(layers, id, visible));
+		await this.#changeLayers((layers) => setLayerVisible(layers, id, visible), {
+			// Which way the toggle went, because that is what undoing it will reverse.
+			label: `Undo ${visible ? 'showing' : 'hiding'} the Layer ${this.#quotedLayerName(id)}`
+		});
 	}
 
 	/**
 	 * SPEC story 51. Debounced, because dragging a range input is a continuous gesture and
 	 * {@link commitLayerEdit} is what commits it on release (ADR-0017 rule 1).
+	 *
+	 * **One drag is one Step** (SPEC story 17), so the Step is opened by the first position reported
+	 * and closed by {@link commitLayerEdit}, rather than one per `input` event: undo returns the Layer
+	 * to the opacity it had before the gesture and never to some value inside it.
 	 */
 	async dragLayerOpacity(id: string, opacity: number): Promise<void> {
-		await this.#changeLayers((layers) => setMapLayerOpacity(layers, id, opacity), {
-			debounce: true
-		});
+		const standing = this.#opacityDrag;
+		// A second slider reporting while one is open: the Step that is standing belongs to a Layer the
+		// scholar has stopped dragging, so it is closed before this one opens.
+		if (standing && standing.id !== id) await this.commitLayerEdit();
+
+		const change = (layers: readonly Layer[]): readonly Layer[] =>
+			setMapLayerOpacity(layers, id, opacity);
+		const drag = this.#openOpacityStep(id);
+		if (drag === null) {
+			await this.#changeLayers(change, { debounce: true });
+			return;
+		}
+		const directory = this.openDirectory;
+		if (directory === null) return;
+		const write = this.#applyLayerChange(directory, change);
+		if (write === null) return;
+		// **The bytes are queued behind the drag's before-image, and queued synchronously.** A range
+		// reports positions faster than a store read answers and the release arrives in the same task as
+		// the last of them, so a write that ran ahead of the image — or a release that closed the Step
+		// while one was still queued — would put bytes the scholar never saw in it.
+		const applied = drag.applied.then(() => write({ debounce: true }));
+		drag.applied = applied;
+		await applied;
 	}
 
 	/** Move a Layer to a position in the stack, 0 being the top (SPEC stories 52 and 53). */
 	async moveLayerTo(id: string, toIndex: number): Promise<void> {
-		await this.#changeLayers((layers) => moveLayer(layers, id, toIndex));
+		await this.#changeLayers((layers) => moveLayer(layers, id, toIndex), {
+			label: `Undo moving the Layer ${this.#quotedLayerName(id)}`
+		});
+	}
+
+	/**
+	 * The Step one opacity drag will fill, opened on the first position it reports.
+	 *
+	 * The gesture handed to `step()` is a promise resolved when the drag ends, which is what makes the
+	 * whole drag one Step: the before-image is read when the first position arrives and the
+	 * after-image once the last one has been flushed. Synchronous, so that the positions arriving
+	 * behind it join this drag rather than each opening a Step of its own.
+	 *
+	 * `null` where there is nothing to record against — no open Project — and the caller writes
+	 * without a Step.
+	 */
+	#openOpacityStep(id: string): OpacityDrag | null {
+		const standing = this.#opacityDrag;
+		if (standing?.id === id) return standing;
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return null;
+
+		let start = (): void => {};
+		let end = (): void => {};
+		const started = new Promise<void>((resolve) => {
+			start = resolve;
+		});
+		const finished = new Promise<void>((resolve) => {
+			end = resolve;
+		});
+		const step = this.historyFor(directory).step(
+			`Undo the opacity of the Layer ${this.#quotedLayerName(id)}`,
+			[projectFilePath(directory)],
+			async () => {
+				start();
+				await finished;
+			}
+		);
+		const drag: OpacityDrag = { id, end, step, applied: started };
+		this.#opacityDrag = drag;
+		return drag;
+	}
+
+	/** The Layer's name as the bar will say it, for a Step's label. */
+	#quotedLayerName(id: string): string {
+		return quotedName(this.openProject?.layers.find((layer) => layer.id === id)?.name ?? '');
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -3140,6 +3261,19 @@ export class EditorSession {
 	 * files. Tabbing through a Layer's name field is looking.
 	 */
 	async commitLayerEdit(): Promise<void> {
+		const drag = this.#opacityDrag;
+		if (drag) {
+			// The drag is over, so its Step closes: `step()` flushes what the last position left pending
+			// and reads the after-image from that. There is no `#write` to do here — the flush is the
+			// commit, and doing both would stamp a second `updatedAt` for one gesture.
+			this.#opacityDrag = null;
+			// Every position reported so far, applied first: one still queued would land after the
+			// after-image had been read and go unrecorded.
+			await drag.applied;
+			drag.end();
+			await drag.step;
+			return;
+		}
 		const directory = this.openDirectory;
 		if (!directory || !this.openProject) return;
 		if (!this.#autosave.hasPendingWrite(projectFilePath(directory))) return;
@@ -3156,17 +3290,60 @@ export class EditorSession {
 	 */
 	async #changeLayers(
 		change: (layers: readonly Layer[]) => readonly Layer[],
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
 		const directory = this.openDirectory;
 		const project = this.openProject;
 		if (!directory || !project) return;
-		const layers = change(project.layers);
 		// Reference equality: every operation in `layer.ts` returns the array it was given when it
-		// changed nothing, so a move that hit the end of the stack costs no write at all.
-		if (layers === project.layers) return;
+		// changed nothing, so a move that hit the end of the stack costs no write at all — and, asked
+		// here, no Step and neither of the flushes one takes its images between.
+		if (change(project.layers) === project.layers) return;
+
+		const write = this.#applyLayerChange(directory, change);
+		if (write === null) return;
+
+		const { label } = options;
+		// **No label, no Step**, which is how renaming stays the browser's to undo (SPEC stories 30, 31)
+		// without a name for what it is not: a gesture is recorded because its caller said so.
+		if (label === undefined) {
+			await write(options);
+			return;
+		}
+		await this.historyFor(directory).step(label, [projectFilePath(directory)], () =>
+			write(options)
+		);
+	}
+
+	/**
+	 * Apply `change` to the stack in memory, answering how to put it on disk — or `null` when there
+	 * was nothing to change.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THE TWO HALVES ARE SEPARATE, WHICH IS ABOUT STEPS RATHER THAN ABOUT WRITING
+	 *
+	 * A Step's before-image is read from the store, so the gesture's own bytes must not reach the
+	 * store until that read has happened — otherwise undo would write the edit back over itself. But
+	 * the *screen* must not wait for a store read to show what the scholar just did: the row a
+	 * reorder moved has to be under the pointer for the next click, and a list still in its old order
+	 * is a list they will click the wrong row in.
+	 *
+	 * So the document in memory changes with the gesture and the bytes go out inside the Step, and
+	 * the indicator is told here rather than by the write: an edit exists from the moment it is
+	 * applied, and a screen reading `Saved locally` in between would be reporting an unwritten edit
+	 * as a written one. {@link Autosave}'s own subscription carries it from there.
+	 */
+	#applyLayerChange(
+		directory: string,
+		change: (layers: readonly Layer[]) => readonly Layer[]
+	): ((options: { debounce?: boolean }) => Promise<void>) | null {
+		const project = this.openProject;
+		if (!project || this.openDirectory !== directory) return null;
+		const layers = change(project.layers);
+		if (layers === project.layers) return null;
 		this.openProject = { ...project, layers };
-		await this.#write(directory, options);
+		this.saveState = 'saving';
+		return (options) => this.#write(directory, options);
 	}
 
 	/**

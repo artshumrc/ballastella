@@ -1466,3 +1466,221 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		expect(session.historyFor('another-project')).not.toBe(session.historyFor(DIRECTORY));
 	});
 });
+
+describe('the rest of the Layer stack, as Steps of the Project’s Edit History (ADR-0039)', () => {
+	const MAP = 'floride-1657';
+
+	/** A session on one Project, with a Map Image the Workspace can size but no Layer drawing it. */
+	async function overAMapImage(): Promise<{ store: MemoryProjectStore; session: EditorSession }> {
+		const store = new MemoryProjectStore();
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+		);
+		await store.write(
+			imageInfoPath(MAP),
+			new TextEncoder().encode(JSON.stringify({ width: 1000, height: 800 })) as Bytes
+		);
+		const session = new EditorSession(store);
+		await session.open(DIRECTORY);
+		return { store, session };
+	}
+
+	const layerIdsOf = (session: EditorSession): string[] =>
+		(session.openProject?.layers ?? []).map((layer) => layer.id);
+
+	const opacityOf = (session: EditorSession, id: string): number => {
+		const layer = (session.openProject?.layers ?? []).find((one) => one.id === id);
+		if (layer?.kind !== 'map') throw new Error('expected a map Layer');
+		return layer.opacity;
+	};
+
+	// SPEC stories 13 and 14, and the disjointness invariant that makes the second one true: the Step
+	// declares `project.json` and nothing else, so undoing the addition cannot reach the Alignment the
+	// gesture also wrote — which belongs to the Workspace and may be drawn by another Project
+	// (ADR-0023).
+	it('undoes adding a Map Image, leaving its Alignment and its record exactly where they are', async () => {
+		const { store, session } = await overAMapImage();
+
+		const layer = await session.addWorkspaceMap(MAP);
+		if (layer === null) throw new Error('expected a map Layer');
+		await session.flush();
+		const alignment = await store.read(alignmentPath(MAP));
+		const info = await store.read(imageInfoPath(MAP));
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			`Undo adding the Map Image “${layer.name}”`
+		);
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+
+		expect(layerIdsOf(session)).toEqual([]);
+		expect(await store.read(alignmentPath(MAP))).toEqual(alignment);
+		expect(await store.read(imageInfoPath(MAP))).toEqual(info);
+
+		expect(await session.historyFor(DIRECTORY).redo()).toBe(true);
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([layer.id]);
+	});
+
+	// SPEC story 15. Both files this gesture wrote go back, which is what keeps the stack and
+	// `annotations/` agreeing: a Layer whose reference names nothing is a Project the importer refuses.
+	it('undoes adding an Annotation Layer, taking its FeatureCollection with it', async () => {
+		const { store, session } = await overAMapImage();
+
+		const layer = await session.addAnnotationLayer('Trade routes');
+		if (layer === null) throw new Error('expected an Annotation Layer');
+		await session.flush();
+		const path = `${DIRECTORY}/${annotationPath(layer.id)}`;
+		expect(await store.list(path)).toEqual([path]);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo adding the Layer “Trade routes”'
+		);
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+
+		expect(layerIdsOf(session)).toEqual([]);
+		expect(await store.list(path)).toEqual([]);
+
+		expect(await session.historyFor(DIRECTORY).redo()).toBe(true);
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([layer.id]);
+		expect(await store.list(path)).toEqual([path]);
+	});
+
+	// SPEC story 16. The label says which way the toggle went, in the scholar's own words for the
+	// Layer and never in a value.
+	it('undoes hiding a Layer, and says which way it went', async () => {
+		const { session } = await overAMapImage();
+		const layer = await session.addAnnotationLayer('Trade routes');
+		if (layer === null) throw new Error('expected an Annotation Layer');
+
+		await session.showLayer(layer.id, false);
+		await session.flush();
+		expect(session.openProject?.layers[0]?.visible).toBe(false);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo hiding the Layer “Trade routes”'
+		);
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+		expect(session.openProject?.layers[0]?.visible).toBe(true);
+
+		expect(await session.historyFor(DIRECTORY).redo()).toBe(true);
+		await session.flush();
+		expect(session.openProject?.layers[0]?.visible).toBe(false);
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+
+		// And the other direction, which is a different sentence rather than the same one twice.
+		await session.showLayer(layer.id, false);
+		await session.showLayer(layer.id, true);
+		await session.flush();
+		expect(session.openProject?.layers[0]?.visible).toBe(true);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo showing the Layer “Trade routes”'
+		);
+	});
+
+	// SPEC story 17. The Step opens when the drag starts and closes when it ends, so undo returns the
+	// Layer to the opacity it had before the gesture rather than to some value inside it.
+	it('makes a whole opacity drag one Step, back to where it started', async () => {
+		const { session } = await overAMapImage();
+		const layer = await session.addWorkspaceMap(MAP);
+		if (layer === null) throw new Error('expected a map Layer');
+		await session.flush();
+
+		for (const opacity of [0.9, 0.7, 0.5, 0.4]) await session.dragLayerOpacity(layer.id, opacity);
+		await session.commitLayerEdit();
+		await session.flush();
+		const history = session.historyFor(DIRECTORY);
+		expect(opacityOf(session, layer.id)).toBeCloseTo(0.4, 5);
+		expect(history.undoable?.label).toBe(`Undo the opacity of the Layer “${layer.name}”`);
+
+		expect(await history.undo()).toBe(true);
+		await session.flush();
+		expect(opacityOf(session, layer.id)).toBeCloseTo(1, 5);
+
+		// And forward again, to where the drag left it rather than to a value inside it.
+		expect(await history.redo()).toBe(true);
+		await session.flush();
+		expect(opacityOf(session, layer.id)).toBeCloseTo(0.4, 5);
+		expect(await history.undo()).toBe(true);
+		await session.flush();
+
+		// One Step and not four: the one behind it is the addition, not a value inside the drag.
+		expect(history.undoable?.label).toBe(`Undo adding the Map Image “${layer.name}”`);
+	});
+
+	// SPEC story 18.
+	it('undoes moving a Layer in the stack', async () => {
+		const { session } = await overAMapImage();
+		const first = await session.addAnnotationLayer('Trade routes');
+		const second = await session.addAnnotationLayer('Hinterland');
+		if (!first || !second) throw new Error('expected two Annotation Layers');
+		const order = layerIdsOf(session);
+
+		// The newest Layer goes on top, so `Hinterland` is the one at 0 and moving it down is a move.
+		await session.moveLayerTo(second.id, 1);
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([first.id, second.id]);
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo moving the Layer “Hinterland”'
+		);
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual(order);
+
+		expect(await session.historyFor(DIRECTORY).redo()).toBe(true);
+		await session.flush();
+		expect(layerIdsOf(session)).toEqual([first.id, second.id]);
+	});
+
+	// SPEC stories 31 and 32: tidying up names must not push the deletion out of the history, and must
+	// not throw the history away either.
+	it('spends no Step on a rename, and keeps the history across one', async () => {
+		const { session } = await overAMapImage();
+		const layer = await session.addAnnotationLayer('Trade routes');
+		if (layer === null) throw new Error('expected an Annotation Layer');
+		await session.deleteLayer(layer.id);
+		await session.flush();
+		const history = session.historyFor(DIRECTORY);
+		const label = history.undoable?.label;
+
+		const other = await session.addAnnotationLayer('Hinterland');
+		if (other === null) throw new Error('expected an Annotation Layer');
+		await session.typeLayerName(other.id, 'Hinterland roads');
+		await session.commitLayerEdit();
+		await session.flush();
+
+		// The addition is a Step; the rename that followed it is not, so the deletion is still one
+		// press further back rather than two.
+		expect(history.undoable?.label).toBe('Undo adding the Layer “Hinterland”');
+		expect(await history.undo()).toBe(true);
+		expect(history.undoable?.label).toBe(label);
+	});
+
+	// SPEC story 33. The name typed after the Step is carried across into what undo writes: it is the
+	// scholar's, it is not part of the deletion, and taking it back would be undoing words nobody
+	// asked to have undone.
+	it('carries a name typed after a Step across the undo of that Step', async () => {
+		const { session } = await overAMapImage();
+		const doomed = await session.addAnnotationLayer('Trade routes');
+		const kept = await session.addAnnotationLayer('Hinterland');
+		if (!doomed || !kept) throw new Error('expected two Annotation Layers');
+		await session.flush();
+
+		expect(await session.deleteLayer(doomed.id)).toBe(true);
+		await session.typeLayerName(kept.id, 'Hinterland roads');
+		await session.commitLayerEdit();
+		await session.flush();
+
+		expect(await session.historyFor(DIRECTORY).undo()).toBe(true);
+		await session.flush();
+
+		const names = (session.openProject?.layers ?? []).map((layer) => layer.name);
+		expect(names).toEqual(['Hinterland roads', 'Trade routes']);
+	});
+});
