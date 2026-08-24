@@ -1538,6 +1538,10 @@ export class EditorSession {
 				// the screen a user cannot find out any other way. So it is cleared only if it is still
 				// the one this call is answering.
 				if (this.alignmentChangedElsewhere === pending) this.alignmentChangedElsewhere = null;
+				// Their version is now on disk, so every Step this session took over it describes bytes
+				// that are no longer there (ADR-0039). Undoing one would displace their work a second
+				// time — silently, and by an affordance the user reached for to be safe.
+				this.#discardHistory(pending.imageId);
 				restored = true;
 				// **Not `saveError = ''`.** This call succeeded; that says nothing about a `project.json`
 				// write that failed a moment ago, and clearing it takes a failure off the screen without
@@ -1648,6 +1652,10 @@ export class EditorSession {
 					imageId: alignment.imageId,
 					displaced: report.displaced
 				};
+				// And this map's Edit History goes with it (ADR-0039). Somebody else — another tab, a
+				// synced folder — has written this Alignment since the Steps were taken, so their `before`
+				// images describe a file that has moved underneath them.
+				this.#discardHistory(alignment.imageId);
 			}
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the drag test assert the *number* of writes.
@@ -2300,7 +2308,10 @@ export class EditorSession {
 			// is the only failure that says. `MapImageInUseError` is a refusal taken *before*
 			// anything is deleted, and sweeping on it would throw away an unsaved Alignment for a map
 			// that is still right there — the same loss by the opposite mistake.
-			if (cause instanceof MapImagePartlyDeletedError) this.#forgetJournalled(imageId);
+			if (cause instanceof MapImagePartlyDeletedError) {
+				this.#forgetJournalled(imageId);
+				this.#discardHistory(imageId);
+			}
 			// Two of these are sentences core has already written for the user, and they are used as
 			// written. "Could not be deleted" is the fallback and is only true when nothing was: a
 			// half-finished deletion says so itself, because telling a user nothing happened when the
@@ -2320,6 +2331,10 @@ export class EditorSession {
 		// ticket 21's order): anything still journalled for the pyramid or the Alignment would be put
 		// back at the next startup, describing a Map Image that is no longer in the Workspace.
 		this.#forgetJournalled(imageId);
+		// The subject of this Alignment's Edit History is gone, so the history goes too (ADR-0039):
+		// nothing may offer to reverse an edit to a map that is no longer in the Workspace, and undoing
+		// one would recreate the very orphan `alignments/<id>.json` this deletion just swept.
+		this.#discardHistory(imageId);
 		this.images = this.images.filter((image) => image.imageId !== imageId);
 		this.referencedImages = this.referencedImages.filter((image) => image.imageId !== imageId);
 		await this.refreshMapImages();
@@ -2743,6 +2758,14 @@ export class EditorSession {
 				: {})
 		});
 
+		// ⚠ **Every Edit History goes, and being generous here is the safe direction** (ADR-0039). An
+		// Update rewrites arbitrary paths anywhere in the Workspace, and a Step holds the bytes of the
+		// files its gesture wrote — so any Step taken before this may describe a file the Update has
+		// just replaced, and undoing it would write the pre-Update bytes back over what arrived. That
+		// is the same hazard as the unread `openProject` below, with a worse blast radius: it reaches
+		// the Alignments too, and it is a gesture the scholar performs on purpose.
+		for (const history of this.#histories.values()) history.discard();
+
 		// The inbound writes crossed the managed store like any other, so they are in the index as
 		// this Workspace's own changes until the Baseline that makes them shared is durable.
 		await this.localChanges?.flushChanges();
@@ -3163,6 +3186,22 @@ export class EditorSession {
 		const made = new EditHistory(this.#historyFiles);
 		this.#histories.set(subject, made);
 		return made;
+	}
+
+	/**
+	 * Throw away one subject's Edit History, because something other than its own Steps has written
+	 * the files it describes or its subject is gone (ADR-0039).
+	 *
+	 * **Not {@link historyFor}**: asking for a history in order to empty it would mint one for a
+	 * subject that has never had a Step, and the map is keyed by subject for the lifetime of the
+	 * session.
+	 *
+	 * The whole history goes, never a subset. Trimming to the Steps that still apply means deciding
+	 * which images are still true, and the honest answer is that this cannot be known from here —
+	 * being wrong writes stale bytes over the very work these events exist to make visible.
+	 */
+	#discardHistory(subject: string): void {
+		this.#histories.get(subject)?.discard();
 	}
 
 	/**

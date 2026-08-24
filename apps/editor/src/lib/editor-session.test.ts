@@ -10,14 +10,17 @@ import {
 	DeletedProjects,
 	FakeJournalStorage,
 	FakeMetadataStorage,
+	SynchronizationMetadata,
 	ManagedProjectStore,
 	MemoryProjectStore,
 	WriteAheadJournal,
 	alignmentPath,
 	annotationPath,
 	acceptRemoteImageService,
+	createFakeGitHub,
 	emptyAnnotationCollection,
 	fingerprintOf,
+	gitBlobSha,
 	fullImageResourceMask,
 	newAnnotationLayer,
 	newAnnotation,
@@ -33,6 +36,7 @@ import {
 	type Alignment,
 	type AnnotationLayer,
 	type Bytes,
+	type FakeGitHub,
 	type StorePath
 } from '@ballastella/core';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -42,7 +46,8 @@ import {
 	folderWorkspaceKey,
 	opfsWorkspaceKey,
 	trackLocalChanges,
-	workspaceIdentityOf
+	workspaceIdentityOf,
+	type EditorSessionOptions
 } from './editor-session.svelte.js';
 
 const DIRECTORY = 'amsterdam-1625';
@@ -1901,5 +1906,252 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		await session.flush();
 
 		expect(session.alignmentsWrittenBack).toBe(quiet + 1);
+	});
+});
+
+/**
+ * When an Edit History is thrown away, and what it takes with it (ticket 06, ADR-0039).
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE HARM IS ASYMMETRIC, WHICH IS WHY THE RULE IS BLUNT.                                   │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * A history holds the bytes its Steps wrote. Once something else has written those files, undo would
+ * put a pre-existing image back over work that arrived after it — silently, through the one control
+ * a scholar reaches for *because* they want to be safe. So the whole history goes rather than the
+ * Steps that look stale: which those are is exactly the question that cannot be answered from here,
+ * and an absent undo costs a convenience where a wrong one costs somebody an afternoon.
+ *
+ * Each test therefore asserts the pair — the history that goes, and a history that does not.
+ */
+/**
+ * Point the page's own `fetch` at a fake GitHub, and give `navigator` the storage estimate an Update
+ * asks for before it writes anything.
+ *
+ * {@link EditorSession.updateFromRemote} takes neither, because both are the browser's: it is the
+ * application's edge, and injecting them would only move the seam. Restored by the returned function.
+ */
+function anonymously(github: FakeGitHub): () => void {
+	const wasFetching = globalThis.fetch;
+	globalThis.fetch = github.fetch as typeof globalThis.fetch;
+	const storage = Object.getOwnPropertyDescriptor(navigator, 'storage');
+	Object.defineProperty(navigator, 'storage', {
+		configurable: true,
+		value: { estimate: () => Promise.resolve({ quota: 2 ** 40, usage: 0 }) }
+	});
+	return () => {
+		globalThis.fetch = wasFetching;
+		if (storage) Object.defineProperty(navigator, 'storage', storage);
+		else Reflect.deleteProperty(navigator, 'storage');
+	};
+}
+
+describe('an Edit History and the writes it did not make', () => {
+	const MAP = 'floride-1657';
+	const OTHER_MAP = 'nieuw-amsterdam-1660';
+	const IMAGE = { width: 1000, height: 800 };
+
+	/** A Project with one Map Image on it, a second map in the Workspace, and a Step on each screen. */
+	async function withStepsOnBothScreens(options: EditorSessionOptions = {}): Promise<{
+		store: MemoryProjectStore;
+		session: EditorSession;
+	}> {
+		const store = new MemoryProjectStore();
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+		);
+		for (const map of [MAP, OTHER_MAP]) {
+			await store.write(
+				imageInfoPath(map),
+				new TextEncoder().encode(JSON.stringify(IMAGE)) as Bytes
+			);
+		}
+		const session = new EditorSession(store, options);
+		await session.open(DIRECTORY);
+		await session.addWorkspaceMap(MAP);
+		await session.addAnnotationLayer('Warehouses');
+		await session.flush();
+		await placeAPair(session, MAP);
+		return { store, session };
+	}
+
+	/**
+	 * One Alignment gesture, wrapped as the Align screen wraps it: the write is the Step.
+	 *
+	 * @param base the Alignment on screen, for the tests where a colleague's document is on disk and
+	 *   re-reading it would fail rather than produce the gesture under test
+	 */
+	async function placeAPair(
+		session: EditorSession,
+		map: string,
+		options: { label?: string; base?: Alignment } = {}
+	): Promise<void> {
+		const alignment = options.base ?? (await session.readAlignment(map, IMAGE));
+		await session
+			.historyFor(map)
+			.step(options.label ?? 'Undo placing Control Point 1', [alignmentPath(map)], () =>
+				session.writeAlignment({
+					...alignment,
+					controlPoints: [
+						...alignment.controlPoints,
+						{
+							id: `p${alignment.controlPoints.length}`,
+							ordinal: alignment.controlPoints.length + 1,
+							resource: { x: 10, y: 20 },
+							geo: { lng: 4.9, lat: 52.3 }
+						}
+					]
+				})
+			);
+		await session.flush();
+	}
+
+	/**
+	 * A colleague's Alignment, arriving through a synced Workspace or a second tab.
+	 *
+	 * Straight to the store, because that is what it is: a write no gesture in this application makes,
+	 * which is the whole situation under test.
+	 */
+	const aColleagueWrites = (store: MemoryProjectStore, map: string): Promise<void> =>
+		// alignment-write-is-the-fixture: another process's Alignment landing beneath an open session, which is the event these discards exist for
+		store.write(
+			`alignments/${map}.json` as StorePath,
+			new TextEncoder().encode('{"type":"Annotation","from":"a colleague"}\n') as Bytes
+		);
+
+	// SPEC story 37. Two windows on one Workspace: the other one's write is reported, and this one's
+	// undo must not be able to reverse it.
+	it('goes when a concurrent write is reported, and the Project’s does not', async () => {
+		const { store, session } = await withStepsOnBothScreens();
+		const mine = await session.readAlignment(MAP, IMAGE);
+		await aColleagueWrites(store, MAP);
+
+		await placeAPair(session, MAP, { label: 'Undo placing Control Point 2', base: mine });
+
+		expect(session.alignmentChangedElsewhere?.imageId).toBe(MAP);
+		// ⚠ **The gesture that discovered the change is still its own Step, and only it.** The report
+		// arrives from inside the write, so the Step wrapping that write is pushed onto an emptied
+		// history — and its `before` image is what was genuinely on disk, which is the other window's
+		// document. Everything taken before it is what had to go, and this is the assertion that says
+		// so: one Step back and there is nothing behind it.
+		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 2');
+		expect(await session.historyFor(MAP).undo()).toBe(true);
+		expect(session.historyFor(MAP).undoable).toBeNull();
+		// The Project's Edit History describes `project.json` and an Annotation Layer, which nothing
+		// here has touched. Discarding it would cost a scholar their safety net for somebody else's
+		// edit to a different file.
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo adding the Layer “Warehouses”'
+		);
+	});
+
+	// SPEC story 36. Their version is on disk now; an undo that displaced it again would be the same
+	// harm the notice exists to make visible, done by the control that answered it.
+	it('goes when a colleague’s Alignment is put back', async () => {
+		const { store, session } = await withStepsOnBothScreens();
+		const mine = await session.readAlignment(MAP, IMAGE);
+		await aColleagueWrites(store, MAP);
+		await placeAPair(session, MAP, { base: mine });
+		expect(session.alignmentChangedElsewhere).not.toBeNull();
+		// The edit made after the notice, which is the one a restore displaces.
+		await placeAPair(session, MAP);
+		expect(session.historyFor(MAP).undoable).not.toBeNull();
+
+		expect(await session.restoreAlignmentChangedElsewhere()).toBe(true);
+
+		expect(session.historyFor(MAP).undoable).toBeNull();
+		expect(session.historyFor(MAP).redoable).toBeNull();
+	});
+
+	// SPEC story 38. Nothing may offer to reverse an edit to a map that is not in the Workspace — and
+	// undoing one would write back the very orphan Alignment the deletion swept.
+	it('goes when its Map Image is deleted, and the Project’s does not', async () => {
+		const { session } = await withStepsOnBothScreens();
+		// The second map is on no Project, so the deletion is not refused.
+		await placeAPair(session, OTHER_MAP);
+		expect(session.historyFor(OTHER_MAP).undoable).not.toBeNull();
+
+		expect(await session.deleteMapImage(OTHER_MAP)).toBe(true);
+
+		expect(session.historyFor(OTHER_MAP).undoable).toBeNull();
+		expect(session.historyFor(OTHER_MAP).redoable).toBeNull();
+		// The map still on the Project kept its own, and so did the Project.
+		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
+		expect(session.historyFor(DIRECTORY).undoable?.label).toBe(
+			'Undo adding the Layer “Warehouses”'
+		);
+	});
+
+	/**
+	 * Ticket 06's acceptance criterion 4, and the bug it is written to catch.
+	 *
+	 * An Edit History's own `writeBack` puts Alignment bytes back through the same writer a restore
+	 * uses. If that counted as a foreign write, the first undo would raise a notice about a colleague
+	 * who does not exist **and** throw away the history it belongs to — so the affordance would vanish
+	 * the moment it was used, and redo would never be offered at all.
+	 */
+	it('is not discarded by its own write-back, and raises no notice', async () => {
+		const { session } = await withStepsOnBothScreens();
+		await placeAPair(session, MAP);
+
+		expect(await session.historyFor(MAP).undo()).toBe(true);
+		await session.flush();
+
+		expect(session.alignmentChangedElsewhere).toBeNull();
+		expect(session.historyFor(MAP).redoable?.label).toBe('Undo placing Control Point 1');
+		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
+	});
+	/**
+	 * SPEC story 35, and the one event that does not name a subject.
+	 *
+	 * An Update rewrites arbitrary paths across the whole Workspace — a Project's `project.json`, an
+	 * Annotation, an Alignment a colleague refined on another machine — so there is no history it
+	 * cannot have invalidated. Every one of them goes, which is the generous direction, and the
+	 * assertion is that both screens' controls have nothing left to draw.
+	 */
+	it('goes for every subject when an Update from GitHub lands', async () => {
+		const remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		const metadataStorage = new FakeMetadataStorage();
+		const workspaceKey = 'opfs:Amsterdam';
+		const { store, session } = await withStepsOnBothScreens({ workspaceKey, metadataStorage });
+		expect(session.historyFor(DIRECTORY).undoable).not.toBeNull();
+		expect(session.historyFor(MAP).undoable).not.toBeNull();
+
+		// The two sides last shared exactly what is here, so the Update is the uncomplicated inbound
+		// case rather than a refusal: a Project only the Remote holds, arriving beside untouched work.
+		const held = new Map<string, Bytes>();
+		for (const path of await store.list('')) held.set(path, await store.read(path));
+		const shared = new Map<string, string>();
+		for (const [path, bytes] of held) shared.set(path, await gitBlobSha(bytes));
+		await new SynchronizationMetadata(metadataStorage, workspaceKey).writeBaseline({
+			remote,
+			commit: 'shared',
+			files: shared
+		});
+
+		const github = await createFakeGitHub({
+			owner: remote.owner,
+			repository: remote.repository,
+			tree: {
+				...Object.fromEntries(held),
+				'delft/project.json': serialiseProjectFile(
+					newProjectFile('Delft', new Date('2026-08-08T00:00:00Z'))
+				),
+				'delft/annotations/spare.geojson': '{"type":"FeatureCollection","features":[]}'
+			}
+		});
+		const restore = anonymously(github);
+		try {
+			const { update } = await session.updateFromRemote({ remote });
+			expect(update.added).toContain('delft/project.json');
+		} finally {
+			restore();
+		}
+
+		expect(session.historyFor(DIRECTORY).undoable).toBeNull();
+		expect(session.historyFor(DIRECTORY).redoable).toBeNull();
+		expect(session.historyFor(MAP).undoable).toBeNull();
+		expect(session.historyFor(MAP).redoable).toBeNull();
 	});
 });

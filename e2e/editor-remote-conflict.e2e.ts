@@ -859,6 +859,32 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
+		// ⚠ **And an Edit History does not survive an Update** (ADR-0039, story 35). A Step holds the
+		// bytes of the files its gesture wrote, so a Step taken before an Update describes files the
+		// Update may have replaced — and undoing one would write the pre-Update bytes back over what
+		// arrived, which is the same silent loss the re-read above prevents, performed by a button.
+		// Two Steps with one walked back, so both ends of the history are on the bar to lose.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(4);
+		await page.getByTestId('edit-history-undo').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(3);
+		await expect(page.getByTestId('edit-history-undo')).toBeVisible();
+		await expect(page.getByTestId('edit-history-redo')).toBeVisible();
+		await expect(page.getByTestId('edit-history-outcome')).toContainText('Undone:');
+
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'delft/annotations/l4.geojson': '{"type":"FeatureCollection","features":[]}'
+		});
+		await checkNow(page);
+		await page.getByTestId('update-from-github').click();
+		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
+
+		await expect(page.getByTestId('edit-history-undo')).toHaveCount(0);
+		await expect(page.getByTestId('edit-history-redo')).toHaveCount(0);
+		// **Silently**: the controls simply go. The stack still holds what the undo said and nothing
+		// else, because a second message about a vanished button would compete with the Update's own.
+		await expect(page.getByTestId('edit-history-outcome')).toContainText('Undone:');
+
 		// Off disk rather than off the screen: the question is what the edit wrote, not what it drew.
 		await page.reload();
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
