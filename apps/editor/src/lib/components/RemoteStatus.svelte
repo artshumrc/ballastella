@@ -267,7 +267,8 @@
 	`<dialog>` and restores focus from an effect on `open`; unmounted at the moment of the answer it
 	never runs either, the element leaves the document while it is still the top layer, and a keyboard
 	user is dropped on `<body>` — which is exactly the restoration this dialog was given
-	`restoreFocusTo` for. Measured: the first cut did this, and the e2e focus assertion caught it.
+	`restoreFocusTo` for. `editor-remote-conflict.e2e.ts` asserts where the answer leaves focus, so
+	wrapping this in an `{#if}` fails there rather than only in a screen reader.
 
 	The Projects and Map Images are named, not counted: "3 files will be removed" is not a question
 	anybody can answer, and the whole reason `UpdateDeletionPreview` exists is that "the Project

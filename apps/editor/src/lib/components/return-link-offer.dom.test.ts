@@ -201,8 +201,9 @@ describe('a link naming one published Project', () => {
  * Where a press leaves a keyboard user (SPEC story 95).
  *
  * Every one of the three buttons is gone by the time its own work is finished — two are replaced by
- * the outcome and the third is unmounted with the whole offer — so `<body>` is where focus went, at
- * the top of a page that had changed underneath the reader.
+ * the outcome and the third is unmounted with the whole offer — so `<body>` is where focus lands
+ * unless the component puts it somewhere, at the top of a page that has changed underneath the
+ * reader.
  */
 describe('focus after a press, which the press itself unmounts', () => {
 	test('an Import lands on the line naming the Project and the Workspace', async () => {

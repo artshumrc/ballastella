@@ -995,12 +995,12 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	});
 
 	/**
-	 * ⚠ **The notice used to cover the sidebar's one add affordance, and it never expires** (ticket 22).
+	 * ⚠ **The notice never expires, so anything it covers it covers indefinitely** (ticket 22).
 	 *
-	 * The panel was a fixed card in the bottom-left corner, which is exactly where the Project
-	 * screen's pinned "Map Image" and "Annotation Layer" pair sits, and it stays up until "Got it" is
-	 * pressed. So a startup recovery — a thing the author has not read yet and must not be hurried
-	 * through — took the only way of adding to a Project away for as long as it was on screen.
+	 * It stays up until "Got it" is pressed, and a startup recovery is a thing the author has not
+	 * read yet and must not be hurried through. A fixed card in the bottom-left corner is therefore
+	 * the one place it may not be: that is exactly where the Project screen's pinned "Map Image" and
+	 * "Annotation Layer" pair sits, which is the only way of adding to a Project.
 	 *
 	 * This is a claim about layout and hit-testing between two regions of one page: no component seam
 	 * can see it, because nothing below a real browser lays either of them out. It is asserted by
