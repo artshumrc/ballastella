@@ -110,6 +110,13 @@
 		(ADR-0024). In the flow rather than fixed, because it must not cover the map it is warning about.
 	-->
 	<ReviewBanner />
+	<!--
+		Beside `ReviewBanner` and for its reason: on every route, including the two panes a scholar is
+		mid-alignment in, and in the flow rather than over it. A startup recovery has no timer, so a
+		floating card covers whatever it lands on for as long as the author takes to read it — which on
+		the Project screen was the Layer rail's only add affordance (ticket 22, SPEC stories 111 and 112).
+	-->
+	<RecoveredEdits />
 	<div class="min-h-0 grow overflow-y-auto">{@render children()}</div>
 </div>
 <!--
@@ -117,9 +124,3 @@
 	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
 -->
 <UpdatePrompt />
-<!--
-	Outside `children()` for the same reason, and on every route: a startup replay writes to files the
-	user owns, and the sentence saying so must not depend on which screen the bookmark landed on
-	(ticket 20, SPEC stories 111 and 112).
--->
-<RecoveredEdits />

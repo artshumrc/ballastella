@@ -23,8 +23,16 @@
 	 *     inserted with its text already in it is often not announced at all, which would leave this
 	 *     news sighted-only — and a startup recovery is exactly the thing a screen-reader user would
 	 *     otherwise be told less about than anybody else.
-	 *   * **Polite and not `role="alert"`**, and fixed rather than in the flow, for story 113's
-	 *     reason: nothing here may pull focus or reflow the page out from under a half-finished drag.
+	 *   * **Polite and not `role="alert"`**, for story 113's reason: nothing here may pull focus away
+	 *     from what the author is doing to tell them something that was already true when they arrived.
+	 *   * **In the page's flow, under the bar, and never a floating card** (ticket 22). This notice has
+	 *     no timer: it stays until "Got it" is pressed, so anything it covers it covers indefinitely.
+	 *     As a fixed corner card it sat over the Project screen's pinned "Map Image" and "Annotation
+	 *     Layer" pair — the one way of adding to a Project — and there is no corner that is free at
+	 *     every width, because below `lg` the Layer rail is a full-width block at the end of the
+	 *     document. So it takes room of its own, for `ReviewBanner`'s reason: news that persists must
+	 *     not be laid over the work it is about. Only a startup or a Workspace switch produces a
+	 *     report, so the space it takes is never claimed out from under a gesture in progress.
 	 *   * **Dismissed by the user and by nothing else.** It does not time out. Four separate lists
 	 *     are shown rather than a count, because "put back", "deliberately not put back", "could not
 	 *     be put back yet" and "this version will not read it" are four different things to do next.
@@ -138,20 +146,21 @@
 	}
 </script>
 
-<div
-	class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-start p-4"
-	aria-live="polite"
-	aria-atomic="true"
-	data-testid="recovered-region"
->
+<div aria-live="polite" aria-atomic="true" data-testid="recovered-region">
 	{#if showing}
+		<!--
+			`max-h` with its own scroller, because the lists are as long as the recovery was: a
+			Workspace switch that replayed thirty files would otherwise leave the screen the author came
+			for a couple of lines tall, since the layout gives this its full height before the route below
+			it gets what is left.
+		-->
 		<section
-			class="pointer-events-auto card max-w-md border border-base-300 bg-base-200 shadow-lg"
+			class="max-h-[40vh] overflow-y-auto border-b border-base-300 bg-base-200"
 			aria-labelledby={headingId}
 			data-testid="recovered-edits"
 		>
-			<div class="card-body gap-2 p-4">
-				<h2 id={headingId} class="card-title text-base">
+			<div class="flex flex-col gap-2 p-4">
+				<h2 id={headingId} class="text-base font-semibold">
 					{report !== null
 						? report.restored.length > 0
 							? 'An unsaved change was put back'
@@ -280,7 +289,7 @@
 				{#each report?.problems ?? [] as problem (problem.key)}
 					<p class="text-sm text-warning" data-testid="recovered-problem">{problem.detail}</p>
 				{/each}
-				<div class="card-actions justify-end">
+				<div class="flex justify-end">
 					<button
 						type="button"
 						class="btn btn-sm"

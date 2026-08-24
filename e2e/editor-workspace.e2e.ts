@@ -1,6 +1,7 @@
 import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
+import { openAddMapImage } from './support/map-images';
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
 import { readStoredFile, seedFile } from './support/stored-file';
@@ -991,6 +992,33 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		// It has been load-bearing since round 3 made this panel the only surface a folder Workspace's
 		// deletions are ever reported on.
 		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
+	});
+
+	/**
+	 * ⚠ **The notice used to cover the sidebar's one add affordance, and it never expires** (ticket 22).
+	 *
+	 * The panel was a fixed card in the bottom-left corner, which is exactly where the Project
+	 * screen's pinned "Map Image" and "Annotation Layer" pair sits, and it stays up until "Got it" is
+	 * pressed. So a startup recovery — a thing the author has not read yet and must not be hurried
+	 * through — took the only way of adding to a Project away for as long as it was on screen.
+	 *
+	 * This is a claim about layout and hit-testing between two regions of one page: no component seam
+	 * can see it, because nothing below a real browser lays either of them out. It is asserted by
+	 * doing what the person would do — pressing the button while the notice is showing — rather than
+	 * by measuring two bounding boxes, which is a version of the assertion that passes for a card
+	 * that has merely moved somewhere else it does not belong.
+	 */
+	test('leaves the Project screen usable while it is showing', async ({ page }) => {
+		await openAndRename(page, 'Amsterdam 1628');
+
+		await page.reload();
+
+		const notice = page.getByTestId('recovered-edits');
+		await expect(notice).toBeVisible();
+
+		await openAddMapImage(page);
+		// And the news is still there afterwards: the way to reach the sidebar is not to get rid of it.
+		await expect(notice).toBeVisible();
 	});
 
 	/**
