@@ -500,9 +500,12 @@ async function readCloneTree(
 	const projects = projectDirectories(blobs.map((entry) => entry.path));
 
 	return blobs.flatMap<CloneEntry>((entry) =>
-		// The binding is written from what the user named rather than downloaded — see
-		// {@link cloneFromRemote} — so it is not part of the file list at all, even though a publish
-		// owns it.
+		// ⚠ **`remote.json` is left where it is, and nothing here writes one** (SPEC story 80). The
+		// relationship is installation-local metadata recorded by `open-workspace-from-github.ts` for
+		// the repository the user actually selected; the copy inside a published tree is the *source's*
+		// claim about itself, so a fork's names the repository it was forked from. Downloaded it would
+		// be a Publish-owned file this Workspace never wrote, pushed back on the next publish as though
+		// it had.
 		entry.path !== REMOTE_BINDING_PATH && isOwnedPath(entry.path, projects)
 			? [{ ...entry, path: entry.path as StorePath }]
 			: []

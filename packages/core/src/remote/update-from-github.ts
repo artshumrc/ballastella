@@ -138,12 +138,18 @@ export const UPDATE_TRANSACTION_PATH = 'update.json' as StorePath;
 /**
  * Where a replaced path's previous bytes are kept while an Update is in flight.
  *
- * ⚠ **A reserved directory rather than a sibling of the file**, so a before-image is never mistaken
+ * ⚠ **A directory of its own rather than a sibling of each file**, so a before-image is never mistaken
  * for Workspace content: nothing under it is a Project directory, an `images/` or `alignments/`
  * entry, or a cached Base Map tile, so `synchronization-paths.ts` classifies the whole subtree
  * outside Ballastella's namespace — which is also what keeps the write index from marking it.
+ *
+ * ⚠ **The dot is what makes that true, and it is the marker file's argument applied to a directory.**
+ * `toDirectoryName` emits lowercase ASCII, digits and hyphens only, so no display name can ever be
+ * allocated a Project directory spelled with one — where a Project called “Update before” would be
+ * given `update-before` and then have this transaction stage its rollback inside it, sweep it, and
+ * hide it from `hashWorkspace`'s local inventory.
  */
-export const UPDATE_BEFORE_DIRECTORY = 'update-before/';
+export const UPDATE_BEFORE_DIRECTORY = 'update.before/';
 
 /**
  * The format version of the marker itself, separate from a Project's.
