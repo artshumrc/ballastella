@@ -262,14 +262,20 @@
 			Main row: where you are and what you can do here, centered wordmark in the taller row.
 			`1fr auto 1fr` keeps the wordmark at the bar's visual centre regardless of how long the
 			Workspace name or save state happens to be.
+
+			⚠ **The clusters are top-aligned and each one's leading row is `min-h-8`, which is what
+			puts the identity, the save state and the Remote status on one centre line.** Either side
+			can grow downwards — a save error, a staleness notice, the time of the last Remote check —
+			and centring the clusters instead would lift the taller one's first row above the other's,
+			so the two badges a scholar reads together would no longer sit level.
 		-->
 		<div
-			class="flex flex-wrap items-center gap-3 px-4 py-1 text-xs leading-none opacity-80"
+			class="flex flex-wrap items-start gap-3 px-4 py-1 text-xs leading-none opacity-80"
 			data-testid="bar-eyebrow"
 		>
-			<div class="flex min-w-0 flex-wrap items-center gap-3">{@render start?.()}</div>
+			<div class="flex min-h-8 min-w-0 flex-wrap items-center gap-3">{@render start?.()}</div>
 			<div class="grow"></div>
-			<div class="flex min-w-0 flex-wrap items-center justify-end gap-2">{@render status()}</div>
+			<div class="flex min-w-0 flex-wrap items-start justify-end gap-2">{@render status()}</div>
 		</div>
 		<div
 			class="grid grid-cols-[1fr_auto_1fr] items-center gap-4 border-t border-rule px-4 py-2.5"

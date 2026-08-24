@@ -49,6 +49,8 @@
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
+	import Toast from '$lib/toasts/Toast.svelte';
+
 	import RemoteStatus from './RemoteStatus.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
@@ -517,80 +519,31 @@
 		<!-- 6. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
 		     only signal that anything reached storage — which is why it is on every screen and not
 		     only on the ones that happen to write. -->
-		<div class="flex flex-col items-end" data-testid="save-slot">
+		<!-- `min-h-8`, matching the Remote status's leading row: the eyebrow top-aligns its clusters, so
+		     the badge keeps its centre line beside the Remote status and its buttons. -->
+		<div class="flex min-h-8 items-center" data-testid="save-slot">
 			<SaveIndicator saveState={session.saveState} />
-			{#if session.saveError}
-				<!--
-					**Why the work is not kept, and it has to be announced.** `SaveIndicator`'s own live
-					region says "Unsaved changes"; the reason — a full disk, a folder grant that lapsed, a
-					Project another tab deleted — is this sentence, and it sits outside that region. Without
-					a role of its own it is inserted silently, so a screen-reader user is told that something
-					went wrong and never what. `role="alert"` because it is inserted at the moment its text
-					first exists, which a `polite` region does not reliably announce, and because it is what
-					every other error in this app uses.
-
-					This bug is inherited: the same markup sat in the align route's header and on
-					`ProjectView`, where it was wrong on two screens. It is on **every** screen now, which is
-					what makes fixing it part of this ticket rather than a note for a later one.
-				-->
-				<p role="alert" class="text-sm text-warning" data-testid="save-error">
-					{session.saveError}
-				</p>
-			{/if}
-			<!--
-				**A different sentence from the one above, with a different remedy** (ticket 20).
-				`save-error` says the edit did not reach storage. This says the edit is on its way and
-				the copy that would survive closing the tab before it lands could not be kept — a full
-				`localStorage`, usually an Annotation collection larger than the origin's whole quota.
-				The user can act on it only while this page still exists, which is exactly why the
-				journal is written at the edit rather than at `pagehide`, where there would be no screen
-				left to put this on.
-
-				`role="alert"` for the same reason `save-error` uses it: it is inserted at the moment its
-				text first exists, and a polite region does not reliably announce that (SPEC story 112).
-			-->
-			{#if session.protectionWarning}
-				<p role="alert" class="max-w-md text-sm text-warning" data-testid="protection-warning">
-					{session.protectionWarning}
-				</p>
-			{/if}
-			<!--
-				**Two refusals, not one** (ADR-0017; ticket 21, review 2). The sentence above is about an
-				edit on its way to storage and its remedy is "wait for the indicator to read 'Saved'" —
-				a deletion has no indicator and no such wait, so that sentence is not this one and does
-				not stand in for it. It is also not shown at all in the case where `record` actually
-				fails most often: a `localStorage` that answers reads and rejects every write, which is
-				Safari with cookies blocked and is a browser the read-only probe accepts.
-
-				`role="alert"` for the same reason the two above use it: inserted at the instant its text
-				first exists, which a polite region does not reliably announce (SPEC story 112).
-			-->
-			{#if session.deletionWarning}
-				<p role="alert" class="max-w-md text-sm text-warning" data-testid="deletion-warning">
-					{session.deletionWarning}
-				</p>
-			{/if}
-			<!--
-				And the browser that cannot offer the protection at all — a private window with site data
-				blocked. Said once, on every screen, rather than letting the app imply a guarantee it does
-				not have on that browser.
-
-				⚠ **`aria-live="polite"` and not `role="alert"`**, unlike the two above. This is a
-				steady-state fact about the browser, true from the first frame and unchanged for the whole
-				session — CONTRIBUTING's mandated-method table puts Status in a polite region, and an
-				assertive one would interrupt a scholar mid-alignment to tell them something that was
-				already true when they opened the page.
-			-->
-			{#if storage?.unprotected}
-				<p
-					aria-live="polite"
-					class="max-w-md text-sm text-warning"
-					data-testid="unprotected-browser"
-				>
-					{storage.unprotected}
-				</p>
-			{/if}
 		</div>
+
+		<!--
+			Why the work is not kept, and every neighbouring refusal, as messages the reader can put
+			away rather than sentences under the bar for the rest of the session.
+
+			**`SaveIndicator` still says *whether* the work is kept and this says *why not*.** The badge
+			is a standing fact and belongs in the bar; each of these is news about something that just
+			happened, and the eyebrow is not a log. `Toast` renders nothing here — the words are drawn
+			in the layout's one stack — so a save error no longer moves the Remote status beside it.
+
+			`refusal` on the three that are inserted at the moment their text first exists, which a
+			polite region does not reliably announce (ADR-0016's amendment, SPEC story 112).
+			`unprotected-browser` is not one of them: it is a steady-state fact about the browser, true
+			from the first frame, and an assertive announcement would interrupt a scholar mid-alignment
+			to tell them something that was already true when they opened the page.
+		-->
+		<Toast text={session.saveError} testid="save-error" refusal />
+		<Toast text={session.protectionWarning} testid="protection-warning" refusal />
+		<Toast text={session.deletionWarning} testid="deletion-warning" refusal />
+		<Toast text={storage?.unprotected ?? ''} testid="unprotected-browser" />
 
 		<!--
 			7. Whether GitHub agrees with this Workspace (SPEC stories 111–118, ADR-0038).

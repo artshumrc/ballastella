@@ -15,6 +15,7 @@
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
+	import Toast from '$lib/toasts/Toast.svelte';
 	import { useWorkspaceHost, type WorkspaceStorage } from '$lib/workspace-storage.svelte.js';
 
 	// One prerendered page; the Project is selected client-side from `?p=` (ADR-0008). That is
@@ -225,21 +226,20 @@
 <svelte:head><title>{pageTitle}</title></svelte:head>
 
 <!--
-	What the GitHub sign-in did, on the screen it comes back to. Rendered above every branch below
-	because the redirect can land on the hub or on a Project, and the answer is the same either way.
+	What the GitHub sign-in did, as messages the reader can put away.
 
-	`aria-live="polite"` for the outcome and `role="alert"` for the refusal, which is CONTRIBUTING's
-	mandated split: a status is announced when the reader gets to it, and a refusal is inserted at the
-	moment its text first exists, which a polite region does not reliably announce.
+	Not on the screen the redirect lands on, which is where these two sentences used to sit: the
+	callback can come back to the hub or to a Project, so they were rendered above every branch below
+	and pushed whichever screen it was down the page, for the rest of the session, over an answer that
+	is read once.
+
+	`aria-live="polite"` for the outcome and `role="alert"` — `refusal` — for the problem, which is
+	CONTRIBUTING's mandated split and unchanged by the move: a status is announced when the reader
+	gets to it, and a refusal is inserted at the moment its text first exists, which a polite region
+	does not reliably announce.
 -->
-{#if signInOutcome}
-	<p aria-live="polite" class="p-4 text-sm" data-testid="sign-in-outcome">{signInOutcome}</p>
-{/if}
-{#if signInProblem}
-	<div role="alert" class="m-4 alert flex-col items-start alert-warning">
-		<p data-testid="sign-in-problem">{signInProblem}</p>
-	</div>
-{/if}
+<Toast text={signInOutcome} testid="sign-in-outcome" tone="info" />
+<Toast text={signInProblem} testid="sign-in-problem" refusal />
 
 <!--
 	The offer a Published Site's link raised, above every branch below for the sign-in outcome's

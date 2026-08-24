@@ -558,13 +558,18 @@ test.describe('publishing a Workspace', () => {
 						atomic: element.getAttribute('aria-atomic')
 					};
 				};
-				return { progress: region('publish-progress'), result: region('publish-status') };
+				// The result is a toast, so what has to be outside the modal — and mounted before it has
+				// anything to say — is the stack that will hold it. There is no result yet at this point
+				// in the publish, which is the whole reason the region is asked about rather than the
+				// message: a region raised together with its first text is not announced.
+				return { progress: region('publish-progress'), result: region('toast-stack') };
 			})
 		).toEqual({
 			progress: { insideTheModal: true, live: 'polite', atomic: 'true' },
 			// The result is outside on purpose: by the time it has anything to say the dialog has closed,
-			// and it stays on screen afterwards. The two never speak at once.
-			result: { insideTheModal: false, live: 'polite', atomic: 'true' }
+			// and an `aria-live` region inside an inert subtree is not a quiet one — it is not announced
+			// at all. The two never speak at once.
+			result: { insideTheModal: false, live: 'polite', atomic: null }
 		});
 
 		// Slow the viewer's own files down, so the progress line is on screen long enough to assert
@@ -1111,7 +1116,9 @@ test.describe('publishing to a Remote', () => {
 		await page.keyboard.press('Escape');
 		await expect(page.getByRole('dialog')).toBeHidden();
 		const refusalToast = page.getByTestId('publish-failure');
-		await expect(refusalToast).toHaveClass(/toast/);
+		// In the app's one toast stack, which is what makes it dismissible and what keeps it from
+		// pushing the Workspace down the screen behind it.
+		await expect(page.locator('.toast')).toContainText('first 2 files');
 		await expect(refusalToast).toContainText('first 2 files');
 		await refusalToast.getByRole('button', { name: 'Dismiss' }).click();
 		await expect(refusalToast).toHaveCount(0);
@@ -1299,7 +1306,7 @@ test.describe('publishing to a Remote', () => {
 
 		await createWorkspace(page, 'Marking 2026');
 
-		await expect(page.getByTestId('publish-status')).toHaveText('');
+		await expect(page.getByTestId('publish-status')).toHaveCount(0);
 		await expect(page.getByTestId('publish-stale')).toHaveCount(0);
 		await expect(page.getByTestId('publish-failure')).toHaveCount(0);
 	});

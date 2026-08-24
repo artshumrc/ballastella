@@ -59,6 +59,7 @@
 	import { deploymentRoot } from '../base-map/deployment-assets';
 	import ModalDialog from '../components/ModalDialog.svelte';
 	import type { EditorSession } from '../editor-session.svelte.js';
+	import Toast from '../toasts/Toast.svelte';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 	import { describePublishProgress, type PublishProgress } from './publish-progress.js';
 	import { loadViewerBundle, readBundleAsset } from './viewer-bundle-source';
@@ -110,7 +111,6 @@
 	let replacing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
-	let refusalToastDismissed = $state(false);
 	/** The Project state the current forecast was built from. */
 	let plannedProjectKey = '';
 
@@ -554,10 +554,6 @@
 	/** What the user is left holding once the dialog is dismissed, or `''`. */
 	const standingRefusal = $derived(failure || uploadProblem);
 
-	$effect(() => {
-		if (standingRefusal) refusalToastDismissed = false;
-	});
-
 	/**
 	 * How many Projects a site carries, and how many of them its Front Page lists (ADR-0032).
 	 *
@@ -623,48 +619,27 @@
 </script>
 
 <!--
-	The result, announced from outside the dialog — where the dialog no longer is by the time this has
-	anything to say, because `run` closes it before it sets `published`. Progress is announced from a
-	second region inside the modal; see `progressLine`.
+	The result, the staleness notice and a refusal that outlives the modal — all three in the layout's
+	toast stack, which is outside the dialog and therefore not inert.
 
-	Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its first
-	text is not reliably announced.
+	⚠ **Outside is not a preference, it is the mechanism.** `showModal()` makes the whole document
+	outside the open `<dialog>` inert, and an inert `aria-live` region is not a quiet one — it is not
+	announced at all. So progress is announced from inside the modal (see `progressLine`) and these
+	are announced from outside it, which is where the dialog has gone by the time there is a result:
+	`run` closes it before it sets `published`. Nothing is said twice.
 
-	`aria-live="polite"` rather than `role="status"`, which would be the idiomatic choice but for the
-	save indicator already being this bar's one `status` role — two of them make `getByRole('status')`
-	ambiguous, and ADR-0016's own note on this says a test that has to disambiguate is a hint that a
-	screen-reader user would have to as well. `aria-atomic` so each update is read as a whole sentence
-	rather than as the words that changed.
+	The result and the staleness notice are statuses, announced politely by the stack's own region,
+	which is mounted from the first frame — a live region inserted at the same moment as its first
+	text is not reliably announced. The refusal is the one thing here the scholar has to act on, so it
+	is the one that is announced on insertion.
+
+	`!open` on the two that a re-opened dialog restates for itself: the staleness notice and the
+	refusal both appear inside it, and a toast repeating them behind the modal is the same sentence
+	twice. The result has no place inside the dialog at all.
 -->
-<p
-	aria-live="polite"
-	aria-atomic="true"
-	class={result === '' ? 'sr-only' : 'mt-2 text-sm opacity-80'}
-	data-testid="publish-status"
->
-	{result}
-</p>
-
-{#if staleness && !open}
-	<div
-		aria-live="polite"
-		class="mt-2 alert flex-col items-start alert-info"
-		data-testid="publish-stale"
-	>
-		<p>{staleness}</p>
-	</div>
-{/if}
-
-{#if standingRefusal && !open && !refusalToastDismissed}
-	<div class="toast toast-end toast-top" data-testid="publish-failure">
-		<div role="alert" class="alert max-w-md items-start alert-error">
-			<p>{standingRefusal}</p>
-			<button class="btn btn-sm" type="button" onclick={() => (refusalToastDismissed = true)}>
-				Dismiss
-			</button>
-		</div>
-	</div>
-{/if}
+<Toast text={result} testid="publish-status" tone="info" />
+<Toast text={open ? '' : staleness} testid="publish-stale" tone="info" />
+<Toast text={open ? '' : standingRefusal} testid="publish-failure" tone="error" refusal />
 
 <!--
 	The repository, the credential and what is left of this hour's request budget, on one line that

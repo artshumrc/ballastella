@@ -27,6 +27,8 @@
 		type UpdateDeletionPreview
 	} from '@ballastella/core';
 
+	import Toast from '$lib/toasts/Toast.svelte';
+
 	import ModalDialog from './ModalDialog.svelte';
 
 	let {
@@ -95,7 +97,9 @@
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
-	<div class="flex items-center gap-2">
+	<!-- `min-h-8`, matching the save indicator's leading row: the eyebrow top-aligns the two slots,
+	     so the badge and its two buttons keep their centre line whatever this column grows below it. -->
+	<div class="flex min-h-8 items-center gap-2">
 		<!--
 			The determination and the progress, in one polite region.
 
@@ -176,11 +180,15 @@
 	{/if}
 
 	<!--
-		What an Update is doing, and what it did (SPEC stories 121–124).
+		What an Update is doing (SPEC stories 121–124).
 
 		Polite and `aria-atomic`, for the reason the determination above is: "412 of 900 files" on its
 		own says nothing about what is being counted, and a screen reader hearing the count change
 		without the sentence around it has to work out which transfer it belongs to.
+
+		In the bar rather than in the toast stack, and it is the one line here that stays: it is not
+		news to be read and put away but the state of something running, it disappears of its own
+		accord when the transfer ends, and a reader who dismissed it would have no way to get it back.
 	-->
 	{#if update !== null}
 		<p
@@ -193,62 +201,40 @@
 			{update.totalFiles === 1 ? 'file' : 'files'}.
 		</p>
 	{/if}
-
-	{#if notice}
-		<p aria-live="polite" class="max-w-md text-sm text-base-content" data-testid="update-outcome">
-			{notice}
-		</p>
-	{/if}
-
-	<!--
-		Why the Update did not happen.
-
-		`role="alert"`, and for the reason the check's failure above it is: it is inserted at the
-		moment its text first exists, which a polite region does not reliably announce — and a refusal
-		nobody hears is an author who believes the Remote's changes are now in their Workspace.
-	-->
-	{#if failure}
-		<p role="alert" class="max-w-md text-sm text-warning" data-testid="update-failure">
-			{failure}
-		</p>
-	{/if}
-
-	<!--
-		Why the current status is not current (SPEC story 118).
-
-		⚠ **`role="alert"`, and the status above it is left exactly as it was.** A network failure, an
-		expired credential or a spent hourly budget is not agreement — reported as `Up to date` it is
-		the one reading that licenses publishing over somebody else's work. So the last determination
-		stays, dated, and this says out loud that it is no longer being confirmed. `alert` rather than
-		a polite region because it is inserted at the moment its text first exists, which a polite
-		region does not reliably announce — the same rule `save-error` follows.
-	-->
-	{#if state.failure}
-		<p role="alert" class="max-w-md text-sm text-warning" data-testid="remote-status-failure">
-			{state.failure}
-		</p>
-	{/if}
-
-	<!--
-		Published Site staleness, and **never** one of the six (SPEC story 120, ADR-0033).
-
-		A site built by another editor version has different chunk names, so this is routinely true of
-		a Workspace whose scholarship agrees with its Remote exactly. Folded into the source status it
-		would read as "somebody changed your work" and would never stop reading that way: two editor
-		versions synchronizing would trade obsolete bundles for ever. What it actually means is
-		"republish when you like", so it is its own sentence with its own remedy.
-	-->
-	{#if state.publishedSiteStale.length > 0}
-		<p
-			aria-live="polite"
-			class="max-w-md text-xs text-base-content opacity-70"
-			data-testid="published-site-stale"
-		>
-			The Published Site was built from different files ({state.publishedSiteStale.length}
-			{state.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). Publish again to rebuild it.
-		</p>
-	{/if}
 </div>
+
+<!--
+	What the Update did, why it did not happen, why the status on screen is no longer being confirmed,
+	and whether the Published Site was built from other files — as messages the reader can put away.
+
+	**Out of the bar, and none of them is the determination.** The badge above says what Ballastella
+	last worked out and stays; each of these is news about a gesture or a reading, and four sentences
+	stacked under the eyebrow pushed the work down the screen with nothing on them to say "read, thank
+	you". Their words, their roles and their remedies are unchanged.
+
+	⚠ **`refusal` on the two that are refusals**, which are inserted at the moment their text first
+	exists — a polite region does not reliably announce that (ADR-0016's amendment), and a refusal
+	nobody hears is an author who believes the Remote's changes are now in their Workspace. The
+	`remote-status-failure` alert also leaves the determination beside it exactly as it was: a network
+	failure, an expired credential or a spent hourly budget is not agreement, and reported as `Up to
+	date` it is the one reading that licenses publishing over somebody else's work (SPEC story 118).
+
+	⚠ **Published Site staleness is never one of the six** (SPEC story 120, ADR-0033). A site built by
+	another editor version has different chunk names, so this is routinely true of a Workspace whose
+	scholarship agrees with its Remote exactly. What it means is "republish when you like", which is
+	why it is its own sentence with its own remedy and why it is a note rather than a warning.
+-->
+<Toast text={notice} testid="update-outcome" tone="info" />
+<Toast text={failure} testid="update-failure" refusal />
+<Toast text={state.failure} testid="remote-status-failure" refusal />
+<Toast
+	text={state.publishedSiteStale.length === 0
+		? ''
+		: `The Published Site was built from different files (${state.publishedSiteStale.length} ` +
+			`${state.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). Publish again to rebuild it.`}
+	testid="published-site-stale"
+	tone="info"
+/>
 
 <!--
 	What the Update would remove, before it removes any of it (SPEC stories 126, 127).

@@ -10,6 +10,7 @@
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import { startTheme } from '$lib/theme.svelte';
+	import ToastStack from '$lib/toasts/ToastStack.svelte';
 	import { provideWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	let { children } = $props();
@@ -124,3 +125,10 @@
 	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
 -->
 <UpdatePrompt />
+<!--
+	The one place every dismissible message is drawn, for `UpdatePrompt`'s reason and one of its own: a
+	daisyUI toast is `position: fixed`, so a second container in the document would sit on top of this
+	one. Mounted from the first frame, because the live region inside it has to exist before it has
+	anything to announce.
+-->
+<ToastStack />
