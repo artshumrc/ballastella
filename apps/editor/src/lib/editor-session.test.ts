@@ -1465,6 +1465,23 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		expect(session.historyFor(DIRECTORY).undoable).toBeNull();
 	});
 
+	// SPEC story 50. The cursor moves only on a write that landed, so a refused undo leaves the bar
+	// reading exactly as it did before the press — which is what a successful one would look like too
+	// if nothing said otherwise. The sentence is the save-error toast's.
+	it('keeps its place and says so when the write does not land', async () => {
+		const { store, session, layerIds } = await withAnnotationLayers(1);
+		await session.deleteLayer(layerIds[0] as string);
+		await session.flush();
+
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		const history = session.historyFor(DIRECTORY);
+
+		expect(await history.undo()).toBe(false);
+		expect(history.undoable?.label).toBe('Undo delete of the Layer \u201CLayer 1\u201D');
+		expect(history.redoable).toBeNull();
+		expect(session.saveError).toContain('the drive is not there');
+	});
+
 	// One history per subject, so the screen that declares it gets the same one every time.
 	it('gives one subject the same history every time it is asked', async () => {
 		const { session } = await withAnnotationLayers(0);

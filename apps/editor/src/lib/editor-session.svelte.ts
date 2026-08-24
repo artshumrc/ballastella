@@ -461,12 +461,24 @@ export class EditorSession {
 		},
 		writeBack: async (path, bytes) => {
 			const imageId = alignmentImageId(path);
-			if (imageId !== null) {
-				await this.#writeAlignmentBack(imageId, bytes);
-			} else if (bytes === null) {
-				await this.#store.delete(path);
-			} else {
-				await this.#autosave.commit(path, bytes);
+			try {
+				if (imageId !== null) {
+					await this.#writeAlignmentBack(imageId, bytes);
+				} else if (bytes === null) {
+					await this.#store.delete(path);
+				} else {
+					await this.#autosave.commit(path, bytes);
+				}
+			} catch (cause) {
+				// ⚠ **Reported here, because nowhere else can report it.** `EditHistory` moves its cursor
+				// only on a write that landed, so a failed undo leaves the bar reading exactly as it did
+				// before the press — which is what a *successful* undo of a no-op would look like too.
+				// The forward gestures each set this in their own catch; a write-back has no such caller,
+				// so without this the failure reaches the user as nothing at all (SPEC story 50).
+				this.saveError = cause instanceof Error ? cause.message : String(cause);
+				// Rethrown: the history counts this file as not landed, which is what keeps the Step and
+				// the cursor where they are.
+				throw cause;
 			}
 			// The document on screen is the one in memory, and a history writes bytes rather than
 			// calling the mutators that keep it. Without this the Layer would be back in the file and
