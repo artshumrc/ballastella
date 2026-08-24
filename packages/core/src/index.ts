@@ -1053,6 +1053,19 @@ export {
 	type UndoRecord
 } from './undo/undo.js';
 
+// The Edit History of one screen (ADR-0039): the last few edits made on it, each one reversible and
+// repeatable. Framework-free and here rather than in the app for the same reason `Autosave` is —
+// linearity, the cursor, eviction and the flush ordering are all worth asserting without a browser.
+export {
+	EditHistory,
+	type EditHistoryOptions,
+	type HistoryFiles,
+	type HistoryState,
+	type Step,
+	type StepFile
+} from './undo/edit-history.js';
+export { carryAcross, carryAnnotationText, carryProjectText } from './undo/carry-text.js';
+
 export * from './base-map';
 export * from './places';
 export * from './theme';
