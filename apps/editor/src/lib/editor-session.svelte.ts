@@ -742,11 +742,12 @@ export class EditorSession {
 	 * │ WITHOUT THIS, THIS SESSION REPORTS *ITSELF* AS THE COLLEAGUE WHO CHANGED THE FILE.         │
 	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
 	 *
-	 * `AlignmentWorkspace.save()` fires and does not await — correctly, because a gesture end must not
-	 * wait on a store write. {@link writeAlignment} reads {@link #alignmentOnDisk} at entry and moves
-	 * it only once the commit has resolved. So **two gesture ends inside one store write** gave the
-	 * second call a baseline one version stale: `alignment-file.ts` re-read, found the *first call's
-	 * own bytes*, and reported "written over a change" with the user's own document as `displaced`.
+	 * The Align screen fires the Step it wraps a gesture in and does not await it — correctly, because
+	 * a gesture end must not wait on a store write. {@link writeAlignment} reads
+	 * {@link #alignmentOnDisk} at entry and moves it only once the commit has resolved. So **two
+	 * gesture ends inside one store write** gave the second call a baseline one version stale:
+	 * `alignment-file.ts` re-read, found the *first call's own bytes*, and reported "written over a
+	 * change" with the user's own document as `displaced`.
 	 *
 	 * That is the exact false alarm {@link #rememberAlignmentOnDisk} exists to prevent, reachable from
 	 * this application's own save path rather than from a synced Workspace — and it is the likelier of

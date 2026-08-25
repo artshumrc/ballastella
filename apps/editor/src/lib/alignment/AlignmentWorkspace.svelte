@@ -407,8 +407,9 @@
 	 * moving the mutation inside the Step would buy nothing and would make the panes wait on a flush
 	 * before drawing what the scholar has just done.
 	 *
-	 * The write is *awaited* inside the Step rather than fired the way {@link save} fires it, because
-	 * the `after` image is read from disk the moment the Step's gesture resolves.
+	 * **The write is awaited inside the Step and the Step itself is not**, which is what lets a gesture
+	 * end return without waiting on a store write: the `after` image is read the moment the Step's
+	 * gesture resolves, so a write fired and forgotten in there would be read before it landed.
 	 *
 	 * The label is the sentence the control will say — verb, then subject, in the scholar's own words
 	 * (SPEC story 42).

@@ -966,11 +966,12 @@ describe('the record of what is on disk for an Alignment', () => {
 	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
 	 *
 	 * Three `await`ed saves never overlap, so the baseline is always current by the time the next one
-	 * reads it. But `AlignmentWorkspace.save()` **fires without awaiting** — a gesture end must not
-	 * wait on a store write — and `writeAlignment` reads its baseline at entry while moving it only
-	 * once the commit has resolved. So a second gesture ending inside that gap read a baseline one
-	 * version stale, re-read the file, found the **first call's own bytes**, and told the user a
-	 * colleague had written over their work — handing back their own document as the colleague's.
+	 * reads it. But the Align screen **fires the Step it wraps a gesture in without awaiting it** — a
+	 * gesture end must not wait on a store write — and `writeAlignment` reads its baseline at entry
+	 * while moving it only once the commit has resolved. So a second gesture ending inside that gap
+	 * read a baseline one version stale, re-read the file, found the **first call's own bytes**, and
+	 * told the user a colleague had written over their work — handing back their own document as the
+	 * colleague's.
 	 *
 	 * ⚠ **The interleaving is chosen rather than raced for, and it has to be.** Two calls fired
 	 * back-to-back both enter before either commit, so both see the same baseline *and* the same
@@ -1715,8 +1716,8 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE GESTURES ARE SPELLED OUT HERE RATHER THAN CALLED
  *
- * The six gestures live in `AlignmentWorkspace.svelte`, between two live map panes, so there is no
- * function on this class to call. What is asserted at this seam is the half that is *not* the
+ * The Align screen's gestures live in `AlignmentWorkspace.svelte`, between two live map panes, so
+ * there is no function on this class to call. What is asserted at this seam is the half that is *not* the
  * component: a Step wrapped around `writeAlignment`, and what `writeBack` then does with an
  * `alignments/<image-id>.json` — which is the half a browser cannot see and the half the fence,
  * the baseline and byte identity all live on. Each test therefore opens its Step exactly as the
