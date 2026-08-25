@@ -346,8 +346,7 @@ export function alignmentImageId(path: string): string | null {
  * The whole image, clockwise from its top-left corner.
  *
  * The Resource Mask a new Alignment starts with (ADR-0013: not empty, because an empty mask
- * renders nothing and reads as the tool being broken), and what "show the whole sheet again"
- * resets to.
+ * renders nothing and reads as the tool being broken), and what the Crop reset returns to.
  */
 export function fullImageResourceMask(image: {
 	width: number;

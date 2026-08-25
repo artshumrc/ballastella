@@ -603,7 +603,7 @@
 						kind: 'refused',
 						message:
 							`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
-							'be removed. Move it instead, or show the whole sheet again.'
+							'be removed. Move it instead, or reset the crop.'
 					};
 					return;
 				}
@@ -858,7 +858,7 @@
 										});
 									}}
 								>
-									Show the whole sheet again
+									Reset crop
 								</button>
 							{/if}
 						{/if}

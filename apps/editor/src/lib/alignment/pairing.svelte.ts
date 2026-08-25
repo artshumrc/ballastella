@@ -183,7 +183,7 @@ export class AlignmentPairing {
 		this.resourceMask = removeMaskVertex(this.alignment, index).resourceMask;
 	}
 
-	/** Show the whole sheet again. The recovery for a mask that has been outlined into a corner. */
+	/** The whole sheet is the map again. The recovery for a mask outlined into a corner. */
 	resetMask(): void {
 		this.resourceMask = resetMaskToFullImage(this.alignment).resourceMask;
 	}
