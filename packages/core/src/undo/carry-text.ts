@@ -10,6 +10,10 @@
 // an Annotation take its title and description with it (SPEC story 34) rather than leave it behind
 // as a fragment.
 //
+// One value nobody types is carried too — the chosen Base Map, for the reason given on
+// {@link carryProjectText}: no Step records it either, so an image written verbatim would swap the
+// backdrop back with the edit.
+//
 // Both functions are pure and total: whatever is at the path right now — another tool's document, an
 // empty file, nothing at all — is a thing undo has to survive, and the answer in every such case is
 // the image unchanged. And when nothing actually carries they return the image **byte-identically**,

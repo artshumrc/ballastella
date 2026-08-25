@@ -49,6 +49,11 @@ would put the Layer back and take the name away with it. So undo writes the imag
 typed values carried across into it — the Project name and Layer names in `project.json`, Annotation
 titles and descriptions in a `.geojson`. Typed text neither creates a Step nor is reverted by one.
 
+The **chosen Base Map** is carried by the same rule although nobody types it, and it is the only such
+value: no Step records it either — that choice is out of the history now and later — so an image
+written verbatim would swap the backdrop back along with the edit, and no redo would return it
+because the `after` image predates the choice too.
+
 Where a Step legitimately removes the thing carrying the text — undoing the creation of an Annotation
 — there is nothing to carry it across to, and it goes with the Annotation.
 

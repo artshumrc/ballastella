@@ -52,15 +52,15 @@ import { AnnotationDrawing } from './drawing.svelte.js';
 /**
  * What this layer needs of `EditorSession`, and nothing more.
  *
- * **Four methods rather than the session**, which is what makes this class testable without one:
+ * **Five methods rather than the session**, which is what makes this class testable without one:
  * `EditorSession` is ~2500 lines reaching OPFS, the autosave timer, the Edit Histories and the Base
  * Map cache, and none of that is a dependency of "put a vertex in a collection and write it".
  * `EditorSession` satisfies this structurally, so nothing is adapted at the call site.
  *
  * **A `label` is how a gesture becomes a Step**, and it is the whole of what this class knows about
  * an Edit History (ADR-0039): the sentence the bar will say is built where the gesture is, and the
- * session turns it into a Step over the one file it writes. No label, no Step — which is what keeps
- * a typed title out of the history without this class naming what it is not.
+ * session turns it into a Step over the files that gesture writes. No label, no Step — which is what
+ * keeps a typed title out of the history without this class naming what it is not.
  */
 export interface AnnotationWriter {
 	readAnnotations(layer: AnnotationLayer): Promise<AnnotationCollection>;
@@ -391,10 +391,9 @@ export class AnnotationEditing {
 	/**
 	 * The same, into a Layer named outright rather than whichever one is chosen.
 	 *
-	 * **Moving an Annotation between Layers is why this exists**, and it is the only caller that needs
-	 * it: the gesture writes two named Layers' collections, neither of them necessarily the one chosen.
-	 * Everything else edits what the user is looking at, which is what {@link commitAnnotations} is
-	 * for.
+	 * The identity guard, the in-memory replacement and the choice between a drag position, a Step and
+	 * an ordinary debounced write all live here, so {@link commitAnnotations} is only the resolution of
+	 * which Layer is being edited.
 	 */
 	async commitAnnotationsIn(
 		layer: AnnotationLayer,
