@@ -284,7 +284,7 @@ describe('an Annotation this build cannot draw', () => {
 describe('deleting the Annotation being read (the-annotation-inspector story 31)', () => {
 	test('the delete is here, beside the words, and reports rather than acting', async () => {
 		// **Reports**: what a delete costs and how it is undone is `AnnotationEditing.deleteSelected`'s,
-		// and that it is undoable without a confirmation dialog (ADR-0014) is asserted over real storage
+		// and that it is undoable without a confirmation dialog (ADR-0039) is asserted over real storage
 		// in `e2e/editor-undo.e2e.ts`. What is this face's is that the control is here at all — not on
 		// the row, and not in the Layer card's footer beside *Delete Layer*, which would put two deletes
 		// of different scope in one card.
@@ -294,8 +294,9 @@ describe('deleting the Annotation being read (the-annotation-inspector story 31)
 		await press(one('annotation-delete')!);
 
 		expect(deleted).toHaveBeenCalledTimes(1);
-		// And no dialog was raised to ask about it, which is the whole of ADR-0014's bargain: the way
-		// back is undo rather than a question in front of every deliberate delete.
+		// And no dialog was raised to ask about it, which is the whole of the bargain the Edit History
+		// keeps (ADR-0039): the way back is undo rather than a question in front of every deliberate
+		// delete.
 		expect(document.querySelector('dialog')).toBeNull();
 	});
 });

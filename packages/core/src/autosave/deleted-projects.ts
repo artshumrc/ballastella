@@ -72,7 +72,8 @@
 // WHAT THIS IS NOT
 //
 //   - **Not a trash can.** It holds no bytes and nothing can be recovered from it. Deleting a
-//     Project is not undoable (ADR-0014 covers four other actions), and this does not change that.
+//     Project is not undoable: an Edit History holds the edits made *on a screen* and Workspace Home,
+//     where a Project is deleted, has none (ADR-0039). This does not change that.
 //   - **Not a tombstone that outlives its Project.** A record is dropped the moment the removal it
 //     names has actually happened, so in ordinary use this is empty between one gesture and the next.
 //   - **Not durable.** Clearing site data takes it, exactly as it takes the write-ahead journal. What

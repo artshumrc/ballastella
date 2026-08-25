@@ -21,8 +21,9 @@
 	//
 	// **Delete is here rather than on the row or in the Layer card's footer.** It acts on the Annotation
 	// as a thing with content, which is this panel's half of the split; the card's footer would put two
-	// deletes of different scope in one card. It stays undoable and has no confirmation dialog
-	// (ADR-0014).
+	// deletes of different scope in one card. It has no confirmation dialog because the way back is
+	// the screen's Edit History (ADR-0039), which holds the Layer's `.geojson` either side of the
+	// delete and puts the Annotation back with every one of its properties.
 	//
 	// **So are the two Move buttons and the Layer picker**, for the same reason and one more: the row
 	// in the sidebar carries a drag handle, and ADR-0016 will not let a drag be the only way to reorder
