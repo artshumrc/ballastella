@@ -667,8 +667,9 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		await saved(page);
 		expect((await storedAnnotations(page, routes)).features).toHaveLength(0);
 
-		// The gesture the record's `layerId` exists to survive: the *other* Layer is opened, which closes
-		// the one the Annotation was deleted from and makes it the Layer being drawn into.
+		// The Annotation goes back into the Layer whose file it came from, not into whichever Layer is
+		// open: the *other* Layer is opened here, which closes the one it was deleted from and makes it the
+		// Layer being drawn into.
 		await openLayerRow(page, rowFor(page, places));
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 

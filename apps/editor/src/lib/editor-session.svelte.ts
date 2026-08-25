@@ -1258,7 +1258,7 @@ export class EditorSession {
 		// not seen since. It is *after* the "already showing it" return above, so moving between the
 		// panes of one Project leaves its Steps alone. Only that Project's — another's is nothing this
 		// opening disturbs.
-		if (directory !== null) this.#histories.get(directory)?.discard();
+		if (directory !== null) this.#discardHistory(directory);
 		this.images = [];
 		this.referencedImages = [];
 		this.referencedImageErrors = [];

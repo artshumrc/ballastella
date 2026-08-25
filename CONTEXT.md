@@ -142,6 +142,6 @@ The last few edits a scholar made on one screen, in the order they made them, so
 _Avoid_: undo stack, history stack, command stack, timeline, journal
 
 **Step**:
-One entry in an Edit History: a single edit as the scholar meant it, whatever number of writes it took. A drag is one Step, and so is a name typed a letter at a time. It is named after the act and its subject and never after the values involved, because the same Step is read forwards and backwards.
+One entry in an Edit History: a single edit as the scholar meant it, whatever number of writes it took — a drag is one Step, however many positions it reported. Typed text is no Step at all: naming things stays the browser’s to undo, and a name typed after a Step survives that Step being taken back. A Step is named after the act and its subject and never after the values involved, because the same Step is read forwards and backwards.
 _Avoid_: command, operation, transaction, revision, change
 
