@@ -587,8 +587,8 @@ test.describe('a Resource Mask corner added or taken away', () => {
 		test.setTimeout(90_000);
 		const imageId = await alignedProject(page);
 
-		// The earlier Step the corner edits sit on top of, and the one that used to be corrupted by
-		// them: its `before` image is read now, before either corner exists.
+		// The earlier Step the corner edits sit on top of, and the one a corner written outside a Step
+		// would corrupt: its `before` image is read now, before either corner exists.
 		const beforeTheMove = await storedAlignment(page, imageId);
 		const half = imagePoints(page).first();
 		await half.focus();
