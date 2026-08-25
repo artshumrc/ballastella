@@ -3553,6 +3553,40 @@ export class EditorSession {
 	}
 
 	/**
+	 * Move one Annotation between two Annotation Layers, as a single Step over both documents.
+	 *
+	 * **One Step and not two**, because a Step is a single edit as the scholar meant it and this
+	 * gesture's whole subject is the pair: two Steps would let an undo put the Annotation back in the
+	 * Layer it came from while the copy it made in the other one stayed, which is one id in two Layers
+	 * — a state no gesture in the application can otherwise produce and none can be shown as an error.
+	 * `step()` takes both paths, so the `before` and `after` images are read for the two together.
+	 *
+	 * The **write order** is the caller's and is preserved here: into the target first, out of the
+	 * source second, so a failure between them leaves the Annotation in both Layers, which a scholar
+	 * can see and delete, rather than in neither.
+	 */
+	async moveAnnotationBetweenLayers(
+		to: AnnotationLayer,
+		target: AnnotationCollection,
+		from: AnnotationLayer,
+		source: AnnotationCollection,
+		label: string
+	): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory) return;
+		const toPath = annotationStorePath(directory, to.id);
+		const fromPath = annotationStorePath(directory, from.id);
+		// Told here rather than by the writes, for the reason the labelled branch of
+		// {@link writeAnnotations} records: a screen reading `Saved locally` across the `before` images'
+		// read would report an edit that exists and is unwritten as a written one.
+		this.saveState = 'saving';
+		await this.historyFor(directory).step(label, [toPath, fromPath], async () => {
+			await this.#putAnnotations(toPath, target, serialiseAnnotations(target), {});
+			await this.#putAnnotations(fromPath, source, serialiseAnnotations(source), {});
+		});
+	}
+
+	/**
 	 * One position of a style drag over an Annotation Layer's file (SPEC story 23).
 	 *
 	 * **One drag is one Step**, so the Step is opened by the first position reported and closed by the

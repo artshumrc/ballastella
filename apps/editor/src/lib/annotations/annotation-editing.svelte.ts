@@ -82,6 +82,21 @@ export interface AnnotationWriter {
 		collection: AnnotationCollection,
 		drag: { key: string; label: string }
 	): Promise<void>;
+	/**
+	 * One Annotation out of one Layer and into another, as a single Step over both documents.
+	 *
+	 * Two separate writes would be two Steps, and an undo of the first would put the Annotation back
+	 * where it came from while the copy in the other Layer stayed — one id in two Layers, which no
+	 * other gesture can produce. Written into the target first and out of the source second, so a
+	 * failure between them leaves it in both rather than in neither.
+	 */
+	moveAnnotationBetweenLayers(
+		to: AnnotationLayer,
+		target: AnnotationCollection,
+		from: AnnotationLayer,
+		source: AnnotationCollection,
+		label: string
+	): Promise<void>;
 	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean;
 }
 
@@ -633,7 +648,11 @@ export class AnnotationEditing {
 	async moveAnnotationTo(id: string, toIndex: number): Promise<void> {
 		const collection = this.#activeCollection;
 		if (!collection) return;
-		await this.commitAnnotations(moveAnnotation(collection, id, toIndex));
+		const annotation = findAnnotation(collection, id);
+		if (!annotation) return;
+		await this.commitAnnotations(moveAnnotation(collection, id, toIndex), {
+			label: undoLabel('reordering', annotation)
+		});
 	}
 
 	/**
@@ -679,8 +698,22 @@ export class AnnotationEditing {
 			}
 		}
 
-		await this.commitAnnotationsIn(to, addAnnotation(target, annotation));
-		await this.commitAnnotationsIn(from, removeAnnotation(collection, id));
+		const moved = addAnnotation(target, annotation);
+		const left = removeAnnotation(collection, id);
+		// The memory half first and outside the Step, the same split `commitAnnotationsIn` makes: a
+		// Step's `before` images are read from the store, so the map must repaint from the gesture
+		// while the bytes wait for that read.
+		this.#edges.replaceDocument(to.id, moved);
+		this.#edges.replaceDocument(from.id, left);
+		await this.#edges.session().moveAnnotationBetweenLayers(
+			to,
+			moved,
+			from,
+			left,
+			// Named after its destination, because `undoLabel('moving', …)` alone is what reshaping a
+			// vertex already says and the two undo very different things.
+			`${undoLabel('moving', annotation)} to ${to.name ? `“${to.name}”` : 'another Layer'}`
+		);
 		this.openLayerId = to.id;
 		this.selectAnnotation(id);
 		this.moveNotice =

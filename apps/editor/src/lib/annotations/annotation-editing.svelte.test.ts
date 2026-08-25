@@ -95,6 +95,22 @@ class FakeWriter implements AnnotationWriter {
 		this.writes.push({ layerId: layer.id, collection, debounce: true, label: undefined, drag });
 	}
 
+	/**
+	 * The two-document move. Recorded as the two writes it makes, each carrying the *same* label —
+	 * which is how a test sees that the pair is one Step rather than two: the real session opens one
+	 * `step()` over both paths, and two labels here would mean two entries in the history.
+	 */
+	async moveAnnotationBetweenLayers(
+		to: AnnotationLayer,
+		target: AnnotationCollection,
+		from: AnnotationLayer,
+		source: AnnotationCollection,
+		label: string
+	): Promise<void> {
+		this.writes.push({ layerId: to.id, collection: target, debounce: false, label });
+		this.writes.push({ layerId: from.id, collection: source, debounce: false, label });
+	}
+
 	hasPendingAnnotationWrite(): boolean {
 		return this.pending;
 	}
@@ -581,12 +597,17 @@ describe('the four gestures that become Steps', () => {
 	});
 
 	/**
-	 * The two gestures that are not among the four. Moving an Annotation between Layers writes two
-	 * documents, and ADR-0039's disjointness invariant is that a Step names the files one gesture
-	 * wrote — so neither is offered as a Step at all rather than as one that names half of what it did.
+	 * Both moves are Steps, and the between-Layers one is a *single* Step over two documents.
+	 *
+	 * A write outside a Step is not merely un-undoable: it is inside the `before` image of whatever
+	 * Step comes next and outside the one behind it, so an undo aimed elsewhere reverts it silently
+	 * (ADR-0039's discard rule). For the between-Layers move that is worse than a reversion — the
+	 * Annotation is written back into the Layer it came from while the copy in the other one stays,
+	 * which is one id in two Layers and a state no gesture can otherwise produce. One `step()` over
+	 * both paths is what rules that out, and the label being the same on both writes is how it shows.
 	 */
-	it('opens no Step for a reorder inside the Layer, or for a move between Layers', async () => {
-		const to = layerNamed('two');
+	it('makes a reorder one Step, and a move between Layers one Step over both documents', async () => {
+		const to = layerNamed('two', 'Trade routes');
 		const it_ = screen([layerNamed('one'), to]);
 		it_.put(layerNamed('one'), { annotations: [pin('a1'), pin('a2')] });
 		it_.annotations.openLayer('one');
@@ -594,11 +615,12 @@ describe('the four gestures that become Steps', () => {
 		await it_.annotations.moveAnnotationTo('a1', 1);
 		await it_.annotations.moveAnnotationToLayer('a2', 'two');
 
-		expect(it_.session.writes.map((write) => write.label)).toEqual([
-			undefined,
-			undefined,
-			undefined
-		]);
+		const [reorder, intoTarget, outOfSource] = it_.session.writes;
+		expect(reorder?.label).toBe('Undo reordering this Annotation');
+		// One label across both writes, so the pair is one entry in the history and not two.
+		expect(intoTarget?.label).toBe('Undo moving this Annotation to “Trade routes”');
+		expect(outOfSource?.label).toBe(intoTarget?.label);
+		expect(it_.session.writes).toHaveLength(3);
 	});
 });
 

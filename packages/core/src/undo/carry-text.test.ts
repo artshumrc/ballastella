@@ -9,10 +9,15 @@ import { carryAnnotationText, carryProjectText } from './carry-text.js';
 
 const encode = (text: string): Bytes => new TextEncoder().encode(text);
 
-const project = (fields: { name: string; layers: readonly Layer[] }): Bytes =>
+const project = (fields: {
+	name: string;
+	layers: readonly Layer[];
+	baseMap?: string | null;
+}): Bytes =>
 	serialiseProjectFile({
 		...newProjectFile(fields.name, new Date('2024-03-01T00:00:00.000Z')),
-		layers: fields.layers
+		layers: fields.layers,
+		baseMap: fields.baseMap ?? null
 	});
 
 const floride = newMapLayer({ id: 'l-map', name: 'La Floride', imageId: 'floride-1657' });
@@ -47,6 +52,25 @@ describe('a Project’s typed names carried across a Step (SPEC stories 33, 54)'
 
 		const carried = parseProjectFile(carryProjectText(before, current));
 		expect(carried.layers.map((layer) => layer.id)).toEqual(['l-map']);
+	});
+
+	// Nobody types a Base Map, but it is carried for the reason a name is: it is a choice about how to
+	// look at the Project, no Step records it, and an image written verbatim would swap the backdrop
+	// back to whichever one was chosen when the gesture behind the Step happened.
+	it('keeps a Base Map chosen after the image was taken', () => {
+		const before = project({ name: 'Florida', layers: [floride], baseMap: 'osm' });
+		const current = project({ name: 'Florida', layers: [floride], baseMap: 'carto-positron' });
+
+		expect(parseProjectFile(carryProjectText(before, current)).baseMap).toBe('carto-positron');
+	});
+
+	// The other direction, because `null` is a Base Map choice too — the deployment's default — and a
+	// scholar who cleared theirs must not have the old one written back over it.
+	it('keeps a Base Map cleared after the image was taken', () => {
+		const before = project({ name: 'Florida', layers: [floride], baseMap: 'osm' });
+		const current = project({ name: 'Florida', layers: [floride], baseMap: null });
+
+		expect(parseProjectFile(carryProjectText(before, current)).baseMap).toBeNull();
 	});
 
 	it('returns the image byte-identically when nothing carries', () => {
