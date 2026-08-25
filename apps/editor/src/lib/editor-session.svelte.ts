@@ -376,6 +376,23 @@ export interface EditorSessionOptions {
 	readonly metadataStorage?: MetadataStorage;
 }
 
+/**
+ * The most a single Edit History may hold, across every Step's `before` and `after` image.
+ *
+ * A backstop and not the rule: depth is what actually bounds a history at five Steps (SPEC stories
+ * 10, 11), and this only fires when those five are unusually heavy. Ordinary work never reaches it,
+ * because a Step's images are the documents a gesture wrote — `project.json`, an Annotation
+ * `FeatureCollection`, an Alignment — and never a Map Image's pixels, which no Step names.
+ *
+ * Sized for the case that can reach it anyway: one history per subject (ADR-0039), so a session that
+ * has aligned several sheets holds several of these at once, and a scholar's own GeoJSON collection
+ * has no small upper bound. 32 MB leaves the five Steps of a large collection intact while keeping
+ * the total a session can hold bounded by the number of subjects rather than by the size of the work.
+ * The most recent Step survives it regardless (SPEC story 12), so undo always covers the last thing
+ * done however large the file it touched.
+ */
+const HISTORY_BYTE_CEILING = 32 * 1024 * 1024;
+
 export class EditorSession {
 	readonly #workspace: Workspace;
 	/** Which Workspace this session is, for an Update's durable record of one. `''` when unkeyed. */
@@ -3197,7 +3214,7 @@ export class EditorSession {
 	historyFor(subject: string): EditHistory {
 		const standing = this.#histories.get(subject);
 		if (standing) return standing;
-		const made = new EditHistory(this.#historyFiles);
+		const made = new EditHistory(this.#historyFiles, { byteCeiling: HISTORY_BYTE_CEILING });
 		this.#histories.set(subject, made);
 		return made;
 	}

@@ -1887,6 +1887,38 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		expect(fourCorners).not.toEqual(alignment.resourceMask);
 	});
 
+	/**
+	 * SPEC story 12, asserted at the seam that supplies the number rather than the one that obeys it.
+	 *
+	 * `EditHistory` implements the ceiling and core tests both halves of it, but the class defaults to
+	 * no ceiling at all — so "every history has a backstop" is a claim about what {@link
+	 * EditorSession.historyFor} constructs, and a history the application mints is the only kind a
+	 * scholar ever has. Without the option passed, depth alone would leave all three Steps here.
+	 */
+	it('bounds one history by bytes and not only by depth', async () => {
+		const { session, alignment } = await overAnAlignment();
+		const history = session.historyFor(MAP);
+
+		// Three gestures over the 32 MB ceiling and well under the five Steps depth would keep: each
+		// Step holds a `before` and an `after` image of this document, so the second one weighs 18 MB.
+		// The digit varies so that every write is bytes the one before it was not.
+		const heavy = (mark: number): Alignment => ({
+			...withPair(alignment, 1),
+			unmodelled: { bulk: String(mark).repeat(9 * 1024 * 1024) }
+		});
+
+		for (let mark = 1; mark <= 3; mark += 1) {
+			await gesture(session, `Undo edit ${mark}`, heavy(mark));
+		}
+		await session.flush();
+
+		// The most recent Step is never evicted for size however heavy it is, and the two behind it
+		// were.
+		expect(history.undoable?.label).toBe('Undo edit 3');
+		expect(await history.undo()).toBe(true);
+		expect(history.undoable).toBeNull();
+	});
+
 	// SPEC stories 4 and 5. Keyed by Map Image, so a second map offers its own edits and never the
 	// first's — and one Alignment is one history however many Projects draw it (ADR-0023).
 	it('gives each Map Image its own history, and keeps the first’s intact', async () => {
