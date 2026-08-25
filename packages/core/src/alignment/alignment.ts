@@ -320,6 +320,18 @@ export const alignmentPath = (imageId: string): AlignmentPath =>
  * The inverse of {@link alignmentPath}, and the way a caller holding an arbitrary store path asks
  * whether it names an Alignment — which decides whether the write has to go through
  * `alignment-file.ts` and name an intent (ticket 18) rather than through an ordinary save.
+ *
+ * Deliberately as narrow as `hoistedImageId`'s Alignment half: exactly two segments, a non-empty
+ * stem, and a `.json` suffix. Anything looser routes a path this application never writes into the
+ * Alignment writer, which is the opposite of a guard.
+ *
+ * ⚠ **Narrowing or loosening this moves several branches and their guards together, in the same
+ * direction, silently.** `replay.ts` is the sharpest case: both the routing in its `write` and the
+ * refusal in its `writePlain` ask this one question, so a path it stopped recognising would be sent
+ * to the plain write *and* waved through by the refusal that exists to catch exactly that. The
+ * Update, review and tar readers consult it for the same decision. `alignment.test.ts` pins it
+ * against the spellings on both sides of the line, so such a change is a red test rather than a
+ * quiet hole.
  */
 export function alignmentImageId(path: string): string | null {
 	const segments = path.split('/');

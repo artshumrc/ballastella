@@ -21,6 +21,7 @@ import {
 	addLayer,
 	alignmentImageId,
 	alignmentPath,
+	ANNOTATION_DIRECTORY,
 	annotationStorePath,
 	assembleWithCanvas,
 	browserJournalStorage,
@@ -547,7 +548,10 @@ export class EditorSession {
 			// than this class's: it holds the map Layers' Alignments in the same record. So this says a
 			// fresh read is due and the screen does it, which is also where a selection the write-back
 			// took away is let go of (SPEC stories 52, 53).
-			if (this.openDirectory !== null && path.startsWith(`${this.openDirectory}/annotations/`)) {
+			if (
+				this.openDirectory !== null &&
+				path.startsWith(`${this.openDirectory}/${ANNOTATION_DIRECTORY}/`)
+			) {
 				this.annotationsWrittenBack += 1;
 			}
 			// And for an Alignment, which the Align screen cannot patch in place: Control Point ids are

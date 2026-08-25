@@ -1,6 +1,6 @@
 import { createTarDecoder } from 'modern-tar';
 
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
+import { alignmentImageId } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import {
 	BALLASTELLA_CANONICAL_URL,
@@ -567,14 +567,6 @@ async function writeRestored(
 }
 
 /** The image id of `alignments/<id>.json`, or `null` for anything else. */
-function alignmentImageId(path: string): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
-}
 
 type TarEntry = {
 	header: { name: string; type?: string; pax?: Record<string, string> };

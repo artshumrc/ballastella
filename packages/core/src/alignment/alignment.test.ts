@@ -1,30 +1,31 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	alignmentPath,
 	ALIGNMENT_DIRECTORY,
+	alignmentImageId,
+	alignmentPath,
 	canSolve,
 	collectControlPoints,
+	DEFAULT_TRANSFORMATION_TYPE,
 	fullImageResourceMask,
 	insertMaskVertexAfter,
 	isFullImageResourceMask,
 	isTransformationOffered,
 	maskEdgeMidpoints,
+	MINIMUM_CONTROL_POINTS,
+	MINIMUM_MASK_VERTICES,
 	moveMaskVertex,
+	NEVER_OFFERED_TRANSFORMATION_NAMES,
 	newAlignment,
 	removeMaskVertex,
 	resetMaskToFullImage,
 	toDraftControlPoints,
-	transformationShortfall,
-	withTransformationType,
-	DEFAULT_TRANSFORMATION_TYPE,
-	MINIMUM_CONTROL_POINTS,
-	MINIMUM_MASK_VERTICES,
-	NEVER_OFFERED_TRANSFORMATION_NAMES,
 	TRANSFORMATION_CHOICES,
+	transformationShortfall,
 	type Alignment,
 	type DraftControlPoint,
-	type TransformationType
+	type TransformationType,
+	withTransformationType
 } from './alignment.js';
 
 const resource = (x: number, y: number) => ({ x, y });
@@ -436,5 +437,38 @@ describe('every offered type is one this codebase can hold', () => {
 		const held: readonly TransformationType[] = TRANSFORMATION_CHOICES.map((choice) => choice.type);
 		expect(held).toHaveLength(6);
 		expect(new Set(held).size).toBe(6);
+	});
+});
+
+/**
+ * The positive control for the one function five call sites across core ask the same question of.
+ *
+ * It lives here, beside the function, because here is where a maintainer tightening what counts as
+ * an Alignment path will edit — and every one of those call sites moves with it. `replay.ts` is the
+ * sharpest: the routing in its `write` and the refusal in its `writePlain` both consult it, so
+ * loosening or narrowing moves the branch and its guard together and in the same direction, the
+ * guard stops catching exactly the paths the branch stopped routing, and nothing anywhere goes red.
+ * `update-from-github.ts`, `review-from-remote.ts` and `restore-workspace-tar.ts` make the same
+ * decision from the same answer. The specimens below are the spellings on either side of the line,
+ * taken from `hoistedImageId`, which answers the same question for the two tar readers.
+ */
+describe('alignmentImageId — what counts as an Alignment path', () => {
+	it.each([
+		['alignments/floride-1657.json', 'floride-1657'],
+		['alignments/a.b.json', 'a.b']
+	])('reads %s as the Alignment of %s', (path, imageId) => {
+		expect(alignmentImageId(path)).toBe(imageId);
+	});
+
+	it.each([
+		'alignments/nested/thing.json',
+		'alignments/.json',
+		'alignments/floride-1657.geojson',
+		'alignments',
+		// project-rooted-path-is-the-fixture: the ADR-0023 decoy itself — a Project-rooted Alignment path, asserted here to be one `alignmentImageId` refuses to recognise
+		'amsterdam-1625/alignments/floride-1657.json',
+		'images/floride-1657/info.json'
+	])('does not read %s as an Alignment path', (path) => {
+		expect(alignmentImageId(path)).toBeNull();
 	});
 });

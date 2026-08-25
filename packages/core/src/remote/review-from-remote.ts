@@ -57,7 +57,7 @@
 // second answer to where the shared pool lives.
 
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
-import { ALIGNMENT_DIRECTORY, alignmentPath } from '../alignment/alignment.js';
+import { alignmentImageId, alignmentPath } from '../alignment/alignment.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { IMAGE_DIRECTORY, imageDirectory } from '../project/image-files.js';
 import {
@@ -658,14 +658,6 @@ async function writeReviewed(
 }
 
 /** The image id of `alignments/<id>.json`, or `null` for anything else. */
-function alignmentImageId(path: string): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
-}
 
 /**
  * Refuse a Review there is no room for, **before the Review Workspace exists**.

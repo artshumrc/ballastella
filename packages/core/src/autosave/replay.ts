@@ -97,7 +97,7 @@ import {
 	type AlignmentFilePort,
 	type AlignmentWriteOutcome
 } from '../alignment/alignment-file.js';
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
+import { alignmentImageId } from '../alignment/alignment.js';
 import { IMAGE_DIRECTORY, imageInfoPath } from '../project/image-files.js';
 import { referencedImagePath } from '../remote-iiif/referenced-image.js';
 import { projectFilePath } from '../project/project-file.js';
@@ -617,29 +617,6 @@ async function hasMapImage(store: ProjectStore, imageId: string): Promise<boolea
 		// Could not be asked, which is not an answer of "no".
 		return true;
 	}
-}
-
-/**
- * The Map Image an `alignments/<image-id>.json` path names, or `null` for anything else.
- *
- * Deliberately as narrow as `hoistedImageId`'s Alignment half: exactly two segments, a non-empty
- * stem, and a `.json` suffix. Anything looser would route a path this application never writes into
- * the Alignment writer, which is the opposite of a guard.
- *
- * ⚠ **Exported for its positive control, and that is the whole reason it is exported.** Both the
- * routing in {@link write} and the refusal in {@link writePlain} ask this one function the same
- * question, so if it is ever loosened or narrowed the branch and its guard move **together, in the
- * same direction, silently**: a path it stopped recognising would be sent to the plain write *and*
- * waved through by the refusal that exists to catch exactly that. `replay.test.ts` pins it against
- * the spellings on both sides of the line, so such a change is a red test rather than a quiet hole.
- */
-export function alignmentImageId(path: StorePath): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
 }
 
 /**

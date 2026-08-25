@@ -89,7 +89,7 @@
 // opposite instructions. So a reader of this Workspace sees the complete old state or the complete
 // new one, never a Project list assembled out of both (SPEC story 141).
 
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
+import { ALIGNMENT_DIRECTORY, alignmentImageId } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import { IMAGE_DIRECTORY } from '../project/image-files.js';
 import { PROJECT_FILE_NAME, parseProjectFile } from '../project/project-file.js';
@@ -1165,14 +1165,6 @@ async function writeInbound(
 }
 
 /** The image id of `alignments/<id>.json`, or `null` for anything else. */
-function alignmentImageId(path: string): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
-}
 
 /**
  * Run `work` over `items`, at most `limit` of them in flight.

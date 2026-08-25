@@ -17,40 +17,10 @@ import {
 	readHeldCopies,
 	readJournal
 } from './journal.js';
-import { alignmentImageId, replayIsNoteworthy, replayJournal } from './replay.js';
+import { replayIsNoteworthy, replayJournal } from './replay.js';
 
 const utf8 = new TextEncoder();
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-
-/**
- * The positive control for the one function the Alignment routing **and** its refusal both consult.
- *
- * Without this, loosening or narrowing `alignmentImageId` moves the branch in `write` and the guard
- * in `writePlain` together and in the same direction — the guard stops catching exactly the paths
- * the branch stopped routing, and nothing anywhere goes red. The specimens below are the spellings
- * on either side of the line, taken from `hoistedImageId`, which answers the same question for the
- * two tar readers.
- */
-describe('alignmentImageId — what counts as an Alignment path', () => {
-	it.each([
-		['alignments/floride-1657.json', 'floride-1657'],
-		['alignments/a.b.json', 'a.b']
-	])('reads %s as the Alignment of %s', (path, imageId) => {
-		expect(alignmentImageId(path)).toBe(imageId);
-	});
-
-	it.each([
-		'alignments/nested/thing.json',
-		'alignments/.json',
-		'alignments/floride-1657.geojson',
-		'alignments',
-		// project-rooted-path-is-the-fixture: the ADR-0023 decoy itself — a Project-rooted Alignment path, asserted here to be one `alignmentImageId` refuses to recognise
-		'amsterdam-1625/alignments/floride-1657.json',
-		'images/floride-1657/info.json'
-	])('does not read %s as an Alignment path', (path) => {
-		expect(alignmentImageId(path)).toBeNull();
-	});
-});
 
 describe('replayJournal', () => {
 	let storage: FakeJournalStorage;
