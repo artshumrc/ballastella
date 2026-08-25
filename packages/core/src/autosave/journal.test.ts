@@ -755,10 +755,11 @@ describe('Autosave with a journal (ADR-0017 rule 3, as amended by ticket 20)', (
 /**
  * An Edit History's undo, against the journal (ADR-0039, ticket 20 constraint 5).
  *
- * ⚠ **This is the test the e2e version was mistaken for.** `editor-workspace.e2e.ts` types a name
- * and types it back, which is a re-edit and not a Step at all — review caught that, and it left the
- * actual claim ("a replayed journal entry cannot resurrect an edit the user undid before leaving")
- * resting on a reading of the code rather than on anything red.
+ * ⚠ **The claim lives here rather than at Seam 2.** `editor-workspace.e2e.ts`'s "replays the last
+ * edit to a file, not an earlier one" types a name and types it back, which is a re-edit and not a
+ * Step at all; it pins the journal's superseding and says nothing about an Edit History. Without
+ * this block, "a replayed journal entry cannot resurrect an edit the user undid before leaving"
+ * would rest on a reading of the code rather than on anything red.
  *
  * The mechanism is exercised for real here: a genuine `EditHistory` whose `writeBack` goes through
  * the same `Autosave` as every other edit, against a store whose writes **stop settling** the moment

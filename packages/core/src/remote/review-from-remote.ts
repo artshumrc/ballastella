@@ -657,8 +657,6 @@ async function writeReviewed(
 	return outcome === 'written' ? 'written' : 'declined';
 }
 
-/** The image id of `alignments/<id>.json`, or `null` for anything else. */
-
 /**
  * Refuse a Review there is no room for, **before the Review Workspace exists**.
  *

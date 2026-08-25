@@ -1164,8 +1164,6 @@ async function writeInbound(
 	}
 }
 
-/** The image id of `alignments/<id>.json`, or `null` for anything else. */
-
 /**
  * Run `work` over `items`, at most `limit` of them in flight.
  *

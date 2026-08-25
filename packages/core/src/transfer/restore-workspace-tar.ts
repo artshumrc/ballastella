@@ -566,8 +566,6 @@ async function writeRestored(
 	return outcome === 'written' ? 'written' : 'declined';
 }
 
-/** The image id of `alignments/<id>.json`, or `null` for anything else. */
-
 type TarEntry = {
 	header: { name: string; type?: string; pax?: Record<string, string> };
 	body: ReadableStream<Uint8Array>;
