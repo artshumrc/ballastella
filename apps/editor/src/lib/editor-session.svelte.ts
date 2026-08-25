@@ -288,6 +288,26 @@ interface OpacityDrag {
 	readonly step: Promise<void>;
 }
 
+/**
+ * One style drag in progress over an Annotation Layer's file, and the Step held open across it.
+ *
+ * `key` is which slider on which Annotation, so that a scholar moving from stroke width to stroke
+ * opacity without letting go gets two Steps rather than one merged one.
+ */
+interface AnnotationDrag {
+	readonly key: string;
+	readonly path: StorePath;
+	/**
+	 * Every position reported so far, in the order they arrived and behind the `before` image being
+	 * taken. Extended by each one, and awaited by the release.
+	 */
+	applied: Promise<void>;
+	/** Ends the gesture the Step is wrapped around. */
+	readonly end: () => void;
+	/** The Step itself, awaited by whoever ends it so the last position is written before they return. */
+	readonly step: Promise<void>;
+}
+
 /** The outcome of {@link EditorSession.addReferencedMap}. */
 export type ReferencedMapAdded = {
 	/** The new Layer, or the one this Project already had for this Map Image. */
@@ -439,6 +459,17 @@ export class EditorSession {
 	 * {@link commitLayerEdit}, which is what the range's `change` event reaches.
 	 */
 	#opacityDrag: OpacityDrag | null = null;
+
+	/**
+	 * The Annotation style drag now under way, and the Step held open for it, or `null`.
+	 *
+	 * The Annotation half of what {@link #opacityDrag} is for the Layer stack: every position a range
+	 * reports is an ordinary debounced write, and the Step spans the whole gesture so undo goes back
+	 * to the style the Annotation had before the drag rather than to a value inside it (SPEC story 23).
+	 * Opened by {@link dragAnnotations} and closed by the unlabelled {@link writeAnnotations} the
+	 * range's `change` event reaches.
+	 */
+	#annotationDrag: AnnotationDrag | null = null;
 
 	/**
 	 * How every Edit History reads and writes the files it holds.
@@ -3470,8 +3501,15 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory) return;
 		const path = annotationStorePath(directory, layer.id);
-		const bytes = serialiseAnnotations(collection);
 		const { label } = options;
+		// A slider released: the drag its positions filled closes here, and `step()` flushes what the
+		// last position left pending and reads the `after` image from that. There is no write left to
+		// do — the flush is the commit, and doing both would put the same bytes out twice.
+		if (label === undefined && options.debounce !== true && this.#annotationDrag?.path === path) {
+			await this.#closeAnnotationDrag();
+			return;
+		}
+		const bytes = serialiseAnnotations(collection);
 		// **No label, no Step**, the same convention `#changeLayers` follows: a gesture is recorded
 		// because its caller said so, which is what keeps a typed title out of the history without
 		// anything here having to name what a title is not (SPEC stories 30, 33).
@@ -3492,6 +3530,93 @@ export class EditorSession {
 			return;
 		}
 		await this.#putAnnotations(path, collection, bytes, options);
+	}
+
+	/**
+	 * One position of a style drag over an Annotation Layer's file (SPEC story 23).
+	 *
+	 * **One drag is one Step**, so the Step is opened by the first position reported and closed by the
+	 * unlabelled {@link writeAnnotations} the release reaches, rather than one Step per `input` event:
+	 * a five-deep history must not be spent on one slider, and undo must return the Annotation to the
+	 * style it had before the gesture rather than to some value inside it.
+	 *
+	 * `drag.key` names the slider, so reporting on a second one without letting go of the first closes
+	 * the standing Step before opening this one — the same thing {@link dragLayerOpacity} does when a
+	 * different Layer's slider reports.
+	 */
+	async dragAnnotations(
+		layer: AnnotationLayer,
+		collection: AnnotationCollection,
+		drag: { key: string; label: string }
+	): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory) return;
+		const path = annotationStorePath(directory, layer.id);
+		const bytes = serialiseAnnotations(collection);
+		const standing = this.#annotationDrag;
+		if (standing && standing.key !== drag.key) await this.#closeAnnotationDrag();
+
+		const open = this.#openAnnotationStep(directory, path, drag);
+		// **The bytes are queued behind the drag's `before` image, and queued synchronously.** A range
+		// reports positions faster than a store read answers and the release arrives in the same task as
+		// the last of them, so a write that ran ahead of the image — or a release that closed the Step
+		// while one was still queued — would put bytes the scholar never saw in it.
+		const applied = open.applied.then(() =>
+			this.#putAnnotations(path, collection, bytes, { debounce: true })
+		);
+		open.applied = applied;
+		await applied;
+	}
+
+	/**
+	 * The Step one style drag will fill, opened on the first position it reports.
+	 *
+	 * The gesture handed to `step()` is a promise resolved when the drag ends, which is what makes the
+	 * whole drag one Step: the `before` image is read when the first position arrives and the `after`
+	 * image once the last one has been flushed. Synchronous, so that the positions arriving behind it
+	 * join this drag rather than each opening a Step of its own.
+	 */
+	#openAnnotationStep(
+		directory: string,
+		path: StorePath,
+		drag: { key: string; label: string }
+	): AnnotationDrag {
+		const standing = this.#annotationDrag;
+		if (standing?.key === drag.key) return standing;
+
+		let start = (): void => {};
+		let end = (): void => {};
+		const started = new Promise<void>((resolve) => {
+			start = resolve;
+		});
+		const finished = new Promise<void>((resolve) => {
+			end = resolve;
+		});
+		// The indicator is told here rather than by the write, for the reason the labelled branch of
+		// {@link writeAnnotations} records: a screen reading `Saved locally` across the `before` image's
+		// read would be reporting an edit that exists and is unwritten as a written one.
+		this.saveState = 'saving';
+		// The Layer's own document and nothing else, which is ADR-0039's disjointness invariant: a style
+		// is content, and `project.json` is untouched by it.
+		const step = this.historyFor(directory).step(drag.label, [path], async () => {
+			start();
+			await finished;
+		});
+		const opened: AnnotationDrag = { key: drag.key, path, end, step, applied: started };
+		this.#annotationDrag = opened;
+		return opened;
+	}
+
+	/** End the standing style drag, so its Step reads its `after` image and closes. */
+	async #closeAnnotationDrag(): Promise<void> {
+		const drag = this.#annotationDrag;
+		if (!drag) return;
+		this.#annotationDrag = null;
+		// Every position reported so far, applied first: one still queued would land after the `after`
+		// image had been read and go unrecorded.
+		await drag.applied;
+		drag.end();
+		await drag.step;
 	}
 
 	/** One Annotation Layer's bytes out through {@link Autosave}, on the timer or now. */
@@ -3528,7 +3653,13 @@ export class EditorSession {
 	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean {
 		const directory = this.openDirectory;
 		if (!directory) return false;
-		return this.#autosave.hasPendingWrite(annotationStorePath(directory, layer.id));
+		const path = annotationStorePath(directory, layer.id);
+		// **A drag under way counts as pending even with its timer already fired.** The release is the
+		// only thing that closes the drag's Step, and it arrives through the commit-on-blur path — so a
+		// drag long enough for the debounce to elapse mid-gesture would otherwise leave the Step open
+		// for ever and swallow the gesture after it.
+		if (this.#annotationDrag?.path === path) return true;
+		return this.#autosave.hasPendingWrite(path);
 	}
 
 	/**

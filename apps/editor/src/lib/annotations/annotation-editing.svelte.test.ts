@@ -6,8 +6,8 @@
 // an Annotation written into the wrong file, or a file holding twenty Annotations overwritten with
 // one — and none of them has a gesture in the interface that produces it on demand.
 //
-// The fake writer is three methods, which is the whole of what this class asks of `EditorSession`.
-// That is the measurement of the carve: 369 lines of the Project screen now depend on three
+// The fake writer is four methods, which is the whole of what this class asks of `EditorSession`.
+// That is the measurement of the carve: 369 lines of the Project screen now depend on four
 // functions rather than on a 2500-line session, OPFS, and a map.
 //
 // ⚠ **`.svelte.test.ts`, not `.test.ts`, and that is load-bearing.** `screen()` below builds the
@@ -32,6 +32,7 @@ import {
 	simpleStyleViolations,
 	type Annotation,
 	type AnnotationCollection,
+	type AnnotationProperties,
 	type AnnotationGeometry,
 	type AnnotationLayer,
 	type Bytes,
@@ -51,6 +52,8 @@ interface Write {
 	debounce: boolean;
 	/** The sentence the Edit History's controls would say, or `undefined` for a write that is no Step. */
 	label: string | undefined;
+	/** The drag this position belongs to, or `undefined` for a write that is not one. */
+	drag?: { key: string; label: string };
 }
 
 class FakeWriter implements AnnotationWriter {
@@ -77,6 +80,19 @@ class FakeWriter implements AnnotationWriter {
 			debounce: options.debounce === true,
 			label: options.label
 		});
+	}
+
+	/**
+	 * One position of a drag. Recorded as the debounced, Step-less write it is on the wire — the Step
+	 * spans the gesture and is the real session's to hold — with the drag it belongs to beside it, so
+	 * a test can count gestures as well as writes.
+	 */
+	async dragAnnotations(
+		layer: AnnotationLayer,
+		collection: AnnotationCollection,
+		drag: { key: string; label: string }
+	): Promise<void> {
+		this.writes.push({ layerId: layer.id, collection, debounce: true, label: undefined, drag });
 	}
 
 	hasPendingAnnotationWrite(): boolean {
@@ -534,6 +550,24 @@ describe('the four gestures that become Steps', () => {
 		await it_.annotations.styleSelected({ 'stroke-width': 4 }, { debounce: true });
 
 		expect(it_.session.writes.map((write) => write.label)).toEqual([undefined]);
+	});
+
+	/**
+	 * Every position of one drag is the same gesture, and the sentence a scholar reads before pressing
+	 * Undo is the one the discrete case already says.
+	 */
+	it('gathers a slider’s positions into one drag, and a second slider into another', async () => {
+		const it_ = drawnInto([titled('a1', 'Trade route')]);
+		it_.annotations.selectAnnotation('a1');
+
+		await it_.annotations.styleSelected({ 'stroke-width': 4 }, { debounce: true });
+		await it_.annotations.styleSelected({ 'stroke-width': 6 }, { debounce: true });
+		await it_.annotations.styleSelected({ 'stroke-opacity': 0.4 }, { debounce: true });
+
+		const drags = it_.session.writes.map((write) => write.drag);
+		expect(drags.every((drag) => drag?.label === 'Undo restyling “Trade route”')).toBe(true);
+		expect(drags[0]!.key).toBe(drags[1]!.key);
+		expect(drags[2]!.key).not.toBe(drags[0]!.key);
 	});
 
 	/** Typed text is never a Step and is never reverted by one (SPEC stories 30, 33). */
@@ -1274,5 +1308,150 @@ describe('an Annotation gesture undone and redone against the store', () => {
 
 		// Byte for byte the document the Layer was added with: no fragment, and no words left behind.
 		expect(await it_.bytes()).toEqual(empty);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// A STYLE DRAG AGAINST A REAL SESSION AND A REAL STORE (SPEC stories 23, 33; ticket 08)
+//
+// The three range inputs in the style panel report a position per pixel and commit on release. What
+// is asserted here is the `.geojson` either side of one gesture, because history internals cannot
+// tell the difference between a Step that spans the drag and one whose images merely happen to
+// straddle it — and it was exactly that difference that put a completed drag outside every Step.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Every property the drag test drives, and a plausible path through each range. */
+const SLIDERS: [keyof AnnotationProperties & string, number[]][] = [
+	['fill-opacity', [0.8, 0.5, 0.25]],
+	['stroke-width', [3, 5, 8]],
+	['stroke-opacity', [0.9, 0.6, 0.35]]
+];
+
+describe('one style drag is one Step (SPEC story 23)', () => {
+	/** A Project with one Annotation drawn and flushed, ready to be restyled. */
+	async function drawn(): Promise<Awaited<ReturnType<typeof realSession>>> {
+		const it_ = await realSession();
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.78, lat: 52.4 });
+		await it_.settle();
+		return it_;
+	}
+
+	const dragTo = async (
+		it_: Awaited<ReturnType<typeof realSession>>,
+		property: keyof AnnotationProperties & string,
+		values: number[]
+	): Promise<void> => {
+		for (const value of values) {
+			await it_.annotations.styleSelected({ [property]: value }, { debounce: true });
+		}
+	};
+
+	for (const [property, values] of SLIDERS) {
+		it(`undoes a ${property} drag to the value it began at, and redoes to the released one`, async () => {
+			const it_ = await drawn();
+			const before = await it_.bytes();
+
+			await dragTo(it_, property, values);
+			await it_.annotations.commitAnnotationEdit();
+			await it_.settle();
+			const after = await it_.bytes();
+			// The whole drag reached storage, so the undo below cannot be satisfied by a revert to the
+			// last saved state.
+			expect(after).not.toEqual(before);
+			expect(
+				parseAnnotations(after, { path: 'annotations' }).annotations[0]!.properties[property]
+			).toBe(values.at(-1));
+
+			const history = it_.session.historyFor(DIRECTORY);
+			expect(await history.undo()).toBe(true);
+			await it_.settle();
+			// The value the drag began at, and not one of the positions it passed through.
+			expect(await it_.bytes()).toEqual(before);
+			// One Step for the whole gesture: what is left to undo is the drawing, not another position.
+			expect(it_.session.historyFor(DIRECTORY).undoable?.label).toBe(
+				'Undo drawing this Annotation'
+			);
+
+			expect(await history.redo()).toBe(true);
+			await it_.settle();
+			expect(await it_.bytes()).toEqual(after);
+		});
+	}
+
+	/**
+	 * The defect this closes, and SPEC story 33's shape on style: a completed drag that lands outside
+	 * every Step is reverted by the undo of whatever Step stands above it, because that Step's `before`
+	 * image predates the drag and carry-across carries only title and description.
+	 *
+	 * So the drag must be what one Undo reaches. The deletion below stays undone across it, and the
+	 * dragged width comes back on redo with the deletion still standing.
+	 */
+	it('keeps a drag out of the undo of the Step before it', async () => {
+		const it_ = await realSession();
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.78, lat: 52.4 });
+		await it_.settle();
+		const kept = it_.annotations.selectedAnnotationId as string;
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 5.02, lat: 52.34 });
+		await it_.settle();
+
+		await it_.annotations.deleteSelected();
+		await it_.settle();
+
+		it_.annotations.selectAnnotation(kept);
+		await dragTo(it_, 'stroke-width', [3, 5, 8]);
+		await it_.annotations.commitAnnotationEdit();
+		await it_.settle();
+
+		const history = it_.session.historyFor(DIRECTORY);
+		expect(await history.undo()).toBe(true);
+		await it_.settle();
+		const reverted = parseAnnotations(await it_.bytes(), { path: 'annotations' });
+		// The drag is what was undone, so the deleted Annotation has not come back with it.
+		expect(reverted.annotations.map((one) => one.id)).toEqual([kept]);
+		expect(reverted.annotations[0]!.properties['stroke-width']).toBeUndefined();
+
+		expect(await history.redo()).toBe(true);
+		await it_.settle();
+		const back = parseAnnotations(await it_.bytes(), { path: 'annotations' });
+		expect(back.annotations.map((one) => one.id)).toEqual([kept]);
+		expect(back.annotations[0]!.properties['stroke-width']).toBe(8);
+	});
+
+	/** A scholar who slides from one control to the next without letting go made two gestures. */
+	it('closes the standing Step when a second slider reports', async () => {
+		const it_ = await drawn();
+		const before = await it_.bytes();
+
+		await dragTo(it_, 'stroke-width', [3, 6]);
+		await dragTo(it_, 'stroke-opacity', [0.9, 0.4]);
+		await it_.annotations.commitAnnotationEdit();
+		await it_.settle();
+
+		const history = it_.session.historyFor(DIRECTORY);
+		expect(await history.undo()).toBe(true);
+		await it_.settle();
+		const half = parseAnnotations(await it_.bytes(), { path: 'annotations' });
+		// The width the first drag ended at survives the second drag being undone.
+		expect(half.annotations[0]!.properties['stroke-width']).toBe(6);
+		expect(half.annotations[0]!.properties['stroke-opacity']).toBeUndefined();
+
+		expect(await history.undo()).toBe(true);
+		await it_.settle();
+		expect(await it_.bytes()).toEqual(before);
+	});
+
+	/** ADR-0010: tabbing through the panel is looking, and looking modifies no byte. */
+	it('writes nothing when a slider is released without having moved', async () => {
+		const it_ = await drawn();
+		const before = await it_.bytes();
+
+		await it_.annotations.commitAnnotationEdit();
+		await it_.settle();
+
+		expect(await it_.bytes()).toEqual(before);
+		expect(it_.session.historyFor(DIRECTORY).undoable?.label).toBe('Undo drawing this Annotation');
 	});
 });

@@ -52,7 +52,7 @@ import { AnnotationDrawing } from './drawing.svelte.js';
 /**
  * What this layer needs of `EditorSession`, and nothing more.
  *
- * **Three methods rather than the session**, which is what makes this class testable without one:
+ * **Four methods rather than the session**, which is what makes this class testable without one:
  * `EditorSession` is ~2500 lines reaching OPFS, the autosave timer, the Edit Histories and the Base
  * Map cache, and none of that is a dependency of "put a vertex in a collection and write it".
  * `EditorSession` satisfies this structurally, so nothing is adapted at the call site.
@@ -68,6 +68,19 @@ export interface AnnotationWriter {
 		layer: AnnotationLayer,
 		collection: AnnotationCollection,
 		options?: { debounce?: boolean; label?: string }
+	): Promise<void>;
+	/**
+	 * One position of a continuous gesture over this Layer's file, held inside one Step.
+	 *
+	 * A debounced {@link writeAnnotations} would land outside every Step, so an undo of an *earlier*
+	 * Step would take the completed drag's bytes with it. `key` names the gesture — which slider on
+	 * which Annotation — and the drag is closed by the next {@link writeAnnotations} carrying neither
+	 * a label nor `debounce`, which is what the release reaches.
+	 */
+	dragAnnotations(
+		layer: AnnotationLayer,
+		collection: AnnotationCollection,
+		drag: { key: string; label: string }
 	): Promise<void>;
 	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean;
 }
@@ -94,6 +107,16 @@ const undoLabel = (verb: string, annotation: Annotation): string => {
 	const subject = title === undefined || title === '' ? 'this Annotation' : `“${title}”`;
 	return `Undo ${verb} ${subject}`;
 };
+
+/**
+ * How a collection reaches the store: now, on the debounce timer, as a Step, or as one position of a
+ * drag. `drag` and `label` are alternatives — a drag's Step is opened once and named there.
+ */
+interface CommitOptions {
+	debounce?: boolean;
+	label?: string;
+	drag?: { key: string; label: string };
+}
 
 export class AnnotationEditing {
 	/**
@@ -344,10 +367,7 @@ export class AnnotationEditing {
 	 * gesture rather than after a store read, which is the same split `#applyLayerChange` makes for
 	 * the Layer stack.
 	 */
-	async commitAnnotations(
-		next: AnnotationCollection,
-		options: { debounce?: boolean; label?: string } = {}
-	): Promise<void> {
+	async commitAnnotations(next: AnnotationCollection, options: CommitOptions = {}): Promise<void> {
 		const layer = this.#activeLayer;
 		if (!layer) return;
 		await this.commitAnnotationsIn(layer, next, options);
@@ -364,10 +384,14 @@ export class AnnotationEditing {
 	async commitAnnotationsIn(
 		layer: AnnotationLayer,
 		next: AnnotationCollection,
-		options: { debounce?: boolean; label?: string } = {}
+		options: CommitOptions = {}
 	): Promise<void> {
 		if (next === this.#edges.documents()[layer.id]) return;
 		this.#edges.replaceDocument(layer.id, next);
+		if (options.drag) {
+			await this.#edges.session().dragAnnotations(layer, next, options.drag);
+			return;
+		}
 		await this.#edges.session().writeAnnotations(layer, next, options);
 	}
 
@@ -717,8 +741,12 @@ export class AnnotationEditing {
 	 * **A discrete choice is one Step; a slider still under the pointer is not.** `debounce` is the
 	 * caller saying the gesture is not over (ADR-0017 rule 2), and a Step per position a range
 	 * reported would spend a five-deep history on one drag. So a colour, a marker size and a line
-	 * style each open a Step, and what a released slider leaves behind is the `before` image of
-	 * whichever gesture comes next.
+	 * style each open a Step of its own, while a drag's positions join the single Step the whole
+	 * gesture fills — closed by {@link commitAnnotationEdit} when the slider is released.
+	 *
+	 * **The drag's key is the slider, not the panel.** Moving from stroke width to stroke opacity
+	 * without letting go is two gestures, so it is two Steps, and the property names the scholar's
+	 * control reports are what tells them apart.
 	 */
 	async styleSelected(
 		style: Record<string, unknown>,
@@ -729,10 +757,14 @@ export class AnnotationEditing {
 		if (!collection || !id) return;
 		const annotation = findAnnotation(collection, id);
 		if (!annotation) return;
-		await this.commitAnnotations(setStyle(collection, id, style), {
-			...options,
-			...(options.debounce ? {} : { label: undoLabel('restyling', annotation) })
-		});
+		const label = undoLabel('restyling', annotation);
+		const next = setStyle(collection, id, style);
+		if (options.debounce) {
+			const key = `${id}:${Object.keys(style).sort().join(',')}`;
+			await this.commitAnnotations(next, { drag: { key, label } });
+			return;
+		}
+		await this.commitAnnotations(next, { label });
 	}
 
 	/** Set the selected Annotation's line style. Stores the tuple; solid is its absence (ADR-0009). */
