@@ -107,8 +107,8 @@ A single correspondence between one point on a map image and one point on the ea
 _Avoid_: GCP, tie point, marker, pin
 
 **Resource Mask**:
-The outline of the part of a map image that should be shown once georeferenced — the map itself, excluding margins, titles, and decorative surround.
-_Avoid_: crop, clip, cutline, boundary
+The outline of the part of a map image that should be shown once georeferenced — the map itself, excluding margins, titles, and decorative surround. **Crop** is the label of the control that edits it, and only that: the outline itself is a Resource Mask everywhere else.
+_Avoid_: clip, cutline, boundary. Not "crop" for the outline — a cropped sheet is one whose Resource Mask has been drawn.
 
 **Annotation**:
 A piece of scholarly content a user places on the map: a label, pin, route, or shape. Author-facing, and the reason the tool exists. Never used for georeferencing data.
@@ -136,3 +136,12 @@ The IIIF Georeference Extension document format that an Alignment serialises to.
 **Image Pane**:
 The seam that draws one IIIF pyramid unwarped, in its own image pixels, on a synthetic projection. Deliberately *not* a domain term and deliberately not renamed alongside Map Image: it knows nothing about maps, takes any pyramid, and its "image" means an image in the ordinary sense. It names a component and a `@ballastella/core` type, never a thing a scholar has. What a scholar sees is a Map Image drawn in one — `MapImagePane` — and that is the name to use for the pane in the UI and in anything user-facing.
 _Avoid_: map pane, viewer, canvas. Do not read "Image Pane" as a second sense of Map Image.
+
+**Edit History**:
+The last few edits a scholar made on one screen, in the order they made them, so that any of them can be taken back and put back again. One per subject — a Project's, a Map Image's Alignment — and shown only on the screen that subject belongs to, so that an edit made in one place is never offered for undoing in another. Workspace Home has none. Linear and bounded: there is no branching, and reaching back far enough forgets the beginning. It lives only as long as the session, and putting a change back at startup is the Write-Ahead Journal's business rather than this one's.
+_Avoid_: undo stack, history stack, command stack, timeline, journal
+
+**Step**:
+One entry in an Edit History: a single edit as the scholar meant it, whatever number of writes it took. A drag is one Step, and so is a name typed a letter at a time. It is named after the act and its subject and never after the values involved, because the same Step is read forwards and backwards.
+_Avoid_: command, operation, transaction, revision, change
+
