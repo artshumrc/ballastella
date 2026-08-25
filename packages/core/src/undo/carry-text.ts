@@ -32,9 +32,9 @@ import type { Bytes, StorePath } from '../store/project-store.js';
  *
  * **The Base Map is carried for the reason the names are**, though nobody types it: it is a choice
  * the scholar made about how to look at the Project rather than an edit to the work, and no Step
- * records it (the Brief puts Base Map choice out of scope for the history, now and later). An image
- * written verbatim would silently swap the backdrop back to whatever was chosen when some earlier
- * gesture happened, and no redo would return it, because the `after` image predates the choice too.
+ * records it (ADR-0039 puts that choice out of the history, now and later). An image written verbatim
+ * would silently swap the backdrop back to whatever was chosen when some earlier gesture happened,
+ * and no redo would return it, because the `after` image predates the choice too.
  *
  * Everything else — the stack itself, its order, visibility, opacity, and every field this build
  * carries rather than understands — comes from the image, because that is what undo is reversing.

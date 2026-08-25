@@ -178,7 +178,7 @@ describe('the cursor', () => {
 
 	// SPEC story 9: redo never offers a future the scholar has contradicted.
 	it('truncates everything ahead of it when a new Step is pushed', async () => {
-		const { autosave, history } = seam();
+		const { autosave, history, held } = seam();
 		await write(history, autosave, 'Undo edit one', 'one');
 		await write(history, autosave, 'Undo edit two', 'two');
 		await history.undo();
@@ -188,6 +188,19 @@ describe('the cursor', () => {
 
 		expect(history.redoable).toBeNull();
 		expect(history.undoable?.label).toBe('Undo edit three');
+
+		// ⚠ **The walk back is what asserts the truncation**, and the two lines above are not: "nothing
+		// to redo" reads the same whether the contradicted Step was dropped or merely left standing
+		// behind the cursor, and so does "the newest Step is edit three". Only walking to the end
+		// separates them — edit two is gone, so undoing past edit three reaches edit one and then the
+		// file the run started from, rather than the future the scholar contradicted.
+		const labels: string[] = [];
+		while (history.undoable !== null) {
+			labels.push(history.undoable.label);
+			await history.undo();
+		}
+		expect(labels).toEqual(['Undo edit three', 'Undo edit one']);
+		expect(await held(NOTES)).toBeNull();
 	});
 });
 
