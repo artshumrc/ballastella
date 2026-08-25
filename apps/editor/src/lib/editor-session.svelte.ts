@@ -1641,8 +1641,10 @@ export class EditorSession {
 	 * The queue itself. See {@link #alignmentWriteInFlight} for what it is for and what it is not:
 	 * it removes this session's overlap with itself, and says nothing about a real colleague.
 	 *
-	 * `write` must not reject — both callers report a store failure through `saveError` — because the
-	 * chain is a plain `then` and a rejection would poison every later write for the same map.
+	 * **`write` must not reject**, because the chain is a plain `then` and a rejection would poison
+	 * every later write for the same map. The two ordinary-save callers report a store failure through
+	 * `saveError` and resolve; {@link #writeAlignmentBack} has to answer its caller instead, so it
+	 * catches inside `write` and rethrows from outside the queue.
 	 */
 	async #behindAlignmentWritesFor(imageId: string, write: () => Promise<void>): Promise<void> {
 		const queued = (this.#alignmentWriteInFlight.get(imageId) ?? Promise.resolve()).then(write);
@@ -3001,11 +3003,11 @@ export class EditorSession {
 			// ordinary save as a concurrent edit. That session cannot currently exist: the offline-copy
 			// dialog is mounted only by `ProjectScreen.svelte`, the alignment view is the separate
 			// `/align` route, one session cannot have both on screen, and a second tab is a second
-			// `EditorSession` this line could not reach anyway. `writeAlignment`'s only callers are also
-			// both downstream of `loadAlignment` → `readAlignment`, which re-establishes the baseline
-			// from disk. So deleting this line leaves the whole gate green, and it is kept because the
-			// rule on {@link #rememberAlignmentOnDisk} is "every write moves the baseline" and a write
-			// that opted out would be the exception a future caller inherits.
+			// `EditorSession` this line could not reach anyway. `writeAlignment`'s one caller is the Step
+			// the Align screen wraps a gesture in, downstream of `loadAlignment` → `readAlignment`, which
+			// re-establishes the baseline from disk. So deleting this line leaves the whole gate green,
+			// and it is kept because the rule on {@link #rememberAlignmentOnDisk} is "every write moves
+			// the baseline" and a write that opted out would be the exception a future caller inherits.
 			this.#rememberAlignmentOnDisk(imageId, report.written);
 			this.saveError = '';
 		} catch (cause) {

@@ -492,7 +492,7 @@ describe('editing a shape', () => {
  * there is to assert here: a labelled write is a Step and an unlabelled one is not, and the sentence
  * is the one a scholar reads on the control before pressing it.
  */
-describe('the four gestures that become Steps', () => {
+describe('the gestures that become Steps, and the ones that do not', () => {
 	const drawnInto = (annotations: Annotation[] = []) => {
 		const layer = layerNamed('one');
 		const it_ = screen([layer]);

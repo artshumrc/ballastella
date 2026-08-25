@@ -302,10 +302,11 @@
 	/**
 	 * Read this Map Image's Alignment again, discarding the pairing on screen.
 	 *
-	 * One caller: putting back a version somebody else wrote. Re-reading rather than reconstructing
-	 * from the displaced bytes, so the screen shows what is on disk — and so `readAlignment` resets
-	 * the session's baseline, without which the very next drag would be reported as displacing
-	 * something all over again.
+	 * Two callers, and both are a file that changed underneath the pairing: putting back a version
+	 * somebody else wrote, and an Edit History writing one of this map's Steps back. Re-reading rather
+	 * than reconstructing from the bytes in hand, so the screen shows what is on disk — and so
+	 * `readAlignment` resets the session's baseline, without which the very next drag would be
+	 * reported as displacing something all over again.
 	 *
 	 * Does nothing when the pyramid on hand is another map's — see {@link livePane}. Nothing is the
 	 * right answer there: the pane for the map now on screen is still loading, and its own `onpane`
