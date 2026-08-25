@@ -232,9 +232,6 @@
 	$effect(() => {
 		void imageId;
 		generation += 1;
-		// Nothing here forgets another map's undo any more: an Edit History is keyed by Map Image
-		// (ADR-0039), so the history this screen declares cannot offer an edit made to a map that is not
-		// on it, and there is nothing left to clear.
 		pairing = undefined;
 		warped = null;
 		concurrentEditOutcome = '';

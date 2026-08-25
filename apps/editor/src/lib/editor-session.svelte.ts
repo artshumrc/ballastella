@@ -394,7 +394,7 @@ export class EditorSession {
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
 	#openGeneration = 0;
 	/**
-	 * One Edit History per subject — a Project directory, and from ticket 5 a Map Image id (ADR-0039).
+	 * One Edit History per subject — a Project directory, or a Map Image id (ADR-0039).
 	 *
 	 * Held here rather than by a screen because a history outlives the screen that draws it: walking
 	 * from the Project screen to `/align` and back must find the same one. Created on first use and
@@ -3639,9 +3639,10 @@ export class EditorSession {
 }
 
 /**
- * A Layer's own name in quotation marks, for the sentence an Edit History's controls say.
+ * A Layer's or a Map Image's own name in quotation marks, for the sentence an Edit History's
+ * controls say.
  *
- * A Layer nobody named still has to be identifiable in the one sentence that says what undo will
+ * Something nobody named still has to be identifiable in the one sentence that says what undo will
  * give back, which is what the fallback phrase is for.
  */
 const quotedName = (name: string): string => (name === '' ? 'with no name' : `“${name}”`);

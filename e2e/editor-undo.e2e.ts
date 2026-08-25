@@ -633,9 +633,8 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 	 * would take the Annotation out of one `.geojson` and put it into another, which is not an undo of
 	 * anything: it is a move into a file the user was not looking at.
 	 *
-	 * A Step names the files its gesture wrote (ADR-0039), so the file is no longer a lookup that can
-	 * go wrong — and this is the scenario that proved it could, kept because the class of defect is
-	 * what the assertion is about rather than the mechanism that used to cause it.
+	 * A Step names the files its gesture wrote (ADR-0039), so which file an undo writes into is not a
+	 * lookup that can go wrong. This asserts the class of defect rather than any one mechanism for it.
 	 */
 	test('goes back into the Layer it was deleted from, not the one chosen when Undo is pressed', async ({
 		page

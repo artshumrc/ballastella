@@ -1710,7 +1710,7 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 });
 
 /**
- * The Alignment's own Edit History, driven the way the Align screen drives it (ticket 5, ADR-0039).
+ * The Alignment's own Edit History, driven the way the Align screen drives it (ticket 05, ADR-0039).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE GESTURES ARE SPELLED OUT HERE RATHER THAN CALLED
