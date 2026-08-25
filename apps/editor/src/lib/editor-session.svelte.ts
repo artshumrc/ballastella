@@ -428,9 +428,11 @@ export class EditorSession {
 	 * dropped with the session, which is what makes switching Workspace leave none behind (SPEC story
 	 * 41) — a new Workspace is a new `EditorSession`.
 	 *
-	 * A `SvelteMap` because `svelte/prefer-svelte-reactivity` requires one, and as with
-	 * {@link #alignmentOnDisk} that is free rather than merely tolerable: nothing reads this in a
-	 * reactive context. What a screen renders is the history's own subscription, not this.
+	 * A `SvelteMap` because `svelte/prefer-svelte-reactivity` requires one. Unlike
+	 * {@link #alignmentOnDisk}, this one *is* reached from reactive contexts — a screen asks
+	 * {@link historyFor} for its own from an effect, and `AlignmentWorkspace` from a `$derived` — and
+	 * that call mints on a miss, so it writes the map it has just read. What a screen renders is
+	 * still the history's own subscription rather than this map.
 	 */
 	readonly #histories = new SvelteMap<string, EditHistory>();
 
