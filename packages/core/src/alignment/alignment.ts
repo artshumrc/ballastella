@@ -329,9 +329,9 @@ export const alignmentPath = (imageId: string): AlignmentPath =>
  * direction, silently.** `replay.ts` is the sharpest case: both the routing in its `write` and the
  * refusal in its `writePlain` ask this one question, so a path it stopped recognising would be sent
  * to the plain write *and* waved through by the refusal that exists to catch exactly that. The
- * Update, review and tar readers consult it for the same decision. `alignment.test.ts` pins it
- * against the spellings on both sides of the line, so such a change is a red test rather than a
- * quiet hole.
+ * clone, Update, review and tar readers each route a write the same way from the same answer.
+ * `alignment.test.ts` pins it against the spellings on both sides of the line, so such a change is a
+ * red test rather than a quiet hole.
  */
 export function alignmentImageId(path: string): string | null {
 	const segments = path.split('/');

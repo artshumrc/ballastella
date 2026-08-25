@@ -1,6 +1,19 @@
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
+import { chromiumLaunchArgs } from '../../scripts/gpu-launch-args.mjs';
+
+// Chromium here gets the same launch flags every other Chromium this repository starts gets, and is
+// refused by the same rule when a workstation would reach the software rasteriser without saying so.
+// It had none: two engines through the Playwright provider with no launch options at all, so neither
+// `GPU_LAUNCH_ARGS` nor the `--num-raster-threads=1` cap applied and this suite alone was measured at
+// mean 12.0 of twenty busy cores. `null` is the GitHub Actions runner, which keeps Chromium's own
+// defaults.
+//
+// Firefox takes none of them: they are Chromium flags, and Firefox has no equivalent to hand. It is
+// one instance rather than the raster fan-out Chromium was doing, which is why it was not the cost.
+const chromiumArgs = chromiumLaunchArgs();
+
 // Two projects, because the storage layer has two kinds of test and only one of them can run
 // in Node.
 //
@@ -70,7 +83,13 @@ export default defineConfig({
 						enabled: true,
 						headless: true,
 						provider: playwright(),
-						instances: [{ browser: 'chromium' }, { browser: 'firefox' }]
+						instances: [
+							{
+								browser: 'chromium',
+								...(chromiumArgs === null ? {} : { launchOptions: { args: [...chromiumArgs] } })
+							},
+							{ browser: 'firefox' }
+						]
 					}
 				}
 			}

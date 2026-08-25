@@ -441,16 +441,17 @@ describe('every offered type is one this codebase can hold', () => {
 });
 
 /**
- * The positive control for the one function five call sites across core ask the same question of.
+ * The positive control for the one function five modules across core ask the same question of.
  *
  * It lives here, beside the function, because here is where a maintainer tightening what counts as
  * an Alignment path will edit — and every one of those call sites moves with it. `replay.ts` is the
  * sharpest: the routing in its `write` and the refusal in its `writePlain` both consult it, so
  * loosening or narrowing moves the branch and its guard together and in the same direction, the
  * guard stops catching exactly the paths the branch stopped routing, and nothing anywhere goes red.
- * `update-from-github.ts`, `review-from-remote.ts` and `restore-workspace-tar.ts` make the same
- * decision from the same answer. The specimens below are the spellings on either side of the line,
- * taken from `hoistedImageId`, which answers the same question for the two tar readers.
+ * `clone-from-remote.ts`, `update-from-github.ts`, `review-from-remote.ts` and
+ * `restore-workspace-tar.ts` each route a write the same way from the same answer. The specimens
+ * below are the spellings on either side of the line, taken from `hoistedImageId`, which answers the
+ * same question for the two tar readers.
  */
 describe('alignmentImageId — what counts as an Alignment path', () => {
 	it.each([

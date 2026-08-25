@@ -6,8 +6,8 @@
 // an Annotation written into the wrong file, or a file holding twenty Annotations overwritten with
 // one — and none of them has a gesture in the interface that produces it on demand.
 //
-// The fake writer is four methods, which is the whole of what this class asks of `EditorSession`.
-// That is the measurement of the carve: 369 lines of the Project screen now depend on four
+// The fake writer is five methods, which is the whole of what this class asks of `EditorSession`.
+// That is the measurement of the carve: 369 lines of the Project screen now depend on five
 // functions rather than on a 2500-line session, OPFS, and a map.
 //
 // ⚠ **`.svelte.test.ts`, not `.test.ts`, and that is load-bearing.** `screen()` below builds the

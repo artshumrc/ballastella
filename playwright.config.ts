@@ -1,14 +1,9 @@
 import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
-import { existsSync, readdirSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
-import {
-	GPU_LAUNCH_ARGS,
-	SOFTWARE_LAUNCH_ARGS,
-	onGithubActions
-} from './scripts/gpu-launch-args.mjs';
+import { chromiumLaunchArgs, useGpu } from './scripts/gpu-launch-args.mjs';
 
 // Seam 2 (SPEC, Testing Decisions): the running app in a real browser, with real MapLibre,
 // real OpenSeadragon, and real OPFS. Deliberately no map-abstraction layer — inventing one
@@ -122,74 +117,12 @@ const serveStatic = (app: string, port: number) => ({
 //
 // `--headed` is the other way to reach the real GPU and needs no flags, but it opens a window per
 // worker and cannot run unattended.
-/**
- * Whether this machine can actually serve ANGLE's Vulkan backend.
- *
- * Both halves are needed and the second is the one that bites. A render node is the device; an
- * **installed ICD** is the driver that talks to it, and Chromium asked for Vulkan without one is the
- * case that fails three tests rather than falling back. `lvp_icd.json` (lavapipe) counts — it is
- * software Vulkan, so it is merely slow rather than broken, which is the right side of the line.
- */
-const canUseVulkan = (): boolean => {
-	if (process.platform !== 'linux') return false;
-	const populated = (directory: string): boolean => {
-		try {
-			return readdirSync(directory).length > 0;
-		} catch {
-			return false;
-		}
-	};
-	let renderNode: boolean;
-	try {
-		renderNode = readdirSync('/dev/dri').some((node) => node.startsWith('renderD'));
-	} catch {
-		renderNode = false;
-	}
-	// A named driver file wins, but only if it is really there: pointing `VK_DRIVER_FILES` at nothing
-	// is how the failing case was reproduced, and it has to read as "no Vulkan" rather than as "yes".
-	const named = process.env.VK_DRIVER_FILES ?? process.env.VK_ICD_FILENAMES;
-	const driver = named
-		? named.split(':').some((file) => existsSync(file))
-		: populated('/usr/share/vulkan/icd.d') || populated('/etc/vulkan/icd.d');
-	return renderNode && driver;
-};
-
-const wantsGpu = process.env.BALLASTELLA_E2E_GPU;
-const useGpu = wantsGpu === '0' ? false : wantsGpu === '1' || canUseVulkan();
-
-/**
- * A workstation may not fall through to the software rasteriser without saying so.
- *
- * {@link canUseVulkan} is a heuristic over two directories, and its wrong answer is silent and
- * expensive: every worker takes the software path, each one holds a core rasterising WebGL, and the
- * run pins the machine instead of failing. That is indistinguishable from "the suite is slow today"
- * from the outside, so it is refused here rather than discovered from a fan curve.
- *
- * The GitHub Actions runner is the case this does *not* fire for: `ubuntu-latest` has no render node,
- * the software path is the only one it has, and the worker count below is already conditional on
- * that. The exemption asks for `GITHUB_ACTIONS` rather than `CI` on purpose — `CI=1` is set by any
- * number of local wrappers and agent harnesses, and while it opened this gate a workstation could
- * still reach the software path in silence.
- */
-if (!useGpu && !onGithubActions() && wantsGpu !== '0') {
-	throw new Error(
-		'No Vulkan GPU was detected, and this is not CI, so the run would rasterise WebGL on the CPU ' +
-			'and hold one core per worker.\n\n' +
-			'  BALLASTELLA_E2E_GPU=1 pnpm test:e2e   insist, when the detection is wrong\n' +
-			'  BALLASTELLA_E2E_GPU=0 pnpm test:e2e   accept the software rasteriser deliberately\n\n' +
-			'The detection wants a render node in /dev/dri and an installed Vulkan ICD ' +
-			'(/usr/share/vulkan/icd.d or /etc/vulkan/icd.d, or a file named by VK_DRIVER_FILES).'
-	);
-}
-
-// A declared software run still gets its raster threads capped off the runner, because the worker
-// cap is not a CPU cap: SwiftShader's threads are per browser, and four browsers have pinned all
-// twenty cores of this box. The runner keeps Chromium's own defaults, so CI timings stay comparable.
-const gpuLaunchOptions = useGpu
-	? { launchOptions: { args: [...GPU_LAUNCH_ARGS] } }
-	: onGithubActions()
-		? {}
-		: { launchOptions: { args: [...SOFTWARE_LAUNCH_ARGS] } };
+// The decision, the refusal and the raster cap all live in `scripts/gpu-launch-args.mjs`, because
+// `packages/core`'s Vitest browser project starts Chromium too and a second copy of this reasoning is
+// how that path came to have no launch options at all. `null` means Chromium's own defaults, which is
+// the GitHub Actions runner's case and keeps CI timings comparable.
+const gpuArgs = chromiumLaunchArgs();
+const gpuLaunchOptions = gpuArgs === null ? {} : { launchOptions: { args: [...gpuArgs] } };
 
 /**
  * Workers to run by default, which is a question about the rasteriser before it is one about cores.
@@ -199,7 +132,7 @@ const gpuLaunchOptions = useGpu
  * worker still costs a core, so the count has to stay under the machine's — and on a four-vCPU CI
  * runner, eight of them is what turned the suite red.
  */
-const defaultWorkers = useGpu ? 8 : Math.max(1, Math.min(4, availableParallelism()));
+const defaultWorkers = useGpu() ? 8 : Math.max(1, Math.min(4, availableParallelism()));
 
 const reporter: ReporterDescription[] = process.env.CI
 	? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
@@ -308,11 +241,22 @@ export default defineConfig({
 	//   8 workers    39.6s    1.90 cores   ← here
 	//   12 workers   34.1s    2.54 cores
 	//
-	// Full suite at 8: **3m 40s and 2.91 cores of 20**, against 6m 32s and 1.56 cores at 4 — nearly
-	// twice as fast for a third of a core more than the *old* four-worker software default cost. Past
-	// 8 the GPU is the shared bottleneck rather than the cores: 12 workers buys 14% for 34% more CPU,
-	// which is why the default stops here. `BALLASTELLA_E2E_WORKERS` overrides it in both directions —
-	// lower it when the box is shared with something that matters more than this run.
+	// Past 8 the GPU is the shared bottleneck rather than the cores: 12 workers buys 14% for 34% more
+	// CPU, which is why the default stops here. `BALLASTELLA_E2E_WORKERS` overrides it in both
+	// directions — lower it when the box is shared with something that matters more than this run.
+	//
+	// ⚠ **The per-spec figures above are not what the whole suite costs, and this note used to say
+	// they were.** It claimed the full suite at 8 workers was "3m 40s and 2.91 cores of 20". Measured
+	// system-wide on 2026-08-25, sampling `/proc/stat` across the whole run rather than attributing
+	// time to the browsers: **5m 12s, mean 13.31 and peak 19.68 busy cores of 20.** The two-spec
+	// measurements are real but do not extrapolate — they were taken on specs that spend much of their
+	// wall clock waiting on a server and a store, while the full suite keeps eight workers, two web
+	// servers and their builds busy at once.
+	//
+	// The gap mattered: a number this far under the truth is what let a workstation's fans be read as
+	// contention, and the figure was quoted in good faith to explain that the suite was not the cause
+	// when it was. Re-measure with `scripts/`-external sampling before quoting a cores figure here;
+	// per-spec numbers belong to the spec they were taken on.
 	//
 	// Real speed is still not in this number — it is in not asking Playwright for work that belongs
 	// one seam down. A Vitest component test costs ~7ms against ~4.6s here — its fourteen tests run

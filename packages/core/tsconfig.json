@@ -7,6 +7,11 @@
 		"lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
 		"strict": true,
 		"noEmit": true,
+		// `vitest.config.ts` imports `scripts/gpu-launch-args.mjs`, which is plain JS like the rest of
+		// `scripts/` — the same reason the workspace tsconfig carries this. Inference is enough, and
+		// `checkJs` stays off so those scripts are not typechecked from here. `include` is `.ts` only,
+		// so this does not let a JavaScript file into `src`.
+		"allowJs": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
 		"noUncheckedIndexedAccess": true,
