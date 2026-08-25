@@ -70,5 +70,5 @@ An absent undo costs a scholar one convenience. A wrong one costs a colleague an
 ## Nothing survives a reload
 
 An Edit History is memory only. Putting a change back at startup is the Write-Ahead Journal's job
-(ADR-0017), and the on-disk before-images in `update-transaction.ts` are a crash-recovery protocol for
+(ADR-0017), and the on-disk before-images in `update-from-github.ts` are a crash-recovery protocol for
 Update from GitHub, not a history — the words are close and the lifetimes are opposite.
