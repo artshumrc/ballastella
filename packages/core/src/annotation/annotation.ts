@@ -611,34 +611,6 @@ export function removeAnnotation(
 }
 
 /**
- * Put an Annotation back at `index` — the undo of {@link removeAnnotation} (ticket 11).
- *
- * Not {@link addAnnotation}, which appends: the order of a `FeatureCollection` is the order things
- * draw in, so restoring a deleted Annotation at the end would move it above shapes it was under.
- * Out-of-range indices are clamped.
- *
- * Refused, by returning the collection it was given, when an Annotation with this id is already
- * there — an id addresses one Annotation for the life of the document, and two of them would make
- * selecting, restyling, and deleting ambiguous.
- */
-export function insertAnnotationAt(
-	collection: AnnotationCollection,
-	annotation: Annotation,
-	index: number
-): AnnotationCollection {
-	if (collection.annotations.some((other) => other.id === annotation.id)) return collection;
-	const at = Math.min(collection.annotations.length, Math.max(0, index));
-	return {
-		...collection,
-		annotations: [
-			...collection.annotations.slice(0, at),
-			annotation,
-			...collection.annotations.slice(at)
-		]
-	};
-}
-
-/**
  * Move an Annotation to `toIndex` in its collection.
  *
  * The order of a `FeatureCollection` is the order its Annotations draw in and the order the sidebar

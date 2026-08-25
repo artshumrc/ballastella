@@ -762,7 +762,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 			.toContain(`ballastella-layer-${mapLayer}`);
 		// Redo has appeared, naming the same action with one word swapped (SPEC stories 43, 44) — and
 		// undo has moved back one place, to the Annotation Layer this test added at the top, which is
-		// its own Step since ticket 3 (SPEC stories 6, 15). Whether a control is absent rather than
+		// a Step of its own (SPEC stories 6, 15). Whether a control is absent rather than
 		// greyed out at each end of the history is asserted at Seam 1c.
 		await expect(editHistoryRedo(page)).toHaveAccessibleName(
 			'Redo delete of the Layer “la-floride.png”'
@@ -779,7 +779,8 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// The map Layer's own row, which is the second: aligning is keyed by Layer id (ticket 03).
 		await alignFromLayer(page, 1);
 		await waitForSurface(page);
-		// `/align` declares no Edit History yet (ticket 5), so the bar draws neither control there.
+		// `/align` declares the Alignment's own Edit History, which this map has taken no Step in, so
+		// the bar draws neither control there — never the Project's, whose Steps are still behind it.
 		await expect(editHistoryRedo(page)).toHaveCount(0);
 
 		await page.getByTestId('back-to-project').click();

@@ -83,7 +83,7 @@
 // gets the chance to record evidence about a Workspace that cannot be opened.
 
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
+import { alignmentImageId } from '../alignment/alignment.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import { describeBytes } from '../project/workspace-size.js';
@@ -615,16 +615,6 @@ async function writeCloned(
 		{ imageId, bytes, write: { intent: 'create' } }
 	);
 	return outcome === 'written' ? 'written' : 'declined';
-}
-
-/** The image id of `alignments/<id>.json`, or `null` for anything else. */
-function alignmentImageId(path: string): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
 }
 
 // ── What the refusals say ─────────────────────────────────────────────────────────────────────

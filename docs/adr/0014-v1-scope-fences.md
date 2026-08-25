@@ -2,8 +2,10 @@
 
 Recorded because unnamed adjacent scope is where a plan quietly triples, and because the plan will be executed by people who were not part of the conversation that set it.
 
-> **These are v1's fences and they stay as the record of v1.** One statement below has since been overtaken and must not be read as current:
+> **These are v1's fences and they stay as the record of v1.** Three statements below have since been overtaken and must not be read as current:
 >
+> - **"`terra-draw` provides no undo, so this is ours"** — `terra-draw` is not used anywhere and never was. See [ADR-0005](./0005-maplibre-and-terra-draw.md)'s Resolution. Undo is still ours; only the stated reason was wrong.
+> - **"Undo is single-level, not a history stack"** — reversed by [ADR-0039](./0039-an-edit-history-per-screen-holds-file-images-not-commands.md). The fence's reasoning is why it was reversed rather than why it stood: the command objects it declined are exactly what ADR-0039 also declines, and an Edit History of file images buys a dozen actions five deep without them.
 > - **"Annotating the unwarped image is the most likely v2 feature"** — still plausible, but note that [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md) moves map images and alignments to the workspace, so a second annotation model would target a *workspace-level* image rather than a project-level one. The tolerance this section asks for — a third layer kind, and nothing assuming all annotations are geographic — is unaffected and still required, `"foreign"` still reserved.
 >
 > "Authoring is desktop-only; viewing is fully responsive" holds and is load-bearing for everything the next epic adds.
@@ -31,11 +33,11 @@ Stated rather than assumed, because leaving it implicit costs weeks in either di
 
 File System Access exists on no mobile browser, and a two-pane control-point interface on a phone is bad at any level of effort. But published sites must read well on a phone, because that is where readers are.
 
-## Undo is in scope, and its shape is ADR-0039's
+## Undo is single-level, not a history stack
 
-A scoped undo is not optional: dragging a control point is a destructive, easy-to-mis-aim gesture, and a scholar who nudges the wrong point and cannot get it back will not trust the tool.
+`terra-draw` provides no undo, so this is ours. A scoped undo is not optional: dragging a control point is a destructive, easy-to-mis-aim gesture, and a scholar who nudges the wrong point and cannot get back will not trust the tool.
 
-Its shape — an [Edit History](./0039-an-edit-history-per-screen-holds-file-images-not-commands.md) per screen, five Steps deep, holding the bytes of the files each Step wrote — is decided there rather than fenced here.
+But full multi-step session history is a different order of work — every mutation becomes a command object, which shapes the entire state layer. v1 ships **a single-level undo of the last destructive action**: point moved, point deleted, annotation deleted, layer deleted. Cheap, covers the actual fear, and does not dictate the architecture.
 
 ## Annotating the unwarped image is the most likely v2 feature
 

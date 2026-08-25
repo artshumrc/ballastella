@@ -19,7 +19,7 @@ import {
 	WriteAheadJournal,
 	Workspace,
 	addLayer,
-	ALIGNMENT_DIRECTORY,
+	alignmentImageId,
 	alignmentPath,
 	annotationStorePath,
 	assembleWithCanvas,
@@ -3214,8 +3214,8 @@ export class EditorSession {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER, WHICH IS THE CREATION ORDER IN REVERSE
 	 *
-	 *   1. flush, so the bytes the Step's images hold are the ones the user can see, and so no
-	 *      debounced write can land after the file has gone and put it back unrecorded;
+	 *   1. `step()`'s flush, so the bytes its `before` image holds are the ones the user can see, and
+	 *      so no debounced write can land after the file has gone and put it back unrecorded;
 	 *   2. read the referenced file, to learn whether there is one to remove;
 	 *   3. `project.json`, losing the Layer;
 	 *   4. the referenced file.
@@ -3269,10 +3269,6 @@ export class EditorSession {
 			`Undo delete of the Layer ${quotedName(layer.name)}`,
 			paths,
 			async () => {
-				// Everything pending, before anything is read: an Annotation typed into a moment ago is
-				// still inside its debounce window, and deleting the file without it would take a
-				// keystroke the scholar can still see.
-				await this.flush();
 				const path = ref === '' ? '' : `${directory}/${ref}`;
 				let present = false;
 				if (path !== '') {
@@ -3352,13 +3348,10 @@ export class EditorSession {
 		options: { debounce?: boolean; label?: string } = {}
 	): Promise<void> {
 		const directory = this.openDirectory;
-		const project = this.openProject;
-		if (!directory || !project) return;
-		// Reference equality: every operation in `layer.ts` returns the array it was given when it
-		// changed nothing, so a move that hit the end of the stack costs no write at all — and, asked
-		// here, no Step and neither of the flushes one takes its images between.
-		if (change(project.layers) === project.layers) return;
-
+		if (!directory) return;
+		// `null` is the no-op: every operation in `layer.ts` returns the array it was given when it
+		// changed nothing, so a move that hit the end of the stack costs no write at all — and,
+		// answered here, no Step and neither of the flushes one takes its images between.
 		const write = this.#applyLayerChange(directory, change);
 		if (write === null) return;
 
@@ -3777,21 +3770,6 @@ export class EditorSession {
  * give back, which is what the fallback phrase is for.
  */
 const quotedName = (name: string): string => (name === '' ? 'with no name' : `“${name}”`);
-
-/**
- * The Map Image id of an `alignments/<id>.json`, or `null` for any other path.
- *
- * What tells {@link EditorSession}'s {@link HistoryFiles} that a Step's file is an Alignment and so
- * has one owning writer, rather than being an ordinary `Autosave` path.
- */
-function alignmentImageId(path: StorePath): string | null {
-	const segments = path.split('/');
-	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
-	const name = segments[1] ?? '';
-	return name.endsWith('.json') && name.length > '.json'.length
-		? name.slice(0, -'.json'.length)
-		: null;
-}
 
 /**
  * A failure that is about one Project rather than about the Workspace, described for a reader.

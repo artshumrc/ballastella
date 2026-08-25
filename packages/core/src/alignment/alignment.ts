@@ -315,6 +315,22 @@ export const alignmentPath = (imageId: string): AlignmentPath =>
 	`${ALIGNMENT_DIRECTORY}/${imageId}.json` as AlignmentPath;
 
 /**
+ * The Map Image id in an `alignments/<id>.json`, or `null` for any other path.
+ *
+ * The inverse of {@link alignmentPath}, and the way a caller holding an arbitrary store path asks
+ * whether it names an Alignment — which decides whether the write has to go through
+ * `alignment-file.ts` and name an intent (ticket 18) rather than through an ordinary save.
+ */
+export function alignmentImageId(path: string): string | null {
+	const segments = path.split('/');
+	if (segments.length !== 2 || segments[0] !== ALIGNMENT_DIRECTORY) return null;
+	const name = segments[1] ?? '';
+	return name.endsWith('.json') && name.length > '.json'.length
+		? name.slice(0, -'.json'.length)
+		: null;
+}
+
+/**
  * The whole image, clockwise from its top-left corner.
  *
  * The Resource Mask a new Alignment starts with (ADR-0013: not empty, because an empty mask
