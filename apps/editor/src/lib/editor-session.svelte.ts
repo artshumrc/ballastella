@@ -302,6 +302,13 @@ interface AnnotationDrag {
 	 * taken. Extended by each one, and awaited by the release.
 	 */
 	applied: Promise<void>;
+	/**
+	 * What the last position reported would write, carried to the release so it can record the single
+	 * write the drag actually costs. No position records one itself: each is debounced, and the bytes
+	 * that land are flushed by `step()` rather than by a call that reaches {@link
+	 * EditorSession.#putAnnotations}'s committed branch. `null` until the first position arrives.
+	 */
+	written: { annotations: number; bytes: number } | null;
 	/** Ends the gesture the Step is wrapped around. */
 	readonly end: () => void;
 	/** The Step itself, awaited by whoever ends it so the last position is written before they return. */
@@ -3550,6 +3557,7 @@ export class EditorSession {
 		if (standing && standing.key !== drag.key) await this.#closeAnnotationDrag();
 
 		const open = this.#openAnnotationStep(directory, path, drag);
+		open.written = { annotations: collection.annotations.length, bytes: bytes.length };
 		// **The bytes are queued behind the drag's `before` image, and queued synchronously.** A range
 		// reports positions faster than a store read answers and the release arrives in the same task as
 		// the last of them, so a write that ran ahead of the image — or a release that closed the Step
@@ -3595,7 +3603,14 @@ export class EditorSession {
 			start();
 			await finished;
 		});
-		const opened: AnnotationDrag = { key: drag.key, path, end, step, applied: started };
+		const opened: AnnotationDrag = {
+			key: drag.key,
+			path,
+			end,
+			step,
+			applied: started,
+			written: null
+		};
 		this.#annotationDrag = opened;
 		return opened;
 	}
@@ -3610,6 +3625,13 @@ export class EditorSession {
 		await drag.applied;
 		drag.end();
 		await drag.step;
+		// After the Step's flush resolved, so a write the store refused is not counted as one that
+		// happened — the same bargain {@link #putAnnotations}'s committed branch strikes. Recorded here
+		// because this is the only place that knows the drag cost one write rather than one per
+		// position, which is what ADR-0017 rule 1's counter exists to assert.
+		if (drag.written) {
+			recordAnnotationWrite(drag.path, drag.written.annotations, drag.written.bytes);
+		}
 	}
 
 	/** One Annotation Layer's bytes out through {@link Autosave}, on the timer or now. */

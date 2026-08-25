@@ -13,6 +13,9 @@ import {
 	mapImage,
 	imagePoints,
 	makePairs,
+	maskEdges,
+	maskPointsAttribute,
+	maskVertices,
 	rows as controlPointRows,
 	start,
 	storedAlignment,
@@ -562,6 +565,81 @@ test.describe('a deleted Control Point pair (SPEC story 38)', () => {
 		await saved(page);
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
 		await expect(editHistoryUndo(page)).toHaveCount(0);
+	});
+});
+
+test.describe('a Resource Mask corner added or taken away', () => {
+	/**
+	 * **What a write outside a Step costs is not its own undo.** ADR-0039's discard rule — anything
+	 * that writes a history's files other than its own Steps invalidates it — is what makes the corner
+	 * handles a Step rather than a plain save: they edit `alignments/<id>.json`, which is the file the
+	 * Steps around them hold images of, so a corner written between two Steps would be inside the later
+	 * one's `before` image and outside the earlier one's. An Undo aimed at the earlier Step then writes
+	 * back an outline the corner was never in, and the Redo's `after` image does not hold it either.
+	 * That cross-Step claim is what this asserts, and a per-gesture undo alone would not catch it.
+	 *
+	 * Both gestures carry the Crop label the corner *drag* carries, because a scholar reaching for Undo
+	 * is naming what they did to the outline, not which handle they did it with.
+	 */
+	test('is a Step of its own, so an earlier Step is left holding the outline it was taken over', async ({
+		page
+	}) => {
+		test.setTimeout(90_000);
+		const imageId = await alignedProject(page);
+
+		// The earlier Step the corner edits sit on top of, and the one that used to be corrupted by
+		// them: its `before` image is read now, before either corner exists.
+		const beforeTheMove = await storedAlignment(page, imageId);
+		const half = imagePoints(page).first();
+		await half.focus();
+		await page.keyboard.press('Shift+ArrowRight');
+		// Polled to the *change*, not merely to `Saved locally`: the indicator is already saying that
+		// when the move is pressed, so reading the file on the word alone snapshots the Alignment from
+		// before the gesture and every byte comparison below is then against the wrong file.
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(beforeTheMove);
+		const afterTheMove = await storedAlignment(page, imageId);
+
+		await page.getByTestId('mask-edit-toggle').check();
+		await expect(maskVertices(page)).toHaveCount(4);
+
+		await maskEdges(page).first().click();
+		await expect(maskVertices(page)).toHaveCount(5);
+		await saved(page);
+		await expect
+			.poll(async () => maskPointsAttribute((await storedAlignment(page, imageId)) as string))
+			.not.toBe(maskPointsAttribute(afterTheMove as string));
+
+		// One Undo reverses the corner and reaches no further: byte-identical to the file the insert
+		// overwrote, rather than to the file the Control Point move overwrote behind it.
+		await expect(editHistoryUndo(page)).toHaveText(/^Undo the Crop of /);
+		await editHistoryUndo(page).click();
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(afterTheMove);
+		await expect(maskVertices(page)).toHaveCount(4);
+
+		// And the move underneath is still there to be undone in its turn, which is what says the corner
+		// spent a Step of its own rather than the move's.
+		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
+
+		// SPEC story 7: an undo pressed by mistake is itself reversible, and the corner is what has to
+		// come back — the half of the round trip that a Step's `after` image is responsible for.
+		await editHistoryRedo(page).click();
+		await saved(page);
+		await expect(maskVertices(page)).toHaveCount(5);
+
+		// Taking one away is the same Step and the same label, from the keyboard the handles are on.
+		const withFive = await storedAlignment(page, imageId);
+		await maskVertices(page).last().focus();
+		await page.keyboard.press('Delete');
+		await expect(maskVertices(page)).toHaveCount(4);
+		await saved(page);
+
+		await expect(editHistoryUndo(page)).toHaveText(/^Undo the Crop of /);
+		await editHistoryUndo(page).click();
+		await saved(page);
+		await expect(maskVertices(page)).toHaveCount(5);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(withFive);
 	});
 });
 

@@ -386,11 +386,6 @@
 		})();
 	};
 
-	/** Write the Alignment as it now stands. Every caller is a discrete act or a gesture end. */
-	const save = (current: AlignmentPairing): void => {
-		void session.writeAlignment(current.alignment);
-	};
-
 	/**
 	 * This Map Image's Edit History (ADR-0039).
 	 *
@@ -598,21 +593,24 @@
 				});
 			},
 			ondelete: () => {
-				if (current.removeMaskVertex(index)) {
+				// Refused rather than silently ignored: a keypress that appears to do nothing is
+				// indistinguishable from a broken handle. Asked before the Step opens, so a refusal does
+				// not spend one on a mask that is unchanged.
+				if (!current.canRemoveMaskVertex) {
+					maskStatus = {
+						kind: 'refused',
+						message:
+							`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
+							'be removed. Move it instead, or show the whole sheet again.'
+					};
+					return;
+				}
+				asStep(`Undo the Crop of ${quotedMapName}`, current, () => {
+					current.removeMaskVertex(index);
 					maskDone(
 						`Resource Mask corner ${index + 1} removed. ${current.resourceMask.length} corners left.`
 					);
-					save(current);
-					return;
-				}
-				// Refused rather than silently ignored: a keypress that appears to do nothing is
-				// indistinguishable from a broken handle.
-				maskStatus = {
-					kind: 'refused',
-					message:
-						`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
-						'be removed. Move it instead, or show the whole sheet again.'
-				};
+				});
 			}
 		}));
 
@@ -627,12 +625,13 @@
 			// — see the summary below and `layout.css` — because an affordance the pointer advertises and
 			// the code refuses reads as a broken handle rather than as a deliberate choice.
 			onselect: () => {
-				current.insertMaskVertexAfter(index);
-				maskDone(
-					`A Resource Mask corner was added after corner ${index + 1}. ` +
-						`${current.resourceMask.length} corners now.`
-				);
-				save(current);
+				asStep(`Undo the Crop of ${quotedMapName}`, current, () => {
+					current.insertMaskVertexAfter(index);
+					maskDone(
+						`A Resource Mask corner was added after corner ${index + 1}. ` +
+							`${current.resourceMask.length} corners now.`
+					);
+				});
 			}
 		}));
 

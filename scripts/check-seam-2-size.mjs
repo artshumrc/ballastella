@@ -75,8 +75,9 @@ import { fileURLToPath } from 'node:url';
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
+ * | 2026-08-25 | 666 | One test for adding and removing a Resource Mask corner as a Step of its own. Both handles wrote `alignments/<id>.json` through the plain save path, outside every Step and without discarding, which is exactly what ADR-0039's discard rule forbids — so an Undo aimed at an earlier Step wrote back an outline from before the corner existed and took it with them, and the Redo could not bring it back. The claim is about three things meeting that only meet in a browser: the overlay handles the gestures are performed on, which are laid out by the pane and have no representation below it; the Edit History the Align screen draws, which is keyed by Map Image; and the bytes on a real OPFS Workspace, because "the file the insert overwrote" is a byte-identity claim and not an equivalence one. There is no component harness for `AlignmentWorkspace` and no Seam 1 reach into the handlers — `editor-session.test.ts` drives `historyFor(…).step()` directly, so it would assert the fix back at itself. Insert, undo, redo and remove are one test rather than four because each one's starting state is the state the one before it leaves, and the cross-Step claim needs a Control Point move already standing underneath all of them. |
  */
-export const SEAM_2_CEILING = 665;
+export const SEAM_2_CEILING = 666;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

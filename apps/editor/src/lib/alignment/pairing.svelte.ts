@@ -176,13 +176,11 @@ export class AlignmentPairing {
 	/**
 	 * Remove one Resource Mask vertex.
 	 *
-	 * @returns whether it went. `false` at the minimum, so the caller can say why rather than leaving
-	 * a keypress that appears to do nothing.
+	 * Ask {@link canRemoveMaskVertex} first: at the minimum this leaves the outline alone, and the
+	 * caller needs to know that before opening a Step, not after.
 	 */
-	removeMaskVertex(index: number): boolean {
-		const before = this.resourceMask;
+	removeMaskVertex(index: number): void {
 		this.resourceMask = removeMaskVertex(this.alignment, index).resourceMask;
-		return this.resourceMask !== before;
 	}
 
 	/** Show the whole sheet again. The recovery for a mask that has been outlined into a corner. */
