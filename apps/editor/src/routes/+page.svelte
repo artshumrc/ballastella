@@ -12,6 +12,7 @@
 		type ReturnLink
 	} from '@ballastella/core';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
+	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
@@ -116,6 +117,10 @@
 			await strip(returning);
 		} catch (cause) {
 			signInProblem = cause instanceof Error ? cause.message : String(cause);
+			// ⚠ **The guided sequence reopens over this page on the return leg**, so a refusal said only
+			// here is a refusal behind a dialog (SPEC story 35). Handed to the sequence as well, it is
+			// rendered on the sign-in step beside the button that starts the trip again.
+			connectSequence.signInRefusal = signInProblem;
 			if (!(cause instanceof GitHubCallbackRefusedError)) await strip(returning);
 		}
 	}

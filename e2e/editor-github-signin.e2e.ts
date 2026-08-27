@@ -627,6 +627,12 @@ test.describe('the guided sequence, wired to the real thing', () => {
 
 		// Story 1 and 2: one control, in the bar, on Workspace Home — before any Project is open.
 		await page.getByTestId('connect-to-github').click();
+
+		// Story 3: the first thing on screen is the prerequisite, rather than a sign-in button that
+		// cannot succeed for somebody with no GitHub account. It is offered rather than detected, so
+		// somebody who has an account presses past it — which is what this fake author is.
+		await expect(page.getByTestId('connect-needs-account')).toBeVisible();
+		await page.getByTestId('connect-have-account').click();
 		await expect(page.getByTestId('connect-sign-in')).toBeVisible();
 
 		// Story 7 and 8: out to GitHub, authorise, and back **inside the sequence** at the next step.
