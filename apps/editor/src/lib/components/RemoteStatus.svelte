@@ -57,6 +57,13 @@
 
 	import ModalDialog from './ModalDialog.svelte';
 
+	/**
+	 * The Remote Status this bar renders, read under a local name.
+	 *
+	 * ⚠ **`state` is renamed on the way in because a variable of that name takes `$state` with it.**
+	 * Svelte reads `$state` beside a declared `state` as a store subscription and refuses to compile,
+	 * so nothing in this component could hold reactive state of its own while the prop kept its name.
+	 */
 	let {
 		state: remote,
 		onCheck,
@@ -176,8 +183,7 @@
 	 * The Update button, so the dialog's focus goes back to the control that opened it (WCAG 2.4.3).
 	 *
 	 * A plain binding rather than `$state`: nothing renders from it, and `restoreFocusTo` reads it at
-	 * the moment the dialog closes. (The `state` prop is destructured as `remote` because a variable
-	 * named `state` makes `$state` read as a store subscription and the compiler refuses it.)
+	 * the moment the dialog closes.
 	 */
 	let updateButton: HTMLButtonElement | undefined;
 </script>

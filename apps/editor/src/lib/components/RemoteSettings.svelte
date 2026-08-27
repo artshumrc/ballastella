@@ -567,11 +567,12 @@
 							</p>
 						</div>
 						<!--
-							⚠ **The escape hatch, and it is deliberately not a peer of the button above.** It was
-							“Or paste a token instead:” over a form of equal weight, which is the two-doors
-							arrangement this whole epic exists to remove. Now it is a disclosure, closed, worded
-							for somebody who already knows what a personal access token is — the instructor whose
-							class meets a broken App installation, not the student.
+							⚠ **The escape hatch, and it is deliberately not a peer of the button above.** A paste
+							form of equal weight beside the sign-in is the two-doors arrangement a scholar cannot
+							read: two credentials on one screen and nothing saying which is meant for them. So it
+							is a disclosure, closed, worded for somebody who already knows what a personal access
+							token is — the instructor whose App installation has broken during a class, not the
+							student.
 						-->
 						<p class="mt-3">
 							<button

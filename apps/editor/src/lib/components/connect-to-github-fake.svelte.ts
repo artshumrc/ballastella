@@ -61,13 +61,13 @@ export class FakeStorage {
 
 	async ensureCredentialFresh(): Promise<void> {
 		await Promise.resolve();
-		const ran_out = this.expiry;
-		if (ran_out === null) return;
+		const ranOut = this.expiry;
+		if (ranOut === null) return;
 		// The real one clears the grant record along with the credential, so the check that follows an
 		// expiry finds nothing to check rather than reporting the same expiry for ever.
 		this.expiry = null;
 		this.signOut();
-		throw ran_out;
+		throw ranOut;
 	}
 
 	signOut(): void {

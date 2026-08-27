@@ -235,9 +235,10 @@ test.describe('binding while already signed in', () => {
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		// ⚠ **Not merely empty: not on the screen** (SPEC stories 37, 46). This used to be a field
-		// with an empty value beside the button, which is exactly the two-credentials question a
-		// signed-in scholar must never be asked. It is behind the escape hatch now.
+		// ⚠ **Not merely empty: not on the screen** (SPEC stories 37, 46). A field standing beside the
+		// button, even an empty one, is the two-credentials question a signed-in scholar must never be
+		// asked, so the assertion is absence rather than emptiness — the paste lives behind the
+		// disclosure the test above opens.
 		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
 		await page.getByTestId('bind-remote').click();
 
