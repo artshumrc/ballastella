@@ -295,6 +295,23 @@ describe('the repositories the sequence offers', () => {
 		expect(text(at('connect-choices-refused'))).toContain('sign-in has ended');
 		expect(absent('repository-choice-empty')).toBe(true);
 	});
+
+	// ⚠ **And it is not an empty list in the one region a reader without sight has either.** The
+	// visible screen carrying the refusal while the announcement said "you have given Ballastella
+	// access to no repository yet, so make one" would send exactly that reader to GitHub to make a
+	// second repository, which is the failure `github-installations` answers a refusal to prevent.
+	test('does not announce a refusal as having no repositories', async () => {
+		open(signedIn(), {
+			kind: 'refused',
+			refusal: 'credential',
+			message: 'Your GitHub sign-in has ended, so your repositories could not be read.'
+		});
+		await settle();
+
+		expect(text(at('connect-step'))).toContain('could not be read');
+		expect(text(at('connect-step'))).not.toContain('make one');
+		expect(absent('connect-no-choices')).toBe(true);
+	});
 });
 
 describe('making a repository, without leaving the sequence', () => {

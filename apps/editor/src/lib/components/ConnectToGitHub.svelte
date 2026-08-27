@@ -118,6 +118,12 @@
 	 * `no-app` is the paste, and it is the whole of a fork's authentication rather than a fallback: a
 	 * deployment with no App of its own opens there and never on a sign-in that cannot complete.
 	 *
+	 * `choices-refused` is separate from `no-choices` and must stay separate. `github-installations`
+	 * answers a sign-in GitHub will not act on as a refusal rather than as an empty list precisely so
+	 * that nothing tells a student they have no repository when what is wrong is the sign-in; folded
+	 * into `no-choices`, that is exactly what this sequence would say in the one region a reader who
+	 * cannot see the screen has (SPEC stories 35 and 66).
+	 *
 	 * `sign-in-ended` is not a step of the path so much as the one place the path can be thrown back
 	 * to from anywhere: an eight-hour sign-in that ran out and could not be renewed. It exists as a
 	 * step of its own so that an expiry reads as an expiry, rather than as a Workspace with no
@@ -131,6 +137,7 @@
 		| 'loading-choices'
 		| 'choosing'
 		| 'no-choices'
+		| 'choices-refused'
 		| 'creating'
 		| 'connecting'
 		| 'connected';
@@ -237,9 +244,11 @@
 							? 'creating'
 							: listing === null
 								? 'loading-choices'
-								: granted.length === 0
-									? 'no-choices'
-									: 'choosing'
+								: listing.kind === 'refused'
+									? 'choices-refused'
+									: granted.length === 0
+										? 'no-choices'
+										: 'choosing'
 	);
 
 	/**
@@ -318,11 +327,13 @@
 								? 'Step 3 of 4: choose where your map goes.'
 								: step === 'no-choices'
 									? 'Step 3 of 4: you have given Ballastella access to no repository yet, so make one.'
-									: step === 'creating'
-										? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
-										: step === 'connecting'
-											? `${lastStep}: connecting ${connectingName}.`
-											: `Done: this Workspace is on GitHub at ${boundName}.`
+									: step === 'choices-refused'
+										? 'Step 3 of 4: your repositories on GitHub could not be read.'
+										: step === 'creating'
+											? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
+											: step === 'connecting'
+												? `${lastStep}: connecting ${connectingName}.`
+												: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
@@ -785,8 +796,14 @@
 					Asking GitHub which repositories you have given Ballastella access to…
 				</p>
 			</section>
-		{:else if step === 'choosing' || step === 'no-choices'}
-			<section data-testid={step === 'no-choices' ? 'connect-no-choices' : 'connect-choosing'}>
+		{:else if step === 'choosing' || step === 'no-choices' || step === 'choices-refused'}
+			<section
+				data-testid={step === 'no-choices'
+					? 'connect-no-choices'
+					: step === 'choices-refused'
+						? 'connect-refused-choices'
+						: 'connect-choosing'}
+			>
 				<p class="max-w-prose text-sm opacity-70" data-testid="connect-account">{account}</p>
 				{#if listing?.kind === 'listed'}
 					<RepositoryChoice
