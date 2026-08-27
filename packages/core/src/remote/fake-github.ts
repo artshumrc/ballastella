@@ -85,6 +85,33 @@ export type FakeGitHubOptions = {
 	 * ticket 10 expects.
 	 */
 	readonly signIn?: FakeSignInOptions;
+	/**
+	 * The repositories this author has granted the App access to, as the two installation endpoints
+	 * report them.
+	 *
+	 * Omit it for an author who has granted nothing: `GET /user/installations` then answers an empty
+	 * list — which is what GitHub answers for somebody who has never installed the App, and what the
+	 * guided sequence's `no-choices` step is about. {@link FakeGitHub.grant} creates the installation
+	 * in that state, so a spec can start from nothing and watch a grant arrive.
+	 */
+	readonly grants?: FakeGrants;
+};
+
+/** One repository in an installation, as {@link FakeGrants} takes it. */
+export type FakeGrantedRepository = {
+	readonly owner: string;
+	readonly repository: string;
+	/** `permissions.push`, which is what decides whether the author may publish to it. */
+	readonly push: boolean;
+	/** Defaults to public, which is the only kind that can serve a Published Site on the free tier. */
+	readonly private?: boolean;
+};
+
+/** One installation of the App on one account, and the repositories it was given. */
+export type FakeGrants = {
+	readonly installationId: number;
+	readonly account: string;
+	readonly repositories: readonly FakeGrantedRepository[];
 };
 
 /** The App and the broker a {@link FakeGitHub} answers as, when it answers as one at all. */
@@ -211,6 +238,15 @@ export interface FakeGitHub {
 
 	/** Whether Pages is on. `POST /pages` answers 409 when it is, and turns it on when it is not. */
 	pagesEnabled: boolean;
+
+	/**
+	 * Grant access to one more repository, as the author would on GitHub's own screen.
+	 *
+	 * The only way to model a repository being granted while the editor is open, which is the return
+	 * from the second tab the guided sequence watches for. On a fake configured with no
+	 * {@link FakeGitHubOptions.grants} it creates the installation as well.
+	 */
+	grant(repository: FakeGrantedRepository): void;
 
 	/**
 	 * Answer 404 on `raw.githubusercontent.com` to any read carrying no credential.
@@ -345,6 +381,24 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 	let blobPosts = 0;
 	let rawGets = 0;
+
+	// ── What the App has been granted, which is not the same question as what this repository is ──
+	//
+	// An installation lists the repositories the *author* gave the App access to. This fake is one
+	// repository, and it need not be among them — a student who created `atlas` and granted nothing is
+	// exactly the state SPEC story 24 is about.
+	let grants: {
+		installationId: number;
+		account: string;
+		repositories: FakeGrantedRepository[];
+	} | null =
+		options.grants === undefined
+			? null
+			: {
+					installationId: options.grants.installationId,
+					account: options.grants.account,
+					repositories: [...options.grants.repositories]
+				};
 
 	const state = {
 		truncateAfter: null as number | null,
@@ -515,6 +569,24 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		});
 
 	const problem = (status: number, message: string): Response => json({ message }, status);
+
+	/**
+	 * One page of a listing, cut the way `per_page` and `page` cut it, with a truthful `total_count`.
+	 *
+	 * ⚠ **The numbers are GitHub's own: 30 by default and 100 at most.** A fake that handed back the
+	 * whole list whatever was asked would let a reader that never looks past its first page pass here
+	 * and show a student a list their own repository is missing from.
+	 */
+	const paginated = <T>(items: readonly T[], url: URL): { total_count: number; page: T[] } => {
+		const askedSize = Number(url.searchParams.get('per_page'));
+		const perPage = Number.isFinite(askedSize) && askedSize > 0 ? Math.min(askedSize, 100) : 30;
+		const askedPage = Number(url.searchParams.get('page'));
+		const page = Number.isFinite(askedPage) && askedPage > 0 ? Math.floor(askedPage) : 1;
+		return {
+			total_count: items.length,
+			page: items.slice((page - 1) * perPage, page * perPage)
+		};
+	};
 	const notFound = (message = 'Not Found') => problem(404, message);
 
 	/**
@@ -555,6 +627,39 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		// (story 32). Authenticated, because an anonymous caller has no identity to report.
 		if (path.length === 1 && path[0] === 'user' && method === 'GET') {
 			return credentialed ? json({ login: state.login }) : problem(401, 'Requires authentication');
+		}
+
+		// `GET /user/installations` and `GET /user/installations/{id}/repositories` — the two endpoints
+		// documented for a GitHub App *user* access token to read a repository listing from, and the only
+		// two the guided sequence calls. Authenticated: an installation belongs to whoever is signed in,
+		// and there is nothing for an anonymous caller to be told about.
+		if (path[0] === 'user' && path[1] === 'installations' && method === 'GET') {
+			if (!credentialed) return problem(401, 'Requires authentication');
+			if (path.length === 2) {
+				const installations =
+					grants === null
+						? []
+						: [{ id: grants.installationId, account: { login: grants.account } }];
+				const listed = paginated(installations, url);
+				return json({ total_count: listed.total_count, installations: listed.page });
+			}
+			if (
+				path.length === 4 &&
+				path[3] === 'repositories' &&
+				grants !== null &&
+				path[2] === String(grants.installationId)
+			) {
+				const reported = grants.repositories.map((one, at) => ({
+					id: at + 1,
+					name: one.repository,
+					full_name: `${one.owner}/${one.repository}`,
+					private: one.private === true,
+					permissions: { push: one.push }
+				}));
+				const listed = paginated(reported, url);
+				return json({ total_count: listed.total_count, repositories: listed.page });
+			}
+			return notFound(`${url.pathname} is not a path this fake implements.`);
 		}
 
 		const [scope, owner, repository, ...rest] = path;
@@ -1137,6 +1242,10 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		set refuseRefresh(value) {
 			state.refuseRefresh = value;
+		},
+		grant(repository) {
+			grants ??= { installationId: 1, account: options.owner, repositories: [] };
+			grants.repositories.push(repository);
 		},
 		expireIssuedTokens() {
 			for (const held of issuedTokens.values()) held.expired = true;
