@@ -295,11 +295,10 @@ const gitHubOf = new WeakMap<Page, Promise<GitHubHosts>>();
 /**
  * Install this page's one fake GitHub, if it has not been installed yet.
  *
- * ⚠ **Called before the Workspace is opened, and that ordering is load-bearing now.** A bound
- * Workspace arrives holding a credential (see {@link openWorkspace}), so the publish dialog asks
- * GitHub what the Remote already holds the moment it opens — where it used to ask only after a token
- * was pasted into it. Routes installed after that open are routes installed after the request the
- * default-deny fence would abort.
+ * ⚠ **Called before the Workspace is opened, and that ordering is load-bearing.** A bound Workspace
+ * arrives holding a credential (see {@link openWorkspace}), so the publish dialog asks GitHub what
+ * the Remote already holds the moment it opens. Routes installed after that open are routes
+ * installed after the request the default-deny fence would abort.
  */
 function routeGitHubOnce(page: Page, options?: GitHubHostsOptions): Promise<GitHubHosts> {
 	let hosts = gitHubOf.get(page);
@@ -313,7 +312,7 @@ function routeGitHubOnce(page: Page, options?: GitHubHostsOptions): Promise<GitH
 async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>) {
 	await routeGitHubOnce(page);
 	// The credential came with the Workspace (see `openWorkspace`), so what is waited for here is the
-	// forecast the dialog asks GitHub for on open — the thing the paste used to be followed by.
+	// forecast the dialog asks GitHub for the moment it opens.
 	await expect(dialog.getByTestId('publish-budget')).toBeVisible({ timeout: 60_000 });
 }
 
@@ -1288,8 +1287,8 @@ test.describe('publishing to a Remote', () => {
 	 *
 	 * ⚠ **One door, and on this deployment it is not a token field** (SPEC story 37). The credential
 	 * is this tab's and the binding is not, so this is where a bound Workspace reopened in a fresh tab
-	 * lands — an ordinary arrival, and the last place in the editor that used to ask a student to
-	 * choose between two credentials. Which door is offered comes from
+	 * lands — an ordinary arrival, and the last place in the editor with a credential to ask a student
+	 * for at all. Which door is offered comes from
 	 * `WorkspaceStorage.signInWithGitHubOffered`, and the round trip behind it is driven for real in
 	 * `editor-github-signin.e2e.ts`; what is asserted here is that the field is *absent* rather than
 	 * empty or disabled, and that nothing was asked of GitHub to find that out.
