@@ -101,6 +101,13 @@ function openPastAccount(
 	return opened;
 }
 
+/** A fork that has registered no GitHub App, so the paste is the whole of its authentication. */
+function noApp(): FakeStorage {
+	const storage = new FakeStorage();
+	storage.signInWithGitHubOffered = false;
+	return storage;
+}
+
 /** Somebody who has been through the App sign-in, which is what the sequence's step 2 reads. */
 function signedIn(): FakeStorage {
 	const storage = new FakeStorage();
@@ -152,6 +159,22 @@ const pressLink = (testId: string): void => {
 	} finally {
 		document.removeEventListener('click', stop, true);
 	}
+};
+
+/** Type into one of the fork step's two fields, as a person filling it in would. */
+const fill = (testId: string, value: string): void => {
+	const field = at(testId) as HTMLInputElement;
+	field.value = value;
+	field.dispatchEvent(new Event('input', { bubbles: true }));
+	flushSync();
+};
+
+/** Submit the fork step's form, which is what its one button does. */
+const submit = (): void => {
+	at('connect-paste')
+		.closest('form')
+		?.dispatchEvent(new SubmitEvent('submit', { bubbles: true }));
+	flushSync();
 };
 
 describe('which step the sequence shows', () => {
@@ -980,5 +1003,118 @@ describe('the words the sequence uses', () => {
 		expect(at('connect-creating')).toBeTruthy();
 		expect(text(at('created-not-granted'))).not.toBe('');
 		expect(FORBIDDEN.filter((word) => said().toLowerCase().includes(word))).toEqual([]);
+	});
+});
+
+// ⚠ **The fork with no App of its own, which is the other half of "one door"** (SPEC stories 50–52,
+// and the Brief's *where there is an App, one door; where there is not, the door that works*).
+//
+// `signInWithGitHubOffered` is `isGitHubAppConfigured(GITHUB_APP)` and nothing else — the same value
+// that already decides whether the sign-in button exists — so this is the derivation reading one more
+// fact rather than a second answer to "is there an App". That the predicate itself is right is
+// `github-sign-in.test.ts`'s at Seam 1, and that the paste reaches GitHub with no broker anywhere near
+// it is asserted there too; what is here is which door the sequence opens.
+describe('a fork that has registered no GitHub App', () => {
+	test('offers the paste as its first step, and no sign-in that could not complete', () => {
+		const { list } = open(noApp());
+
+		expect(at('connect-no-app')).toBeTruthy();
+		expect(absent('connect-sign-in')).toBe(true);
+		expect(absent('connect-sign-in-with-github')).toBe(true);
+		// ⚠ `/user/installations` answers a GitHub App user token and nothing else, so asking it here
+		// would come back a refusal and read as "you have no repositories".
+		expect(list).not.toHaveBeenCalled();
+	});
+
+	// The deployment with an App is the other reading of the same fact, and it is the one a student is
+	// on: the word never appears, so there are not two credentials to choose between (stories 37, 46).
+	test('shows no token field at all where an App is configured', async () => {
+		open(signedIn());
+		await settle();
+
+		expect(absent('connect-no-app')).toBe(true);
+		expect(absent('connect-token-field')).toBe(true);
+	});
+
+	// Story 50: the pasted path is the fork's whole door, so it has to reach the same bind the chosen
+	// repository does — one call, with the credential the author gave.
+	test('connects the typed repository with the pasted token', async () => {
+		const opened = open(noApp());
+
+		fill('connect-repository-field', 'ada/atlas');
+		fill('connect-token-field', 'github_pat_11ABCDE0000abcdefghijklmnop');
+		submit();
+		await settle();
+
+		expect(opened.storage.bindCalls).toEqual([
+			{
+				remote: { owner: 'ada', repository: 'atlas' },
+				token: 'github_pat_11ABCDE0000abcdefghijklmnop'
+			}
+		]);
+		expect(at('connect-connected')).toBeTruthy();
+	});
+
+	// Both refusals are `packages/core`'s and neither costs a request, which is what makes a mistyped
+	// address a sentence about the address rather than a 404 from GitHub minutes later.
+	test('says an address that is not one is not one, and asks GitHub nothing', () => {
+		const opened = open(noApp());
+
+		fill('connect-repository-field', 'atlas');
+		fill('connect-token-field', 'github_pat_11ABCDE0000abcdefghijklmnop');
+		submit();
+
+		expect(text(at('connect-problem'))).toContain('owner/repository');
+		expect(opened.storage.bindCalls).toEqual([]);
+	});
+
+	test('says a token that is half a token is half a token, and asks GitHub nothing', () => {
+		const opened = open(noApp());
+
+		fill('connect-repository-field', 'ada/atlas');
+		fill('connect-token-field', 'github_pat_11');
+		submit();
+
+		expect(text(at('connect-problem'))).toContain('too short');
+		expect(opened.storage.bindCalls).toEqual([]);
+	});
+
+	// Story 17's fork-shaped half: the one step the tool does not take arrives with the name filled in,
+	// and the sentence beside it says the repository has to be public.
+	test('offers to create the repository with its name already filled in, and says it must be public', () => {
+		const storage = noApp();
+		storage.name = 'Amsterdam 1625';
+		open(storage);
+
+		expect(at('connect-create-repository')).toHaveAttribute(
+			'href',
+			'https://github.com/new?name=amsterdam-1625'
+		);
+		expect(said()).toContain('It has to be public');
+	});
+
+	// The derivation again: a fork's step is a reading of the deployment, so a Workspace that is
+	// already connected shows the connected step rather than a form asking for a token.
+	test('opens on the connected step for a Workspace that already has a Remote', () => {
+		const storage = noApp();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		open(storage);
+
+		expect(at('connect-connected')).toBeTruthy();
+		expect(absent('connect-no-app')).toBe(true);
+	});
+
+	// Story 66, in a sequence that has one step fewer: the announcement counts the steps this door has
+	// rather than the ones the other one has.
+	test('announces the fork’s own steps', async () => {
+		open(noApp());
+		expect(text(at('connect-step'))).toContain('Step 1 of 2');
+
+		fill('connect-repository-field', 'ada/atlas');
+		fill('connect-token-field', 'github_pat_11ABCDE0000abcdefghijklmnop');
+		submit();
+		await settle();
+
+		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
 	});
 });

@@ -15,7 +15,9 @@ import {
 	expectRemoteStatus,
 	expectWorkspaceNamed,
 	openRemoteSettings,
-	openWorkspaceSettings
+	openWorkspaceSettings,
+	revealBindToken,
+	revealSignInToken
 } from './support/workspace';
 
 /**
@@ -108,6 +110,7 @@ async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1]
 async function bind(page: Page, repository = REMOTE, token = TOKEN): Promise<void> {
 	await openRemoteSettings(page);
 	await page.getByTestId('remote-repository-field').fill(repository);
+	await revealBindToken(page);
 	await page.getByTestId('remote-token-field').fill(token);
 	await page.getByTestId('bind-remote').click();
 }
@@ -339,6 +342,7 @@ test.describe('the pasted credential', () => {
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-sign-out').click();
 
+		await revealSignInToken(page);
 		await page.getByTestId('remote-sign-in-field').fill(TOKEN);
 		await page.getByTestId('remote-sign-in').click();
 
