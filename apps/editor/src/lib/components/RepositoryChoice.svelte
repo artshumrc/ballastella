@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GrantedRepository } from '@ballastella/core';
+	import { describeRemote, type GrantedRepository } from '@ballastella/core';
 
 	/**
 	 * The repositories on GitHub a person may put their map in, and the press that chooses one
@@ -49,9 +49,6 @@
 		onchoose: (repository: GrantedRepository) => void;
 	} = $props();
 
-	const named = (repository: GrantedRepository): string =>
-		`${repository.owner}/${repository.repository}`;
-
 	/**
 	 * The list with anything new at the top, and otherwise in the order it arrived.
 	 *
@@ -61,7 +58,8 @@
 	 */
 	const ordered = $derived(
 		[...repositories].sort(
-			(one, other) => Number(newly.has(named(other))) - Number(newly.has(named(one)))
+			(one, other) =>
+				Number(newly.has(describeRemote(other))) - Number(newly.has(describeRemote(one)))
 		)
 	);
 
@@ -97,7 +95,7 @@
 </script>
 
 <section class="m-4 rounded-box border border-base-300 p-4" data-testid="repository-choice">
-	<h2 class="font-semibold">Choose where your map goes</h2>
+	<h3 class="font-semibold">Choose where your map goes</h3>
 	<!--
 		⚠ **What the list is showing, said before the list** (story 14). Without it an absent
 		repository reads as a repository that does not exist, and the author's next move is to make a
@@ -118,7 +116,7 @@
 		</p>
 	{:else}
 		<ul class="mt-3 flex flex-col gap-2" aria-label="Repositories you have given access to">
-			{#each ordered as repository (named(repository))}
+			{#each ordered as repository (describeRemote(repository))}
 				{@const reason = why(repository)}
 				{@const unselectable = reason !== ''}
 				<li data-testid="granted-repository">
@@ -129,8 +127,8 @@
 						data-testid="choose-repository"
 						onclick={() => choose(repository)}
 					>
-						<span class="font-mono">{named(repository)}</span>
-						{#if newly.has(named(repository))}
+						<span class="font-mono">{describeRemote(repository)}</span>
+						{#if newly.has(describeRemote(repository))}
 							<span class="badge badge-sm badge-primary" data-testid="newly-granted">New</span>
 						{/if}
 						<!--

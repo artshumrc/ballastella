@@ -30,9 +30,9 @@
 // │ no test touches the real broker.                                                            │
 // │                                                                                            │
 // │ ⚠ **It is not, however, always on screen.** The values below decide which door the editor   │
-// │ offers, through {@link isGitHubAppConfigured}: where an App is configured a scholar is       │
+// │ offers, through {@link isGitHubAppConfigured}: where an App is configured a scholar is      │
 // │ never shown a token field, because being asked to choose between two credentials is the     │
-// │ failure the guided sequence exists to remove — the paste is reachable only through a         │
+// │ failure the guided sequence exists to remove — the paste is reachable only through a        │
 // │ disclosure in Workspace settings, closed, for an instructor whose App installation has      │
 // │ broken. Where **no** App is configured the paste is the sequence's first step and the plain │
 // │ content of that dialog. Gated, in one place, and nothing here is deleted.                   │

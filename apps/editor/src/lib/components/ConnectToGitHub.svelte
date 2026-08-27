@@ -33,8 +33,9 @@
 	 * surface, a Workspace that another tab connected. Every one of those moves this sequence on its own,
 	 * because {@link step} is a reading of the same facts every other screen reads.
 	 *
-	 * The two `$effect`s are both requests rather than values — the listing read, and the freshness
-	 * check the moment the sequence opens. Everything else is `$derived`, per the project's standing
+	 * The three `$effect`s are all requests or subscriptions rather than values — the listing read, the
+	 * freshness check the moment the sequence opens, and the two window events that notice the author
+	 * coming back from the other tab. Everything else is `$derived`, per the project's standing
 	 * preference.
 	 *
 	 * ⚠ **The one thing remembered is that the account step has been offered, and it is a hint.**
@@ -202,9 +203,6 @@
 	const boundName = $derived(bound === null ? '' : describeRemote(bound));
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
 
-	const named = (repository: GrantedRepository): string =>
-		`${repository.owner}/${repository.repository}`;
-
 	/** What GitHub last said the author has granted, and `[]` while it has said nothing or refused. */
 	const granted = $derived<readonly GrantedRepository[]>(
 		listing?.kind === 'listed' ? listing.repositories : []
@@ -219,7 +217,7 @@
 	const newlyGranted = $derived.by<ReadonlySet<string>>(() => {
 		const before = madeAgainst;
 		if (before === null) return new Set<string>();
-		return new Set(granted.map(named).filter((name) => !before.has(name)));
+		return new Set(granted.map(describeRemote).filter((name) => !before.has(name)));
 	});
 
 	const step = $derived<Step>(
@@ -302,6 +300,9 @@
 			: ''
 	);
 
+	/** How the connecting step counts itself, which differs by how many steps preceded it. */
+	const lastStep = $derived(storage.signInWithGitHubOffered ? 'Step 4 of 4' : 'Step 2 of 2');
+
 	/**
 	 * What has just become true, for a reader who cannot see the step change (story 66).
 	 *
@@ -309,9 +310,6 @@
 	 * inserted at the same moment its text first exists is not reliably announced (ADR-0016's
 	 * amendment), and the whole point here is that the announcement arrives on every change.
 	 */
-	/** How the connecting step counts itself, which differs by how many steps preceded it. */
-	const lastStep = $derived(storage.signInWithGitHubOffered ? 'Step 4 of 4' : 'Step 2 of 2');
-
 	const announcement = $derived(
 		step === 'no-app'
 			? 'Step 1 of 2: name your repository on GitHub and paste an access token for it.'
@@ -441,11 +439,11 @@
 	 * flick of somebody's hourly budget.
 	 */
 	async function reread(): Promise<void> {
-		const token = storage.credential;
-		if (token === null || rereading) return;
+		const credential = storage.credential;
+		if (credential === null || rereading) return;
 		rereading = true;
 		try {
-			listing = await list(token);
+			listing = await list(credential);
 			rereads += 1;
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
@@ -463,7 +461,7 @@
 	function beginCreating(): void {
 		problem = '';
 		rereads = 0;
-		madeAgainst = new Set(granted.map(named));
+		madeAgainst = new Set(granted.map(describeRemote));
 	}
 
 	/**
@@ -498,9 +496,9 @@
 	function beginSignIn(): void {
 		problem = '';
 		connectSequence.signInRefusal = '';
-		connectSequence.leavingForGitHub(false);
+		connectSequence.leavingForGitHub();
 		problem = storage.beginGitHubSignIn();
-		if (problem !== '') connectSequence.leavingForGitHub(true);
+		if (problem !== '') connectSequence.notLeavingAfterAll();
 	}
 
 	/** Take the account step as read, whether it was read or acted on (stories 3–6). */

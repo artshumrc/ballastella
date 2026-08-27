@@ -96,16 +96,29 @@ class ConnectSequence {
 	/**
 	 * Mark this tab as leaving for GitHub, so the return lands back in the sequence.
 	 *
-	 * Cleared again when the sign-in is refused before the redirect: the page is not going anywhere,
-	 * so a mark left behind would reopen the sequence on some unrelated reload later on.
+	 * The mark goes down before the sign-in is begun, because beginning it navigates: there is no
+	 * moment after that call in which this page is still the one on screen.
 	 */
-	leavingForGitHub(refused: boolean): void {
+	leavingForGitHub(): void {
 		try {
-			if (refused) sessionStorage.removeItem(RESUMING_KEY);
-			else sessionStorage.setItem(RESUMING_KEY, 'yes');
+			sessionStorage.setItem(RESUMING_KEY, 'yes');
 		} catch {
 			// A browser that will not keep this will not keep the sign-in's `state` either, and
 			// `beginGitHubSignIn` refuses the trip over that rather than over this.
+		}
+	}
+
+	/**
+	 * Take the mark back up, for a sign-in that was refused before the redirect.
+	 *
+	 * The page is not going anywhere, so a mark left behind would reopen the sequence on some
+	 * unrelated reload later in the session.
+	 */
+	notLeavingAfterAll(): void {
+		try {
+			sessionStorage.removeItem(RESUMING_KEY);
+		} catch {
+			// Nothing was kept, so there is nothing left behind to take back up.
 		}
 	}
 }
