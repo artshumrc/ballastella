@@ -19,11 +19,37 @@
 	// determinations is a sentence from `REMOTE_STATUS_LABELS`, the failure is a sentence, and the
 	// staleness notice is a sentence. `data-remote-status` exists for a spec to read and carries
 	// nothing a user needs.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// A PLAIN LEAD, AND SIX DETERMINATIONS BEHIND ONE PRESS
+	//
+	// A newcomer's question is *is my work on GitHub?*, and `Changes on both sides` does not answer
+	// it at a glance. So the bar leads with one plain sentence per determination and puts the
+	// determination's own name and its consequence behind a disclosure.
+	//
+	// ⚠ **The lead is a projection of the six and never a replacement for them.** Collapsing the
+	// determinations to a two-state indicator is refused: a boolean says "safe" during a Conflict and
+	// during `Cannot tell`, which is the class of misreading ADR-0032 designed out when it chose *not
+	// on the Front Page* over *unpublished*. The three leads that cannot promise agreement — Conflict,
+	// Changes on both sides, Cannot tell — say what is true instead, and none of them reads as work
+	// having reached GitHub.
+	//
+	// ⚠ **`REMOTE_STATUS_LEADS` and `REMOTE_STATUS_DETAILS` live here and `REMOTE_STATUS_LABELS` does
+	// not.** The labels are the domain's own words and are shared, so a second surface cannot spell
+	// one of them differently; these two are this bar's phrasing of them for one reader in one place,
+	// and nothing else renders them.
+	//
+	// ⚠ **The plain words available are *GitHub* and *publish*, and nothing else.** The glossary's
+	// *Publish* and *Remote* entries put the storage metaphors on their *Avoid* lists, and the reason
+	// is substantive rather than stylistic: a Publish mirrors an owned namespace and removes Projects
+	// the author deleted locally (ADR-0033), so it is not a copy kept somewhere safe and must not be
+	// worded as one. `remote-status.dom.test.ts` holds the list and reads this surface for it.
 
 	import {
 		REMOTE_STATUS_LABELS,
 		REMOTE_STATUS_UNCHECKED,
 		type RemoteStatusState,
+		type SourceStatus,
 		type UpdateDeletionPreview
 	} from '@ballastella/core';
 
@@ -32,7 +58,7 @@
 	import ModalDialog from './ModalDialog.svelte';
 
 	let {
-		state,
+		state: remote,
 		onCheck,
 		update,
 		notice,
@@ -59,17 +85,77 @@
 	} = $props();
 
 	/**
-	 * The determination, in words.
+	 * The plain answer to *is my work on GitHub?*, one per determination.
+	 *
+	 * Each names GitHub, because that is the question being answered and the bar has no room to say so
+	 * twice. None of the three that cannot promise agreement — `conflict`, `changes-on-both-sides`,
+	 * `cannot-tell` — says the work is on GitHub, which is the whole reason a boolean was refused.
+	 */
+	const REMOTE_STATUS_LEADS: Record<SourceStatus, string> = {
+		'up-to-date': 'Your work is on GitHub',
+		'changes-to-publish': 'Not all your work is on GitHub yet',
+		'update-available': 'GitHub has work this Workspace does not',
+		'changes-on-both-sides': 'This Workspace and GitHub have both changed',
+		conflict: 'This Workspace and GitHub disagree',
+		'cannot-tell': 'Ballastella cannot say whether your work reached GitHub'
+	};
+
+	/**
+	 * What the determination beside it means, and what the author can do about it.
+	 *
+	 * The two remedies named are the two gestures this bar already offers, Publish and Update from
+	 * GitHub. Nothing here names a remedy the reader cannot reach from the screen they are on.
+	 */
+	const REMOTE_STATUS_DETAILS: Record<SourceStatus, string> = {
+		'up-to-date':
+			'Everything in this Workspace has reached GitHub, and GitHub holds nothing this Workspace does not.',
+		'changes-to-publish':
+			'This Workspace has changes GitHub does not have. Publish sends them to GitHub.',
+		'update-available':
+			'GitHub has changes this Workspace does not have. Update from GitHub brings them in.',
+		'changes-on-both-sides':
+			'Different files changed here and on GitHub since the two last agreed. Update from GitHub first, then Publish.',
+		conflict:
+			'The same file changed here and on GitHub since the two last agreed, so neither side can be brought to the other without a choice.',
+		'cannot-tell':
+			'There is no trustworthy record of what this Workspace and GitHub last shared, so the differences cannot be attributed to either side.'
+	};
+
+	/** What the seventh sentence means, for the reader who presses on it. */
+	const UNCHECKED_DETAIL =
+		'Nothing has been read from GitHub in this Workspace yet. Check Remote Status asks GitHub what it holds.';
+
+	/**
+	 * The lead, which is what the bar shows.
 	 *
 	 * ⚠ **`Not checked yet` is a seventh sentence and it is not one of the six.** A signed-out author
 	 * has taken no reading yet, and there is no honest way to project that onto the six: `Up to date`
 	 * would be a claim nothing here has made, and `Cannot tell` is a *determination* about missing
 	 * evidence rather than the absence of a determination. Naming the gap is what makes the button
-	 * beside it mean something.
+	 * beside it mean something — so it leads with itself rather than with a plain answer it does not
+	 * have.
 	 */
-	const label = $derived(
-		state.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LABELS[state.status]
+	const lead = $derived(
+		remote.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LEADS[remote.status]
 	);
+
+	/** The determination, in the domain's own words, one press behind the lead. */
+	const label = $derived(
+		remote.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LABELS[remote.status]
+	);
+
+	/** The sentence behind the lead, beside the determination it explains. */
+	const detail = $derived(
+		remote.status === null ? UNCHECKED_DETAIL : REMOTE_STATUS_DETAILS[remote.status]
+	);
+
+	/**
+	 * Whether the determination and its detail are on screen.
+	 *
+	 * A `<button aria-expanded>` disclosure and not `<details>`: ADR-0016 bans the `<details>`
+	 * dropdown, and the WAI-ARIA disclosure button is unambiguously outside that ban.
+	 */
+	let detailShown = $state(false);
 
 	/**
 	 * When the determination on screen was reached, in the reader's own clock.
@@ -78,9 +164,9 @@
 	 * and "as of nine minutes ago" are the two halves of one honest sentence (SPEC story 118).
 	 */
 	const checkedAt = $derived(
-		state.at === null
+		remote.at === null
 			? ''
-			: new Date(state.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+			: new Date(remote.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 	);
 
 	/** Whether an Update is running, which is the one state that makes the control inert. */
@@ -90,8 +176,8 @@
 	 * The Update button, so the dialog's focus goes back to the control that opened it (WCAG 2.4.3).
 	 *
 	 * A plain binding rather than `$state`: nothing renders from it, and `restoreFocusTo` reads it at
-	 * the moment the dialog closes. (`$state` is also unavailable here — the `state` prop above shadows
-	 * the rune's name.)
+	 * the moment the dialog closes. (The `state` prop is destructured as `remote` because a variable
+	 * named `state` makes `$state` read as a store subscription and the compiler refuses it.)
 	 */
 	let updateButton: HTMLButtonElement | undefined;
 </script>
@@ -101,25 +187,43 @@
 	     so the badge and its two buttons keep their centre line whatever this column grows below it. -->
 	<div class="flex min-h-8 items-center gap-2">
 		<!--
-			The determination and the progress, in one polite region.
+			The plain answer and the progress, in one polite region.
 
 			Together rather than in two, because they are one sentence about one thing: a screen reader
-			hearing "Checking…" from one region and "Up to date" from another has to work out which of
-			them is now true. `aria-atomic` so the whole line is re-read rather than only the words that
-			changed — "Checking…" on its own says nothing about what is being checked.
+			hearing "Checking…" from one region and "Your work is on GitHub" from another has to work out
+			which of them is now true. `aria-atomic` so the whole line is re-read rather than only the
+			words that changed — "Checking…" on its own says nothing about what is being checked.
+
+			The lead names GitHub itself, so there is no eyebrow in front of it repeating the word.
 		-->
 		<p
 			aria-live="polite"
 			aria-atomic="true"
 			class="badge gap-1.5 badge-sm font-medium whitespace-nowrap shadow-sm"
-			class:badge-success={state.status === 'up-to-date' && state.failure === ''}
-			class:badge-warning={state.status !== 'up-to-date' || state.failure !== ''}
-			data-remote-status={state.status ?? 'unchecked'}
+			class:badge-success={remote.status === 'up-to-date' && remote.failure === ''}
+			class:badge-warning={remote.status !== 'up-to-date' || remote.failure !== ''}
+			data-remote-status={remote.status ?? 'unchecked'}
 			data-testid="remote-status-state"
 		>
-			<span class="opacity-70">GitHub:</span>
-			{label}{#if state.checking}&nbsp;· Checking…{:else if state.failure}&nbsp;· Check failed{/if}
+			{lead}{#if remote.checking}&nbsp;· Checking…{:else if remote.failure}&nbsp;· Check failed{/if}
 		</p>
+		<!--
+			The one press between the lead and the six (SPEC story 42).
+
+			Not `title`, not a tooltip: daisyUI renders those through CSS `::before`, so they are neither
+			announced nor dismissable (ADR-0016). `aria-controls` binds the button to the panel below the
+			row rather than beside it, because a badge is not a container for two sentences.
+		-->
+		<button
+			type="button"
+			class="btn btn-ghost btn-xs"
+			aria-expanded={detailShown}
+			aria-controls="remote-status-detail"
+			data-testid="remote-status-explain"
+			onclick={() => (detailShown = !detailShown)}
+		>
+			{detailShown ? 'Hide what this means' : 'What this means'}
+		</button>
 		<!--
 			The explicit check (SPEC story 115).
 
@@ -136,11 +240,11 @@
 		<button
 			type="button"
 			class="btn btn-xs"
-			class:btn-disabled={state.checking}
-			aria-disabled={state.checking}
+			class:btn-disabled={remote.checking}
+			aria-disabled={remote.checking}
 			data-testid="check-remote-status"
 			onclick={() => {
-				if (!state.checking) onCheck();
+				if (!remote.checking) onCheck();
 			}}
 		>
 			Check Remote Status
@@ -172,6 +276,24 @@
 			Update from GitHub
 		</button>
 	</div>
+
+	<!--
+		The determination and its consequence, which the lead above is a projection of.
+
+		⚠ **Not in the live region.** It appears because the reader pressed for it, and a polite region
+		that grew two sentences on a press would re-read the whole status to say something the reader
+		is already looking at.
+	-->
+	{#if detailShown}
+		<div
+			id="remote-status-detail"
+			class="max-w-72 rounded-box bg-base-200 px-3 py-2 text-right"
+			data-testid="remote-status-detail"
+		>
+			<p class="text-sm font-medium" data-testid="remote-status-determination">{label}</p>
+			<p class="text-xs opacity-70">{detail}</p>
+		</div>
+	{/if}
 
 	{#if checkedAt !== ''}
 		<p class="text-xs text-base-content opacity-70" data-testid="remote-status-checked">
@@ -226,12 +348,12 @@
 -->
 <Toast text={notice} testid="update-outcome" tone="info" />
 <Toast text={failure} testid="update-failure" refusal />
-<Toast text={state.failure} testid="remote-status-failure" refusal />
+<Toast text={remote.failure} testid="remote-status-failure" refusal />
 <Toast
-	text={state.publishedSiteStale.length === 0
+	text={remote.publishedSiteStale.length === 0
 		? ''
-		: `The Published Site was built from different files (${state.publishedSiteStale.length} ` +
-			`${state.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). Publish again to rebuild it.`}
+		: `The Published Site was built from different files (${remote.publishedSiteStale.length} ` +
+			`${remote.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). Publish again to rebuild it.`}
 	testid="published-site-stale"
 	tone="info"
 />
