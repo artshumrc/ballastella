@@ -25,6 +25,41 @@
  */
 const RESUMING_KEY = 'ballastella.connect-sequence-resuming';
 
+/**
+ * That the author has already been past the step telling them a GitHub account is needed.
+ *
+ * ⚠ **A hint that refines a derived step, never a position that replaces one** (SPEC stories 6 and
+ * 34). Whether somebody has a GitHub account is the one fact in the whole sequence that cannot be
+ * read from anywhere: GitHub will not answer it about a stranger, so the pre-sign-in step *offers*
+ * the prerequisite rather than detecting it, and the only thing worth remembering is that it has
+ * been offered. Every other step of the sequence is still a reading of what is true, and this one
+ * is overruled the moment a credential exists.
+ *
+ * `sessionStorage`, so it lasts exactly as long as the tab the sign-in does — a lab machine handed
+ * to the next student starts from the beginning. Not consumed on read, unlike {@link RESUMING_KEY}:
+ * an author who makes an account, comes back, and reloads twice is still an author with an account.
+ */
+const ACCOUNT_KEY = 'ballastella.connect-sequence-account-known';
+
+/** Whether this tab has already been told a GitHub account is needed, or shown that one is held. */
+export function gitHubAccountKnown(): boolean {
+	try {
+		return sessionStorage.getItem(ACCOUNT_KEY) === 'yes';
+	} catch {
+		return false;
+	}
+}
+
+/** Remember that the account step is behind this author, so returning lands at the sign-in. */
+export function rememberGitHubAccount(): void {
+	try {
+		sessionStorage.setItem(ACCOUNT_KEY, 'yes');
+	} catch {
+		// A browser holding nothing puts the account step back on a reload, which is a repeated
+		// sentence rather than a lost place: the link and the way past it are both still there.
+	}
+}
+
 /** Whether this document is the return leg of a sign-in the sequence began. Consumes the mark. */
 function resuming(): boolean {
 	try {
@@ -42,6 +77,16 @@ function resuming(): boolean {
 class ConnectSequence {
 	/** Whether the sequence is on screen. Bound into the one dialog the navigation bar mounts. */
 	open = $state(resuming());
+
+	/**
+	 * Why GitHub sent the author back without signing them in, or `''`.
+	 *
+	 * ⚠ **The refusal happens on a document this sequence did not exist in.** The App sign-in
+	 * replaces the page, so a decline on GitHub's own screen is judged by the route that receives the
+	 * callback — and without somewhere to put it, the sequence reopened on the return leg would show
+	 * a sign-in step with no account of why the last press did not work (SPEC story 35).
+	 */
+	signInRefusal = $state('');
 
 	/** Open the sequence from wherever the author pressed. */
 	start(): void {
