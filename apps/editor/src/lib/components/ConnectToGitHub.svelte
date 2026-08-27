@@ -77,10 +77,17 @@
 	 * The steps this sequence has, and the gaps where the rest of the epic's are.
 	 *
 	 * `no-app` — the paste, in a deployment that has registered no App — and `needs-account`, leaving
-	 * and resuming, `creating` and what an empty grant offers all belong to later tickets. They are
-	 * absent rather than stubbed: a half-working state is worse than one whose absence is visible.
+	 * and resuming, belong to later tickets. They are absent rather than stubbed: a half-working state
+	 * is worse than one whose absence is visible.
 	 */
-	type Step = 'needs-sign-in' | 'loading-choices' | 'choosing' | 'connecting' | 'connected';
+	type Step =
+		| 'needs-sign-in'
+		| 'loading-choices'
+		| 'choosing'
+		| 'no-choices'
+		| 'creating'
+		| 'connecting'
+		| 'connected';
 
 	/** What GitHub answered about the grant, or `null` while nothing has been asked. */
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
@@ -92,10 +99,44 @@
 	let problem = $state('');
 	/** Whether the address has just been put on the clipboard, so the press says it worked. */
 	let copied = $state(false);
+	/**
+	 * The repositories GitHub had answered with at the moment the second tab opened, or `null` when
+	 * no repository is being made.
+	 *
+	 * ⚠ **This is the whole of what the editor knows about the other tab, and it must stay that way.**
+	 * The editor cannot see GitHub's screen and must not pretend to: what it can do is ask GitHub the
+	 * same question again and notice that the answer grew. So the comparison is against a set taken
+	 * before the author left, and a repository absent then and present now is the one they just made.
+	 */
+	let madeAgainst = $state<ReadonlySet<string> | null>(null);
+	/** How many times the listing has been re-read since the second tab opened. */
+	let rereads = $state(0);
+	/** Whether a re-read is in flight, so a focus storm is not a request storm. */
+	let rereading = $state(false);
 
 	const bound = $derived(storage.remote);
 	const boundName = $derived(bound === null ? '' : describeRemote(bound));
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
+
+	const named = (repository: GrantedRepository): string =>
+		`${repository.owner}/${repository.repository}`;
+
+	/** What GitHub last said the author has granted, and `[]` while it has said nothing or refused. */
+	const granted = $derived<readonly GrantedRepository[]>(
+		listing?.kind === 'listed' ? listing.repositories : []
+	);
+
+	/**
+	 * The repositories that were not there when the second tab opened (stories 22 and 23).
+	 *
+	 * Empty whenever no repository is being made, so the marks are only ever about a trip the author
+	 * actually took.
+	 */
+	const newlyGranted = $derived.by<ReadonlySet<string>>(() => {
+		const before = madeAgainst;
+		if (before === null) return new Set<string>();
+		return new Set(granted.map(named).filter((name) => !before.has(name)));
+	});
 
 	const step = $derived<Step>(
 		bound !== null
@@ -104,10 +145,43 @@
 				? 'connecting'
 				: !storage.signedIn
 					? 'needs-sign-in'
-					: listing === null
-						? 'loading-choices'
-						: 'choosing'
+					: // ⚠ **Ahead of the listing's own states**, so a re-read under way does not put the
+						// instructions for the other tab off the screen and replace them with “asking GitHub…”.
+						// The step ends when GitHub answers with something that was not there before.
+						madeAgainst !== null && newlyGranted.size === 0
+						? 'creating'
+						: listing === null
+							? 'loading-choices'
+							: granted.length === 0
+								? 'no-choices'
+								: 'choosing'
 	);
+
+	/**
+	 * A repository name to prefill `github.com/new` with (story 17).
+	 *
+	 * The Workspace's own name, put through the character set GitHub allows in a repository name. The
+	 * one step the tool does not take is still a short one when the field arrives filled in.
+	 */
+	const suggestedName = $derived(
+		storage.name
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9._-]+/g, '-')
+			.replace(/^[-.]+|[-.]+$/g, '') || 'my-workspace'
+	);
+	const createRepositoryHref = $derived(
+		`https://github.com/new?name=${encodeURIComponent(suggestedName)}`
+	);
+
+	/**
+	 * Where an author grants this App access to a repository it has not got.
+	 *
+	 * ⚠ **This is the only way access is ever granted.** The endpoint that would add a repository to
+	 * an installation is documented for classic personal access tokens only, so it is GitHub's own
+	 * screen or nothing (SPEC story 56).
+	 */
+	const GRANT_ACCESS_HREF = 'https://github.com/settings/installations';
 
 	/**
 	 * The address the Published Site will answer at (story 32).
@@ -148,9 +222,13 @@
 				? 'Step 2 of 3: asking GitHub which repositories you have given Ballastella access to.'
 				: step === 'choosing'
 					? 'Step 2 of 3: choose where your map goes.'
-					: step === 'connecting'
-						? `Step 3 of 3: connecting ${connectingName}.`
-						: `Done: this Workspace is on GitHub at ${boundName}.`
+					: step === 'no-choices'
+						? 'Step 2 of 3: you have given Ballastella access to no repository yet, so make one.'
+						: step === 'creating'
+							? 'Step 2 of 3: making a repository on GitHub, in the other tab.'
+							: step === 'connecting'
+								? `Step 3 of 3: connecting ${connectingName}.`
+								: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
@@ -175,6 +253,8 @@
 			notices = [];
 			problem = '';
 			copied = false;
+			madeAgainst = null;
+			rereads = 0;
 			return;
 		}
 		if (bound !== null || !storage.signedIn || listing !== null) return;
@@ -188,6 +268,61 @@
 				problem = cause instanceof Error ? cause.message : String(cause);
 			}
 		);
+	});
+
+	/**
+	 * Ask GitHub again, which is the only thing the editor can do about the other tab.
+	 *
+	 * Guarded against overlapping reads: a window that regains focus also fires `visibilitychange` in
+	 * some browsers, and an author alt-tabbing between two tabs would otherwise spend a request per
+	 * flick of somebody's hourly budget.
+	 */
+	async function reread(): Promise<void> {
+		const token = storage.credential;
+		if (token === null || rereading) return;
+		rereading = true;
+		try {
+			listing = await list(token);
+			rereads += 1;
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			rereading = false;
+		}
+	}
+
+	/**
+	 * Note what GitHub had answered, so the return can be recognised (story 22).
+	 *
+	 * The press this hangs off is an ordinary link, so the second tab is the browser's own doing and
+	 * nothing here has to survive a pop-up blocker.
+	 */
+	function beginCreating(): void {
+		problem = '';
+		rereads = 0;
+		madeAgainst = new Set(granted.map(named));
+	}
+
+	/**
+	 * Watch for the author coming back, for as long as they are away (stories 22 and 25).
+	 *
+	 * ⚠ **Two events rather than one, and no timer.** A tab switched back to fires
+	 * `visibilitychange`; a window raised over another application fires `focus` without it. Polling
+	 * would spend a request a second on an event that has an event, so the manual control beside the
+	 * instructions is what covers a browser that fires neither.
+	 */
+	$effect(() => {
+		if (step !== 'creating') return;
+		const observe = (): void => void reread();
+		const onVisible = (): void => {
+			if (document.visibilityState === 'visible') observe();
+		};
+		window.addEventListener('focus', observe);
+		document.addEventListener('visibilitychange', onVisible);
+		return () => {
+			window.removeEventListener('focus', observe);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
 	});
 
 	/**
@@ -288,14 +423,43 @@
 					Asking GitHub which repositories you have given Ballastella access to…
 				</p>
 			</section>
-		{:else if step === 'choosing'}
-			<section data-testid="connect-choosing">
+		{:else if step === 'choosing' || step === 'no-choices'}
+			<section data-testid={step === 'no-choices' ? 'connect-no-choices' : 'connect-choosing'}>
 				<p class="max-w-prose text-sm opacity-70" data-testid="connect-account">{account}</p>
 				{#if listing?.kind === 'listed'}
 					<RepositoryChoice
 						repositories={listing.repositories}
+						newly={newlyGranted}
 						onchoose={(repository) => void connect(repository)}
 					/>
+					<!--
+						⚠ **The action is here for a full list as well as an empty one** (story 16). Having
+						nothing granted is the ordinary state of somebody who has just made an account, and an
+						empty area whose only offer was to close the sequence would be the dead end this epic
+						exists to remove — but an author who wants a fresh repository rather than one of the
+						ones listed needs the same offer, so it is beside the list rather than instead of it.
+					-->
+					<div class="m-4 flex flex-wrap items-center gap-3">
+						<!-- `resolve()` is for this app's own routes; github.com is not one, so the rule is
+						     disabled here for the one case it does not cover. -->
+						<!-- eslint-disable svelte/no-navigation-without-resolve -->
+						<a
+							class="btn btn-sm"
+							class:btn-primary={step === 'no-choices'}
+							href={createRepositoryHref}
+							rel="noreferrer noopener"
+							target="_blank"
+							data-testid="create-repository"
+							onclick={() => beginCreating()}
+						>
+							Create a new one
+						</a>
+						<!-- eslint-enable svelte/no-navigation-without-resolve -->
+						<p class="max-w-prose text-sm opacity-70" data-testid="create-repository-note">
+							Opens GitHub in a second tab, with the name “{suggestedName}” already filled in. This
+							tab stays where it is.
+						</p>
+					</div>
 				{:else if listing?.kind === 'refused'}
 					<!--
 						`github-installations` answers a rejected sign-in as a refusal rather than as an empty
@@ -304,6 +468,77 @@
 					-->
 					<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
 						<p data-testid="connect-choices-refused">{listing.message}</p>
+					</div>
+				{/if}
+			</section>
+		{:else if step === 'creating'}
+			<section data-testid="connect-creating">
+				<h3 class="font-semibold">Making a repository on GitHub</h3>
+				<!--
+					⚠ **Three things, in this order, and the order is the point** (stories 19–21). A student
+					who installed Ballastella with *Only select repositories* before making this repository
+					finds the new one outside the grant, and the editor cannot add it — the endpoint that
+					would is documented for classic personal access tokens only. So: make it, then give
+					access to it, then come back. Step 2 is the one everybody misses.
+				-->
+				<ol class="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-6">
+					<li data-testid="creating-instruction">
+						In the other tab, make the repository. <strong>It has to be public</strong>, or the
+						published map will not answer for anybody you send the address to.
+					</li>
+					<li data-testid="creating-instruction">
+						On the same screen, <strong>give Ballastella access to it</strong>. A repository made
+						after Ballastella was installed is not covered by what you gave access to before, and
+						this tab cannot add it for you.
+					</li>
+					<li data-testid="creating-instruction">Come back to this tab.</li>
+				</ol>
+				<p class="mt-3 max-w-prose text-sm opacity-70">
+					Nothing needs to be typed here afterwards. Coming back to this tab is enough: GitHub is
+					asked again and the repository you just made appears below.
+				</p>
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					<!--
+						⚠ **The automatic re-read is a convenience and never the only way through** (story 25).
+						A browser that fires neither `focus` nor `visibilitychange`, or an author who took a
+						long detour, must still be able to carry on.
+					-->
+					<button
+						class="btn btn-sm"
+						data-testid="reread-repositories"
+						onclick={() => void reread()}
+					>
+						Look again
+					</button>
+				</div>
+				{#if rereads > 0}
+					<!--
+						⚠ **Created but not granted is a named state** (story 24). A screen identical to the one
+						they left says nothing about which of the three steps went wrong, and “no repositories
+						found” names the wrong cause entirely: the repository exists, and access to it is what
+						is missing.
+					-->
+					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="created-not-granted">
+							GitHub still answers with the same repositories as before. If you made one, it is
+							almost certainly step 2 that is outstanding: the repository exists, but Ballastella
+							has not been given access to it, so GitHub does not list it here.
+						</p>
+						<!-- eslint-disable svelte/no-navigation-without-resolve -->
+						<a
+							class="btn btn-sm"
+							href={GRANT_ACCESS_HREF}
+							rel="noreferrer noopener"
+							target="_blank"
+							data-testid="grant-access"
+						>
+							Give Ballastella access to it
+						</a>
+						<!-- eslint-enable svelte/no-navigation-without-resolve -->
+						<p class="max-w-prose text-sm opacity-70">
+							Opens your Ballastella settings on GitHub. Choose the repository you just made, save,
+							then come back and press <strong>Look again</strong>.
+						</p>
 					</div>
 				{/if}
 			</section>

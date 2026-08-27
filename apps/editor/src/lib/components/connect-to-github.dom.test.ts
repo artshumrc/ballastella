@@ -1,4 +1,4 @@
-// The guided sequence that puts a Workspace on GitHub, at Seam 1c (SPEC stories 1, 7–9, 26–32, 36,
+// The guided sequence that puts a Workspace on GitHub, at Seam 1c (SPEC stories 1, 7–9, 16–32, 36,
 // 43, 61, 65–67).
 //
 // ⚠ **The subject is the derivation, and that is why nearly the whole ticket is here.** Which step
@@ -103,6 +103,24 @@ const said = (): string => text(document.body);
 const press = (testId: string): void => {
 	at(testId).click();
 	flushSync();
+};
+
+/**
+ * Press a link, without letting happy-dom go and fetch what it points at.
+ *
+ * The offers out to GitHub are ordinary anchors, so the second tab is the browser's own doing and
+ * nothing in the component holds it open — which is the behaviour under test. happy-dom takes that
+ * literally and navigates, and the network fence is right to refuse it, so the default action is
+ * stopped here while the handler beside it still runs.
+ */
+const pressLink = (testId: string): void => {
+	const stop = (event: Event): void => event.preventDefault();
+	document.addEventListener('click', stop, true);
+	try {
+		press(testId);
+	} finally {
+		document.removeEventListener('click', stop, true);
+	}
 };
 
 describe('which step the sequence shows', () => {
@@ -223,6 +241,181 @@ describe('the repositories the sequence offers', () => {
 
 		expect(text(at('connect-choices-refused'))).toContain('sign-in has ended');
 		expect(absent('repository-choice-empty')).toBe(true);
+	});
+});
+
+describe('making a repository, without leaving the sequence', () => {
+	/** The one repository a student who has just made an account has granted: none. */
+	const nothing = (): GrantedRepositoriesOutcome => listed([]);
+
+	const HARBOUR: GrantedRepository = { ...ATLAS, repository: 'harbour' };
+
+	/**
+	 * Open the sequence, let the first listing land, and press the create action.
+	 *
+	 * The press is on an ordinary link, so the second tab is the browser's doing; what happens here is
+	 * that the sequence notes what GitHub had said, which is the whole of what it knows about the
+	 * other tab.
+	 */
+	async function leaveToCreate(
+		first: GrantedRepositoriesOutcome,
+		then: GrantedRepositoriesOutcome = first
+	): Promise<Opened> {
+		let answer = first;
+		const list = vi.fn(async (token: string) => {
+			void token;
+			return answer;
+		});
+		const onpublish = vi.fn();
+		const storage = signedIn();
+		const main = document.createElement('main');
+		document.body.append(main);
+		mounted = mount(ConnectToGitHub, {
+			target: main,
+			props: { open: true, storage: storage as unknown as WorkspaceStorage, onpublish, list }
+		});
+		flushSync();
+		await settle();
+		pressLink('create-repository');
+		answer = then;
+		return { storage, list, onpublish };
+	}
+
+	// Story 16: having nothing granted is an ordinary case with an action in it, not a dead end.
+	test('offers the action with an empty list and with a full one alike', async () => {
+		open(signedIn(), nothing());
+		await settle();
+		expect(at('connect-no-choices')).toBeTruthy();
+		expect(at('create-repository')).toBeTruthy();
+
+		unmount(mounted!);
+		mounted = undefined;
+		document.body.innerHTML = '';
+
+		open(signedIn(), listed([ATLAS]));
+		await settle();
+		expect(at('connect-choosing')).toBeTruthy();
+		expect(at('create-repository')).toBeTruthy();
+	});
+
+	// Stories 17 and 18: the name arrives filled in, and the editor is not the tab that goes anywhere.
+	test('opens GitHub’s new-repository screen in a second tab, with the name filled in', async () => {
+		const storage = signedIn();
+		storage.name = 'Amsterdam 1625';
+		open(storage, nothing());
+		await settle();
+
+		const link = at('create-repository');
+		expect(link.getAttribute('href')).toBe('https://github.com/new?name=amsterdam-1625');
+		expect(link.getAttribute('target')).toBe('_blank');
+		expect(text(at('create-repository-note'))).toContain('amsterdam-1625');
+	});
+
+	// Stories 19–21, and the order is the claim rather than the presence: a student who grants access
+	// before making the repository grants access to a repository that does not exist yet.
+	test('names all three things to do, in the order that works', async () => {
+		await leaveToCreate(nothing());
+
+		expect(at('connect-creating')).toBeTruthy();
+		const steps = [...document.querySelectorAll('[data-testid="creating-instruction"]')].map(text);
+		expect(steps).toHaveLength(3);
+		expect(steps[0]).toContain('has to be public');
+		expect(steps[1]).toContain('give Ballastella access to it');
+		expect(steps[2]).toContain('Come back to this tab');
+	});
+
+	// Story 22: the return is observed. A window raised over another application fires `focus` and no
+	// `visibilitychange`, so both are listened for and either is enough.
+	test('re-reads the listing when the window regains focus, with nothing pressed', async () => {
+		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
+		expect(opened.list).toHaveBeenCalledTimes(1);
+
+		window.dispatchEvent(new Event('focus'));
+		await settle();
+
+		expect(opened.list).toHaveBeenCalledTimes(2);
+		expect(at('connect-choosing')).toBeTruthy();
+	});
+
+	test('re-reads the listing when the document becomes visible, with nothing pressed', async () => {
+		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
+
+		document.dispatchEvent(new Event('visibilitychange'));
+		await settle();
+
+		expect(opened.list).toHaveBeenCalledTimes(2);
+		expect(at('connect-choosing')).toBeTruthy();
+	});
+
+	// ⚠ **Story 23, and it is the point of comparing against a set rather than counting.** The
+	// repository absent before and present after is the one they just made, and it is the row they
+	// are looking for — so it is first and it is marked, whatever order GitHub answered in.
+	test('puts a repository that was not there before at the top, marked as new', async () => {
+		await leaveToCreate(listed([ATLAS]), listed([ATLAS, HARBOUR]));
+
+		press('reread-repositories');
+		await settle();
+
+		const rows = [...document.querySelectorAll('[data-testid="granted-repository"]')].map(text);
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toContain('ada/harbour');
+		expect(rows[0]).toContain('New');
+		expect(rows[1]).not.toContain('New');
+	});
+
+	// ⚠ **Story 24: the cause is named rather than guessed at.** A screen identical to the one they
+	// left says nothing, and "no repositories found" names the wrong cause — the repository exists,
+	// and access to it is what is missing.
+	test('names the missing grant when the listing comes back unchanged, and offers the way back', async () => {
+		await leaveToCreate(nothing());
+
+		press('reread-repositories');
+		await settle();
+
+		expect(text(at('created-not-granted'))).toContain('has not been given access to it');
+		expect(at('grant-access').getAttribute('href')).toBe(
+			'https://github.com/settings/installations'
+		);
+		expect(absent('repository-choice-empty')).toBe(true);
+	});
+
+	// Story 25: the automatic path is a convenience and never the only way through, so the manual
+	// control is on screen from the moment the step is.
+	test('offers a control that re-reads the listing at any point in the step', async () => {
+		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
+
+		press('reread-repositories');
+		await settle();
+
+		expect(opened.list).toHaveBeenCalledTimes(2);
+		expect(at('connect-choosing')).toBeTruthy();
+	});
+
+	// ⚠ **No timer, and no request per flick of the wrist.** Some browsers fire `focus` and
+	// `visibilitychange` for one return, and an author alt-tabbing between the two tabs would
+	// otherwise spend somebody's hourly budget on a question already in flight.
+	test('does not ask GitHub twice for one return', async () => {
+		const opened = await leaveToCreate(nothing());
+
+		window.dispatchEvent(new Event('focus'));
+		document.dispatchEvent(new Event('visibilitychange'));
+		await settle();
+
+		expect(opened.list).toHaveBeenCalledTimes(2);
+	});
+
+	// The step ends where the listing stops changing under it: nothing is watched once there is
+	// nothing left to watch for.
+	test('stops watching once the new repository has appeared', async () => {
+		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
+		press('reread-repositories');
+		await settle();
+		expect(at('connect-choosing')).toBeTruthy();
+
+		window.dispatchEvent(new Event('focus'));
+		await settle();
+
+		expect(opened.list).toHaveBeenCalledTimes(2);
 	});
 });
 
@@ -430,5 +623,21 @@ describe('the words the sequence uses', () => {
 
 		const words = said().toLowerCase();
 		expect(FORBIDDEN.filter((word) => words.includes(word))).toEqual([]);
+	});
+
+	// The two steps a student with nothing on GitHub meets first, which is where a word they would
+	// have to go and learn would cost the most.
+	test('the empty grant and the create step say none of them either', async () => {
+		open(signedIn(), listed([]));
+		await settle();
+		expect(FORBIDDEN.filter((word) => said().toLowerCase().includes(word))).toEqual([]);
+
+		pressLink('create-repository');
+		press('reread-repositories');
+		await settle();
+
+		expect(at('connect-creating')).toBeTruthy();
+		expect(text(at('created-not-granted'))).not.toBe('');
+		expect(FORBIDDEN.filter((word) => said().toLowerCase().includes(word))).toEqual([]);
 	});
 });
