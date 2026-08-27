@@ -10,7 +10,8 @@ import {
 	expectNoRemote,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openRemoteSettings
+	openRemoteSettings,
+	revealBindToken
 } from './support/workspace';
 
 /**
@@ -212,6 +213,7 @@ test.describe('signing in with GitHub', () => {
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
@@ -233,7 +235,10 @@ test.describe('binding while already signed in', () => {
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await expect(page.getByTestId('remote-token-field')).toHaveValue('');
+		// ⚠ **Not merely empty: not on the screen** (SPEC stories 37, 46). This used to be a field
+		// with an empty value beside the button, which is exactly the two-credentials question a
+		// signed-in scholar must never be asked. It is behind the escape hatch now.
+		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
 		await page.getByTestId('bind-remote').click();
 
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
@@ -433,6 +438,7 @@ test.describe('a sign-in that has run out', () => {
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('remote-repository-field')).toBeVisible();
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
@@ -539,6 +545,7 @@ test.describe('with no broker served at all', () => {
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 
@@ -574,6 +581,7 @@ test.describe('with no broker served at all', () => {
 		// And the remedy on offer works, on the same screen, with the broker still unreachable.
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 
@@ -583,12 +591,58 @@ test.describe('with no broker served at all', () => {
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 	});
 
+	// ⚠ **The gate itself, which no seam below this one can see** (SPEC stories 37, 46, 50, and this
+	// ticket's first two criteria). Which fields `RemoteSettings` renders for which value of
+	// `signInWithGitHubOffered` is markup, and the derivation is asserted at Seam 1c — but *the value
+	// this deployment computes* is `isGitHubAppConfigured(GITHUB_APP)` read out of the real
+	// `WorkspaceStorage` in the real application, and a component seam is given it rather than reading
+	// it. So: the screen a scholar actually meets, in the state this deployment actually ships in.
+	//
+	// The broker is unreachable here because that is the fork's own case as well as this deployment's,
+	// and it makes the second half a real claim rather than a convenience: the paste is not deleted,
+	// it is one press away, and it still binds with no service of any kind involved.
+	test('offers no token field until the escape hatch is opened, and the paste behind it still binds', async ({
+		page
+	}) => {
+		const github = await start(page, { brokerUnreachable: true });
+
+		await openRemoteSettings(page);
+
+		// ⚠ **Absent, not empty and not disabled.** A student on this deployment is never asked to
+		// choose between two credentials, so neither field exists until somebody asks for it.
+		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
+		await expect(page.getByTestId('remote-sign-in-field')).toHaveCount(0);
+		// And the sign-in is what is on the screen instead, with the hatch not a peer of it.
+		await expect(page.getByTestId('sign-in-with-github')).toBeVisible();
+
+		// Opened, then closed again with the dialog: an escape hatch left standing open would be on the
+		// screen of whoever opens this next, which is the second door this epic exists to remove.
+		await revealBindToken(page);
+		await closeRemoteSettings(page);
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
+
+		await revealBindToken(page);
+		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await page.getByTestId('remote-token-field').fill(PASTED);
+		await page.getByTestId('bind-remote').click();
+
+		await expect(page.getByTestId('remote-outcome')).toContainText(
+			`This Workspace is bound to ${REMOTE}`
+		);
+		expect(await holdsCredential(page)).toBe(true);
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+		// And nothing in that path went near the broker, which is not there anyway.
+		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
+	});
+
 	test('a bound Workspace survives a reload with its credential, broker or no broker', async ({
 		page
 	}) => {
 		await start(page, { signIn: false });
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(PASTED);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);

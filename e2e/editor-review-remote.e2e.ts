@@ -7,6 +7,7 @@ import {
 	closeRemoteSettings,
 	expectWorkspaceNamed,
 	openRemoteSettings,
+	revealBindToken,
 	switchToWorkspace
 } from './support/workspace.js';
 
@@ -406,6 +407,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		// credential that pushes there is in the tab.
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(TOKEN);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();

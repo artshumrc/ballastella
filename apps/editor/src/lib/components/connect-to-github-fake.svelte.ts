@@ -24,7 +24,13 @@ export type BindCall = { readonly remote: RemoteReference; readonly token: strin
 
 export class FakeStorage {
 	remote = $state<{ owner: string; repository: string; branch: string } | null>(null);
-	/** The Workspace's name, which is what the new-repository link arrives pre-filled with. */
+	/**
+	 * Whether this deployment has a GitHub App at all — `isGitHubAppConfigured(GITHUB_APP)`, which the
+	 * real storage computes once. A signal rather than a field so a spec can prove the sequence's
+	 * first step is a reading of it and not a position chosen when the dialog opened.
+	 */
+	signInWithGitHubOffered = $state(true);
+	/** The Workspace's name, which is what the create-repository link arrives pre-filled with. */
 	name = $state('Atlas');
 	signedIn = $state(false);
 	identity = $state('');
