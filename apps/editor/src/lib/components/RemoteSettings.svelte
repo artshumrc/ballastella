@@ -70,23 +70,6 @@
 	/** A legacy binding waiting to be confirmed or declined, which is not yet a Remote. */
 	const legacy = $derived(storage.legacyRemote);
 
-	/**
-	 * A repository name to prefill `github.com/new` with (story 8).
-	 *
-	 * The Workspace's own name, put through the character set GitHub allows in a repository name. The
-	 * one step the tool does not do is still a short one when the field arrives filled in.
-	 */
-	const suggestedName = $derived(
-		storage.name
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9._-]+/g, '-')
-			.replace(/^[-.]+|[-.]+$/g, '') || 'my-workspace'
-	);
-	const createRepositoryHref = $derived(
-		`https://github.com/new?name=${encodeURIComponent(suggestedName)}`
-	);
-
 	function reset(): void {
 		outcome = '';
 		problem = '';
@@ -419,24 +402,15 @@
 							autocomplete="off"
 							spellcheck="false"
 						/>
+						<!--
+							The repository has to exist and be public before an address of it can be pasted here.
+							Making one is the guided sequence's, which offers GitHub's own new-repository screen
+							with the name filled in and then tells the author what to do there — so this field
+							says the requirement and sends nobody to a second copy of that offer.
+						-->
 						<p class="text-sm opacity-70">
-							It has to be public. Do not have one yet?
-							<!-- The one step the tool does not take, made short: the name arrives filled in.
-
-							     `resolve()` is for this app's own routes; github.com is not one, so the rule
-							     is disabled here for the one case it does not cover. -->
-							<!-- eslint-disable svelte/no-navigation-without-resolve -->
-							<a
-								class="link"
-								href={createRepositoryHref}
-								rel="noreferrer noopener"
-								target="_blank"
-								data-testid="create-repository"
-							>
-								Create “{suggestedName}” on GitHub
-							</a>
-							<!-- eslint-enable svelte/no-navigation-without-resolve -->
-							, choose <strong>Public</strong>, then come back here and paste its address.
+							It has to be public. Do not have one yet? <strong>Connect to GitHub</strong> above makes
+							one with you.
 						</p>
 					</div>
 					<div class="flex flex-col gap-1">
