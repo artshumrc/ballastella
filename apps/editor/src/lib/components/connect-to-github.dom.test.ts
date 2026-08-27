@@ -476,6 +476,27 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(opened.list).toHaveBeenCalledTimes(2);
 	});
 
+	// ⚠ **A refusal is not a listing with nothing in it, and this step is where confusing the two does
+	// the most damage.** `readGrantedRepositories` answers a sign-in GitHub will not act on as a refusal
+	// precisely so that nothing reads it as "you have granted nothing" — and this step's own account of
+	// a listing that did not grow is that access to the new repository was never given, which would name
+	// the wrong cause with confidence and send the author back to GitHub to grant it a second time.
+	test('reports a re-read GitHub refused as a refusal, not as a missing grant', async () => {
+		await leaveToCreate(nothing(), {
+			kind: 'refused',
+			refusal: 'credential',
+			message: 'Your GitHub sign-in has ended, so your repositories could not be read.'
+		});
+
+		press('reread-repositories');
+		await settle();
+
+		expect(text(at('connect-choices-refused'))).toContain('sign-in has ended');
+		expect(absent('created-not-granted')).toBe(true);
+		expect(at('connect-sign-in-again')).toBeTruthy();
+		expect(text(at('connect-step'))).toContain('could not be read');
+	});
+
 	// The step ends where the listing stops changing under it: nothing is watched once there is
 	// nothing left to watch for.
 	test('stops watching once the new repository has appeared', async () => {
@@ -871,6 +892,21 @@ describe('every refusal names what to do next', () => {
 		expect(text(at('connect-sign-in-refused'))).toContain('GitHub refused the sign-in');
 		press('connect-sign-in-with-github');
 		expect(opened.storage.signInsBegun).toBe(1);
+	});
+
+	// ⚠ **The same decline lands on the `connected` step whenever the Workspace is already bound**, and
+	// that is where the publish dialog's own door sends it: the door is a redirect off the page, so the
+	// return leg reopens the sequence over a Workspace that has a Remote, which derives this step. Said
+	// only on the page behind, the refusal would be behind the dialog the return leg reopens.
+	test('a sign-in GitHub declined is said on the connected step too', async () => {
+		connectSequence.signInRefusal = 'GitHub refused the sign-in, so nothing has been signed in to.';
+		const storage = new FakeStorage();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		open(storage);
+		await settle();
+
+		expect(at('connect-connected')).toBeTruthy();
+		expect(text(at('connect-sign-in-refused'))).toContain('GitHub refused the sign-in');
 	});
 });
 
