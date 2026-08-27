@@ -12,9 +12,9 @@
 		type ReturnLink
 	} from '@ballastella/core';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
-	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
+	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
 	import Toast from '$lib/toasts/Toast.svelte';
 	import { useWorkspaceHost, type WorkspaceStorage } from '$lib/workspace-storage.svelte.js';

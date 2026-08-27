@@ -488,35 +488,22 @@
 		</div>
 
 		<!--
-			5. Putting the work on the web (SPEC story 1, ADR-0032).
-
-			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
-			and "Publish" answer the two questions a scholar has about where their work is, and separating
-			them across two screens is how somebody comes to believe a saved edit is a published one.
-			They sit in different tiers because they answer differently: whether the work is kept is true
-			of the Workspace, while publishing is an action taken from wherever you are. The Workspace is
-			the site (ADR-0008), so this belongs to the bar rather than to a Project — it was on the hub,
-			which meant it was absent from every screen where a person is actually working.
-
-			**Enabled in every state except while it is running**, and each of them leads somewhere: it
-			offers the binding when there is none, asks for the credential when there is no credential,
-			and says so when nothing needs changing. A disabled Publish button with no explanation is
-			the failure this epic exists to remove.
-		-->
-		<!--
-			5a. Getting the Workspace onto GitHub in the first place (SPEC stories 1, 2, 36 and 61,
+			5. Getting the Workspace onto GitHub in the first place (SPEC stories 1, 2, 36 and 61,
 			ADR-0032).
 
-			**Here rather than in Workspace settings, and that is what this control is for.** Connecting
-			was a section of a settings dialog two menus deep — a place a person visits when something
-			already works and they want it different, and not one anybody looks in for *how do I put this
-			on the web*. The bar is on every screen including Workspace Home, so a student meets it before
-			they have opened a Project, and the sequence it opens is the same one wherever it was pressed.
+			**On the bar rather than filed away in Workspace settings, and that is what this control is
+			for.** A settings dialog two menus deep is where a person goes when something already works
+			and they want it different, and not where anybody looks for *how do I put this on the web*.
+			The bar is on every screen including Workspace Home, so a student meets it before they have
+			opened a Project, and the sequence it opens is the same one wherever it was pressed.
 
 			**It reflects the Workspace rather than offering the same thing twice.** With no Remote it
 			offers connecting; with one it says which repository, which is a standing fact and not
 			unfinished work. Both presses open the same sequence, which lands on whichever of its steps is
 			true — there is no second path and no remembered position (see `ConnectToGitHub`).
+
+			**Before Publish, in the row and in the order**, because a Workspace has to have somewhere to
+			go before Publish has anywhere to send it.
 		-->
 		{#if publishable && storage !== null}
 			<button
@@ -532,6 +519,22 @@
 			</button>
 		{/if}
 
+		<!--
+			6. Putting the work on the web (SPEC story 1, ADR-0032).
+
+			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
+			and "Publish" answer the two questions a scholar has about where their work is, and separating
+			them across two screens is how somebody comes to believe a saved edit is a published one.
+			They sit in different tiers because they answer differently: whether the work is kept is true
+			of the Workspace, while publishing is an action taken from wherever you are. The Workspace is
+			the site (ADR-0008), so this belongs to the bar rather than to a Project — it was on the hub,
+			which meant it was absent from every screen where a person is actually working.
+
+			**Enabled in every state except while it is running**, and each of them leads somewhere: it
+			offers the binding when there is none, asks for the credential when there is no credential,
+			and says so when nothing needs changing. A disabled Publish button with no explanation is
+			the failure this epic exists to remove.
+		-->
 		{#if publishable}
 			<button
 				type="button"
@@ -556,7 +559,7 @@
 -->
 {#snippet status()}
 	{#if session !== null}
-		<!-- 6. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
+		<!-- 7. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
 		     only signal that anything reached storage — which is why it is on every screen and not
 		     only on the ones that happen to write. -->
 		<!-- `min-h-8`, matching the Remote status's leading row: the eyebrow top-aligns its clusters, so
@@ -586,7 +589,7 @@
 		<Toast text={storage?.unprotected ?? ''} testid="unprotected-browser" />
 
 		<!--
-			7. Whether GitHub agrees with this Workspace (SPEC stories 111–118, ADR-0038).
+			8. Whether GitHub agrees with this Workspace (SPEC stories 111–118, ADR-0038).
 
 			**Its own region, beside the save indicator and never inside it.** "Saved locally" is about
 			this machine and says nothing about the Remote; a scholar who reads the one as the other

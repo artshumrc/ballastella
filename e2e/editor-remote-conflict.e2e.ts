@@ -181,7 +181,7 @@ const openPublishDialog = async (page: Page) => {
  *
  * The reload is what makes the seeded credential held: it is read when the app starts.
  */
-async function signIn(page: Page) {
+async function signedIn(page: Page) {
 	await seedGitHubCredential(page, TOKEN);
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
@@ -276,7 +276,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		});
 		const before = github.head(OWNER, REPOSITORY);
 
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 
 		const refusal = dialog.getByTestId('publish-conflict');
 		await expect(refusal).toHaveAttribute('data-conflict', 'unknown-history');
@@ -311,7 +311,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		const github = await start(page, {
 			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() }
 		});
-		await confirm(page, await signIn(page));
+		await confirm(page, await signedIn(page));
 		const commit = github.head(OWNER, REPOSITORY);
 
 		// The record of that publish, and nothing else. The Workspace and the Remote still agree
@@ -338,7 +338,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		});
 
 		// A first publish, which is what gives this browser its record of the Remote.
-		await confirm(page, await signIn(page));
+		await confirm(page, await signedIn(page));
 
 		// The other machine's afternoon, arriving after this one last looked. The one thing no gesture
 		// in this app can produce, and the whole subject of the refusal.
@@ -541,7 +541,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 
 		// Signing in is the moment an automatic check becomes possible, and it takes one by itself.
-		await signIn(page);
+		await signedIn(page);
 		await page.keyboard.press('Escape');
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 		const afterSignIn = await settledListings(page, github);
@@ -634,7 +634,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		});
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		await signIn(page);
+		await signedIn(page);
 		await page.keyboard.press('Escape');
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 
@@ -746,7 +746,7 @@ test.describe('Update from GitHub', () => {
 		});
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		await signIn(page);
+		await signedIn(page);
 		await page.keyboard.press('Escape');
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 
@@ -927,7 +927,7 @@ test.describe('Update from GitHub', () => {
 		});
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		await signIn(page);
+		await signedIn(page);
 		await page.keyboard.press('Escape');
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 
@@ -1029,7 +1029,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 		});
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		await signIn(page);
+		await signedIn(page);
 		await page.keyboard.press('Escape');
 
 		await page.getByTestId('import-project').click();

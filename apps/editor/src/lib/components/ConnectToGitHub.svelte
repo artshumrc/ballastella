@@ -428,8 +428,8 @@
 	 * `packages/core` composes for exactly this — rendered as it arrives, because a wording of ours
 	 * would be a second account of a lifetime GitHub owns.
 	 *
-	 * The same call `RemoteSettings` makes on opening, and for the same reason: this is now the screen
-	 * a scholar comes to when they suspect their sign-in has gone.
+	 * The same call `RemoteSettings` makes on opening, and for the same reason: this is the screen a
+	 * scholar comes to when they suspect their sign-in has gone.
 	 */
 	$effect(() => {
 		if (!open) return;

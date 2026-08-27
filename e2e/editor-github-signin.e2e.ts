@@ -659,8 +659,8 @@ test.describe('with no broker served at all', () => {
 // ⚠ **The last second door, and the state a scholar reaches it from is an ordinary arrival.** The
 // credential is this tab's and the binding is the installation's (SPEC story 64), so a bound
 // Workspace reopened tomorrow morning and pressed to Publish is signed out with somewhere to publish
-// to — and until this ticket that screen carried a labelled personal access token field, ungated in
-// either direction, on a deployment where every other token field had already gone.
+// to. It is the last screen in the editor that has a credential to ask for, so it is gated on the
+// deployment's own answer exactly as every other one is: where an App is configured, no token field.
 //
 // It gets one test in a browser, here rather than in `editor-publish.e2e.ts`, because the claim is
 // about the **real** `isGitHubAppConfigured(GITHUB_APP)`: the gate reads it through

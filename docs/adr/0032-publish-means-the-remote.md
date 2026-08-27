@@ -98,6 +98,5 @@ Project, exported to be sent to somebody, opening only into a Review Workspace.
   binding, checking push rights and enabling Pages as a single act. The settings dialog keeps
   describing what a Remote is and offers the same sequence rather than a second way of binding; the
   three engines beneath it are unchanged.
-
 - **`export` belongs to a Project Bundle and a Backup.** Publishing is never an export, and
   `CONTEXT.md`'s **Published Site** entry says so, because "Export" is a shipped button.
