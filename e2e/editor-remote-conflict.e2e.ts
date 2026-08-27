@@ -6,6 +6,7 @@ import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
 	openRemoteSettings,
+	revealBindToken,
 	seedBaseline,
 	seedRemoteRelationship,
 	switchToWorkspace
@@ -195,6 +196,7 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 	async function bind(page: Page): Promise<void> {
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(TOKEN);
 		await page.getByTestId('bind-remote').click();
 	}

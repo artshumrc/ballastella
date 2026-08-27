@@ -50,6 +50,21 @@
 	let token = $state('');
 	let signInToken = $state('');
 	let openRepository = $state('');
+	/**
+	 * Whether the escape hatch is open, in each of the two places this dialog can bind a credential.
+	 *
+	 * ⚠ **Closed by default, and the field is not in the document until it is opened.** Where this
+	 * deployment has a GitHub App, a personal access token is not a choice a scholar is asked to make —
+	 * one door, and it is the button (SPEC stories 37, 46). This exists for the instructor whose class
+	 * meets a broken App installation on a Tuesday morning, so it is worded for somebody who already
+	 * knows what they are asking for and it is never a peer of the sign-in.
+	 *
+	 * Two states rather than one because both sections can be on screen at once, and a single one
+	 * would open a form the author was not looking at. Where **no** App is configured neither is read:
+	 * the paste is that fork's whole authentication and it is the plain content of both sections.
+	 */
+	let bindPasteRevealed = $state(false);
+	let signInPasteRevealed = $state(false);
 	/** Whether an Open is running, which is minutes rather than the moment a bind takes. */
 	let opening = $state(false);
 	/** Whether a request is in flight, so the button cannot be pressed twice. */
@@ -104,7 +119,13 @@
 	 * the Workspace the user has just been moved into and must survive the switch.
 	 */
 	$effect(() => {
-		if (!open) reset();
+		if (!open) {
+			reset();
+			// Closed again with the dialog: an escape hatch left open would be on the screen of whoever
+			// opens this next, which is the arrangement it exists to avoid.
+			bindPasteRevealed = false;
+			signInPasteRevealed = false;
+		}
 	});
 
 	/**
@@ -439,33 +460,56 @@
 							, choose <strong>Public</strong>, then come back here and paste its address.
 						</p>
 					</div>
-					<div class="flex flex-col gap-1">
-						<label class="text-sm font-medium" for={tokenId}>
-							Personal access token
-							{#if storage.signedIn}<span class="font-normal opacity-70">(not needed)</span>{/if}
-						</label>
-						<input
-							id={tokenId}
-							class="input w-full max-w-md input-sm"
-							type="password"
-							bind:value={token}
-							data-testid="remote-token-field"
-							autocomplete="off"
-							spellcheck="false"
-						/>
-						{#if storage.signedIn}
-							<p class="text-sm opacity-70">
-								You are signed in, so binding will use that. Leave this empty unless you want to
-								bind with a personal access token instead.
-							</p>
-						{:else}
-							<p class="text-sm opacity-70">
-								A fine-grained personal access token with “Contents: Read and write” and “Pages:
-								Read and write” for that repository. It is checked the moment you press the button,
-								kept only in this tab, and forgotten when you close it.
-							</p>
-						{/if}
-					</div>
+					<!--
+						⚠ **The token field is gated on the same predicate the sign-in button is, inverted.**
+						Where this deployment has an App there is one credential and the scholar never chooses
+						between two, so the field is not on the screen at all — not disabled, not annotated
+						“(not needed)”, not present and empty (stories 37, 46). Where there is no App the paste
+						is this fork's whole authentication and it is the plain content of the form, which is
+						the promise `docs/hosting.md` Part 1 opens with and does not get to break.
+					-->
+					{#if storage.signInWithGitHubOffered}
+						<div>
+							<button
+								class="btn btn-ghost btn-xs"
+								type="button"
+								aria-expanded={bindPasteRevealed}
+								data-testid="reveal-bind-token"
+								onclick={() => (bindPasteRevealed = !bindPasteRevealed)}
+							>
+								Use a personal access token instead
+							</button>
+						</div>
+					{/if}
+					{#if !storage.signInWithGitHubOffered || bindPasteRevealed}
+						<div class="flex flex-col gap-1">
+							<label class="text-sm font-medium" for={tokenId}>
+								Personal access token
+								{#if storage.signedIn}<span class="font-normal opacity-70">(not needed)</span>{/if}
+							</label>
+							<input
+								id={tokenId}
+								class="input w-full max-w-md input-sm"
+								type="password"
+								bind:value={token}
+								data-testid="remote-token-field"
+								autocomplete="off"
+								spellcheck="false"
+							/>
+							{#if storage.signedIn}
+								<p class="text-sm opacity-70">
+									You are signed in, so binding will use that. Leave this empty unless you want to
+									bind with a personal access token instead.
+								</p>
+							{:else}
+								<p class="text-sm opacity-70">
+									A fine-grained personal access token with “Contents: Read and write” and “Pages:
+									Read and write” for that repository. It is checked the moment you press the
+									button, kept only in this tab, and forgotten when you close it.
+								</p>
+							{/if}
+						</div>
+					{/if}
 					<div>
 						<button
 							class="btn btn-primary btn-sm"
@@ -524,10 +568,10 @@
 					<p class="mt-1 text-sm opacity-70">Not signed in, so nothing can be published yet.</p>
 					{#if storage.signInWithGitHubOffered}
 						<!--
-							The nicer front door (SPEC stories 32, 56). Offered first because it is the shorter
-							path — press, authorise on GitHub's own screen, come back — and the paste is kept
-							below it rather than replaced, because a fork with no App of its own has nothing
-							else (ADR-0031).
+							The front door, and where an App is configured it is the only one on the screen (SPEC
+							stories 32, 37, 46, 56): press, authorise on GitHub's own screen, come back. The paste
+							is kept rather than replaced — a fork with no App of its own has nothing else
+							(ADR-0031) — but it is behind the disclosure below rather than beside this.
 
 							⚠ **Absent entirely when no App is configured**, which is what
 							`signInWithGitHubOffered` answers. A button that redirects to an authorize URL with
@@ -548,34 +592,53 @@
 								and brings you back. Nothing is kept on this computer beyond this tab.
 							</p>
 						</div>
-						<p class="mt-3 text-sm opacity-70">Or paste a token instead:</p>
+						<!--
+							⚠ **The escape hatch, and it is deliberately not a peer of the button above.** It was
+							“Or paste a token instead:” over a form of equal weight, which is the two-doors
+							arrangement this whole epic exists to remove. Now it is a disclosure, closed, worded
+							for somebody who already knows what a personal access token is — the instructor whose
+							class meets a broken App installation, not the student.
+						-->
+						<p class="mt-3">
+							<button
+								class="btn btn-ghost btn-xs"
+								type="button"
+								aria-expanded={signInPasteRevealed}
+								data-testid="reveal-sign-in-token"
+								onclick={() => (signInPasteRevealed = !signInPasteRevealed)}
+							>
+								Sign in with a personal access token instead
+							</button>
+						</p>
 					{:else}
 						<p class="mt-1 text-sm opacity-70">Paste a token to sign in again.</p>
 					{/if}
-					<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void signIn(event)}>
-						<div class="flex flex-col gap-1">
-							<label class="text-sm font-medium" for={signInTokenId}>Personal access token</label>
-							<input
-								id={signInTokenId}
-								class="input w-full max-w-md input-sm"
-								type="password"
-								bind:value={signInToken}
-								data-testid="remote-sign-in-field"
-								autocomplete="off"
-								spellcheck="false"
-							/>
-						</div>
-						<div>
-							<button
-								class="btn btn-primary btn-sm"
-								type="submit"
-								data-testid="remote-sign-in"
-								disabled={working}
-							>
-								{working ? 'Asking GitHub…' : 'Sign in'}
-							</button>
-						</div>
-					</form>
+					{#if !storage.signInWithGitHubOffered || signInPasteRevealed}
+						<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void signIn(event)}>
+							<div class="flex flex-col gap-1">
+								<label class="text-sm font-medium" for={signInTokenId}>Personal access token</label>
+								<input
+									id={signInTokenId}
+									class="input w-full max-w-md input-sm"
+									type="password"
+									bind:value={signInToken}
+									data-testid="remote-sign-in-field"
+									autocomplete="off"
+									spellcheck="false"
+								/>
+							</div>
+							<div>
+								<button
+									class="btn btn-primary btn-sm"
+									type="submit"
+									data-testid="remote-sign-in"
+									disabled={working}
+								>
+									{working ? 'Asking GitHub…' : 'Sign in'}
+								</button>
+							</div>
+						</form>
+					{/if}
 				{/if}
 			</section>
 		{/if}
