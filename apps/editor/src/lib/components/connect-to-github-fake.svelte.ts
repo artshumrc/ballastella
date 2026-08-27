@@ -18,6 +18,8 @@ export type BindCall = { readonly remote: RemoteReference; readonly token: strin
 
 export class FakeStorage {
 	remote = $state<{ owner: string; repository: string; branch: string } | null>(null);
+	/** The Workspace's name, which is what the new-repository link arrives pre-filled with. */
+	name = $state('Atlas');
 	signedIn = $state(false);
 	identity = $state('');
 	credential = $state<string | null>(null);
