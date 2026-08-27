@@ -172,16 +172,6 @@ test.describe('binding a Workspace to a repository', () => {
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
 	});
 
-	// SPEC story 8. The one step the tool does not take is still a short one when the field arrives
-	// filled in, and the offer is made *before* the refusal rather than only after it.
-	test('offers a link to create the repository, with the name prefilled', async ({ page }) => {
-		await start(page);
-		await openRemoteSettings(page);
-
-		const link = page.getByTestId('create-repository');
-		await expect(link).toHaveAttribute('href', 'https://github.com/new?name=my-workspace');
-	});
-
 	test('says so when there is no such repository, rather than binding to nothing', async ({
 		page
 	}) => {

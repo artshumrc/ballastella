@@ -32,19 +32,38 @@
 	 *
 	 * Story 15. Nothing granted is the ordinary state of a student who has just made an account, and
 	 * an empty area with a heading over it reads as something that failed. The wording says what
-	 * comes next; the action that does it arrives with the create step.
+	 * comes next; the press that does it belongs to whoever owns the sequence, and sits beside this.
 	 */
 	let {
 		repositories,
+		newly = new Set<string>(),
 		onchoose
 	}: {
 		repositories: readonly GrantedRepository[];
+		/**
+		 * Full names (`owner/repository`) that were not granted when the author left to make one.
+		 * Listed first and marked, so the one they just made is the one they see (story 23).
+		 */
+		newly?: ReadonlySet<string>;
 		/** The repository chosen. Never called for a row that cannot be published to. */
 		onchoose: (repository: GrantedRepository) => void;
 	} = $props();
 
 	const named = (repository: GrantedRepository): string =>
 		`${repository.owner}/${repository.repository}`;
+
+	/**
+	 * The list with anything new at the top, and otherwise in the order it arrived.
+	 *
+	 * A student who has just made a repository is looking for one row and does not know GitHub's
+	 * ordering, so the search is spared them. `sort` is stable, so the rest keeps the order
+	 * `readGrantedRepositories` fixed.
+	 */
+	const ordered = $derived(
+		[...repositories].sort(
+			(one, other) => Number(newly.has(named(other))) - Number(newly.has(named(one)))
+		)
+	);
 
 	const chooseable = (repository: GrantedRepository): boolean =>
 		repository.canPublish && !repository.isPrivate;
@@ -91,10 +110,7 @@
 	</p>
 
 	{#if repositories.length === 0}
-		<!--
-			Story 15: nothing granted is a step with an instruction. The action that makes one is the
-			create step's, so the wording carries it here rather than a second button doing the same job.
-		-->
+		<!-- Story 15: nothing granted is a step with an instruction rather than a blank area. -->
 		<p class="mt-3 max-w-prose" data-testid="repository-choice-empty">
 			You have not given Ballastella access to any repository yet, so there is nothing to choose
 			from. A repository is the folder on GitHub your map will live in, and making one is the next
@@ -102,7 +118,7 @@
 		</p>
 	{:else}
 		<ul class="mt-3 flex flex-col gap-2" aria-label="Repositories you have given access to">
-			{#each repositories as repository (named(repository))}
+			{#each ordered as repository (named(repository))}
 				{@const reason = why(repository)}
 				{@const unselectable = reason !== ''}
 				<li data-testid="granted-repository">
@@ -114,6 +130,9 @@
 						onclick={() => choose(repository)}
 					>
 						<span class="font-mono">{named(repository)}</span>
+						{#if newly.has(named(repository))}
+							<span class="badge badge-sm badge-primary" data-testid="newly-granted">New</span>
+						{/if}
 						<!--
 							Story 12: the mark is on every row, including the ones that are fine. A mark that
 							appeared only on the bad rows would leave the good ones saying nothing, and a
