@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { describeRemote, describeTokenProblem, parseRemoteReference } from '@ballastella/core';
 
+	import { connectSequence } from '$lib/connect-sequence.svelte.js';
+
 	import ModalDialog from './ModalDialog.svelte';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
@@ -361,6 +363,15 @@
 					{/if}
 				</p>
 				<div class="mt-3 flex flex-wrap gap-2">
+					<!-- The same sequence the navigation bar opens, which for a bound Workspace names the
+					     repository and the address its Published Site answers at. -->
+					<button
+						class="btn btn-sm"
+						data-testid="open-connect-sequence"
+						onclick={() => connectSequence.start()}
+					>
+						Show this Workspace's repository
+					</button>
 					<button
 						class="btn btn-outline btn-sm btn-warning"
 						data-testid="unbind-remote"
@@ -379,6 +390,23 @@
 					One GitHub repository, once, for the whole Workspace. Afterwards publishing never asks you
 					where.
 				</p>
+				<!--
+					⚠ **The guided sequence, opened rather than reimplemented.** This dialog describes what a
+					Remote *is*; the sequence is what gets a Workspace one, and it is the same component the
+					navigation bar's control opens (`ConnectToGitHub`, reached through `connectSequence`).
+					Two implementations of connecting is the outcome this arrangement exists to prevent — the
+					sequence picks the repository from what GitHub says the author has granted, so nothing
+					below has to be typed correctly from memory.
+				-->
+				<div class="mt-3">
+					<button
+						class="btn btn-primary btn-sm"
+						data-testid="open-connect-sequence"
+						onclick={() => connectSequence.start()}
+					>
+						Connect to GitHub
+					</button>
+				</div>
 				<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void bind(event)}>
 					<div class="flex flex-col gap-1">
 						<label class="text-sm font-medium" for={repositoryId}>Repository</label>

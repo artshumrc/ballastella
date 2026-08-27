@@ -40,6 +40,7 @@
 import {
 	createFakeGitHub,
 	type FakeGitHub,
+	type FakeGrants,
 	type FakeRateLimit
 } from '../../packages/core/src/remote/fake-github.js';
 import {
@@ -119,6 +120,17 @@ export type GitHubHostsOptions = {
 	readonly tokenLifetimeSeconds?: number;
 	/** The account a completed sign-in is as, reported by `GET /user`. */
 	readonly login?: string;
+	/**
+	 * The repositories the author has granted the App access to, as the two installation endpoints
+	 * report them.
+	 *
+	 * ⚠ **Answered by the *same* fake that issues the sign-in's token**, which is why it belongs here
+	 * rather than on a repository: `GET /user/installations` is a question about the credential, and
+	 * `routeGitHubHosts` already sends everything under `/user` to that one fake. Omit it and the
+	 * author has granted nothing, which is a 200 with an empty list rather than a 404 — GitHub's own
+	 * answer for somebody who has never installed the App.
+	 */
+	readonly grants?: FakeGrants;
 };
 
 /**
@@ -246,7 +258,9 @@ export async function routeGitHubHosts(
 							clientId: SIGN_IN_APP.clientId,
 							login: options.login ?? repository.owner,
 							tokenLifetimeSeconds: options.tokenLifetimeSeconds
-						}
+						},
+						// On the same fake as the sign-in, for the reason `GitHubHostsOptions.grants` gives.
+						...(options.grants === undefined ? {} : { grants: options.grants })
 					}
 				: {})
 		});

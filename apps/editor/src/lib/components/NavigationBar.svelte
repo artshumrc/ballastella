@@ -43,6 +43,7 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Settings from '@lucide/svelte/icons/settings';
 
+	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import PublishDialog from '$lib/publish/PublishDialog.svelte';
 	import { publishControlLabel, type PublishProgress } from '$lib/publish/publish-progress.js';
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
@@ -52,6 +53,7 @@
 
 	import Toast from '$lib/toasts/Toast.svelte';
 
+	import ConnectToGitHub from './ConnectToGitHub.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
@@ -501,6 +503,35 @@
 			and says so when nothing needs changing. A disabled Publish button with no explanation is
 			the failure this epic exists to remove.
 		-->
+		<!--
+			5a. Getting the Workspace onto GitHub in the first place (SPEC stories 1, 2, 36 and 61,
+			ADR-0032).
+
+			**Here rather than in Workspace settings, and that is what this control is for.** Connecting
+			was a section of a settings dialog two menus deep — a place a person visits when something
+			already works and they want it different, and not one anybody looks in for *how do I put this
+			on the web*. The bar is on every screen including Workspace Home, so a student meets it before
+			they have opened a Project, and the sequence it opens is the same one wherever it was pressed.
+
+			**It reflects the Workspace rather than offering the same thing twice.** With no Remote it
+			offers connecting; with one it says which repository, which is a standing fact and not
+			unfinished work. Both presses open the same sequence, which lands on whichever of its steps is
+			true — there is no second path and no remembered position (see `ConnectToGitHub`).
+		-->
+		{#if publishable && storage !== null}
+			<button
+				type="button"
+				class="btn btn-sm"
+				class:btn-primary={storage.remote === null}
+				data-testid="connect-to-github"
+				onclick={() => connectSequence.start()}
+			>
+				{storage.remote === null
+					? 'Connect to GitHub'
+					: `Connected to ${describeRemote(storage.remote)}`}
+			</button>
+		{/if}
+
 		{#if publishable}
 			<button
 				type="button"
@@ -653,5 +684,19 @@
 		bind:open={publishOpen}
 		bind:publishing
 		bind:progress={publishProgress}
+	/>
+	<!--
+		The guided sequence, mounted **once** and here. Workspace settings' Remote section opens this
+		same dialog through `connectSequence` rather than mounting a second copy of it, which is what
+		keeps connecting one implementation with two entry points — and keeps the settings route from
+		stacking a third `<dialog>` over the two it is already inside.
+
+		`onpublish` hands off to the button beside it: the sequence ends where publishing begins, and
+		there is no second publish path.
+	-->
+	<ConnectToGitHub
+		{storage}
+		bind:open={connectSequence.open}
+		onpublish={() => (publishOpen = true)}
 	/>
 {/if}

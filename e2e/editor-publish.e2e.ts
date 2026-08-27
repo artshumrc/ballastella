@@ -747,16 +747,19 @@ test.describe('publishing a Workspace', () => {
 	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
-		// Reached by tabbing rather than by clicking (SPEC story 95). From the wordmark, which is the
-		// control before it on the bar — the Edit History slot sits between them and renders nothing at
-		// all when there is nothing to undo, which is the state a freshly seeded Workspace is in.
+		// Reached by tabbing rather than by clicking (SPEC story 95). From the wordmark, past the
+		// Connect to GitHub control that sits between them — the Edit History slot is between them too
+		// and renders nothing at all when there is nothing to undo, which is the state a freshly seeded
+		// Workspace is in.
 		//
-		// Both are in the bar's main row, which runs breadcrumb, wordmark, the screen's own actions,
-		// and the theme toggle last. Starting from the wordmark is what makes this a single `Tab` on
-		// any screen: the Workspace Home sets no breadcrumbs, and on a Project the crumbs and their
+		// All three are in the bar's main row, which runs breadcrumb, wordmark, the screen's own
+		// actions, and the theme toggle last. Starting from the wordmark is what makes the count stable
+		// on any screen: the Workspace Home sets no breadcrumbs, and on a Project the crumbs and their
 		// edit action are before the wordmark rather than between it and Publish.
 		const publishButton = page.getByRole('button', { name: 'Publish…' });
 		await page.getByTestId('app-wordmark').focus();
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(publishButton).toBeFocused();
 		await page.keyboard.press('Enter');

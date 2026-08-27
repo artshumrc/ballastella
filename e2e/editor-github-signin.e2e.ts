@@ -600,3 +600,63 @@ test.describe('with no broker served at all', () => {
 		await expectCredential(page, 'Signed in to GitHub');
 	});
 });
+
+// ⚠ **The one Seam 2 test the guided sequence gets, and it is about *wiring*.** Every state of the
+// sequence, every sentence it says, and every outcome it renders are asserted at Seam 1c against a
+// fake store (`apps/editor/src/lib/components/connect-to-github.dom.test.ts`), and what the listing
+// and the bind do with what they are given is asserted at Seam 1 against this same fake GitHub. All
+// of that would stay green if the application never connected the component to anything — which is
+// the one failure no seam below can see, and the whole reason this test costs what it costs.
+//
+// It is one test rather than five because each leg's starting state is the state the leg before it
+// leaves: the sign-in has to have happened for the listing to be readable, the listing has to have
+// been read for a repository to be choosable, and the connection has to have been made for the
+// Publish it hands off to to have anywhere to go.
+test.describe('the guided sequence, wired to the real thing', () => {
+	test('goes from the navigation bar through sign-in and a chosen repository to a published site', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			login: OWNER,
+			grants: {
+				installationId: 1,
+				account: OWNER,
+				repositories: [{ owner: OWNER, repository: REPOSITORY, push: true }]
+			}
+		});
+
+		// Story 1 and 2: one control, in the bar, on Workspace Home — before any Project is open.
+		await page.getByTestId('connect-to-github').click();
+		await expect(page.getByTestId('connect-sign-in')).toBeVisible();
+
+		// Story 7 and 8: out to GitHub, authorise, and back **inside the sequence** at the next step.
+		// The redirect replaces the document, so landing on the choice is the claim no fake can carry.
+		await page.getByTestId('connect-sign-in-with-github').click();
+		await expect(page.getByTestId('connect-choosing')).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByTestId('connect-account')).toContainText(`as ${OWNER}`);
+
+		// Story 11 and 26: the list is GitHub's own answer, and choosing is one act.
+		await expect(page.getByTestId('granted-repository')).toHaveText(new RegExp(REMOTE));
+		await page.getByTestId('choose-repository').click();
+
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		// Story 29: Pages was turned on as part of that one press, with nothing else asked of anybody.
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+		// Story 32: the address the assignment asked for.
+		await expect(page.getByTestId('published-site-address')).toHaveText(
+			`https://${OWNER}.github.io/${REPOSITORY}/`
+		);
+
+		// Story 28: the handoff is the Publish button that was always on the bar, and it reaches GitHub.
+		await page.getByTestId('connect-publish').click();
+		const dialog = page.getByRole('dialog');
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 60_000
+		});
+
+		// What arrived, rather than which calls were made: the repository is serving a site.
+		expect(github.files(OWNER, REPOSITORY)).toContain('index.html');
+	});
+});
