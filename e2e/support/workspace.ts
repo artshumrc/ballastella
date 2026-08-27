@@ -88,6 +88,26 @@ export async function openRemoteSettings(page: Page): Promise<void> {
 }
 
 /**
+ * Open the escape hatch that reaches the pasted token, in the Remote dialog's bind form.
+ *
+ * ⚠ **Every spec that pastes a token needs this, and that is the point.** Where a GitHub App is
+ * configured — which this checkout is, and every spec is built with — a scholar is never shown a
+ * token field: one door, and it is the sign-in (SPEC stories 37, 46). The paste is not deleted, and
+ * these specs are what proves it still works; it is one press away, closed by default, for the
+ * instructor whose App installation has broken during a class.
+ */
+export async function revealBindToken(page: Page): Promise<void> {
+	await page.getByTestId('reveal-bind-token').click();
+	await expect(page.getByTestId('remote-token-field')).toBeVisible();
+}
+
+/** The same hatch, in the sign-in section: paste a credential rather than fetch one from GitHub. */
+export async function revealSignInToken(page: Page): Promise<void> {
+	await page.getByTestId('reveal-sign-in-token').click();
+	await expect(page.getByTestId('remote-sign-in-field')).toBeVisible();
+}
+
+/**
  * Close Remote settings **and the Workspace settings it was opened from**, back to the page.
  *
  * Both, because closing only the top one leaves a modal over everything a spec goes on to touch —

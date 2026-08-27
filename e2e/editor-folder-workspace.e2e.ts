@@ -9,7 +9,8 @@ import {
 	expectWorkspaceNamed,
 	openRemoteSettings,
 	openWorkspaceMenu,
-	openWorkspaceSettings
+	openWorkspaceSettings,
+	revealBindToken
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
@@ -1384,6 +1385,7 @@ test.describe('synchronizing a folder Workspace', () => {
 	async function bindTo(page: Page, repository: string): Promise<void> {
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(`${OWNER}/${repository}`);
+		await revealBindToken(page);
 		await page.getByTestId('remote-token-field').fill(TOKEN);
 		await page.getByTestId('bind-remote').click();
 		await expect(page.getByTestId('remote-outcome')).toContainText(

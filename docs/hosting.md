@@ -150,6 +150,16 @@ configuration, and no account of yours. **If you do nothing at all in this secti
 fork's whole authentication and everything still works** — the publish path, its speed, and where the
 data goes are identical either way.
 
+**It is the door offered where there is no App, and only there.** The two values below decide which
+of the two a scholar is shown, and they are never shown both: a person asked to choose between two
+credentials has no way to tell which one is meant for them, and one of the two sends them off to
+generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
+token field appears anywhere — the paste is still there, one disclosure deep in Workspace settings,
+worded for somebody who already knows what they are asking for, which is where you go when your App
+installation has broken during a class. Where the two values are empty, *Connect to GitHub* leads
+straight to the paste, with the guidance a fork's author needs, and no sign-in button is shown at
+all.
+
 **The nicer front door** is a button: press *Sign in with GitHub*, authorise on GitHub's own screen,
 choose which repositories the app may touch, and come back signed in. This is the one part of
 Ballastella that needs a server, and it needs one for a single reason:
@@ -218,13 +228,38 @@ any module outside that file names your broker's host or your client ID, which i
 #### Turning it off
 
 Set both values to the empty string. The button disappears entirely — rather than sitting there
-leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again.
+leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again, and
+the front door of the guided sequence: *Connect to GitHub* opens on the repository address and the
+token rather than on a sign-in nobody can complete.
 `pnpm lint` then reports `NO GITHUB APP CONFIGURED` instead of a containment scan, which is a
 deliberately different line: a fence with nothing to look for must not print the same success message
 as a fence that looked and found nothing.
 
 Set **both, or neither**. A broker with no client ID has nothing to look a secret up by, and a client
 ID with no broker has nowhere to exchange a code, so `pnpm lint` refuses a half-configured pair.
+
+#### What owning the App means you can reach
+
+Read this before a class uses your deployment, and tell whoever is responsible for your institution's
+records that it is true.
+
+**A student's own sign-in reaches only what that student granted.** The App issues a *user access
+token*, which acts as that person and is confined to the repositories they chose when they authorised
+it. No student's sign-in can touch another student's repositories, and the broker never sees a token
+that could — it exchanges a code for one and forgets it.
+
+**The App's private key is a different thing entirely.** Whoever owns the App holds a key that can
+mint *installation* tokens for every account the App is installed on, within the permissions the App
+was granted — which for this one is Contents and Pages, read and write. So the organisation that owns
+the App has latent read and write access to every repository any of its users granted it, without
+anybody signing in and without any further consent at the moment of use.
+
+That is inherent to owning a GitHub App and is not a weakness in the broker, which never holds the
+private key and could not mint such a token if it wanted to. It is stated here because it is the sort
+of thing an institution has to have decided about *before* thirty students grant an App access to
+their coursework, and because the alternative — hosting no App — is a supported configuration rather
+than a lesser one. Its cost is the paste, and its benefit is that nobody holds a key to anybody's
+work.
 
 ### 7. Keeping up with upstream
 

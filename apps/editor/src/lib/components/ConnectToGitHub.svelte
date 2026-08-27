@@ -1,10 +1,13 @@
 <script lang="ts">
 	import {
 		describeRemote,
+		describeTokenProblem,
+		parseRemoteReference,
 		readGrantedRepositories,
 		type GrantedRepositoriesOutcome,
 		type GrantedRepository,
-		type RemoteBindOutcome
+		type RemoteBindOutcome,
+		type RemoteReference
 	} from '@ballastella/core';
 
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
@@ -48,6 +51,22 @@
 	 * work, so the sequence goes back to the choice rather than offering to proceed.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ONE DOOR WHERE THERE IS AN APP, AND THE DOOR THAT WORKS WHERE THERE IS NOT
+	 *
+	 * `storage.signInWithGitHubOffered` is `isGitHubAppConfigured(GITHUB_APP)`, already computed and
+	 * already reactive, and it decides which of two first steps this sequence has. Where an App is
+	 * configured the sequence never mentions a personal access token: a student cannot be asked to
+	 * choose between two credentials if only one of them is on the screen (SPEC stories 37, 46).
+	 *
+	 * Where there is none — a fork that has registered no App of its own — the first step is the paste,
+	 * because a sign-in button with no client ID behind it takes the author to GitHub to be refused
+	 * there about a thing they cannot fix (stories 50–52). That path is the whole of such a fork's
+	 * authentication, so it carries the guidance a fork's author needs rather than being a fallback:
+	 * the repository has to be public, the deep link fills its name in, and the token's two
+	 * permissions are named. `token` is a word this component may say **only** in that step, which is
+	 * the exception the Brief's vocabulary rule carves out.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE SENTENCES THE OUTCOMES CARRY ARE `packages/core`'s OWN
 	 *
 	 * `rightsNotice`, the Pages instruction and every refusal are rendered exactly as `bind-remote`
@@ -76,16 +95,31 @@
 	/**
 	 * The steps this sequence has, and the gaps where the rest of the epic's are.
 	 *
-	 * `no-app` — the paste, in a deployment that has registered no App — and `needs-account`, leaving
-	 * and resuming, `creating` and what an empty grant offers all belong to later tickets. They are
-	 * absent rather than stubbed: a half-working state is worse than one whose absence is visible.
+	 * `needs-account`, leaving and resuming, `creating` and what an empty grant offers all belong to
+	 * later tickets. They are absent rather than stubbed: a half-working state is worse than one whose
+	 * absence is visible.
 	 */
-	type Step = 'needs-sign-in' | 'loading-choices' | 'choosing' | 'connecting' | 'connected';
+	type Step =
+		'no-app' | 'needs-sign-in' | 'loading-choices' | 'choosing' | 'connecting' | 'connected';
+
+	/**
+	 * Hydration-stable ids for the fork's own two fields, for the reason `NavigationBar` documents.
+	 *
+	 * One `$props.id()` suffixed twice, because Svelte allows exactly one call per component — and
+	 * `for`/`id` is the whole of what ties a label to its field for a screen reader.
+	 */
+	const fieldId = $props.id();
+	const repositoryFieldId = `${fieldId}-repository`;
+	const tokenFieldId = `${fieldId}-token`;
+
+	/** What the fork's author typed, in the step that is the only place this sequence has fields. */
+	let repository = $state('');
+	let token = $state('');
 
 	/** What GitHub answered about the grant, or `null` while nothing has been asked. */
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
 	/** The repository being connected, which is what makes `connecting` a state of the world. */
-	let connecting = $state<GrantedRepository | null>(null);
+	let connecting = $state<RemoteReference | null>(null);
 	/** What the connection succeeded *with*: rights that cannot publish, and Pages left off. */
 	let notices = $state<string[]>([]);
 	/** Why the last press did not happen. Its own state so it can be an alert. */
@@ -102,11 +136,31 @@
 			? 'connected'
 			: connecting !== null
 				? 'connecting'
-				: !storage.signedIn
-					? 'needs-sign-in'
-					: listing === null
-						? 'loading-choices'
-						: 'choosing'
+				: !storage.signInWithGitHubOffered
+					? 'no-app'
+					: !storage.signedIn
+						? 'needs-sign-in'
+						: listing === null
+							? 'loading-choices'
+							: 'choosing'
+	);
+
+	/**
+	 * A repository name to fill `github.com/new` in with, for the fork's own step.
+	 *
+	 * The Workspace's own name put through the character set GitHub allows, exactly as the Remote
+	 * settings dialog does it: the one step the tool does not take is a short one when the field
+	 * arrives filled in.
+	 */
+	const suggestedName = $derived(
+		storage.name
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9._-]+/g, '-')
+			.replace(/^[-.]+|[-.]+$/g, '') || 'my-workspace'
+	);
+	const createRepositoryHref = $derived(
+		`https://github.com/new?name=${encodeURIComponent(suggestedName)}`
 	);
 
 	/**
@@ -141,16 +195,21 @@
 	 * inserted at the same moment its text first exists is not reliably announced (ADR-0016's
 	 * amendment), and the whole point here is that the announcement arrives on every change.
 	 */
+	/** How the connecting step counts itself, which differs by how many steps preceded it. */
+	const lastStep = $derived(storage.signInWithGitHubOffered ? 'Step 3 of 3' : 'Step 2 of 2');
+
 	const announcement = $derived(
-		step === 'needs-sign-in'
-			? 'Step 1 of 3: sign in to GitHub.'
-			: step === 'loading-choices'
-				? 'Step 2 of 3: asking GitHub which repositories you have given Ballastella access to.'
-				: step === 'choosing'
-					? 'Step 2 of 3: choose where your map goes.'
-					: step === 'connecting'
-						? `Step 3 of 3: connecting ${connectingName}.`
-						: `Done: this Workspace is on GitHub at ${boundName}.`
+		step === 'no-app'
+			? 'Step 1 of 2: name your repository on GitHub and paste an access token for it.'
+			: step === 'needs-sign-in'
+				? 'Step 1 of 3: sign in to GitHub.'
+				: step === 'loading-choices'
+					? 'Step 2 of 3: asking GitHub which repositories you have given Ballastella access to.'
+					: step === 'choosing'
+						? 'Step 2 of 3: choose where your map goes.'
+						: step === 'connecting'
+							? `${lastStep}: connecting ${connectingName}.`
+							: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
@@ -175,12 +234,19 @@
 			notices = [];
 			problem = '';
 			copied = false;
+			repository = '';
+			token = '';
 			return;
 		}
-		if (bound !== null || !storage.signedIn || listing !== null) return;
-		const token = storage.credential;
-		if (token === null) return;
-		void list(token).then(
+		// ⚠ **Not asked at all where there is no App.** `/user/installations` answers a GitHub App user
+		// token and nothing else, so a fork whose author has pasted a personal access token would get a
+		// refusal here — which would present to them as "you have no repositories" over a step they are
+		// not on.
+		if (bound !== null || !storage.signInWithGitHubOffered) return;
+		if (!storage.signedIn || listing !== null) return;
+		const credential = storage.credential;
+		if (credential === null) return;
+		void list(credential).then(
 			(answer) => {
 				listing = answer;
 			},
@@ -210,15 +276,12 @@
 	 * makes the subset refusal a refusal: the author is told what is on the repository that is not here,
 	 * and the only thing on offer is a different repository.
 	 */
-	async function connect(repository: GrantedRepository): Promise<void> {
+	async function connect(remote: RemoteReference, pasted: string | null): Promise<void> {
 		problem = '';
 		notices = [];
-		connecting = repository;
+		connecting = remote;
 		try {
-			const outcome: RemoteBindOutcome = await storage.bindRemote(
-				{ owner: repository.owner, repository: repository.repository },
-				null
-			);
+			const outcome: RemoteBindOutcome = await storage.bindRemote(remote, pasted);
 			notices = [
 				...(outcome.rightsNotice ? [outcome.rightsNotice] : []),
 				...(outcome.pages.instruction ? [outcome.pages.instruction] : [])
@@ -248,6 +311,37 @@
 		}
 	}
 
+	/**
+	 * The fork's own connect: the typed address and the pasted token, checked here before GitHub.
+	 *
+	 * ⚠ **Both refusals are `packages/core`'s and neither costs a request.** `parseRemoteReference`
+	 * and `describeTokenProblem` catch the paste that went wrong — an empty clipboard, half a token, an
+	 * address in the wrong field — and say which, which is the whole of what the Remote settings
+	 * dialog's form does with the same two values. A refused token stays in the field: pasting
+	 * eighty-two characters again to fix a one-character mistake is not a remedy.
+	 */
+	async function connectWithToken(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		problem = '';
+		notices = [];
+
+		const remote = parseRemoteReference(repository);
+		if (remote === null) {
+			problem =
+				`“${repository.trim()}” is not a repository address. It looks like “owner/repository” — ` +
+				`the two parts after github.com in your browser's address bar — and the whole of that ` +
+				`address works too.`;
+			return;
+		}
+		const tokenProblem = describeTokenProblem(token);
+		if (tokenProblem !== '') {
+			problem = tokenProblem;
+			return;
+		}
+
+		await connect(remote, token.trim());
+	}
+
 	function publish(): void {
 		open = false;
 		onpublish();
@@ -264,7 +358,78 @@
 		-->
 		<p role="status" class="sr-only" data-testid="connect-step">{announcement}</p>
 
-		{#if step === 'needs-sign-in'}
+		{#if step === 'no-app'}
+			<!--
+				⚠ **The fork's whole door, and the one place in this sequence the word *token* is allowed.**
+				This copy of Ballastella has registered no GitHub App, so there is no sign-in that could
+				complete and none is offered (stories 50–52). What is offered instead is the path that needs
+				no server and no account of anybody's — `docs/hosting.md` Part 1 §6 is the longer version —
+				and it gets the guidance rather than a note under a field: the repository has to be public,
+				its name arrives filled in, and the two permissions are named.
+			-->
+			<section data-testid="connect-no-app">
+				<h3 class="font-semibold">Put this Workspace on GitHub</h3>
+				<p class="mt-1 max-w-prose text-sm opacity-70">
+					This copy of Ballastella has no GitHub sign-in set up, so it publishes with a personal
+					access token you make on GitHub yourself. Nothing is sent anywhere but GitHub, and the
+					token is kept only in this tab and forgotten when you close it.
+				</p>
+				<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void connectWithToken(event)}>
+					<div class="flex flex-col gap-1">
+						<label class="text-sm font-medium" for={repositoryFieldId}>
+							Your repository on GitHub
+						</label>
+						<input
+							id={repositoryFieldId}
+							class="input w-full max-w-md input-sm"
+							bind:value={repository}
+							data-testid="connect-repository-field"
+							placeholder="owner/repository"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+						<p class="max-w-prose text-sm opacity-70">
+							It has to be public. Do not have one yet?
+							<!-- `resolve()` is for this app's own routes; github.com is not one, so the rule is
+							     disabled here for the one case it does not cover. -->
+							<!-- eslint-disable svelte/no-navigation-without-resolve -->
+							<a
+								class="link"
+								href={createRepositoryHref}
+								rel="noreferrer noopener"
+								target="_blank"
+								data-testid="connect-create-repository"
+							>
+								Create “{suggestedName}” on GitHub
+							</a>
+							<!-- eslint-enable svelte/no-navigation-without-resolve -->
+							, choose <strong>Public</strong>, then come back to this tab.
+						</p>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label class="text-sm font-medium" for={tokenFieldId}>Personal access token</label>
+						<input
+							id={tokenFieldId}
+							class="input w-full max-w-md input-sm"
+							type="password"
+							bind:value={token}
+							data-testid="connect-token-field"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+						<p class="max-w-prose text-sm opacity-70">
+							A fine-grained personal access token for that repository, with “Contents: Read and
+							write” and “Pages: Read and write”. GitHub shows it once, on the page that makes it.
+						</p>
+					</div>
+					<div>
+						<button class="btn w-fit btn-primary btn-sm" type="submit" data-testid="connect-paste">
+							Connect this Workspace
+						</button>
+					</div>
+				</form>
+			</section>
+		{:else if step === 'needs-sign-in'}
 			<section data-testid="connect-sign-in">
 				<h3 class="font-semibold">Sign in to GitHub</h3>
 				<p class="mt-1 max-w-prose text-sm opacity-70">
@@ -294,7 +459,8 @@
 				{#if listing?.kind === 'listed'}
 					<RepositoryChoice
 						repositories={listing.repositories}
-						onchoose={(repository) => void connect(repository)}
+						onchoose={(chosen: GrantedRepository) =>
+							void connect({ owner: chosen.owner, repository: chosen.repository }, null)}
 					/>
 				{:else if listing?.kind === 'refused'}
 					<!--

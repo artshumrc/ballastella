@@ -25,9 +25,17 @@
 // │ **The pasted personal access token remains the path that needs none of this**, and it is    │
 // │ asserted rather than assumed: `github-sign-in.test.ts` publishes a Workspace with a pasted  │
 // │ token while every request to the broker fails, and asserts the broker was never on the      │
-// │ path. `editor-github-signin.e2e.ts` presses the button with the broker unreachable and      │
-// │ then binds by paste on the same screen. Both route the hosts named here rather than         │
-// │ reaching them, so no test touches the real broker.                                          │
+// │ path. `editor-github-signin.e2e.ts` reaches that path in a browser with the broker          │
+// │ unreachable and binds by it. Both route the hosts named here rather than reaching them, so  │
+// │ no test touches the real broker.                                                            │
+// │                                                                                            │
+// │ ⚠ **It is not, however, always on screen.** The values below decide which door the editor   │
+// │ offers, through {@link isGitHubAppConfigured}: where an App is configured a scholar is       │
+// │ never shown a token field, because being asked to choose between two credentials is the     │
+// │ failure the guided sequence exists to remove — the paste is reachable only through a         │
+// │ disclosure in Workspace settings, closed, for an instructor whose App installation has      │
+// │ broken. Where **no** App is configured the paste is the sequence's first step and the plain │
+// │ content of that dialog. Gated, in one place, and nothing here is deleted.                   │
 // │                                                                                            │
 // │ ⚠ **A GitHub App's callback URL is registered per App.** The App holds the one address      │
 // │ GitHub will redirect back to, so a fork living at a different address cannot borrow another │
@@ -64,9 +72,14 @@ export const GITHUB_APP: GitHubApp = {
 /**
  * Whether this deployment has an App at all.
  *
- * The one question the UI asks before offering to sign in with GitHub. A fork that empties both
- * values gets the token-paste path alone, with no dead button on the screen — which is the state
- * a fork with no infrastructure should be in until it registers an App of its own.
+ * The one question the UI asks before offering to sign in with GitHub, and — inverted — before
+ * offering a token field at all. A fork that empties both values gets the token-paste path alone,
+ * with no dead button on the screen; a deployment that fills them in gets the sign-in alone, with no
+ * second credential on the screen beside it. One predicate, so configuring an App stays a single
+ * edit to this file and the two doors can never both be open.
+ *
+ * The editor reads it once, as `WorkspaceStorage.signInWithGitHubOffered`. Nothing else may compute
+ * a second answer to the same question.
  */
 export const isGitHubAppConfigured = (app: GitHubApp): boolean =>
 	app.brokerOrigin.trim() !== '' && app.clientId.trim() !== '';
