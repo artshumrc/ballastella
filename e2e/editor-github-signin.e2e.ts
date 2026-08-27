@@ -656,6 +656,72 @@ test.describe('with no broker served at all', () => {
 	});
 });
 
+// ⚠ **The last second door, and the state a scholar reaches it from is an ordinary arrival.** The
+// credential is this tab's and the binding is the installation's (SPEC story 64), so a bound
+// Workspace reopened tomorrow morning and pressed to Publish is signed out with somewhere to publish
+// to — and until this ticket that screen carried a labelled personal access token field, ungated in
+// either direction, on a deployment where every other token field had already gone.
+//
+// It gets one test in a browser, here rather than in `editor-publish.e2e.ts`, because the claim is
+// about the **real** `isGitHubAppConfigured(GITHUB_APP)`: the gate reads it through
+// `WorkspaceStorage.signInWithGitHubOffered`, and this is the spec where that value is the subject
+// rather than the setting. The round trip is the other half — a redirect off the page cannot be
+// asserted anywhere but a browser, and what it has to land on is a publish.
+test.describe('a bound Workspace pressed to Publish with no credential (stories 37, 64)', () => {
+	test('offers the GitHub sign-in and no token field, and the return leg reaches a publish', async ({
+		page
+	}) => {
+		const github = await start(page, { login: OWNER });
+
+		// Bound on the strength of the sign-in, which is how a bound Workspace comes to exist here.
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await page.getByTestId('bind-remote').click();
+		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+		await closeRemoteSettings(page);
+
+		// ⚠ **Tomorrow morning's tab, reached rather than simulated.** Taking the sign-in out of
+		// `sessionStorage` and reloading is precisely what closing the tab does to it; the binding is in
+		// the installation database and survives, which is the asymmetry that makes this state ordinary.
+		await page.evaluate(() => {
+			sessionStorage.removeItem('ballastella.github-credential');
+			sessionStorage.removeItem('ballastella.github-app-session');
+		});
+		await page.reload();
+		await expectRemoteNamed(page, REMOTE);
+		expect(await holdsCredential(page)).toBe(false);
+
+		await page.getByRole('button', { name: 'Publish…' }).click();
+		const dialog = page.getByRole('dialog');
+		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
+		// ⚠ **Absent, not empty and not disabled**, and this is the deployment's own answer rather than
+		// a fake's: nothing in this spec configures `GITHUB_APP`, it is what the app was built with.
+		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
+
+		await dialog.getByTestId('publish-sign-in-with-github').click();
+
+		// The redirect replaces the document, so nothing in the dialog resumes: the mark reopens the
+		// guided sequence, and a Workspace that is already bound derives its `connected` step — whose
+		// handoff is the Publish button that was always on the bar. Signing in from Publish therefore
+		// arrives back at Publish, which is the whole reason the dialog is not closed to open the
+		// sequence and the sequence gains no fourth first step.
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		expect(await holdsCredential(page)).toBe(true);
+
+		await page.getByTestId('connect-publish').click();
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 60_000
+		});
+
+		// What arrived, rather than which calls were made: the repository is serving a site.
+		expect(github.files(OWNER, REPOSITORY)).toContain('index.html');
+	});
+});
+
 // ⚠ **The one Seam 2 test the guided sequence gets, and it is about *wiring*.** Every state of the
 // sequence, every sentence it says, and every outcome it renders are asserted at Seam 1c against a
 // fake store (`apps/editor/src/lib/components/connect-to-github.dom.test.ts`), and what the listing

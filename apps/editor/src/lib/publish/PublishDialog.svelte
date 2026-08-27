@@ -37,6 +37,13 @@
 	// have a credential before Publish enters the action row. Once offered, Publish remains in the tab
 	// order while planning, uploading, or waiting on a conflict; `aria-disabled` preserves focus in
 	// those states without making an unavailable local-only publish look like an option.
+	//
+	// **Bound with no credential is an ordinary arrival, not an edge**: the credential is this tab's
+	// and the binding is not, so a bound Workspace reopened in a fresh tab and pressed to Publish
+	// lands here. Which door that state offers is `storage.signInWithGitHubOffered` — the deployment's
+	// own answer, read the same way every other gate in the interface reads it. Where an App is
+	// configured no personal access token field exists on this screen; where none is, the paste is the
+	// only door there is (ADR-0031).
 
 	import { tick } from 'svelte';
 
@@ -58,6 +65,7 @@
 
 	import { deploymentRoot } from '../base-map/deployment-assets';
 	import ModalDialog from '../components/ModalDialog.svelte';
+	import { connectSequence } from '../connect-sequence.svelte.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import Toast from '../toasts/Toast.svelte';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -315,6 +323,26 @@
 		if (mine !== planning) return;
 		await forecastUpload(plan?.files ?? [], mine);
 	}
+
+	/**
+	 * Leave for GitHub, so the author comes back holding the credential this screen is missing.
+	 *
+	 * ⚠ **The mark goes down before the call, because the call navigates.** `beginGitHubSignIn`
+	 * assigns `location` and *then* returns `''`, so there is no moment after it in which this page is
+	 * still the one on screen. A refusal means the trip never started, and the mark comes back up —
+	 * otherwise it would reopen the guided sequence on some unrelated reload later in the session.
+	 *
+	 * The return leg is a fresh document, so nothing here resumes: the mark reopens the sequence,
+	 * whose `connected` step for a Workspace already bound ends in the **Publish…** handoff. Signing
+	 * in from Publish therefore arrives back at Publish.
+	 */
+	const beginSignIn = () => {
+		uploadProblem = '';
+		connectSequence.signInRefusal = '';
+		connectSequence.leavingForGitHub();
+		uploadProblem = storage.beginGitHubSignIn();
+		if (uploadProblem !== '') connectSequence.notLeavingAfterAll();
+	};
 
 	/** Supply the credential from here, rather than sending the user off to another dialog. */
 	const signIn = async (event: SubmitEvent) => {
@@ -875,34 +903,60 @@
 						</div>
 					{/if}
 					{#if !signedIn}
-						<form class="mt-3" onsubmit={(event) => void signIn(event)}>
-							<p class="text-sm" data-testid="publish-sign-in-needed">
-								Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
-								<strong>Contents: Read and write</strong>. Kept only in this tab.
-							</p>
-							<div class="mt-3 flex flex-wrap items-end gap-3">
-								<div class="flex min-w-0 grow basis-72 flex-col gap-1">
-									<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
-									<input
-										id={tokenId}
-										class="input w-full max-w-md input-sm"
-										type="password"
-										bind:value={token}
-										data-testid="publish-token-field"
-										autocomplete="off"
-										spellcheck="false"
-									/>
-								</div>
+						<!--
+							⚠ **One door, and which one is a fact about the deployment rather than about this
+							dialog** (SPEC story 37). A student on a deployment with an App is never asked to
+							choose between two credentials, so where the front door exists the paste is not on
+							this screen at all — absent, not empty and not disabled. A fork that registered no
+							App of its own has only the paste (ADR-0031), and it is unchanged: the same wording,
+							the same validation, the same rights notice, the same test ids.
+						-->
+						{#if storage.signInWithGitHubOffered}
+							<div class="mt-3 flex flex-col gap-1">
+								<p class="text-sm" data-testid="publish-sign-in-needed">
+									Sign in to GitHub to publish to <code>{describeRemote(remote)}</code>. This takes
+									you to GitHub and brings you back here. Nothing is kept on this computer beyond
+									this tab.
+								</p>
 								<button
-									class="btn btn-sm"
-									type="submit"
-									data-testid="publish-sign-in"
-									disabled={signingIn}
+									class="btn mt-2 w-fit btn-primary btn-sm"
+									type="button"
+									data-testid="publish-sign-in-with-github"
+									onclick={() => beginSignIn()}
 								>
-									{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
+									Sign in with GitHub
 								</button>
 							</div>
-						</form>
+						{:else}
+							<form class="mt-3" onsubmit={(event) => void signIn(event)}>
+								<p class="text-sm" data-testid="publish-sign-in-needed">
+									Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
+									<strong>Contents: Read and write</strong>. Kept only in this tab.
+								</p>
+								<div class="mt-3 flex flex-wrap items-end gap-3">
+									<div class="flex min-w-0 grow basis-72 flex-col gap-1">
+										<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
+										<input
+											id={tokenId}
+											class="input w-full max-w-md input-sm"
+											type="password"
+											bind:value={token}
+											data-testid="publish-token-field"
+											autocomplete="off"
+											spellcheck="false"
+										/>
+									</div>
+									<button
+										class="btn btn-sm"
+										type="submit"
+										data-testid="publish-sign-in"
+										disabled={signingIn}
+									>
+										{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
+									</button>
+								</div>
+							</form>
+						{/if}
 					{:else if uploadProblem}
 						<!-- Its remedy is not a sign-in: a truncated tree, a repository GitHub cannot show. The
 						     message itself names what to do, and there is nothing further to render. -->

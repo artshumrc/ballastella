@@ -18,6 +18,7 @@ import {
 	createWorkspace,
 	expectCredential,
 	readBaseline,
+	seedGitHubCredential,
 	seedRemoteRelationship
 } from './support/workspace.js';
 
@@ -242,12 +243,20 @@ const projectFiles = (
 			})
 });
 
-/** Open the editor on an empty Workspace holding exactly `files`. */
+/**
+ * Open the editor on an empty Workspace holding exactly `files`.
+ *
+ * A credential is seeded unless `signedIn: false`, because publishing is not offered without one and
+ * on a deployment with a GitHub App there is no token field on this screen to type one into (SPEC
+ * story 37). See {@link seedGitHubCredential}: the door is asserted in
+ * `editor-github-signin.e2e.ts`, and every test here is about the files a publish writes.
+ */
 async function openWorkspace(
 	page: Page,
 	files: Record<string, string>,
-	options: { unbound?: boolean } = {}
+	options: { unbound?: boolean; signedIn?: boolean } = {}
 ): Promise<void> {
+	await routeGitHubOnce(page);
 	await page.goto('./');
 	await emptyWorkspace(page);
 	await seed(page, options.unbound ? files : { ...DEFAULT_REMOTE_BINDING, ...files });
@@ -255,6 +264,7 @@ async function openWorkspace(
 	// Site's compatibility evidence and binds nothing, so a spec that needs a bound Workspace records
 	// the relationship the way an Open or a bind does.
 	if (!options.unbound) await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
+	if (options.signedIn !== false) await seedGitHubCredential(page, DEFAULT_PUBLISH_TOKEN);
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 }
@@ -282,20 +292,29 @@ async function openPublishDialog(page: Page) {
  */
 const gitHubOf = new WeakMap<Page, Promise<GitHubHosts>>();
 
-async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>) {
+/**
+ * Install this page's one fake GitHub, if it has not been installed yet.
+ *
+ * ⚠ **Called before the Workspace is opened, and that ordering is load-bearing now.** A bound
+ * Workspace arrives holding a credential (see {@link openWorkspace}), so the publish dialog asks
+ * GitHub what the Remote already holds the moment it opens — where it used to ask only after a token
+ * was pasted into it. Routes installed after that open are routes installed after the request the
+ * default-deny fence would abort.
+ */
+function routeGitHubOnce(page: Page, options?: GitHubHostsOptions): Promise<GitHubHosts> {
 	let hosts = gitHubOf.get(page);
 	if (hosts === undefined) {
-		hosts = routeGitHubHosts(page, { repositories: [{ owner: 'ada', name: 'atlas' }] });
+		hosts = routeGitHubHosts(page, options ?? { repositories: [{ owner: 'ada', name: 'atlas' }] });
 		gitHubOf.set(page, hosts);
 	}
-	await hosts;
-	if (await dialog.getByTestId('publish-token-field').count()) {
-		const token = dialog.getByTestId('publish-token-field');
-		await token.fill(DEFAULT_PUBLISH_TOKEN);
-		await expect(token).toHaveValue(DEFAULT_PUBLISH_TOKEN);
-		await dialog.getByTestId('publish-sign-in').click();
-		await expect(dialog.getByTestId('publish-budget')).toBeVisible({ timeout: 60_000 });
-	}
+	return hosts;
+}
+
+async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>) {
+	await routeGitHubOnce(page);
+	// The credential came with the Workspace (see `openWorkspace`), so what is waited for here is the
+	// forecast the dialog asks GitHub for on open — the thing the paste used to be followed by.
+	await expect(dialog.getByTestId('publish-budget')).toBeVisible({ timeout: 60_000 });
 }
 
 async function publish(page: Page, existingDialog?: ReturnType<Page['getByRole']>) {
@@ -885,29 +904,41 @@ test.describe('publishing to a Remote', () => {
 		page: Page,
 		options: { files?: Record<string, string>; hosts?: GitHubHostsOptions } = {}
 	): Promise<GitHubHosts> {
-		const github = await routeGitHubHosts(page, {
+		const github = await routeGitHubOnce(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY }],
 			...options.hosts
 		});
-		await openWorkspace(page, {
-			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-			...boundTo(),
-			...options.files
-		});
+		// ⚠ **No credential, because that is the state this describe starts every test from**: bound,
+		// and pressed to Publish with nothing held. `signedIn` is what moves past it.
+		await openWorkspace(
+			page,
+			{
+				...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
+				...boundTo(),
+				...options.files
+			},
+			{ signedIn: false }
+		);
 		return github;
 	}
 
 	/**
-	 * Sign in from the publish dialog itself, which **is** the bound-with-no-credential state.
+	 * Reach the publish dialog of a bound Workspace that holds a credential.
 	 *
-	 * The dialog asks for the credential here rather than sending the user to another dialog.
+	 * ⚠ **The credential is seeded rather than acquired, and that is a statement about what these
+	 * tests are for.** On a deployment with a GitHub App the publish dialog offers no token field —
+	 * the door there is a redirect off the page (SPEC story 37) — and every test in this describe is
+	 * about the bytes that reach the Remote rather than about how the credential was got. Driving the
+	 * real door here would make ten tests of the Remote into ten tests of the sign-in; it is asserted
+	 * once, in `editor-github-signin.e2e.ts`, against the real `isGitHubAppConfigured`.
+	 *
+	 * The reload is what makes the seeded credential held: it is read when the app starts.
 	 */
-	async function signIn(page: Page) {
-		const dialog = await openPublishDialog(page);
-		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
-		await dialog.getByTestId('publish-token-field').fill(TOKEN);
-		await dialog.getByTestId('publish-sign-in').click();
-		return dialog;
+	async function signedIn(page: Page) {
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		return openPublishDialog(page);
 	}
 
 	/**
@@ -942,7 +973,7 @@ test.describe('publishing to a Remote', () => {
 				]
 			}
 		});
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
 		await publishToRemote(page, dialog);
@@ -1005,7 +1036,7 @@ test.describe('publishing to a Remote', () => {
 
 	test('says nothing needed changing on a second publish, and sends no blob', async ({ page }) => {
 		const github = await start(page);
-		await publishToRemote(page, await signIn(page));
+		await publishToRemote(page, await signedIn(page));
 		const sent = github.blobPosts();
 		const commit = github.head(OWNER, REPOSITORY);
 
@@ -1037,7 +1068,7 @@ test.describe('publishing to a Remote', () => {
 		page
 	}) => {
 		const github = await start(page);
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		// Slow every GitHub request down so the progress line is on screen long enough to assert rather
 		// than long enough to be lucky. Installed *after* the fake's own handler, so it is consulted
@@ -1103,7 +1134,7 @@ test.describe('publishing to a Remote', () => {
 		});
 		const before = github.files(OWNER, REPOSITORY);
 
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 
 		// Two, not three: a recursive listing carries an entry per directory as well, and quoting the
 		// folder would tell a scholar to delete files they do not have.
@@ -1145,7 +1176,7 @@ test.describe('publishing to a Remote', () => {
 			}
 		});
 
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 
 		const warning = dialog.locator('[data-remote-warning="request-budget"]');
 		await expect(warning).toContainText('requests in all');
@@ -1178,7 +1209,7 @@ test.describe('publishing to a Remote', () => {
 		page
 	}) => {
 		const github = await start(page);
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
@@ -1210,7 +1241,7 @@ test.describe('publishing to a Remote', () => {
 		});
 		const before = github.files(OWNER, REPOSITORY);
 		const commit = github.head(OWNER, REPOSITORY);
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -1231,7 +1262,7 @@ test.describe('publishing to a Remote', () => {
 
 	// An unbound Workspace must be connected to a GitHub repository before publishing is offered.
 	test('offers a GitHub repository binding before publishing', async ({ page }) => {
-		const github = await routeGitHubHosts(page, {
+		const github = await routeGitHubOnce(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY }]
 		});
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }), {
@@ -1241,19 +1272,35 @@ test.describe('publishing to a Remote', () => {
 		const dialog = await openPublishDialog(page);
 
 		await expect(dialog.getByTestId('publish-unbound')).toContainText('Remote repository…');
+		// ⚠ **Neither door, and this is the claim that survived the gate rather than a copy of it.** A
+		// Workspace with nowhere to publish is asked for no credential at all — not the paste and not
+		// the sign-in — because a credential would answer a question nobody has yet put. Story 37's
+		// claim about the *signed-out bound* state is the test below and the one in
+		// `editor-github-signin.e2e.ts`.
 		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
+		await expect(dialog.getByTestId('publish-sign-in-with-github')).toHaveCount(0);
 		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
 		expect(github.requests).toEqual([]);
 	});
 
 	/**
-	 * A bound Workspace without a credential shows the sign-in form but does not offer publishing.
+	 * A bound Workspace without a credential is offered the sign-in, and publishing is not offered.
+	 *
+	 * ⚠ **One door, and on this deployment it is not a token field** (SPEC story 37). The credential
+	 * is this tab's and the binding is not, so this is where a bound Workspace reopened in a fresh tab
+	 * lands — an ordinary arrival, and the last place in the editor that used to ask a student to
+	 * choose between two credentials. Which door is offered comes from
+	 * `WorkspaceStorage.signInWithGitHubOffered`, and the round trip behind it is driven for real in
+	 * `editor-github-signin.e2e.ts`; what is asserted here is that the field is *absent* rather than
+	 * empty or disabled, and that nothing was asked of GitHub to find that out.
 	 */
 	test('requires sign-in before publishing a bound Workspace', async ({ page }) => {
 		const github = await start(page);
 
 		const dialog = await openPublishDialog(page);
 		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
+		await expect(dialog.getByTestId('publish-sign-in-with-github')).toBeVisible();
+		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
 		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
 		expect(github.requests).toEqual([]);
 	});
@@ -1261,10 +1308,15 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * Story 5: the credential that reaches a repository and cannot push to it.
 	 *
-	 * `signIn` reads the rights for exactly this reason, and every request a forecast makes is a GET —
-	 * so a `Contents: Read` token pastes cleanly, plans cleanly, and meets its 403 at the first blob,
-	 * with the whole website already written into the Workspace. The Remote dialog says so at a bind;
-	 * this says so at a paste.
+	 * Every request a forecast makes is a GET, so a `Contents: Read` credential plans cleanly and would
+	 * meet its 403 at the first blob — with the whole website already written into the Workspace.
+	 *
+	 * ⚠ **The claim here is the refusal, not the notice.** `publish-no-push` is what the dialog says
+	 * about a credential *it* has just acquired, and on this deployment the credential is not acquired
+	 * on this screen: the rights are read at the sign-in and at the bind, and said out loud there
+	 * (`editor-remote-binding.e2e.ts`, and the sequence's own claim at Seam 1c). What is asserted here
+	 * is that a Workspace arriving with such a credential is refused **before it begins**, which is the
+	 * half no other spec covers.
 	 */
 	test('says a token that cannot push cannot push, before anything is written', async ({
 		page
@@ -1274,12 +1326,9 @@ test.describe('publishing to a Remote', () => {
 		});
 		const before = github.head(OWNER, REPOSITORY);
 
-		const dialog = await signIn(page);
+		const dialog = await signedIn(page);
 
-		const notice = dialog.getByTestId('publish-no-push');
-		await expect(notice).toContainText(REMOTE);
-		await expect(notice).toContainText('Contents: Read and write');
-		// ⚠ **And the publish is refused before it begins, not merely warned about** (SPEC story 106).
+		// ⚠ **Refused before it begins, not merely warned about** (SPEC story 106).
 		// Publishing reads the account's permission before it lists a tree, so there is no forecast to
 		// show and no button to press through: pressing on would write the whole website into the
 		// Workspace and then meet the same refusal, which is minutes of work for a transfer that
@@ -1304,7 +1353,7 @@ test.describe('publishing to a Remote', () => {
 		page
 	}) => {
 		await start(page);
-		await publishToRemote(page, await signIn(page));
+		await publishToRemote(page, await signedIn(page));
 		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`);
 
 		await createWorkspace(page, 'Marking 2026');
@@ -1323,14 +1372,14 @@ test.describe('publishing to a Remote', () => {
 	 * because planning is the first credentialed request a publish makes and it sends nothing — so a
 	 * scholar meets it with the Remote untouched rather than after four thousand tiles have gone.
 	 */
-	test('says the sign-in has expired, offers the paste, and forgets the credential', async ({
+	test('says the sign-in has expired, offers the way back in, and forgets the credential', async ({
 		page
 	}) => {
 		const github = await start(page);
 		// Waited out rather than merely started: the forecast that follows a sign-in is what would meet
 		// the revoked token below, and closing the dialog on top of one still in flight would be a test
 		// asserting a race rather than the behaviour.
-		await expect((await signIn(page)).getByTestId('publish-budget')).toBeVisible();
+		await expect((await signedIn(page)).getByTestId('publish-budget')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await expectCredential(page, 'Signed in to GitHub');
 
@@ -1354,9 +1403,12 @@ test.describe('publishing to a Remote', () => {
 		expect(revoked.blobPosts()).toBe(0);
 		expect(github.files(OWNER, REPOSITORY)).toEqual(['README.md']);
 
-		// And the credential is forgotten rather than merely reported on, so the paste is back — the
-		// menu tells the truth from here on, because there is now genuinely no credential held.
-		await expect(dialog.getByTestId('publish-token-field')).toBeVisible();
+		// And the credential is forgotten rather than merely reported on, so the door back in is on the
+		// screen beside the refusal — the menu tells the truth from here on, because there is now
+		// genuinely no credential held. On this deployment that door is the sign-in and never a token
+		// field: an expiry is not an occasion to ask a student to choose between two credentials.
+		await expect(dialog.getByTestId('publish-sign-in-with-github')).toBeVisible();
+		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
 		await page.keyboard.press('Escape');
 		await expectCredential(page, 'Not signed in');
 	});
