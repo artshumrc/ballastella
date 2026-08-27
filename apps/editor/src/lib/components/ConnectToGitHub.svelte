@@ -235,15 +235,22 @@
 							: accountKnown
 								? 'needs-sign-in'
 								: 'needs-account'
-						: // ⚠ **Ahead of the listing's own states**, so a re-read under way does not put the
-							// instructions for the other tab off the screen and replace them with “asking GitHub…”.
-							// The step ends when GitHub answers with something that was not there before.
-							madeAgainst !== null && newlyGranted.size === 0
-							? 'creating'
-							: listing === null
-								? 'loading-choices'
-								: listing.kind === 'refused'
-									? 'choices-refused'
+						: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
+							// refusal as well as for a grant of nothing, and every state under here treats that
+							// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
+							// will not act on as a refusal rather than as an empty list precisely so that nothing tells
+							// a student their repository is missing when the read is what failed — and `creating` is
+							// where that misreading does the most damage, since its own account of a listing that did
+							// not grow is that access to the new repository was never granted.
+							listing?.kind === 'refused'
+							? 'choices-refused'
+							: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
+								// instructions for the other tab off the screen and replace them with “asking GitHub…”.
+								// The step ends when GitHub answers with something that was not there before.
+								madeAgainst !== null && newlyGranted.size === 0
+								? 'creating'
+								: listing === null
+									? 'loading-choices'
 									: granted.length === 0
 										? 'no-choices'
 										: 'choosing'
@@ -967,6 +974,18 @@
 					Your published map will answer at
 					<code data-testid="published-site-address">{publishedSiteAddress}</code>.
 				</p>
+				<!--
+					⚠ **A sign-in GitHub declined lands here too, whenever the Workspace is already bound.**
+					The publish dialog's own door is a redirect off the page, so the return leg reopens the
+					sequence over a Workspace with a Remote — which derives this step — and a refusal said only
+					on the page behind is a refusal behind a dialog (story 35). The way to start the trip again
+					from here is **Publish…**, which is the screen that offered the sign-in in the first place.
+				-->
+				{#if connectSequence.signInRefusal}
+					<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="connect-sign-in-refused">{connectSequence.signInRefusal}</p>
+					</div>
+				{/if}
 				<div class="mt-3 flex flex-wrap items-center gap-2">
 					<button
 						class="btn btn-sm"
