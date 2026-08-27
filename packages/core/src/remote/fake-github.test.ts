@@ -549,3 +549,140 @@ describe('the fake GitHub', () => {
 		});
 	});
 });
+
+/**
+ * The two installation endpoints, which are about the *author's* grants rather than this repository.
+ *
+ * Asserted here as well as through `github-installations.test.ts` because the pagination is the part
+ * a reader cannot check for itself: a fake that handed back the whole list whatever `per_page` said
+ * would let a reader that never looks past its first page pass, and a student with more than a
+ * hundred repositories would be shown a list their own is missing from.
+ */
+describe('the repositories an author has granted the App', () => {
+	let github: FakeGitHub;
+
+	beforeEach(async () => {
+		github = await createFakeGitHub({
+			owner: 'ada',
+			repository: 'atlas',
+			grants: {
+				installationId: 42,
+				account: 'ada',
+				repositories: [
+					{ owner: 'ada', repository: 'atlas', push: true },
+					{ owner: 'ada', repository: 'notes', push: false, private: true }
+				]
+			}
+		});
+	});
+
+	const installations = `${GITHUB_API_ORIGIN}/user/installations`;
+
+	it('reports the installation and what it holds', async () => {
+		const listed = await (await call(github, installations)).json();
+		expect(listed).toEqual({
+			total_count: 1,
+			installations: [{ id: 42, account: { login: 'ada' } }]
+		});
+
+		const held = await (await call(github, `${installations}/42/repositories`)).json();
+		expect(held).toEqual({
+			total_count: 2,
+			repositories: [
+				{
+					id: 1,
+					name: 'atlas',
+					full_name: 'ada/atlas',
+					private: false,
+					permissions: { push: true }
+				},
+				{
+					id: 2,
+					name: 'notes',
+					full_name: 'ada/notes',
+					private: true,
+					permissions: { push: false }
+				}
+			]
+		});
+	});
+
+	it('cuts the listing the way per_page and page cut it, and still counts the whole', async () => {
+		const second = await call(github, `${installations}/42/repositories?per_page=1&page=2`);
+		const { total_count, repositories } = (await second.json()) as {
+			total_count: number;
+			repositories: { full_name: string }[];
+		};
+
+		expect(total_count).toBe(2);
+		expect(repositories.map((one) => one.full_name)).toEqual(['ada/notes']);
+	});
+
+	it('runs out of pages rather than repeating the last one', async () => {
+		const past = await call(github, `${installations}/42/repositories?per_page=1&page=3`);
+
+		expect(await past.json()).toEqual({ total_count: 2, repositories: [] });
+	});
+
+	// A repository granted while the editor is open, which is the return from the second tab.
+	it('returns a repository granted after the fact', async () => {
+		github.grant({ owner: 'ada', repository: 'harbour', push: true });
+
+		const held = await call(github, `${installations}/42/repositories`);
+		const { total_count, repositories } = (await held.json()) as {
+			total_count: number;
+			repositories: { full_name: string }[];
+		};
+
+		expect(total_count).toBe(3);
+		expect(repositories.map((one) => one.full_name)).toContain('ada/harbour');
+	});
+
+	it('answers 401 to a read carrying no credential', async () => {
+		const anonymous = await github.fetch(installations);
+
+		expect(anonymous.status).toBe(401);
+	});
+
+	it('answers 404 for an installation it does not hold', async () => {
+		const other = await call(github, `${installations}/7/repositories`);
+
+		expect(other.status).toBe(404);
+	});
+
+	/**
+	 * An author who has never installed the App has no installations, which is what GitHub answers —
+	 * and it must be a 200 with an empty list rather than a 404, because a reader that read a 404 as
+	 * "nothing granted" would read a rejected sign-in the same way.
+	 */
+	it('reports no installations at all for an author who has granted nothing', async () => {
+		const nothing = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+		const listed = await call(nothing, installations);
+
+		expect(listed.status).toBe(200);
+		expect(await listed.json()).toEqual({ total_count: 0, installations: [] });
+	});
+
+	it('makes the installation when the first grant arrives on a fake configured without one', async () => {
+		const nothing = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+		nothing.grant({ owner: 'ada', repository: 'atlas', push: true });
+
+		const listed = (await (await call(nothing, installations)).json()) as {
+			installations: { id: number }[];
+		};
+		const held = await call(
+			nothing,
+			`${installations}/${listed.installations.at(0)?.id}/repositories`
+		);
+
+		expect((await held.json()) as { total_count: number }).toMatchObject({ total_count: 1 });
+	});
+
+	it('still answers 404 for a path beneath /user it does not model', async () => {
+		const repositories = await call(github, `${GITHUB_API_ORIGIN}/user/repos`);
+
+		expect(repositories.status).toBe(404);
+	});
+});

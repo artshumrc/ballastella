@@ -461,6 +461,8 @@ export {
 	createFakeGitHub,
 	type FakeGitHub,
 	type FakeGitHubOptions,
+	type FakeGrantedRepository,
+	type FakeGrants,
 	type FakeRateLimit,
 	type FakeRepositoryPermissions,
 	type FakeSignInOptions,
@@ -672,6 +674,16 @@ export {
 	type RemoteReference,
 	type RemoteRights
 } from './remote/bind-remote.js';
+// Which repositories the signed-in author has granted this App access to (SPEC stories 11 and 55).
+// A read of GitHub's own installation endpoints and nothing else: nothing is remembered here, so
+// there is no second answer to keep in step with GitHub's. A rejected sign-in is a refusal rather
+// than an empty list, which is the whole point of the outcome being a discriminated union.
+export {
+	readGrantedRepositories,
+	type GrantedRepositoriesOptions,
+	type GrantedRepositoriesOutcome,
+	type GrantedRepository
+} from './remote/github-installations.js';
 export {
 	DEFAULT_REMOTE_BRANCH,
 	REMOTE_BINDING_FORMAT_VERSION,
