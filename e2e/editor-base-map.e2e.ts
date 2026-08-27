@@ -406,6 +406,11 @@ test.describe('the Base Map pane', () => {
 		await expect(page.getByTestId('edit-project-name')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('app-wordmark')).toBeFocused();
+		// Connecting comes before publishing in the row and in the order, which is the order the two
+		// things happen in: a Workspace has to have somewhere to go before Publish has anywhere to send
+		// it (ADR-0032).
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('publish')).toBeFocused();
 		await page.keyboard.press('Tab');

@@ -87,5 +87,17 @@ Project, exported to be sent to somebody, opening only into a Review Workspace.
 - **"Hub" was overloaded and is now retired for the reader-facing page.** `ProjectHub.svelte` is the
   *editor's* Project list; ADR-0008's "hub page" is the *published* root. The second is the **Front
   Page**.
+- **Connecting to GitHub is an action in the navigation bar, not a setting.** This record said where
+  publishing *goes*; it did not say where a Workspace acquires somewhere to go, and the answer was a
+  section of the Workspace settings dialog — two menus from the bar, beside preferences, in a place a
+  person visits when something already works and they want it different. Nobody looks there for *how
+  do I put this on the web*, and a control that answers that question belongs beside the one that
+  answers *is my work kept*. So **Connect to GitHub** is a control on the bar, on every screen
+  including Workspace Home, and it opens one guided sequence that leaves the Workspace with a
+  repository it can publish to — signing in, reading what GitHub says the author has granted, and
+  binding, checking push rights and enabling Pages as a single act. The settings dialog keeps
+  describing what a Remote is and offers the same sequence rather than a second way of binding; the
+  three engines beneath it are unchanged.
+
 - **`export` belongs to a Project Bundle and a Backup.** Publishing is never an export, and
   `CONTEXT.md`'s **Published Site** entry says so, because "Export" is a shipped button.
