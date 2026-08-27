@@ -8,6 +8,7 @@ import {
 	openRemoteSettings,
 	revealBindToken,
 	seedBaseline,
+	seedGitHubCredential,
 	seedRemoteRelationship,
 	switchToWorkspace
 } from './support/workspace.js';
@@ -170,12 +171,21 @@ const openPublishDialog = async (page: Page) => {
 	return dialog;
 };
 
-/** Sign in from the publish dialog itself, which is the bound-with-no-credential state. */
+/**
+ * Reach the publish dialog of a bound Workspace that holds a credential.
+ *
+ * ⚠ **The credential is seeded rather than acquired.** On a deployment with a GitHub App the publish
+ * dialog offers no token field — the door there is a redirect off the page (SPEC story 37) — and
+ * every test in this spec is about which files a refusal protects, not about how the credential was
+ * got. See {@link seedGitHubCredential}; the door itself is driven in `editor-github-signin.e2e.ts`.
+ *
+ * The reload is what makes the seeded credential held: it is read when the app starts.
+ */
 async function signIn(page: Page) {
-	const dialog = await openPublishDialog(page);
-	await dialog.getByTestId('publish-token-field').fill(TOKEN);
-	await dialog.getByTestId('publish-sign-in').click();
-	return dialog;
+	await seedGitHubCredential(page, TOKEN);
+	await page.reload();
+	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+	return openPublishDialog(page);
 }
 
 /**

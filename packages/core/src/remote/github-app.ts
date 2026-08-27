@@ -29,13 +29,16 @@
 // │ unreachable and binds by it. Both route the hosts named here rather than reaching them, so  │
 // │ no test touches the real broker.                                                            │
 // │                                                                                            │
-// │ ⚠ **It is not, however, always on screen.** The values below decide which door the editor   │
-// │ offers, through {@link isGitHubAppConfigured}: where an App is configured a scholar is      │
-// │ never shown a token field, because being asked to choose between two credentials is the     │
-// │ failure the guided sequence exists to remove — the paste is reachable only through a        │
-// │ disclosure in Workspace settings, closed, for an instructor whose App installation has      │
-// │ broken. Where **no** App is configured the paste is the sequence's first step and the plain │
-// │ content of that dialog. Gated, in one place, and nothing here is deleted.                   │
+// │ ⚠ **It is not, however, always on screen.** The values below decide which door the          │
+// │ editor offers, through {@link isGitHubAppConfigured}: where an App is configured a          │
+// │ scholar is never shown a token field anywhere — not in the guided sequence, not in the      │
+// │ publish dialog, and not in Workspace settings outside a disclosure that stays closed        │
+// │ until an instructor whose App installation has broken asks for it. Being asked to           │
+// │ choose between two credentials is the failure the sequence exists to remove. Where          │
+// │ **no** App is configured the paste is the sequence's first step, the plain content of       │
+// │ that dialog, and the plain content of the publish dialog — which is where a bound           │
+// │ Workspace reopened in a fresh tab meets the question. Gated, in one place, and nothing      │
+// │ here is deleted.                                                                            │
 // │                                                                                            │
 // │ ⚠ **A GitHub App's callback URL is registered per App.** The App holds the one address      │
 // │ GitHub will redirect back to, so a fork living at a different address cannot borrow another │

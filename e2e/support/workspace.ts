@@ -245,6 +245,28 @@ export async function seedRemoteRelationship(
 	);
 }
 
+/**
+ * Put a push credential in this tab's `sessionStorage`, the way a paste would have.
+ *
+ * ⚠ **Behind the app's back, and on purpose** — the companion to {@link seedRemoteRelationship}. A
+ * spec whose subject is the bytes that arrive at a Remote needs a signed-in Workspace, not a
+ * sign-in, and on a deployment with a GitHub App the publish dialog offers no token field to type
+ * one into: the door there is a redirect off the page (SPEC story 37). Driving the real door for
+ * every such spec would make each of them a test of the door, and it is asserted once, in
+ * `editor-github-signin.e2e.ts`, where the real `isGitHubAppConfigured` is legible.
+ *
+ * `CREDENTIAL_KEY`, and no grant record beside it: a pasted token has none, and `ensureCredentialFresh`
+ * therefore has nothing to read, no expiry to judge and no refresh token to spend.
+ *
+ * The credential is read when the app starts, so a reload is what makes it held.
+ */
+export async function seedGitHubCredential(page: Page, token: string): Promise<void> {
+	await page.evaluate(
+		(held) => sessionStorage.setItem('ballastella.github-credential', held),
+		token
+	);
+}
+
 /** The stored relationship record, or `null` — for asserting a Workspace arrived unbound. */
 export async function readRemoteRelationship(
 	page: Page,
