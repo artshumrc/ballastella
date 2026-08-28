@@ -73,10 +73,10 @@
 	/** Why the last action did not happen. Its own state so it can be an alert. */
 	let problem = $state('');
 	/**
-	 * Sentences the binding succeeded *with*: a credential that cannot push, and Pages left off.
+	 * Sentences the binding succeeded *with*: a credential that cannot push.
 	 *
-	 * Separate from {@link problem} because neither is a failure — the binding stands in both cases —
-	 * and rendering them as errors would tell a scholar their Workspace is not bound when it is.
+	 * Separate from {@link problem} because it is not a failure — the binding stands either way — and
+	 * rendering it as an error would tell a scholar their Workspace is not bound when it is.
 	 */
 	let notices = $state<string[]>([]);
 
@@ -176,10 +176,7 @@
 			outcome =
 				`This Workspace is bound to ${describeRemote(result.binding)}. Publishing will send it ` +
 				`there, and nowhere else.`;
-			notices = [
-				...(result.rightsNotice ? [result.rightsNotice] : []),
-				...(result.pages.instruction ? [result.pages.instruction] : [])
-			];
+			notices = result.rightsNotice ? [result.rightsNotice] : [];
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -496,9 +493,9 @@
 								</p>
 							{:else}
 								<p class="text-sm opacity-70">
-									A fine-grained personal access token with “Contents: Read and write” and “Pages:
-									Read and write” for that repository. It is checked the moment you press the
-									button, kept only in this tab, and forgotten when you close it.
+									A fine-grained personal access token with “Contents: Read and write” for that
+									repository. It is checked the moment you press the button, kept only in this tab,
+									and forgotten when you close it.
 								</p>
 							{/if}
 						</div>

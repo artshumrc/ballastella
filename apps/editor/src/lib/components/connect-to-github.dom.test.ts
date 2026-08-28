@@ -12,7 +12,8 @@
 // ⚠ **What is deliberately not here.** That the listing really reads GitHub's installation
 // endpoints, and that a rejected sign-in is a refusal rather than an empty list, are
 // `github-installations.ts`'s at Seam 1 against the shared fake GitHub. That the rights check
-// happens before any bytes move, that Pages degrades to a sentence, and that the subset comparison
+// happens before any bytes move, that Pages enablement degrades to a sentence naming both the
+// permissions GitHub requires, and that the subset comparison
 // is by Project directory are `bind-remote.ts`'s, there too. That the application actually wires
 // this component to the real sign-in, the real bind and the real Publish is one test in
 // `e2e/editor-github-signin.e2e.ts`, which is what keeps this file from asserting against a fake in
@@ -565,8 +566,8 @@ describe('connecting, which is one act', () => {
 	}
 
 	// ⚠ **The claim is about what was handed over.** One call, naming the repository the author chose
-	// and no credential of its own — so the rights check and Pages are the existing code's, performed
-	// inside it, and there is no second path to either.
+	// and no credential of its own — so the rights check is the existing code's, performed inside it,
+	// and there is no second path to it.
 	test('hands the chosen repository to the existing bind, once, with no credential of its own', async () => {
 		const opened = open(signedIn());
 		await choose();
@@ -584,29 +585,18 @@ describe('connecting, which is one act', () => {
 		expect(text(at('connect-outcome'))).toContain('Setting up is over');
 	});
 
-	// The one thing that may have to be done by hand is fully specified, and the connection it
-	// happened to stands.
-	test('reports a Pages failure with the setting, where it is and what to choose, and stays connected', async () => {
+	// ⚠ **Story 137.** Turning a site on is a question about who may read this, and connecting is not
+	// the moment it is asked — so a connection that worked says nothing about it at all, and the
+	// author is never handed a paragraph about a permission in answer to a question they have not
+	// asked.
+	test('asks nothing of Pages, and says nothing about it', async () => {
 		const storage = signedIn();
-		storage.bindAnswer = outcome({
-			pages: {
-				enabled: false,
-				instruction:
-					'GitHub Pages could not be turned on for ada/atlas. On GitHub open ada/atlas → ' +
-					'Settings → Pages, set Source to “Deploy from a branch”, choose the branch “main” and ' +
-					'the folder “/ (root)”, and press Save.'
-			}
-		});
 		open(storage);
 		await choose();
 
-		const notice = text(at('connect-notice'));
-		expect(notice).toContain('Settings → Pages');
-		expect(notice).toContain('Deploy from a branch');
-		expect(notice).toContain('/ (root)');
-		// The connection stands: a repository that is correctly connected stays connected.
-		expect(at('connect-connected')).toBeTruthy();
-		expect(storage.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
+		expect(storage.pagesAsks).toBe(0);
+		expect(absent('connect-notice')).toBe(true);
+		expect(said()).not.toContain('Pages');
 	});
 
 	// The rights refusal is the other outcome the connection stands *with*, and it is deliberate: the
@@ -687,6 +677,110 @@ describe('the address, and the handoff', () => {
 		press('connect-publish');
 
 		expect(opened.onpublish).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ⚠ **A Remote is a place the work lives before it is a site anybody reads** (stories 136 and 137).
+// Turning a Published Site on is offered here, once, after the connection is made and never during
+// it — and its refusal names both the permissions GitHub actually requires, so an author is not sent
+// to grant the one they already granted. The sentence itself is `bind-remote.ts`'s at Seam 1; what
+// is here is that a press asks for it, that the answer is rendered, and that nothing asks before the
+// press.
+describe('letting other people see it, which is a later act', () => {
+	/** A Workspace already connected to `ada/atlas`, which is the connected step's whole input. */
+	function connected(): FakeStorage {
+		const storage = signedIn();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		return storage;
+	}
+
+	// ⚠ **The connected step and nowhere else.** There is no site to turn on before there is a
+	// repository to serve it, and the address the offer names would name nothing.
+	test.each([
+		['the sign-in step', () => openPastAccount(new FakeStorage())],
+		['the choice step', () => open(signedIn())]
+	])('is not offered on %s', async (_name, arrange) => {
+		arrange();
+		await settle();
+
+		expect(absent('enable-pages')).toBe(true);
+	});
+
+	test('offers it on the connected step, and asks GitHub nothing until it is pressed', () => {
+		const storage = connected();
+		open(storage);
+
+		expect(at('enable-pages')).toBeTruthy();
+		expect(storage.pagesAsks).toBe(0);
+		expect(absent('pages-notice')).toBe(true);
+	});
+
+	test('asks for it once when pressed, and says the site will answer', async () => {
+		const storage = connected();
+		open(storage);
+
+		press('enable-pages');
+		await settle();
+
+		expect(storage.pagesAsks).toBe(1);
+		expect(text(at('pages-enabled'))).toContain('https://ada.github.io/atlas/');
+		// Done once and done: the offer goes, because pressing it again asks GitHub to turn on
+		// something that is already on.
+		expect(absent('enable-pages')).toBe(true);
+	});
+
+	// ⚠ **Both permissions, and the offer stays.** ADR-0040 refuses `Administration` for the App, so
+	// this is the ordinary answer rather than a rare one — and an author who has just granted it by
+	// hand needs the press to still be there.
+	test('renders the refusal, keeps the offer, and stays connected', async () => {
+		const storage = connected();
+		storage.pagesAnswer = {
+			enabled: false,
+			instruction:
+				'GitHub Pages could not be turned on for ada/atlas — that needs both “Pages: Read and ' +
+				'write” and “Administration: Read and write”, and this credential does not have them.'
+		};
+		open(storage);
+
+		press('enable-pages');
+		await settle();
+
+		const notice = text(at('pages-notice'));
+		expect(notice).toContain('Pages: Read and write');
+		expect(notice).toContain('Administration: Read and write');
+		expect(at('enable-pages')).toBeTruthy();
+		expect(at('connect-connected')).toBeTruthy();
+	});
+
+	// The one thing `enablePages` throws over is a credential that is not there, and it is a refusal
+	// about this press rather than about the connection, which stands.
+	test('says why it could not be asked at all, and stays connected', async () => {
+		const storage = connected();
+		storage.pagesAnswer = new Error('Sign in with GitHub first.');
+		open(storage);
+
+		press('enable-pages');
+		await settle();
+
+		expect(text(at('connect-problem'))).toContain('Sign in with GitHub first.');
+		expect(at('connect-connected')).toBeTruthy();
+	});
+
+	// ⚠ **What a close must not leave behind**, for the same reason the bind notices must not: the
+	// answer is about the Workspace that was on screen, and the next one opened may be another.
+	test('leaves no answer of its own behind on a close', async () => {
+		const storage = connected();
+		const opened = open(storage);
+		press('enable-pages');
+		await settle();
+		expect(at('pages-enabled')).toBeTruthy();
+
+		press('close-connect-sequence');
+		opened.props.open = true;
+		flushSync();
+
+		expect(absent('pages-enabled')).toBe(true);
+		expect(at('enable-pages')).toBeTruthy();
 	});
 });
 
@@ -830,18 +924,19 @@ describe('leaving the sequence, and coming back to it', () => {
 		expect(opened.list).toHaveBeenCalledTimes(2);
 	});
 
-	// ⚠ **What a close must not leave behind.** The Pages instruction from a connection made a moment
-	// ago says nothing about the Workspace whoever opens the sequence next is looking at.
+	// ⚠ **What a close must not leave behind.** The notice from a connection made a moment ago says
+	// nothing about the Workspace whoever opens the sequence next is looking at.
 	test('leaves no notice from the last time behind it', async () => {
 		const storage = signedIn();
 		const opened = open(storage);
 		storage.bindAnswer = outcome({
-			pages: { enabled: false, instruction: 'Turn Pages on under Settings → Pages.' }
+			canPush: false,
+			rightsNotice: 'Nobody may put work into ada/atlas with this sign-in.'
 		});
 		await settle();
 		press('choose-repository');
 		await settle();
-		expect(text(at('connect-notice'))).toContain('Settings → Pages');
+		expect(text(at('connect-notice'))).toContain('Nobody may put work into');
 
 		press('close-connect-sequence');
 		opened.props.open = true;

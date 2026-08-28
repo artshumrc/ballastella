@@ -344,8 +344,9 @@ Four things on that form matter:
   you created it under an organisation and leave this as your own account, you will get a token that
   cannot see it — and the symptom is a repository that appears not to exist.
 - **Repository access.** Choose *Only select repositories*, and select that one repository.
-- **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
-  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*.
+- **Permissions → Repository permissions.** One row in a long list: set **Contents** to *Read and
+  write*. Everything else can stay at *No access*. Turning your Published Site on is a separate act
+  with its own button, and step 4 says what it needs.
 - **Expiration.** Whatever you are comfortable with. When it expires, publishing says so and you make
   another one.
 
@@ -399,21 +400,25 @@ workspace/
 You can delete every one of them and each Project directory is still complete and readable, in
 standard formats, with no proprietary index left behind.
 
-### 4. Turn Pages on by hand
+### 4. Let other people see it
 
-**Following the steps above, you will do this yourself.** Binding asks GitHub to turn Pages on for
-you, but binding happens in step 2, when the repository is still the empty one step 1 told you to
-make — and GitHub cannot point Pages at a branch that does not exist yet. So the request is refused,
-and the editor says so in words and tells you what to click. The automatic path is for the case where
-the repository already has a branch: binding a second machine, or re-binding, to a repository you have
-published from before.
+Your repository is where the work lives. Whether anybody may *read* it at a web address is a separate
+question, and nothing answers it for you: connecting turns no site on, and never has anything to say
+about one.
 
-The editor asks GitHub that question only at the moment of binding. Re-opening **Workspace menu →
-Remote repository…** afterwards offers to unbind, not to try Pages again, so there is nothing to press
-a second time — do it on GitHub.
+The editor offers **Let other people see this** on the screen you land on once a repository is
+connected. Press it whenever you like — before your first publish or long after it.
 
-Once your first publish has landed, it is one setting, done once: **Settings → Pages → Source →
-Deploy from a branch**, branch `main`, folder `/ (root)`.
+**It will often be refused, and the refusal is not about anything you did wrong.** GitHub requires
+**Pages: Read and write** *and* **Administration: Read and write** together to turn a site on for
+you, and Ballastella's GitHub App asks for neither — it will not ask to administer your repositories
+([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)). A pasted
+token can carry both if you grant them; a sign-in never can. Either way the editor says so and names
+what to click.
+
+Doing it by hand is one setting, done once: **Settings → Pages → Source → Deploy from a branch**,
+branch `main`, folder `/ (root)`. It needs a branch to point at, so if your repository is still the
+empty one step 1 told you to make, publish once first — that is what makes the branch.
 
 Here you *do* want the branch deploy, because the site is already built — what was sent is the
 website. There is nothing to compile.

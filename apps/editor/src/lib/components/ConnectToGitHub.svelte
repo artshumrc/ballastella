@@ -7,6 +7,7 @@
 		type GrantedRepositoriesOutcome,
 		type GrantedRepository,
 		type RemoteBindOutcome,
+		type RemotePagesOutcome,
 		type RemoteReference
 	} from '@ballastella/core';
 
@@ -55,20 +56,23 @@
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * CONNECTING IS ONE ACT, AND IT IS THE EXISTING CODE
 	 *
-	 * `connect` calls `WorkspaceStorage.bindRemote`, which checks push rights before any bytes move,
-	 * writes the binding, and offers Pages — in that order, for the reasons `bind-remote.ts` records.
-	 * There is no second path to any of the three here, and Pages is never asked for separately. What
-	 * this component adds is the rendering of what comes back:
+	 * `connect` calls `WorkspaceStorage.bindRemote`, which checks push rights before any bytes move and
+	 * then writes the binding — in that order, for the reasons `bind-remote.ts` records. There is no
+	 * second path to either here. What this component adds is the rendering of what comes back:
 	 *
 	 * - a credential that cannot publish there, where the connection **stands** and the author is told
 	 *   they cannot publish to it and why;
-	 * - Pages left off, where the connection **stands** and the author gets the sentence naming the
-	 *   setting, where it is, and what to choose;
 	 * - and the refusal that protects a Workspace whose Remote carries Projects it has not got, where
 	 *   the connection does **not** happen and the Projects are named.
 	 *
-	 * ⚠ **The last of those is a refusal and not a warning.** Publishing over it would delete somebody's
-	 * work, so the sequence goes back to the choice rather than offering to proceed.
+	 * ⚠ **The second of those is a refusal and not a warning.** Publishing over it would delete
+	 * somebody's work, so the sequence goes back to the choice rather than offering to proceed.
+	 *
+	 * ⚠ **Turning the Published Site on is not part of it.** A Remote is a place the work lives before
+	 * it is a site anybody reads, so `enablePages` is offered once from the `connected` step and is the
+	 * only call to it anywhere in this application. Folded into the connection it answered a question
+	 * about who may read this — with a paragraph about a GitHub permission — in the middle of a step
+	 * that was about where the work goes.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE DOOR WHERE THERE IS AN APP, AND THE DOOR THAT WORKS WHERE THERE IS NOT
@@ -160,8 +164,19 @@
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
 	/** The repository being connected, which is what makes `connecting` a state of the world. */
 	let connecting = $state<RemoteReference | null>(null);
-	/** What the connection succeeded *with*: rights that cannot publish, and Pages left off. */
+	/** What the connection succeeded *with*: rights that cannot publish. */
 	let notices = $state<string[]>([]);
+	/**
+	 * What turning the Published Site on answered, or `null` while nobody has asked for it.
+	 *
+	 * ⚠ **`null` is "not asked", and it is the state this must open in.** A Remote is a place the work
+	 * lives before it is a site anybody reads, so the sequence never asks GitHub about Pages on its
+	 * own — an instruction about a permission said before the press would answer a question the author
+	 * has not asked.
+	 */
+	let pages = $state<RemotePagesOutcome | null>(null);
+	/** Whether the offer is in flight, so a second press is not a second request. */
+	let enablingPages = $state(false);
 	/** Why the last press did not happen. Its own state so it can be an alert. */
 	let problem = $state('');
 	/** Whether the address has just been put on the clipboard, so the press says it worked. */
@@ -371,6 +386,7 @@
 			// asking for a different repository is a press, never a place the sequence sits in.
 			listing = null;
 			notices = [];
+			pages = null;
 			problem = '';
 			copied = false;
 			changing = false;
@@ -543,7 +559,7 @@
 	}
 
 	/**
-	 * Connect the chosen repository: rights, the binding, and Pages, as one press.
+	 * Connect the chosen repository: the rights and the binding, as one press.
 	 *
 	 * ⚠ **A refusal leaves `connecting` cleared, so the sequence goes back to the choice.** That is what
 	 * makes the subset refusal a refusal: the author is told what is on the repository that is not here,
@@ -555,16 +571,33 @@
 		connecting = remote;
 		try {
 			const outcome: RemoteBindOutcome = await storage.bindRemote(remote, pasted);
-			notices = [
-				...(outcome.rightsNotice ? [outcome.rightsNotice] : []),
-				...(outcome.pages.instruction ? [outcome.pages.instruction] : [])
-			];
+			notices = outcome.rightsNotice ? [outcome.rightsNotice] : [];
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			connecting = null;
 			// Whatever came back, the request for a different repository has been answered.
 			changing = false;
+		}
+	}
+
+	/**
+	 * Turn the Published Site on, which is the one act connecting deliberately does not perform.
+	 *
+	 * ⚠ **Never throws its answer at anybody.** A refusal is a sentence naming the two permissions
+	 * GitHub requires and the setting to change by hand, and the connection it is said over stands —
+	 * so it is a notice rather than a problem. The one thing that *is* a problem is a press that could
+	 * not be made at all, which is a sign-in that is no longer held.
+	 */
+	async function enablePages(): Promise<void> {
+		problem = '';
+		enablingPages = true;
+		try {
+			pages = await storage.enablePages();
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			enablingPages = false;
 		}
 	}
 
@@ -694,7 +727,7 @@
 						/>
 						<p class="max-w-prose text-sm opacity-70">
 							A fine-grained personal access token for that repository, with “Contents: Read and
-							write” and “Pages: Read and write”. GitHub shows it once, on the page that makes it.
+							write”. GitHub shows it once, on the page that makes it.
 						</p>
 					</div>
 					<div>
@@ -978,8 +1011,8 @@
 			<section data-testid="connect-connecting">
 				<h3 class="font-semibold">Connecting your repository</h3>
 				<p class="mt-3 max-w-prose">
-					Setting {connectingName} up as the place this Workspace publishes to, checking you may publish
-					there, and turning GitHub Pages on. This is one step and there is nothing else to do.
+					Setting {connectingName} up as the place this Workspace publishes to, and checking you may publish
+					there. This is one step and there is nothing else to do.
 				</p>
 			</section>
 		{:else}
@@ -1008,6 +1041,41 @@
 				{#if connectSequence.signInRefusal}
 					<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
 						<p data-testid="connect-sign-in-refused">{connectSequence.signInRefusal}</p>
+					</div>
+				{/if}
+				<!--
+					⚠ **The one place a Published Site is offered, and it is offered rather than done.** A
+					repository is where the work lives; whether anybody may read it at that address is a
+					separate question, and the author is the only one who can answer it. Asked during
+					connecting, it put a paragraph about a GitHub permission in front of somebody who had
+					only said where their work goes.
+
+					The offer goes once it has succeeded: asking GitHub to turn on what is already on is a
+					press with nothing behind it. A refusal keeps it, because the remedy is a setting the
+					author can change and come back from.
+				-->
+				{#if pages?.enabled}
+					<p class="mt-3 max-w-prose" data-testid="pages-enabled">
+						Anybody you give the address to can now open your map at
+						<code>{publishedSiteAddress}</code>. It appears there the first time you publish.
+					</p>
+				{:else}
+					<p class="mt-3 max-w-prose">
+						That address answers nothing yet. Your map is on GitHub either way — this is the one
+						setting that also lets other people open it.
+					</p>
+					<button
+						class="btn mt-2 btn-sm"
+						data-testid="enable-pages"
+						disabled={enablingPages}
+						onclick={() => void enablePages()}
+					>
+						{enablingPages ? 'Asking GitHub…' : 'Let other people see this'}
+					</button>
+				{/if}
+				{#if pages && !pages.enabled}
+					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="pages-notice">{pages.instruction}</p>
 					</div>
 				{/if}
 				<div class="mt-3 flex flex-wrap items-center gap-2">

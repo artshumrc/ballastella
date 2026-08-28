@@ -1,4 +1,5 @@
-// Binding a Workspace to a repository: the rights check, and turning Pages on (ADR-0033).
+// Binding a Workspace to a repository: the rights check (ADR-0033), and the separate later act of
+// turning Pages on.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE RIGHTS ARE ASKED FOR HERE AND NOT AT THE PUSH
@@ -15,14 +16,20 @@
 // sentence, and the document is written anyway.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// PAGES ENABLEMENT FAILS INTO A SENTENCE, NEVER INTO AN ERROR
+// PAGES IS NOT PART OF BINDING, AND FAILS INTO A SENTENCE WHEN IT IS ASKED FOR
 //
-// `POST /repos/{owner}/{repo}/pages` needs `Pages: write`, which is a permission separate from
-// `contents: write` and one a scholar creating a token by hand will often not have ticked. A
-// repository full of correct files that serves nothing is the failure this exists to avoid (story
-// 6); an error dialog over a binding that otherwise worked is a worse one. So every outcome except
-// success carries {@link pagesInstruction} — which setting, where, and what to choose — and the
-// binding stands.
+// A Remote is a place the work lives before it is a site anybody reads, so {@link enableRemotePages}
+// is a separate, later, optional act — offered once from the connected step of the guided sequence
+// and never made during a bind. Pressed during one, it answered a question about a permission that
+// the author had not asked, in the middle of onboarding.
+//
+// `POST /repos/{owner}/{repo}/pages` needs `Pages: write` **and** `Administration: write` together,
+// and ADR-0040 refuses `Administration` for the App outright — so on a correctly configured
+// deployment this call cannot succeed, and its refusal has to name both permissions or it sends a
+// scholar to grant the one they already granted. It never throws: a repository full of correct files
+// that serves nothing is the failure this exists to avoid (story 6), and an error dialog is a worse
+// one. So every outcome except success carries {@link pagesInstruction} — which setting, where, and
+// what to choose.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AND THE SUBSET REFUSAL, WHICH IS THE ONE THAT SAVES SOMEBODY'S WORK
@@ -124,7 +131,6 @@ export type RemoteBindOutcome = {
 	readonly canPush: boolean;
 	/** `''` when the credential may push; otherwise the sentence saying it may not. */
 	readonly rightsNotice: string;
-	readonly pages: RemotePagesOutcome;
 };
 
 const request = (options: BindRemoteOptions): FetchFn =>
@@ -255,14 +261,15 @@ export async function enableRemotePages(options: BindRemoteOptions): Promise<Rem
 }
 
 /**
- * Bind a Workspace to a repository: check the rights, write the document, offer Pages.
+ * Bind a Workspace to a repository: check the rights, then write the document.
  *
  * The order is the design. The review refusal is first because a Review Workspace must not so much
  * as *ask* GitHub a question with somebody's credential attached (ADR-0024); the rights
  * check next, because it is the one remaining step that can refuse and a refusal has to leave the
- * Workspace exactly as it was — no `remote.json`, and a caller that keeps no credential. Pages is
- * last because its failure is a sentence rather than a refusal, and a binding that stood or fell by
- * it would refuse over a permission a scholar can grant afterwards in ten seconds.
+ * Workspace exactly as it was — no `remote.json`, and a caller that keeps no credential.
+ *
+ * ⚠ **Nothing here turns Pages on.** {@link enableRemotePages} is a later, optional act with its own
+ * press, for the reason the header gives.
  *
  * ⚠ **The review refusal is here *and* in `writeRemoteBinding`, deliberately.** Two layers, one
  * sentence: this one makes the refusal cost nothing, and the one on the write is what holds for a
@@ -315,8 +322,7 @@ export async function bindWorkspaceToRemote(
 	return {
 		binding,
 		canPush: rights.canPush,
-		rightsNotice: rights.canPush ? '' : noPushMessage(options.remote),
-		pages: await enableRemotePages(options)
+		rightsNotice: rights.canPush ? '' : noPushMessage(options.remote)
 	};
 }
 
@@ -411,15 +417,20 @@ function noBranchYet(remote: RemoteReference, branch: string): string {
 /**
  * What to click when Pages could not be turned on — which setting, where, and what to choose.
  *
+ * ⚠ **It names both permissions, because GitHub requires both.** `POST /pages` needs `Pages: write`
+ * and `Administration: write` together; ADR-0040 refuses `Administration` for the App, so this is
+ * the ordinary answer rather than a rare one. Naming only `Pages` blames the permission the author
+ * did grant and sends them to a settings screen that was already right.
+ *
  * The wording `docs/hosting.md` Part 2 step 3 carries, said where a scholar meets the problem rather
  * than in a document they would have to be told to open.
  */
 function pagesInstruction(remote: RemoteReference, branch: string): string {
 	return (
-		`GitHub Pages could not be turned on for ${describeRemote(remote)} — that needs a token with ` +
-		`“Pages: Read and write”, which this one does not have. It is one setting, done once: on ` +
-		`GitHub open ${describeRemote(remote)} → Settings → Pages, set Source to “Deploy from a ` +
-		`branch”, choose the branch “${branch}” and the folder “/ (root)”, and press Save. Until then ` +
-		`your files will arrive and the site will serve nothing.`
+		`GitHub Pages could not be turned on for ${describeRemote(remote)} — that needs both ` +
+		`“Pages: Read and write” and “Administration: Read and write”, and this credential does not ` +
+		`have them. It is one setting, done once: on GitHub open ${describeRemote(remote)} → Settings ` +
+		`→ Pages, set Source to “Deploy from a branch”, choose the branch “${branch}” and the folder ` +
+		`“/ (root)”, and press Save. Until then your files will arrive and the site will serve nothing.`
 	);
 }
