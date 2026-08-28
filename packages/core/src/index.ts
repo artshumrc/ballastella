@@ -757,6 +757,7 @@ export {
 	clearGrantRecord,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	grantAccessUrl,
 	installUrl,
 	isGrantFresh,
 	newSignInState,

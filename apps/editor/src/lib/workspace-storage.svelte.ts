@@ -84,6 +84,7 @@ import {
 	readRememberedGrant,
 	refreshGitHubToken,
 	signInAgainMessage,
+	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
@@ -2582,6 +2583,17 @@ export class WorkspaceStorage {
 	 * (which they typed, for an account they were looking at) does not.
 	 */
 	identity = $state('');
+
+	/**
+	 * Where this author widens a narrow Installation, for a repository it does not reach.
+	 *
+	 * The App's own grant screen, opened on the account whose Installation has to change. Composed
+	 * here for the same reason the departure address is: the App is this class's to know, and a screen
+	 * that read `GITHUB_APP` for itself would be a second answer to a question already asked once.
+	 */
+	grantAccessUrl(options: { readonly targetId: number }): string {
+		return composeGrantAccessUrl({ app: GITHUB_APP, targetId: options.targetId });
+	}
 
 	/**
 	 * Send the user to GitHub to install and authorise, or say why this browser cannot start a sign-in.

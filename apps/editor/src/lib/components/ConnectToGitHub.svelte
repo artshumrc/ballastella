@@ -4,6 +4,7 @@
 		describeTokenProblem,
 		parseRemoteReference,
 		readGrantedRepositories,
+		type GrantedInstallation,
 		type GrantedRepositoriesOutcome,
 		type GrantedRepository,
 		type RemoteBindOutcome,
@@ -240,14 +241,50 @@
 	 * to cover future repositories in GitHub's product interface and not in their documented
 	 * contract (ADR-0040), which is why `repository_selection` is read back at all.
 	 */
+	const installations = $derived(listing?.kind === 'listed' ? listing.installations : []);
+
+	/** Whether an Installation sits on the account this author is signed in as. */
+	const isOwnAccount = (account: string): boolean =>
+		storage.identity !== '' && account.toLowerCase() === storage.identity.toLowerCase();
+
 	const coversEverything = $derived(
-		storage.identity !== '' &&
-			listing?.kind === 'listed' &&
-			listing.installations.some(
-				(one) =>
-					one.coversEverything && one.account.toLowerCase() === storage.identity.toLowerCase()
-			)
+		installations.some((one) => one.coversEverything && isOwnAccount(one.account))
 	);
+
+	/**
+	 * The Installation a repository outside the grant would have to be added to, or `null`.
+	 *
+	 * The author's own account's where there is one, because `github.com/new` makes the repository
+	 * under the account signed in; otherwise the first narrow Installation there is, which is the only
+	 * one that could be widened at all. A wide Installation is never the target: there is nothing on
+	 * its screen to change.
+	 */
+	const grantTarget = $derived.by<GrantedInstallation | null>(() => {
+		const narrow = installations.filter((one) => !one.coversEverything);
+		return narrow.find((one) => isOwnAccount(one.account)) ?? narrow[0] ?? null;
+	});
+
+	/**
+	 * Whether widening that Installation is this author's to do.
+	 *
+	 * ⚠ **Read from the Installation and not from the missing repository.** GitHub reports nothing at
+	 * all about a repository an Installation does not reach, so the question is asked of the account
+	 * instead: an Installation on the author's own account is theirs to widen, and one on an
+	 * organisation is the organisation's — theirs only where GitHub already reports them
+	 * administering something inside it.
+	 *
+	 * ⚠ **False means no link, never a quieter link.** Sending a write collaborator or a plain
+	 * organisation member to a grant screen they cannot save is the dead end this hand-off replaced,
+	 * repeated at a better address.
+	 */
+	const canGrantAccess = $derived.by(() => {
+		const target = grantTarget;
+		if (target === null) return false;
+		if (!target.isOrganization) return true;
+		return granted.some(
+			(one) => one.canGrantAccess && one.owner.toLowerCase() === target.account.toLowerCase()
+		);
+	});
 
 	const newlyGranted = $derived.by<ReadonlySet<string>>(() => {
 		const before = madeAgainst;
@@ -313,9 +350,13 @@
 	 *
 	 * ⚠ **This is the only way access is ever granted.** The endpoint that would add a repository to
 	 * an installation is documented for classic personal access tokens only, so it is GitHub's own
-	 * screen or nothing.
+	 * screen or nothing — and the screen is the App's own, opened on the account whose Installation
+	 * has to change. `''` where there is no Installation to widen, which is where {@link canGrantAccess}
+	 * is false and nothing renders this.
 	 */
-	const GRANT_ACCESS_HREF = 'https://github.com/settings/installations';
+	const grantAccessHref = $derived(
+		grantTarget === null ? '' : storage.grantAccessUrl({ targetId: grantTarget.targetId })
+	);
 
 	/**
 	 * The address the Published Site will answer at.
@@ -967,8 +1008,14 @@
 					add it: the endpoint that would is documented for classic personal access tokens only.
 					So: make it, then give access to it, then come back. Step 2 is the one everybody misses.
 
+					⚠ **Step 2 names a different screen, and says so.** `github.com/new` carries no control
+					that grants an App access to anything, so the instruction this replaced — *"on the same
+					screen"* — named a place the thing could not be done, which is the wall this was
+					reported from.
+
 					Where GitHub reports the grant as covering everything on this account, that middle step
 					does not exist, and naming it would send the author to a screen with nothing to change.
+					Where widening the grant is somebody else's to do, step 2 is to ask them.
 				-->
 				<ol class="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-6">
 					<li data-testid="creating-instruction">
@@ -977,9 +1024,17 @@
 					</li>
 					{#if !coversEverything}
 						<li data-testid="creating-instruction">
-							On the same screen, <strong>give Ballastella access to it</strong>. A repository made
-							after Ballastella was installed is not covered by what you gave access to before, and
-							this tab cannot add it for you.
+							{#if canGrantAccess}
+								On a <strong>second screen</strong> — Ballastella's own on GitHub, not the one you
+								make the repository on —
+								<strong>give Ballastella access to it</strong>. A repository made after Ballastella
+								was installed is not covered by what you gave access to before, and this tab cannot
+								add it for you.
+							{:else}
+								Ask the repository's <strong>admin</strong> to give Ballastella access to it. That
+								happens on a <strong>second screen</strong> on GitHub, not the one you make the repository
+								on, and only somebody who administers the repository can save it.
+							{/if}
 						</li>
 					{/if}
 					<li data-testid="creating-instruction">Come back to this tab.</li>
@@ -1027,22 +1082,38 @@
 							GitHub still answers with the same repositories as before. If you made one, it is
 							almost certainly step 2 that is outstanding: the repository exists, but Ballastella
 							has not been given access to it, so GitHub does not list it here.
+							{#if !canGrantAccess}
+								Only an admin of the repository can give Ballastella access to it, so that is who to
+								ask.
+							{/if}
 						</p>
-						<!-- eslint-disable svelte/no-navigation-without-resolve -->
-						<a
-							class="btn btn-sm"
-							href={GRANT_ACCESS_HREF}
-							rel="noreferrer noopener"
-							target="_blank"
-							data-testid="grant-access"
-						>
-							Give Ballastella access to it
-						</a>
-						<!-- eslint-enable svelte/no-navigation-without-resolve -->
-						<p class="max-w-prose text-sm opacity-70">
-							Opens your Ballastella settings on GitHub. Choose the repository you just made, save,
-							then come back and press <strong>Look again</strong>.
-						</p>
+						{#if canGrantAccess}
+							<!-- eslint-disable svelte/no-navigation-without-resolve -->
+							<a
+								class="btn btn-sm"
+								href={grantAccessHref}
+								rel="noreferrer noopener"
+								target="_blank"
+								data-testid="grant-access"
+							>
+								Give Ballastella access to it
+							</a>
+							<!-- eslint-enable svelte/no-navigation-without-resolve -->
+							<p class="max-w-prose text-sm opacity-70">
+								Opens Ballastella's own screen on GitHub, on the account the repository is under.
+								Add the repository you just made, save, then come back and press
+								<strong>Look again</strong>.
+							</p>
+						{:else}
+							<!--
+								⚠ **No link at all, rather than a link they cannot save.** A grant screen an
+								author has no rights on is the dead end this hand-off exists to remove, and
+								offering it at a better address would only move the wall.
+							-->
+							<p class="max-w-prose text-sm opacity-70">
+								Once they have, come back and press <strong>Look again</strong>.
+							</p>
+						{/if}
 					</div>
 				{/if}
 			</section>
