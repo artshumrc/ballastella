@@ -377,6 +377,10 @@
 			changing = false;
 			expiry = '';
 			connectSequence.signInRefusal = '';
+			// The trip to the other tab is over either way by the time anybody opens the sequence again —
+			// taken or abandoned — and the list is where both outcomes are legible: a repository that was
+			// made is in it, one thought better of is simply absent. Keeping the step would put a
+			// remembered press ahead of the reading of the world that produced it.
 			madeAgainst = null;
 			rereads = 0;
 			repository = '';

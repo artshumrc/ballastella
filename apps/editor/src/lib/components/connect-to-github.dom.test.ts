@@ -725,6 +725,14 @@ describe('leaving the sequence, and coming back to it', () => {
 			}
 		],
 		[
+			'the create-and-grant step',
+			async () => {
+				open(signedIn());
+				await settle();
+				pressLink('create-repository');
+			}
+		],
+		[
 			'the connected step',
 			async () => {
 				const storage = signedIn();
@@ -739,8 +747,9 @@ describe('leaving the sequence, and coming back to it', () => {
 	});
 
 	// ⚠ **Story 34, and it is the derivation that pays for it.** Nothing is remembered across a close,
-	// so reopening reads the same facts and lands in the same place — and the listing is asked for
-	// again, which is what makes a repository granted while the sequence was shut visible on return.
+	// so reopening reads the same facts — and the listing is asked for again, which is what makes a
+	// repository granted while the sequence was shut visible on return. Reading the same facts lands
+	// in the same place everywhere but `creating`, whose landing is the test below.
 	test('reopens on the step the author was on', async () => {
 		const opened = open(signedIn());
 		await settle();
@@ -753,6 +762,25 @@ describe('leaving the sequence, and coming back to it', () => {
 		flushSync();
 		await settle();
 
+		expect(at('connect-choosing')).toBeTruthy();
+		expect(opened.list).toHaveBeenCalledTimes(2);
+	});
+
+	// ⚠ **The one step that lands somewhere else, and it is the decision rather than the bug.** The
+	// instructions describe a trip to the other tab; by the time the sequence is opened again that trip
+	// is taken or abandoned, and the list is where both outcomes are legible.
+	test('lands on the repository list after a close from the create-and-grant step', async () => {
+		const opened = open(signedIn());
+		await settle();
+		pressLink('create-repository');
+		expect(at('connect-creating')).toBeTruthy();
+
+		press('close-connect-sequence');
+		opened.props.open = true;
+		flushSync();
+		await settle();
+
+		expect(absent('connect-creating')).toBe(true);
 		expect(at('connect-choosing')).toBeTruthy();
 		expect(opened.list).toHaveBeenCalledTimes(2);
 	});
