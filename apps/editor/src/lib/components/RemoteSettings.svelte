@@ -84,6 +84,17 @@
 	const bound = $derived(storage.remote);
 	/** A legacy binding waiting to be confirmed or declined, which is not yet a Remote. */
 	const legacy = $derived(storage.legacyRemote);
+	/**
+	 * Whether the guided sequence exists to be opened from here.
+	 *
+	 * ⚠ **The same fact `NavigationBar` mounts it on**, and it has to be, because this dialog does not
+	 * mount its own copy — it opens the bar's through `connectSequence`. The bar leaves `ConnectToGitHub`
+	 * unmounted over a review copy and over a Workspace whose interrupted Import or Update is
+	 * unresolved, so a control here in either state would set a flag no dialog is watching: a press
+	 * that does nothing. Absent rather than present and refused, which is the arrangement every other
+	 * control over those two states already has.
+	 */
+	const sequenceOffered = $derived(storage.review === null && storage.unavailable === '');
 
 	function reset(): void {
 		outcome = '';
@@ -369,13 +380,15 @@
 				<div class="mt-3 flex flex-wrap gap-2">
 					<!-- The same sequence the navigation bar opens, which for a bound Workspace names the
 					     repository and the address its Published Site answers at. -->
-					<button
-						class="btn btn-sm"
-						data-testid="open-connect-sequence"
-						onclick={() => connectSequence.start()}
-					>
-						Show this Workspace's repository
-					</button>
+					{#if sequenceOffered}
+						<button
+							class="btn btn-sm"
+							data-testid="open-connect-sequence"
+							onclick={() => connectSequence.start()}
+						>
+							Show this Workspace's repository
+						</button>
+					{/if}
 					<button
 						class="btn btn-outline btn-sm btn-warning"
 						data-testid="unbind-remote"
@@ -402,15 +415,17 @@
 					sequence picks the repository from what GitHub says the author has granted, so nothing
 					below has to be typed correctly from memory.
 				-->
-				<div class="mt-3">
-					<button
-						class="btn btn-primary btn-sm"
-						data-testid="open-connect-sequence"
-						onclick={() => connectSequence.start()}
-					>
-						Connect to GitHub
-					</button>
-				</div>
+				{#if sequenceOffered}
+					<div class="mt-3">
+						<button
+							class="btn btn-primary btn-sm"
+							data-testid="open-connect-sequence"
+							onclick={() => connectSequence.start()}
+						>
+							Connect to GitHub
+						</button>
+					</div>
+				{/if}
 				<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void bind(event)}>
 					<div class="flex flex-col gap-1">
 						<label class="text-sm font-medium" for={repositoryId}>Repository</label>
@@ -430,8 +445,9 @@
 							says the requirement and sends nobody to a second copy of that offer.
 						-->
 						<p class="text-sm opacity-70">
-							It has to be public. Do not have one yet? <strong>Connect to GitHub</strong> above makes
-							one with you.
+							It has to be public.{#if sequenceOffered}
+								Do not have one yet? <strong>Connect to GitHub</strong> above makes one with you.
+							{/if}
 						</p>
 					</div>
 					<!--
