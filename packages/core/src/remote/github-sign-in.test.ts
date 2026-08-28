@@ -10,19 +10,23 @@ import {
 	CREDENTIAL_FRESHNESS_MARGIN_MS,
 	GITHUB_APP_SESSION_KEY,
 	GitHubSignInError,
+	REMEMBERED_GRANT_KEY,
 	authorizeUrl,
 	clearGrantRecord,
+	clearRememberedGrant,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
 	installUrl,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
+	readRememberedGrant,
 	readSignInCallback,
 	refreshGitHubToken,
 	signInDepartureUrl,
 	verifySignInState,
-	writeGrantRecord
+	writeGrantRecord,
+	writeRememberedGrant
 } from './github-sign-in.js';
 
 // The in-memory seam for the GitHub App path (ADR-0031). The whole flow is asserted here
@@ -431,6 +435,72 @@ describe('the refresh', () => {
 		await expect(
 			refreshGitHubToken({ app: APP, refreshToken: 'ghr_0000', fetch: fake.fetch })
 		).rejects.toThrow(GitHubSignInError);
+	});
+});
+
+// ADR-0041: what may be kept past the tab is the renewable half and nothing else. Eight hours of
+// publish rights at rest is the outcome this whole feature must not produce, so the stripping is
+// asserted at the function that does it rather than trusted to each caller.
+describe('the half of a grant that may be kept past the tab', () => {
+	it('keeps the refresh token and its expiry, and not the access token', () => {
+		const storage = fakeStorage();
+		const grant = { token: 'ghu_publishes', expiresAt: 42, refreshToken: 'ghr_renews' };
+
+		writeRememberedGrant(storage, grant);
+
+		expect(readRememberedGrant(storage)).toEqual({ refreshToken: 'ghr_renews', expiresAt: 42 });
+		expect([...storage.held.keys()]).toEqual([REMEMBERED_GRANT_KEY]);
+		// The bytes themselves, because a record that merely parses without the token could still
+		// carry it in a field nothing reads back.
+		expect(storage.held.get(REMEMBERED_GRANT_KEY)).not.toContain('ghu_publishes');
+	});
+
+	it('is taken away again when it is cleared', () => {
+		const storage = fakeStorage();
+		writeRememberedGrant(storage, { token: 'ghu_1', expiresAt: 42, refreshToken: 'ghr_1' });
+
+		clearRememberedGrant(storage);
+
+		expect(readRememberedGrant(storage)).toBeNull();
+	});
+
+	// A grant with no refresh token has no renewable half. Kept, it would be spent once on the next
+	// visit, fail, and report an expiry to somebody who never asked to be remembered.
+	it('keeps nothing at all for a grant that cannot be renewed, and removes what was kept', () => {
+		const storage = fakeStorage();
+		writeRememberedGrant(storage, { token: 'ghu_1', expiresAt: 42, refreshToken: 'ghr_1' });
+
+		writeRememberedGrant(storage, { token: 'ghu_2', expiresAt: 99, refreshToken: '' });
+
+		expect(readRememberedGrant(storage)).toBeNull();
+		expect([...storage.held.keys()]).toEqual([]);
+	});
+
+	it('reads a damaged record as nothing remembered rather than throwing', () => {
+		const storage = fakeStorage();
+		storage.held.set(REMEMBERED_GRANT_KEY, '{not json');
+
+		expect(readRememberedGrant(storage)).toBeNull();
+	});
+
+	it('survives a storage that throws from every property', () => {
+		const hostile = {
+			getItem: () => {
+				throw new Error('cookies are blocked');
+			},
+			setItem: () => {
+				throw new Error('cookies are blocked');
+			},
+			removeItem: () => {
+				throw new Error('cookies are blocked');
+			}
+		};
+
+		expect(readRememberedGrant(hostile)).toBeNull();
+		expect(() =>
+			writeRememberedGrant(hostile, { token: 'x', expiresAt: 1, refreshToken: 'ghr_1' })
+		).not.toThrow();
+		expect(() => clearRememberedGrant(hostile)).not.toThrow();
 	});
 });
 

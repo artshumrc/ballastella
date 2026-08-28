@@ -728,6 +728,16 @@ export {
 	type CredentialStorage,
 	type CredentialStore
 } from './remote/credential-store.js';
+// The durable implementation behind that same interface, and the installation-local preference that
+// selects it (ADR-0041). Exported as a *storage* rather than a store because the sign-in's grant
+// record shares it: one opening of the installation database holds both halves of what is kept.
+export {
+	REMEMBER_SIGN_IN_KEY,
+	durableCredentialStorage,
+	readRememberSignIn,
+	writeRememberSignIn,
+	type DurableCredentialStorage
+} from './remote/durable-credential-store.js';
 // The second acquisition path behind that same interface (ADR-0031): a GitHub App token
 // obtained by redirect and exchanged through the broker. **The engine never learns which door a
 // token came through** — what is exported here is used by the UI layer alone, and everything below
@@ -740,6 +750,7 @@ export {
 	GITHUB_AUTHORIZE_URL,
 	GitHubCallbackRefusedError,
 	GitHubSignInError,
+	REMEMBERED_GRANT_KEY,
 	SIGN_IN_STATE_KEY,
 	authorizeUrl,
 	clearGrantRecord,
@@ -752,10 +763,14 @@ export {
 	readSignInCallback,
 	refreshGitHubToken,
 	signInAgainMessage,
+	clearRememberedGrant,
+	readRememberedGrant,
 	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
+	writeRememberedGrant,
 	type GitHubTokenGrant,
+	type RememberedGrant,
 	type SignInCallback
 } from './remote/github-sign-in.js';
 

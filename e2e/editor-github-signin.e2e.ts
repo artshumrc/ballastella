@@ -1,5 +1,7 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
+import { readFile } from 'node:fs/promises';
+
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
@@ -10,7 +12,9 @@ import {
 	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
+	closeWorkspaceSettings,
 	openRemoteSettings,
+	openWorkspaceSettings,
 	revealBindToken
 } from './support/workspace';
 
@@ -32,6 +36,9 @@ import {
  *   - an expired sign-in renewed through the broker, or surfaced as "sign in again" before any work
  *     starts — and not taking a token pasted since down with it;
  *   - a Review Workspace reading, offering and spending nothing;
+ *   - a sign-in kept past the tab where the author asked for that and not where they did not, with
+ *     the renewable half surviving the close, the token that publishes not, and neither reaching a
+ *     Backup or a Publish;
  *   - and, with no broker, the sign-in failing legibly while the pasted token binds as it always did.
  *
  * ⚠ **No spec here reaches `github.com`, `api.github.com`, or a real broker.** Every one of those
@@ -91,6 +98,62 @@ const grantRecord = (page: Page): Promise<{ token: string; refreshToken: string 
 		const raw = sessionStorage.getItem('ballastella.github-app-session');
 		return raw === null ? null : (JSON.parse(raw) as { token: string; refreshToken: string });
 	});
+
+/**
+ * What this installation has kept of a sign-in past the tab, read straight out of IndexedDB.
+ *
+ * Behind the app's back, and by opening the database rather than by asking a screen: the whole
+ * claim is about what is *at rest* when the tab that wrote it has gone.
+ */
+const rememberedGrant = (
+	page: Page
+): Promise<{ refreshToken: string; expiresAt: number | null } | null> =>
+	page.evaluate(async () => {
+		const database = await new Promise<IDBDatabase | null>((resolve) => {
+			const request = indexedDB.open('ballastella');
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => resolve(null);
+		});
+		if (database === null || !database.objectStoreNames.contains('credential')) return null;
+		try {
+			const raw = await new Promise<unknown>((resolve) => {
+				const request = database
+					.transaction('credential', 'readonly')
+					.objectStore('credential')
+					.get('ballastella.github-app-remembered');
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => resolve(undefined);
+			});
+			return typeof raw === 'string'
+				? (JSON.parse(raw) as { refreshToken: string; expiresAt: number | null })
+				: null;
+		} finally {
+			database.close();
+		}
+	});
+
+/**
+ * Close the tab and open a new one, as far as a spec can stage it.
+ *
+ * `sessionStorage` is per-tab and everything else on the origin is not, so emptying it and loading
+ * the page again is exactly the state the next visit arrives in — without giving up the routes, the
+ * fake's memory of what it has issued, or the request log the assertions are made of.
+ */
+async function reopenTheTab(page: Page): Promise<void> {
+	await page.evaluate(() => sessionStorage.clear());
+	await page.reload();
+}
+
+/** Tick "keep me signed in on this computer", and wait for the record it makes to land. */
+async function keepTheSignIn(page: Page): Promise<void> {
+	await openRemoteSettings(page);
+	await page.getByTestId('remember-sign-in').check();
+	// ⚠ Polled rather than asserted once: the durable write is queued behind the database opening,
+	// and a spec that emptied `sessionStorage` before it landed would be staging a different tab
+	// close from the one it means.
+	await expect.poll(() => rememberedGrant(page)).not.toBeNull();
+	await closeRemoteSettings(page);
+}
 
 /** Press the button and wait for the round trip through GitHub to land back here. */
 async function signInWithGitHub(page: Page): Promise<void> {
@@ -479,6 +542,177 @@ test.describe('a sign-in that has run out', () => {
 	});
 });
 
+// ADR-0041: the credential rule narrows rather than falls. *Forgotten when the tab closes* becomes
+// *forgotten when the tab closes unless the author has asked otherwise on this machine* — and what
+// is kept is the renewable half, in the installation's own database, where neither a Backup nor a
+// Publish walks.
+test.describe('a sign-in kept past the tab', () => {
+	// Stories 57 and 59, and the pair that has to stay true: the scholar on a shared or lab machine
+	// changes nothing, is changed by nothing, and is told which rule is in force while they decide.
+	test('is not the default, says so, and leaves nothing when the tab closes', async ({ page }) => {
+		await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remember-sign-in')).not.toBeChecked();
+		await expect(page.getByTestId('remote-signed-in')).toContainText(
+			'forgotten when this tab closes'
+		);
+		await closeRemoteSettings(page);
+		expect(await rememberedGrant(page)).toBeNull();
+
+		await reopenTheTab(page);
+
+		expect(await holdsCredential(page)).toBe(false);
+		expect(await rememberedGrant(page)).toBeNull();
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('sign-in-with-github')).toBeVisible();
+		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
+	});
+
+	// Stories 58 and 60. The refresh token is what survives; the eight-hour token that publishes is
+	// kept nowhere at all, and the way back to one is the broker — which is what leaves the broker's
+	// `Origin` allowlist in the path of anybody who took the database.
+	test('keeps the renewable half only, and signs itself back in with it', async ({ page }) => {
+		const github = await start(page, { login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
+
+		await openRemoteSettings(page);
+		await page.getByTestId('remember-sign-in').check();
+		// The sentence turns over with the tick, because the scholar deciding is asking exactly this.
+		await expect(page.getByTestId('remote-signed-in')).toContainText('coming back tomorrow');
+		await expect(page.getByTestId('remote-signed-in')).toContainText(
+			'still forgotten when this tab closes'
+		);
+		await expect.poll(() => rememberedGrant(page)).not.toBeNull();
+		await closeRemoteSettings(page);
+
+		const held = await grantRecord(page);
+		expect(held?.token).toBeTruthy();
+		expect(await rememberedGrant(page)).toMatchObject({ refreshToken: held?.refreshToken });
+
+		await page.evaluate(() => sessionStorage.clear());
+		// ⚠ **Asked of the whole browser, by value.** The access token must be nowhere — not in the
+		// database that kept the refresh token, and not in a Workspace — and the refresh token must be
+		// in exactly one place, which is the database this feature added.
+		expect(await whereverTheTokenIs(page, held?.token ?? '')).toEqual([]);
+		expect(await whereverTheTokenIs(page, held?.refreshToken ?? '')).toEqual([
+			'indexedDB:ballastella/credential'
+		]);
+
+		const departures = github.requests.filter((path) => path === '/login/oauth/authorize').length;
+		await page.reload();
+
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remote-signed-in')).toContainText('as ada');
+		// A new access token, minted from the half that was kept — and no second trip to GitHub's
+		// authorise screen, which is the whole of "a new sign-in is not required".
+		expect(await holdsCredential(page)).toBe(true);
+		expect((await grantRecord(page))?.token).not.toBe(held?.token);
+		expect(github.requests).toContain('/github/refresh');
+		expect(github.requests.filter((path) => path === '/login/oauth/authorize')).toHaveLength(
+			departures
+		);
+	});
+
+	// The three ways a kept sign-in ends, in one journey because each leg starts from the state the
+	// one before it leaves. Unticking is an answer about this machine, so it has to take away what
+	// ticking put there; **Sign out** means this machine rather than this tab; and a refresh token
+	// that will no longer renew is a sign-in that has ended, thrown away rather than offered to the
+	// broker again on every visit for ever — and announced to nobody, because the scholar did not
+	// start that one.
+	test('ends when it is unticked, when the author signs out, and when it will not renew', async ({
+		page
+	}) => {
+		const github = await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+
+		await openRemoteSettings(page);
+		await page.getByTestId('remember-sign-in').uncheck();
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		await closeRemoteSettings(page);
+		await reopenTheTab(page);
+		expect(await holdsCredential(page)).toBe(false);
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remember-sign-in')).not.toBeChecked();
+		await closeRemoteSettings(page);
+
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-sign-out').click();
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		await closeRemoteSettings(page);
+		await reopenTheTab(page);
+		expect(await holdsCredential(page)).toBe(false);
+
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		github.refuseRefresh();
+		await reopenTheTab(page);
+
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		expect(await holdsCredential(page)).toBe(false);
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('sign-in-with-github')).toBeVisible();
+		await expect(page.getByTestId('remote-problem')).toHaveCount(0);
+	});
+
+	// Story 61, both halves, from one held sign-in: `export-workspace-tar` walks a Workspace into a
+	// file the author mails to a colleague, and a Publish uploads one to a public repository. The
+	// archive's own bytes and the fake's received files are what is asked — a list of paths would
+	// pass just as happily with the secret inside one of them.
+	test('is in no Backup the author mails and no Publish they upload', async ({ page }) => {
+		const github = await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		const held = await grantRecord(page);
+		expect(held?.refreshToken).toBeTruthy();
+
+		await openWorkspaceSettings(page);
+		const downloading = page.waitForEvent('download');
+		await page
+			.getByRole('dialog', { name: 'Workspace settings' })
+			.getByTestId('back-up-workspace')
+			.click();
+		const archive = await readFile(await (await downloading).path());
+		expect(archive.includes(held?.refreshToken ?? '')).toBe(false);
+		expect(archive.includes(held?.token ?? '')).toBe(false);
+		await closeWorkspaceSettings(page);
+
+		// Bound on the strength of the credential already held: the token field is left alone, which
+		// is what the sign-in door exists to make possible.
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await page.getByTestId('bind-remote').click();
+		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+		await closeRemoteSettings(page);
+
+		await page.getByRole('button', { name: 'Publish…' }).click();
+		const dialog = page.getByRole('dialog');
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 60_000 });
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 60_000
+		});
+
+		const uploaded = github.files(OWNER, REPOSITORY);
+		expect(uploaded.length).toBeGreaterThan(0);
+		const carrying = uploaded.filter((path) => {
+			const text = github.fileText(OWNER, REPOSITORY, path) ?? '';
+			return text.includes(held?.refreshToken ?? '') || text.includes(held?.token ?? '');
+		});
+		expect(carrying).toEqual([]);
+	});
+});
+
 // ADR-0024: with a Review Workspace open, the credential store neither reads nor writes. The App
 // path has two more things to seal than the pasted one — the sign-in button, and the grant record
 // whose refresh token can mint fresh credentials — and it is asserted here rather than only in
@@ -532,6 +766,42 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
 		expect(github.requests).toContain('/github/refresh');
+	});
+
+	// ⚠ **The seal has to hold over the durable implementation too, and this is where it would stop
+	// holding unnoticed.** A refresh token kept past the tab is the longest-lived secret this app
+	// holds, and a review copy that could read it could spend it against the broker from inside
+	// somebody else's Project. The record itself is left exactly where it is: sealed, not destroyed.
+	test('reads nothing of a sign-in this machine was asked to keep', async ({ page }) => {
+		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS, login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
+		await keepTheSignIn(page);
+		const kept = await rememberedGrant(page);
+		expect(kept?.refreshToken).toBeTruthy();
+		const asked = github.requests.length;
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Review a Project' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await oneProjectBundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
+
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
+		await expect(page.getByTestId('remember-sign-in')).toHaveCount(0);
+		await closeRemoteSettings(page);
+
+		expect(github.requests.slice(asked)).toEqual([]);
+		expect(await rememberedGrant(page)).toEqual(kept);
+
+		// Sealed rather than destroyed: the same record, readable again one gesture later.
+		await page.getByTestId('leave-review').click();
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('remember-sign-in')).toBeChecked();
 	});
 });
 
