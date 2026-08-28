@@ -17,6 +17,7 @@ import { serveDirectory, type StaticSite } from './support/static-site.js';
 import {
 	createWorkspace,
 	expectCredential,
+	openTheDoor,
 	readBaseline,
 	seedGitHubCredential,
 	seedRemoteRelationship
@@ -269,10 +270,19 @@ async function openWorkspace(
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 }
 
-/** Open the Publish dialog and wait for the plan it computed. */
+/**
+ * Open the Publish dialog and wait for the plan it computed.
+ *
+ * Two presses from the bar rather than one (ADR-0041): the door names the repository, and
+ * **Publish…** is one of the two gestures behind it — beside **Update from GitHub**, which it must
+ * never be merged with.
+ */
 async function openPublishDialog(page: Page) {
-	await page.getByRole('button', { name: 'Publish…' }).click();
-	const dialog = page.getByRole('dialog');
+	await openTheDoor(page);
+	await page.getByTestId('connect-publish').click();
+	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
+	// `getByRole('dialog')` is then two elements rather than one.
+	const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	return dialog;
 }
@@ -705,8 +715,7 @@ test.describe('publishing a Workspace', () => {
 			'ballastella-site.json': JSON.stringify({ ...stamped, viewerVersion: 'an-older-viewer' })
 		});
 		await page.reload();
-		await page.getByRole('button', { name: 'Publish…' }).click();
-		await expect(page.getByRole('dialog').getByTestId('publish-breakdown')).toBeVisible();
+		await openPublishDialog(page);
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('publish-stale')).toContainText('an older version of the viewer');
 
@@ -764,32 +773,38 @@ test.describe('publishing a Workspace', () => {
 	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
-		// Reached by tabbing rather than by clicking. From the wordmark, past the
-		// Connect to GitHub control that sits between them — the Edit History slot is between them too
-		// and renders nothing at all when there is nothing to undo, which is the state a freshly seeded
-		// Workspace is in.
+		// Reached by tabbing rather than by clicking. From the wordmark, one Tab reaches the bar's one
+		// GitHub control: the Edit History slot is between them and renders nothing at all when there
+		// is nothing to undo, which is the state a freshly seeded Workspace is in, and the theme
+		// toggle is after it.
 		//
-		// All three are in the bar's main row, which runs breadcrumb, wordmark, the screen's own
-		// actions, and the theme toggle last. Starting from the wordmark is what makes the count stable
-		// on any screen: the Workspace Home sets no breadcrumbs, and on a Project the crumbs and their
-		// edit action are before the wordmark rather than between it and Publish.
-		const publishButton = page.getByRole('button', { name: 'Publish…' });
+		// Starting from the wordmark is what makes the count stable on any screen: Workspace Home sets
+		// no breadcrumbs, and on a Project the crumbs and their edit action are before the wordmark
+		// rather than between it and the door.
+		const door = page.getByTestId('connect-to-github');
 		await page.getByTestId('app-wordmark').focus();
 		await page.keyboard.press('Tab');
-		await expect(page.getByTestId('connect-to-github')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(publishButton).toBeFocused();
+		await expect(door).toBeFocused();
 		await page.keyboard.press('Enter');
 
-		const dialog = page.getByRole('dialog');
+		// Publishing is behind it, beside the Update it must never be merged with, and it is reached
+		// with the keyboard alone.
+		const publishButton = page.getByRole('button', { name: 'Publish…' });
+		await expect(publishButton).toBeVisible();
+		await publishButton.press('Enter');
+
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await preparePublish(page, dialog);
-		// ADR-0016's mandated `<dialog>` + `showModal()`: Escape closes it and focus comes back.
+		// ADR-0016's mandated `<dialog>` + `showModal()`: Escape closes it and focus comes back — to
+		// the door control, because the door closed on the press and the button that opened this is no
+		// longer in the document (WCAG 2.4.3).
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
-		await expect(publishButton).toBeFocused();
+		await expect(door).toBeFocused();
 
 		await page.keyboard.press('Enter');
+		await publishButton.press('Enter');
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).press('Enter');
 
@@ -825,10 +840,16 @@ test.describe('publishing a Workspace', () => {
 		// both clauses of the badge (ADR-0041), which is why this reads the local one rather than the
 		// whole line.
 		await expect(page.getByRole('status')).toContainText('Saved locally');
-		await expect(page.getByTestId('publish')).toBeVisible();
+		// The one GitHub control, on Workspace Home — which is the screen a student meets before they
+		// have opened a Project, and the reason the door is on the bar rather than in a settings
+		// dialog (ADR-0041).
+		await expect(page.getByTestId('connect-to-github')).toBeVisible();
 
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		// And on the Project screen too, which is what "on every route" means: the door does not have
+		// to be gone back to Workspace Home for.
+		await expect(page.getByTestId('connect-to-github')).toBeVisible();
 
 		// The **words**, recorded as they happen and paired with the state that produced them.
 		// "Unsaved changes" is the 400 ms debounce window and "Saving…" can be over in a few
@@ -1092,11 +1113,14 @@ test.describe('publishing to a Remote', () => {
 		// The total the line is counting towards, kept so the finished publish can be held to it.
 		const announced = Number(/of (\d+) files/.exec((await progress.textContent()) ?? '')?.[1]);
 		expect(announced).toBeGreaterThan(0);
-		// The control that started it says so, and does it with `aria-disabled`: a `disabled` button
+		// The bar's one GitHub control says so, and does it with `aria-disabled`: a `disabled` button
 		// leaves the tab order the moment it is pressed, dropping focus to `<body>` for the length of
-		// the publish (WCAG 2.4.3).
-		await expect(page.getByTestId('publish')).toHaveAttribute('aria-disabled', 'true');
-		await expect(page.getByTestId('publish')).toContainText(/(Publishing|Uploading)… \d+\/\d+/);
+		// the publish (WCAG 2.4.3). It is the control this publish was started from — the door closed
+		// on the press — and it is the only one on the bar that could say it.
+		await expect(page.getByTestId('connect-to-github')).toHaveAttribute('aria-disabled', 'true');
+		await expect(page.getByTestId('connect-to-github')).toContainText(
+			/(Publishing|Uploading)… \d+\/\d+/
+		);
 		expect(await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')).not.toBe('BODY');
 
 		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
@@ -1104,7 +1128,7 @@ test.describe('publishing to a Remote', () => {
 		});
 		// The outcome is outside the dialog, where the dialog no longer is — and it stays there.
 		await expect(page.getByTestId('publish-status')).toBeVisible();
-		await expect(page.getByRole('dialog')).toBeHidden();
+		await expect(page.getByRole('dialog', { name: 'Publish this Workspace' })).toBeHidden();
 		// One region speaks at a time: the progress line is emptied rather than left holding a sentence
 		// a screen reader would read out again on the next publish.
 		await expect(page.getByTestId('publish-progress')).toHaveText('');
@@ -1152,7 +1176,7 @@ test.describe('publishing to a Remote', () => {
 		// thing on this screen the scholar has to act on, and dismissing the modal is how they get back
 		// to the Workspace to act on it.
 		await page.keyboard.press('Escape');
-		await expect(page.getByRole('dialog')).toBeHidden();
+		await expect(page.getByRole('dialog', { name: 'Publish this Workspace' })).toBeHidden();
 		const refusalToast = page.getByTestId('publish-failure');
 		// In the app's one toast stack, which is what makes it dismissible and what keeps it from
 		// pushing the Workspace down the screen behind it.
@@ -1264,25 +1288,34 @@ test.describe('publishing to a Remote', () => {
 		await expect(page.getByTestId('publish-failure')).toContainText('written into this Workspace');
 	});
 
-	// An unbound Workspace must be connected to a GitHub repository before publishing is offered.
-	test('offers a GitHub repository binding before publishing', async ({ page }) => {
+	// An unbound Workspace must be connected to a GitHub repository before publishing is offered —
+	// and with one door, that is what the door *lands on* rather than a refusal a publish dialog
+	// gives after the fact (ADR-0041). A Workspace with nowhere to publish has no Publish to press.
+	test('lands on connecting, not on publishing, for a Workspace bound to nothing', async ({
+		page
+	}) => {
 		const github = await routeGitHubOnce(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY }]
 		});
+		// Signed out as well as unbound, which is the state a Workspace with nowhere to publish is
+		// actually in: nothing has asked this author for a credential yet.
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }), {
-			unbound: true
+			unbound: true,
+			signedIn: false
 		});
 
-		const dialog = await openPublishDialog(page);
+		await expect(page.getByTestId('connect-to-github')).toHaveText('Connect to GitHub');
+		await openTheDoor(page);
 
-		await expect(dialog.getByTestId('publish-unbound')).toContainText('Remote repository…');
-		// ⚠ **Neither door, and this is the claim that survived the gate rather than a copy of it.** A
-		// Workspace with nowhere to publish is asked for no credential at all — not the paste and not
-		// the sign-in — because a credential would answer a question nobody has yet put. The
-		// *signed-out bound* state is the test below and the one in `editor-github-signin.e2e.ts`.
-		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
-		await expect(dialog.getByTestId('publish-sign-in-with-github')).toHaveCount(0);
-		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+		// The path to a repository, and no publish anywhere on it: there is nowhere to send this
+		// Workspace, so nothing offers to.
+		await expect(page.getByTestId('connect-needs-account')).toBeVisible();
+		await expect(page.getByTestId('connect-publish')).toBeHidden();
+		await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+		// ⚠ **And nothing is asked of GitHub to find that out.** A Workspace with nowhere to publish
+		// is asked for no credential at all until the author says they have an account, because a
+		// credential would answer a question nobody has yet put. The *signed-out bound* state is the
+		// test below and the one in `editor-github-signin.e2e.ts`.
 		expect(github.requests).toEqual([]);
 	});
 

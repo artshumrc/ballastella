@@ -10,7 +10,10 @@ import {
 	seedBaseline,
 	seedGitHubCredential,
 	seedRemoteRelationship,
+	checkRemoteStatus,
+	openTheDoor,
 	showRemoteStatusDetail,
+	updateFromGitHub,
 	switchToWorkspace
 } from './support/workspace.js';
 import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
@@ -165,9 +168,15 @@ async function start(
 	return github;
 }
 
+// Publishing is a landing of the one door (ADR-0041), so the dialog is two presses from the bar
+// rather than one: the control that names the repository, then **Publish…** beside the Update it
+// must never be merged with.
 const openPublishDialog = async (page: Page) => {
-	await page.getByRole('button', { name: 'Publish…' }).click();
-	const dialog = page.getByRole('dialog');
+	await openTheDoor(page);
+	await page.getByTestId('connect-publish').click();
+	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
+	// `getByRole('dialog')` is then two elements rather than one.
+	const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	return dialog;
 };
@@ -356,7 +365,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// Workspace: with a Baseline this machine can tell whose the file is, so bringing it in is safe
 		// and keeps this Workspace's own unpublished work.
 		await expect(refusal).toContainText('Update from GitHub first');
-		await expect(refusal).toContainText('is on the navigation bar');
+		await expect(refusal).toContainText('behind the control that names your repository');
 		await expect(dialog.getByTestId('publish-replace')).toBeVisible();
 		// ⚠ **And the three budgets beside it, not instead of it.** A conflict is where the replacement
 		// tree is largest and where the scholar is being asked to press through a warning, so it is the
@@ -369,7 +378,10 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// leave.
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
-		await expect(page.getByRole('button', { name: 'Publish…' })).toBeFocused();
+		// The door closes on the press that opens this dialog, so the control this was opened from is
+		// gone by the time it closes — and focus lands on the bar's one GitHub control rather than on
+		// the document, which is where the whole two-press path starts again.
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await openPublishDialog(page);
 
 		// Taking the second remedy is two presses, the shape every irreversible action here has — and
@@ -437,8 +449,7 @@ const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
 /** Ask for a check the way an author does, and wait for it to finish. */
 async function checkNow(page: Page): Promise<void> {
-	await showRemoteStatusDetail(page);
-	await page.getByTestId('check-remote-status').click();
+	await checkRemoteStatus(page);
 	await expect(remoteStatus(page)).not.toContainText('Checking…');
 }
 
@@ -515,12 +526,15 @@ test.describe('Remote Status on the navigation bar', () => {
 		expect(listings(github)).toBe(0);
 
 		// The gesture, reached by the keyboard alone, is what makes status available with no account at
-		// all — and the answer is dated, so a retained one can later be told from a current one. Both
-		// are behind the badge's disclosure, which is the one press the eyebrow now costs.
-		await showRemoteStatusDetail(page);
+		// all — and the answer is dated, so a retained one can later be told from a current one. The
+		// gesture is behind the door and the date is behind the badge's disclosure: what is *done*
+		// about GitHub is one place, and what is *true* of it is the other.
+		await openTheDoor(page);
 		await page.getByTestId('check-remote-status').focus();
 		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('connect-sequence')).toBeHidden();
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await showRemoteStatusDetail(page);
 		await expect(page.getByTestId('remote-status-checked')).toContainText('Checked at');
 		expect(listings(github)).toBe(1);
 	});
@@ -611,7 +625,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.route('https://api.github.com/**/git/trees/**', (route) =>
 			route.abort('connectionfailed')
 		);
-		await page.getByTestId('check-remote-status').click();
+		await checkRemoteStatus(page);
 		const failure = page.getByTestId('remote-status-failure');
 		await expect(failure).toBeVisible();
 		await expect(failure).toContainText('the last one Ballastella was able to work out');
@@ -622,9 +636,10 @@ test.describe('Remote Status on the navigation bar', () => {
 		// The alert is announced rather than merely rendered: it is inserted at the moment its text
 		// first exists, which a polite region does not reliably announce.
 		expect(await failure.getAttribute('role')).toBe('alert');
-		// And the control that was pressed still holds focus, so an alert appearing beside it does not
-		// drop a keyboard user to the top of the document (WCAG 2.4.3).
-		await expect(page.getByTestId('check-remote-status')).toBeFocused();
+		// And focus is on the bar's one GitHub control — where the closing door put it back — rather
+		// than on the document, so an alert appearing does not drop a keyboard user to the top of the
+		// page (WCAG 2.4.3).
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 	});
 
 	test('cannot render one Workspace’s pending result beside another’s name', async ({ page }) => {
@@ -653,8 +668,7 @@ test.describe('Remote Status on the navigation bar', () => {
 			await held;
 			await route.fallback();
 		});
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('check-remote-status').click();
+		await checkRemoteStatus(page);
 		await expect(remoteStatus(page)).toContainText('Checking…');
 
 		await createWorkspace(page, 'Delft');
@@ -795,9 +809,13 @@ test.describe('Update from GitHub', () => {
 		};
 		await page.route(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 		const release = await holdRawFile(page, 'delft/annotations/l2.geojson');
-		await showRemoteStatusDetail(page);
+		await openTheDoor(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
+		// ⚠ **The door gets out of the way, and that is what makes the line below announceable.** A
+		// `showModal()` dialog makes everything outside it inert, and an inert `aria-live` region is
+		// not a quiet one — it is not announced at all.
+		await expect(page.getByTestId('connect-sequence')).toBeHidden();
 
 		// ⚠ **Per file, and it settles at what has actually arrived**. One file is held
 		// open, so the count has one deterministic resting place short of the total rather than a
@@ -856,9 +874,10 @@ test.describe('Update from GitHub', () => {
 		// writes to, and the one that arrives wears none of it.
 		await github.commitFiles(OWNER, REPOSITORY, { 'atlas-1625/annotations/l9.geojson': '{}' });
 		const holdAgain = await holdRawFile(page, 'atlas-1625/annotations/l9.geojson');
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
-		await expect(page.getByTestId('update-progress')).toContainText('files');
+		await updateFromGitHub(page);
+		// The line itself, not its count: whether the plan has resolved by now decides between "file"
+		// and "files", and what this needs is only that a transfer is under way to switch out of.
+		await expect(page.getByTestId('update-progress')).toContainText('Updating from GitHub');
 		await createWorkspace(page, 'Elsewhere');
 		holdAgain();
 
@@ -882,8 +901,7 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
@@ -908,8 +926,7 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l4.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('edit-history-undo')).toHaveCount(0);
@@ -950,7 +967,7 @@ test.describe('Update from GitHub', () => {
 		const head = github.head(OWNER, REPOSITORY);
 
 		// ── The preview, reached from the control and naming the Project by its own name ──────────
-		await showRemoteStatusDetail(page);
+		await openTheDoor(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
 		const dialog = page.getByRole('dialog', {
@@ -968,7 +985,9 @@ test.describe('Update from GitHub', () => {
 		await dialog.getByTestId('cancel-deletions').focus();
 		await page.keyboard.press('Enter');
 		await expect(dialog).toBeHidden();
-		await expect(page.getByTestId('update-from-github')).toBeFocused();
+		// The door closed on the press that started the Update, so focus comes back to the bar's one
+		// GitHub control — which is where the Update was reached from and where it is reached again.
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toBeVisible();
 		// The Remote is untouched by the *asking*, and so is the record of what the two sides shared:
@@ -978,8 +997,7 @@ test.describe('Update from GitHub', () => {
 		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
 
 		// ── Confirm: the Project goes, and the one the Remote kept does not ───────────────────────
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(dialog).toBeVisible();
 		await dialog.getByTestId('confirm-deletions').focus();
 		await page.keyboard.press('Enter');
@@ -999,11 +1017,11 @@ test.describe('Update from GitHub', () => {
 		await page.reload();
 
 		await expect(page.getByTestId('unrecovered-import')).toBeVisible();
-		// Nothing enumerates: no Project list, and the Publish control the bar offers over a Workspace
-		// it can read is not there either.
+		// Nothing enumerates: no Project list, and the GitHub control the bar offers over a Workspace
+		// it can read is not there either — which takes publishing and the Update with it.
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 	});
 });
 
@@ -1068,8 +1086,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 
 		// Taking that inbound work leaves the Import as the only difference between the two sides, which
 		// is what makes the publish below an ordinary one rather than a conflict.
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
 

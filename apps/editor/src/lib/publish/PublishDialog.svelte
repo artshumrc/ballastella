@@ -75,15 +75,25 @@
 	let {
 		storage,
 		open = $bindable(false),
-		// Both bindable so the navigation bar's Publish control can be `aria-disabled` with a label
+		// Both bindable so the navigation bar's one GitHub control can be `aria-disabled` with a label
 		// that reflects progress while the modal that owns the run is on screen.
 		publishing = $bindable(false),
-		progress = $bindable<PublishProgress | null>(null)
+		progress = $bindable<PublishProgress | null>(null),
+		restoreFocusTo
 	}: {
 		storage: WorkspaceStorage;
 		open?: boolean;
 		publishing?: boolean;
 		progress?: PublishProgress | null;
+		/**
+		 * Where focus goes when this closes, because the control that opened it has gone.
+		 *
+		 * ⚠ **That is the ordinary path here, not the exception.** **Publish…** is behind the door
+		 * (ADR-0041), and the door closes on the press — so by the time this dialog is on screen its
+		 * own trigger has been unmounted, and `focus()` on a detached node is a no-op with no
+		 * complaint. Without this a keyboard user pressing Escape is dropped on `<body>` (WCAG 2.4.3).
+		 */
+		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	const session = $derived(storage.session);
@@ -702,7 +712,7 @@
 	{/if}
 {/snippet}
 
-<ModalDialog bind:open wide title="Publish this Workspace">
+<ModalDialog bind:open wide title="Publish this Workspace" {restoreFocusTo}>
 	<!--
 		A receipt, read top to bottom: what the site weighs, what it carries, which Projects a Reader
 		meets first, and last of all where it goes — immediately above the button that sends it there,
@@ -1008,7 +1018,8 @@
 								<p>{conflict.message}</p>
 								<p class="text-sm">
 									{#if conflict.reason === 'remote-changes' || conflict.reason === 'changes-on-both-sides'}
-										<strong>Update from GitHub</strong> is on the navigation bar, beside the Remote status.
+										<strong>Update from GitHub</strong> is on the navigation bar, behind the control that
+										names your repository.
 									{:else}
 										Opening it in a new Workspace is in the Workspace menu at the top left, under
 										<strong>Remote repository…</strong>. It leaves this one exactly as it is.

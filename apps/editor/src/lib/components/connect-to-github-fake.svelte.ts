@@ -14,11 +14,14 @@
 import {
 	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
+	UNCHECKED_REMOTE_STATUS,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
 	type RemoteBindOutcome,
 	type RemotePagesOutcome,
-	type RemoteReference
+	type RemoteReference,
+	type RemoteStatusState,
+	type SynchronizationBaseline
 } from '@ballastella/core';
 
 import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -58,6 +61,19 @@ export class FakeStorage {
 	signedIn = $state(false);
 	identity = $state('');
 	credential = $state<string | null>(null);
+	/**
+	 * A `remote.json` nothing on this machine corroborates, waiting to be answered.
+	 *
+	 * A signal for the reason `remote` is one: the question is a *landing* derived from the world, so
+	 * answering it has to move the sequence without anything remembering that it was answered.
+	 */
+	legacyRemote = $state<{ owner: string; repository: string; branch: string } | null>(null);
+	/** What this Workspace and GitHub last agreed on, which the connected step states in words. */
+	baseline = $state<SynchronizationBaseline | null>(null);
+	/** The determination the badge carries, read here only for whether a check is running. */
+	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
+	/** An Update in flight, which is the one thing that makes its control busy. */
+	updateProgress = $state<{ files: number; totalFiles: number } | null>(null);
 
 	/** Every call to {@link bindRemote}, in order. */
 	readonly bindCalls: BindCall[] = [];
@@ -82,6 +98,16 @@ export class FakeStorage {
 	pagesAnswer: RemotePagesOutcome | Error = { enabled: true, instruction: '' };
 	/** How many times the sign-in was ended by a press. */
 	signOuts = 0;
+	/** How many times the Workspace was unbound, which is the claim about the one caller. */
+	unbinds = 0;
+	/** How many times a status check was asked for by a press. */
+	checks = 0;
+	/** How many times an Update was asked for by a press. */
+	updates = 0;
+	/** What `unbindRemote` answers, or throws when it is an `Error`. */
+	unbindAnswer: Error | null = null;
+	/** What `acceptLegacyRemote` answers, or throws when it is an `Error`. */
+	legacyAnswer: Error | null = null;
 	/**
 	 * What the freshness check answers: `null` for a sign-in with life in it, an `Error` for one that
 	 * has run out and could not be renewed. The real one clears the credential in that case, so this
@@ -135,6 +161,38 @@ export class FakeStorage {
 		await Promise.resolve();
 		if (this.pagesAnswer instanceof Error) throw this.pagesAnswer;
 		return this.pagesAnswer;
+	}
+
+	async unbindRemote(): Promise<void> {
+		this.unbinds += 1;
+		await Promise.resolve();
+		if (this.unbindAnswer !== null) throw this.unbindAnswer;
+		this.remote = null;
+		this.baseline = null;
+	}
+
+	/** Lift the uncorroborated binding, exactly as the real one does: bound, and no Baseline. */
+	async acceptLegacyRemote(): Promise<void> {
+		const lifted = this.legacyRemote;
+		await Promise.resolve();
+		if (this.legacyAnswer !== null) throw this.legacyAnswer;
+		if (lifted === null) return;
+		this.legacyRemote = null;
+		this.remote = lifted;
+	}
+
+	declineLegacyRemote(): void {
+		this.legacyRemote = null;
+	}
+
+	async checkRemoteStatus(): Promise<void> {
+		this.checks += 1;
+		await Promise.resolve();
+	}
+
+	async updateFromRemote(): Promise<void> {
+		this.updates += 1;
+		await Promise.resolve();
 	}
 
 	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {

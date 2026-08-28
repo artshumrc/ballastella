@@ -11,7 +11,9 @@ import {
 	openWorkspaceMenu,
 	openWorkspaceSettings,
 	revealBindToken,
-	showRemoteStatusDetail
+	checkRemoteStatus,
+	openPublishFromTheDoor,
+	updateFromGitHub
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
@@ -1438,8 +1440,8 @@ test.describe('synchronizing a folder Workspace', () => {
 
 	/** Publish the open Workspace to its Remote and wait for the Remote to be named in the result. */
 	async function publish(page: Page, repository: string): Promise<void> {
-		await page.getByRole('button', { name: 'Publish…' }).click();
-		const dialog = page.getByRole('dialog');
+		await openPublishFromTheDoor(page);
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await dialog.getByRole('button', { name: /^Publish/ }).click();
 		await expect(page.getByTestId('publish-status')).toContainText(
@@ -1453,8 +1455,7 @@ test.describe('synchronizing a folder Workspace', () => {
 
 	/** Ask for a check the way an author does, and wait for it to finish. */
 	async function checkNow(page: Page): Promise<void> {
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('check-remote-status').click();
+		await checkRemoteStatus(page);
 		await expect(remoteStatus(page)).not.toContainText('Checking…');
 	}
 
@@ -1511,8 +1512,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
 
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		// In the folder, as real files: the transfer wrote through the File System Access adapter and
 		// the bytes are the Remote's own.
@@ -1524,8 +1524,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		// ── And a destructive one, which is refused until it is confirmed ─────────────────────────
 		const before = await everyPathInFolder(page);
 		await github.commitFiles(OWNER, FROM_FOLDER, { 'delft/project.json': null });
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		const dialog = page.getByRole('dialog', {
 			name: 'Update will remove work from this Workspace'
 		});
@@ -1534,11 +1533,11 @@ test.describe('synchronizing a folder Workspace', () => {
 		// Cancelling writes nothing to the folder, and puts focus back where it came from.
 		await dialog.getByTestId('cancel-deletions').click();
 		await expect(dialog).toBeHidden();
-		await expect(page.getByTestId('update-from-github')).toBeFocused();
+		// The door closed on the press that started the Update, so this is where focus goes back to.
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		expect(await everyPathInFolder(page)).toEqual(before);
 
-		await showRemoteStatusDetail(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await dialog.getByTestId('confirm-deletions').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);

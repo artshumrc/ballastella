@@ -385,7 +385,8 @@ test.describe('reviewing one Project from a Remote', () => {
 
 		// No `remote.json` on disk: the review copy publishes nowhere because it is bound to nothing.
 		expect(Object.keys(await everyByteOf(page, REPOSITORY))).not.toContain('remote.json');
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		// And no door to reach a publish through, which is where every GitHub gesture now is.
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await expect(page.getByTestId('review-workspace-note')).toBeVisible();
 
 		await openRemoteSettings(page);

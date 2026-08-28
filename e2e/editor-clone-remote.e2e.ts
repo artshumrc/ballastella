@@ -5,6 +5,7 @@ import { routeGitHubHosts } from './support/github-hosts.js';
 import {
 	closeRemoteSettings,
 	expectWorkspaceNamed,
+	inTheDoor,
 	openRemoteSettings,
 	readBaseline,
 	readRemoteRelationship,
@@ -273,12 +274,16 @@ test.describe('opening a published Workspace', () => {
 		await closeRemoteSettings(page);
 		await expectWorkspaceNamed(page, 'atlas');
 
-		// The Remote and the Baseline as the app reads them, in the dialog that reports both.
+		// The Remote and the Baseline as the app reads them: the repository in Remote settings, and
+		// what the two sides last agreed on behind the door, which is where the evidence sits beside
+		// the repository it is about (ADR-0041).
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
-		await expect(page.getByTestId('remote-baseline')).toContainText(`last agreed with ${REMOTE}`);
-		await expect(page.getByTestId('remote-baseline')).not.toContainText('Cannot tell');
 		await closeRemoteSettings(page);
+		await inTheDoor(page, async () => {
+			await expect(page.getByTestId('remote-baseline')).toContainText(`last agreed with ${REMOTE}`);
+			await expect(page.getByTestId('remote-baseline')).not.toContainText('Cannot tell');
+		});
 
 		// ⚠ And in the installation database, behind the app's back — the point of ADR-0038 is that
 		// this evidence is *outside* the Workspace, so it cannot travel in a Backup or up to a Remote.

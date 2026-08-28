@@ -24,7 +24,8 @@ import {
 	authorizeUrl,
 	type GrantedInstallation,
 	type GrantedRepositoriesOutcome,
-	type GrantedRepository
+	type GrantedRepository,
+	type SynchronizationBaseline
 } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -1311,6 +1312,228 @@ describe('signing out, and changing where the work goes', () => {
 	});
 });
 
+// ⚠ **The whole GitHub relationship is behind one control, and the two gestures stay two presses**
+// (ADR-0041). A Publish mirrors an owned namespace and removes Projects the author deleted locally;
+// an Update can remove work from the Workspace. Those consequences differ in kind, so what is
+// unified is the place and never the act — and both of them close this surface on the press, because
+// what they say is said by the badge in the bar and a `showModal()` dialog makes the bar inert.
+describe('the standing state, and the gestures on it', () => {
+	/** A Workspace connected to `ada/atlas`, which is the connected step's whole input. */
+	function connected(): FakeStorage {
+		const storage = signedIn();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		return storage;
+	}
+
+	const baseline = (files: readonly string[]): SynchronizationBaseline => ({
+		remote: { owner: 'ada', repository: 'atlas', branch: 'main' },
+		commit: 'c0ffeec0ffee',
+		files: new Map(files.map((path) => [path, 'aaaa']))
+	});
+
+	test('states what this Workspace and GitHub last agreed on', () => {
+		const storage = connected();
+		storage.baseline = baseline(['amsterdam-1625/project.json', 'base-map/style.json']);
+		open(storage);
+
+		expect(text(at('remote-baseline'))).toContain('c0ffeec0ffee');
+		expect(text(at('remote-baseline'))).toContain('2 files');
+	});
+
+	// ⚠ **`Cannot tell` is a determination rather than a silence** (ADR-0038). A Workspace whose
+	// Remote nothing here has evidence about must not read as one that agrees with it.
+	test('says so in words when there is no record of an agreement', () => {
+		open(connected());
+
+		expect(text(at('remote-baseline'))).toContain('Cannot tell what has changed');
+	});
+
+	test('asks for a check, and gets out of the way of the answer', async () => {
+		const opened = open(connected());
+
+		press('check-remote-status');
+		await settle();
+
+		expect(opened.storage.checks).toBe(1);
+		expect(opened.props.open).toBe(false);
+	});
+
+	test('asks for an Update, and gets out of the way of what it says', async () => {
+		const opened = open(connected());
+
+		press('update-from-github');
+		await settle();
+
+		expect(opened.storage.updates).toBe(1);
+		expect(opened.props.open).toBe(false);
+	});
+
+	// The two remain two presses: neither is offered as a single verb, and pressing one asks for
+	// nothing the other does.
+	test('never asks for one gesture on the way to the other', async () => {
+		const opened = open(connected());
+
+		press('connect-publish');
+		await settle();
+
+		expect(opened.onpublish).toHaveBeenCalledTimes(1);
+		expect(opened.storage.updates).toBe(0);
+		expect(opened.storage.checks).toBe(0);
+	});
+
+	// ⚠ **The only caller of `unbindRemote` there is.** Connecting once is not permanent, and giving
+	// the repository up belongs beside the standing fact rather than in a settings dialog.
+	test('gives the repository up, once, and says what was and was not changed', async () => {
+		const opened = open(connected(), listed([]));
+
+		press('unbind-remote');
+		await settle();
+
+		expect(opened.storage.unbinds).toBe(1);
+		expect(opened.storage.remote).toBeNull();
+		expect(text(at('connect-notice'))).toContain('no longer publishes to ada/atlas');
+		expect(text(at('connect-notice'))).toContain('Nothing there has been changed');
+	});
+
+	// No step of this surface is a full stop: a Workspace that has just given its repository up is
+	// back at the start of the path to another one, with the control that takes it there on screen.
+	test('leaves the author on a step with something to do', async () => {
+		const opened = open(connected(), listed([]));
+
+		press('unbind-remote');
+		await settle();
+
+		expect(opened.props.open).toBe(true);
+		expect(at('connect-no-choices')).toBeTruthy();
+	});
+
+	// ⚠ **`aria-disabled`, never `disabled`.** A `disabled` button leaves the tab order the instant it
+	// is pressed, dropping a keyboard user to `<body>` — and these are the controls a scholar is most
+	// likely to be pressing when they are made busy (WCAG 2.4.3, stories 130 and 51).
+	test.each([
+		[
+			'a check already running',
+			'check-remote-status',
+			(storage: FakeStorage) => {
+				storage.remoteStatusState = { ...storage.remoteStatusState, checking: true };
+			}
+		],
+		[
+			'an Update already running',
+			'update-from-github',
+			(storage: FakeStorage) => {
+				storage.updateProgress = { files: 4, totalFiles: 12 };
+			}
+		]
+	])(
+		'says %s with aria-disabled, and keeps the control in the tab order',
+		(_name, testId, busy) => {
+			const storage = connected();
+			busy(storage);
+			const opened = open(storage);
+
+			expect(at(testId)).toHaveAttribute('aria-disabled', 'true');
+			expect(at(testId).hasAttribute('disabled')).toBe(false);
+
+			press(testId);
+
+			expect(opened.storage.checks).toBe(0);
+			expect(opened.storage.updates).toBe(0);
+			expect(opened.props.open).toBe(true);
+		}
+	);
+
+	test('uses `disabled` on no control of the connected step, busy or not', async () => {
+		const storage = connected();
+		storage.pagesAnswer = new Error('GitHub would not answer');
+		open(storage);
+
+		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
+
+		press('enable-pages');
+		expect(at('enable-pages')).toHaveAttribute('aria-disabled', 'true');
+		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
+		await settle();
+	});
+});
+
+// ⚠ **A `remote.json` this installation cannot corroborate is a question, asked once when it is
+// true** (ADR-0038, ADR-0041). The binding is a file inside the published tree, so a fork, a
+// colleague's copied folder and a restored Backup all carry one naming somebody else's repository.
+// It always was a question; what changes is that it is asked where every other way to a Remote
+// already is, rather than filed where questions go unread.
+describe('a repository the Workspace’s own files name', () => {
+	/** A Workspace carrying an uncorroborated `remote.json`, which is not a Remote. */
+	function asked(): FakeStorage {
+		const storage = new FakeStorage();
+		storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		return storage;
+	}
+
+	test('is asked about, by name, ahead of every step of the path', () => {
+		open(asked());
+
+		expect(at('connect-legacy')).toBeTruthy();
+		expect(text(at('legacy-remote'))).toBe('ada/atlas');
+		expect(text(at('legacy-remote-offer'))).toContain('no record of ever having published there');
+		expect(absent('connect-needs-account')).toBe(true);
+		expect(absent('connect-sign-in')).toBe(true);
+	});
+
+	test('is not asked about at all when there is nothing to ask about', () => {
+		open(new FakeStorage());
+
+		expect(absent('connect-legacy')).toBe(true);
+		expect(absent('legacy-remote-offer')).toBe(true);
+	});
+
+	// Nothing is spent on GitHub for a step the author may never reach: accepting connects the
+	// Workspace without a listing at all.
+	test('asks GitHub nothing while the question stands', async () => {
+		const storage = asked();
+		storage.signedIn = true;
+		storage.identity = 'ada';
+		storage.credential = 'a-credential-this-component-never-renders';
+		const opened = open(storage);
+		await settle();
+
+		expect(opened.list).not.toHaveBeenCalled();
+	});
+
+	// ⚠ **Bound, and with no Baseline invented for it.** There is no evidence about what this machine
+	// shared with that repository, and an empty Baseline would claim the Remote holds nothing — the
+	// reading that licenses overwriting all of it.
+	test('accepting connects the Workspace and says nothing is known about it yet', async () => {
+		const opened = open(asked());
+
+		press('accept-legacy-remote');
+		await settle();
+
+		expect(opened.storage.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
+		expect(at('connect-connected')).toBeTruthy();
+		expect(text(at('connect-notice'))).toContain('no record of what is there yet');
+		expect(text(at('remote-baseline'))).toContain('Cannot tell what has changed');
+	});
+
+	test('declining leaves the Workspace unbound, on the ordinary path to a repository', async () => {
+		const opened = open(asked());
+
+		press('decline-legacy-remote');
+		await settle();
+
+		expect(opened.storage.remote).toBeNull();
+		expect(opened.storage.legacyRemote).toBeNull();
+		expect(text(at('connect-notice'))).toContain('Left unbound');
+		expect(at('connect-needs-account')).toBeTruthy();
+	});
+
+	test('uses `disabled` on neither answer', () => {
+		open(asked());
+
+		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
+	});
+});
+
 describe('reaching every step without sight and without a pointer', () => {
 	// One region, in the document from the first frame, whose words change with the step — a region
 	// inserted at the moment its text first exists is not reliably announced (ADR-0016).
@@ -1326,6 +1549,17 @@ describe('reaching every step without sight and without a pointer', () => {
 		await settle();
 		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
 		expect(opened.storage.bindCalls).toHaveLength(1);
+	});
+
+	// The question a Workspace's own files raise is announced as the question it is, rather than as a
+	// numbered step of a path it stands in front of.
+	test('announces the question a Workspace’s own files raise', () => {
+		const storage = new FakeStorage();
+		storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		open(storage);
+
+		expect(text(at('connect-step'))).toContain('ada/atlas');
+		expect(text(at('connect-step'))).toContain('Say whether it is yours');
 	});
 
 	// `disabled` takes a control out of the tab order, so a keyboard user reaching the sequence
@@ -1366,6 +1600,14 @@ describe('the words the sequence uses', () => {
 			() => {
 				const storage = signedIn();
 				storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+				return open(storage);
+			}
+		],
+		[
+			'the question about a repository the files name',
+			() => {
+				const storage = new FakeStorage();
+				storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 				return open(storage);
 			}
 		]
