@@ -693,7 +693,8 @@ export {
 	readGrantedRepositories,
 	type GrantedRepositoriesOptions,
 	type GrantedRepositoriesOutcome,
-	type GrantedRepository
+	type GrantedRepository,
+	type GrantedInstallation
 } from './remote/github-installations.js';
 export {
 	DEFAULT_REMOTE_BRANCH,

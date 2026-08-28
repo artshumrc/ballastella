@@ -569,7 +569,7 @@ describe('the repositories an author has granted the App', () => {
 				installationId: 42,
 				account: 'ada',
 				repositories: [
-					{ owner: 'ada', repository: 'atlas', push: true },
+					{ owner: 'ada', repository: 'atlas', push: true, admin: true },
 					{ owner: 'ada', repository: 'notes', push: false, private: true }
 				]
 			}
@@ -580,9 +580,19 @@ describe('the repositories an author has granted the App', () => {
 
 	it('reports the installation and what it holds', async () => {
 		const listed = await (await call(github, installations)).json();
+		// ⚠ **`target_id` is the account's identifier and `id` is the installation's**, and they are
+		// different numbers here so that a reader that reached for the wrong one cannot pass.
 		expect(listed).toEqual({
 			total_count: 1,
-			installations: [{ id: 42, account: { login: 'ada' } }]
+			installations: [
+				{
+					id: 42,
+					account: { login: 'ada', type: 'User' },
+					target_id: 1_000_042,
+					target_type: 'User',
+					repository_selection: 'selected'
+				}
+			]
 		});
 
 		const held = await (await call(github, `${installations}/42/repositories`)).json();
@@ -594,14 +604,14 @@ describe('the repositories an author has granted the App', () => {
 					name: 'atlas',
 					full_name: 'ada/atlas',
 					private: false,
-					permissions: { push: true }
+					permissions: { push: true, admin: true }
 				},
 				{
 					id: 2,
 					name: 'notes',
 					full_name: 'ada/notes',
 					private: true,
-					permissions: { push: false }
+					permissions: { push: false, admin: false }
 				}
 			]
 		});
