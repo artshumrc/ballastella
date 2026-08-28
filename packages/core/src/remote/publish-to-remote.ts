@@ -12,7 +12,7 @@
 //
 // Blobs, then one tree, then one commit, then the ref. Every step before the last is invisible to a
 // Reader, so an interrupted publish — a spent rate-limit budget, a closed laptop — leaves the site
-// exactly as it was rather than half replaced (SPEC story 16). That is also why a refusal is worth
+// exactly as it was rather than half replaced. That is also why a refusal is worth
 // making early: `planRemotePublish` posts nothing, so every refusal it raises costs a Reader
 // nothing at all.
 //
@@ -51,7 +51,7 @@ import type { PlanRefusal } from './synchronization-planner.js';
  */
 export const MAX_PUBLISHED_FILES = 40_000;
 
-/** The repository a Workspace is published to. Ticket 03 owns where this comes from. */
+/** The repository a Workspace is published to. `remote-binding.ts` owns where this comes from. */
 export type RemoteRepository = {
 	readonly owner: string;
 	readonly repository: string;
@@ -156,7 +156,7 @@ export type RemotePublishPlan = {
 	 *
 	 * ⚠ **Source only, and the exclusion is the point.** A Publish regenerates its own viewer output
 	 * and mirrors it, so recording `_app/**` and `index.html` as shared *source* would make every
-	 * chunk name another editor version writes look like inbound scholarship (SPEC stories 120, 145).
+	 * chunk name another editor version writes look like inbound scholarship.
 	 * Generated differences are Published Site staleness and nothing else.
 	 *
 	 * It is a forecast like the rest of the plan; {@link publishToRemote} records the SHAs it actually
@@ -235,8 +235,7 @@ export class RemotePublishFailedError extends Error {
  * signed in indefinitely. Collapsed into {@link RemotePublishFailedError} the scholar meets
  * "GitHub refused this publish: Bad credentials" and goes off to check a repository that is perfectly
  * fine. Told apart, the caller can say the sign-in has expired, offer the paste, and forget the
- * credential — which is where this epic settled the question rather than re-checking the rights on
- * every dialog (ticket 04).
+ * credential, rather than re-checking the rights on every dialog.
  *
  * Every publish asks GitHub a credentialed question before it sends a byte —
  * {@link planRemotePublish}'s first request is one — so this reaches a user with the Remote untouched
@@ -384,7 +383,7 @@ const REQUESTS_BEYOND_BLOBS = 3;
 
 const EMPTY_FILE: Bytes = new Uint8Array(0);
 
-/** The one message every publish commit carries. One branch, one commit per publish (SPEC). */
+/** The one message every publish commit carries. One branch, one commit per publish. */
 const COMMIT_MESSAGE = 'Publish from Ballastella';
 
 // ── The transport ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +502,7 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Establish that this repository exists and that this credential may push to it (SPEC story 106).
+ * Establish that this repository exists and that this credential may push to it.
  *
  * ⚠ **A publish's first request, before the tree is listed and long before a blob is sent.** Every
  * request the forecast makes is a GET, so a credential with `Contents: Read` and nothing else plans
@@ -538,7 +537,7 @@ async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<strin
 	const response = await api.call(`/git/ref/heads/${branchPath(remote.branch)}`);
 	// ⚠ **409 `Git Repository is empty.` is how GitHub reports a repository with no commits**, and it
 	// is not 404. That is the repository `github.com/new` makes when the scholar leaves the README
-	// unticked — the sequence ticket 03's "create the repository" link walks them through — so read as
+	// unticked — the sequence the "create the repository" link walks them through — so read as
 	// an ordinary refusal it kills the *first* publish, the one publish nobody can have got wrong yet.
 	if (response.status === 409) return null;
 	// A repository proven to exist a request ago, so this is a branch it does not hold yet.
@@ -678,7 +677,8 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
  * refuses it, and the reason is behavioural rather than aesthetic: a check that cries wolf is a
  * check people learn to force through, and the one time it is right is then the one time it is
  * dismissed. So the question is asked per source path against the Baseline, by the one
- * implementation of SPEC's table that the Remote Status control and Update from GitHub also read.
+ * implementation of the three-way table that the Remote Status control and Update from GitHub also
+ * read.
  *
  * ⚠ **A deletion is the destructive half, and only the Baseline licenses it.** A source path this
  * publish would *not* write is a path the mirror removes — a Project deleted here since the last
@@ -706,8 +706,8 @@ function refusalOf(
  * Work out what a publish would send, and everything the scholar has to be told first.
  *
  * Separate from {@link publishToRemote} because the numbers are only useful *before* the upload
- * starts — "how many files and how many bytes" is a decision about whether to wait (SPEC story 9),
- * and the three budgets bind at different moments (ADR-0033). It posts nothing at all, so both
+ * starts — "how many files and how many bytes" is a decision about whether to wait — and the three
+ * budgets bind at different moments (ADR-0033). It posts nothing at all, so both
  * refusals below reach the user with the Remote untouched.
  *
  * @throws RemotePublishRefusedError above {@link MAX_PUBLISHED_FILES} files, or on a truncated tree
@@ -725,7 +725,7 @@ export async function planRemotePublish(
 		throw new RemotePublishRefusedError(tooManyFilesMessage(workspace.files));
 	}
 
-	// Before the tree listing, and long before a blob: SPEC story 106.
+	// Before the tree listing, and long before a blob.
 	await assertPushable(api, options.remote);
 
 	const head = await readHead(api, options.remote);
@@ -808,14 +808,14 @@ export async function planRemotePublish(
 		});
 	}
 
-	// ⚠ **The decision, asked of ticket 09's planner and asked twice on purpose.** The first call is
-	// the ordinary Publish and answers whether it may go ahead; the second is the Publish anyway,
-	// which never refuses and is therefore the one that can say what either mode would settle. Both
-	// are pure over the same three inventories, so this costs no request and cannot disagree with the
-	// Remote Status on the bar.
+	// ⚠ **The decision, asked of the synchronization planner and asked twice on purpose.** The first
+	// call is the ordinary Publish and answers whether it may go ahead; the second is the Publish
+	// anyway, which never refuses and is therefore the one that can say what either mode would settle.
+	// Both are pure over the same three inventories, so this costs no request and cannot disagree with
+	// the Remote Status on the bar.
 	//
 	// The pending viewer files are deliberately absent from `local`: every one of them is Publish-owned
-	// output, which is not source and cannot be inbound change or a Conflict (SPEC story 120).
+	// output, which is not source and cannot be inbound change or a Conflict.
 	const comparison = {
 		local: files.map((file) => ({ path: file.path, sha: file.sha })),
 		remote: remote.map((entry) => ({ path: entry.path, sha: entry.sha })),
@@ -869,7 +869,7 @@ export async function planRemotePublish(
  *
  * Blobs the Remote already has are not sent, which is what makes a second publish take seconds
  * rather than an hour: the plan computed each file's blob SHA locally, and a SHA already in the
- * Remote's tree is bytes already there (SPEC story 15).
+ * Remote's tree is bytes already there.
  *
  * ⚠ **The Baseline it returns is built from what was actually sent**, entry by entry, as the loop
  * below fills `written` — never from the plan and never from the tree the Remote listed. A record
@@ -881,9 +881,9 @@ export async function planRemotePublish(
  * a `project.json` for a directory whose files were preserved last time and those unverified SHAs
  * become licence to delete them.
  *
- * ⚠ **Generated output is sent and is not recorded**, which is the one asymmetry here (SPEC stories
- * 120, 145). The commit holds `index.html` and the whole of `_app/**` because a Published Site needs
- * them; the source Baseline holds neither, because a chunk name another editor version writes is
+ * ⚠ **Generated output is sent and is not recorded**, which is the one asymmetry here. The commit
+ * holds `index.html` and the whole of `_app/**` because a Published Site needs them; the source
+ * Baseline holds neither, because a chunk name another editor version writes is
  * staleness to republish and never scholarship somebody changed.
  *
  * @returns the new commit; the source Baseline a caller persists so the next transfer can tell its
@@ -1055,8 +1055,7 @@ const NAMED_PATHS = 6;
  *
  * Capped, because the count that reaches this can be a whole pyramid: eleven thousand file names is
  * not a list anybody reads, and it would bury the two remedies underneath it. Naming the paths is
- * the whole of the reporting either way — there is no diff and no per-file choice (SPEC "Out of
- * scope" item 3).
+ * the whole of the reporting either way — there is no diff and no per-file choice.
  */
 function describePaths(paths: readonly string[]): string {
 	const named = paths.slice(0, NAMED_PATHS).join(', ');
@@ -1091,7 +1090,7 @@ function remedies(remote: RemoteRepository): string {
 }
 
 /**
- * What a credential that may read and not write says (SPEC story 106).
+ * What a credential that may read and not write says.
  *
  * ⚠ **It is a refusal rather than a warning, and it arrives before the local publish runs.** The
  * same news said at sign-in is a notice beside a Publish button that still works — every request a
@@ -1116,7 +1115,7 @@ function readOnlyMessage(remote: RemoteRepository): string {
  * recognise the work: "somebody has published here" is not something they can weigh, and
  * `amsterdam-1625/annotations/notes.json` is.
  *
- * ⚠ **The first remedy is Update from GitHub, not a Clone** (SPEC story 133). Bringing the Remote's
+ * ⚠ **The first remedy is Update from GitHub, not a Clone.** Bringing the Remote's
  * work in is the whole point of the refusal: it leaves this Workspace's own unpublished changes
  * alone, and publishing afterwards sends a Remote that is the complete current Workspace rather than
  * one missing an afternoon.
@@ -1144,9 +1143,9 @@ function remoteChangesMessage(
 /**
  * What a path changed on both sides says.
  *
- * ⚠ **Update is not offered, because Update refuses this too.** A Conflict is the one row of SPEC's
- * table with no safe inbound answer — Ballastella will not choose between two versions of an
- * Annotation or two Alignments of one sheet (ADR-0024) — so the only way on from here is the
+ * ⚠ **Update is not offered, because Update refuses this too.** A Conflict is the one row of the
+ * three-way table with no safe inbound answer — Ballastella will not choose between two versions of
+ * an Annotation or two Alignments of one sheet (ADR-0024) — so the only way on from here is the
  * deliberate local-wins replacement, and saying "Update first" would send the author round a loop.
  */
 function bothSidesMessage(remote: RemoteRepository, paths: readonly string[]): string {
@@ -1194,7 +1193,7 @@ function movedSinceAgreedMessage(remote: RemoteRepository, unseen: readonly stri
  * Every Workspace cloned from a Remote is in this state until it has published once, and so is every
  * Workspace whose browser storage has been cleared — so one reader has done nothing wrong and is
  * looking at a refusal on the first press of a button. Said as an alarm it reads as data loss, and a
- * scholar who meets an alarm that was wrong learns to press through the next one (story 24).
+ * scholar who meets an alarm that was wrong learns to press through the next one.
  *
  * The other reader is a partial Clone, a second machine, or a stale Backup, and for them publishing
  * takes work down. `removed` is what separates the two and it is not a guess: after a *complete*

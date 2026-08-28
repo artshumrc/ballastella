@@ -1,11 +1,11 @@
-// SPEC's Seam 1 for making an offline copy: the job driven against an in-memory ProjectStore and a stub host,
+// Seam 1 for making an offline copy: the job driven against an in-memory ProjectStore and a stub host,
 // with the assertions on the files that land.
 //
-// The corpus is ticket 14's — the same fourteen `info.json` documents captured from live services —
-// because the question "which of the two paths does a real library's service take, and what does that
-// cost the host" can only be answered against what real services actually declare. Two of those
-// fourteen turn out to cap `full/max` below full resolution, which is the case the ticket asks about
-// and which no invented fixture would have produced.
+// The corpus is `fixtures/real-world-image-services.json` — fourteen `info.json` documents captured
+// from live services — because the question "which of the two paths does a real library's service
+// take, and what does that cost the host" can only be answered against what real services actually
+// declare. Two of those fourteen turn out to cap `full/max` below full resolution, which is the case
+// worth covering here and which no invented fixture would have produced.
 //
 // The level-0 case has no member in that corpus, and that is a finding rather than a gap: all
 // fourteen report `supportsAnyRegionAndSize`. The level-0 fixture here is therefore **this app's own
@@ -233,11 +233,10 @@ describe('planOfflineCopy: what the copy will cost the Workspace', () => {
 		);
 	});
 
-	// **A refusal, where it used to be a warning** (ADR-0027). The note this replaces said a copy
-	// this size "needs the streaming tiler", and then let the user start it — thousands of requests
-	// to somebody else's server ending at a wall. There is no streaming tiler to need, and there is
-	// nowhere for either path to escape to: a copy has to exist as one full-resolution image before
-	// it can be re-cut. This is v1 ticket 15's `[~]` criterion, closed.
+	// **A refusal rather than a warning** (ADR-0027). There is no streaming tiler to escape to, and
+	// nowhere else either: a copy has to exist as one full-resolution image before it can be re-cut.
+	// Letting the user start one above the ceiling would mean thousands of requests to somebody
+	// else's server ending at a wall.
 	it('refuses a source above the decode ceiling, on both paths', async () => {
 		for (const [name, service] of [
 			['full-max', await levelTwo(4000, 4000)],
@@ -463,7 +462,7 @@ describe('makeOfflineCopy: the level-2 path', () => {
 	});
 
 	it('refuses a response larger than it will hold in memory, counting as it arrives', async () => {
-		// Ticket 13's lesson on the other untrusted path: a declared size is a claim. This counts the
+		// The lesson from the other untrusted path: a declared size is a claim. This counts the
 		// bytes rather than believing `content-length`, and there is no `content-length` here at all —
 		// the bound is enforced against the stream, so a response with no end is abandoned rather than
 		// buffered until the tab dies.

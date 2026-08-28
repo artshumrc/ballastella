@@ -2,14 +2,14 @@
 //
 // Paths are opaque strings. The store exposes no handles, no directories, and nothing
 // else backend-specific, deliberately: the OPFS adapter was built first so the shape
-// could not be bent towards a folder-like backend, and ticket 12's File System Access
-// adapter has to fit this interface unchanged.
+// could not be bent towards a folder-like backend, and the File System Access adapter
+// has to fit this interface unchanged.
 
 /** A `/`-separated path relative to the workspace root. Never absolute, never empty. */
 export type StorePath = string;
 
 /**
- * The brand that makes a blind Alignment write **fail to compile** (ticket 18).
+ * The brand that makes a blind Alignment write **fail to compile**.
  *
  * A phantom property and nothing else: `AlignmentPath` is still a `string` at runtime and there is
  * no cost to carrying it. It exists so that {@link WritablePath} can name every store path *except*
@@ -93,7 +93,7 @@ export interface ProjectStore {
 	 * worst loss the storage layer can inflict.
 	 *
 	 * **{@link WritablePath} rather than {@link StorePath}**, so an Alignment cannot be written from
-	 * here at all (ticket 18). Every other path in the codebase is a plain string and is unaffected.
+	 * here at all. Every other path in the codebase is a plain string and is unaffected.
 	 */
 	write(path: WritablePath, bytes: Bytes): Promise<void>;
 
@@ -112,8 +112,8 @@ export interface ProjectStore {
 	/**
 	 * The byte length of `path`, **without reading it**.
 	 *
-	 * Tickets 15 and 16 both have to warn about the ~1 GB static-hosting cliff (ADR-0008),
-	 * and a multi-gigabyte pyramid is thousands of tile files. Summing sizes by reading each
+	 * Publishing and offline copies both have to warn about the ~1 GB static-hosting cliff
+	 * (ADR-0008), and a multi-gigabyte pyramid is thousands of tile files. Summing sizes by reading each
 	 * one would be the slowest possible way to answer a question both real backends answer
 	 * for free from directory metadata.
 	 */
@@ -126,8 +126,8 @@ export interface ProjectStore {
 	 * temporary file that **nothing else here can reach**: the suffix is reserved, so `write` and
 	 * `delete` refuse it and `list` never reports it. Without this, deleting a Project leaves its
 	 * directory on disk forever, holding bytes that are excluded from the `list` + `size` totals
-	 * tickets 15 and 16 need for ADR-0008's ~1 GB hosting warning; in ticket 12's real folder it is
-	 * a stray dotfile the user commits to their repository.
+	 * ADR-0008's ~1 GB hosting warning is judged against; in a real folder it is a stray dotfile the
+	 * user commits to their repository.
 	 *
 	 * Deliberately a removal and nothing else. It does not list the litter and does not write, so
 	 * it gives no caller a way to put bytes at a path `list` would hide.
@@ -139,7 +139,7 @@ export interface ProjectStore {
  * The read half of {@link ProjectStore}: everything a Reader of a Published Site needs, and
  * nothing that could change a byte of it.
  *
- * **A type, and it is the whole of ticket 17's "the viewer has no store `write`".** ADR-0006 names an
+ * **A type, and it is the whole of "the viewer has no store `write`".** ADR-0006 names an
  * HTTP adapter as the third backend, and a static host can answer exactly one question: what are the
  * bytes at this path? It cannot list a directory, it will not accept a `PUT`, and there is nothing for
  * `reclaimAbandonedWrites` to sweep. An adapter that satisfied the full interface by rejecting from

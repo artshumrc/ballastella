@@ -11,8 +11,8 @@ import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import { readStoredJsonOrNull } from './support/stored-file';
 
 /**
- * SPEC's Seam 2 for the core act of the application: Control Point pairing, in the running app,
- * against the user's own ingested pyramid and a real Base Map (stories 30, 32–37).
+ * Seam 2 for the core act of the application: Control Point pairing, in the running app,
+ * against the user's own ingested pyramid and a real Base Map.
  *
  * Everything here is asserted through the interface a scholar uses — clicks on two MapLibre
  * canvases, Escape, arrow keys, the Control Point list — because ADR-0022's contracts are all
@@ -72,7 +72,7 @@ function gradientPng(width: number, height: number): Buffer {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET.
 //
 // Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
 // bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
@@ -91,8 +91,8 @@ test.beforeEach(async ({ page }) => {
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no
+		// test can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -145,16 +145,16 @@ async function ingestAndOpen(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	// The image id off the Layer the map arrived with (ADR-0023). Ticket 04 removed the Project's
-	// separate list of image ids: the Layer already says which Map Image it draws, and two
-	// renderings of one fact is one of them going stale.
+	// The image id off the Layer the map arrived with (ADR-0023). There is no separate list of image
+	// ids on the Project: the Layer already says which Map Image it draws, and two renderings of one
+	// fact is one of them going stale.
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
-	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
-	// longer a scroll; since ticket 05 the link that goes there is inside the Layer's own row. The id is
-	// read above, before the click: the Map Images list is on the Project page and this leaves it.
+	// **The workspace is a route of its own**, so getting to it is a navigation rather than a scroll,
+	// and the link that goes there is inside the Layer's own row. The id is read above, before the
+	// click: the Map Images list is on the Project page and this leaves it.
 	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
@@ -366,7 +366,7 @@ test.describe('Control Point pairing', () => {
 			'Point 3'
 		]);
 
-		// ─── And the row wears it too (ticket 10, SPEC story 44) ─────────────────────────────────
+		// ─── And the row wears it too ────────────────────────────────────────────────────────────
 		//
 		// Three surfaces, one number: the half on the sheet, the half on the earth, and the row. The
 		// list is where the ordinals are unambiguously readable — the numbers drawn on the panes are
@@ -385,7 +385,7 @@ test.describe('Control Point pairing', () => {
 			await rowOrdinals.first().evaluate((element) => getComputedStyle(element).fontVariantNumeric)
 		).toContain('tabular-nums');
 
-		// ─── And the control that destroys one names which one, to a screen reader (SPEC story 65) ──
+		// ─── And the control that destroys one names which one, to a screen reader ──────────────────
 		//
 		// The row's ordinal is drawn text and the delete control is a glyph, so the *only* thing that
 		// says which pair this button destroys is its accessible name — reached here as a role and a
@@ -454,8 +454,8 @@ test.describe('Control Point pairing', () => {
 	}) => {
 		const imageId = await start(page);
 		// The starter Alignment adding the Map Image wrote: zero Control Points, over the whole
-		// sheet (ADR-0023). It is the file this test now measures *against* — before ticket 02 there
-		// was no file at all here, and "no file" was the assertion.
+		// sheet (ADR-0023). It is the file this test measures *against* — a starter Alignment always
+		// exists here, so "no file at all" is not the assertion.
 		const starter = await storedAlignment(page, imageId);
 		expect(starter).not.toBeNull();
 		expect(JSON.parse(starter as string).body.features).toEqual([]);
@@ -577,7 +577,7 @@ test.describe('Control Point pairing', () => {
 		expect(await background(imagePoints(page).nth(1))).toBe(selectedColour);
 		expect(await background(imagePoints(page).nth(0))).toBe(unselectedColour);
 
-		// ── AND ONE LEADER JOINS THAT PAIR TO ITS ROW (ticket 12, SPEC story 45) ─────────────
+		// ── AND ONE LEADER JOINS THAT PAIR TO ITS ROW ────────────────────────────────────────
 		//
 		// Folded in beside the highlight rather than given a test of its own, because the two are one
 		// subject and the Seam 2 budget is spent (`scripts/check-seam-2-size.mjs`). It is also the
@@ -587,7 +587,7 @@ test.describe('Control Point pairing', () => {
 		//
 		// **The line leaves from the Base Map half**, which is the pane adjacent to the docked column
 		// — a line from the sheet's half would have to cross the Base Map pane to reach the column,
-		// and SPEC story 49 is that nothing is drawn over a pane being clicked to sub-pixel accuracy.
+		// and nothing may be drawn over a pane that is being clicked to sub-pixel accuracy.
 		//
 		// ⚠ **Asserted against `map.project()` of the coordinate in the Alignment on disk**, never
 		// against the leader's own box or the mark's — the defect shape recorded in
@@ -692,8 +692,7 @@ test.describe('Control Point pairing', () => {
 			'the leader stayed where the camera left it, so it is not following the map'
 		).toBeLessThan(2);
 
-		// Decoration only: nothing about which pair is current may depend on seeing it (story 42's
-		// rule, applied here).
+		// Decoration only: nothing about which pair is current may depend on seeing it.
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
 
 		// And deselecting takes it away, which is the other half of "exactly one thing is selected".
@@ -918,7 +917,7 @@ test.describe('the Alignment on disk', () => {
 		expect(document.target.source.width).toBe(700);
 		expect(document.target.source.height).toBe(500);
 
-		// The Resource Mask defaults to the whole image and is not editable here (ADR-0013, ticket 08).
+		// The Resource Mask defaults to the whole image and is not editable here (ADR-0013).
 		expect(document.target.selector.value).toContain('points="0,0 700,0 700,500 0,500"');
 
 		// First-order polynomial, with the order explicit. **Never `straight`**, which is not
@@ -981,7 +980,7 @@ test.describe('the Alignment on disk', () => {
 		await waitForStored(page, imageId, 3);
 
 		// A reload of the alignment route itself: the route is addressed by `?p=` and `?layer=`, so it
-		// comes back on the same Map Image without going through the Project page (ticket 03).
+		// comes back on the same Map Image without going through the Project page.
 		await page.reload();
 		await expect(page.getByRole('heading', { name: /^Align(?::|$)/ })).toBeVisible();
 		await expect(page.getByTestId('image-pane')).toBeVisible();
@@ -1068,7 +1067,7 @@ test.describe('choosing the Base Map while aligning', () => {
 	 * file, then `move()` over the destination (ADR-0017 rule 4). A read landing inside *that* window
 	 * does not return stale bytes, it raises. This helper was a fourth hand-rolled copy of a read that
 	 * three others documented that hazard at length for, and it was the copy that omitted the retry: it
-	 * was the last remaining failure in the ten runs measured for ticket 17, with
+	 * was the last remaining failure in the ten consecutive runs measured on `main`, with
 	 * `NotReadableError: The requested file could not be read`.
 	 */
 	const storedBaseMap = async (page: Page): Promise<unknown> =>
@@ -1084,7 +1083,7 @@ test.describe('choosing the Base Map while aligning', () => {
 	 * the author's choice; making that depend on a third party's bucket would buy nothing and cost
 	 * a flake on every reading-room wifi this suite is ever run on.
 	 *
-	 * ⚠ **That reasoning was right and this constant did not achieve it** (ticket 17). All four
+	 * ⚠ **That reasoning was right and this constant did not achieve it**. All four
 	 * catalog entries share one `REMOTE_ARCHIVE`, so choosing a "bundled" one still fetched the demo
 	 * bucket — and when that bucket started answering 404 this spec went red along with the two other
 	 * unrouted ones. The `routeBaseMapArchive` hook at the top of this file is what actually delivers

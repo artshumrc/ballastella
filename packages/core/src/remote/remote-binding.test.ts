@@ -179,7 +179,7 @@ describe('a binding from a build that knew more than this one', () => {
 	});
 });
 
-// ADR-0024, SPEC story 39. **Refused in the domain package rather than by an absent menu item**:
+// ADR-0024. **Refused in the domain package rather than by an absent menu item**:
 // publishing somebody else's Project to your own address is promotion by another route and a worse
 // one, and a Clone, a restored Backup, and a URL parameter all reach a store without passing a menu.
 describe('a Review Workspace can never be bound', () => {

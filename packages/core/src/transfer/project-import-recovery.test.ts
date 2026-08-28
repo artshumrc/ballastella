@@ -1,16 +1,17 @@
-// Recovering a Project Import that was interrupted (ticket 05, ADR-0037).
+// Recovering a Project Import that was interrupted (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE FAULTS ARE CRASHES AND NOT FAILED WRITES
 //
-// Ticket 04's matrix arms a write to fail and then asserts what the *engine's own rollback* leaves.
-// Everything here is the other case: the tab died, the laptop closed, the folder was unmounted — so
-// no rollback ran, no temporary file was tidied, and the only thing left is what had reached the
-// disk. {@link CrashingStore} models that by taking the backing away *after* a step succeeds, and
-// {@link restart} models the next visit by planting exactly those durable bytes into a fresh store.
-// A crash is therefore reproduced as a state rather than described in a comment.
+// `project-import-transaction.test.ts`'s fault matrix arms a write to fail and then asserts what the
+// *engine's own rollback* leaves. Everything here is the other case: the tab died, the laptop
+// closed, the folder was unmounted — so no rollback ran, no temporary file was tidied, and the only
+// thing left is what had reached the disk. {@link CrashingStore} models that by taking the backing
+// away *after* a step succeeds, and {@link restart} models the next visit by planting exactly those
+// durable bytes into a fresh store. A crash is therefore reproduced as a state rather than described
+// in a comment.
 //
-// **The assertions are whole store snapshots**, for the reason ticket 04's matrix gives: the claim is
+// **The assertions are whole store snapshots**, for the reason the fault matrix gives: the claim is
 // that after a restart the Workspace is the complete pre-Import state or the complete post-Import
 // one, which is a claim about the files. Temporary files are included in every snapshot, because a
 // sweep that did not happen is invisible through `list` by construction.

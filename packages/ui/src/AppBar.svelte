@@ -20,8 +20,8 @@
 	// THE FOLD
 	//
 	// On a phone the bar keeps **where you are and the way home** — the identity in `start` and the
-	// screen's own name — and everything else goes into one menu (SPEC story 6: the two things a
-	// Reader needs must never be the two things that were dropped).
+	// screen's own name — and everything else goes into one menu: the two things a Reader needs must
+	// never be the two things that were dropped.
 	//
 	// ⚠ **Each foldable affordance is rendered once, never twice.** The usual responsive-navigation
 	// spelling — an inline row and a menu, one of them `display: none` — puts two theme toggles in the
@@ -122,7 +122,7 @@
 	/**
 	 * Whether the bar is on a screen too narrow to hold its controls side by side.
 	 *
-	 * `40rem` rather than the 380 px the ticket names: the fold has to have happened *by* a phone's
+	 * `40rem` rather than a phone's own 380 px: the fold has to have happened *by* a phone's
 	 * width rather than exactly at it, and a tablet held in one hand is no better off with six
 	 * controls in a row than a phone is.
 	 *

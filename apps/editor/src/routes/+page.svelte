@@ -23,9 +23,9 @@
 	// what keeps the static adapter honest: no SPA fallback file, no per-Project artefact to
 	// rebuild when a Project is renamed or deleted, and a `?p=` URL that is shareable and citable.
 	//
-	// **This one route is now both screens** (ticket 04): with no `?p=` it is the hub, and with one
-	// it is the Project — a Base Map with the Layer stack beside it. `/layers/` and `/base-map/`
-	// were the other two thirds of the Project and are gone; there is nowhere else to be.
+	// **This one route is both screens**: with no `?p=` it is the hub, and with one it is the
+	// Project — a Base Map with the Layer stack beside it. `/layers/` and `/base-map/` were the
+	// other two thirds of the Project and are gone; there is nowhere else to be.
 	const openDirectory = $derived(page.url.searchParams.get('p'));
 
 	// Read, never created: the root layout owns the Workspace so that no two routes can disagree
@@ -41,12 +41,12 @@
 	// thousands of files, and the debounce would otherwise coalesce writes only to be defeated by
 	// a read storm. Re-runs when the Workspace moves to another backend, which is a new session.
 	//
-	// ⚠ **Gated on `storage.recovered`** (ticket 20). The write-ahead journal is replayed into the
-	// store as the Workspace is adopted, and this effect runs at the same moment. Ungated, a reload
-	// inside the autosave debounce window landed here showing the name the interrupted write was
-	// *replacing* — restored on disk, stale on screen, and one keystroke from being overwritten by
-	// the very edit the journal had just rescued. Reading is what has to wait; the promise never
-	// rejects, so a recovery that went wrong cannot stop a Project opening.
+	// ⚠ **Gated on `storage.recovered`.** The write-ahead journal is replayed into the store as the
+	// Workspace is adopted, and this effect runs at the same moment. Ungated, a reload inside the
+	// autosave debounce window landed here showing the name the interrupted write was *replacing* —
+	// restored on disk, stale on screen, and one keystroke from being overwritten by the very edit
+	// the journal had just rescued. Reading is what has to wait; the promise never rejects, so a
+	// recovery that went wrong cannot stop a Project opening.
 	$effect(() => {
 		const current = session;
 		const directory = openDirectory;
@@ -56,7 +56,7 @@
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE GITHUB SIGN-IN COMES BACK HERE (ticket 10, ADR-0031)
+	// THE GITHUB SIGN-IN COMES BACK HERE (ADR-0031)
 	//
 	// GitHub redirects to the editor's one prerendered route with `?code=` and `?state=`, arriving on
 	// the same route `?p=` already addresses. There is nowhere else it could land: a GitHub App's
@@ -118,15 +118,15 @@
 		} catch (cause) {
 			signInProblem = cause instanceof Error ? cause.message : String(cause);
 			// ⚠ **The guided sequence reopens over this page on the return leg**, so a refusal said only
-			// here is a refusal behind a dialog (SPEC story 35). Handed to the sequence as well, it is
-			// rendered on the sign-in step beside the button that starts the trip again.
+			// here is a refusal behind a dialog. Handed to the sequence as well, it is rendered on the
+			// sign-in step beside the button that starts the trip again.
 			connectSequence.signInRefusal = signInProblem;
 			if (!(cause instanceof GitHubCallbackRefusedError)) await strip(returning);
 		}
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// A PUBLISHED SITE'S FRONT PAGE LEADS BACK HERE (ticket 09, SPEC stories 49–51)
+	// A PUBLISHED SITE'S FRONT PAGE LEADS BACK HERE
 	//
 	// `?clone=owner/repo` and `?review=owner/repo&p=<directory>`, landing on the same one route the
 	// sign-in callback and `?p=` already arrive on, for the same reason: this app has one page.
@@ -268,8 +268,7 @@
 			// offer lands on the landmark before it goes (see `ReturnLinkOffer`), which is right whenever
 			// the screen underneath stays — but dropping `?p=` swaps the Project branch for the hub, so
 			// the element that was focused is unmounted and a visitor who declined a link is left on
-			// `<body>` after all (SPEC story 95). `keepFocus` cannot help with a node that no longer
-			// exists.
+			// `<body>` after all. `keepFocus` cannot help with a node that no longer exists.
 			if (outcome.reason === 'declined' && returnLink?.kind === 'review') {
 				void strip('').then(landOnTheEditor);
 			}
@@ -309,10 +308,10 @@
 	</main>
 {:else if storage.unavailable}
 	<!--
-		⚠ **Its own branch, above the hub and above the Project** (tickets 05 and 15). An Import or an
-		Update that did not finish could not be resolved, so this Workspace has not opened: its
-		provisional files sit at ordinary Workspace paths and a Project list, a Map Image list, a size,
-		a Backup or a Publish plan drawn now would include them. Nothing enumerates —
+		⚠ **Its own branch, above the hub and above the Project.** An Import or an Update that did not
+		finish could not be resolved, so this Workspace has not opened: its provisional files sit at
+		ordinary Workspace paths and a Project list, a Map Image list, a size, a Backup or a Publish
+		plan drawn now would include them. Nothing enumerates —
 		`storage.recovered` is never resolved — so rendering `ProjectHub` here would show “Looking for
 		your Projects…” for ever beside an alert saying the Workspace is shut, which answers neither
 		question.
@@ -332,10 +331,10 @@
 	<main class="mx-auto max-w-[90rem] p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<!--
-			**Where the work is stored is no longer asked here** (ticket 12). It is a setting, reached
-			from the Workspace button on the bar, and browser storage is the silent default — which is
-			what ADR-0001 always implied and what the hub asked anyway, of everyone, including the
-			majority of browsers where there is no picker to answer with.
+			**Where the work is stored is not asked here.** It is a setting, reached from the Workspace
+			button on the bar, and browser storage is the silent default — which is what ADR-0001 always
+			implied and what a hub that asked anyway got wrong, of everyone, including the majority of
+			browsers where there is no picker to answer with.
 
 			**What stays on the hub is the recovery**, and it is not the same thing. A moved, renamed, or
 			unplugged folder is a normal state with a way back (ADR-0008), and it has to be *immediate*:

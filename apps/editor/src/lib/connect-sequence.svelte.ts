@@ -15,9 +15,9 @@
  * That the page is about to be replaced by GitHub's authorisation screen, and why.
  *
  * ⚠ **The App sign-in is a redirect off this page, so continuing afterwards is not something the
- * sequence can hold in memory** (SPEC story 8). A student presses one button, authorises on GitHub,
- * and comes back to a fresh document — and a sequence that did not reopen would have made signing in
- * look like it undid their place rather than advanced it, which is the failure the whole epic is about.
+ * sequence can hold in memory.** A student presses one button, authorises on GitHub, and comes back
+ * to a fresh document — and a sequence that did not reopen would have made signing in look like it
+ * undid their place rather than advanced it, which is the failure this mark exists to prevent.
  *
  * `sessionStorage`, beside the sign-in's own `state` and for the same reasons: it is this tab's and
  * nobody else's, and it does not outlive the tab. It is consumed on the first read, so a reload later
@@ -28,12 +28,12 @@ const RESUMING_KEY = 'ballastella.connect-sequence-resuming';
 /**
  * That the author has already been past the step telling them a GitHub account is needed.
  *
- * ⚠ **A hint that refines a derived step, never a position that replaces one** (SPEC stories 6 and
- * 34). Whether somebody has a GitHub account is the one fact in the whole sequence that cannot be
- * read from anywhere: GitHub will not answer it about a stranger, so the pre-sign-in step *offers*
- * the prerequisite rather than detecting it, and the only thing worth remembering is that it has
- * been offered. Every other step of the sequence is still a reading of what is true, and this one
- * is overruled the moment a credential exists.
+ * ⚠ **A hint that refines a derived step, never a position that replaces one.** Whether somebody
+ * has a GitHub account is the one fact in the whole sequence that cannot be read from anywhere:
+ * GitHub will not answer it about a stranger, so the pre-sign-in step *offers* the prerequisite
+ * rather than detecting it, and the only thing worth remembering is that it has been offered. Every
+ * other step of the sequence is still a reading of what is true, and this one is overruled the
+ * moment a credential exists.
  *
  * `sessionStorage`, so it lasts exactly as long as the tab the sign-in does — a lab machine handed
  * to the next student starts from the beginning. Not consumed on read, unlike {@link RESUMING_KEY}:
@@ -84,7 +84,7 @@ class ConnectSequence {
 	 * ⚠ **The refusal happens on a document this sequence did not exist in.** The App sign-in
 	 * replaces the page, so a decline on GitHub's own screen is judged by the route that receives the
 	 * callback — and without somewhere to put it, the sequence reopened on the return leg would show
-	 * a sign-in step with no account of why the last press did not work (SPEC story 35).
+	 * a sign-in step with no account of why the last press did not work.
 	 */
 	signInRefusal = $state('');
 

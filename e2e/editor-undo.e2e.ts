@@ -46,8 +46,8 @@ import {
 import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 /**
- * SPEC's Seam 2 for the Edit History of a screen (ADR-0039): gestures walked back and forward in the
- * running app, **after autosave has already written each of them to disk**.
+ * Seam 2 for the Edit History of a screen (ADR-0039): gestures walked back and forward in the running
+ * app, **after autosave has already written each of them to disk**.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY EVERY TEST HERE WAITS FOR "SAVED" BEFORE PRESSING UNDO
@@ -63,8 +63,8 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
  * undo is state-heavy and almost entirely invisible, which is exactly the shape that produces a green
  * test over a broken feature. Byte identity is the strongest form available — a restored
  * `alignments/*.json` or `annotations/*.geojson` has to be the file that was deleted, not a
- * re-serialisation of a parsed model that is merely equivalent (the same bar ticket 09 set for display
- * state).
+ * re-serialisation of a parsed model that is merely equivalent — the same bar display state is held
+ * to.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHAT THE TWO ALIGNMENT ROUND-TRIP TESTS ARE FOR
@@ -200,9 +200,9 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
  */
 async function openWorkspace(page: Page): Promise<void> {
 	await page.goto('/?p=amsterdam-1625');
-	// Aligning is `/align/?p=…&layer=…` since ticket 03, and it is entered by the link rather than by a
-	// hand-written URL: the route is keyed by Layer id, which this test has no other way to learn. The
-	// link is inside the Layer's own row since ticket 05, so the row is opened on the way.
+	// Aligning is `/align/?p=…&layer=…`, and it is entered by the link rather than by a hand-written
+	// URL: the route is keyed by Layer id, which this test has no other way to learn. The link is
+	// inside the Layer's own row, so the row is opened on the way.
 	await alignFromLayer(page);
 	await waitForSurface(page);
 	await expect(page.getByTestId('pairing-status')).toContainText('Control Point');
@@ -220,8 +220,8 @@ async function openWorkspace(page: Page): Promise<void> {
  * @param resuming how many Control Points the rebuilt pairing must show before it is safe to click
  */
 async function throughLayersAndBack(page: Page, resuming: number): Promise<void> {
-	// Out of the alignment route onto the Project — which *is* the Layer stack since ticket 04 — and
-	// back into aligning. Two in-app links rather than three, and still not one reload, which is the
+	// Out of the alignment route onto the Project — which *is* the Layer stack — and back into
+	// aligning. Two in-app links rather than three, and still not one reload, which is the
 	// whole of the helper: the Steps have to survive the workspace being destroyed and rebuilt, and
 	// the stack being drawn on the way is what destroys it.
 	await page.getByTestId('back-to-project').click();
@@ -341,7 +341,7 @@ async function annotating(page: Page): Promise<string> {
 	return layerId;
 }
 
-test.describe('a moved Control Point (SPEC story 38)', () => {
+test.describe('a moved Control Point', () => {
 	/**
 	 * The gesture ADR-0014 refuses to ship without an undo of: the easiest thing in the application to
 	 * mis-aim, on a WebGL canvas where "where was it before?" cannot be recovered by looking.
@@ -391,7 +391,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		expect(await rowText(page, 1)).toBe(wasAt);
 
 		// The one Step in this history is spent, so that end of it is empty — and absent rather than
-		// disabled, which is how "there is nothing to undo" stays one piece of state (SPEC story 45).
+		// disabled, which is how "there is nothing to undo" stays one piece of state.
 		await expect(editHistoryUndo(page)).toHaveCount(0);
 		await expect(page.getByTestId('edit-history-outcome')).toContainText(
 			'Undone: move of Control Point 1.'
@@ -399,7 +399,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await page.keyboard.press('Control+z');
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
 
-		// And the other end is not: an undo pressed by mistake is itself reversible (SPEC story 7).
+		// And the other end is not: an undo pressed by mistake is itself reversible.
 		await expect(editHistoryRedo(page)).toHaveAttribute(
 			'aria-label',
 			'Redo move of Control Point 1'
@@ -422,7 +422,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 
 		await page.getByTestId('back-to-project').click();
 		await expect(addMapImageButton(page)).toBeVisible();
-		// ⚠ **The reported defect, on the screen it was reported on** (SPEC story 1). The edit was made
+		// ⚠ **The reported defect, on the screen it was reported on**. The edit was made
 		// while aligning, and the Project screen's own Edit History is empty — so the bar offers nothing
 		// here rather than offering to reverse a Control Point that is not on this screen.
 		await expect(editHistoryUndo(page)).toHaveCount(0);
@@ -439,7 +439,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await expect(controlPointRows(page)).toHaveCount(3);
 		await page.waitForTimeout(3500);
 
-		// …and back on the Align screen it is offered again, still naming the move (SPEC story 2).
+		// …and back on the Align screen it is offered again, still naming the move.
 		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
 		await editHistoryUndo(page).click();
 		await saved(page);
@@ -454,8 +454,8 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 	 * `EditorSession.open` returns early for the Project already showing, and a history is keyed by Map
 	 * Image rather than by Project (ADR-0039) — so a trip to the Layers pane and back leaves this
 	 * Alignment's Steps exactly where they were while the workspace builds a fresh `AlignmentPairing`
-	 * out of the file. That is the epic's premise working, and it is also what made a restore closure
-	 * that had captured its pairing dangerous: undoing wrote *that* object's whole Alignment, so a
+	 * out of the file. That is the premise working, and it is also what made a restore closure that
+	 * had captured its pairing dangerous: undoing wrote *that* object's whole Alignment, so a
 	 * Control Point placed after coming back was deleted out of the file with nothing on screen moving
 	 * and the affordance claiming only that a point had been put back.
 	 *
@@ -521,7 +521,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		expect(await rowText(page, 1)).toBe(wasAt);
 		await expect(editHistoryUndo(page)).toHaveCount(0);
 
-		// Both directions, back to where the walk started (SPEC story 8).
+		// Both directions, back to where the walk started.
 		await editHistoryRedo(page).click();
 		await saved(page);
 		await editHistoryRedo(page).click();
@@ -533,7 +533,7 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 	});
 });
 
-test.describe('a deleted Control Point pair (SPEC story 38)', () => {
+test.describe('a deleted Control Point pair', () => {
 	/**
 	 * The ordinal is derived from the pair's position in the file and is stored nowhere (ADR-0022), so
 	 * "restores the pair with its original ordinal" is a claim about *where* it goes back — and the
@@ -622,8 +622,8 @@ test.describe('a Resource Mask corner added or taken away', () => {
 		// spent a Step of its own rather than the move's.
 		await expect(editHistoryUndo(page)).toHaveText('Undo move of Control Point 1');
 
-		// SPEC story 7: an undo pressed by mistake is itself reversible, and the corner is what has to
-		// come back — the half of the round trip that a Step's `after` image is responsible for.
+		// An undo pressed by mistake is itself reversible, and the corner is what has to come back —
+		// the half of the round trip that a Step's `after` image is responsible for.
 		await editHistoryRedo(page).click();
 		await saved(page);
 		await expect(maskVertices(page)).toHaveCount(5);
@@ -643,7 +643,7 @@ test.describe('a Resource Mask corner added or taken away', () => {
 	});
 });
 
-test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
+test.describe('a deleted Annotation', () => {
 	/**
 	 * `stroke-dasharray` is the property named in the criterion, and for a reason: **solid is the
 	 * property being absent** (ADR-0009). An undo that rebuilt the Annotation from the editor's current
@@ -684,7 +684,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		// the indicator is still saying what the gesture before it left it saying — so waiting for
 		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
 		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
-		// The deletion is now what redo offers, in the same sentence with one word swapped (SPEC story 7).
+		// The deletion is now what redo offers, in the same sentence with one word swapped.
 		await expect(editHistoryRedo(page)).toHaveAttribute(
 			'aria-label',
 			'Redo delete of “Fort Amsterdam”'
@@ -700,7 +700,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		expect(painted[annotationId]?.length ?? 0).toBeGreaterThan(0);
 
 		// The drawing and the line style that preceded the deletion are still behind the cursor, which is
-		// what makes this a history rather than a slot (SPEC story 6).
+		// what makes this a history rather than a slot.
 		await expect(editHistoryUndo(page)).toHaveText('Undo restyling “Fort Amsterdam”');
 	});
 
@@ -723,8 +723,8 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
 		// A new Layer goes on top of the stack; the older one is the one drawn into, so it is the one
-		// opened before anything is drawn. Since ticket 05 opening a Layer *is* choosing it, so this is
-		// the whole of the gesture rather than a click and then a picker.
+		// opened before anything is drawn. Opening a Layer *is* choosing it, so this is the whole of the
+		// gesture rather than a click and then a picker.
 		const places = (await rowIds(page)).find((id) => id !== routes) as string;
 		await openLayerRow(page, rowFor(page, routes));
 
@@ -782,11 +782,11 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 	});
 });
 
-test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
+test.describe('a deleted Layer', () => {
 	/**
-	 * The case the ticket calls the one where the loss is largest, and the one the delete button could
-	 * not exist without: deleting a map Layer deletes the Alignment it draws, so undo has to put a file
-	 * back — byte for byte, not a re-serialisation that happens to parse the same.
+	 * The case where the loss is largest, and the one the delete button could not exist without:
+	 * deleting a map Layer deletes the Alignment it draws, so undo has to put a file back — byte for
+	 * byte, not a re-serialisation that happens to parse the same.
 	 */
 	test('restores the project.json entry and the Alignment byte-for-byte', async ({ page }) => {
 		test.setTimeout(120_000);
@@ -801,7 +801,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		const [annotationLayer, mapLayer] = (await rowIds(page)) as [string, string];
 		// At the Workspace root (ADR-0023), which is what makes the claim below a claim about ADR-0023
 		// rather than about undo: deleting the Layer must leave the Map Image and its Alignment where
-		// they are, because another Project may be drawing them (SPEC story 67).
+		// they are, because another Project may be drawing them.
 		const before = await hashesUnder(page, 'alignments/', '');
 		expect(before).toHaveLength(1);
 		const layersBefore = (await projectJson(page)).layers;
@@ -838,10 +838,10 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		await expect
 			.poll(() => stackOrder(page), { timeout: STACK_READY_MS })
 			.toContain(`ballastella-layer-${mapLayer}`);
-		// Redo has appeared, naming the same action with one word swapped (SPEC stories 43, 44) — and
-		// undo has moved back one place, to the Annotation Layer this test added at the top, which is
-		// a Step of its own (SPEC stories 6, 15). Whether a control is absent rather than
-		// greyed out at each end of the history is asserted at Seam 1c.
+		// Redo has appeared, naming the same action with one word swapped — and undo has moved back one
+		// place, to the Annotation Layer this test added at the top, which is a Step of its own.
+		// Whether a control is absent rather than greyed out at each end of the history is asserted at
+		// Seam 1c.
 		await expect(editHistoryRedo(page)).toHaveAccessibleName(
 			'Redo delete of the Layer “la-floride.png”'
 		);
@@ -854,7 +854,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// The links rather than `page.goto`, because a reload builds a new session and would assert
 		// nothing: what is asserted is that the *slot* empties and fills as the screen changes while
 		// the history itself stays exactly where it was.
-		// The map Layer's own row, which is the second: aligning is keyed by Layer id (ticket 03).
+		// The map Layer's own row, which is the second: aligning is keyed by Layer id.
 		await alignFromLayer(page, 1);
 		await waitForSurface(page);
 		// `/align` declares the Alignment's own Edit History, which this map has taken no Step in, so
@@ -908,7 +908,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 });
 
 /**
- * The trap ticket 09's review recorded, **closed by construction in ticket 02** (ADR-0023).
+ * The resurrection trap, **closed by construction** (ADR-0023).
  *
  * `EditorSession` used to bring a map Layer into existence on every Alignment write, so "is there a
  * Layer for this Alignment?" was not an idempotence key a deletion could survive: deleting a map Layer
@@ -925,9 +925,9 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE TEST THAT USED TO BE FIRST HERE, AND WHY THERE IS NOTHING LEFT FOR IT TO DRIVE
 	 *
-	 * "Delete the map Layer, then write the Alignment again" was the reproduction. Ticket 02 closed it
-	 * in the model — only adding a Map Image makes a Layer — and ticket 03 closed the *gesture* as
-	 * well: aligning is `/align/?p=…&layer=…`, keyed by Layer id, so a Map Image with no Layer in
+	 * "Delete the map Layer, then write the Alignment again" was the reproduction. The model closed it
+	 * — only adding a Map Image makes a Layer — and the *gesture* closed with it: aligning is
+	 * `/align/?p=…&layer=…`, keyed by Layer id, so a Map Image with no Layer in
 	 * this Project has no alignment view to be on. There is no click sequence that writes an Alignment
 	 * for a map this Project does not draw, so the test could only be kept by driving something the
 	 * interface does not offer.
@@ -944,9 +944,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 
 	/**
 	 * And undoing the deletion has to leave the *opposite* invariant in place: one Layer, the original
-	 * one, with a later Alignment write adding nothing. `parseLayers` drops a duplicate id (ticket 09's
-	 * remediation), so a second Layer for the same image would produce a document whose next read loses
-	 * one of the two.
+	 * one, with a later Alignment write adding nothing. `parseLayers` drops a duplicate id, so a second
+	 * Layer for the same image would produce a document whose next read loses one of the two.
 	 */
 	test('is put back by undo, and one Alignment write later there is still exactly one', async ({
 		page
@@ -992,7 +991,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 	 * it; it is kept because it costs one line and because a future re-introduction of a read there is
 	 * precisely what this should catch. What carries the test is the byte comparison, which goes red
 	 * the moment anything at all writes `project.json` during a pairing session — that is the claim,
-	 * and it is the claim ticket 03 could most easily have broken by making the route create a Layer.
+	 * and it is the claim the align route could most easily have broken by creating a Layer.
 	 */
 	test('a whole pairing session leaves project.json byte-identical', async ({ page }) => {
 		test.setTimeout(120_000);
@@ -1016,9 +1015,9 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await saved(page);
 
 		expect(await readProjectFile(page, 'project.json')).toBe(before);
-		// And the count the interface shows agrees. On the Project page since ticket 03: this test now
-		// runs on `/align/`, which has no Layer count on it, so the trip back is what puts the assertion
-		// in front of the number a user would actually read.
+		// And the count the interface shows agrees. It is on the Project page, and this test runs on
+		// `/align/`, which has no Layer count on it, so the trip back is what puts the assertion in
+		// front of the number a user would actually read.
 		await page.getByTestId('back-to-project').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 	});
@@ -1026,13 +1025,13 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 
 test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 	/**
-	 * The fence. Naming things stays the browser's to undo (SPEC story 30), so a rename must not
+	 * The fence. Naming things stays the browser's to undo, so a rename must not
 	 * consume a Step — otherwise a user who deletes something and then tidies a name has quietly lost
-	 * their way back (SPEC stories 31, 32).
+	 * their way back.
 	 *
 	 * **And it must not cost the scholar the name either.** A Step holds byte images, and undo writes
 	 * one back with the typed text on disk spliced into it (ADR-0039), so the name typed after the
-	 * deletion survives the undo of that deletion (SPEC story 33). The pair is the assertion: the
+	 * deletion survives the undo of that deletion. The pair is the assertion: the
 	 * reverted half comes from the image and the typed half from the file as it stands.
 	 */
 	test('a rename leaves the delete still undoable, and survives it', async ({ page }) => {
@@ -1067,15 +1066,15 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 		expect(await rowIds(page)).toEqual([top, bottom]);
 		// The name the scholar typed after the Step is carried across into what undo writes: it is
 		// theirs, it is not part of the deletion, and taking it back would be undoing words nobody
-		// asked to have undone (SPEC story 33).
+		// asked to have undone.
 		const layers = (await projectJson(page)).layers;
 		expect(layers[0].name).toBe('Trade routes');
 	});
 
 	/**
-	 * SPEC stories 52 and 53, and a claim only the running app can make: the Inspector is a real panel
-	 * over a real MapLibre canvas and the leader is drawn between two measured boxes, so "the panel
-	 * closed and the line went with it" cannot be asserted against a DOM implementation with no layout.
+	 * A claim only the running app can make: the Inspector is a real panel over a real MapLibre canvas
+	 * and the leader is drawn between two measured boxes, so "the panel closed and the line went with
+	 * it" cannot be asserted against a DOM implementation with no layout.
 	 *
 	 * **A history's own lifetime is asserted away from here, which is why it is not asserted twice.**
 	 * That an Edit History belongs to its subject — surviving a walk off the screen, dropped when the
@@ -1175,7 +1174,7 @@ test.describe('what undo will and will not hold (ADR-0014, ADR-0039)', () => {
 	});
 });
 
-test.describe('a deleted Label (write-on-the-map stories 42 and 43)', () => {
+test.describe('a deleted Label', () => {
 	/**
 	 * Only the running app can connect an Inspector delete and undo to OPFS bytes, Layer choice, and
 	 * MapLibre paint rather than merely to a reconstructed Annotation value.

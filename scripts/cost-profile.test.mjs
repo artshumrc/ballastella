@@ -2,7 +2,7 @@
 //
 // The reporter half is exercised by running the suite with `--profile` and reading the table it
 // writes. This is the rollup underneath it, which is where a wrong denominator would produce a
-// confident per-test figure that sends a later ticket at the wrong file.
+// confident per-test figure that sends the next migration at the wrong file.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -18,7 +18,7 @@ const run = (overrides = {}) => ({
 });
 
 // The per-test figure is asserted through the table rather than through a field on the rollup, because
-// the table is what a later ticket reads: a field nothing prints can drift from it with the suite green.
+// the table is what a reader reads: a field nothing prints can drift from it with the suite green.
 const row = (markdown, spec) =>
 	markdown.split('\n').find((line) => line.startsWith(`| \`${spec}\``));
 

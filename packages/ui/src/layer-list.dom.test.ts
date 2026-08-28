@@ -16,12 +16,12 @@
 // dependencies and asserting it here would assert it against the props this file passes in.
 // The sentence itself is `ProjectScreen`'s — see the note on {@link NOT_ALIGNED}.
 //
-// Ticket 08 added the foreign-kind row and the three snippets, and the snippets are where the line is
-// drawn most finely: **whether and where the card renders one is `LayerList`'s and is asserted here;
-// what goes inside one is `ProjectScreen`'s and is not.** `LayerListHarness.svelte` supplies markers
-// rather than the real Align link for exactly that reason. Nothing about a *drag* moved, and that was
-// probed rather than assumed — happy-dom's `DragEvent` carries neither `dataTransfer` nor
-// `relatedTarget`, which is entry 4 in `apps/editor/vitest.config.ts`'s catalog.
+// The foreign-kind row and the three snippets are where the line is drawn most finely: **whether and
+// where the card renders one is `LayerList`'s and is asserted here; what goes inside one is
+// `ProjectScreen`'s and is not.** `LayerListHarness.svelte` supplies markers rather than the real
+// Align link for exactly that reason. Nothing about a *drag* moved, and that was probed rather than
+// assumed — happy-dom's `DragEvent` carries neither `dataTransfer` nor `relatedTarget`, which is
+// entry 4 in `apps/editor/vitest.config.ts`'s catalog.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS RUNS IN NODE, AGAINST A DOM IMPLEMENTATION
@@ -337,7 +337,7 @@ describe('the DOM implementation this seam trusts', () => {
 	});
 });
 
-describe('a closed row stays useful (ticket 05)', () => {
+describe('a closed row stays useful', () => {
 	test('says what is wrong with a Layer as text, not as a colour', () => {
 		stack({
 			layers: [mapLayer('l-map', 'La Floride')],
@@ -439,7 +439,7 @@ describe('an empty stack', () => {
 	});
 });
 
-describe('what the stack says about itself (SPEC story 13)', () => {
+describe('what the stack says about itself', () => {
 	test('says in words that the top of the list draws over everything below it', () => {
 		// The order means something a user can check, and the only place it is *said* is here — the `<ol>`
 		// carries the sequence to a screen reader but nothing in the markup says which end is on top.
@@ -462,7 +462,7 @@ describe('what the stack says about itself (SPEC story 13)', () => {
 	});
 });
 
-describe('the list reaches assistive technology (SPEC story 96)', () => {
+describe('the list reaches assistive technology', () => {
 	test('is an ordered list whose structure and order come from the markup', () => {
 		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
@@ -496,7 +496,7 @@ describe('the list reaches assistive technology (SPEC story 96)', () => {
 	});
 });
 
-describe('opacity is a map Layer’s and no other kind’s (SPEC story 51)', () => {
+describe('opacity is a map Layer’s and no other kind’s', () => {
 	test('is absent from an open Annotation Layer and present on an open map Layer', async () => {
 		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
@@ -515,7 +515,7 @@ describe('opacity is a map Layer’s and no other kind’s (SPEC story 51)', () 
 	});
 });
 
-describe('reordering leaves the keyboard where it can move again (SPEC story 53)', () => {
+describe('reordering leaves the keyboard where it can move again', () => {
 	/**
 	 * ⚠ **What is asserted here is the list and the keyboard, never the map.**
 	 *
@@ -703,7 +703,7 @@ describe('what the screen supplies is drawn only where the card asks for it', ()
 	});
 });
 
-describe('a control the consumer does not ask for is not there (SPEC stories 58, 60)', () => {
+describe('a control the consumer does not ask for is not there', () => {
 	// ⚠ **Both halves of every claim, in this file, on purpose.** An absence asserted on its own is
 	// the vacuous green this repository's testing decisions exist to prevent: rename one
 	// `data-testid` and every `not.toBeInTheDocument()` below goes on passing while the control it
@@ -881,7 +881,7 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 
 		// Not an empty badge and not the other half of the sentence: no badge. Where a Map
 		// Image's tiles are held is the author's decision, and a consumer whose user cannot act on it
-		// has no reason to say it (SPEC story 20).
+		// has no reason to say it.
 		expect(one('layer-image-mode')).not.toBeInTheDocument();
 	});
 
@@ -930,7 +930,7 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 	});
 });
 
-describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', () => {
+describe('the two prop sets a real consumer passes', () => {
 	// The tests above take one prop at a time, which is what pins each guard to the callback it
 	// belongs to. This is the other claim, and it is the one a Reader meets: **the whole editing
 	// surface at once, present for the set the editor passes and absent for the set the viewer
@@ -1009,8 +1009,8 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 	test('tells a Reader an empty Project is empty, and leaves the instructions to the editor', () => {
 		// ⚠ **The regression this pair exists for.** The empty state used to be the editor's guidance
 		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Map
-		// Image* and mentioned "this Workspace" — two controls and a concept a published site does not have
-		// (SPEC story 19). The fact is shared; the instructions are the consumer's markup.
+		// Image* and mentioned "this Workspace" — two controls and a concept a published site does not
+		// have. The fact is shared; the instructions are the consumer's markup.
 		//
 		// A marker rather than the editor's own words, because `packages/ui` may not import from `apps/`
 		// (ADR-0034) and a sentence spelled out here would be this file agreeing with itself. The words
@@ -1033,7 +1033,7 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 		expect(one('no-layers')).toHaveTextContent('This Project has no Layers on it.');
 	});
 
-	test('tints a shown Layer’s header in its own kind’s colour for a Reader (SPEC story 10)', () => {
+	test('tints a shown Layer’s header in its own kind’s colour for a Reader', () => {
 		offering(viewerProps(), { layers: stackOfBoth() });
 
 		// What a Reader needs is that two kinds differ before a word has been read, so that is what is
@@ -1051,11 +1051,11 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 		expect(nth('layer-header', 1)).not.toHaveClass(KIND_STYLE.foreign.tint);
 	});
 
-	test('tells a Reader a Layer of a kind this build cannot draw is left alone (SPEC story 18)', () => {
+	test('tells a Reader a Layer of a kind this build cannot draw is left alone', () => {
 		// ⚠ **The second half of the same defect the empty state had.** This sentence used to end "and you
 		// can still rename it, hide it, and move it in the stack" for everybody — three affordances a
-		// Reader is offered none of two of, promised inside the card the Contract says has no editing on
-		// it. What the card says by itself is what is true wherever the Layer is met; what becomes of it
+		// Reader is offered none of two of, promised inside the card of a site that has no editing on it.
+		// What the card says by itself is what is true wherever the Layer is met; what becomes of it
 		// afterwards is the consumer's.
 		const foreign = (): Layer[] => [foreignLayer('l-cartouche', 'Cartouche')];
 
@@ -1097,7 +1097,7 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 			outcomes: { 'l-map': { status: 'refused', reason: NOT_ALIGNED } }
 		});
 
-		// SPEC story 17: a blank patch of map has its explanation beside it, without opening anything.
+		// A blank patch of map has its explanation beside it, without opening anything.
 		// The band is the card's own; only the *action* beside it is a consumer's, and a Reader has none.
 		expect(disclosure(0)).toHaveAttribute('aria-expanded', 'false');
 		expect(one('layer-problem')).toHaveTextContent(NOT_ALIGNED);

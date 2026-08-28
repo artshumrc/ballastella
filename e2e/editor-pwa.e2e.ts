@@ -50,7 +50,7 @@ import { seedMapLayer } from './support/project-screen';
 import { waitForStoredLayers } from './support/saved';
 
 /**
- * SPEC's Seam 2 for the PWA slice (stories 6, 8, 9; ADR-0012).
+ * Seam 2 for the PWA slice (ADR-0012).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHAT IS ASSERTED, AND WHY IT IS ASSERTED THIS WAY
@@ -79,10 +79,10 @@ import { waitForStoredLayers } from './support/saved';
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * THE THREE ENTRY ROUTES
  *
- * A whole class of navigation bug in this epic was invisible because tests used the link route or
- * the direct-load route and never both. An installed app adds a third: it opens at the manifest's
- * `start_url`. All three are driven below — `startUrl` is resolved from the manifest the browser
- * fetched rather than assumed to be the root.
+ * A whole class of navigation bug is invisible to tests that use the link route or the direct-load
+ * route and never both. An installed app adds a third: it opens at the manifest's `start_url`. All
+ * three are driven below — `startUrl` is resolved from the manifest the browser fetched rather than
+ * assumed to be the root.
  */
 
 /** How long a service worker gets to install and precache the shell. */
@@ -92,8 +92,8 @@ const TILES_READY_MS = 30_000;
 
 const deployments: { name: string; prefix: string }[] = [
 	{ name: 'a domain root', prefix: '' },
-	// Two segments deep, and named as a course would name it: SPEC story 99 is an instructor hosting
-	// their own instance, which on free static hosting is a repository subdirectory.
+	// Two segments deep, and named as a course would name it: an instructor hosting their own
+	// instance, which on free static hosting is a repository subdirectory.
 	{ name: 'a project subdirectory', prefix: '/teaching/ballastella' }
 ];
 
@@ -114,8 +114,8 @@ const waitForReady = (page: Page) =>
  * Load the app and come back with the page under the worker's control.
  *
  * The second load is not ceremony. A newly installed worker does not claim the page that installed
- * it — deliberately, because claiming a live client is the mid-alignment takeover story 9 rules out
- * — so the first load is always uncontrolled, and offline only means anything from the next one.
+ * it — deliberately, because claiming a live client is the mid-alignment takeover ADR-0012 rules
+ * out — so the first load is always uncontrolled, and offline only means anything from the next one.
  */
 async function installAndControl(page: Page, url: string): Promise<void> {
 	await page.goto(url);
@@ -185,11 +185,11 @@ async function startProjectWithMap(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 	});
-	// The image id off the Layer the map arrived with (ADR-0023, ticket 04).
+	// The image id off the Layer the map arrived with (ADR-0023).
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// **AND THEN WAIT FOR IT TO HAVE HAPPENED, NOT MERELY TO BE ON SCREEN** (ticket 17).
+	// **AND THEN WAIT FOR IT TO HAVE HAPPENED, NOT MERELY TO BE ON SCREEN**.
 	//
 	// Every caller of this reloads the page immediately afterwards — that is the point of the file:
 	// the scholar prepared in the office and is now in the reading room — and a reload takes the
@@ -200,9 +200,8 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	// here and neither was in this function, which is what made it look like contention.
 	//
 	// Two published steps, because the row can precede either. The preparing card leaves the stack
-	// when the ingest is over (ticket 06), so a pyramid that is still being written cannot be
-	// reloaded out from under. Asked of the card rather than of the file input, which since ticket 06
-	// is inside a closed dialog.
+	// when the ingest is over, so a pyramid that is still being written cannot be reloaded out from
+	// under. Asked of the card rather than of the file input, which is inside a closed dialog.
 	await expectNothingPreparing(page, 30_000);
 	// And the Layer itself is in `project.json`, not only in the component's state.
 	await waitForStoredLayers(page, 1);
@@ -212,12 +211,11 @@ async function startProjectWithMap(page: Page): Promise<string> {
 /**
  * Press Align on the Layer that draws `imageId`.
  *
- * Align is on the Layer since ticket 04, so a Project with two Map Images has two of them —
- * naming the image is how a test says which one it means, and `data-image-id` on the row is where
- * that is readable.
+ * Align is on the Layer, so a Project with two Map Images has two of them — naming the image is how
+ * a test says which one it means, and `data-image-id` on the row is where that is readable.
  */
 const alignLayerFor = (page: Page, imageId: string) =>
-	// Opened first: since ticket 05 the Align link is inside the Layer's own row.
+	// Opened first: the Align link is inside the Layer's own row.
 	alignFromLayer(page, page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`));
 
 /** Whatever has focus, said in enough detail that a change of focus is a change of string. */
@@ -338,10 +336,10 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// Fence 1: the shell cache is the hashed build assets and the entry HTML, and that is the
 				// whole list.
 				const shell = pathsOf(names[1] as string);
-				// `/align` is here because aligning is a route of its own since ticket 03, and it is the
-				// route SPEC story 8 is actually about: a scholar in a reading room with no wifi placing
+				// `/align` is here because aligning is a route of its own, and it is the route the
+				// offline claim is really about: a scholar in a reading room with no wifi placing
 				// Control Points. An entry page missing from this list is a page that 404s offline.
-				// `/base-map` and `/layers` are absent because ticket 04 deleted both: the Base Map with
+				// `/base-map` and `/layers` are absent because neither exists: the Base Map with
 				// its Layer stack *is* `/`, addressed by `?p=`. `/image-pane` stays — retained and
 				// unlinked, it is the only storage-independent projection coverage there is.
 				const entryHtml = ['/', '/align', '/image-pane'];
@@ -431,14 +429,14 @@ test.describe('the web app manifest and the service worker scope', () => {
 				await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 
 				// 2. A direct load of a page that is not the root, which is what a bookmark is. `/align`
-				// since ticket 04 deleted `/base-map`: it is the app's one other entry route, and it is
-				// the one SPEC story 8 is actually about — a scholar with no wifi placing Control Points.
+				// is the app's one other entry route, and it is the one the offline claim is really
+				// about — a scholar with no wifi placing Control Points.
 				await page.goto(`${site.url}align?p=nothing-here&layer=none`);
 				await expect(page.getByRole('heading', { level: 1, name: /^Align(?::|$)/ })).toBeVisible();
 
 				// 3. The link route: a client-side navigation from that page back to the hub. Driven from
-				// the second entry route rather than the first, because a class of navigation bug in this
-				// epic was invisible for exactly as long as every test used one of the two.
+				// the second entry route rather than the first, because a class of navigation bug stays
+				// invisible for exactly as long as every test uses one of the two.
 				await page.getByRole('link', { name: 'Back to all Projects' }).click();
 				await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 				await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible();
@@ -576,9 +574,9 @@ test.describe('the app with the network off', () => {
 	// THE CONTRACT CLAUSE: "a user's Map Images, Alignments, and Annotations always work with
 	// no network."
 	//
-	// The Base Map does not, and after ticket 10 it *cannot* — no archive ships and the tile cache is
-	// ticket 11 — so this is the clause that has to be proved separately, and separately is where a
-	// removal slice is most likely to quietly break it. Everything below runs with the network cut.
+	// The Base Map does not, and *cannot* — no archive ships (ADR-0025) and its tiles are cached only
+	// once fetched — so this is the clause that has to be proved separately, and separately is where a
+	// removal is most likely to quietly break it. Everything below runs with the network cut.
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	test('a Project with a local Map Image is fully usable with the network off', async ({
 		page,
@@ -591,7 +589,7 @@ test.describe('the app with the network off', () => {
 		// whatever local font is to hand, and a missing sprite is a warning and no icons. So a map that
 		// looks fine in a screenshot can be one that reached the network for half of itself. Anything
 		// naming a Base Map file after the switch below is a cache miss — and this listener is the only
-		// behavioural proof that the 820 KB of glyphs and sprites this ticket kept are actually served
+		// behavioural proof that the 820 KB of glyphs and sprites the shell keeps are actually served
 		// from the cache, rather than merely being present in it.
 		const complaints: string[] = [];
 		page.on('console', (message) => {
@@ -616,9 +614,9 @@ test.describe('the app with the network off', () => {
 		await page.reload();
 		await expect(addMapImageButton(page)).toBeVisible();
 
-		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`
-		// since ticket 03, so reaching it with the network off exercises the precached prerendered page
-		// and its code chunks as well as the panes themselves.
+		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`, so
+		// reaching it with the network off exercises the precached prerendered page and its code chunks
+		// as well as the panes themselves.
 		await alignFromLayer(page);
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
@@ -638,7 +636,7 @@ test.describe('the app with the network off', () => {
 		await expect(rows(page)).toHaveCount(3);
 		await expect(imagePoints(page)).toHaveText(['1', '2', '3']);
 
-		// **And they reached the disk.** This is the assertion the ticket singles out: an editor that
+		// **And they reached the disk.** This is the assertion that matters most: an editor that
 		// loads offline and silently fails to save would pass every assertion above it.
 		await waitForStored(page, imageId, 3);
 		const written = await storedAlignment(page, imageId);
@@ -653,10 +651,10 @@ test.describe('the app with the network off', () => {
 		await waitForStored(page, imageId, 4);
 
 		// **The Map Image is drawn warped over the earth, offline, with no Base Map under it.**
-		// This is the assertion ticket 10 was most likely to lose: `BaseMapPane` attaches the warped
-		// layer on the map's `load`, and the reason the bundled archive used to be precached was the
-		// measurement that a MapLibre style whose one vector source can never be reached never loads.
-		// No archive ships now and the tile cache is ticket 11, so the Base Map really is unreachable
+		// This is the assertion most easily lost: `BaseMapPane` attaches the warped layer on the map's
+		// `load`, and the reason the bundled archive used to be precached was the measurement that a
+		// MapLibre style whose one vector source can never be reached never loads. No archive ships
+		// (ADR-0025) and its tiles are cached only once fetched, so the Base Map really is unreachable
 		// here — and the scholar's own work still draws over it. Tiles that arrived *and decoded* are
 		// counted, because an error `@allmaps/render` logs and swallows renders a blank map.
 		//
@@ -671,7 +669,7 @@ test.describe('the app with the network off', () => {
 		).toBeGreaterThan(0);
 
 		// An Annotation drawn on the Project screen, and written to disk. Back out of the alignment
-		// route first: the Layer stack is on the Project (ticket 04), which is where this lands.
+		// route first: the Layer stack is on the Project, which is where this lands.
 		await page.getByTestId('back-to-project').click();
 		await expect(addMapImageButton(page)).toBeVisible();
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
@@ -680,9 +678,9 @@ test.describe('the app with the network off', () => {
 		await centreOnAmsterdam(page);
 		const layerId = await annotationLayerId(page);
 
-		// The new Layer goes on top of the stack, and its drawing tools are inside its own row since
-		// ticket 05 — opening it is what chooses it to draw into. Done offline, like everything else in
-		// this test: it is component state and asks nothing of the network.
+		// The new Layer goes on top of the stack, and its drawing tools are inside its own row —
+		// opening it is what chooses it to draw into. Done offline, like everything else in this test:
+		// it is component state and asks nothing of the network.
 		await openLayerRow(page, 0);
 		await chooseTool(page, 'point');
 		await clickAt(annotationBaseMap(page), 0.5, 0.5);
@@ -796,9 +794,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// through a worker is not the page's own as far as Playwright is concerned: `page.route` never
 		// sees it.
 		//
-		// **That is not why this handler is still here, and ticket 07's criterion 11 — "the fake remote
-		// IIIF service lives in `e2e/support/` and is used by every spec that needs one" — deserves the
-		// honest reason.** `installIiifHosts` takes `Pick<Page | BrowserContext, 'route'>` and documents
+		// **That is not why this handler is still here, and the rule that "the fake remote IIIF service
+		// lives in `e2e/support/` and is used by every spec that needs one" deserves the honest
+		// reason.** `installIiifHosts` takes `Pick<Page | BrowserContext, 'route'>` and documents
 		// the service-worker case in its own header, so passing it this `context` would work.
 		//
 		// What survives is smaller and duller: this one handler is *fused* — it serves the library and
@@ -847,7 +845,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 							profile: 'level2',
 							width: REFERENCED_WIDTH,
 							height: REFERENCED_HEIGHT,
-							// **`4` is load-bearing, and ticket 15 is why it is here.** The coarsest scale
+							// **`4` is load-bearing, and the alignment pane is why.** The coarsest scale
 							// factor has to reduce the whole sheet to a single tile: 700 × 500 at factor 2
 							// is 350 × 250, which spans two 256px tiles across, and the alignment pane
 							// refuses that in words — "the grid alignment the projection depends on would
@@ -883,7 +881,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 		expect(project, 'a Project is addressed by ?p= (ADR-0008)').not.toBeNull();
 
 		// A Map Image this Project references rather than holds, written beside the local one.
-		// Behind the app's back because the route that produces one is ticket 14's, and what is under
+		// Behind the app's back because adding one is another route's business, and what is under
 		// test here is only what happens to the tiles once they arrive.
 		await writeProjectFile(
 			page,
@@ -898,12 +896,12 @@ test.describe('a working session that reaches other people’s servers', () => {
 			// its record sits beside every other map's rather than inside one Project (ADR-0023).
 			''
 		);
-		// And the Layer of *this* Project that draws it. Since ticket 04 the referenced map's host is
-		// Layer state on the Project screen rather than a Workspace-wide list, so a fixture that writes
-		// only the Workspace's half is writing a map no Project uses.
+		// And the Layer of *this* Project that draws it. The referenced map's host is Layer state on
+		// the Project screen rather than a Workspace-wide list, so a fixture that writes only the
+		// Workspace's half is writing a map no Project uses.
 		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride', project!);
 		await page.reload();
-		// Where its tiles come from is inside the Layer that fetches them (ticket 05), so the row is
+		// Where its tiles come from is inside the Layer that fetches them, so the row is
 		// opened to reach it.
 		const referencedRow = await openLayerRow(
 			page,
@@ -916,9 +914,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		//
 		// This used to click "View unwarped" on the row above, because reading the sheet as a document
 		// was the only thing in the editor that fetched a referenced map's tiles from the library's own
-		// server. Ticket 15 deleted that control with triiiceratops, and the replacement had to be the
-		// *referenced* Layer's alignment pane specifically — since ticket 07 that pane deep-zooms a
-		// referenced map straight from the library.
+		// server. That control went with triiiceratops, and the replacement had to be the *referenced*
+		// Layer's alignment pane specifically — that pane deep-zooms a referenced map straight from the
+		// library.
 		//
 		// **Aligning `imageId` instead would have looked right and asserted nothing.** `imageId` is the
 		// locally ingested map `startProjectWithMap` made; its pyramid is in the Workspace and it asks
@@ -933,9 +931,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// and not merely its description.
 		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
 
-		// A Control Point pair, so that this is a working session and not a tour. On `/align/` since
-		// ticket 03, and reached from **this Project's own** Layer — Align is per Layer since ticket 04,
-		// and the local map has one of its own.
+		// A Control Point pair, so that this is a working session and not a tour. On `/align/`, and
+		// reached from **this Project's own** Layer — Align is per Layer, and the local map has one of
+		// its own.
 		await page.goto(`${site.url}?p=${project}`);
 		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
@@ -1053,8 +1051,8 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 				)
 			).getByTestId('referenced-image-host')
 		).toHaveText('gallica.example.test');
-		// The Project's *own* Map Image still aligns, on `/align/` (ticket 03), reached from its
-		// own Layer (ticket 04), opened (ticket 05).
+		// The Project's *own* Map Image still aligns, on `/align/`, reached from its
+		// own Layer, opened.
 		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
 			timeout: TILES_READY_MS
@@ -1086,7 +1084,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// Offline: the same request fails outright. The worker declines to respond at all, so the
 		// browser's own network failure is what the caller sees — while `project.json` is right there in
 		// OPFS and readable, which is the point. Two sources of truth for one Project is the thing
-		// ADR-0012 fence 2 calls the most damaging outcome available to this ticket.
+		// ADR-0012 fence 2 calls the most damaging outcome available to a service worker.
 		await context.setOffline(true);
 		const offline = await page.evaluate(
 			(url) =>
@@ -1118,11 +1116,10 @@ test.describe('the offer to install', () => {
 		await emptyWorkspace(page);
 		await page.reload();
 
-		// SPEC story 6, and ADR-0012's reason for the whole slice: installing is the answer both to "why
-		// does it keep asking about my folder?" and to "will this browser keep my Workspace at all?", so
-		// the offer sits beside those two explanations and nowhere else. Since ticket 12 that is
-		// Workspace settings rather than a permanently visible hub section — the offer moved with the
-		// question it answers.
+		// ADR-0012's reason for the whole slice: installing is the answer both to "why does it keep
+		// asking about my folder?" and to "will this browser keep my Workspace at all?", so the offer
+		// sits beside those two explanations and nowhere else — Workspace settings rather than a
+		// permanently visible hub section, because the offer belongs with the question it answers.
 		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
 		// frame, because a `<dialog>` has to exist before `showModal()` can be called on it. The claim
 		// is that the offer is not *on screen* until the dialog is opened.
@@ -1149,8 +1146,8 @@ test.describe('the offer to install', () => {
 		// after `load`, since hydration is a dynamic import. Dispatching before it is attached is a
 		// test that measures nothing, and it failed as "the offer never appeared".
 		//
-		// The offer lives in Workspace settings since ticket 12, so the dialog is opened to see it. The
-		// listener is in the layout and not in the dialog, so it is attached either way.
+		// The offer lives in Workspace settings, so the dialog is opened to see it. The listener is in
+		// the layout and not in the dialog, so it is attached either way.
 		await openWorkspaceSettings(page);
 		await expect(page.getByTestId('install-state-unavailable')).toBeVisible();
 
@@ -1186,7 +1183,7 @@ test.describe('the offer to install', () => {
 		);
 		expect((await probe()).prompted).toBe(0);
 
-		// And the button is what asks. Keyboard-operable, like every other control (story 95).
+		// And the button is what asks. Keyboard-operable, like every other control.
 		await page.getByTestId('install-app').focus();
 		await page.keyboard.press('Enter');
 		await expect.poll(async () => (await probe()).prompted).toBe(1);
@@ -1253,10 +1250,10 @@ test.describe('an update, and who decides when', () => {
 		await page.reload();
 
 		// A Project with a Map Image and two Control Points, and a third pair half made: this is
-		// "mid-alignment" in the most literal sense story 9 has, because the pending half lives only in
-		// the page and any reload at all would lose it.
+		// "mid-alignment" in the most literal sense, because the pending half lives only in the page
+		// and any reload at all would lose it.
 		await startProjectWithMap(page);
-		// Mid-alignment now means on the alignment route (ticket 03), which is also the sharper form of
+		// Mid-alignment now means on the alignment route, which is also the sharper form of
 		// this test: an update that reloaded would take the pending half *and* the route with it.
 		await alignFromLayer(page);
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('data-tiles-loaded', 'true', {
@@ -1405,8 +1402,8 @@ test.describe('an update, and who decides when', () => {
 		// worker genuinely being in charge rather than merely being present. Two caches where a moment
 		// ago there were four: a shell half of one build and half of another is the version skew
 		// ADR-0010 is about, and the marker above already says *which* build is serving. Deliberately
-		// no assertion about how a cache is named: SPEC's Testing Decisions rule out asserting on
-		// private structure, and a cache name is this worker's business and nobody else's.
+		// no assertion about how a cache is named: this repository's testing decisions rule out
+		// asserting on private structure, and a cache name is this worker's business and nobody else's.
 		await expect.poll(() => cacheNames(page), { timeout: INSTALL_MS }).toHaveLength(2);
 	});
 
@@ -1424,7 +1421,7 @@ test.describe('an update, and who decides when', () => {
 		// The consequence is the sharp end of ADR-0012. An uncontrolled page is not a client of the
 		// registration, so a version published during this session has nothing to wait behind: the
 		// browser installs it, activates it, and `activate` deletes the caches the previous build
-		// filled. Nothing a page can do prevents that — but being told is the whole of story 9, and
+		// filled. Nothing a page can do prevents that — but being told is the whole point, and
 		// the guard that asked "is there a waiting worker *and* am I controlled" answered no to both
 		// halves here and said nothing at all.
 		await page.goto(site.url);
@@ -1468,7 +1465,7 @@ test.describe('an update, and who decides when', () => {
 		// certain it is online, the button is enabled, and the user clicks it. Taking the update means
 		// dropping the registration and reloading, and if the reload does not arrive the user is left
 		// with no worker, no controlled page, and no offline shell: worse off than if they had never
-		// been offered it, which is the opposite of what this ticket is for.
+		// been offered it, which is the opposite of what the update prompt is for.
 		await site.stopServing();
 		await page.getByTestId('update-reload').click();
 

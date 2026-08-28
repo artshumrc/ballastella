@@ -7,12 +7,12 @@
 // is what makes triiiceratops able to open local IIIF for everyone rather than only here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// KEPT DELIBERATELY, WITH NO CALLER — TICKET 15, 2026-08-09
+// KEPT DELIBERATELY, WITH NO CALLER — 2026-08-09
 //
 // **This module has no consumer in this repository, and that is a recorded decision rather than an
 // oversight.** It never had one: the editor's `UnwarpedView` named it in a comment as the object it
-// would pass if it could, and ticket 15 deleted that component, so the only thing left pointing here
-// was a file that no longer exists. Saying that out loud is the whole point of this block — the
+// would pass if it could, and that component is gone, so the only thing left pointing here was a
+// file that no longer exists. Saying that out loud is the whole point of this block — the
 // alternative was an exported, tested function nobody could explain.
 //
 // **The upstream gap it waits on**, precisely: `triiiceratops` 1.0.0-rc.35 has no prop, plugin hook,
@@ -41,9 +41,9 @@
 // OpenSeadragon accepts a plain object as a tile source when it carries the members below; it does
 // not have to be an instance of `OpenSeadragon.TileSource`. Building one that way keeps
 // `openseadragon` out of `@ballastella/core`'s dependency tree, which matters for ADR-0019: the
-// published viewer depends on core, and every published site ships that bundle. Since ticket 15
-// `apps/viewer` is the only app that owns a triiiceratops component and therefore OpenSeadragon;
-// core owns the *rule* about where bytes come from.
+// published viewer depends on core, and every published site ships that bundle. `apps/viewer` is
+// the only app that owns a triiiceratops component and therefore OpenSeadragon; core owns the
+// *rule* about where bytes come from.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY `downloadTileStart` AND NOT `getTileUrl`

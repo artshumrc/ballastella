@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The Project (ticket 04, SPEC stories 1, 2, 3, 10–13).
+	// The Project.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// ONE SCREEN, AND WHY THIS ONE
@@ -16,13 +16,12 @@
 	// contributed is added around it: the Project name (now in a dialog), the way a Map Image
 	// gets in, and the remote-origin affordances.
 	//
-	// **What is left here, after ticket 06's carve.** Four subjects shared this `<script>`, and the
-	// annotation editing layer — `openLayerId`, the selection, the drawing gesture, and every
-	// function that writes an Annotation — is now `annotations/annotation-editing.svelte.ts`, where
-	// it has a unit test rather than only the browser suite. What remains is the document-loading
-	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Map
-	// Image gets in. **1776 lines before ticket 06, 1879 after its first cut, and this is what the
-	// carve leaves.** If this file is growing again, the next thing to leave is one of those four.
+	// **What lives here, and what does not.** Four subjects would otherwise share this `<script>`.
+	// The annotation editing layer — `openLayerId`, the selection, the drawing gesture, and every
+	// function that writes an Annotation — is `annotations/annotation-editing.svelte.ts`, where it
+	// has a unit test rather than only the browser suite. What remains is the document-loading
+	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Map Image
+	// gets in. **If this file is growing again, the next thing to leave is one of those four.**
 	//
 	// **A component rather than a route.** A Project is `/?p=<dir>` (ADR-0008) — the same prerendered
 	// page as the hub, choosing its subject client-side — so the thing that renders it has to be
@@ -133,7 +132,7 @@
 	});
 
 	/**
-	 * This screen's Edit History, declared for the navigation bar (ADR-0039, SPEC story 55).
+	 * This screen's Edit History, declared for the navigation bar (ADR-0039).
 	 *
 	 * The Project's own, keyed by its directory, so walking to `/align` and back finds the same one —
 	 * and so a screen that declares nothing, Workspace Home among them, draws no controls at all.
@@ -149,7 +148,7 @@
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
 
 	/**
-	 * Whether the Base Map's own source is drawing, as the pane reports it (ticket 20).
+	 * Whether the Base Map's own source is drawing, as the pane reports it.
 	 *
 	 * `null` until the pane has said anything, so the notice below appears when the archive has
 	 * actually failed and not in the moment before it has been asked for. It is reset when the
@@ -285,7 +284,7 @@
 			documents = read;
 			unreadable = failures;
 			// The collection on screen is now the one on disk, so an Annotation that is no longer in it
-			// takes the Inspector and the row's highlight with it (SPEC stories 52, 53).
+			// takes the Inspector and the row's highlight with it.
 			annotations.releaseMissingSelection();
 		})();
 	});
@@ -354,7 +353,7 @@
 	let rendered = $state.raw<Readonly<Record<string, DrawnOutcome>>>({});
 
 	/**
-	 * What a map Layer with too few Control Points says about itself (SPEC stories 18, 34, 35).
+	 * What a map Layer with too few Control Points says about itself.
 	 *
 	 * One sentence for every unaligned map Layer, whichever way it got here, because the state is one
 	 * state: adding a Map Image now puts a Layer in the stack straight away with a starter
@@ -501,10 +500,10 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Annotations
 	//
-	// **Carved out of this file** into `annotations/annotation-editing.svelte.ts` (ticket 06, on
-	// ticket 05's reading). It was 369 lines of one subject with exactly three edges to the rest of
-	// the screen — the session, the `documents` record, and `layers` — which is what those three
-	// arguments are. Everything about *why* each member is shaped as it is moved with it.
+	// **Kept out of this file**, in `annotations/annotation-editing.svelte.ts`: one subject with
+	// exactly three edges to the rest of the screen — the session, the `documents` record, and
+	// `layers` — which is what those three arguments are. Everything about *why* each member is
+	// shaped as it is lives there with it.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	const annotations = new AnnotationEditing({
@@ -525,7 +524,7 @@
 	let baseMapPane = $state<BaseMapPane | undefined>();
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// The leader (ticket 12, SPEC stories 39–42)
+	// The leader
 	//
 	// **It points at the Annotation itself**, at the middle of whatever is drawn for it. There is no
 	// mark in between to aim at: the pane projects the selected Annotation's own coordinate on demand,
@@ -539,9 +538,9 @@
 	/**
 	 * The two columns the leader is drawn between.
 	 *
-	 * `$state` rather than plain `let`s, unlike the button references elsewhere in this epic: the
-	 * accessors below are read inside `LeaderLine`'s effects, and a non-reactive binding assigned
-	 * during mount would leave the first of those effects observing nothing at all.
+	 * `$state` rather than plain `let`s, unlike a `bind:this` kept only to move focus: the accessors
+	 * below are read inside `LeaderLine`'s effects, and a non-reactive binding assigned during mount
+	 * would leave the first of those effects observing nothing at all.
 	 */
 	let layerSidebar = $state<HTMLElement | undefined>();
 	let mapColumn = $state<HTMLElement | undefined>();
@@ -589,8 +588,7 @@
 
 	/**
 	 * Ask the camera to keep the mark clear of the Inspector when a *different* Annotation is selected,
-	 * so the mark a scholar chose is never behind the panel describing it (the-annotation-inspector
-	 * story 19, ADR-0035).
+	 * so the mark a scholar chose is never behind the panel describing it (ADR-0035).
 	 *
 	 * **What holds the line against a camera move per keystroke is this effect's dependency set, which is
 	 * `selectedAnnotationId` and nothing else.** `selectedAnnotation` is a fresh object after every save,
@@ -643,7 +641,7 @@
 	 *
 	 * The control that was pressed — *Dismiss*, or *Delete* — is inside the panel that is leaving, so
 	 * without this the keyboard ends up nowhere and the way back is Tab from the top of the document,
-	 * past MapLibre's own controls (the-annotation-inspector story 56).
+	 * past MapLibre's own controls.
 	 *
 	 * ⚠ **"Focus is on `document.body`" is not the test here, and that is the trap.** The Inspector
 	 * leaves over 220 ms, so one microtask after the selection is cleared the pressed button is still in
@@ -667,10 +665,10 @@
 	 * Dismiss the Inspector, leaving the keyboard on the row the scholar chose it from.
 	 *
 	 * **Dismissing is deselecting**, because the selected row *is* the Annotation the Inspector
-	 * describes: one fact, one value (the-annotation-inspector story 54), and a row that stayed selected
-	 * with the panel gone would have no way back — pressing it again would deselect it. What dismissing
-	 * does not touch is the list: the Layer's card stays open and the row stays where it was, so the
-	 * scholar's place in it survives the panel going (story 20).
+	 * describes: one fact, one value, and a row that stayed selected with the panel gone would have no
+	 * way back — pressing it again would deselect it. What dismissing does not touch is the list: the
+	 * Layer's card stays open and the row stays where it was, so the scholar's place in it survives the
+	 * panel going.
 	 */
 	async function dismissInspector(): Promise<void> {
 		const row = selectedRow();
@@ -736,7 +734,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
+	// Making this Project available offline (ADR-0025)
 	//
 	// **Nothing here is stored and nothing is a flag.** Whether this Project is available offline is
 	// `offlineCoverage`'s answer to "are the tiles this extent needs on disk?", re-asked whenever the
@@ -790,7 +788,7 @@
 	): Promise<void> {
 		// This entry's own cache, not the Workspace's total: `maxZoom` below becomes the MapLibre
 		// source's `maxzoom`, and another archive's depth there is a map that goes blank above the zoom
-		// this one actually covers (ticket 12).
+		// this one actually covers.
 		cache = await current.baseMapCacheSizeFor(entry.archive);
 		try {
 			const read = await readOfflineCoverage(current, entry, forLayers);
@@ -882,7 +880,7 @@
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Project settings (SPEC stories 10, 11)
+	// Project settings
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
@@ -961,7 +959,7 @@
 	 * Map Images" and "Offline copies" were two lists of image ids sitting under a Project that
 	 * had no way to say which of its Layers each one belonged to; the same two facts — the tiles are on
 	 * a library's server, and this copy came from one — are properties of a Layer and belong on it
-	 * (ADR-0023). Tickets 05 and 07 give them their final form on an opened Layer card.
+	 * (ADR-0023), and they are shown on an opened Layer card.
 	 */
 	const originFor = (layer: MapLayer) =>
 		session.referencedImages.find((image) => image.imageId === layer.imageId);
@@ -986,7 +984,7 @@
 		)
 	]);
 
-	/** Whether the "Add a Map Image" dialog is up (ticket 06). A working choice, stored nowhere. */
+	/** Whether the "Add a Map Image" dialog is up. A working choice, stored nowhere. */
 	let addingMap = $state(false);
 
 	/**
@@ -1002,12 +1000,12 @@
 	let addNotice = $state('');
 
 	/**
-	 * What the preparation of a Map Image is doing, in one sentence (SPEC story 23).
+	 * What the preparation of a Map Image is doing, in one sentence.
 	 *
 	 * **One string, rendered twice**: visibly on the Layer's card, and in the always-present live
-	 * region below the stack. The ticket asks for the announcement to carry the same numbers as the
-	 * bar, and the only way to be sure of that is for there to be one sentence rather than two that
-	 * have to be kept agreeing.
+	 * region below the stack. The announcement has to carry the same numbers as the bar, and the only
+	 * way to be sure of that is for there to be one sentence rather than two that have to be kept
+	 * agreeing.
 	 */
 	const ingestSentence = $derived.by((): string => {
 		const ingest = session.ingest;
@@ -1032,7 +1030,7 @@
 	Escape abandons a part-drawn shape from anywhere on the screen, and then clears the Annotation
 	selection — which takes the Inspector off the map with it. **In that order**, because a gesture in
 	progress is what somebody pressing Escape almost always means, and the selection is what is left when
-	there is no gesture to abandon (ticket 07).
+	there is no gesture to abandon.
 
 	On the window rather than on the pane, for the reason ADR-0022 gives for the pending Control Point
 	half: the user may have tabbed away to the toolbar or the Annotation list, and "Escape only works if
@@ -1111,7 +1109,7 @@
 		screen pinned to the viewport's height would then have to squeeze both of them into it. The
 		stacked screen is as tall as its own content and the route's own scroller — the `min-h-0 grow
 		overflow-y-auto` box in `routes/+layout.svelte` — is what scrolls it, which is what "an ordinary
-		block in a page that scrolls as a whole" means here (the-annotation-inspector story 60).
+		block in a page that scrolls as a whole" means here.
 	-->
 	<div class="flex min-h-0 flex-col lg:h-full" data-testid="project-screen">
 		<!--
@@ -1125,8 +1123,7 @@
 			└───────────────────────────────────────────────────────────────────────────────────────────┘
 			It is the one the viewer's Project grid and the alignment route's panes already use, adopted
 			rather than chosen so that both applications stack at the same width: one width to learn, and
-			`leaderPath`'s refusal on a stacked layout then begins in both at the same place
-			(the-annotation-inspector story 60).
+			`leaderPath`'s refusal on a stacked layout then begins in both at the same place.
 
 			**The map column is first in the DOM, so stacked the map sits above the Layer stack**, which
 			becomes an ordinary block in a page that scrolls as a whole. The map is first because the
@@ -1143,10 +1140,8 @@
 		-->
 		<div class="relative flex min-h-0 grow flex-col lg:flex-row">
 			<!--
-				No `relative` here since ticket 15. It established the containing block for the unwarped
-				view's `absolute inset-0` overlay, which was this subtree's only absolutely positioned
-				child; nothing else here positions itself against it, and MapLibre's own container carries
-				`position: relative` from `maplibre-gl.css`.
+				No `relative` here: nothing in this subtree positions itself against a containing block of
+				its own, and MapLibre's own container carries `position: relative` from `maplibre-gl.css`.
 			-->
 			<div class="flex min-h-0 grow flex-col">
 				{#if !installedApp.online}
@@ -1191,8 +1186,8 @@
 				{/if}
 
 				<!--
-					The archive answered nothing while the connection is fine (ticket 20). It comes and goes
-					with the outage, so it is an `alert` and it is not on the page at all while the archive is
+					The archive answered nothing while the connection is fine. It comes and goes with the
+					outage, so it is an `alert` and it is not on the page at all while the archive is
 					answering; `MapNotice` decides both from `shape` and renders nothing for an empty sentence.
 
 					It is the same alert whether the Base Map is remote or this site's own; what differs is
@@ -1242,8 +1237,8 @@
 							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
 							// **Opens that Layer's card and the Annotation's own row**, which is where an
-							// Annotation is read (ticket 07) — so a click on the canvas is answered in the
-							// sidebar rather than by a bubble over the shape it is describing.
+							// Annotation is read — so a click on the canvas is answered in the sidebar
+							// rather than by a bubble over the shape it is describing.
 							// `openFromMap` rather than `openLayer`, which clears the selection — and a
 							// selection is precisely what this is making. Nothing is part-drawn here: the
 							// guard above is that guarantee.
@@ -1274,10 +1269,10 @@
 					{emptyStackNote}
 				>
 					<!--
-						Whether this Project works with no network, in words (SPEC stories 73, 112). Visible text
-						rather than a badge, and announced, because it is the fact a scholar checks before they
-						travel — and because "available offline" is computed from the files each time this is
-						read, so it can never be a label that outlived the tiles behind it.
+						Whether this Project works with no network, in words. Visible text rather than a badge,
+						and announced, because it is the fact a scholar checks before they travel — and because
+						"available offline" is computed from the files each time this is read, so it can never
+						be a label that outlived the tiles behind it.
 
 						`data-offline` carries the three states the sentence distinguishes: `yes`, `no`, and
 						`unknown` for a Base Map that could not be reached to be asked about.
@@ -1340,9 +1335,9 @@
 				<!--
 					The scroller, so that the stack is the only thing that scrolls. From `lg` the rail is as
 					tall as the screen and this box takes what the add-Layer pair below it does not, which is
-					what keeps that pair on screen under a Project with a dozen Layers (story 74). `min-h-0`
-					because a flex item will not shrink below its content without it, and an unshrunk box
-					overflows the rail instead of scrolling inside it.
+					what keeps that pair on screen under a Project with a dozen Layers. `min-h-0` because a
+					flex item will not shrink below its content without it, and an unshrunk box overflows the
+					rail instead of scrolling inside it.
 
 					⚠ **`lg:` on the overflow, and nothing below it.** Below `lg` the rail is an ordinary block
 					in the route layout's own scroller (`routes/+layout.svelte`), and a second scroller here
@@ -1379,13 +1374,11 @@
 						<!--
 							What to do when there is nothing to draw into yet, beside the button that fixes it.
 
-							**This sentence is not new; it is where it went.** It used to be `AnnotationPanel`'s
-							`layers.length === 0` branch, and the toolbar beneath it announced "Add an Annotation
-							Layer to start drawing." from a `disabled` state. Ticket 05 put the toolbar inside an
-							open Annotation Layer's row, which makes both of those unreachable — and an
-							announcement that disappears with the state it described is fine, while guidance that
-							disappears with it is an accessibility regression (SPEC story 112). So the guidance
-							moved to the affordance it is about rather than going with the panel.
+							**The guidance sits beside the affordance that answers it, not in the toolbar.** The
+							toolbar lives inside an open Annotation Layer's row, so with no Annotation Layer there
+							is no toolbar to carry it — and an announcement that disappears with the state it
+							described is fine, while guidance that disappears with it is an accessibility
+							regression.
 						-->
 						<p class="mt-2 max-w-prose text-sm" data-testid="no-annotation-layers">
 							No Annotation Layers yet. Add one, then open it to draw: its pins, lines, and shapes
@@ -1419,7 +1412,7 @@
 					</p>
 
 					<!--
-						What the preparation in the stack is doing, announced (SPEC stories 23, 112).
+						What the preparation in the stack is doing, announced.
 
 						─────────────────────────────────────────────────────────────────────────────────────────
 						WHY THE ANNOUNCEMENT IS HERE AND THE PROGRESS IS ON THE CARD
@@ -1465,20 +1458,21 @@
 
 					{#if mapLayers.length === 0 && session.ingest === null}
 						<!--
-							The Map Image empty state, beside the button that answers it (SPEC story 106). Derived
-							from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
-							to what this sentence *means*: the Workspace may hold a dozen Map Images and this Project
-							draw none of them, and "you have no maps" would be false while "this Project has none" stays
-							true. It is also what says a cancelled or refused preparation left the Project exactly as it
-							was.
+							The Map Image empty state, beside the button that answers it. Derived from the Layers
+							rather than from the Workspace's pyramids, which is the change ADR-0023 makes to what
+							this sentence *means*: the Workspace may hold a dozen Map Images and this Project draw
+							none of them, and "you have no maps" would be false while "this Project has none" stays
+							true. It is also what says a cancelled or refused preparation left the Project exactly
+							as it was.
 
-							**And it now names the third source, which is the state ticket 04 left unsaid.** A Map
-							Image whose starter Alignment could not be written arrives with its pyramid and without its
-							Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
-							it is on screen and `open()` clears it, so after a reload this sentence was the only thing
-							left and it described a Workspace that was not empty as if it were. The pyramid is offered by
-							the "already in this Workspace" source, and adding it from there is what writes the Alignment
-							that failed — so the useful next action is available rather than merely described.
+							**And it names the third source, which would otherwise go unsaid.** A Map Image whose
+							starter Alignment could not be written arrives with its pyramid and without its Layer
+							(ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while it
+							is on screen and `open()` clears it, so after a reload this sentence is the only thing
+							left — and naming two sources would describe a Workspace that is not empty as if it
+							were. The pyramid is offered by the "already in this Workspace" source, and adding it
+							from there is what writes the Alignment that failed — so the useful next action is
+							available rather than merely described.
 						-->
 						<p class="mt-4 max-w-prose text-sm" data-testid="no-map-images">
 							This Project has no Map Images yet. Press Add a Map Image to add one.
@@ -1500,10 +1494,10 @@
 					</p>
 
 					<!--
-						What an add had to say for itself after its dialog closed (ticket 06), out here for exactly
-						the reason stated above it. Always rendered so that its text *changing* is what a screen
-						reader hears; `alert-info` when there is something, because the add succeeded and nothing
-						is broken — what did not happen is one thing the user asked for, and it is said in the
+						What an add had to say for itself after its dialog closed, out here for exactly the reason
+						stated above it. Always rendered so that its text *changing* is what a screen reader
+						hears; `alert-info` when there is something, because the add succeeded and nothing is
+						broken — what did not happen is one thing the user asked for, and it is said in the
 						words `add-remote-map.svelte.ts` chose for it.
 					-->
 					<p
@@ -1525,21 +1519,21 @@
 				</div>
 
 				<!--
-					The one way a Map Image gets into this Project (ticket 06), beside the one way an
-					Annotation Layer gets in. What the first opens offers all three sources at once — a file,
-					a library, and a map this Workspace already holds — which is why it is one affordance
-					rather than three sections competing for a 24rem column.
+					The one way a Map Image gets into this Project, beside the one way an Annotation Layer
+					gets in. What the first opens offers all three sources at once — a file, a library, and a
+					map this Workspace already holds — which is why it is one affordance rather than three
+					sections competing for a 24rem column.
 
-					**The plus carries the verb; the words carry the noun** (SPEC story 111 asks for words,
-					not for an icon alone). `aria-label` restores the whole sentence for anyone who hears the
-					button rather than seeing it, and each one *contains* the visible words — "Add a **Map
-					Image**" — so a voice user who says what they read still hits the button (WCAG 2.5.3).
+					**The plus carries the verb; the words carry the noun**, never an icon alone. `aria-label`
+					restores the whole sentence for anyone who hears the button rather than seeing it, and each
+					one *contains* the visible words — "Add a **Map Image**" — so a voice user who says what
+					they read still hits the button (WCAG 2.5.3).
 
 					**Pinned: the rail's last child, `shrink-0`, outside the scroller above.** Everything else
 					in this column belongs to the stack or reports on it, so it scrolls with the stack; these
 					two are the only way to add to it, and inside the scroller a Project with a dozen Layers
-					put them off the bottom (story 74). `shrink-0` because the pair is what the scroller
-					yields height to, not the other way round.
+					put them off the bottom. `shrink-0` because the pair is what the scroller yields height to,
+					not the other way round.
 				-->
 				<div class="mt-4 flex shrink-0 gap-2">
 					<button
@@ -1568,7 +1562,7 @@
 			</div>
 
 			<!--
-				The leader, last so that it paints over both columns (SPEC stories 39–42).
+				The leader, last so that it paints over both columns.
 
 				⚠ **Nothing about which Annotation is active depends on it.** The row's `aria-expanded` says
 				which one is open and the map draws it more strongly, so this adds no fact —
@@ -1596,16 +1590,16 @@
 	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
-		The three sources a Map Image comes from (ticket 06). **Outside `project-screen` for the
-		reason stated above** — a closed daisyUI modal is laid out, so every control in it would answer
-		the tab walk's `querySelectorAll` while being unreachable by keyboard.
+		The three sources a Map Image comes from. **Outside `project-screen` for the reason stated
+		above** — a closed daisyUI modal is laid out, so every control in it would answer the tab
+		walk's `querySelectorAll` while being unreachable by keyboard.
 	-->
 	<AddMapImage {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
 
 	<!--
-		Project settings (SPEC stories 10, 11): the Project's name, folder, last-saved time, and the
-		secondary Base Map offline action. A dialog rather than a page keeps those occasional tasks out of
-		the map workspace.
+		Project settings: the Project's name, folder, last-saved time, and the secondary Base Map
+		offline action. A dialog rather than a page keeps those occasional tasks out of the map
+		workspace.
 	-->
 	<ModalDialog bind:open={settingsOpen} title="Project settings" wide>
 		<div class="flex flex-col divide-y divide-rule">
@@ -1656,9 +1650,8 @@
 				⚠ **Read-only, and it says why.** This is a record of transfers, not metadata an author
 				maintains: there is no control in it, and the description separates it from attribution in
 				words, because a list of accounts and filenames beside somebody's maps invites exactly that
-				reading (SPEC story 62). Each entry carries whether Ballastella saw the transfer or was
-				handed a record of one, so a claim nobody checked cannot pass for one this application
-				witnessed (story 64).
+				reading. Each entry carries whether Ballastella saw the transfer or was handed a record of
+				one, so a claim nobody checked cannot pass for one this application witnessed.
 			-->
 			{#if provenance.length > 0}
 				<section class="flex flex-col items-start gap-3 pt-6" data-testid="import-provenance">
@@ -1763,10 +1756,10 @@
 -->
 {#snippet noLayersGuidance()}
 	<!--
-		What an empty stack tells a scholar, and **it names the two buttons that are actually there**
-		(SPEC story 106). "Add a Map Image" and "Add an Annotation Layer" are the words on the
-		controls below the stack, not a description of them: guidance that names something the user then
-		has to translate into what is on screen is guidance they have to solve first.
+		What an empty stack tells a scholar, and **it names the two buttons that are actually there**.
+		"Add a Map Image" and "Add an Annotation Layer" are the words on the controls below the stack,
+		not a description of them: guidance that names something the user then has to translate into
+		what is on screen is guidance they have to solve first.
 
 		**Here rather than in `LayerList`, because it is instructions for this screen's own controls.**
 		The published viewer renders the same stack and has neither button and no Workspace, so a Reader
@@ -1801,26 +1794,25 @@
 
 {#snippet preparingLayer()}
 	<!--
-		The Map Image being prepared, as its own card at the top of the stack (ticket 06).
+		The Map Image being prepared, as its own card at the top of the stack.
 
 		─────────────────────────────────────────────────────────────────────────────────────────
 		WHY THIS LAYER IS NOT IN `project.json` YET, AND WHY THAT IS THE POINT
 
-		The ticket asks for a Layer to appear first and report its own preparation, and for cancelling
-		to remove it. The obvious way to build that is to write the Layer into `project.json` at the
-		start and delete it at the end if the user cancels — and that reintroduces the dangling
-		reference ticket 02 closed, by another door: for the minutes a gigapixel scan takes, the Project
-		on disk holds a map Layer whose pyramid and whose `alignments/<id>.json` do not exist, which is
-		a Project `assertReferencesPresent` refuses and this build would export and then decline to
-		import. Close the tab in that window and the Layer is permanent, because the code that would
-		have removed it is gone with the page. ADR-0023's write order — Alignment first, `project.json`
+		A Layer has to appear first and report its own preparation, and cancelling has to remove it. The
+		obvious way to build that is to write the Layer into `project.json` at the start and delete it
+		at the end if the user cancels — and that reintroduces a dangling reference by another door: for
+		the minutes a gigapixel scan takes, the Project on disk holds a map Layer whose pyramid and
+		whose `alignments/<id>.json` do not exist, which is a Project `assertReferencesPresent` refuses
+		and this build would export and then decline to import. Close the tab in that window and the
+		Layer is permanent, because the code that would have removed it is gone with the page. ADR-0023's write order — Alignment first, `project.json`
 		last — exists precisely to keep that state off the disk.
 
 		So the card is the Layer *before it is a Layer*: it is in the stack, at the position the row
 		will take, carrying the name of the file and the way to stop it. Cancelling removes it because
-		nothing was written; the criterion is met by construction rather than by a cleanup path that has
-		to run. What is given up is a rename or a reorder during the preparation, which are edits to a
-		document the map is not in yet.
+		nothing was written; the requirement is met by construction rather than by a cleanup path that
+		has to run. What is given up is a rename or a reorder during the preparation, which are edits
+		to a document the map is not in yet.
 	-->
 	{#if session.ingest}
 		{@const ingest = session.ingest}
@@ -1831,9 +1823,9 @@
 			</div>
 
 			<!--
-				The same sentence the live region announces, drawn where the eye is (SPEC story 111: visible
-				text, never a tooltip). `ingestSentence` is the one source of it — see the region below the
-				stack for why the announcement cannot live inside this card.
+				The same sentence the live region announces, drawn where the eye is: visible text, never a
+				tooltip. `ingestSentence` is the one source of it — see the region below the stack for why
+				the announcement cannot live inside this card.
 			-->
 			<p class="text-sm" data-testid="preparing-layer-status">{ingestSentence}</p>
 
@@ -1846,10 +1838,10 @@
 
 			<!--
 				A real button, beside the bar and reachable by tab. A gigapixel scan is thousands of tiles
-				and several minutes; picking the wrong file and having no way out of it is the thing
-				`ingest.ts` claimed to support and the app did not wire up until ticket 04. Named for what
-				it cancels rather than "Cancel", which tells a screen-reader user nothing when it is one of
-				several buttons on the page (ADR-0016).
+				and several minutes; picking the wrong file and having no way out of it is the failure this
+				button exists to prevent, and `ingest.ts` is what supports the cancel it calls. Named for
+				what it cancels rather than "Cancel", which tells a screen-reader user nothing when it is
+				one of several buttons on the page (ADR-0016).
 			-->
 			<div>
 				<button
@@ -1909,10 +1901,9 @@
 	What can be done about what a **closed** row is warning about — which, of the refusals a Layer can
 	report, is this one: a Map Image that has not been aligned yet is answered by aligning it.
 
-	The closed row carries "not aligned yet" so that a scholar can notice it without opening anything;
-	before this, noticing was all they could do there, and the control the sentence describes was one
-	disclosure away. Now the sentence names its own next action (SPEC story 106's rule, applied to a
-	Layer rather than to an empty sidebar).
+	The closed row carries "not aligned yet" so that a scholar can notice it without opening anything,
+	and the sentence names its own next action rather than leaving the control it describes one
+	disclosure away — the rule the empty sidebar's guidance follows, applied to a Layer.
 
 	**Only the not-aligned refusal, tested the same way the open row tests it** — on the *reported*
 	outcome rather than on `notAligned`, because that is where the precedence between the three
@@ -1937,8 +1928,8 @@
 			<!--
 				A colour **and** a sentence, because a class reaches nobody: a screen reader is told nothing
 				by `text-warning`, so the state has to be in the accessibility tree as text or it is not
-				information at all. Ticket 07 adds the needs-the-network state beside this one, under the
-				same rule and with an element and an id of its own.
+				information at all. Every other state that warns follows the same rule, with an element and
+				an id of its own.
 
 				─────────────────────────────────────────────────────────────────────────────────────────
 				AN ELEMENT MAY ONLY EVER SAY THE THING ITS ID NAMES
@@ -1966,7 +1957,7 @@
 			{@render alignLink(layer, 'align-map-image', 'Align')}
 
 			{#if referenced && origin}
-				<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->
+				<!-- Where the tiles come from, on the Layer that fetches them. -->
 				<span class="text-xs" data-testid="referenced-image-label"
 					>{origin.label || origin.imageId}</span
 				>
@@ -1976,10 +1967,9 @@
 				<OfflineCopyDialog image={origin} job={offlineCopy} />
 			{:else if origin}
 				<!--
-					An offline copy, and the address it came from (SPEC story 76). Kept visible because making
-					an offline copy keeps `remote.json` precisely so a copy can still be cited and traced back
-					to the library it came from (ADR-0007), and a copy nobody can cite is a copy that has been
-					orphaned.
+					An offline copy, and the address it came from. Kept visible because making an offline copy
+					keeps `remote.json` precisely so a copy can still be cited and traced back to the library
+					it came from (ADR-0007), and a copy nobody can cite is a copy that has been orphaned.
 				-->
 				<span class="text-xs" data-testid="offline-copy-label"
 					>{origin.label || origin.imageId}</span
@@ -2034,8 +2024,7 @@
 	**Both faces are the editor's snippets, and the Style one is withheld rather than emptied.** An
 	Annotation whose geometry this build cannot draw is passed no `style` at all, so it has no Style tab
 	rather than a tab that opens on an explanation of its own emptiness — and the viewer withholds the
-	same prop for the same effect, which is the whole of why a Reader has no tab strip
-	(the-annotation-inspector stories 28, 66).
+	same prop for the same effect, which is the whole of why a Reader has no tab strip.
 -->
 {#snippet inspectorText(annotation: Annotation)}
 	<AnnotationTextFace
@@ -2110,19 +2099,19 @@
 <!--
 	**Docked inside the Base Map pane's own positioned container**, which is what the pane's `overlay`
 	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
-	narrow pane, and the map still visible below it and beside it (stories 15, 17).
+	narrow pane, and the map still visible below it and beside it.
 
 	⚠ **Below `lg` it is a sheet across the bottom of the pane instead**, because a panel docked to a
-	corner has no corner to dock to on a phone (the-annotation-inspector story 61). It is the same
-	`AnnotationInspector` with the same props: where it sits is the consumer's, which is why the
-	component takes no `variant` and sets no `position` of its own.
+	corner has no corner to dock to on a phone. It is the same `AnnotationInspector` with the same
+	props: where it sits is the consumer's, which is why the component takes no `variant` and sets no
+	`position` of its own.
 
 	⚠ **`bottom-[6.25rem]`, and the number is the pane's bottom furniture rather than a taste.** A sheet
 	spanning the width crosses the whole of the pane's bottom edge, and two things live there: the
 	attribution at the bottom-right, which is an ODbL condition, and **MapLibre's zoom control at the
 	bottom-left, which is where the dock decision moved it precisely so that it could never be under the
-	Inspector** (the-annotation-inspector stories 18, 22). `z-index: 7` puts the sheet *over* both, so on
-	a phone neither is reachable unless the sheet's own inset leaves them alone — measured at 390 × 844
+	Inspector**. `z-index: 7` puts the sheet *over* both, so on a phone neither is reachable unless the
+	sheet's own inset leaves them alone — measured at 390 × 844
 	before this inset existed: the zoom-in button 100% covered, and `elementFromPoint` at its centre
 	answering with a paragraph of the description. The bottom-left control block measures 97 px — three 29 px buttons plus
 	MapLibre's own 10 px margin — so 6.25 rem clears it, and clears the 20 px attribution with it. One
@@ -2136,11 +2125,10 @@
 	that same function calls "behind the panel", so a mark it had just moved is one it would move again.
 	A Pin, whose mark box is 30 px tall where a shape's anchor is a point, cannot be got clear at 70% at
 	all. `BaseMapPane`'s `keepAnnotationClear` has the arithmetic. The cap is also what keeps the map
-	visible above the sheet (the-annotation-inspector story 17) and what gives the face something to
-	scroll inside.
+	visible above the sheet and what gives the face something to scroll inside.
 
-	⚠ **The `max-height` is what keeps the Base Map's attribution clear** (the-annotation-inspector
-	story 21). The attribution is an ODbL condition rather than decoration, and it sits at the pane's
+	⚠ **The `max-height` is what keeps the Base Map's attribution clear.** The attribution is an ODbL
+	condition rather than decoration, and it sits at the pane's
 	bottom-right — under this panel's own column. 3 rem leaves room for it and for the panel's own 0.5 rem
 	inset, so a long description scrolls inside the panel rather than the panel growing over the licence.
 
@@ -2150,9 +2138,9 @@
 	nothing. Below `lg` the pane is a fixed `h-[26rem]`, so no phone reaches it; above `lg` the pane still
 	tracks the window, and measured with the Style face open: 1024 × 340 leaves 19 px of face, 1024 × 300
 	leaves −20 px clipped to zero with the Style tab still pressing, and 1024 × 260 clips the tab strip
-	itself. Recorded rather than fixed because the repair is a decision this epic did not take — a floor
-	on the pane's height, or a face that scrolls the header with it — and a laptop that short is not a
-	display this application is for. **Recorded rather than asserted**, deliberately: an assertion that
+	itself. Recorded rather than fixed because the repair is an open decision — a floor on the pane's
+	height, or a face that scrolls the header with it — and a laptop that short is not a display this
+	application is for. **Recorded rather than asserted**, deliberately: an assertion that
 	held the face to 19 px would be a test of the defect, and would go red on the repair rather than on a
 	regression.
 
@@ -2170,7 +2158,7 @@
 	⚠ **`z-index: 7` is load-bearing.** The leader is 5 and `layout.css` forces MapLibre's four control
 	corners to 6 so the leader cannot be drawn across them; all three are compared in one stacking
 	context, because `.maplibregl-map` opens none. 7 is one clear of the controls, which is what keeps
-	the leader and the zoom control under this rather than through it (stories 18, 22).
+	the leader and the zoom control under this rather than through it.
 
 	⚠ **The `{#if}` is unkeyed and must not dip false while the selection moves.** `AnnotationInspector`
 	owns a fixed element id and a 220 ms out transition, so an outgoing panel that overlapped an incoming

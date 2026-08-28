@@ -9,15 +9,15 @@ Transfer serves two unrelated purposes, and one file format was serving neither 
 
 ## Why not a zip
 
-`exportProjectZip` refuses above 65,535 files, because `fflate` counts zip entries in a sixteen-bit field and emits no zip64 records. Measured: 70,000 entries produced an archive whose index claimed 4,464, and `unzipSync` read back 4,464 files **with no error at all** — a plausible-looking archive missing ninety-four per cent of a pyramid. The refusal exists so that never ships (tracker open question 4).
+`exportProjectZip` refuses above 65,535 files, because `fflate` counts zip entries in a sixteen-bit field and emits no zip64 records. Measured: 70,000 entries produced an archive whose index claimed 4,464, and `unzipSync` read back 4,464 files **with no error at all** — a plausible-looking archive missing ninety-four per cent of a pyramid. The refusal exists so that never ships.
 
 While a zip was one Project, that ceiling was reachable. As a **whole-Workspace** backup over a shared pool of large maps, exceeding it is the normal case, so the primary backup path would refuse for precisely the users who have no other one.
 
-Tar has no central directory and no entry count, so the ceiling does not exist. Tiles are already-compressed JPEG and the exporter already knows it — `ALREADY_COMPRESSED` skips deflating them — so compression was buying almost nothing. Tar is also **streamable in both directions**, which is what makes the other half of tracker question 4 fixable: a zip cannot be read without the central directory at its end, so restoring meant holding the whole archive in the JS heap and a ~400 MB backup could not be restored on an iPad at all.
+Tar has no central directory and no entry count, so the ceiling does not exist. Tiles are already-compressed JPEG and the exporter already knows it — `ALREADY_COMPRESSED` skips deflating them — so compression was buying almost nothing. Tar is also **streamable in both directions**, which is what makes the restore side fixable: a zip cannot be read without the central directory at its end, so restoring meant holding the whole archive in the JS heap and a ~400 MB backup could not be restored on an iPad at all.
 
 Writing our own zip64 central directory was rejected. It is archive-format code whose failure mode is silent data loss, which is the bug we are escaping rather than a bug worth reimplementing.
 
-**`modern-tar`** is the intended dependency: zero-dependency, Web Streams, USTAR with PAX extensions. A WASM implementation was considered and rejected — tar is a 512-byte header layout, not a computation, and ticket 05 is still stalled because npm ships only a threaded `wasm-vips` build needing COOP/COEP headers a static host cannot send. Adding a second WASM dependency to a path that must work on a static host would repeat that.
+**`modern-tar`** is the intended dependency: zero-dependency, Web Streams, USTAR with PAX extensions. A WASM implementation was considered and rejected — tar is a 512-byte header layout, not a computation, and the streaming tiler stalled precisely because npm ships only a threaded `wasm-vips` build needing COOP/COEP headers a static host cannot send ([ADR-0027](./0027-no-streaming-tiler-in-v1.md)). Adding a second WASM dependency to a path that must work on a static host would repeat that.
 
 **Paths here exceed tar's 100-character `name` field** — `<project-dir-up-to-64>/annotations/<uuid>.geojson` is about 121 characters — so USTAR `prefix` or PAX handling is load-bearing and must be asserted with a deliberately long Project name, not assumed.
 

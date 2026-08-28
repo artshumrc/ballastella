@@ -157,7 +157,7 @@ describe('the cursor', () => {
 		expect(history.redoable).toBeNull();
 	});
 
-	// SPEC stories 10 and 11: the sixth edit forgets the oldest rather than refusing to record.
+	// The sixth edit forgets the oldest rather than refusing to record.
 	it('holds five Steps, and a sixth evicts the oldest', async () => {
 		const { autosave, history } = seam();
 		for (const n of [1, 2, 3, 4, 5, 6]) await write(history, autosave, `Undo edit ${n}`, `${n}`);
@@ -176,7 +176,7 @@ describe('the cursor', () => {
 		]);
 	});
 
-	// SPEC story 9: redo never offers a future the scholar has contradicted.
+	// Redo never offers a future the scholar has contradicted.
 	it('truncates everything ahead of it when a new Step is pushed', async () => {
 		const { autosave, history, held } = seam();
 		await write(history, autosave, 'Undo edit one', 'one');
@@ -226,7 +226,7 @@ describe('the byte ceiling', () => {
 		expect(labels).toEqual(['Undo edit three', 'Undo edit two']);
 	});
 
-	// SPEC story 12: undo covers the last thing done even when it touched a large file.
+	// Undo covers the last thing done even when it touched a large file.
 	it('never evicts the most recent Step for size', async () => {
 		const { autosave, history } = seam({ byteCeiling: 1 });
 		await step(history, autosave, 'Undo edit one', 'a'.repeat(4096));
@@ -236,8 +236,8 @@ describe('the byte ceiling', () => {
 });
 
 describe('a write that does not land', () => {
-	// SPEC story 50: a failure must not look exactly like a success, and the affordance has to stay
-	// on the bar so the scholar can try again.
+	// A failure must not look exactly like a success, and the affordance has to stay on the bar so the
+	// scholar can try again.
 	it('answers false and leaves the cursor exactly where it was', async () => {
 		const { store, autosave, history, held } = seam();
 		autosave.queue(NOTES, encode('the first reading'));
@@ -254,7 +254,7 @@ describe('a write that does not land', () => {
 		expect(await held(NOTES)).toBe('the first reading');
 	});
 
-	// SPEC story 51: a slow undo cannot run twice.
+	// A slow undo cannot run twice.
 	it('refuses a second call while one is still in flight', async () => {
 		const store = new MemoryProjectStore();
 		const autosave = new Autosave(store);
@@ -289,7 +289,7 @@ describe('a write that does not land', () => {
 });
 
 describe('discard', () => {
-	// SPEC story 39: a disturbed history simply leaves, in both directions at once.
+	// A disturbed history simply leaves, in both directions at once.
 	it('empties both directions and publishes', async () => {
 		const { autosave, history } = seam();
 		await history.step('Undo edit one', [NOTES], async () => {

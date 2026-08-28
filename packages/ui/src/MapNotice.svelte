@@ -1,6 +1,6 @@
 <script lang="ts">
 	// A notice beside the map: the Base Map's archive did not answer, a Map Image's tiles stopped
-	// arriving, this Layer could not be reached (SPEC stories 17, 22, 70).
+	// arriving, this Layer could not be reached.
 	//
 	// Both apps say the same things about a map that is not drawing, and both already take the
 	// *sentence* from `@ballastella/core` so that two deployments cannot describe one outage two ways.

@@ -1,6 +1,5 @@
 <script lang="ts">
-	// The dashed line from the selected mark on a canvas to its row in the sidebar (SPEC stories 39,
-	// 40, 41, 45, 46).
+	// The dashed line from the selected mark on a canvas to its row in the sidebar.
 	//
 	// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 	// │ IT CARRIES NO INFORMATION OF ITS OWN, AND THAT IS THE POINT.                               │

@@ -3,7 +3,7 @@
 > **Amended by [ADR-0038](./0038-workspace-synchronization-is-explicit-and-baseline-based.md):** the publish manifest becomes a Synchronization Baseline established by Open, Update, or Publish. Update from GitHub is the explicit inbound operation; the Remote relationship itself is local-only and is not learned from synchronized content.
 
 A Publish builds one tree and moves one ref. What goes in that tree is the decision with the worst
-failure mode in this epic, so it is settled here rather than in a ticket.
+failure mode anywhere in publishing, so it is settled here.
 
 **Inside the owned namespace, the Remote becomes exactly the Workspace: additions, updates, and
 deletions. Outside it, nothing is touched.**
@@ -111,10 +111,10 @@ namespace on the Remote is non-empty.
 - **`remote.json` at the Workspace root holds the binding only** — owner, repository, branch —
   following `review.json`'s precedent. It is *inside* the published tree deliberately: the binding never
   changes, so it causes no churn, and a Clone learns its own Remote for free.
-- **A Publish writes `.nojekyll` itself, unconditionally.** `fork-and-publish` ticket 01 exists because
-  Jekyll drops every path beginning with `_` and the bundle lives in `_app/`; the tracker records that
-  the site needing the file is *"the author's — the Workspace they push to a repository of their own, by
-  hand."* A Publish is now that hand. `scripts/check-nojekyll.mjs` must be extended to the synced tree
+- **A Publish writes `.nojekyll` itself, unconditionally.** Jekyll drops every path beginning with `_`
+  and the bundle lives in `_app/`, so without the file a published site serves a blank page. The site
+  that needs it is the author's — the Workspace they push to a repository of their own, by hand — and a
+  Publish is now that hand. `scripts/check-nojekyll.mjs` must be extended to the synced tree
   or this regresses to a blank page on a scholar's domain with the reason only in a console.
 - **A Clone is as expensive as a first Publish and must resume.** The tree call's blob SHAs let it skip
   anything already present locally, which is the same hashing utility the upload needs — one

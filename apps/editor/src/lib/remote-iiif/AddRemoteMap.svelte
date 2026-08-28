@@ -1,18 +1,18 @@
 <script lang="ts">
-	// Adding a Map Image from a IIIF URL (SPEC stories 16, 17, 18, 19, 20, 24, 25, 26).
+	// Adding a Map Image from a IIIF URL.
 	//
 	// The whole flow is keyboard-operable without anything special being done for it, and that is the
 	// point of the elements chosen: the URL is an `<input>` in a `<form>`, so Enter submits; the
 	// canvases are `<button>`s in a list, so Tab reaches each and Enter and Space activate it; the
 	// community offer is a `<select>`; the lookup setting is a checkbox with a real `<label>`. A
 	// div-with-onclick would have needed `tabindex`, a keydown handler, and a role — three things to
-	// get right per control instead of none (SPEC story 95).
+	// get right per control instead of none.
 	//
 	// **Everything from the remote document is interpolated as text, never `{@html}`.** A IIIF label
 	// or metadata value is a stranger's string, and the Presentation API even permits a restricted
 	// subset of HTML in it. Svelte escapes interpolation, so the cost of this is a library's italics
-	// and the benefit is that ticket 10's Markdown-and-sanitisation path — which exists for the
-	// *user's own* prose — is not pressed into service on an untrusted third-party document.
+	// and the benefit is that the Markdown-and-sanitisation path — which exists for the *user's own*
+	// prose — is not pressed into service on an untrusted third-party document.
 
 	import type { MapLayer } from '@ballastella/core';
 
@@ -34,7 +34,7 @@
 		 * this call is for.
 		 *
 		 * **`notice` travels with the Layer** because the surface this panel lives in closes on a
-		 * successful add (ticket 06), and a message rendered here would be removed in the same frame it
+		 * successful add, and a message rendered here would be removed in the same frame it
 		 * appeared in — which is indistinguishable from one that never happened, for a screen reader
 		 * most of all. So the panel produces the sentence and the screen keeps it, the same division
 		 * `OfflineCopyJob.completed` already has and for the same reason. `''` when there is nothing to
@@ -168,7 +168,7 @@
 	</div>
 
 	<!--
-		**`job.notice` is not rendered here**, and that is ticket 06's doing rather than an omission.
+		**`job.notice` is not rendered here**, and that is deliberate rather than an omission.
 
 		The add succeeded and something the user asked for did not happen — the community Alignment they
 		chose was kept over — so it is news they must not miss. This panel is inside the dialog that
@@ -198,10 +198,10 @@
 			{#if described.summary}<p class="mt-1 text-sm">{described.summary}</p>{/if}
 
 			<!--
-				Rights and attribution (SPEC stories 20 and 28). Shown while choosing, so a scholar knows
-				what they are permitted to do *before* they build work on it — and recorded into
-				`remote.json` as well, because ADR-0007 asks for them again at the moment an offline copy
-				is made, long after the Manifest has been navigated away from.
+				Rights and attribution. Shown while choosing, so a scholar knows what they are permitted to
+				do *before* they build work on it — and recorded into `remote.json` as well, because
+				ADR-0007 asks for them again at the moment an offline copy is made, long after the Manifest
+				has been navigated away from.
 			-->
 			{#if described.rights}
 				<p class="mt-3 text-sm" data-testid="remote-rights">
@@ -253,7 +253,7 @@
 				</details>
 			{/if}
 
-			<!-- A Collection: one URL from a library, and the volumes inside it (SPEC story 17). -->
+			<!-- A Collection: one URL from a library, and the volumes inside it. -->
 			{#if job.items.length > 0}
 				<ul class="mt-4 flex flex-col gap-1" aria-label="Items in this Collection">
 					{#each job.items as item (item.uri)}
@@ -273,7 +273,7 @@
 				</ul>
 			{/if}
 
-			<!-- A multi-canvas Manifest: pick the canvas that is the map (SPEC story 19). -->
+			<!-- A multi-canvas Manifest: pick the canvas that is the map. -->
 			{#if job.canvases.length > 1}
 				<fieldset class="mt-4">
 					<legend class="text-sm font-medium">Which image is the map?</legend>
@@ -313,7 +313,7 @@
 						into your Project — so a Published Site of this Project needs the network to show it.
 					</p>
 
-					<!-- "Import existing alignment — 3 found." (SPEC story 25) -->
+					<!-- "Import existing alignment — 3 found." -->
 					{#if job.community?.state === 'found' && job.community.alignments.length > 0}
 						{@const alignments = job.community.alignments}
 						<label class="mt-3 block text-sm" data-testid="community-offer">

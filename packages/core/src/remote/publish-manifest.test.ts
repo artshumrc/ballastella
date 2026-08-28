@@ -8,7 +8,7 @@ import {
 	publishManifestKey
 } from './publish-manifest.js';
 
-// The manifest is *evidence about a Remote*, and ticket 05 refuses a publish on it. So the tests
+// The manifest is *evidence about a Remote*, and a publish is refused on it. So the tests
 // that matter are the ones about not believing something: a record from another build, a truncated
 // one, a storage that will not answer, and a key belonging to a different Workspace. Every one of
 // them has to come back "we cannot say" rather than "the Remote held nothing", because those two
@@ -55,7 +55,7 @@ describe('the publish manifest', () => {
 	// ⚠ **The hazard the Workspace key alone does not cover.** `bindRemote` may be called on a
 	// Workspace that is already bound, and unbinding leaves everything else where it is — so without
 	// this, this machine's claim about `ada/atlas` would stand as evidence about `ada/atlas-2`, and
-	// ticket 05 would read every legitimately changed path there as somebody else's work.
+	// a publish would read every legitimately changed path there as somebody else's work.
 	it('is no evidence about a repository it does not name', () => {
 		const storage = new FakeJournalStorage();
 		const manifests = new PublishManifests(storage, WORKSPACE);
@@ -127,7 +127,7 @@ describe('a record this build has no rules for', () => {
 
 	// ⚠ **The whole record, not the entries that survived.** A manifest truncated by a full
 	// `localStorage` mid-write would otherwise read as "the Remote held these six paths and no
-	// others", which ticket 05 would take as licence rather than as the absence of evidence it is.
+	// others", which a publish would take as licence rather than as the absence of evidence it is.
 	it('is no evidence when one entry names no blob', () => {
 		expect(
 			stored(
@@ -187,7 +187,7 @@ describe('a storage that will not co-operate', () => {
 	 *
 	 * The failing publish is the second, and the record that survives it describes the *first* — same
 	 * key, same shape, nothing to tell them apart. Read back, it says the Remote holds the tree it
-	 * held an hour ago, so ticket 05 would meet every path this publish legitimately changed as
+	 * held an hour ago, so a publish would meet every path this one legitimately changed as
 	 * somebody else's work. "We cannot say" is the only answer a failed write can honestly leave.
 	 */
 	it('throws the last publish’s record away when this one will not fit', () => {

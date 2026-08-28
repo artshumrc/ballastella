@@ -1,12 +1,11 @@
 // The key shape shared by everything this application keeps in `localStorage` per Workspace.
 //
-// Extracted rather than spelled twice (ticket 21). `journal.ts` had these three functions inline,
-// and `deleted-projects.ts` needs exactly the same shape for exactly the same reason: two records
-// keyed only by their subject would let an edit typed into "Marking 2026" be replayed into whichever
-// Workspace happened to be open at the next startup, and a *deletion* performed in one Workspace be
-// finished in another. A second hand-written copy of the encoding is a second thing that can drift
-// from the first, and the failure it would produce — a key one module writes and the other cannot
-// read — is silent.
+// Extracted rather than spelled twice. `journal.ts` and `deleted-projects.ts` need exactly the same
+// shape for exactly the same reason: two records keyed only by their subject would let an edit
+// typed into "Marking 2026" be replayed into whichever Workspace happened to be open at the next
+// startup, and a *deletion* performed in one Workspace be finished in another. A second
+// hand-written copy of the encoding is a second thing that can drift from the first, and the
+// failure it would produce — a key one module writes and the other cannot read — is silent.
 //
 // `encodeURIComponent` on both halves, and it is what makes the key unambiguous rather than merely
 // tidy: a Workspace name is arbitrary user text in any script (`toWorkspaceName` keeps letters,

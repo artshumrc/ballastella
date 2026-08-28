@@ -14,10 +14,10 @@
 	// `FeatureCollection` is the order its shapes draw in, which makes it the only thing deciding which
 	// of two overlapping Annotations is on top — ADR-0002's "order is load-bearing" one level down from
 	// the Layer stack. ADR-0016 makes the drag the *convenience* and requires a keyboard path beside it,
-	// and that path is deliberately **not** here: the row holds one button and nothing else opens in it
-	// (the-annotation-inspector stories 10, 69), so a control strip appearing under the selected row is
-	// the growth that story forbids. The Move buttons and the Layer picker live in the Inspector,
-	// where Delete already is, because all three act on the Annotation the panel is describing.
+	// and that path is deliberately **not** here: the row holds one button and nothing else opens in
+	// it, so a control strip appearing under the selected row is exactly the growth that rule forbids.
+	// The Move buttons and the Layer picker live in the Inspector, where Delete already is, because all
+	// three act on the Annotation the panel is describing.
 	//
 	// Without `onmove` there is no handle and no drop target, which is what a published site gets: the
 	// order of a Layer's shapes is the author's decision, and a Reader is not offered it.
@@ -110,9 +110,8 @@
 	An inset box shadow rather than `border-l-2`, because a border is layout: two pixels appearing on
 	the left of the selected row would shift its text sideways as the selection moved down the list.
 
-	Colour is not the only channel (the-annotation-inspector story 7): the name goes semibold, which
-	survives a monochrome screen, and `aria-expanded` is what carries the state to a screen reader
-	(story 8 of the same epic).
+	Colour is not the only channel: the name goes semibold, which survives a monochrome screen, and
+	`aria-expanded` is what carries the state to a screen reader.
 
 	**The whole row is the drop target and only the handle is the drag source**, which is the
 	arrangement `LayerList` arrived at the hard way: a pointer drag beginning anywhere inside a
@@ -178,7 +177,7 @@
 		One element under the `<li>`, because daisyUI's `menu` styles each direct child as an item: two
 		of them would be two padded, separately-hovering blocks where the row is one thing. **It is also
 		the whole of what the selected row grows by, which is nothing**: the handle is present on every
-		row whether or not it is the chosen one (stories 10, 69).
+		row whether or not it is the chosen one.
 	-->
 	<div class="flex items-center gap-1 rounded-none">
 		{#if onmove}
@@ -216,15 +215,15 @@
 				**That button's expanded state is the selection.** There is deliberately no `aria-pressed`
 				beside it: a row that was pressed but not open, or open but not pressed, would be two
 				answers to "which Annotation is active", and two properties for one fact are two things that
-				can disagree (the-annotation-inspector story 54). `aria-expanded` is ADR-0016's shape for a
-				disclosure, and it is the Layer card's own convention one level down rather than a second one
-				invented here. There is no separate control beside the name for the same reason: the gesture
-				that chooses an Annotation is the gesture that opens the panel about it.
+				can disagree. `aria-expanded` is ADR-0016's shape for a disclosure, and it is the Layer card's
+				own convention one level down rather than a second one invented here. There is no separate
+				control beside the name for the same reason: the gesture that chooses an Annotation is the
+				gesture that opens the panel about it.
 
 				**The region it names is the `AnnotationInspector`, across the screen** (ADR-0035).
 				`aria-controls` does not require containment, so the disclosure semantics survive the region
-				having moved out of the row (the-annotation-inspector story 53) — and it is named only while
-				this row is the selected one, because two rows naming one panel would be two rows claiming it.
+				having moved out of the row — and it is named only while this row is the selected one, because
+				two rows naming one panel would be two rows claiming it.
 			-->
 		<button
 			type="button"
@@ -236,11 +235,11 @@
 			onclick={() => onopen(open ? null : annotation.id)}
 		>
 			<!--
-					**The number, so that "look at 3" identifies one Annotation across a desk** (stories 37,
-					38). It is the same number the mark on the map draws, from `annotationOrdinal` in `core` —
-					one rule, so the canvas and the sidebar cannot disagree — and it is *inside the button*
-					rather than positioned beside it, so a screen reader hears "3, shape, Untitled shape 3" and
-					nothing about which Annotation is which depends on seeing a line (story 42).
+					**The number, so that "look at 3" identifies one Annotation across a desk.** It is the same
+					number the mark on the map draws, from `annotationOrdinal` in `core` — one rule, so the
+					canvas and the sidebar cannot disagree — and it is *inside the button* rather than
+					positioned beside it, so a screen reader hears "3, shape, Untitled shape 3" and nothing
+					about which Annotation is which depends on seeing a line.
 
 					⚠ **Nothing writes it.** The number is this row's place in the collection it was handed,
 					so deleting an Annotation renumbers the rest, and so does moving one (ADR-0002).
@@ -260,8 +259,7 @@
 
 			<!--
 					The same glyph the tool that drew it carries, and **beside the word rather than instead of
-					it** (SPEC story 111) — the word is what a screen reader reads and what a glyph alone would
-					have taken away.
+					it** — the word is what a screen reader reads and what a glyph alone would have taken away.
 				-->
 			<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
 			<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>

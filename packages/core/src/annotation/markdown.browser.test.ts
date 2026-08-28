@@ -4,8 +4,9 @@
 // parsing into a real DOM and walking it, so in Node it reports `isSupported: false` and has no
 // `sanitize` method at all — there is nothing here that a Node stub could assert without asserting
 // against the stub. It runs in Chromium *and* Firefox, which is the same reasoning
-// `vitest.config.ts` records for the storage adapters: this is the one surface in the epic where a
-// bug is a vulnerability, and a claim about browsers asserted in one engine is not asserted.
+// `vitest.config.ts` records for the storage adapters: this is the one surface in the codebase
+// where a bug is a vulnerability, and a claim about browsers asserted in one engine is not
+// asserted.
 //
 // Every assertion here is on the **rendered output**, never on the pipeline's shape. "DOMPurify is in
 // the call chain" is not a security property; "no `on*` attribute survives" is.
@@ -62,8 +63,7 @@ const stripBlanks = (text: string): string =>
  *
  * Returned as a list and asserted empty, rather than looped over and asserted inside the loop: a
  * payload that produced no URLs at all would run no assertion, and `vitest.config.ts` sets
- * `requireAssertions` precisely because a test that asserts nothing is the vacuous-pass shape this
- * epic has been caught by on every ticket so far.
+ * `requireAssertions` precisely because a test that asserts nothing is a vacuous pass.
  */
 function executableUrls(host: HTMLElement): string[] {
 	return urls(host).filter((url) => /^(javascript|data|vbscript):/i.test(stripBlanks(url)));
@@ -74,7 +74,7 @@ test('the renderer is available in a browser', () => {
 	expect(isDescriptionRendererSupported()).toBe(true);
 });
 
-describe('what a scholar writes (SPEC story 62)', () => {
+describe('what a scholar writes', () => {
 	test('emphasis renders', () => {
 		const host = render('A *conjectural* route, and a **certain** one.');
 
@@ -199,7 +199,7 @@ describe('a description is untrusted (ADR-0009)', () => {
 		expect(host.querySelectorAll('img')).toHaveLength(0);
 	});
 
-	test('the payload ticket 13 stored is inert, and its text is still readable', () => {
+	test('the payload an import stores is inert, and its text is still readable', () => {
 		// Byte-for-byte the payload `e2e/editor-transfer.e2e.ts` proved reaches storage unchanged. That
 		// test could only assert that import never inserted it; closing it is this, plus the same
 		// payload rendered in the running app in `e2e/editor-annotations.e2e.ts`.
@@ -274,7 +274,8 @@ describe('one value carrying prose and an attack together', () => {
 	const PROSE = 'The **west** quay, per the survey.';
 
 	/**
-	 * The payload ticket 13 proved reaches storage byte-identical, plus a `javascript:` link.
+	 * The payload `e2e/editor-transfer.e2e.ts` proves reaches storage byte-identical, plus a
+	 * `javascript:` link.
 	 *
 	 * The `javascript:` link is Markdown rather than HTML deliberately: it contains no markup, so a
 	 * sanitise-then-parse implementation passes it through as inert text and then reconstructs an

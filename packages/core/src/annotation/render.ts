@@ -1,7 +1,7 @@
 // An Annotation Layer as a renderer takes it: every style value already resolved.
 //
-// In `core` rather than in the editor because ticket 17's Published Site draws the same Annotations
-// with the same precedence, and precedence computed in two places is two answers that agree until
+// In `core` rather than in the editor because the Published Site draws the same Annotations with the
+// same precedence, and precedence computed in two places is two answers that agree until
 // somebody edits one of them (ADR-0019).
 //
 // **The shape of this module is decided by one MapLibre fact**: `line-dasharray` is not a

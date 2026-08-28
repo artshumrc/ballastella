@@ -39,12 +39,12 @@
 //      against its rule.
 //   5. **There is no `.wasm` in `build` to decide about, and that is ADR-0027's doing.** This slot
 //      held the longest of these five rules, because the shell's `.js`/`.css` filter existed partly
-//      to dodge a 5,084,535-byte `vips.wasm` that `vite build` emitted twice. Ticket 10 measured
-//      precaching it and reverted: it cost 23% more than the 4,137,622-byte pmtiles archive that
-//      ticket had just removed, and it bought criterion 7 — an installed app with no connection
-//      accepting a Map Image file on first run — **nothing**, because the streaming tiler could
-//      not run in this deployment at all and every image a browser can decode went through the
-//      decode-and-crop tiler, which is browser-native and reaches nothing.
+//      to dodge a 5,084,535-byte `vips.wasm` that `vite build` emitted twice. Precaching it was
+//      measured and reverted: it cost 23% more than the 4,137,622-byte pmtiles archive removed
+//      alongside it, and it bought criterion 7 — an installed app with no connection accepting a
+//      Map Image file on first run — **nothing**, because the streaming tiler could not run in
+//      this deployment at all and every image a browser can decode went through the browser-native
+//      decode-and-crop tiler, which reaches nothing.
 //
 //      The tiler that could not run is now gone, and with it the module. The filter stays as it is:
 //      it states a rule ("code and styles") rather than a list of things to dodge, so it needs no
@@ -68,14 +68,14 @@
 // NO SILENT ACTIVATION
 //
 // **Nothing here cuts a waiting worker's wait short, and nothing may.** ADR-0012 forbids that one
-// call by name and this ticket's acceptance criteria grep the source for it — which is why no
-// comment in this file spells it either, so the grep has no decoys to sift.
+// call by name, and the source is grepped for it — which is why no comment in this file spells it
+// either, so the grep has no decoys to sift.
 //
 // ADR-0010 named a stale service worker as a version-skew vector, and an explicit prompt is the
 // mitigation: silent activation is exactly how an old bundle quietly meets new data. A new worker
 // installs, fills its own cache, and then **waits**. `$lib/pwa/installed-app.svelte.ts` notices and
 // says so; the user chooses when. Nothing in this file reloads a page or takes over a client,
-// because an update must never interrupt somebody mid-alignment (SPEC story 9).
+// because an update must never interrupt somebody mid-alignment.
 //
 // The consequence of that is deliberate and is what the old-version criterion rests on: while a
 // new worker waits, the *old* one keeps serving out of the *old* cache, because the cache is named
@@ -237,7 +237,7 @@ worker.addEventListener('activate', (event) => {
 			)
 	);
 	// Deliberately no `clients.claim()`. A page that loaded under the previous worker keeps it for
-	// the rest of its life; taking over a live client is the mid-alignment interruption story 9
+	// the rest of its life; taking over a live client is the mid-alignment interruption ADR-0012
 	// rules out, and it is how an old page comes to be served new bytes.
 });
 

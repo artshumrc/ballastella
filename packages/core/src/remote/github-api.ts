@@ -1,4 +1,4 @@
-// The two GitHub hosts this epic talks to, and what every response of theirs says about the budget.
+// The two GitHub hosts Ballastella talks to, and what every response of theirs says about the budget.
 //
 // A leaf of their own rather than constants inside `fake-github.ts`, because the publish engine
 // needs the API origin and a fixture must never be something production code imports. The rate-limit

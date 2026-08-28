@@ -12,7 +12,7 @@
 // scholar, and a support request for whoever maintains this. So the question is asked once, at
 // the moment the user adds the resource, when there is still a dialog to put the answer in.
 //
-// Making an offline copy is not a way round it (ticket 15): an offline copy has to fetch the tiles too.
+// Making an offline copy is not a way round it: an offline copy has to fetch the tiles too.
 //
 // **`info.json` and one tile are both probed, and the tile is the one that matters.** They are
 // commonly served by different infrastructure — a JSON endpoint behind one proxy, image bytes
@@ -24,9 +24,10 @@
 //
 // `ImagePaneTile.placement` is `region ÷ scaleFactor`, which is right only under IIIF's own
 // semantics for `size=w,h`: the returned image *is* exactly w×h pixels and its full extent is
-// the full extent of the requested region. Ticket 05 asserts our own tiler honours that. **We
-// cannot assert it of a stranger's server** — and the error, up to 0.6% at the right and bottom
-// margins of a ragged tile, is sub-pixel, systematic, and invisible to every other test.
+// the full extent of the requested region. `decode-and-crop-tiler.browser.test.ts` asserts our own
+// tiler honours that. **We cannot assert it of a stranger's server** — and the error, up to 0.6% at
+// the right and bottom margins of a ragged tile, is sub-pixel, systematic, and invisible to every
+// other test.
 //
 // So the one thing that *is* checkable is checked, on the one tile that can show it: the probe
 // tile is ragged (see `chooseProbeTiles`), and its **decoded** dimensions must equal the dimensions
@@ -40,7 +41,7 @@
 // compressed tile. So it is tolerated and written down rather than detected: the residue is bounded
 // at 0.6% of one tile along two margins of the sheet, it is inside the same order as the JPEG noise
 // the tiles already carry, and "make an offline copy" removes it outright by re-cutting the pyramid
-// with the tiler ticket 05 *does* assert exact-resize of.
+// with the local tiler that exact-resize *is* asserted of.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // A GATE THAT REFUSES A FLAKY HOST IS A BUG, NOT A STRICTER GATE

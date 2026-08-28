@@ -3,10 +3,11 @@ import type { DrawnStackObjects, StackBuiltListener } from '@ballastella/core/re
 /**
  * The live Layer stack, for the Playwright suite.
  *
- * Same bargain as `ballastellaWarped` in ticket 07 and `ballastellaBaseMap` in ticket 04: SPEC's
- * Seam 2 is the real thing in a real browser and rules out a map abstraction, so a browser test needs
- * a handle on the objects themselves. This one exists for three questions that cannot be asked any
- * other way, and each is about what *rendered* rather than about what did not throw:
+ * Same bargain as `ballastellaWarped` and `ballastellaBaseMap`: the second of the two test seams
+ * `CONTRIBUTING.md` names is the real thing in a real browser and rules out a map abstraction, so a
+ * browser test needs a handle on the objects themselves. This one exists for three questions that
+ * cannot be asked any other way, and each is about what *rendered* rather than about what did not
+ * throw:
  *
  * - **What order did the stack end up in?** `map.getLayersOrder()` is MapLibre's own answer, and
  *   MapLibre's layer order *is* the mechanism by which one Layer draws above another. Asserting on

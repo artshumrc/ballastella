@@ -81,7 +81,7 @@ const PUBLISHED: Record<string, string> = {
 	...Object.fromEntries(OUTSIDE_NAMESPACE.map((path) => [path, `${path}, the scholar's own\n`]))
 };
 
-/** The Workspace's **source**, which is the whole of what a Baseline may describe (ticket 02). */
+/** The Workspace's **source**, which is the whole of what a Baseline may describe. */
 const SOURCE = [
 	'alignments/map-1.json',
 	'atlas/annotations/notes.geojson',
@@ -191,9 +191,9 @@ describe('openWorkspaceFromGitHub', () => {
 		expect(await synchronization.readRemote()).toEqual(REMOTE);
 		const baseline = await synchronization.readBaseline(REMOTE);
 		expect(baseline).not.toBeNull();
-		// ⚠ **Source only.** The viewer, `.nojekyll` and `remote.json` are what a Publish generates
-		// (ticket 02): staleness there is a Published Site fact, never source drift, so a Baseline that
-		// named them would report every publish from another editor version as inbound change.
+		// ⚠ **Source only.** The viewer, `.nojekyll` and `remote.json` are what a Publish generates:
+		// staleness there is a Published Site fact, never source drift, so a Baseline that named them
+		// would report every publish from another editor version as inbound change.
 		expect([...baseline!.files.keys()].sort()).toEqual(SOURCE);
 		for (const path of PUBLISHED_OUTPUT) expect(baseline!.files.has(path)).toBe(false);
 		// The commit the branch stood at, so the record says which *state* the two sides share — a tree
@@ -239,7 +239,7 @@ describe('openWorkspaceFromGitHub', () => {
 			expect(second.outcome).toBe('selected');
 			expect(second.workspaceKey).toBe(first.workspaceKey);
 			// No second directory, and not one more request: reopening is a way back to work already
-			// here, not a transfer (SPEC stories 100, 101).
+			// here, not a transfer.
 			expect(place.workspaces()).toEqual([REPOSITORY]);
 			expect(fake.rawGets).toBe(requests);
 		});
@@ -450,8 +450,8 @@ describe('openWorkspaceFromGitHub', () => {
 		});
 
 		it('reports Cannot tell rather than a failed Open when only the Baseline cannot be kept', async () => {
-			// SPEC: never report an operation that reached GitHub as failed because durable storage
-			// refused afterwards. The Workspace is bound; its status is Cannot tell.
+			// An operation that reached GitHub is never reported as failed because durable storage refused
+			// afterwards. The Workspace is bound; its status is Cannot tell.
 			const fake = await github();
 			const place = installation();
 			place.metadata.refuseWrites.add(
@@ -469,7 +469,7 @@ describe('openWorkspaceFromGitHub', () => {
 	});
 
 	it('leaves another installation to keep its own Workspace and Baseline', async () => {
-		// ⚠ **Uniqueness is per installation and deliberately not global** (SPEC story 102). A scholar
+		// ⚠ **Uniqueness is per installation and deliberately not global.** A scholar
 		// working on a laptop and a lab machine has one Remote and two Workspaces, each with its own
 		// evidence of what it last shared — which is the whole reason to have a Remote at all. Nothing
 		// here asks GitHub whether the repository has been opened somewhere else.
@@ -551,7 +551,7 @@ describe('openWorkspaceFromGitHub', () => {
 
 	it('keeps no relationship and no Baseline where the browser has no record store', async () => {
 		// A browser with site data blocked can still read a public Workspace — that is the one operation
-		// in this epic meant to need nothing — and its Remote Status is Cannot tell rather than invented.
+		// meant to need nothing — and its Remote Status is Cannot tell rather than invented.
 		const fake = await github();
 		const place = installation();
 

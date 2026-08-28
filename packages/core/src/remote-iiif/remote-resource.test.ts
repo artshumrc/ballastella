@@ -206,7 +206,7 @@ describe('a document from somebody else’s server', () => {
 	});
 
 	it('stops reading a response that is larger than the bound, without believing content-length', async () => {
-		// The lesson from ticket 13's truncated archive: a declared size is a claim. Here the header
+		// The lesson from a truncated archive: a declared size is a claim. Here the header
 		// lies about being small and the body streams for ever, and the bound is enforced against the
 		// bytes that actually arrive.
 		let chunksSent = 0;
@@ -401,17 +401,14 @@ describe('the parser boundary', () => {
 		// property sitting right there — so handing one over type-checks and works, which is exactly
 		// why it needs a function to refuse it rather than a convention.
 		//
-		// **What it works "until" is no longer two parsers disagreeing.** This comment used to say the
-		// hazard was `manifesto.js` and `@allmaps/iiif-parser` reading one document differently. Since
-		// ticket 15 the editor carries no `manifesto.js` at all — triiiceratops is `apps/viewer`'s
-		// alone, and browsing is the editor's own canvas list over `@allmaps/iiif-parser` — so that
-		// premise is history and ADR-0018's amendment note labels it as such. The rule outlived it:
-		// what the boundary forbids is the alignment path inheriting the browsing step's *reading* of
-		// a document instead of fetching and re-parsing the image service itself, which goes wrong the
-		// moment the two readings are not the same — a library edits the Manifest, a canvas paints a
-		// Choice, a service is behind a redirect. Nothing is wrong anywhere and the map is in the
-		// wrong place. See `parser-boundary.ts`'s header, which this comment must not drift from
-		// again.
+		// **What it works "until" is not two parsers disagreeing.** The editor carries no
+		// `manifesto.js` at all — triiiceratops is `apps/viewer`'s alone, and browsing is the editor's
+		// own canvas list over `@allmaps/iiif-parser` (ADR-0018's amendment note). What the boundary
+		// forbids is the alignment path inheriting the browsing step's *reading* of a document instead
+		// of fetching and re-parsing the image service itself, which goes wrong the moment the two
+		// readings are not the same — a library edits the Manifest, a canvas paints a Choice, a
+		// service is behind a redirect. Nothing is wrong anywhere and the map is in the wrong place.
+		// See `parser-boundary.ts`'s header, which this comment must not drift from.
 		const resource = await readRemoteIiifResource(
 			'https://library.example.test/iiif/atlas/manifest.json',
 			{ fetch: async () => json(manifest(1)) }
@@ -451,7 +448,7 @@ describe('the parser boundary', () => {
 });
 
 /**
- * The two refusals that come out of one `IIIF.parse` call (ticket 07).
+ * The two refusals that come out of one `IIIF.parse` call.
  *
  * `@allmaps/iiif-parser` builds an `Image`'s tile zoom levels while parsing, so a document that is a
  * perfectly good Image API description with no usable tiling throws from the same place as a document

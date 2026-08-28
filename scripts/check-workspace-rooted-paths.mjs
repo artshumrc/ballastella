@@ -6,8 +6,9 @@
 // WHY THIS IS A FENCE AND NOT A CODE REVIEW
 //
 // `createStoreImageFetch` is the ADR-0011 injection shim that resolves the ADR-0004 `unset.invalid`
-// placeholder host, and SPEC calls the invariant it upholds the most fragile in the project. Rooting it
-// at the Workspace is the riskiest single change in the `workspace-and-layers` epic for one reason:
+// placeholder host, and the invariant it upholds is the most fragile in the project — the header of
+// `packages/core/src/injection/store-image-fetch.ts` says why. Rooting it at the Workspace was the
+// riskiest single step of the move to Workspace-rooted paths for one reason:
 // **its failure mode is not an error.** Prefix a Project directory back onto an image path and the shim
 // does not throw, does not 404 in a way anyone notices, and does not log — it answers with a pyramid
 // from somewhere else, at a plausible size, in the right pane. A scholar sees somebody else's map where
@@ -321,8 +322,8 @@ if (violations.length > 0) {
 			'`alignmentPath` each already return the complete store path — use one on its own.\n\n' +
 			'This is fenced rather than reviewed because getting it wrong does not raise an error: the\n' +
 			'ADR-0011 injection shim answers a Project-rooted request with a *different map*, drawn at a\n' +
-			'plausible size in the right pane, with nothing logged (ADR-0004, and SPEC on the most\n' +
-			'fragile invariant in the project).\n\n' +
+			'plausible size in the right pane, with nothing logged (ADR-0004, and the header of\n' +
+			'`store-image-fetch.ts` on the most fragile invariant in the project).\n\n' +
 			'A test that seeds a Project-rooted path *as its specimen* — to assert that the code under\n' +
 			'test ignores it — says so on the line, with a reason:\n' +
 			'  // project-rooted-path-is-the-fixture: <why this path is the thing being asserted about>\n'

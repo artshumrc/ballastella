@@ -7,9 +7,9 @@ import { test as base, expect } from '@playwright/test';
 //
 // It is not a preference about tidiness. On 2026-08-07 `demo-bucket.protomaps.com/v4.pmtiles` —
 // the archive every entry of this deployment's Base Map catalog points at — began answering 404,
-// and three specs went red for a reason that had nothing to do with this repository. Ticket 17
-// routed those three. That fixed the three; it did not fix the *class*, because routing was opt-in
-// per spec and eleven specs called no route at all. A suite whose failures mean something cannot
+// and three specs went red for a reason that had nothing to do with this repository. Routing those
+// three fixed the three; it did not fix the *class*, because routing was opt-in per spec and eleven
+// specs called no route at all. A suite whose failures mean something cannot
 // depend on a stranger's uptime, and cannot rely on each new spec's author remembering.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,6 @@ import { test as base, expect } from '@playwright/test';
 // the protocol level, so a narrow matcher buys nothing. Thirteen specs already paid this before
 // this fence existed, because they called `routeBaseMapArchive`; the audit that came with the
 // fence gave the same route to the rest, so nearly every spec would have paid it regardless.
-// See the ticket for the interleaved A/B measurement.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 /**

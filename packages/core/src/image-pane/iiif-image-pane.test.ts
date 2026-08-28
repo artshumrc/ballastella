@@ -196,8 +196,8 @@ describe('createImagePane tile grid', () => {
 		// point set rather than the behaviour: neither `resourceToSynthetic` nor
 		// `syntheticToResource` takes a zoom argument, because `WINDOW_TILE_ZOOM` fixes one window
 		// for the whole pyramid. That is the right design — a zoom-dependent projection is how
-		// drift gets in — so this is not a gap, but it does mean the ticket's "at every zoom
-		// level" criterion is carried by the tile-origin test above, not by this one.
+		// drift gets in — so this is not a gap, but it does mean that "at every zoom level" is
+		// carried by the tile-origin test above, not by this one.
 		//
 		// What the per-level point sets do buy is coverage of the places a *tile geometry* error
 		// would show: each level's own ragged strip, sampled at that level's resolution.
@@ -341,10 +341,11 @@ describe('createImagePane tile grid', () => {
 			]
 		};
 
-		// Left unguarded this is the ticket's stated nightmare. A MapLibre raster source has one
-		// `tileSize`, taken from `levels[0]`, so the scale-factor 4 and 8 levels are drawn into a
-		// 256-pixel cell while covering 512 pixels' worth of image: correct at the tile origin and
-		// progressively wrong away from it, at half scale, looking exactly like imprecision.
+		// Left unguarded this is the drift the single-tile-size check exists to stop. A MapLibre
+		// raster source has one `tileSize`, taken from `levels[0]`, so the scale-factor 4 and 8 levels
+		// are drawn into a 256-pixel cell while covering 512 pixels' worth of image: correct at the
+		// tile origin and progressively wrong away from it, at half scale, looking exactly like
+		// imprecision.
 		expect(() => createImagePane(twoTilesets, fixtureBaseUri)).toThrow(/one tile size|same tile/i);
 	});
 
@@ -388,7 +389,7 @@ describe('createImagePane tile grid', () => {
 });
 
 /**
- * The three shapes a Library's own image service arrives in, decided without a browser (ticket 07).
+ * The three shapes a Library's own image service arrives in, decided without a browser.
  *
  * **This is what makes the add-time refusal decidable.** ADR-0007's rule is that a remote resource is
  * judged when it is added and never when Align is clicked, and the judgement *is* whether
@@ -444,7 +445,7 @@ describe('a Library’s image service, aligned in place', () => {
 	it('refuses a level 0 service that publishes no tiles at all', () => {
 		// `@allmaps/iiif-parser`'s `getTileZoomLevels` throws for this, and the throw is the right
 		// answer rather than an inconvenience: with no `tiles` and no arbitrary-region support there is
-		// no request this app could make that the service would serve. Ticket 07's contract turns this
+		// no request this app could make that the service would serve. ADR-0007's rule turns this
 		// into a refusal at the moment the resource is added — so that a user is never given a Layer
 		// with an Align button leading to a screen that cannot work.
 		expect(() => createImagePane(remoteInfo({ profile: 'level0' }), service)).toThrow(
@@ -461,9 +462,10 @@ describe('a Library’s image service, aligned in place', () => {
 	});
 
 	it('keeps the Library’s base out of the store, and the store’s base off the network', () => {
-		// The pairing this ticket exists to make unconstructible, from the reader's side. Both arms are
-		// legal on their own; what must not happen is a document from one source read against the other's
-		// base, which draws a stranger's tiles under our own pyramid's geometry with nothing raising.
+		// The pairing `createImagePane`'s required base makes unconstructible, from the reader's side.
+		// Both arms are legal on their own; what must not happen is a document from one source read
+		// against the other's base, which draws a stranger's tiles under our own pyramid's geometry
+		// with nothing raising.
 		const remote = createImagePane(remoteInfo({ profile: 'level2', tiles }), service);
 		const stored = createImagePane(remoteInfo({ profile: 'level2', tiles }), {
 			storedImageId: 'sheet'

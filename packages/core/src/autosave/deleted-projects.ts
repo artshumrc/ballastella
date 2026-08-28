@@ -1,12 +1,13 @@
-// Which Projects the user deleted, written synchronously so the answer survives the page (ticket 21).
+// Which Projects the user deleted, written synchronously so the answer survives the page.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS EXISTS: A DELETION IS AS ASYNCHRONOUS AS AN EDIT, AND NOBODY HAD NOTICED
 //
-// Ticket 20 measured that `ProjectStore.write` cannot finish while a document is being unloaded, and
-// built the write-ahead journal so an *edit* survives a real navigation. `Workspace.deleteProject`
-// is the same shape and had none of that protection: it lists the Project's files, deletes them one
-// by one, and reclaims the abandoned writes — several awaits deep, against OPFS.
+// ADR-0017's "Rule 3, amended" measures that `ProjectStore.write` cannot finish while a document is
+// being unloaded, and the write-ahead journal (`journal.ts`) is what makes an *edit* survive a real
+// navigation. `Workspace.deleteProject` is the same shape and has none of that protection of its
+// own: it lists the Project's files, deletes them one by one, and reclaims the abandoned writes —
+// several awaits deep, against OPFS.
 //
 // **Measured on 2026-08-08**, `--repeat-each=20` on the regression this closes: in 4 runs of 20 the
 // deletion had not got past its **first** `await` — the `list` — before the next navigation tore the
@@ -17,7 +18,7 @@
 // back. It does not: the journal is empty by then, and the entry the replay put back is the one the
 // user had *just typed*, correctly, before deleting. What comes back is the file the deletion never
 // removed. The distinction matters, because weakening the journal would have fixed nothing and cost
-// ticket 20's whole subject.
+// the journal its whole subject.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT IS RECORDED IS THE GESTURE, AND THE PROJECT IT WAS AIMED AT
@@ -25,9 +26,8 @@
 // The discrimination this makes available is **"the user deleted this Project"**, which the
 // application knows for certain because it is the thing the user just did. It is deliberately *not*
 // "this Project's files are not there right now", which is a guess — and the guess is the shape of
-// the two data-loss paths ticket 20's first cut opened, where an empty listing was read as proof a
-// file was gone. `replay.ts` keeps its "unreadable is not absent" rule exactly as it was; this adds
-// the one fact that rule could never derive.
+// the data-loss paths that open when an empty listing is read as proof a file was gone. `replay.ts`
+// holds the "unreadable is not absent" rule; this adds the one fact that rule could never derive.
 //
 // ⚠ **A folder name alone is not enough to destroy anything on, and the first cut of this module
 // recorded nothing else.** A Workspace key is `folder:<folder name>` for a picked directory, because
@@ -63,7 +63,7 @@
 //
 //   - **{@link DeletedProjects.record}** at the start of a deletion, synchronously, before the first
 //     `await`. `localStorage` is the only synchronous durable write a page has (ADR-0017, "Rule 3,
-//     amended"), which is the same reason ticket 20 chose it.
+//     amended"), which is the same reason the write-ahead journal uses it.
 //   - **{@link DeletedProjects.forget}** when the removal has finished, and — the case that keeps
 //     this from becoming a data-loss path of its own — when a *new* Project claims that directory
 //     name, before a single byte of it is written.
@@ -159,11 +159,11 @@ const DELETION_FORMAT_VERSION = 1;
 /**
  * The Projects deleted from **one** Workspace whose removal may not have finished.
  *
- * Bound to a Workspace at construction for the reason {@link WriteAheadJournal} is: since ticket 12
- * the OPFS root holds several named Workspaces and one click switches between them, so a record
- * keyed by directory alone would let a deletion performed in "Marking 2026" be finished against a
- * same-named Project in whichever Workspace happened to be open next. A class that took a Workspace
- * per call would be one argument away from deleting somebody else's work.
+ * Bound to a Workspace at construction for the reason {@link WriteAheadJournal} is: the OPFS root
+ * holds several named Workspaces and one click switches between them, so a record keyed by directory
+ * alone would let a deletion performed in "Marking 2026" be finished against a same-named Project in
+ * whichever Workspace happened to be open next. A class that took a Workspace per call would be one
+ * argument away from deleting somebody else's work.
  *
  * ⚠ **The binding is necessary and not sufficient**, which the first cut of this module implied it
  * was. See the module header: a folder Workspace's key is its folder's *name*, which two folders may

@@ -19,11 +19,9 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 /**
  * ADR-0011's second injection point, in a real browser: `new WarpedMapLayer({ fetchFn })`.
  *
- * Ticket 06 asserted this on a bare `/warped` dev route, because no Alignment existed and the layer
- * had nothing to hold. **Ticket 07 deleted that route and this file now drives the real thing** — a
- * Map Image ingested the ordinary way, three Control Points paired by clicking, and the warped
- * layer where it belongs, in the Base Map pane. Everything below is therefore asserted on the path a
- * scholar actually takes.
+ * **Driven through the real thing rather than a dev route** — a Map Image ingested the ordinary way,
+ * three Control Points paired by clicking, and the warped layer where it belongs, in the Base Map
+ * pane. Everything below is therefore asserted on the path a scholar actually takes.
  *
  * Four things here a type check cannot establish: that `@allmaps/maplibre` resolves against the one
  * `maplibre-gl` copy in the page (two copies is a broken map rather than a version warning), that the
@@ -83,8 +81,8 @@ function gradientPng(width: number, height: number): Buffer {
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -153,16 +151,16 @@ async function projectWithImage(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	// The image id off the Layer the map arrived with (ADR-0023). Ticket 04 removed the Project's
-	// separate list of image ids: the Layer already says which Map Image it draws, and two
-	// renderings of one fact is one of them going stale.
+	// The image id off the Layer the map arrived with (ADR-0023). There is no separate list of image
+	// ids: the Layer already says which Map Image it draws, and two renderings of one fact is one of
+	// them going stale.
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
-	// Both panes are the `/align/` route since ticket 03, and since ticket 05 the link that goes there
-	// is inside the Layer's own row. The id is read above, before the click: the Map Images list is
-	// on the Project page and this leaves it.
+	// Both panes are the `/align/` route, and the link that goes there is inside the Layer's own row.
+	// The id is read above, before the click: the Map Images list is on the Project page and this
+	// leaves it.
 	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
@@ -260,9 +258,9 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		// **not**: the worker's `fetchUrl` does `await fetchFn(...)` and expects a `Response`, which is
 		// not structured-cloneable, so proxying the function merely trades the `DataCloneError` for
 		// `TypeError("Unserializable return value")` — still swallowed, still blank. Measured
-		// independently while this ticket was in flight, against a faithful copy of upstream's worker,
-		// and the two accounts agree. The patch instead runs the custom fetch on the main thread, where
-		// the closure lives, and hands the worker a `blob:` URL so the decode stays off the main thread.
+		// independently, against a faithful copy of upstream's worker, and the two accounts agree. The
+		// patch instead runs the custom fetch on the main thread, where the closure lives, and hands the
+		// worker a `blob:` URL so the decode stays off the main thread.
 		// `scripts/check-allmaps-patch.mjs` fails the build if it stops applying, because this failure
 		// mode is silent.
 		const consoleErrors: string[] = [];

@@ -16,9 +16,9 @@ import {
 } from './support/workspace';
 
 /**
- * Backing a Workspace up to one tar, and restoring it (ticket 13, ADR-0024).
+ * Backing a Workspace up to one tar, and restoring it (ADR-0024).
  *
- * SPEC's Seam 2. The archive format, the byte-for-byte round trip, every refusal, and the streaming
+ * Seam 2. The archive format, the byte-for-byte round trip, every refusal, and the streaming
  * and long-path measurements are all asserted at Seam 1 — `workspace-tar.test.ts` and
  * `tar-format.test.ts` in `@ballastella/core`. What only a browser can show is here:
  *
@@ -169,8 +169,8 @@ const settings = (page: Page) => page.getByRole('dialog', { name: 'Workspace set
  * A function rather than a template literal at each call site, because
  * `${workspace}/alignments/<id>.json` is *exactly* the Project-rooted spelling ADR-0023 forbids and
  * `check-workspace-rooted-paths` rightly refuses on sight. The shape is legitimate here and nowhere
- * else in the tree: the leading segment is the **Workspace's** own name, which since ticket 12 is a
- * directory above the store root, so no store path ever contains it. Saying that in one named helper
+ * else in the tree: the leading segment is the **Workspace's** own name, which is a directory above
+ * the store root, so no store path ever contains it. Saying that in one named helper
  * is better than an opt-out pragma on four lines claiming something that is not true of them.
  */
 const inWorkspace = (workspace: string, path: string): string => `${workspace}/${path}`;
@@ -192,8 +192,8 @@ test.describe('backing up a Workspace', () => {
 		await settings(page).getByTestId('back-up-workspace').click();
 		const download = await downloading;
 
-		// Named after the Workspace, because since ticket 12 the Workspace's name is its directory
-		// name and that is the only place it lives.
+		// Named after the Workspace, because the Workspace's name is its directory name and that is the
+		// only place it lives.
 		expect(download.suggestedFilename()).toBe(`${DEFAULT_WORKSPACE}.tar`);
 
 		// A real tar, opened by something that is not our own reader.
@@ -220,15 +220,14 @@ test.describe('backing up a Workspace', () => {
 		expect(names).not.toContain(`${DEFAULT_WORKSPACE}/ballastella-site.json`);
 		expect(names.filter((name) => name.startsWith(`${DEFAULT_WORKSPACE}/_app/`))).toEqual([]);
 
-		// Said in words the user can read, not only drawn (story 111), and announced (story 112).
+		// Said in words the user can read, not only drawn, and announced.
 		await expect(settings(page).getByTestId('transfer-outcome')).toContainText(
 			`${DEFAULT_WORKSPACE}.tar`
 		);
 	});
 
 	test('is reachable and operable from the keyboard alone', async ({ page }) => {
-		// SPEC's accessibility discipline: the one way a scholar's work leaves the browser cannot be
-		// mouse-only.
+		// The one way a scholar's work leaves the browser cannot be mouse-only.
 		await openWorkspaceSettings(page);
 		const button = settings(page).getByTestId('back-up-workspace');
 		await button.focus();
@@ -262,7 +261,7 @@ test.describe('restoring a Workspace', () => {
 	test('creates a new Workspace, switches to it, and leaves the old one untouched', async ({
 		page
 	}) => {
-		// ⚠ **Bound before the backup is taken** (story 158, ADR-0038), so the restore has a Remote
+		// ⚠ **Bound before the backup is taken** (ADR-0038), so the restore has a Remote
 		// relationship it must fail to carry. `remote.json` travels in the archive — it is inside the
 		// published tree — and the relationship that *makes* a Workspace bound is installation-local, so
 		// neither route can arrive as an active Remote in the restored copy.
@@ -276,8 +275,8 @@ test.describe('restoring a Workspace', () => {
 		const backup = await backUpToBuffer(page);
 
 		// The backup is now restored into the *same* browser, which is the sharper case: there is
-		// already a Workspace by that name, so ticket 12's suffixing has to produce a second one
-		// rather than opening the first.
+		// already a Workspace by that name, so the name suffixing has to produce a second one rather
+		// than opening the first.
 		await openWorkspaceSettings(page);
 		await settings(page)
 			.getByTestId('restore-file')
@@ -287,14 +286,14 @@ test.describe('restoring a Workspace', () => {
 				buffer: backup
 			});
 
-		// The notice, in words, saying a re-publish is needed (story 86) and announced (story 112).
+		// The notice, in words, saying a re-publish is needed and announced.
 		const outcome = settings(page).getByTestId('transfer-outcome');
 		await expect(outcome).toContainText('publish', { timeout: 30_000 });
 		await expect(outcome).toContainText('not been touched');
 
 		await closeWorkspaceSettings(page);
 
-		// **Switched to the new one**, which the bar says on every screen (SPEC story 88).
+		// **Switched to the new one**, which the bar says on every screen.
 		const restoredName = `${DEFAULT_WORKSPACE} (2)`;
 		await expectWorkspaceNamed(page, restoredName);
 
@@ -315,7 +314,7 @@ test.describe('restoring a Workspace', () => {
 		expect(paths).not.toContain(`${restoredName}/ballastella-site.json`);
 		expect(paths.filter((path) => path.startsWith(`${restoredName}/_app/`))).toEqual([]);
 
-		// ⚠ **And it arrives unbound** (story 158). `restoreWorkspaceTar` strips `remote.json` on the way
+		// ⚠ **And it arrives unbound**. `restoreWorkspaceTar` strips `remote.json` on the way
 		// in, and nothing wrote an installation-local relationship for a Workspace this browser has
 		// never published from — so a Backup mailed to a colleague cannot aim their Publish button at
 		// the sender's repository.
@@ -391,8 +390,8 @@ test.describe('restoring a Workspace', () => {
 	test('refuses a backup from a newer version of the app, naming where to get it', async ({
 		page
 	}) => {
-		// Story 114, and ADR-0010's discipline: a `formatVersion` from the future is refused with a
-		// message naming where to get that version, and nothing is restored.
+		// ADR-0010's discipline: a `formatVersion` from the future is refused with a message naming
+		// where to get that version, and nothing is restored.
 		const backup = await backUpToBuffer(page);
 		// The manifest inside says version 1; rewriting it to 99 in the archive's bytes is enough,
 		// because tar stores entries verbatim and the length is unchanged.
@@ -431,7 +430,7 @@ test.describe('restoring a Workspace', () => {
 
 /**
  * A **folder** Workspace's name is the operating system's folder name, and it has never been through
- * `toWorkspaceName` (ticket 12).
+ * `toWorkspaceName`.
  *
  * ⚠ **This block exists because its absence let a real defect ship.** Every other test in this file,
  * and every fixture in `workspace-tar.test.ts`, used `My Workspace` — one of the few names the
@@ -518,7 +517,7 @@ test.describe('backing up a folder Workspace', () => {
 		expect(entries[0]?.header.pax?.['BALLASTELLA.workspace']).toBe(FOLDER);
 		expect(entries.every((entry) => entry.header.name.startsWith(`${LEGAL}/`))).toBe(true);
 
-		// Said in words, because the name did change and a silent rename is what ticket 12 fixed.
+		// Said in words, because the name did change and a silent rename is what the suffixing avoids.
 		await expect(settings(page).getByTestId('transfer-outcome')).toContainText(LEGAL);
 
 		// **And it restores** — the assertion whose absence was the defect.

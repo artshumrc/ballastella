@@ -6,8 +6,8 @@ import type { BaseMapCatalog } from './entry';
  *
  * It exists to assert the forkability property ADR-0020 rests on: everything the app does with
  * Base Maps is a function of the catalog it is given, so replacing the catalog module changes
- * the switcher and requires no change anywhere else (SPEC story 100). A test that passed a
- * near-copy of the real catalog would assert nothing.
+ * the switcher and requires no change anywhere else. A test that passed a near-copy of the
+ * real catalog would assert nothing.
  */
 export const FORKED_CATALOG: BaseMapCatalog = {
 	entries: [

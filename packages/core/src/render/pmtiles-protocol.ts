@@ -9,7 +9,7 @@ let registered = false;
  * This is what makes "everything is static files" true for the Base Map and not only for Project
  * data (ADR-0005): a whole tileset is one archive read over HTTP Range requests, so there is no
  * tile server, no API key, no tile-provider terms of service, no per-fork registration — and it
- * works offline. SPEC stories 88 and 101 both rest on this one call.
+ * works offline.
  *
  * MapLibre's protocol registry is page-global, but `addProtocol` does not throw on a second
  * registration — in maplibre-gl 5 it is a plain assignment into `config.REGISTERED_PROTOCOLS`, so

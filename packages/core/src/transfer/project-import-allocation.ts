@@ -1,5 +1,5 @@
 // Where an imported Project lands: the name the author sees, the directory it occupies, and one
-// destination path for every file of its closure (ticket 07, ADR-0037).
+// destination path for every file of its closure (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // TWO NAMESPACES, AND FORCING THEM TO AGREE IS THE BUG
@@ -29,20 +29,20 @@
 // unrelated Projects at one directory, discovered at the next Publish. The Baseline covers the third
 // case, a directory both live sides have already lost sight of but whose files are still ours.
 //
-// `recognisedProjectDirectories` is the one rule for that union (SPEC story 143) and is asked here
-// rather than restated. ⚠ **Recognised Projects only from the two remote inventories**, not their
-// top-level names: a repository's `README.md`, its `docs/`, its workflows are somebody else's files in
-// the same repository (ADR-0033) and reserving them would refuse names that are free.
+// `recognisedProjectDirectories` is the one rule for that union and is asked here rather than
+// restated. ⚠ **Recognised Projects only from the two remote inventories**, not their top-level
+// names: a repository's `README.md`, its `docs/`, its workflows are somebody else's files in the
+// same repository (ADR-0033) and reserving them would refuse names that are free.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // PURE, AND WHAT THAT COSTS THE CALLER
 //
 // Nothing here reads a store or a network: the three inventories arrive as arguments, and acquiring
-// the current Remote one — with the refusal for a bound Workspace that cannot — is ticket 17's. That
-// is what makes the allocation table a table, and it is also why {@link commitProjectImport} asks the
-// live store the same question again before it writes the marker. The two checks are not redundant:
-// this one is the plan, that one is the guarantee, and between them the author may have opened another
-// tab.
+// the current Remote one — with the refusal for a bound Workspace that cannot — is
+// `project-import-own-remote.ts`'s. That is what makes the allocation table a table, and it is also
+// why {@link commitProjectImport} asks the live store the same question again before it writes the
+// marker. The two checks are not redundant: this one is the plan, that one is the guarantee, and
+// between them the author may have opened another tab.
 
 import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import { foldName, takenDirectoryNames, unusedDirectoryName } from '../project/workspace.js';
@@ -61,7 +61,7 @@ import { ImportRefusedError } from './project-import-transaction.js';
  * Every member is optional and an absent one means "no evidence of that kind", which is the honest
  * reading for an unbound Workspace: it has no Remote and no Baseline. ⚠ It is *not* the reading for a
  * bound Workspace whose Remote could not be read — that Import is refused before it reaches here
- * (ticket 17) rather than allocated against a Remote treated as empty.
+ * (`project-import-own-remote.ts`) rather than allocated against a Remote treated as empty.
  */
 export interface ImportDestination {
 	/**
@@ -85,10 +85,10 @@ export interface ProjectImportAllocation {
 	/**
 	 * The display name the imported Project takes.
 	 *
-	 * ⚠ **Returned rather than written into the closure.** Ticket 08 owns the one rewrite of
-	 * `project.json` — the publication reset, the Front Page choice and the provenance entry — and a
-	 * second module re-serialising the manifest to set one field is how a Project comes to be imported
-	 * with two of the three applied.
+	 * ⚠ **Returned rather than written into the closure.** `project-import-provenance.ts` owns the one
+	 * rewrite of `project.json` — the publication reset, the Front Page choice and the provenance
+	 * entry — and a second module re-serialising the manifest to set one field is how a Project comes
+	 * to be imported with two of the three applied.
 	 */
 	readonly name: string;
 	/** The Project's directory, which is its identity (ADR-0008). */
@@ -100,7 +100,7 @@ export interface ProjectImportAllocation {
 	 * The Project's own files — `project.json`, `annotations/…` — go inside
 	 * {@link ProjectImportAllocation.directory}; the shared material — `images/<id>/…`,
 	 * `alignments/<id>.json` — stays at the top level, because it belongs to the Workspace rather than
-	 * to the Project (ADR-0023) and its identities are already fresh (ticket 06).
+	 * to the Project (ADR-0023) and its identities are already fresh (`project-import-remapping.ts`).
 	 */
 	readonly destinations: ReadonlyMap<ClosurePath, StorePath>;
 }
@@ -120,9 +120,9 @@ const importedVariant = (name: string, suffix: number): string =>
  *
  * Both allocations are deterministic in the evidence given, so running this twice against a Workspace
  * that has since gained the first Import's Project produces a *different* Project directory and — the
- * closure's identities being ticket 06's, minted per Import — a disjoint set of Map Image, Alignment
- * and Annotation destinations. Nothing here recognises the second run's source as the first's; an
- * Import is a copy, and two copies are two Projects (story 68).
+ * closure's identities being `remapProjectImport`'s, minted per Import — a disjoint set of Map Image,
+ * Alignment and Annotation destinations. Nothing here recognises the second run's source as the
+ * first's; an Import is a copy, and two copies are two Projects.
  *
  * @throws ImportRefusedError `'destination-exists'` when an allocated path is, or folds onto,
  *   something the Workspace already holds. Every Project file and Annotation is inside a directory
@@ -189,9 +189,9 @@ function allocateDirectory(name: string, destination: ImportDestination): string
  * The **entire** closure, not `project.json`: every Annotation, every tile of every pyramid and every
  * Alignment is a path somebody's work could be at, and `foldName` is unaffected by `/` so a path folds
  * segment by segment for free (its own note says so). Refusal rather than a re-allocation, because
- * there is nothing to re-allocate — the identity is ticket 06's and the directory has already been
- * proved free — and refusing before the transaction is what keeps the marker off a Workspace that was
- * never going to receive this Project.
+ * there is nothing to re-allocate — the identity is `remapProjectImport`'s and the directory has
+ * already been proved free — and refusing before the transaction is what keeps the marker off a
+ * Workspace that was never going to receive this Project.
  */
 function assertNothingIsOverwritten(
 	destinations: ReadonlyMap<ClosurePath, StorePath>,

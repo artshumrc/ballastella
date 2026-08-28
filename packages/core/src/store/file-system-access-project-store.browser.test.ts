@@ -47,9 +47,9 @@ describeProjectStore('FileSystemAccessProjectStore', async () => {
 });
 
 /**
- * Update from GitHub over a chosen folder (ticket 15).
+ * Update from GitHub over a chosen folder.
  *
- * ⚠ **The same suite, unchanged, and that is the assertion.** SPEC's requirement is that the two
+ * ⚠ **The same suite, unchanged, and that is the assertion.** The requirement is that the two
  * backings produce the same committed files, the same rollback-or-forward choice, the same Project
  * and Map Image lists and the same Baseline — so a claim spelled differently here would be the place
  * the two quietly stopped agreeing.
@@ -188,7 +188,7 @@ afterEach(async () => {
 	await forgetWorkspaceFolder();
 });
 
-it('offers no folder Workspace where the browser has no picker (SPEC story 4)', () => {
+it('offers no folder Workspace where the browser has no picker', () => {
 	stubDirectoryPicker('absent');
 
 	expect(isFolderWorkspaceSupported()).toBe(false);

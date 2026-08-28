@@ -1,5 +1,5 @@
 // A Layer's kind is still readable before it is read, in every theme either app declares
-// (ADR-0036, SPEC story 73).
+// (ADR-0036).
 //
 // A Layer card's kind line — the glyph and the words "Map Image" / "Annotation Layer" — is set in the
 // kind's own ink, which `layout.css` derives by mixing the kind's hue half-and-half with the theme's

@@ -24,8 +24,8 @@ export function resolveDeploymentAsset(path: string): string {
  * Where this deployment of the editor lives, with a trailing slash.
  *
  * Recorded into a Published Site at publish time, so that the site's Front Page can lead a Reader
- * back to the instance that made it (SPEC stories 51 and 55). Nothing is configured and nothing is
- * asked: `location.origin` plus this app's base path is the whole of what an instance's address is,
+ * back to the instance that made it. Nothing is configured and nothing is asked:
+ * `location.origin` plus this app's base path is the whole of what an instance's address is,
  * and it is knowledge only the app has — `packages/core` must not read `location` (ADR-0006).
  *
  * Absolute, unlike everything else this module produces, because it is the one address that has to

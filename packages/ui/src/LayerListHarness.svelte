@@ -6,7 +6,7 @@
 	//
 	// `LayerList` does not reorder anything. It calls `onmove` and waits for the stack to come back
 	// changed — and then, one microtask later, restores the keyboard to the button that moved
-	// (`moveByButton`, and story 53 gets exactly one keypress without it).
+	// (`moveByButton`, and keyboard reordering gets exactly one keypress without it).
 	//
 	// That `await tick()` is the whole reason this file exists. In the running application the
 	// parent's `$state` is updated *synchronously* inside `onmove`, so by the time the tick resolves

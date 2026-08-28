@@ -12,7 +12,7 @@ import {
 
 describe('toWorkspaceName', () => {
 	it('keeps a name a person would type, rather than slugging it', () => {
-		// The bar names the Workspace on every screen (SPEC story 88). A user who typed "Marking 2026"
+		// The bar names the Workspace on every screen. A user who typed "Marking 2026"
 		// and is shown "marking-2026" has had their work renamed without being asked — and a folder
 		// Workspace's name is its folder's name, unaltered, so this is the same rule for both backings.
 		expect(toWorkspaceName('Marking 2026')).toBe('Marking 2026');

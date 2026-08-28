@@ -76,7 +76,7 @@
 		storage,
 		open = $bindable(false),
 		// Both bindable so the navigation bar's Publish control can be `aria-disabled` with a label
-		// that reflects progress while the modal that owns the run is on screen (SPEC stories 59, 60).
+		// that reflects progress while the modal that owns the run is on screen.
 		publishing = $bindable(false),
 		progress = $bindable<PublishProgress | null>(null)
 	}: {
@@ -94,7 +94,7 @@
 	 *
 	 * Read from `WorkspaceStorage`, which mirrors the sealed credential store — so this is `false`
 	 * inside a Review Workspace because the seal holds, rather than because a condition here
-	 * remembered to ask (ADR-0033, story 40).
+	 * remembered to ask (ADR-0033).
 	 */
 	const signedIn = $derived(storage.signedIn);
 
@@ -126,7 +126,7 @@
 	let token = $state('');
 	let signingIn = $state(false);
 	/**
-	 * What the sign-in found out about pushing, when the answer was that it cannot (story 5).
+	 * What the sign-in found out about pushing, when the answer was that it cannot.
 	 *
 	 * A notice rather than a refusal: the credential works, every request the forecast makes is a GET,
 	 * and the 403 arrives at the first blob — after the whole website has been written into the
@@ -183,15 +183,14 @@
 	 * is shown *before* the local publish writes anything — decision 2 in the header settles the
 	 * address first, and nothing is written until the scholar confirms — so at this moment the viewer
 	 * bundle, `ballastella-site.json` and, when the box is ticked, five megabytes of Base Map glyphs
-	 * are not in the Workspace. Planned against the folder as it stands, all three of story 9's
-	 * numbers understate a *first* publish, which is the publish they exist for, and the request
-	 * warning is computed on a count with the whole website missing from it.
+	 * are not in the Workspace. Planned against the folder as it stands, all three budgets understate
+	 * a *first* publish, which is the publish they exist for, and the request warning is computed on a
+	 * count with the whole website missing from it.
 	 *
-	 * ⚠ **A 401 here is the stale sign-in, and it is what settles ticket 03's carried-over note.**
-	 * Rights are read when a Remote is bound and when a token is pasted, at no other moment — so the
-	 * bar's "Signed in to GitHub" means *a credential is held*, never *a credential still works*. The
-	 * answer taken here is the second of the two the ticket offered: leave the label alone and let the
-	 * **refusal** carry it. This is where it arrives, because planning is the first credentialed
+	 * ⚠ **A 401 here is the stale sign-in.** Rights are read when a Remote is bound and when a token
+	 * is pasted, at no other moment — so the bar's "Signed in to GitHub" means *a credential is held*,
+	 * never *a credential still works*. The label is left alone deliberately and the **refusal**
+	 * carries it instead. This is where it arrives, because planning is the first credentialed
 	 * request a publish makes and it posts nothing at all — so an expired token is met on opening the
 	 * dialog, with the Remote untouched, and never after four thousand tiles have gone. The credential
 	 * is forgotten as well as reported, which puts the paste below back on screen.
@@ -392,7 +391,7 @@
 	);
 
 	/**
-	 * Whether pressing the button would change nothing anywhere (SPEC story 15).
+	 * Whether pressing the button would change nothing anywhere.
 	 *
 	 * The Remote holding this Workspace already is most of it. Said rather than left as a publish that
 	 * uploads one file — the site record's timestamp — and reports success.
@@ -403,8 +402,8 @@
 	 * How many files the Remote will hold: the Workspace's, and the website about to be written.
 	 *
 	 * Two numbers on the plan rather than one, because only the first is a list of paths the upload
-	 * can read bytes from — see {@link RemotePublishPlan.pending}. Story 9's question is about the
-	 * sum, and on a first publish the second half is most of it.
+	 * can read bytes from — see {@link RemotePublishPlan.pending}. What the scholar is owed is the sum,
+	 * and on a first publish the second half is most of it.
 	 */
 	const uploadFiles = $derived(upload === null ? 0 : upload.files.length + upload.pending.length);
 
@@ -438,11 +437,11 @@
 	/**
 	 * Whether the forecast itself was refused, so there is nothing to press through to.
 	 *
-	 * ⚠ **A read-only account is the case this exists for** (SPEC story 106). Publishing checks the
-	 * account's permission before it lists a tree, so the refusal is here rather than at the first
-	 * blob — and pressing Publish anyway would write the whole website into the Workspace before
-	 * meeting the same refusal a second time, which is minutes of work for a transfer that cannot
-	 * complete. A truncated tree and a repository GitHub cannot show arrive the same way.
+	 * ⚠ **A read-only account is the case this exists for.** Publishing checks the account's
+	 * permission before it lists a tree, so the refusal is here rather than at the first blob — and
+	 * pressing Publish anyway would write the whole website into the Workspace before meeting the same
+	 * refusal a second time, which is minutes of work for a transfer that cannot complete. A truncated
+	 * tree and a repository GitHub cannot show arrive the same way.
 	 */
 	const blockedByProblem = $derived(uploadProblem !== '');
 
@@ -554,11 +553,10 @@
 		} finally {
 			publishing = false;
 			progress = null;
-			// SPEC story 131's counterpart on the outbound side: whatever happened, the Remote or this
-			// machine's evidence about it has moved, and the status on the bar was worked out against the
-			// Workspace as it was before any of it. Re-read the Baseline rather than assume it — a
-			// refused `writeBaseline` discards the stale record, so the honest answer afterwards is the
-			// `null` this finds — and then recompute.
+			// Whatever happened, the Remote or this machine's evidence about it has moved, and the status
+			// on the bar was worked out against the Workspace as it was before any of it. Re-read the
+			// Baseline rather than assume it — a refused `writeBaseline` discards the stale record, so
+			// the honest answer afterwards is the `null` this finds — and then recompute.
 			const bound = storage.remote;
 			if (bound !== null) {
 				storage.baseline = (await session.synchronization?.readBaseline(bound)) ?? null;
@@ -671,7 +669,7 @@
 
 <!--
 	The repository, the credential and what is left of this hour's request budget, on one line that
-	does not wrap (story 49) — the strip the button beneath it acts on, under a hairline of its own.
+	does not wrap — the strip the button beneath it acts on, under a hairline of its own.
 
 	Rendered by the two arms that have an answer to give: a Remote that already holds this Workspace,
 	and a Remote that is about to. Each fact is unbreakable and the row wraps between them, so a
@@ -889,9 +887,9 @@
 						</div>
 					{/if}
 					<!--
-						What the sign-in found out about pushing (story 5). Outside the branches below for the
-						same reason the refusal is: it is a fact about the credential now held, and the branch
-						that produced it is the one the sign-in has just left.
+						What the sign-in found out about pushing. Outside the branches below for the same reason
+						the refusal is: it is a fact about the credential now held, and the branch that produced
+						it is the one the sign-in has just left.
 					-->
 					{#if rightsNotice}
 						<div
@@ -905,11 +903,11 @@
 					{#if !signedIn}
 						<!--
 							⚠ **One door, and which one is a fact about the deployment rather than about this
-							dialog** (SPEC story 37). A student on a deployment with an App is never asked to
-							choose between two credentials, so where the front door exists the paste is not on
-							this screen at all — absent, not empty and not disabled. A fork that registered no
-							App of its own has only the paste (ADR-0031), and it is unchanged: the same wording,
-							the same validation, the same rights notice, the same test ids.
+							dialog.** A student on a deployment with an App is never asked to choose between
+							two credentials, so where the front door exists the paste is not on this screen at
+							all — absent, not empty and not disabled. A fork that registered no App of its own
+							has only the paste (ADR-0031), and it is unchanged: the same wording, the same
+							validation, the same rights notice, the same test ids.
 						-->
 						{#if storage.signInWithGitHubOffered}
 							<div class="mt-3 flex flex-col gap-1">
@@ -971,7 +969,7 @@
 							is a statement about *whose* the files on the Remote are, and `unknown` is raised on
 							nothing more than "no manifest, and the owned namespace is not empty" — which is the
 							state of a Workspace whose Remote matches it byte for byte, the ordinary first press
-							after a complete Open from GitHub (story 24). Rendered conflict-first, that Workspace was shown a
+							after a complete Open from GitHub. Rendered conflict-first, that Workspace was shown a
 							refusal, offered a replace that armed and then changed nothing, and left with a
 							`aria-disabled` Publish button and the sentence explaining it suppressed. Nothing here
 							would change anything anywhere, so there is nothing to refuse and nothing at stake.
@@ -985,16 +983,15 @@
 						{#if conflict !== null}
 							<!--
 								⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
-								whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
-								scope" item 3) — and the two ways on are Open a Workspace from GitHub or replace,
-								never a merge. The second is a two-step: this button only *arms* it, and the
-								confirm button below then says what pressing it does. That is `ProjectHub`'s
-								deletion pattern, for its reason.
+								whole of the reporting — there is no diff and no per-file choosing — and the two
+								ways on are Open a Workspace from GitHub or replace, never a merge. The second is
+								a two-step: this button only *arms* it, and the confirm button below then says
+								what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
 
 								⚠ **Beside the budgets rather than instead of them.** A conflict is where the
 								replacement tree is largest and where the scholar is being asked to press through a
-								warning, so it is the worst possible moment to be the one state that hides story 9's
-								two numbers, the hosting cliff and the hourly request budget.
+								warning, so it is the worst possible moment to be the one state that hides the two
+								numbers, the hosting cliff and the hourly request budget.
 							-->
 							<!-- `alert-vertical`, not `flex-col`: daisyUI's `.alert` is a grid with
 							     `grid-auto-flow: column`, so a flexbox utility on it does nothing and these three
@@ -1030,7 +1027,7 @@
 							oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a
 							Map Image's pyramid is the other way round. Shown whether or not they warn, so that
 							"how many files and how many bytes will this send" is answerable before the button is
-							pressed rather than only when something is already wrong (SPEC story 9).
+							pressed rather than only when something is already wrong.
 						-->
 						<ul
 							class="mt-3 border-t border-rule text-sm tabular-nums [&>li]:py-2 [&>li+li]:border-t [&>li+li]:border-rule"

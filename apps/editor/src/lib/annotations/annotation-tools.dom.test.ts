@@ -1,5 +1,4 @@
-// What the drawing toolbar announces and offers, asserted against the component (SPEC stories 57,
-// 58, 59, 112).
+// What the drawing toolbar announces and offers, asserted against the component.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT MOVED HERE, AND WHERE THE LINE IS
@@ -74,7 +73,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 	await tick();
 };
 
-describe('the tool in hand is announced, not only drawn (SPEC story 112)', () => {
+describe('the tool in hand is announced, not only drawn', () => {
 	test('the sentence names the tool and then says what to do with it', () => {
 		toolbar({ tool: 'polygon', picking: true, status: 'Click the map to start.' });
 
@@ -126,13 +125,13 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 
 		// Four shapes and no fifth: selecting is what the Layer does when nobody is drawing, not a tool a
 		// scholar is asked to pick. The fourth is the Label, reached the same way as the other three — one
-		// press of *New Annotation*, then choose (write-on-the-map stories 1 and 2).
+		// press of *New Annotation*, then choose.
 		const buttons = [...tools.querySelectorAll('button')];
 		expect(buttons).toHaveLength(4);
 		expect(buttons.map((button) => button.getAttribute('aria-pressed'))) //
 			.toEqual(['false', 'true', 'false', 'false']);
-		// The glyph goes beside each name, never instead of it (SPEC story 111) — and the word beside the
-		// Label's glyph is "Label", never the `'text'` the union spells it (story 63).
+		// The glyph goes beside each name, never instead of it — and the word beside the Label's glyph is
+		// "Label", never the `'text'` the union spells it.
 		expect(buttons.map((button) => button.textContent?.trim())) //
 			.toEqual(['Pin', 'Line', 'Shape', 'Label']);
 	});

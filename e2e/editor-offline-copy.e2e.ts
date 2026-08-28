@@ -2,7 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-// The fake IIIF services, shared by every spec that needs one (ticket 07). The host table, the
+// The fake IIIF services, shared by every spec that needs one. The host table, the
 // `info.json` builder and the tile matcher used to live here; see that module's header for why
 // three private copies of one fixture was a defect rather than a duplication.
 import {
@@ -18,8 +18,8 @@ import { ensureAddMapImageOpen } from './support/map-images.js';
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 /**
- * SPEC's Seam 2 for making an offline copy: "make an offline copy" driven in a real browser, against real OPFS,
- * with real fixture hosts (SPEC stories 27 and 28, ADR-0007).
+ * Seam 2 for making an offline copy: "make an offline copy" driven in a real browser, against real
+ * OPFS, with real fixture hosts (ADR-0007).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHAT ONLY THIS FILE CAN ASSERT
@@ -31,14 +31,14 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  *   * that a level-2 copy is *one* request and a level-0 copy is one per tile;
  *   * that the rights statement and the size are on screen before anything is fetched;
  *   * that cancelling leaves nothing behind;
- *   * and, the whole point of the ticket, that once a map is copied **nothing reaches the library
+ *   * and, the whole point of the feature, that once a map is copied **nothing reaches the library
  *     again** — asserted by request interception, because a copy that worked and a copy that quietly
  *     kept fetching look identical on screen.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * THE FIXTURE HOSTS
  *
- * They live in `support/iiif-hosts.ts` now (ticket 07), shared with every other spec that needs a
+ * They live in `support/iiif-hosts.ts` now, shared with every other spec that needs a
  * IIIF service — `library.test` and the whole `HOSTS` table, with `images.test` as the level 2 case
  * and `static.test`, `capped.test`, `huge.test`, `large.test`, `slow.test` and `broken.test` as the
  * awkward ones this file drives. The table there carries what each is for.
@@ -53,8 +53,8 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -119,9 +119,10 @@ const writeJson = (page: Page, directory: string, path: string, body: unknown): 
 /**
  * Give a second Project a map Layer over an image the Workspace already holds.
  *
- * Written onto the disk rather than driven through the UI because the affordance for it — "choose a
- * Map Image you already have" — is a later ticket. What is being demonstrated is the storage
- * property ADR-0023 exists for: one pyramid, one Alignment, two Projects that both draw them.
+ * Written onto the disk rather than driven through the UI because there is no affordance for it —
+ * "choose a Map Image you already have" does not exist yet. What is being demonstrated is the
+ * storage property ADR-0023 exists for: one pyramid, one Alignment, two Projects that both draw
+ * them.
  */
 async function projectOverSameImage(
 	page: Page,
@@ -213,9 +214,9 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
  */
 async function seedWorkspaceBytes(page: Page, bytes: number): Promise<void> {
 	await page.evaluate(async (size) => {
-		// **The Workspace, not the OPFS root.** The cliff is a Workspace total, and since ticket 12 the
-		// root merely *holds* Workspaces — ballast written there is counted by nothing, and the warning
-		// this seeds for never appears.
+		// **The Workspace, not the OPFS root.** The cliff is a Workspace total, and the root merely
+		// *holds* Workspaces — ballast written there is counted by nothing, and the warning this seeds
+		// for never appears.
 		const root = await workspaceRoot();
 		const handle = await root.getFileHandle('ballast.bin', { create: true });
 		const writable = await handle.createWritable();
@@ -237,8 +238,8 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 /**
  * Wait until a referenced Map Image is on the Project screen, and leave its Layer open.
  *
- * Since ticket 05 the library a referenced map's tiles come from — and the "Make an offline copy"
- * offer beside it — are *inside* the Layer that fetches them, so seeing either is opening the row.
+ * The library a referenced map's tiles come from — and the "Make an offline copy" offer beside it —
+ * are *inside* the Layer that fetches them, so seeing either is opening the row.
  *
  * @returns the row, so a caller can go on asking about that Layer and no other
  */
@@ -273,9 +274,9 @@ async function expectOfflineCopyLayer(page: Page, at: number | Locator = 0): Pro
  * need a settled dialog with that button still disabled.
  */
 async function openMirrorDialog(page: Page): Promise<void> {
-	// "Make an offline copy" lives on the Layer card, which ticket 04 made the Project screen itself —
-	// so arriving is already being there, and there is no navigation left for this to do. Since ticket
-	// 05 the card is the Layer's *open* row, so the row is opened on the way in.
+	// "Make an offline copy" lives on the Layer card, which is on the Project screen itself — so
+	// arriving is already being there, and there is no navigation left for this to do. The card is the
+	// Layer's *open* row, so the row is opened on the way in.
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	const row = await openLayerRow(page);
 	await row.getByTestId('offline-copy-open').click();
@@ -310,7 +311,7 @@ function watchRequests(page: Page): {
  * The hub's picture of the one Map Image in the Workspace, or `null` while there is no `<img>`.
  *
  * `src` verbatim rather than reduced to a scheme, so the caller can say *which* source it came from —
- * the whole of what this ticket is about. `naturalWidth`/`naturalHeight` rather than a bounding box:
+ * which is the whole subject of this file. `naturalWidth`/`naturalHeight` rather than a bounding box:
  * the element is laid out at its attribute dimensions whether or not any bytes arrived, so its box
  * says nothing about whether the picture is there (ADR-0030).
  */
@@ -332,9 +333,10 @@ const hubPicture = (
 				decoded: { width: image.naturalWidth, height: image.naturalHeight }
 			};
 		})
-		// ⚠ Absence only. A strict-mode violation — two cards, which SPEC story 20 is expressly about —
-		// must not be reported as "no picture arrived": that reads as a feature failure when the truth is
-		// an ambiguous locator, and the poll would spend its whole timeout on the wrong diagnosis.
+		// ⚠ Absence only. A strict-mode violation — two cards, which is a duplicated Map Image and a real
+		// defect — must not be reported as "no picture arrived": that reads as a feature failure when the
+		// truth is an ambiguous locator, and the poll would spend its whole timeout on the wrong
+		// diagnosis.
 		.catch((error: unknown) => {
 			if (error instanceof Error && error.message.includes('strict mode violation')) throw error;
 			return null;
@@ -346,8 +348,8 @@ const hubPicture = (
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE WAY IN IS A PARAMETER, WHICH IS NOT A CONVENIENCE
  *
- * **Two independent defects in this pane once made each of the two routes to it work for exactly one of
- * the two cases below.** Neither was caused by making an offline copy; both were found by this ticket trying to
+ * **Two independent defects in this pane once made each of the two routes to it work for exactly one
+ * of the two cases below.** Neither was caused by making an offline copy; both were found by trying to
  * measure the same thing twice, and both are fixed — but the parameter stays, because the reason the
  * defects survived so long is that every test used one route or the other and never both.
  *
@@ -365,17 +367,17 @@ const hubPicture = (
  *
  * The headline before-and-after below now runs **both** halves through `'link'`. It used to measure the
  * referenced Layer through the link and the copied one through a load, because each was the only route
- * that worked for that case — and that left the ticket's central comparison with a confound in it, since
- * the two halves differed by more than the copy. They no longer have to, and `'load'` is covered on its
- * own by the reload test below, which is the fresh-load claim in its proper place.
+ * that worked for that case — and that left the central before-and-after comparison with a confound in
+ * it, since the two halves differed by more than the copy. They no longer have to, and `'load'` is
+ * covered on its own by the reload test below, which is the fresh-load claim in its proper place.
  */
 async function drawTheStack(
 	page: Page,
 	via: 'link' | 'load',
 	directory = 'amsterdam-1625'
 ): Promise<void> {
-	// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
-	// that page: the Layer stack is the Project, so arriving is already being there and the two
+	// `via: 'link'` used to mean "follow the Project page's Layers link". There is no such page any
+	// more: the Layer stack is the Project, so arriving is already being there and the two
 	// paths differ only in whether the screen was loaded fresh.
 	if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	else await page.goto(`/?p=${directory}`);
@@ -424,8 +426,8 @@ test.describe('making an offline copy', () => {
 	}) => {
 		// ADR-0007: the decision must not be made implicitly by a button labelled only "Download". So
 		// the rights statement and the required statement are in front of the user before anything is
-		// fetched — read from `remote.json`, which ticket 14 wrote them into for exactly this moment,
-		// long after the Manifest was navigated away from.
+		// fetched — read from `remote.json`, which holds them for exactly this moment, long after the
+		// Manifest was navigated away from.
 		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 
@@ -451,9 +453,9 @@ test.describe('making an offline copy', () => {
 		await expect(rights).toContainText('creativecommons.org/licenses/by/4.0');
 		await expect(rights).toContainText('Provided by the Example Library');
 
-		// The rights URI is text and **not** a link. Ticket 14 found a Manifest declaring
-		// `"rights": "javascript:…"` would otherwise have become a clickable one, because Svelte escapes
-		// interpolation but does not sanitise `href`.
+		// The rights URI is text and **not** a link. A Manifest declaring `"rights": "javascript:…"`
+		// would otherwise have become a clickable one, because Svelte escapes interpolation but does not
+		// sanitise `href`.
 		await expect(rights.locator('a')).toHaveCount(0);
 
 		// And nothing has been fetched from the library except the one `info.json` the plan needs.
@@ -480,8 +482,8 @@ test.describe('making an offline copy', () => {
 	test('warns explicitly about the ~1 GB hosting limit and still lets the copy proceed', async ({
 		page
 	}) => {
-		// ADR-0008's cliff, and the ticket is explicit that this is information rather than a gate: the
-		// scholar may never publish this Workspace to a free static host at all.
+		// ADR-0008's cliff, and it is information rather than a gate: the scholar may never publish this
+		// Workspace to a free static host at all.
 		//
 		// **The Workspace is seeded rather than the image made enormous, and that is ADR-0027's
 		// doing.** A copy is estimated at 0.7 bytes per pixel, so the largest one the 528-megapixel
@@ -609,7 +611,7 @@ test.describe('making an offline copy', () => {
 	test('respects a declared maxWidth rather than making a request the service has said no to', async ({
 		page
 	}) => {
-		// Two of the fourteen real services in ticket 14's corpus are in this shape — Cambridge with
+		// Two of the fourteen real services surveyed are in this shape — Cambridge with
 		// `maxWidth` 2000 over a 4880×6174 image, and Micrio with a `maxArea` under the image's. Upstream's
 		// own `getImageUrl` throws rather than build the URL, which is the 400 a real server would send.
 		await installIiifHosts(page, { manifestCanvases: singleCanvas });
@@ -695,7 +697,7 @@ test.describe('making an offline copy', () => {
 		expect(project.layers).toHaveLength(1);
 		expect(project.layers[0]).toMatchObject({ kind: 'map', imageId });
 		// Read off the files instead, which is where the answer lives — on the Layer, on the Project
-		// screen, with no navigation in between since ticket 04.
+		// screen, with no navigation in between.
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 			'data-image-mode',
@@ -713,8 +715,8 @@ test.describe('making an offline copy', () => {
 	});
 
 	test('reports progress, and announces it to assistive technology', async ({ page }) => {
-		// SPEC stories 28 and 96. The level-0 path on `slow.test` is 48 tiles at 120 ms each, so the
-		// progress region is on screen long enough to read — which is the point of it.
+		// The level-0 path on `slow.test` is 48 tiles at 120 ms each, so the progress region is on screen
+		// long enough to read — which is the point of it.
 		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
@@ -768,7 +770,7 @@ test.describe('making an offline copy', () => {
 
 		// The map is still referenced, and it is still there. Said by the files — no `info.json` beside its
 		// `remote.json` — because that is the only thing that says it (ADR-0023) — and by the Layer card,
-		// which is where the badge and the offer both live since ticket 11.
+		// which is where the badge and the offer both live.
 		await expect(
 			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
 		).rejects.toThrow();
@@ -803,8 +805,8 @@ test.describe('making an offline copy', () => {
 	});
 
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
-		// SPEC story 95. `<dialog>` + `showModal()` brings Escape and the focus trap with it (ADR-0016),
-		// and the button that opened it gets focus back.
+		// `<dialog>` + `showModal()` brings Escape and the focus trap with it (ADR-0016), and the button
+		// that opened it gets focus back.
 		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
@@ -876,17 +878,17 @@ test.describe('a copied Map Image, once it is copied', () => {
 		page
 	}) => {
 		test.slow();
-		// **The assertion the whole ticket exists for**, and the only proof that the copy is being used:
-		// a copied map that quietly kept fetching from the library looks identical on screen to one that
-		// does not. So it is asserted by request interception, and positively — the warped Layer's own tile
-		// cache has to have bytes in it — because ticket 06 established that a blank warped map is exactly
-		// what an error `@allmaps/render` logs and swallows looks like.
+		// **The assertion this whole file exists for**, and the only proof that the copy is being used: a
+		// copied map that quietly kept fetching from the library looks identical on screen to one that
+		// does not. So it is asserted by request interception, and positively — the warped Layer's own
+		// tile cache has to have bytes in it — because a blank warped map is exactly what an error
+		// `@allmaps/render` logs and swallows looks like.
 		//
 		// **The same Layer, the same pane, and the same instrument are measured twice: before the copy and
 		// after it.** An assertion that a list of intercepted requests is empty is the easiest thing in
 		// this repository to pass vacuously — a listener attached too late, a Layer that never drew, a
 		// pattern that matches nothing — and the before-and-after is what makes it mean something. It is
-		// also the shape that would have caught the mistake this ticket could make, since a Layer drawn
+		// also the shape that catches the mistake this file is most able to make, since a Layer drawn
 		// from the library and one drawn from the folder are indistinguishable on screen.
 		await installIiifHosts(page, {
 			manifestCanvases: singleCanvas,
@@ -905,7 +907,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 		const imageId = generateId(service('images.test', 'florida'));
 
 		// Before the copy the Alignment names the library, which is what makes a referenced Layer render
-		// at all (ticket 14) — so the rewrite below is a change and not a no-op.
+		// at all — so the rewrite below is a change and not a no-op.
 		const referencedAlignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
 			target: { source: { id: string } };
 		};
@@ -957,10 +959,9 @@ test.describe('a copied Map Image, once it is copied', () => {
 	test('shows the hub’s picture of it from the Workspace instead of from the library', async ({
 		page
 	}) => {
-		// SPEC stories 13 and 14, and **no code makes this happen**: the copy writes a pyramid into the
-		// image directory and leaves the `remote.json`, so `tileLocation` starts answering
-		// `'in-workspace'` for that map and ADR-0030's resolver follows it. What is asserted here is that
-		// it really did.
+		// **No code makes this happen**: the copy writes a pyramid into the image directory and leaves
+		// the `remote.json`, so `tileLocation` starts answering `'in-workspace'` for that map and
+		// ADR-0030's resolver follows it. What is asserted here is that it really did.
 		//
 		// ⚠ **"A picture is shown" is true before and after the copy and proves nothing.** The picture is
 		// deliberately *identical* — same box, same fit, same 175 × 125 decoded from a 700 × 500 sheet on
@@ -1008,7 +1009,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 		const afterCopy = watchRequests(page);
 		await page.getByTestId('all-projects').click();
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
-		// `blob:` is the assertion the ticket turns on. `loading` is gone with it — ADR-0030's deliberate
+		// `blob:` is the assertion this turns on. `loading` is gone with it — ADR-0030's deliberate
 		// asymmetry, and the one *observable* difference between the two code paths — and the decoded size
 		// is unchanged, which is the continuity a scholar is promised: only the network dependency went.
 		await expect
@@ -1051,7 +1052,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 		//
 		// **This is the decisive form of "the copy is being used", and it is decisive because the image
 		// pane's tiles are unobservable from the network.** A pyramid read out of OPFS issues no request at
-		// all, so ticket 06 put `window.ballastellaServedTiles` on the success path of the tile protocol.
+		// all, so `window.ballastellaServedTiles` sits on the success path of the tile protocol.
 		// Every entry in it is a tile the store answered, addressed at the ADR-0004 placeholder — so a
 		// non-empty list *is* the injection shim resolving the copy, and it cannot be satisfied by a
 		// canvas that rendered nothing or by a map that fell back to the library.
@@ -1093,7 +1094,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 			const copiedRow = await expectOfflineCopyLayer(page);
 			await expect(copiedRow.getByTestId('referenced-image-host')).toHaveCount(0);
 			// It is one of the Project's own Map Images now — one Layer, drawing local tiles — and
-			// the source URI is still on it. The Layer stack *is* that list since ticket 04.
+			// the source URI is still on it. The Layer stack *is* that list.
 			await expect(page.getByTestId('layer-row')).toHaveCount(1);
 			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 				'data-image-mode',
@@ -1104,7 +1105,7 @@ test.describe('a copied Map Image, once it is copied', () => {
 			);
 
 			// The pane drew the copy, tile by tile, out of the Project — with no network at all. The pane
-			// is `/align/` since ticket 03, and reaching it offline is part of what that asserts.
+			// is `/align/`, and reaching it offline is part of what that asserts.
 			const imageId = generateId(service('images.test', 'florida'));
 			await copiedRow.getByTestId('align-map-image').click();
 			await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
@@ -1135,9 +1136,8 @@ test.describe('a copied Map Image, once it is copied', () => {
 	// naming the library — and pressed a button to reconcile them. With one derived answer per map there
 	// is nothing to reconcile: the copy *is* the record, so it lands for every Project at once.
 	//
-	// What is asserted instead is the behaviour that made the repair unnecessary, and it is the ticket's
-	// own criterion: **two Projects hold a map Layer for the same image, both render, and there is one
-	// pyramid on disk.**
+	// What is asserted instead is the behaviour that made the repair unnecessary: **two Projects hold a
+	// map Layer for the same image, both render, and there is one pyramid on disk.**
 	test('a copied map is one pyramid that two Projects both draw', async ({ page }) => {
 		test.slow();
 		// A community Alignment, so the map is really placed and a warped Layer can be drawn from it.

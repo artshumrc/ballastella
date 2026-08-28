@@ -1,13 +1,13 @@
 import { expect, test } from './support/test.js';
 import { type Locator, type Page, type Response } from '@playwright/test';
 
-// Seam 2 (SPEC, Testing Decisions): the running app, real MapLibre, no map abstraction.
+// Seam 2: the running app, real MapLibre, no map abstraction.
 //
 // What is being defended here is that the image pane's coordinates are stable — that a pixel
 // reported at full resolution is the same pixel after the view has been somewhere else. The
 // projection's own arithmetic is asserted numerically in `@ballastella/core`; these tests
 // assert that MapLibre agrees with it once a real pointer, a real tile grid and a real zoom
-// are involved. Nothing here is a screenshot: SPEC rules out pixel comparison, and silent
+// are involved. Nothing here is a screenshot: this repository does not compare pixels, and silent
 // drift is precisely what a screenshot would miss.
 //
 // Of the tests below, the two that establish something a round trip cannot are "renders the
@@ -15,7 +15,7 @@ import { type Locator, type Page, type Response } from '@playwright/test';
 // `resourceToSynthetic` and requiring the click to come back as that point's own pixel, which
 // composes MapLibre's project and unproject in opposite directions — and "pans by the distance
 // the pointer moved", which pins the scale against a physical distance. The zoom-stability test
-// is the ticket's acceptance criterion and bounds precision; see its own comment.
+// bounds the precision this pane promises; see its own comment.
 
 /** The fixture pyramid's tile size. Guarded against the committed `info.json` in core. */
 const TILE_SIZE = 256;
@@ -107,10 +107,10 @@ test('renders the fixture Map Image with zoom at the bottom-left, and reports th
 }) => {
 	await openPane(page);
 
-	// Zoom is at the bottom-left in every map pane (the-annotation-inspector story 18), asserted
-	// against the rendered control rather than the call that placed it: MapLibre creates all four corner
-	// containers whatever is put in them, so the claim is which corner holds the buttons. No compass,
-	// because there is no north in image pixel space.
+	// Zoom is at the bottom-left in every map pane, asserted against the rendered control rather than
+	// the call that placed it: MapLibre creates all four corner containers whatever is put in them,
+	// so the claim is which corner holds the buttons. No compass, because there is no north in image
+	// pixel space.
 	const pane = page.getByTestId('image-pane');
 	const bottomLeft = pane.locator('.maplibregl-ctrl-bottom-left');
 	await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();

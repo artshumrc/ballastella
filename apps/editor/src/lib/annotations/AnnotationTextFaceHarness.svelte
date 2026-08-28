@@ -20,10 +20,10 @@
 	// AND WHY THE FACE IS MOUNTED INSIDE A REAL `AnnotationInspector`
 	//
 	// **Because "the Annotation is named once" is a claim about the composition and cannot fail below
-	// it** (the-annotation-inspector story 4). The header draws the name and the face draws the words,
-	// so a face mounted on its own could draw a second title and every count taken in it would still
-	// read one. The Inspector is the shared component the application renders and the snippet it is
-	// handed is the real face, so what is on the screen here is what an author looks at.
+	// it**. The header draws the name and the face draws the words, so a face mounted on its own could
+	// draw a second title and every count taken in it would still read one. The Inspector is the shared
+	// component the application renders and the snippet it is handed is the real face, so what is on
+	// the screen here is what an author looks at.
 	//
 	// No `style` snippet: what a tab strip does is `packages/ui/src/annotation-inspector.dom.test.ts`'s,
 	// and a strip here would only add controls to press past.
@@ -60,8 +60,8 @@
 		 *
 		 * The merge below is the round trip and cannot see the difference between "cleared" and "never
 		 * set" — a title of `''` merged in is a title of `''` — while what `setText` is handed is exactly
-		 * what decides whether the property is removed (write-on-the-map story 17). So a test that cares
-		 * about the report reads it here; the file's own answer is `annotation.test.ts`'s.
+		 * what decides whether the property is removed. So a test that cares about the report reads it
+		 * here; the file's own answer is `annotation.test.ts`'s.
 		 */
 		ontext?: (typed: { title?: string; description?: string }) => void;
 		/** The face reports that the title field has the keyboard, so the offer is spent. */

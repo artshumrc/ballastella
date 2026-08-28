@@ -7,8 +7,8 @@ index 2909baae5208a4de2775ae2a561a6dde3be4a426..3e0b31b8f778350a0ba7b8412150df24
  		if (this.disableRender) return;
  		this.viewport = viewport || this.viewport || Viewport.fromSizeAndMaps([this.gl.canvas.width, this.gl.canvas.width], this.warpedMapList);
 -		this.loadMissingImagesInViewport();
-+		// BALLASTELLA PATCH — see patches/@allmaps__render@1.0.0-beta.83.patch and ticket 04 of the
-+		// `nothing-fails-silently` epic.
++		// BALLASTELLA PATCH — the reason and the upstream behaviour it works around are in
++		// patches/@allmaps__render@1.0.0-beta.83.patch.
 +		//
 +		// `loadMissingImagesInViewport()` returns an array of promises, one per map whose `info.json`
 +		// has not arrived, and `WarpedMap.loadImage` REJECTS when the fetch fails. Upstream's three
@@ -46,7 +46,7 @@ index b05aef7262a81f3d7969425774657055cd11558e..d4b06558baf24bc04d2fe0e95dcec52b
  	* @returns
  	*/
  	async fetch() {
-+		// BALLASTELLA PATCH — see patches/@allmaps__render@1.0.0-beta.83.patch and ticket 06.
++		// BALLASTELLA PATCH — see patches/@allmaps__render@1.0.0-beta.83.patch.
 +		//
 +		// Upstream passes `this.fetchFn` into the Comlink worker unproxied (note the abort callback
 +		// in the same argument list IS proxied), and `postMessage` cannot clone a function — so every

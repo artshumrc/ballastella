@@ -55,7 +55,7 @@ export interface ProjectBundle {
  *
  * **There is no entry ceiling.** The zip exporter refused above 65,535 files because the zip writer
  * counted entries in sixteen bits: 70,000 produced an index claiming 4,464, and `unzipSync` read back
- * 4,464 files with no error at all. SPEC puts tens of thousands of files on a single 2 GB pyramid, so
+ * 4,464 files with no error at all. A single 2 GB pyramid runs to tens of thousands of files, so
  * the refusal fired for a Project with two large archival scans — on the path a student hands their
  * work in by. Tar has no central directory and no entry count, so the limit is gone rather than
  * raised.

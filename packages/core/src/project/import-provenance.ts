@@ -21,7 +21,7 @@
 // keeping — the chain of handoffs is the point — but they are not the same kind of fact, and a
 // history that presented them alike would let a claim nobody checked pass for something this
 // application saw. So a transfer marks its own entry `observed` and everything it carried
-// `inherited`, and the editor says which is which (SPEC stories 63, 64).
+// `inherited`, and the editor says which is which.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // TOLERANCE, FOR THE SAME REASON `ProjectFile.unknownFields` EXISTS
@@ -54,7 +54,7 @@ interface ImportProvenanceCommon {
  * The repository coordinates are normalised into their three parts rather than kept as one string,
  * which is how every other GitHub identity in this codebase is spelled. Together with `directory` —
  * a Project's identity (ADR-0008) — and the commit the branch stood at, they say *which state of
- * which Project* was copied, which is the only thing this entry is for (SPEC story 59).
+ * which Project* was copied, which is the only thing this entry is for.
  */
 export interface GitHubImportProvenance extends ImportProvenanceCommon {
 	readonly kind: 'github';
@@ -118,7 +118,7 @@ const carried = (rest: Record<string, unknown>): { unknownFields?: Record<string
  *
  * ⚠ **Only the literal `'observed'` is observed.** An entry with no `evidence`, a misspelled one, or
  * a third value from a later build reads as `inherited`, because the direction that costs nothing is
- * the one that does not assert this build saw something (story 64). Reading it the other way would
+ * the one that does not assert this build saw something. Reading it the other way would
  * manufacture a witness.
  */
 function parseEntry(raw: unknown): ImportProvenanceEntry | null {

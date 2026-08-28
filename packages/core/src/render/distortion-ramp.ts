@@ -22,7 +22,7 @@
 // different object entirely, so `trianglePointsDistortion` is full of correct non-zero numbers while
 // nothing is painted: a test that checks the measure was computed goes green.
 //
-// This was found by ticket 07's `pageerror` watch on an unrelated test, which is the only reason
+// This was found by a `pageerror` watch on an unrelated test, which is the only reason
 // `rgb(…)` did not ship. The distortion test now watches for it too.
 
 import type { DistortionRamp } from '../alignment/distortion.js';

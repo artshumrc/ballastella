@@ -91,7 +91,7 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
-   The measure of a Workspace Home column, and it is one number for both apps (SPEC story 35).
+   The measure of a Workspace Home column, and it is one number for both apps.
 
    A Project's row is meant to be identical in the editor and on a Published Site, and the two apps
    used to state their own widths — `max-w-4xl` against `max-w-6xl` — so the lists they drew from one

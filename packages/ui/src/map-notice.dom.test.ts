@@ -1,5 +1,4 @@
-// The notice both map panes render, asserted against the component rather than against either app
-// (SPEC stories 17, 22, 70).
+// The notice both map panes render, asserted against the component rather than against either app.
 //
 // The presentation used to be written twice — the alert boxes in `apps/editor`'s `ProjectScreen` and
 // again in the viewer's `+page.svelte`, each with its own `role="alert"` versus `aria-live` decision
@@ -69,7 +68,7 @@ const text = (element: Element | null): string =>
 
 const UNAVAILABLE = 'The archive that holds this Base Map did not answer.';
 
-describe('which mechanism a notice uses is this component’s rule (SPEC story 17)', () => {
+describe('which mechanism a notice uses is this component’s rule', () => {
 	/**
 	 * A notice that comes and goes is an `alert`, and there is no live region to miss it.
 	 *
@@ -149,15 +148,15 @@ describe('which mechanism a notice uses is this component’s rule (SPEC story 1
 	});
 });
 
-describe('every sentence is the consumer’s (SPEC story 17)', () => {
+describe('every sentence is the consumer’s', () => {
 	/**
 	 * ⚠ **This component composes no prose at all**, and that is the claim rather than a side effect.
 	 *
-	 * Three times in this epic a component moved into `packages/ui` carried a sentence that was only
-	 * true in the editor, and every control-shaped sweep stayed green because prose is not a
-	 * `role=button`. The sentences here are core's — `baseMapUnavailableNotice` and its siblings —
-	 * and the headings are the calling screen's, so a notice handed one sentence must say exactly
-	 * that sentence and nothing else in either app.
+	 * Three times a component moved into `packages/ui` carried a sentence that was only true in the
+	 * editor, and every control-shaped sweep stayed green because prose is not a `role=button`. The
+	 * sentences here are core's — `baseMapUnavailableNotice` and its siblings — and the headings are
+	 * the calling screen's, so a notice handed one sentence must say exactly that sentence and
+	 * nothing else in either app.
 	 */
 	test('says exactly what it was handed, and offers nothing to operate', () => {
 		notice({ shape: 'comes-and-goes', text: UNAVAILABLE, testid: 'notice' });

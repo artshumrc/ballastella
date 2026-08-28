@@ -3,8 +3,8 @@
 // Tiles in OPFS or in a picked folder have no URL, and every renderer wants one. `<img src>`
 // cannot reach them, MapLibre cannot fetch them, OpenSeadragon cannot fetch them. So each
 // consumer is handed its bytes through its own documented extension point — `addProtocol` for a
-// MapLibre source, `fetchFn` for `@allmaps/maplibre`, a `TileSource` for OpenSeadragon at
-// ticket 14 — and all of them resolve through the single function below.
+// MapLibre source, `fetchFn` for `@allmaps/maplibre`, a `TileSource` for OpenSeadragon — and all
+// of them resolve through the single function below.
 //
 // **The routing key is the ADR-0004 placeholder.** Every generated `info.json` carries
 // `id: "https://unset.invalid/<image-id>"`, `@allmaps/iiif-parser` builds every tile URL by
@@ -106,7 +106,7 @@ export class MissingImageServiceOverrideError extends Error {
 export type StoreImageFetchOptions = {
 	/**
 	 * The store to resolve a pyramid out of. **The read half only** — this shim writes nothing, and
-	 * saying so in the type is what lets ticket 17's HTTP backend (ADR-0006) be handed to it: a
+	 * saying so in the type is what lets an HTTP backend (ADR-0006) be handed to it: a
 	 * Published Site's pyramid is read through exactly this function, and the viewer has no `write`
 	 * to give. See {@link ReadOnlyProjectStore}.
 	 */
@@ -119,7 +119,7 @@ export type StoreImageFetchOptions = {
 	/**
 	 * Told what became of each request, so the app can say when a Map Image stops drawing.
 	 *
-	 * ⚠ **Optional. The published viewer passes one (ticket 04); the editor gets one in ticket 05.**
+	 * ⚠ **Optional. The published viewer passes one; the editor does not yet.**
 	 *
 	 * Until then the editor is no worse off than it was, and that is a measured claim rather than a
 	 * hope: its two readers of this shim — `MapImagePane.svelte`'s ADR-0008 catch and
@@ -131,7 +131,7 @@ export type StoreImageFetchOptions = {
 	 *
 	 * See {@link TileFetchOutcome} for which requests are reported and which are deliberately not.
 	 *
-	 * ⚠ **One thing for ticket 05 to check before wiring this in the editor.** A refused URL keeps the
+	 * ⚠ **One thing to check before wiring this in the editor.** A refused URL keeps the
 	 * notice up until that URL comes back, and the editor makes requests through this shim that are
 	 * *expected* to fail and are never retried — `add-remote-map`'s cross-origin tile probe deliberately
 	 * asks a host for a tile to find out whether it will answer. Wired naively, one probe against an
@@ -159,7 +159,7 @@ export type StoreImageFetchOptions = {
  *
  * ⚠ **That policy leaves a hole, and the hole is written down as a hole:** a Published Site carrying
  * its `info.json` while missing some of its *tile* files draws a map with gaps in it and says
- * nothing. It is a residual of this epic rather than a settled trade-off, and closing it needs the
+ * nothing. It is a known residual rather than a settled trade-off, and closing it needs the
  * pyramid to carry a record of which cells were actually written — a change to what publishing
  * emits, not to what the reader reports. **ADR-0028** states it, with the reason the obvious fix is
  * the wrong one.
@@ -354,10 +354,10 @@ const describeFailure = (failure: TileSourceFailure): string => {
  * every Project, which is what makes two Projects referencing the same `imageId` draw the same pyramid
  * from the same bytes.
  *
- * The pass-through is the half that is easy to get wrong and matters as much: a remote
- * referenced image (ticket 14) must keep working through the ordinary network path, so the
- * original `input` and `init` are handed on **unmodified** rather than rebuilt from a parsed
- * URL — a remote IIIF service is entitled to the request its caller made, headers included.
+ * The pass-through is the half that is easy to get wrong and matters as much: a remote referenced
+ * image must keep working through the ordinary network path, so the original `input` and `init` are
+ * handed on **unmodified** rather than rebuilt from a parsed URL — a remote IIIF service is entitled
+ * to the request its caller made, headers included.
  *
  * **A request this function answers itself — anything addressed to the placeholder host — comes back
  * as a `Response`, whatever went wrong.** There are exactly two ways the returned promise rejects,
@@ -377,16 +377,16 @@ const describeFailure = (failure: TileSourceFailure): string => {
  * rethrows whatever `fetchFn` rejected with, and `WebGL2Renderer` calls it without awaiting or
  * catching, so the rejection arrived as an uncaught `pageerror` and reached nobody at all. On a
  * published site there is no console anyone is watching, so an error that only reaches the console
- * reaches nobody — which is the whole of this ticket.
+ * reaches nobody.
  *
  * So the refusal is caught **here**, at the boundary that supplied the fetch, and turned into two
  * things: a `Response` the renderer can do what it likes with, and a {@link TileFetchOutcome} the app
  * can turn into a sentence. The render layer is never asked what to say.
  *
- * ⚠ **This is necessary and it is not sufficient, and saying otherwise here would be the mistake this
- * epic exists to prevent.** `@allmaps/stdlib`'s `fetchUrl` throws for any non-ok `Response` — so a
- * refusal answered politely still becomes an upstream `Error`, raised *after* this function has
- * returned, and still lands in the promise `WebGL2Renderer` drops. That half is fixed in
+ * ⚠ **This is necessary and it is not sufficient, and saying otherwise here would be the mistake
+ * this module exists to prevent.** `@allmaps/stdlib`'s `fetchUrl` throws for any non-ok `Response`
+ * — so a refusal answered politely still becomes an upstream `Error`, raised *after* this function
+ * has returned, and still lands in the promise `WebGL2Renderer` drops. That half is fixed in
  * `patches/@allmaps__render@1.0.0-beta.83.patch`, which makes that one renderer settle those promises
  * the way upstream's other three already do, and `scripts/check-allmaps-patch.mjs` fails the build if
  * it stops applying. Measured: with the patch reverted, the page error comes straight back.
@@ -484,11 +484,11 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 	 * ⚠ **A subscriber is application code and it can throw.** `onOutcome` is called from the middle
 	 * of a fetch — once from a `catch`, once beside a 200 whose `Response` is already built — so an
 	 * unguarded call turns a tile that *arrived* into a rejected promise, inside a function whose
-	 * whole purpose is that refusals do not escape into a renderer. That is ticket 01's `9ee43b5`
-	 * defect at a new seam, and this is the same answer: the path is not the subscriber's to break.
+	 * whole purpose is that refusals do not escape into a renderer. That is the `9ee43b5` defect at a
+	 * new seam, and this is the same answer: the path is not the subscriber's to break.
 	 *
 	 * Rethrown out of band rather than swallowed, because a silent subscriber failure is precisely
-	 * what this epic exists to stop. `queueMicrotask` puts it where an uncaught error goes, with
+	 * what this module exists to stop. `queueMicrotask` puts it where an uncaught error goes, with
 	 * nothing of ours left on the stack to catch it, so the page's error handling and the suite's
 	 * `pageerror` watch both see it — and the tile still arrives.
 	 */
@@ -643,13 +643,13 @@ const GUARDED = Symbol.for('ballastella.imageServiceGuard');
 /**
  * Make a request that escaped the injection layer say so, instead of failing at DNS.
  *
- * SPEC calls "every code path constructing an `Image` sets `uri` before requesting a tile" the
- * most fragile invariant in the project, and it is fragile for a mundane reason: `Image#uri` is
- * a plain public field, so the override is a single assignment, and a single assignment is what
- * a new code path forgets. The consumers wired here cannot forget — a MapLibre source reaches
- * its tiles only through the registered protocol, and `@allmaps/maplibre` is constructed with
- * `fetchFn` — but the *next* consumer can, and what it gets for free is a blank map and a DNS
- * error naming nothing.
+ * ADR-0004's rule that "every code path constructing an `Image` sets `uri` before requesting a
+ * tile" is the most fragile invariant in the project, and it is fragile for a mundane reason:
+ * `Image#uri` is a plain public field, so the override is a single assignment, and a single
+ * assignment is what a new code path forgets. The consumers wired here cannot forget — a MapLibre
+ * source reaches its tiles only through the registered protocol, and `@allmaps/maplibre` is
+ * constructed with `fetchFn` — but the *next* consumer can, and what it gets for free is a blank
+ * map and a DNS error naming nothing.
  *
  * So the app installs this once, at startup, over the global `fetch`. Anything addressed to the
  * placeholder that reaches the network is refused before the request is made, with a message

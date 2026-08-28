@@ -1,21 +1,21 @@
 // "Make an offline copy": a referenced remote Map Image turned into a pyramid of our own
-// (ADR-0007, SPEC stories 27 and 28).
+// (ADR-0007).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS IS, IN ONE LINE
 //
-// A **funnel into ticket 05**. Both paths below end with one full-resolution image handed to
+// A **funnel into the local tiler**. Both paths below end with one full-resolution image handed to
 // `ingestImageFile`, so an offline copy's pyramid is not merely shaped like a locally ingested one — it is
 // produced by the same code, over the same geometry, with the same `info.json` and the same
 // `manifest.json`. `offline-copy.test.ts` asserts that byte for byte against a local ingest of the same
 // dimensions, which is the only form of that claim worth having.
 //
-// That is also what makes the exact-resize question go away rather than be tolerated. Ticket 14's CORS
-// probe can only check the one thing about a stranger's server that is checkable — a ragged tile's
-// decoded dimensions must equal what was asked for — and has to tolerate the undetectable residue: a
-// server that returns the right dimensions having padded rather than resized within them, bounded at
-// 0.6% of one tile along two margins. **An offline copy removes that outright**, because every tile
-// in it is cut by the tiler ticket 05 asserts exact-resize of, from pixels this app has in hand. The
+// That is also what makes the exact-resize question go away rather than be tolerated. The add-time
+// CORS probe can only check the one thing about a stranger's server that is checkable — a ragged
+// tile's decoded dimensions must equal what was asked for — and has to tolerate the undetectable
+// residue: a server that returns the right dimensions having padded rather than resized within them,
+// bounded at 0.6% of one tile along two margins. **An offline copy removes that outright**, because
+// every tile in it is cut by the local tiler, from pixels this app has in hand. The
 // only geometry a remote server is trusted for here is 1:1 — a region served at its own size, where
 // there is no resize to get wrong and a wrong answer is a wrong number of pixels rather than a
 // sub-pixel stretch.
@@ -83,8 +83,8 @@ export const estimateOfflineCopyBytes = (width: number, height: number): number 
 /**
  * The bounds this applies to bytes coming off somebody else's server.
  *
- * Ticket 13's review found the matching failure on the other untrusted path: a declared size trusted,
- * with nothing bounding it, and a truncated archive importing silently. So `responseBytes` is enforced
+ * The other untrusted path has the matching failure: a declared size trusted, with nothing bounding
+ * it, and a truncated archive importing silently. So `responseBytes` is enforced
  * by **counting the bytes as they arrive** rather than by believing `content-length`, which a IIIF
  * service may omit and a hostile one may lie about.
  *
@@ -236,9 +236,6 @@ export function planOfflineCopy(
 	// (ADR-0027). An offline copy has to exist as one full-resolution image before it can be re-cut
 	// — `full-max` downloads one and decodes it, `assembled` stitches thousands of pieces into one —
 	// so both inherit the `createImageBitmap` decode ceiling and neither has anywhere to escape to.
-	// The `needsStreamingTiler` note that used to stand here promised that a copy this size "needs
-	// the streaming tiler", which is no longer true of any deployment and was never true of this
-	// one; it closes v1 ticket 15's `[~]` criterion by removing the route it was hedging about.
 	if (pixels > maxIngestPixels) {
 		// One word for the thing throughout (CONTEXT.md, *Map Image*: avoid map, image, scan,
 		// source). This sentence used to say "this map … this Map Image" in one breath.
@@ -337,7 +334,7 @@ function finestLevelPieces(service: RemoteImageService): OfflineCopyPiece[] {
 		});
 }
 
-/** What the UI needs in order to say something true while a copy runs (SPEC stories 28, 96). */
+/** What the UI needs in order to say something true while a copy runs. */
 export type OfflineCopyProgress = {
 	readonly phase: 'fetching' | 'assembling' | 'tiling' | 'done';
 	readonly requestsDone: number;
@@ -389,7 +386,7 @@ export type OfflineCopyResult = {
 	/** Every URL that was actually fetched. The last requests this image will ever need. */
 	readonly requests: readonly string[];
 	readonly bytesFetched: number;
-	/** The pyramid, as ticket 05 reports it. */
+	/** The pyramid, as the tiler reports it. */
 	readonly ingest: IngestResult;
 };
 
@@ -445,7 +442,7 @@ export async function makeOfflineCopy(options: MakeOfflineCopyOptions): Promise<
 			requestCount: plan.requests.length,
 			ingest,
 			// Clamped below 1 until `done`, the same rule `IngestProgress.fraction` follows: a bar sitting
-			// at 100% while a job is still running is the failure story 28 is written against.
+			// at 100% while a job is still running tells the user something untrue.
 			fraction:
 				phase === 'done'
 					? 1

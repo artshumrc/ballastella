@@ -64,7 +64,7 @@ export class FolderPermissionDeniedError extends Error {
  *
  * False in Firefox, in Safari, and on Chrome for Android — where the answer must be that the
  * option is simply **absent**, not disabled and not explained away. OPFS keeps working and
- * nothing about the app changes (ADR-0001, SPEC story 4).
+ * nothing about the app changes (ADR-0001).
  */
 export function isFolderWorkspaceSupported(): boolean {
 	return typeof directoryPicker() === 'function';
@@ -104,7 +104,7 @@ export async function chooseWorkspaceFolder(): Promise<FileSystemAccessProjectSt
  * **Must be called from a user gesture.** `requestPermission()` needs transient user activation,
  * and called automatically on load it fails silently — leaving an app that appears to have lost
  * the user's folder (ADR-0012). True no-prompt resumption needs Chrome 122+ and works best for an
- * installed PWA, which is the honest answer to "why does it keep asking?" and is ticket 18.
+ * installed PWA, which is the honest answer to "why does it keep asking?".
  *
  * Rejects with {@link FolderPermissionDeniedError} when the user declines. A folder that has been
  * moved or deleted is *not* reported here: permission survives the folder, so this resolves and
@@ -132,8 +132,8 @@ export async function rememberedFolderName(): Promise<string | null> {
  * Stop offering to reopen the folder.
  *
  * Called when the user goes back to browser storage. Their choice is honoured next visit rather
- * than second-guessed: continuing to offer a folder they have just moved away from is the nagging
- * ticket 12 rules out. The folder itself is untouched — every Project in it is still there, and
+ * than second-guessed: continuing to offer a folder they have just moved away from is exactly the
+ * nagging this rules out. The folder itself is untouched — every Project in it is still there, and
  * choosing it again brings them back.
  */
 export async function forgetWorkspaceFolder(): Promise<void> {

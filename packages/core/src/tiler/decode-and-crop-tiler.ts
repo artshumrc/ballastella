@@ -23,7 +23,7 @@
 // Known, and not addressed here: WebKit honours the resize options but resamples them poorly at
 // large ratios — MSE 1047 on the same probe, roughly a bilinear reduction. Fixing that means
 // reducing in repeated halving steps, which for the coarse levels of a large pyramid would need
-// intermediates far larger than one tile and is a slice of its own. It is recorded on ticket 05.
+// intermediates far larger than one tile and is a slice of its own.
 
 import type { OpenTileSource, TileSource } from './ingest.js';
 import type { PlannedTile } from './pyramid.js';

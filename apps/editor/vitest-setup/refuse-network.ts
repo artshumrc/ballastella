@@ -1,4 +1,4 @@
-// The editor's Node unit project joins the same fence every other suite is behind (ticket 06).
+// The editor's Node unit project joins the same fence every other suite is behind.
 //
 // **One implementation, imported, and not a fourth copy.** `packages/core/vitest-setup/refuse-network.ts`
 // is the fence and its own header is where the rule and its two limits are written down; core now

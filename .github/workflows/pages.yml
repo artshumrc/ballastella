@@ -1,7 +1,7 @@
 # Deploy the editor to GitHub Pages.
 #
 # ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
-# │ THIS FILE IS THE FORK STORY. SPEC stories 99 and 101.                                          │
+# │ THIS FILE IS THE FORK STORY: an instructor forks this repository and deploys it.                                          │
 # └───────────────────────────────────────────────────────────────────────────────────────────────┘
 #
 # "An instructor forks the tool and hosts their own instance on free static hosting" was designed for

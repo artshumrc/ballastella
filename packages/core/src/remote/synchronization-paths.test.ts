@@ -128,7 +128,7 @@ describe('classifyInventory', () => {
 	const inventory = classifyInventory(tree, projectDirectories(tree.map((entry) => entry.path)));
 
 	// What an Update compares and what it may transfer. A different editor version's `_app` bundle is
-	// not inbound change, and the tiles that make a Project work offline are (SPEC stories 145, 166).
+	// not inbound change, and the tiles that make a Project work offline are.
 	it('compares authored files, Offline Copies and cached Base Map tiles as source', () => {
 		expect(inventory.source.map((entry) => entry.path)).toEqual([
 			'base-map/tiles/9f8/12/2094/1330.mvt',

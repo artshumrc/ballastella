@@ -1,5 +1,5 @@
 // Which repositories a signed-in author has given this App access to, read from GitHub and from
-// nowhere else (ADR-0031, SPEC stories 11 and 55).
+// nowhere else (ADR-0031).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // A REJECTED SIGN-IN IS A REFUSAL AND NEVER AN EMPTY LIST
@@ -15,12 +15,12 @@
 //
 // This is a read. There is no cache anywhere — not in storage, not in a module-level variable —
 // because a remembered listing is a second answer free to disagree with GitHub's, and access granted
-// on GitHub's own screen a moment ago is exactly the case the sequence has to see (SPEC story 22).
+// on GitHub's own screen a moment ago is exactly the case the sequence has to see.
 //
 // And only the two endpoints below are called. `POST /user/repos` is not documented for GitHub App
 // user access tokens and `PUT /user/installations/{id}/repositories/{id}` is documented for classic
 // personal access tokens only, so creating a repository and granting access to one are both things
-// the author does on GitHub's screens (SPEC story 56).
+// the author does on GitHub's screens.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { GITHUB_API_ORIGIN } from './github-api.js';
@@ -83,7 +83,7 @@ async function problemOf(response: Response): Promise<string> {
  *
  * ⚠ **Driven by `total_count`, not by the first page.** A student with more than a hundred
  * repositories would otherwise be shown a list their own is missing from, and the failure would look
- * like access they had granted not registering (SPEC story 11).
+ * like access they had granted not registering.
  *
  * ⚠ **A page carrying nothing ends the read whatever the count said.** GitHub's `total_count` and
  * its pages disagreeing is not something this can resolve, and the alternative to stopping is a loop
@@ -213,7 +213,7 @@ export async function readGrantedRepositories(
  *
  * It says *sign in again* rather than naming a token, because on a deployment with an App there is
  * no token in this story at all — a user-to-server sign-in lasts eight hours and this is what its
- * ending looks like from here (SPEC story 63).
+ * ending looks like from here.
  */
 function signInEndedMessage(): string {
 	return (

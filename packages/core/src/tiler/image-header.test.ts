@@ -131,8 +131,8 @@ describe('readImageHeader', () => {
 	});
 
 	it('reads a TIFF, whose dimensions need 32 bits at archival sizes', () => {
-		// SPEC story 22: the archival master a library hands over is often a TIFF, and no browser
-		// decodes one. Reading the size anyway is what lets it be routed rather than rejected.
+		// The archival master a library hands over is often a TIFF, and no browser decodes one.
+		// Reading the size anyway is what lets it be routed rather than rejected.
 		const tiff = new Uint8Array(8 + 2 + 24 + 4);
 		const view = new DataView(tiff.buffer);
 		tiff.set([0x49, 0x49]); // 'II', little-endian

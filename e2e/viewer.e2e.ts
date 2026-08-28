@@ -13,7 +13,7 @@ test('the hub page loads', async ({ page }) => {
 });
 
 test('the built bundle carries no publishing machinery and no alignment route', async () => {
-	// ADR-0019's boundary, in the direction ticket 16 pushed on it. The publish planner, its warnings,
+	// ADR-0019's boundary, from the viewer's side. The publish planner, its warnings,
 	// and the canonical stamp all live in `@ballastella/core`, which `apps/viewer` imports **wholesale**
 	// — so `scripts/check-viewer-deps.mjs` cannot see them, exactly as a review of that fence found.
 	// Every published site ships this bundle and a Reader never publishes anything.
@@ -24,7 +24,7 @@ test('the built bundle carries no publishing machinery and no alignment route', 
 	const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 	const build = path.join(repoRoot, 'apps/viewer/build');
 
-	// ─── And no alignment route (ticket 10, SPEC story 50) ───────────────────────────────────────
+	// ─── And no alignment route ──────────────────────────────────────────────────────────────────
 	//
 	// `/align` is the editor's, and a screen no Reader can use must not cost a published site bytes:
 	// `AlignmentWorkspace` reaches two live map contexts, the pairing state, the transformation

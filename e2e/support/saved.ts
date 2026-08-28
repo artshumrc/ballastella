@@ -9,7 +9,7 @@
 // returned as soon as its row was visible and then reloaded the page was reading a Workspace the
 // write had not reached yet — and the Layer was simply not there.
 //
-// Measured on `main` on 2026-08-07, ten consecutive full runs (ticket 17): this is the single
+// Measured on `main` on 2026-08-07, ten consecutive full runs: this is the single
 // largest source of the suite's flake. `editor-pwa.e2e.ts`'s "fully usable with the network off"
 // failed in **3 of 10 runs** on it, twice as a 30 s timeout waiting for a Layer row that was never
 // going to arrive and once as `TypeError: Cannot read properties of undefined` from

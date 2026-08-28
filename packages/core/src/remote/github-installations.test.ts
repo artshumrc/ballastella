@@ -4,7 +4,7 @@ import type { FetchFn } from '../injection/store-image-fetch.js';
 import { createFakeGitHub, type FakeGitHub, type FakeGrants } from './fake-github.js';
 import { readGrantedRepositories } from './github-installations.js';
 
-// Seam 1, against the one fake GitHub this epic shares. What is asserted is the *answer* — which
+// The in-memory seam, against the one shared fake GitHub. What is asserted is the *answer* — which
 // repositories, which of them may be published to, and whether a refusal is a refusal — rather than
 // which requests were made: the failure this module exists to prevent is a rejected sign-in
 // rendered as "you have no repositories", and no assertion on a call count can see it.

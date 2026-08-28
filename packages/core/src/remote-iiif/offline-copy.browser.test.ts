@@ -4,26 +4,26 @@
 // WHAT THIS FILE IS FOR, AND WHY IT IS NOT THE NODE TESTS AGAIN
 //
 // `offline-copy.test.ts` asserts the *job*: which path, how many requests, what is written, what is
-// refused. It cannot assert the one claim this ticket makes that matters most, because the claim is
-// about pixels: **an offline copy's pyramid honours IIIF's exact-resize semantics the way ticket 05's tiler
-// does, so ticket 03's `placement = region ÷ scaleFactor` is the right number for it.**
+// refused. It cannot assert the claim that matters most, because that claim is about pixels: **an
+// offline copy's pyramid honours IIIF's exact-resize semantics the way the local tiler does, so the
+// image pane's `placement = region ÷ scaleFactor` is the right number for it.**
 //
-// Ticket 14 could only check the checkable half of that against a stranger's server — a ragged probe
-// tile's decoded dimensions must equal what was asked for — and had to tolerate the undetectable half:
-// a server returning the right dimensions having padded rather than resized within them, bounded at
-// 0.6% of one tile along two margins. Its own note says an offline copy removes that outright. This is
-// where "removes it" stops being a claim.
+// `cors-probe.ts` can only check the checkable half of that against a stranger's server — a ragged
+// probe tile's decoded dimensions must equal what was asked for — and has to tolerate the
+// undetectable half: a server returning the right dimensions having padded rather than resized within
+// them, bounded at 0.6% of one tile along two margins. Its own header says an offline copy removes
+// that outright. This is where "removes it" stops being a claim.
 //
 // The fixture is `apps/editor/static/fixtures/images/floride-1657`, which is a **level-0 service** —
 // `profile: "level0"`, no ability to serve anything it did not pre-cut — so it drives the expensive
 // path of ADR-0007 with real bytes, and it is a real engraved chart rather than a gradient, which is
 // what makes the resampling statistics below able to separate 0.6%.
 //
-// The two statistics are ticket 05's, deliberately: `decode-and-crop-tiler.browser.test.ts` explains
-// at length why absolute pixel positions cannot separate the two hypotheses (each engine's resampler
-// carries its own sub-pixel sampling offset) and why extent and a per-row profile comparison can.
-// Using the same two here is what makes "the same way ticket 05's tiler does" a comparison rather than
-// a form of words.
+// The two statistics are the local tiler's own, deliberately: `decode-and-crop-tiler.browser.test.ts`
+// explains at length why absolute pixel positions cannot separate the two hypotheses (each engine's
+// resampler carries its own sub-pixel sampling offset) and why extent and a per-row profile
+// comparison can. Using the same two here is what makes "the same way the local tiler does" a
+// comparison rather than a form of words.
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -89,7 +89,7 @@ const luma = (pixels: Pixels, x: number, y: number): number => {
 	);
 };
 
-/** How many rows (or columns) of content a tile holds, to sub-pixel precision. Ticket 05's statistic. */
+/** How many rows (or columns) of content a tile holds, to sub-pixel precision. The tiler's statistic. */
 function contentExtent(pixels: Pixels, axis: 'rows' | 'columns'): number {
 	const outer = axis === 'rows' ? pixels.height : pixels.width;
 	const inner = axis === 'rows' ? pixels.width : pixels.height;
@@ -273,7 +273,7 @@ describe('a level-0 remote service, copied end to end', () => {
 		}
 	});
 
-	it('is byte-identical to what ticket 05 writes for the same source', async () => {
+	it('is byte-identical to what a local ingest writes for the same source', async () => {
 		// "The output must be indistinguishable from a locally ingested image, so nothing downstream
 		// needs to know how a pyramid arrived." Not similar, and not merely the same geometry: the same
 		// bytes, because it is the same tiler over the same pixels. The only difference between the two
@@ -309,16 +309,17 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 	// 1 ÷ scaleFactor and padded the remainder instead would stretch every ragged tile by up to 0.6% at
 	// the right and bottom margins of every Map Image — sub-pixel, systematic, in the margins.
 	//
-	// Ticket 14 can only check the checkable half of this against a stranger's server and has to
+	// `cors-probe.ts` can only check the checkable half of this against a stranger's server and has to
 	// tolerate the rest. Here the whole copy is driven end to end — a level-0 host cutting 1:1 tiles,
 	// the real `assembleWithCanvas`, the real tiler — and the property is measured on what came out.
 	//
-	// The statistic is ticket 05's **extent** measure and deliberately not its per-row profile measure.
-	// The profile one did not transfer: at scale factor 4 on a 1200-wide chart it prefers the wrong
-	// hypothesis, because each engine's resampler carries a constant sub-pixel sampling offset (ticket
-	// 05 measures −0.12 output pixels in Chromium) and over 213 output rows that offset is larger than
-	// the 0-to-1 source row the two hypotheses differ by. Extent is an integral over the whole tile, so
-	// a constant offset cannot bias it — which is exactly why it separates half a pixel.
+	// The statistic is the tiler's **extent** measure and deliberately not its per-row profile measure.
+	// The profile one does not transfer: at scale factor 4 on a 1200-wide chart it prefers the wrong
+	// hypothesis, because each engine's resampler carries a constant sub-pixel sampling offset
+	// (`decode-and-crop-tiler.browser.test.ts` measures −0.12 output pixels in Chromium) and over 213
+	// output rows that offset is larger than the 0-to-1 source row the two hypotheses differ by.
+	// Extent is an integral over the whole tile, so a constant offset cannot bias it — which is
+	// exactly why it separates half a pixel.
 
 	const dimensions = { width: 1201, height: 851 };
 
@@ -397,7 +398,7 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 			// Under a 1 ÷ scaleFactor resize with the remainder padded it would cover
 			// region ÷ scaleFactor instead. How far apart the two are is `ceil(x) − x` for that tile, so
 			// the assertion is that the measurement lands nearer the served size than the padded one by a
-			// wide margin — the same form ticket 05's own version of this takes, and for the same reason.
+			// wide margin — the same form the tiler's own version of this takes, and for the same reason.
 			const padded = {
 				rows: tile.region.height / tile.scaleFactor,
 				columns: tile.region.width / tile.scaleFactor

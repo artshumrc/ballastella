@@ -213,7 +213,7 @@ test('a Map Image referenced from a Library shows a picture drawn from that Libr
 
 	// The other half of ADR-0030's deliberate asymmetry: laziness is worth having for a URL on somebody
 	// else's server, so that opening a Workspace of referenced maps asks the Libraries only for the cards
-	// a scholar can see (SPEC story 19).
+	// a scholar can see.
 	await expect(entry.getByTestId('map-thumbnail-image')).toHaveAttribute('loading', 'lazy');
 });
 

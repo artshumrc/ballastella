@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The place search surface: a field, and the candidates it found (SPEC stories 1–4, 20–23).
+	// The place search surface: a field, and the candidates it found.
 	//
 	// **Built once for two consumers.** The Base Map pane uses it to move the camera; the Annotation
 	// Layer surface uses it to move the camera *and* drop a Pin. The whole of that difference is what
@@ -130,9 +130,9 @@
 </script>
 
 <!--
-	**Nothing here holds layout open**: a two-pane authoring screen keeps its room for the work (SPEC
-	story 23), and the candidate list exists only while there are candidates. Where this sits is the
-	caller's — see the header.
+	**Nothing here holds layout open**: a two-pane authoring screen keeps its room for the work, and
+	the candidate list exists only while there are candidates. Where this sits is the caller's — see
+	the header.
 -->
 <div class="w-full" data-testid={testid}>
 	<form class="join w-full" onsubmit={submit}>

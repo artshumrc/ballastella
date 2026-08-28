@@ -1,11 +1,11 @@
 // The GitHub App sign-in: the redirect out, the `state` check on the way back, and the code-for-
-// token exchange through the broker (ADR-0031, SPEC stories 32, 33, 56–58, 63).
+// token exchange through the broker (ADR-0031).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE SECOND ACQUISITION PATH, BEHIND THE SAME INTERFACE
 //
-// Ticket 03 put a push credential behind {@link CredentialStore}: a token can be put in, taken out,
-// and thrown away. A pasted fine-grained token was the first way to get one; this is the second, and
+// A push credential lives behind {@link CredentialStore}: a token can be put in, taken out, and
+// thrown away. A pasted fine-grained token was the first way to get one; this is the second, and
 // **below that interface the two are indistinguishable** — the publish engine is handed an opaque
 // bearer string and never learns which door it came through. There is no `if (authMethod === …)`
 // here or anywhere beneath the UI, which is ADR-0031's consequence written as a rule.
@@ -20,7 +20,7 @@
 //
 // `github.com/login/oauth/access_token` sends no CORS headers, so a browser cannot exchange a code
 // for a token itself. `api.github.com` answers `access-control-allow-origin: *`, so every other
-// request in this epic goes browser-to-GitHub directly. The broker is that one asymmetry and nothing
+// other request goes browser-to-GitHub directly. The broker is that one asymmetry and nothing
 // else: **no repository data ever passes through it** (ADR-0031, which is named for this).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -345,7 +345,7 @@ export const isGrantFresh = (grant: GitHubTokenGrant, now: number): boolean =>
  *
  * ⚠ **It holds a refresh token, which is a secret**, so it lives wherever the credential lives and
  * nowhere else — never in the Workspace, which is what a Backup packs and a Publish uploads, and
- * never in `localStorage`, which holds the write-ahead journal (ADR-0033, SPEC "Out of scope" 9).
+ * never in `localStorage`, which holds the write-ahead journal (ADR-0033).
  */
 export function readGrantRecord(storage: CredentialStorage): GitHubTokenGrant | null {
 	let raw: string | null;
@@ -386,7 +386,7 @@ export function clearGrantRecord(storage: CredentialStorage): void {
 	}
 }
 
-/** What a scholar is told when the token has run out and could not be renewed (story 33). */
+/** What a scholar is told when the token has run out and could not be renewed. */
 export function signInAgainMessage(): string {
 	return (
 		`Your GitHub sign-in has expired, so nothing has been published. A sign-in from GitHub lasts ` +

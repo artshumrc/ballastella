@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The editor's navigation bar: the things that are true on every screen (ticket 04).
+	// The editor's navigation bar: the things that are true on every screen.
 	//
 	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
 	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
@@ -20,24 +20,24 @@
 	// a control owned by this component.
 	//
 	// The screen's hierarchy and way back arrive through the shell's page-chrome slot — one generic
-	// slot a route fills, not a switch on the route. Ticket 04 read the rule more strictly and had each such
-	// route carry its own header strip beneath this bar; on `/align`, with two live map panes, that was
-	// a second header costing height the maps needed.
+	// slot a route fills, not a switch on the route. A per-route header strip beneath this bar is the
+	// alternative, and on `/align`, with two live map panes, that is a second header costing height
+	// the maps need.
 	//
 	// Before this, the theme toggle was on `/base-map/`, `/layers/` and `/align/` and not on the hub;
 	// the save indicator and the undo control were on three pages each, mounted separately. Three
 	// copies of a thing that has one meaning is how they came to look different from each other.
 	//
-	// Workspace identity was a **label** in ticket 04. Ticket 12 makes it a switcher, because browser
-	// storage now holds several named Workspaces (ADR-0024) — and from ticket 14 onward one of them can
-	// be a throwaway Review Workspace, which is a thing a user must never be in doubt about.
+	// Workspace identity is a **switcher** rather than a label, because browser storage holds several
+	// named Workspaces (ADR-0024) — and one of them can be a throwaway Review Workspace, which is a
+	// thing a user must never be in doubt about.
 
 	import { resolve } from '$app/paths';
 	import { describeRemote } from '@ballastella/core';
 	import { AppBar, BallastellaMark, MenuPopover } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
-	// a user's own "click the button called…" both go by (SPEC story 111).
+	// a user's own "click the button called…" both go by.
 	import AppWindow from '@lucide/svelte/icons/app-window';
 	import Folder from '@lucide/svelte/icons/folder';
 	import Plus from '@lucide/svelte/icons/plus';
@@ -63,31 +63,31 @@
 	const session = $derived(storage?.session ?? null);
 
 	/**
-	 * Which Workspace this is, in words (SPEC story 88).
+	 * Which Workspace this is, in words.
 	 *
 	 * Named rather than iconified, because "which Workspace did that last edit go into?" is exactly
 	 * the question a scholar asks after their work is not where they left it — and a disc glyph
-	 * answers it for nobody using a screen reader (SPEC story 111).
+	 * answers it for nobody using a screen reader.
 	 *
 	 * The Workspace's own name in both backings, rather than "Browser storage", which named the
 	 * *backing*: with several named Workspaces on one backing that sentence no longer identifies
-	 * anything, and from ticket 14 a Review Workspace is browser-backed too.
+	 * anything, and a Review Workspace is browser-backed too.
 	 */
 	const workspaceName = $derived(storage === null ? 'Starting…' : storage.name);
 
 	/**
 	 * Whether the open Workspace cannot be reached.
 	 *
-	 * ⚠ **The menu's markings are the only thing here that can send a scholar towards recovery**
-	 * (SPEC story 43). `status` belongs to the open session, so this is a fact about the Workspace
-	 * currently on screen and about no other — which is why the marking lands on the open one's row:
-	 * the folder row when the backing is a folder, and that Workspace's own `switch-workspace` row
-	 * when it is browser storage refusing.
+	 * ⚠ **The menu's markings are the only thing here that can send a scholar towards recovery.**
+	 * `status` belongs to the open session, so this is a fact about the Workspace currently on screen
+	 * and about no other — which is why the marking lands on the open one's row: the folder row when
+	 * the backing is a folder, and that Workspace's own `switch-workspace` row when it is browser
+	 * storage refusing.
 	 */
 	const unreachable = $derived(session?.status === 'unreachable');
 
 	/**
-	 * Where this Workspace's bytes are, in words — the header's second fact (SPEC story 41).
+	 * Where this Workspace's bytes are, in words — the header's second fact.
 	 *
 	 * Only for the two settled backings. A remembered folder that is not open yet is browser-backed
 	 * by this test and "Kept in this browser" is false of it, so the header states that state in its
@@ -98,7 +98,7 @@
 	);
 
 	/**
-	 * Whether a push credential is held, and as whom (SPEC story 32).
+	 * Whether a push credential is held, and as whom.
 	 *
 	 * Read from the credential store rather than from anything remembered here, so it says what is
 	 * **true**: the store is sealed while a Review Workspace is open (ADR-0033), and a token that
@@ -121,21 +121,21 @@
 	 * Bound out of `PublishDialog` rather than kept there, because the control that started it is on
 	 * this bar and has to say so: `aria-disabled` with a label that reflects progress, never
 	 * `disabled` — a `disabled` button leaves the tab order the instant it is pressed, dropping a
-	 * keyboard user's focus to `<body>` for the length of the publish (SPEC story 60, WCAG 2.4.3).
+	 * keyboard user's focus to `<body>` for the length of the publish (WCAG 2.4.3).
 	 */
 	let publishing = $state(false);
 	let publishProgress = $state<PublishProgress | null>(null);
 	/**
-	 * Whether this Workspace may be published at all (ADR-0024, SPEC story 39).
+	 * Whether this Workspace may be published at all (ADR-0024).
 	 *
 	 * Absent inside a review copy rather than present and refused, which is the arrangement the hub
 	 * already had: the review copy holds somebody else's work, the hub says so in words where the
 	 * button used to be, and `packages/core` refuses the binding by any route regardless.
 	 *
-	 * Absent for the same reason over a Workspace whose interrupted Import (ticket 05) or Update
-	 * (ticket 15) could not be resolved. A publish plan is a walk of the Workspace, and until the
-	 * marker is resolved that walk would include provisional files — which is what the whole gate
-	 * exists to prevent, and the hub is already saying why in words.
+	 * Absent for the same reason over a Workspace whose interrupted Import or Update could not be
+	 * resolved. A publish plan is a walk of the Workspace, and until the marker is resolved that walk
+	 * would include provisional files — which is what the whole gate exists to prevent, and the hub
+	 * is already saying why in words.
 	 */
 	const publishable = $derived(
 		storage !== null && storage.review === null && storage.unavailable === ''
@@ -171,7 +171,7 @@
 	let newNameReturn: HTMLElement | null = null;
 
 	/**
-	 * What just happened to the Workspace, announced (SPEC stories 111 and 112).
+	 * What just happened to the Workspace, announced.
 	 *
 	 * ⚠ **Switching Workspaces changes almost everything on screen and, without this, says nothing.**
 	 * The only visible signal is the switcher button's own label mutating, and a screen reader reports
@@ -235,9 +235,8 @@
 	<!--
 		1. Which Workspace, and the way to another one.
 
-		**Always visible, on every screen** — the label was, and the switcher has to be for a stronger
-		reason: from ticket 14 a user can be inside a throwaway Review Workspace, and a control that
-		says which one you are in is worth nothing on the screens it is missing from.
+		**Always visible, on every screen** — a user can be inside a throwaway Review Workspace, and a
+		control that says which one you are in is worth nothing on the screens it is missing from.
 
 		The menu is the Popover API through `MenuPopover`, which is mandated rather than merely
 		available (ADR-0016) — a `<details>` or CSS-`:focus` dropdown dismisses on neither Escape nor a
@@ -260,14 +259,14 @@
 				testid="workspace-switcher"
 			>
 				<!--
-					What this Workspace is: its name, where its bytes are, and where it publishes (SPEC
-					story 41). The only place in the app those facts appear together, and a heading rather
-					than a set of controls — every decision behind them is in Workspace settings, so the
-					same choice is never offered in two places that could disagree (story 45).
+					What this Workspace is: its name, where its bytes are, and where it publishes. The only
+					place in the app those facts appear together, and a heading rather than a set of controls
+					— every decision behind them is in Workspace settings, so the same choice is never offered
+					in two places that could disagree.
 
 					**The publishing line is stated even when there is nothing bound.** An omitted line
 					reads as a rendering fault, and "no Remote yet" is the state a first-time author is
-					in. It is still not a sign-in prompt: nothing here asks for a credential (story 38).
+					in. It is still not a sign-in prompt: nothing here asks for a credential.
 				-->
 				<!--
 					⚠ **Every line states its own ink, and none of them may inherit.** daisyUI paints
@@ -289,7 +288,7 @@
 								gesture before handing it back, and until that gesture the backing reads as
 								`browser` (`workspace-storage.svelte.ts`, `awaitingFolder`). So the line names the
 								folder, says it is not open, and says where the gesture is — the menu offers no
-								folder control of its own (SPEC story 45).
+								folder control of its own.
 							-->
 							<span class="text-warning" data-testid="workspace-awaiting-folder">
 								Your work is in the folder “{storage.reopenable}”, which is not open yet. Workspace
@@ -333,11 +332,11 @@
 								and shunts "(open)" to the far edge of the menu, where it reads as a column
 								heading rather than as part of the line it belongs to.
 
-								Which of these is somebody else's work in a throwaway Workspace, in **words**
-								rather than as a tint or an icon (workspace-and-layers SPEC story 111). Review copies stay in the
-								list rather than being filtered out of it: a teacher marking thirty submissions
-								moves between them, and two students' conflicting Alignments of the same sheet
-								never meet precisely because each is in its own Workspace (ADR-0024).
+								Which of these is somebody else's work in a throwaway Workspace, in **words** rather
+								than as a tint or an icon. Review copies stay in the list rather than being filtered
+								out of it: a teacher marking thirty submissions moves between them, and two
+								students' conflicting Alignments of the same sheet never meet precisely because each
+								is in its own Workspace (ADR-0024).
 							-->
 							<span class="min-w-0">
 								<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of an
@@ -379,10 +378,10 @@
 								{#if unreachable}
 									<!--
 										⚠ **The whole of the way back, now that the folder controls are in settings**
-										(SPEC story 43, ADR-0008). A folder that has moved, been renamed or been
-										unplugged is a normal state, and a scholar who cannot see that it has
-										happened has no reason to go looking for the control that fixes it — so the
-										row says so in `warning`, in words, and names where the recovery is.
+										(ADR-0008). A folder that has moved, been renamed or been unplugged is a normal
+										state, and a scholar who cannot see that it has happened has no reason to go
+										looking for the control that fixes it — so the row says so in `warning`, in
+										words, and names where the recovery is.
 									-->
 									<span class="block text-warning" data-testid="workspace-unreachable">
 										Unreachable. Workspace settings can locate it again.
@@ -471,10 +470,9 @@
 {#snippet end()}
 	{#if session !== null}
 		<!--
-			4. The way back from the last edits made on this screen (SPEC stories 1 and 55, ADR-0039). A
-			slot rather than a button, because either control renders nothing when its end of the history
-			is empty — absent is the honest state, and it still has to be one identifiable place on the
-			bar.
+			4. The way back from the last edits made on this screen (ADR-0039). A slot rather than a
+			button, because either control renders nothing when its end of the history is empty — absent
+			is the honest state, and it still has to be one identifiable place on the bar.
 
 			**The Edit History is the screen's, and the bar never switches on route.** A screen declares
 			one from an effect whose teardown clears it, exactly as it declares its page chrome; a screen
@@ -488,8 +486,7 @@
 		</div>
 
 		<!--
-			5. Getting the Workspace onto GitHub in the first place (SPEC stories 1, 2, 36 and 61,
-			ADR-0032).
+			5. Getting the Workspace onto GitHub in the first place (ADR-0032).
 
 			**On the bar rather than filed away in Workspace settings, and that is what this control is
 			for.** A settings dialog two menus deep is where a person goes when something already works
@@ -520,7 +517,7 @@
 		{/if}
 
 		<!--
-			6. Putting the work on the web (SPEC story 1, ADR-0032).
+			6. Putting the work on the web (ADR-0032).
 
 			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
 			and "Publish" answer the two questions a scholar has about where their work is, and separating
@@ -533,7 +530,7 @@
 			**Enabled in every state except while it is running**, and each of them leads somewhere: it
 			offers the binding when there is none, asks for the credential when there is no credential,
 			and says so when nothing needs changing. A disabled Publish button with no explanation is
-			the failure this epic exists to remove.
+			the failure this arrangement exists to remove.
 		-->
 		{#if publishable}
 			<button
@@ -555,7 +552,7 @@
 <!--
 	What is true of the Workspace whatever screen is on: whether the work is kept, and every reason it
 	might not be. The eyebrow, beside the Workspace's own identity — a scholar asking whether their
-	work is safe is asking about their Workspace and not about this screen (SPEC story 25).
+	work is safe is asking about their Workspace and not about this screen.
 -->
 {#snippet status()}
 	{#if session !== null}
@@ -577,11 +574,11 @@
 			happened, and the eyebrow is not a log. `Toast` renders nothing here — the words are drawn
 			in the layout's one stack — so a save error no longer moves the Remote status beside it.
 
-			`refusal` on the three that are inserted at the moment their text first exists, which a
-			polite region does not reliably announce (ADR-0016's amendment, SPEC story 112).
-			`unprotected-browser` is not one of them: it is a steady-state fact about the browser, true
-			from the first frame, and an assertive announcement would interrupt a scholar mid-alignment
-			to tell them something that was already true when they opened the page.
+			`refusal` on the three that are inserted at the moment their text first exists, which a polite
+			region does not reliably announce (ADR-0016's amendment). `unprotected-browser` is not one of
+			them: it is a steady-state fact about the browser, true from the first frame, and an assertive
+			announcement would interrupt a scholar mid-alignment to tell them something that was already
+			true when they opened the page.
 		-->
 		<Toast text={session.saveError} testid="save-error" refusal />
 		<Toast text={session.protectionWarning} testid="protection-warning" refusal />
@@ -589,7 +586,7 @@
 		<Toast text={storage?.unprotected ?? ''} testid="unprotected-browser" />
 
 		<!--
-			8. Whether GitHub agrees with this Workspace (SPEC stories 111–118, ADR-0038).
+			8. Whether GitHub agrees with this Workspace (ADR-0038).
 
 			**Its own region, beside the save indicator and never inside it.** "Saved locally" is about
 			this machine and says nothing about the Remote; a scholar who reads the one as the other

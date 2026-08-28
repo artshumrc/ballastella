@@ -1,9 +1,10 @@
 // Shared driving for the Alignment surface: get a Project open with one ingested Map Image,
 // make Control Point pairs, and read what landed in OPFS.
 //
-// Extracted here because ticket 08's refinement suite needs exactly the ground ticket 07's pairing
-// suite stands on — a real pyramid, both panes live, and the Alignment file on disk — and a second
-// copy of a hundred lines of PNG encoder and OPFS reader is a second thing to keep true.
+// Extracted here because `editor-alignment-refinement.e2e.ts` needs exactly the ground
+// `editor-alignment.e2e.ts` stands on — a real pyramid, both panes live, and the Alignment file on
+// disk — and a second copy of a hundred lines of PNG encoder and OPFS reader is a second thing to
+// keep true.
 // `editor-alignment.e2e.ts` still carries its own; it was written first, and rewriting a green suite
 // to import from here would be churn in a file another slice is also touching.
 
@@ -127,8 +128,8 @@ interface WarpedHandle {
 
 export async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -179,7 +180,7 @@ async function ingestThroughTheInterface(
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 	});
-	// **Read off the Layer, which is where a Map Image now appears** (ticket 04). It used to be
+	// **Read off the Layer, which is where a Map Image now appears**. It used to be
 	// read out of a list of image ids on the Project page; that list is gone, because the Layer the map
 	// arrives with (ADR-0023) already says which image it draws and one of the two had to be a
 	// duplicate of the other.
@@ -236,14 +237,14 @@ export async function start(page: Page): Promise<string> {
 }
 
 /**
- * Press Align on the Project page and land on the alignment route (ticket 03).
+ * Press Align on the Project page and land on the alignment route.
  *
  * The URL is asserted rather than only the heading, because "the route is
- * `/align/?p=<project>&layer=<layer-id>`" is the ticket's contract and a helper that waited on a
- * heading alone would keep passing if the button started rendering the panes in place again.
+ * `/align/?p=<project>&layer=<layer-id>`" is the contract, and a helper that waited on a heading
+ * alone would keep passing if the button started rendering the panes in place again.
  *
- * The Layer's row is opened first, because since ticket 05 the Align link is inside it — a Map
- * Image Layer opens to show whether it is aligned and the button that aligns it.
+ * The Layer's row is opened first, because the Align link is inside it — a Map Image Layer opens to
+ * show whether it is aligned and the button that aligns it.
  */
 export async function openAlignment(page: Page, at = 0): Promise<void> {
 	const row = await openLayerRow(page, at);
@@ -302,7 +303,7 @@ export const warpedStatus = (page: Page) => page.getByTestId('warped-status');
  * did not happen". It does not say whether the transformation was refused, the tiles never arrived,
  * or the Base Map underneath was never there — so whatever is learned about it is learned once, here.
  *
- * **What it taught in ticket 17:** on 2026-08-07 `demo-bucket.protomaps.com` began answering 404 for
+ * **What it taught:** on 2026-08-07 `demo-bucket.protomaps.com` began answering 404 for
  * `v4.pmtiles`, which every entry in `base-map/catalog.ts` points at. `editor-alignment`,
  * `editor-alignment-refinement` and `editor-align-route` did not route that archive, so they fetched
  * it for real — and the 404 carries no CORS headers, so the browser blocked the request rather than
@@ -337,9 +338,9 @@ export const expectWarpedDrawn = async (page: Page): Promise<void> => {
  * with nothing underneath it. Everywhere else, "the Map Image is drawn over the geography"
  * means the geography drew too, and that is what {@link expectWarpedDrawn} now says.
  *
- * Named for what it proves, so a call site cannot claim more than it is asking for. Ticket 17
- * measured how far apart the two are: this passes with an archive of all zeros and with the route
- * answering 404.
+ * Named for what it proves, so a call site cannot claim more than it is asking for. How far apart
+ * the two are was measured: this passes with an archive of all zeros and with the route answering
+ * 404.
  */
 export const expectWarpedLayerAdded = (page: Page) =>
 	expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
@@ -492,7 +493,7 @@ export const writes = (page: Page) => page.evaluate(() => window.ballastellaAlig
  * Only a read that collided with an atomic replace is forgiven, and only for as long as one can last.
  *
  * The loop itself is `support/stored-file.ts`, which is where it lives for every helper that needs
- * it — this reasoning had been copied into three of them and omitted from a fourth (ticket 17).
+ * it — this reasoning had been copied into three of them and omitted from a fourth.
  */
 export const storedAlignment = (page: Page, imageId: string): Promise<string | null> =>
 	readStoredFileOrNull(page, `alignments/${imageId}.json`);

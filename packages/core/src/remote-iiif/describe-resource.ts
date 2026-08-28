@@ -1,17 +1,17 @@
 // What a remote IIIF resource says about itself, flattened into plain strings a pane can show.
 //
-// SPEC story 20: a scholar reads a Manifest's metadata, rights, and attribution *while choosing*,
-// so they know what they are permitted to do with the map before they build work on it. ADR-0007
-// wants the same two fields again at the moment an offline copy is made (ticket 15), which is why
-// they are recorded into `remote.json` rather than only rendered.
+// A scholar reads a Manifest's metadata, rights, and attribution *while choosing*, so they know
+// what they are permitted to do with the map before they build work on it. ADR-0007 wants the same
+// two fields again at the moment an offline copy is made (`offline-copy.ts`), which is why they are
+// recorded into `remote.json` rather than only rendered.
 //
 // **Everything out of here is text, and it is bounded.** A IIIF `label` or metadata `value` is a
 // stranger's string; the Presentation API even permits a restricted subset of HTML in it. This
 // module hands back plain strings and nothing renders them as markup — the caller interpolates
 // them, which Svelte escapes. That is a deliberate loss of italics in a library's cataloguing note,
-// and it is the right trade here: the Markdown-and-sanitisation path is ticket 10's, it exists for
-// the user's *own* prose, and reaching for it to render a third party's document would put an
-// untrusted string through a renderer on the strength of somebody else's escaping.
+// and it is the right trade here: the Markdown-and-sanitisation path in `annotation/markdown.ts`
+// exists for the user's *own* prose, and reaching for it to render a third party's document would
+// put an untrusted string through a renderer on the strength of somebody else's escaping.
 //
 // The bounds are the same discipline as `remote-resource.ts`: a document that declares four
 // thousand metadata rows of a megabyte each must not be able to lock the tab up in layout.

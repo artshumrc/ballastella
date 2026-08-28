@@ -19,7 +19,7 @@ import {
 } from './synchronization-metadata.js';
 import { publishWorkspaceToRemote } from './synchronization-publish.js';
 
-// Ticket 16's own assertions and nothing the Publish epic already covers. The transport — the
+// This module's own assertions and nothing the transport's tests already cover. The transport — the
 // resulting tree, the exact mirror, truncation, budgets, the branch move — is
 // `publish-to-remote.test.ts`; the three-way table is `synchronization-planner.test.ts`. What is
 // asserted here is the join: which refusals stop a publish before it touches anything, and what
@@ -124,7 +124,7 @@ describe('an ordinary Publish', () => {
 		expect(baseline?.remote).toEqual(REMOTE);
 	});
 
-	// SPEC stories 120 and 145: generated output is sent and never recorded as shared *source*. Two
+	// Generated output is sent and never recorded as shared *source*. Two
 	// editor versions synchronizing would otherwise trade obsolete `_app` bundles forever, each side
 	// reading the other's chunk names as an inbound change to somebody's scholarship.
 	it('sends the generated site and leaves every generated path out of the Baseline', async () => {
@@ -178,9 +178,9 @@ describe('an ordinary Publish', () => {
 		);
 	});
 
-	// SPEC story 144, restated here only as the promise the *synchronization* rules must not have
-	// broken: the owned namespace is what a mirror replaces, and everything else is somebody's own
-	// repository. The exact-mirror assertions themselves are `publish-to-remote.test.ts`'s.
+	// Restated here only as the promise the *synchronization* rules must not have broken: the owned
+	// namespace is what a mirror replaces, and everything else is somebody's own repository. The
+	// exact-mirror assertions themselves are `publish-to-remote.test.ts`'s.
 	it('preserves the repository’s own files and its submodules', async () => {
 		const store = await seeded(WORKSPACE_FILES);
 		const github = await createFakeGitHub({
@@ -272,7 +272,7 @@ describe('an ordinary Publish the Remote has moved under', () => {
 		);
 	});
 
-	// SPEC story 137. Ballastella will not choose between two versions of an Annotation, so the row
+	// Ballastella will not choose between two versions of an Annotation, so the row
 	// with no safe inbound answer must not send the author round a loop to an Update that refuses it
 	// for the same reason.
 	it('refuses a Conflict without offering an Update that would refuse it too', async () => {
@@ -319,8 +319,8 @@ describe('a Publish with no Baseline', () => {
 		expect(await believed(kit)).toBeNull();
 	});
 
-	// SPEC story 154: an empty side establishes a Baseline safely, because there is no history to
-	// invent. This is the first publish from a new Workspace, which must not meet a refusal.
+	// An empty side establishes a Baseline safely, because there is no history to invent. This is the
+	// first publish from a new Workspace, which must not meet a refusal.
 	it('establishes evidence against a Remote with no source of ours on it', async () => {
 		const kit = await workspace();
 
@@ -330,7 +330,7 @@ describe('a Publish with no Baseline', () => {
 		expect([...((await believed(kit))?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 	});
 
-	// The other half of story 154, and the commonest one: a browser whose storage was cleared, or a
+	// The other half of that, and the commonest one: a browser whose storage was cleared, or a
 	// Workspace opened from a complete Clone. The two source namespaces are byte-for-byte equal, so
 	// there is nothing to be uncertain about and nothing at stake in going ahead.
 	it('establishes evidence where the two source namespaces are already equal', async () => {
@@ -442,8 +442,8 @@ describe('the local-change index a Publish narrows', () => {
 		expect([...kit.github.files().keys()]).not.toContain('amsterdam-1625/annotations/notes.json');
 	});
 
-	// SPEC: *"never retain stale evidence"*, and its counterpart on the index. Under a refused
-	// Baseline write there is nothing left to compare the marks against, so dropping them would
+	// Stale evidence is never retained, and this is that rule's counterpart on the index. Under a
+	// refused Baseline write there is nothing left to compare the marks against, so dropping them would
 	// report a Workspace full of unpublished work as having none.
 	it('keeps every mark when the Baseline could not be stored', async () => {
 		const kit = await workspace();
@@ -457,9 +457,8 @@ describe('the local-change index a Publish narrows', () => {
 	});
 });
 
-// SPEC: *"If durable Baseline storage fails after Remote publication succeeds, report that Publish
-// succeeded but status is now Cannot tell; never report the Publish as failed and never retain
-// stale evidence."*
+// If durable Baseline storage fails after Remote publication succeeds, the Publish succeeded and the
+// status is now Cannot tell: never the Publish reported as failed, and never stale evidence retained.
 describe('a Publish whose Remote commit succeeded and whose record did not', () => {
 	it('is a successful publication with no evidence, and never a failure', async () => {
 		const kit = await workspace();
@@ -483,7 +482,7 @@ describe('a Publish whose Remote commit succeeded and whose record did not', () 
 	});
 });
 
-// SPEC story 142. Each of these leaves the Baseline exactly as the last successful publish left it,
+// Each of these leaves the Baseline exactly as the last successful publish left it,
 // and the check is the persisted record rather than a returned value: evidence advanced from a
 // forecast is evidence about a transfer that never happened.
 describe('a Publish that failed', () => {
@@ -504,8 +503,8 @@ describe('a Publish that failed', () => {
 
 		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
 		expect(refusal instanceof Error ? refusal.message : '').toContain('cannot push');
-		// ⚠ **Before the upload begins**, which is the whole of story 106: not one blob was posted, so
-		// the author is not waiting on a transfer that cannot complete.
+		// ⚠ **Before the upload begins**, and that is the point: not one blob was posted, so the author is
+		// not waiting on a transfer that cannot complete.
 		expect(snapshot(kit)).toEqual(before);
 		expect((await believed(kit))?.commit).toBe(first.commit);
 	});

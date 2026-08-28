@@ -100,7 +100,7 @@ describe('the deployment catalog', () => {
 		expect(BASE_MAP_CATALOG.entries.every((entry) => entry.needsNetwork)).toBe(true);
 		// Several looks still use one dataset, without shipping that dataset. **The count is half the
 		// assertion**: `every()` and `archives.size === 1` are both true of a one-entry catalog, so
-		// dropping this line would let criterion 10 — "three looks over one dataset" — pass vacuously.
+		// dropping this line would let "three looks over one dataset" pass vacuously.
 		const looks = new Set(
 			BASE_MAP_CATALOG.entries.map(
 				(entry) => `${entry.emphasis}/${entry.flavor.light}/${entry.flavor.dark}`
@@ -116,7 +116,7 @@ describe('the deployment catalog', () => {
 		expect(emphases.size).toBeGreaterThan(1);
 	});
 
-	it('carries a muted or high-contrast entry, without which SPEC story 98 cannot pass', () => {
+	it('carries a muted or high-contrast entry, so annotations can be kept legible', () => {
 		const muted = BASE_MAP_CATALOG.entries.filter((entry) =>
 			['grayscale', 'white', 'black'].includes(entry.flavor.light)
 		);
@@ -191,7 +191,7 @@ describe('baseMapNotPublishedNotice', () => {
 	// and both were **false in the shipped sentence** until this function existed to be driven.
 	//
 	// `FORKED_CATALOG` rather than the real one, deliberately: this has to hold for the fork that
-	// serves its own tiles as much as for the deployment that does not (SPEC story 100).
+	// serves its own tiles as much as for the deployment that does not.
 	const siteServed = FORKED_CATALOG.entries[0]!;
 	const remote = FORKED_CATALOG.entries[2]!;
 	const NO_PLACE_NAMES = /carries no place names at all/;

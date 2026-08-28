@@ -60,8 +60,8 @@ function testClock(start = 1_000): { now: () => number; advance: (ms: number) =>
 }
 
 describe('REMOTE_STATUS_LABELS', () => {
-	// SPEC story 113 and 147: the six determinations are words, and one of them is the word for
-	// "there is no trustworthy evidence" — which a control showing nothing would render as safety.
+	// The six determinations are words, and one of them is the word for "there is no trustworthy
+	// evidence" — which a control showing nothing would render as safety.
 	it('gives every one of the six a distinct sentence a reader can act on', () => {
 		expect(REMOTE_STATUS_LABELS).toEqual({
 			'up-to-date': 'Up to date',
@@ -97,8 +97,9 @@ describe('readRemoteInventory', () => {
 			'README.md',
 			'atlas/project.json'
 		]);
-		// ⚠ **The whole of story 115.** An anonymous check that quietly sent a held credential would go
-		// on working for everybody who had already signed in and fail only for the student it exists for.
+		// ⚠ **The whole point of the signed-out check.** An anonymous check that quietly sent a held
+		// credential would go on working for everybody who had already signed in and fail only for the
+		// student it exists for.
 		expect(sent).toEqual([undefined]);
 	});
 
@@ -120,8 +121,8 @@ describe('readRemoteInventory', () => {
 		});
 
 		expect(inventory.map((entry) => entry.path)).toEqual(['atlas/project.json']);
-		// One request, and it is a tree listing. No `/git/blobs`, and nothing on the raw host — SPEC
-		// story 116: a status check transfers no files, so it cannot change either side.
+		// One request, and it is a tree listing. No `/git/blobs`, and nothing on the raw host: a status
+		// check transfers no files, so it cannot change either side.
 		expect(asked).toEqual([`/repos/${ATLAS.owner}/${ATLAS.repository}/git/trees/main`]);
 		expect(github.rawGets).toBe(0);
 		expect(github.blobPosts).toBe(0);
@@ -237,8 +238,8 @@ describe('a successful check', () => {
 
 		expect(found.status).toBe('changes-to-publish');
 		for (const spy of spies) expect(spy).not.toHaveBeenCalled();
-		// No durable record was written at all, so no Baseline and no index can have advanced: SPEC
-		// story 117, and the reason a check cannot hide drift.
+		// No durable record was written at all, so no Baseline and no index can have advanced, which is
+		// the reason a check cannot hide drift.
 		expect(put).not.toHaveBeenCalled();
 		expect(storage.records).toEqual(before);
 		// And nothing arrived on the Remote either.
@@ -487,8 +488,9 @@ describe('RemoteStatusChecker', () => {
 		clock.advance(AUTOMATIC_CHECK_INTERVAL_MS);
 		await checker.check('focus');
 
-		// ⚠ **SPEC story 118 in one assertion.** A failure is never `Up to date` and never
-		// `Cannot tell`: the last thing this browser worked out stays, with the failure beside it.
+		// ⚠ **The whole rule about a failed check, in one assertion.** A failure is never `Up to date`
+		// and never `Cannot tell`: the last thing this browser worked out stays, with the failure beside
+		// it.
 		expect(checker.state.status).toBe('changes-to-publish');
 		expect(checker.state.at).toBe(1_000);
 		expect(checker.state.publishedSiteStale).toEqual(['index.html']);

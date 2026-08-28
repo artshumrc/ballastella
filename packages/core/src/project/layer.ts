@@ -21,9 +21,9 @@ import type { Bytes } from '../store/project-store.js';
  * style — a Layer's title is its {@link Layer.name} — and a Layer-wide default description would be
  * prose duplicated onto every feature.
  *
- * Values are carried rather than validated here: ticket 10 owns the style controls, the conformance
- * of what they write, and the Markdown sanitisation. This slice's job is that a Layer can hold a
- * default style and that reading and writing `project.json` cannot lose it.
+ * Values are carried rather than validated here: the editor's style controls own the conformance of
+ * what they write, and the Markdown sanitisation. This slice's job is that a Layer can hold a default
+ * style and that reading and writing `project.json` cannot lose it.
  */
 export interface SimpleStyle {
 	/** `small | medium | large` (ADR-0009). */
@@ -52,7 +52,7 @@ export interface SimpleStyle {
 interface LayerCommon {
 	/** Stable for the life of the Layer. Renaming does not change it, and `geojsonRef` is built from it. */
 	readonly id: string;
-	/** The user's own words for this Layer, so the list describes their argument (SPEC story 54). */
+	/** The user's own words for this Layer, so the list describes their argument. */
 	readonly name: string;
 	readonly visible: boolean;
 	/** Position in the stack; 0 is the top. Kept equal to the array index, so the two cannot drift. */
@@ -146,9 +146,9 @@ export const annotationStorePath = (projectDirectory: string, layerId: string): 
  * The document a new Annotation Layer starts from: an empty `FeatureCollection`.
  *
  * Written when the Layer is created rather than left absent, because a Layer whose `geojsonRef`
- * names nothing is a Project that ticket 13's import refuses — see `assertReferencesPresent`. Tab
- * indented with a trailing newline, matching `project.json` and the Alignment, so a Workspace kept
- * in git produces diffs a human can read. Ticket 10 owns what goes inside it.
+ * names nothing is a Project an import refuses — see `assertReferencesPresent`. Tab indented with a
+ * trailing newline, matching `project.json` and the Alignment, so a Workspace kept in git produces
+ * diffs a human can read. The Annotation editor owns what goes inside it.
  */
 export function emptyAnnotationCollection(): Bytes {
 	return new TextEncoder().encode(
@@ -229,12 +229,12 @@ export function removeLayer(layers: readonly Layer[], id: string): readonly Laye
 	return renumber(layers.filter((layer) => layer.id !== id));
 }
 
-/** SPEC story 54. Every kind can be renamed, including one this build cannot draw. */
+/** Rename a Layer. Every kind can be renamed, including one this build cannot draw. */
 export function renameLayer(layers: readonly Layer[], id: string, name: string): readonly Layer[] {
 	return replace(layers, id, (layer) => ({ ...layer, name }));
 }
 
-/** SPEC story 50. */
+/** Show or hide a Layer. */
 export function setLayerVisible(
 	layers: readonly Layer[],
 	id: string,
@@ -244,8 +244,8 @@ export function setLayerVisible(
 }
 
 /**
- * SPEC story 51. **A no-op on any other kind**, which is the union doing its job: there is no
- * opacity to set on an annotation Layer, so this cannot quietly invent one.
+ * Set a map Layer's opacity. **A no-op on any other kind**, which is the union doing its job: there
+ * is no opacity to set on an annotation Layer, so this cannot quietly invent one.
  */
 export function setMapLayerOpacity(
 	layers: readonly Layer[],
@@ -259,7 +259,7 @@ export function setMapLayerOpacity(
 }
 
 /**
- * Move a Layer to `toIndex` in the stack, 0 being the top (SPEC stories 52 and 53).
+ * Move a Layer to `toIndex` in the stack, 0 being the top.
  *
  * Out-of-range indices are clamped rather than refused: both the drag and the two buttons ask for a
  * position, and "the top Layer cannot go higher" is a disabled button, not an exception.

@@ -1,5 +1,5 @@
 // Publish as a step in a continuing relationship: the transfer, and the evidence it leaves behind
-// (ADR-0038, SPEC stories 132–134, 139, 142, 152).
+// (ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE ONLY OUTBOUND ACTION, AND THE ONLY PLACE A PUBLISHED BASELINE IS WRITTEN
@@ -10,7 +10,7 @@
 // resulting tree and the evidence be asserted on the record, without either test having to arrange
 // the other's fixtures.
 //
-// Nothing here is reachable from saving, checking status, opening, or updating (SPEC story 132).
+// Nothing here is reachable from saving, checking status, opening, or updating.
 // There is exactly one caller and it is a control that says Publish.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -19,13 +19,13 @@
 //   1. **The plan**, which is the permission check, the complete local hashing, and one
 //      commit-consistent Remote inventory. `planRemotePublish` posts nothing, so a read-only
 //      account, a repository nobody can see, a truncated listing and every synchronization refusal
-//      reach the author with the Remote untouched (SPEC story 106).
+//      reach the author with the Remote untouched.
 //   2. **The upload**, which is invisible until the ref moves.
 //   3. **The Baseline**, and only then the index.
 //
-// ⚠ **Steps 2 and 3 can disagree, and the direction is settled.** SPEC: *"If durable Baseline
-// storage fails after Remote publication succeeds, report that Publish succeeded but status is now
-// Cannot tell; never report the Publish as failed and never retain stale evidence."* So a refused
+// ⚠ **Steps 2 and 3 can disagree, and the direction is settled.** If durable Baseline storage fails
+// after Remote publication succeeds, the Publish succeeded and the status is now Cannot tell: never
+// the Publish reported as failed, and never stale evidence retained. So a refused
 // write is answered as {@link WorkspacePublished.baselineKept} `false` rather than thrown, and
 // `writeBaseline` has already discarded the record that describes the state before — a stale map
 // the reader could not tell from a current one is every path this publish legitimately changed
@@ -73,8 +73,7 @@ export interface PublishWorkspaceOptions {
 	readonly changes?: SharedStateRecorder;
 	readonly fetch?: FetchFn;
 	/**
-	 * The paths of the refusal the author was shown and agreed to replace: *Publish anyway*
-	 * (SPEC story 139).
+	 * The paths of the refusal the author was shown and agreed to replace: *Publish anyway*.
 	 *
 	 * ⚠ **The paths and not a `true`, because the plan this runs is not the plan they read.** The
 	 * forecast is made before the local publish writes; this replans afterwards, against a tree
@@ -83,7 +82,7 @@ export interface PublishWorkspaceOptions {
 	 * another machine published in the window, deleted without anybody having seen its name.
 	 *
 	 * Left out, a Remote holding work this Workspace has not taken in is refused, which is the
-	 * default and the whole of SPEC story 133.
+	 * default.
 	 */
 	readonly replace?: readonly string[];
 	readonly onProgress?: (seen: {

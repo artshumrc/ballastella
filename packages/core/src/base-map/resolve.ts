@@ -85,7 +85,7 @@ export function baseMapFallbackNotice(resolution: BaseMapResolution): string | n
  * `needsNetwork` decides the remedy. An entry reading a deployment-relative archive that does not
  * answer is a broken deployment and the reader can do nothing about it; a remote one may be a host
  * having a bad day, and making the Project available offline is a real action a scholar can take
- * now. Visible text, never a tooltip (SPEC story 111, ADR-0016).
+ * now. Visible text, never a tooltip (ADR-0016).
  *
  * @param host the archive's host, or `null` when the archive is served from this deployment
  */

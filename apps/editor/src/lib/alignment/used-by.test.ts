@@ -1,4 +1,4 @@
-// Every branch of the sentence that says who else this Alignment belongs to (SPEC story 56).
+// Every branch of the sentence that says who else this Alignment belongs to.
 //
 // The browser suite reaches exactly one of these — align a map in one Project — which is why this
 // file exists: the plural, and both spellings of the newer-build caveat, need a Workspace shaped by

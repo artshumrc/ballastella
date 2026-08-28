@@ -117,10 +117,11 @@ export type SequenceProps = {
  * Mounting props whose `open` a test can write, so closing and reopening is one sequence rather
  * than two mounts.
  *
- * ⚠ **Story 34 is about the same component being closed and opened again**, and a remount would
- * assert something weaker: everything a fresh component reads is by definition a fresh reading, so
- * a state left behind on close would go unnoticed. `mount` treats a state proxy as reactive props,
- * so writing `open` here is the author pressing Close and then the navigation bar's control.
+ * ⚠ **What `connect-to-github.dom.test.ts` asserts here is the same component being closed and
+ * opened again**, and a remount would assert something weaker: everything a fresh component reads
+ * is by definition a fresh reading, so a state left behind on close would go unnoticed. `mount`
+ * treats a state proxy as reactive props, so writing `open` here is the author pressing Close and
+ * then the navigation bar's control.
  */
 export function sequenceProps(over: Omit<SequenceProps, 'open'>): SequenceProps {
 	const props = $state({ open: true, ...over });

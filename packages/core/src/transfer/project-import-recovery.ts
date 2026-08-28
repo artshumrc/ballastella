@@ -1,5 +1,4 @@
-// Resolving the Import marker a dead tab left behind, before the Workspace opens (ticket 05,
-// ADR-0037).
+// Resolving the Import marker a dead tab left behind, before the Workspace opens (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS IS THE OTHER HALF OF THE GATE, NOT A BACKGROUND TIDY-UP

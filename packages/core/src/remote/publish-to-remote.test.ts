@@ -18,9 +18,9 @@ import {
 	type RemoteRepository
 } from './publish-to-remote.js';
 
-// SPEC's Seam 1, and its testing decision in as many words: *a good test here asserts what arrived
-// at the Remote, not which calls were made.* Every failure mode in this ticket is silent and
-// plausible — a truncated tree yields a commit missing most of a pyramid, an off-by-one in the
+// The in-memory seam, and CONTRIBUTING.md's testing decision in as many words: *a good test here
+// asserts what arrived at the Remote, not which calls were made.* Every failure mode here is silent
+// and plausible — a truncated tree yields a commit missing most of a pyramid, an off-by-one in the
 // owned namespace deletes a `CNAME` — and a test counting requests passes over both. So the
 // assertions below are on the fake's resulting tree: which paths exist, which bytes they hold, and
 // which are gone.
@@ -75,8 +75,8 @@ const publish = async (
  * the same function both sides of the wire use, so what this stands in for is not the hashing but the
  * *provenance*: it records every path present, whoever put it there. Handed a fake seeded with
  * another machine's Project it would assert that Project is ours and switch the conflict refusal off
- * — which is exactly the shape ticket 07's carryover (a) warns about, a manifest built from a listing
- * rather than from what was written.
+ * — which is exactly the shape to beware of, a manifest built from a listing rather than from what
+ * was written.
  *
  * Sound only where the fixture is a Remote this Workspace demonstrably wrote, which is its one use
  * below: a Project deleted here, whose removal there is the assertion.
@@ -143,7 +143,7 @@ describe('publishing a Workspace to its Remote', () => {
 		);
 	});
 
-	it('publishes an offline Base Map’s tiles along with everything else (SPEC story 62)', async () => {
+	it('publishes an offline Base Map’s tiles along with everything else', async () => {
 		// `base-map/tiles/` is inside the owned namespace on purpose (ADR-0033): excluded, the folder
 		// would say the site has geography and the Remote would not, and the two would disagree about
 		// what the site is.
@@ -418,7 +418,7 @@ describe('the owned namespace (ADR-0033)', () => {
 	// the moment a path changes hands: the Remote gains a `project.json` for a directory whose files
 	// were preserved last time, and those unverified SHAs become this machine saying it put them
 	// there. Generated output is sent and still absent, because a chunk name another editor version
-	// writes is Published Site staleness and never changed scholarship (SPEC stories 120, 145).
+	// writes is Published Site staleness and never changed scholarship.
 	it('records the source it wrote, never what it carried through or generated', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({
@@ -568,8 +568,8 @@ describe('the refusals, both of which cost the Remote nothing', () => {
 
 	// ⚠ **A repository with no commits answers 409 `Git Repository is empty.`, not 404**, and reading
 	// that as an ordinary refusal kills the *first* publish to a repository the scholar created a
-	// moment ago — which is precisely the repository the "create it yourself" link in ticket 03 hands
-	// them back from, and the only publish that cannot have gone wrong yet.
+	// moment ago — which is precisely the repository the "create it yourself" link hands them back
+	// from, and the only publish that cannot have gone wrong yet.
 	it('plans a first publish to a repository with no commits rather than refusing it', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
@@ -638,7 +638,7 @@ describe('the three budgets (ADR-0033)', () => {
 		expect(plan.warnings.map((warning) => warning.kind)).toEqual(['request-budget']);
 		expect(plan.warnings[0]?.message).toContain('9 new files');
 		expect(plan.warnings[0]?.message).toContain('2 more requests');
-		// The reset is named rather than left as "later", which is the whole of story 11.
+		// The reset is named rather than left as "later", which is the whole point of the warning.
 		expect(plan.warnings[0]?.message).toMatch(/\d{1,2}:\d{2}/);
 	});
 
@@ -678,7 +678,7 @@ describe('the three budgets (ADR-0033)', () => {
 	});
 
 	/**
-	 * ⚠ **The forecast runs before the local publish writes, which is the whole of ticket 04's flow.**
+	 * ⚠ **The forecast runs before the local publish writes, which is the whole of the dialog's flow.**
 	 * The dialog shows these three numbers and *then* writes `index.html`, `_app/**`,
 	 * `ballastella-site.json` and — when the box is ticked — the Base Map's five megabytes into the
 	 * Workspace. Counted only off the store as it stands, all three understate a first publish: the
@@ -826,7 +826,7 @@ describe('a budget spent part way through', () => {
 		]);
 		expect(error.message).toContain('2 of 9 files');
 		expect(error.message).toMatch(/\d{1,2}:\d{2}/);
-		// Nothing is visible on the Remote until the ref moves, and it did not (SPEC story 16).
+		// Nothing is visible on the Remote until the ref moves, and it did not.
 		expect([github.head(), [...github.files().keys()]]).toEqual([before, ['README.md']]);
 		expect(seen).toEqual([0, 1, 2]);
 	});
@@ -882,11 +882,11 @@ describe('a budget spent part way through', () => {
 	});
 
 	it('tells a credential GitHub will not look at apart from a repository it will not write', async () => {
-		// ⚠ The stale-sign-in question ticket 03 recorded and ticket 04 settled. Rights are read at a
-		// bind and at a paste and at no other moment, so a token that has since expired still reads
-		// "Signed in to GitHub" — and collapsed into the general refusal it reaches the scholar as
-		// "GitHub refused this publish: Bad credentials", sending them to check a repository that is
-		// fine. The remedy is a sign-in, and the sentence has to say so.
+		// ⚠ The stale-sign-in question. Rights are read at a bind and at a paste and at no other
+		// moment, so a token that has since expired still reads "Signed in to GitHub" — and collapsed
+		// into the general refusal it reaches the scholar as "GitHub refused this publish: Bad
+		// credentials", sending them to check a repository that is fine. The remedy is a sign-in, and
+		// the sentence has to say so.
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 		github.rejectCredential = true;
@@ -1002,7 +1002,7 @@ describe('a publish that would overwrite another machine', () => {
 		expect(message).toContain('amsterdam-1625/annotations/notes.json');
 		// The Remote has work this Workspace has not taken in, so the first remedy is Update from
 		// GitHub — it brings that work in and leaves this Workspace's own unpublished edits alone
-		// (SPEC story 133). Opening a second Workspace is the answer to `unknown-history`, not to this.
+		// Opening a second Workspace is the answer to `unknown-history`, not to this.
 		expect(message).toContain('Update from GitHub first');
 		expect(message).toContain('publish anyway');
 		// The sentence that makes the second remedy safe to press: the owned namespace preserves
@@ -1219,7 +1219,7 @@ describe('a publish that would overwrite another machine', () => {
 		// ⚠ **The publish's own seed must not read as somebody else's work.** An empty repository is
 		// opened by writing `.nojekyll` through the Contents API, so a first publish that does not
 		// finish leaves that one file behind with no Baseline beside it. `.nojekyll` is Publish-owned
-		// output — SPEC names it in the list — so it is not source, cannot be inbound change, and is
+		// output, so it is not source, cannot be inbound change, and is
 		// rewritten by this publish like every other generated path.
 		it('goes ahead against a Remote holding only the seed it wrote itself', async () => {
 			const store = await smallWorkspace();
@@ -1231,8 +1231,8 @@ describe('a publish that would overwrite another machine', () => {
 		// The same rule, and the case that most invites a special one: a `.nojekyll` somebody typed into
 		// is still Publish-owned output, so it is overwritten rather than treated as scholarship this
 		// Workspace has never seen. Generated output contributes Published Site staleness and nothing
-		// else (SPEC stories 120, 145), which is what stops two editor versions refusing to publish at
-		// each other over chunk names.
+		// else, which is what stops two editor versions refusing to publish at each other over chunk
+		// names.
 		it('overwrites a Publish-owned marker somebody edited, without calling it a source change', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '# mine\n' } });
@@ -1244,9 +1244,9 @@ describe('a publish that would overwrite another machine', () => {
 			expect(decode(github.files().get('.nojekyll') ?? EMPTY)).toBe('');
 		});
 
-		// SPEC story 154: *"an empty side or a byte-for-byte equal deliberate Update or Publish plan
-		// establishes a Baseline safely"*. This is the commonest reader of that sentence — a Workspace
-		// whose browser storage was cleared, or the first publish from a complete Open — and refusing
+		// An empty side, or a deliberate Update or Publish plan whose two sides are byte-for-byte equal,
+		// establishes a Baseline safely. This is the commonest case — a Workspace whose browser storage
+		// was cleared, or the first publish from a complete Open — and refusing
 		// it is a dead Publish button over a Remote that is already exactly this Workspace.
 		it('establishes a Baseline where the two source namespaces are already equal', async () => {
 			const store = await smallWorkspace();
@@ -1284,7 +1284,7 @@ describe('a publish that would overwrite another machine', () => {
 			expect(plan.conflict?.reason).toBe('unknown-history');
 			expect(plan.conflict?.message).toContain('nothing here can tell');
 			// Said as the ordinary state it is, because every Workspace opened from a Remote is in it
-			// until it has published once (story 24).
+			// until it has published once.
 			expect(plan.conflict?.message).toContain('not a sign that anything has gone wrong');
 			// ⚠ **And it does not threaten a deletion, because there is none.** Every source path on the
 			// Remote is one this Workspace holds, so nothing would come down — which is what makes the
@@ -1324,7 +1324,7 @@ describe('a publish that would overwrite another machine', () => {
 
 		// The website the local publish is about to write is Publish-owned output on both sides, so it
 		// is no part of the source comparison at all — which is what keeps the warning above away from
-		// the *first* publish from a complete Open, the one press story 24 is entirely about.
+		// the *first* publish from a complete Open.
 		it('does not read the website the Remote already serves as source it cannot attribute', async () => {
 			const store = await seeded({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}'
@@ -1375,11 +1375,11 @@ describe('a publish that would overwrite another machine', () => {
 	});
 });
 
-// SPEC's `.nojekyll` decision asserted from the outside rather than trusted: *written by every
-// publish, unconditionally*. The chain `scripts/check-nojekyll.mjs` follows ends here — in a
-// repository this code writes to — so this is the last point at which the property can be checked at
-// all. Its absence is a blank page on a scholar's own domain with the reason only in a browser
-// console (story 61), and nothing in this repository's own deployment would ever show it.
+// The `.nojekyll` decision asserted from the outside rather than trusted: *written by every publish,
+// unconditionally*. The chain `scripts/check-nojekyll.mjs` follows ends here — in a repository this
+// code writes to — so this is the last point at which the property can be checked at all. Its absence
+// is a blank page on a scholar's own domain with the reason only in a browser console, and nothing in
+// this repository's own deployment would ever show it.
 describe('the Jekyll marker every publish writes', () => {
 	/** A commit's root entries, which is the only place a branch deploy reads `.nojekyll` from. */
 	const rootPaths = (github: FakeGitHub, commit: string): string[] =>
@@ -1394,7 +1394,7 @@ describe('the Jekyll marker every publish writes', () => {
 
 		const first = await publish(store, github);
 		// The manifest a real second publish carries: without it the conflict check has no record of
-		// this Remote and refuses, which is ticket 05's behaviour and not this test's subject.
+		// this Remote and refuses, which is the conflict check's behaviour and not this test's subject.
 		const second = await publish(store, github, shared(first));
 
 		expect(github.history()).toEqual([second.commit, first.commit, ancestor]);

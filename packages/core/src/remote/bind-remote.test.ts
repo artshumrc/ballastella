@@ -18,10 +18,10 @@ import {
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import { readRemoteBinding } from './remote-binding.js';
 
-// SPEC's Seam 1, against the one fake GitHub this epic shares. What is asserted here is the *answer*
+// The in-memory seam, against the one shared fake GitHub. What is asserted here is the *answer*
 // — may this credential push, is Pages on, is there a binding document afterwards — rather than
-// which requests were made, for the reason the testing decisions give: a test that counts calls
-// passes over every one of the silent failures in this ticket.
+// which requests were made, for the reason CONTRIBUTING.md gives: a test that counts calls passes
+// over every one of the silent failures binding can have.
 
 const REMOTE: RemoteReference = { owner: 'ada', repository: 'atlas', branch: 'main' };
 const TOKEN = 'github_pat_11ABCDE0000abcdefghij';
@@ -134,7 +134,7 @@ describe('the rights check that happens at bind, not after four thousand tiles (
 	});
 });
 
-describe('turning Pages on, whose failure is a sentence rather than an error (story 7)', () => {
+describe('turning Pages on, whose failure is a sentence rather than an error', () => {
 	it('turns it on when the credential is permitted to', async () => {
 		const remote = await github();
 
@@ -172,7 +172,7 @@ describe('turning Pages on, whose failure is a sentence rather than an error (st
 	// ⚠ **A 422 is a repository with no branches, and saying "your token lacks Pages: write" there is
 	// wrong twice**: it names a permission that is fine, and then tells the scholar to choose a branch
 	// their repository does not have. It is the ordinary state of a repository made a moment ago at
-	// `github.com/new`, which is the link stories 6 to 8 hand them.
+	// `github.com/new`, which is the link the guided sequence hands them.
 	it('says the repository is empty rather than blaming the token, when there is no branch', async () => {
 		const remote = await emptyRepository();
 
@@ -216,7 +216,7 @@ describe('binding a Workspace', () => {
 		});
 	});
 
-	it('binds to main without being asked, because this epic has one branch', async () => {
+	it('binds to main without being asked, because there is one branch', async () => {
 		const store = new MemoryProjectStore();
 		const remote = await github();
 
@@ -282,13 +282,13 @@ describe('binding a Workspace', () => {
 		expect(await store.list('')).toEqual([]);
 	});
 
-	it('is refused for a Review Workspace before a single request is made (story 39)', async () => {
+	it('is refused for a Review Workspace before a single request is made', async () => {
 		const store = reviewCopy();
 		const remote = await github();
 		// A fake that would answer perfectly well, so the refusal below is the domain rule rather than
-		// a request that happened to fail. Counted because story 40 is about a Review Workspace not
-		// reaching a credential *at all*, and a rights check made with one and then discarded would
-		// satisfy every other assertion here.
+		// a request that happened to fail. Counted because the rule is that a Review Workspace must not
+		// reach a credential *at all*, and a rights check made with one and then discarded would satisfy
+		// every other assertion here.
 		let asked = 0;
 		const counted = (input: Request | string | URL, init?: RequestInit) => {
 			asked += 1;
@@ -309,7 +309,7 @@ describe('binding a Workspace', () => {
 	});
 });
 
-// ── The subset refusal (ADR-0033, story 23) ───────────────────────────────────────────────────
+// ── The subset refusal (ADR-0033) ─────────────────────────────────────────────────────────────
 //
 // ADR-0024's *"restoring a backup creates a new named Workspace and switches to it — it never
 // overwrites and never merges"*, applied to a repository. What it catches is a Workspace that would
@@ -389,8 +389,8 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		expect(outcome.binding).toEqual(await readRemoteBinding(store));
 	});
 
-	// The half ticket 07's review asked for: an Open leaves an interrupted Workspace *unbound* so
-	// that Publish has no target, and binding it by hand is the one route left into the same loss.
+	// The other half of the same protection: an Open leaves an interrupted Workspace *unbound* so that
+	// Publish has no target, and binding it by hand is the one route left into the same loss.
 	//
 	// ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 	// │ THE COUPLING THIS RESTS ON: A CLONE WRITES `[...files, ...manifests]`, MANIFESTS LAST.    │
@@ -427,8 +427,8 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 	// here" and the refusal above passes without ever having asked its question. That is the whole
 	// protection, silently skipped on the repositories whose owners are most likely to have two
 	// machines. `readRemoteRights` has already established with this very token that the repository
-	// exists and is pushable, so a raw 404 after that is anomalous rather than ordinary. SPEC puts
-	// private repositories out of scope, but nothing here refuses one.
+	// exists and is pushable, so a raw 404 after that is anomalous rather than ordinary. Private
+	// repositories are out of scope, but nothing here refuses one.
 	it('asks its question of a private repository rather than passing it in silence', async () => {
 		const store = await holding('amsterdam-1625');
 		const remote = await published();

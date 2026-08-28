@@ -61,7 +61,7 @@ export interface DrawnMapLayer {
 	readonly layer: MapLayer;
 	readonly alignment: Alignment;
 	/**
-	 * The remote image service this Layer's tiles come from, or `''` for a local copy (ticket 14).
+	 * The remote image service this Layer's tiles come from, or `''` for a local copy.
 	 *
 	 * Resolved by the caller from the Workspace's `remote.json` records, for the same reason the
 	 * Alignment is: reaching the store is `EditorSession`'s business. A referenced Layer with `''` here
@@ -84,7 +84,7 @@ export interface DrawnAnnotationLayer {
 	/**
 	 * The Layer's Annotations, or `null` when it has no file yet.
 	 *
-	 * The model rather than the raw parsed JSON ticket 09 passed, because the styling this draws with
+	 * The model rather than the raw parsed JSON, because the styling this draws with
 	 * is resolved per Annotation and precedence is a property of the model (ADR-0009). It is also what
 	 * the editing surface beside the map needs, so the document is read once for both.
 	 */
@@ -139,7 +139,7 @@ export interface StackRender {
 	 */
 	setAnnotations(layerId: string, collection: AnnotationCollection): void;
 	/**
-	 * Say which Annotation is selected, so the map draws it more strongly (SPEC story 40).
+	 * Say which Annotation is selected, so the map draws it more strongly.
 	 *
 	 * **A feature state and not a rebuilt layer**: the id is written onto the feature MapLibre already
 	 * holds and the paint expressions below read it, so selecting costs one repaint rather than a
@@ -311,12 +311,12 @@ const TITLE_WITHOUT_WHITESPACE = [' ', '\t', '\n', '\r'].reduce<unknown[]>(
 /**
  * The MapLibre layers one Annotation Layer needs.
  *
- * **Every paint value is read from the feature** — `['get', 'stroke']` and not a constant — because
- * ticket 10's criterion is that a Layer's `defaultStyle` applies to Annotations lacking their own
- * properties *and* that an Annotation's own property overrides it. The precedence itself is not
- * decided here: `toRenderCollection` has already resolved each Annotation's effective style onto the
- * copy handed to the source, so this reads plain values and the rules live in one place in `core`
- * where the published viewer reads them too.
+ * **Every paint value is read from the feature** — `['get', 'stroke']` and not a constant — because a
+ * Layer's `defaultStyle` applies to Annotations lacking their own properties *and* an Annotation's own
+ * property overrides it (ADR-0009). The precedence itself is not decided here: `toRenderCollection`
+ * has already resolved each Annotation's effective style onto the copy handed to the source, so this
+ * reads plain values and the rules live in one place in `core` where the published viewer reads them
+ * too.
  *
  * **A line layer per dash pattern**, because `line-dasharray` is the one paint property MapLibre will
  * not evaluate per feature. So the dash becomes a filter on the bucket `toRenderCollection` computed,
@@ -327,10 +327,10 @@ const TITLE_WITHOUT_WHITESPACE = [' ', '\t', '\n', '\r'].reduce<unknown[]>(
  * **Only the layers this Layer's contents need are added**, which is why `present` is a parameter
  * rather than this returning all five every time. Every MapLibre layer is per-frame work on the same
  * thread that decodes a warped Map Image's tiles, and an Annotation Layer of pins was otherwise
- * paying for three line layers that could never match anything. It is not only tidiness: ticket 09's
- * `warpedTiles` assertion allows three seconds for tiles to arrive *and decode*, and the unconditional
- * five were enough to push it past that on a loaded machine — a real slowdown that happened to show up
- * as somebody else's test going red.
+ * paying for three line layers that could never match anything. It is not only tidiness: the
+ * unconditional five were enough to slow the arrival and decode of warped tiles past what
+ * `warpedTiles` in `e2e/support/alignment-workspace.ts` waited for on a loaded machine — a real
+ * slowdown that happened to show up as somebody else's test going red.
  */
 function annotationLayers(
 	layerId: string,
@@ -475,7 +475,7 @@ function annotationLayers(
 	// ⚠ **A Label with no words draws nothing, and an empty `text-field` is not enough to get that.**
 	// MapLibre skips a symbol only when it has neither text *nor* icon (`if (!text && !icon) continue`),
 	// so an untitled Label with a constant `icon-image` draws a bare coloured chip at a place nobody
-	// wrote anything — story 61's exact complaint, observed in the browser rather than reasoned about.
+	// wrote anything — observed in the browser rather than reasoned about.
 	// The chip is therefore chosen per feature too, and `''` is MapLibre's own way of spelling "no
 	// image" (`ResolvedImage.fromString` returns `null` for it). Deliberately *not* a `filter`: which
 	// features are in this bucket stays a question about their kind, so `annotationDrawKey` is still
@@ -501,7 +501,7 @@ function annotationLayers(
 			layout: {
 				'text-field': ['get', 'title'],
 				// A stack the Base Map's bundled glyphs carry, and the one written with every Published
-				// Site. There is no typeface choice: see SPEC's Out of Scope.
+				// Site. There is no typeface choice.
 				'text-font': ['Noto Sans Regular'],
 				'text-size': [
 					'match',
@@ -645,11 +645,11 @@ export type DrawnStackObjects = {
 /**
  * Called with the live objects once a stack is on the map, returning the way to let go of them.
  *
- * **The seam that keeps each app's Playwright handle in its own app.** SPEC's Seam 2 is a real browser
- * with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but a
- * `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding into the
- * other's types, and into a published Reader's bundle. So the exposure is injected and this module knows
- * nothing about `window`.
+ * **The seam that keeps each app's Playwright handle in its own app.** CONTRIBUTING.md's Seam 2 is a
+ * real browser with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but
+ * a `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding into
+ * the other's types, and into a published Reader's bundle. So the exposure is injected and this module
+ * knows nothing about `window`.
  */
 export type StackBuiltListener = (
 	map: DrawnStackObjects['map'],

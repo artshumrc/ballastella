@@ -23,8 +23,8 @@ export interface Place {
  *
  * `none` and `unanswered` are the distinction that matters and the one an implementation collapses
  * first, because both end in no candidates: telling a scholar there is no such place when the
- * request never left the building is the inversion `nothing-fails-silently` story 10 forbids. They
- * are told apart here, and by two different sentences in `placeLookupNotice`.
+ * request never left the building is an inversion nothing here may produce. They are told apart
+ * here, and by two different sentences in `placeLookupNotice`.
  *
  * `too-fast` is the one failure with a remedy the scholar can act on, and it is deliberately **one**
  * member for two causes: a `429` from the service and a refusal by this application's own limiter
@@ -37,7 +37,7 @@ export type LookupOutcome =
 	| { readonly kind: 'unanswered' }
 	| { readonly kind: 'too-fast' };
 
-/** Who the place data belongs to, as visible text beside the candidates (SPEC story 22). */
+/** Who the place data belongs to, as visible text beside the candidates. */
 export interface PlaceAttribution {
 	/** The credit line itself. Plain text, so nothing here is inserted as HTML. */
 	readonly text: string;

@@ -13,7 +13,7 @@ import {
 } from './support/editor-deployment';
 import { AMBIGUOUS_QUERY, routePlaceLookup } from './support/places.js';
 
-// SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
+// Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
 // deliberately no map-abstraction layer to test against — inventing one purely to enable testing
 // is the premature boundary ADR-0019 argues against, and it would test a fake instead of the
 // thing that ships. So these tests drive the real map and read the real `project.json`.
@@ -33,9 +33,9 @@ type BaseMapHandle = {
 declare global {
 	interface Window {
 		ballastellaBaseMap?: BaseMapHandle;
-		/** Cached Base Map tiles the protocol handler answered **with bytes** (ticket 11). */
+		/** Cached Base Map tiles the protocol handler answered **with bytes**. */
 		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
-		/** Cached Base Map tiles requested and answered empty (ticket 11). */
+		/** Cached Base Map tiles requested and answered empty. */
 		ballastellaMissedBaseMapTiles?: { z: number; x: number; y: number }[];
 	}
 }
@@ -45,7 +45,7 @@ const PROJECT_DIRECTORY = 'amsterdam-1625';
 const PROJECT_FILE = 'project.json';
 
 /**
- * **`/base-map/` is gone** (ticket 04). The Base Map pane a scholar meets is the Project screen, so
+ * **`/base-map/` is gone**. The Base Map pane a scholar meets is the Project screen, so
  * every test here now drives `/?p=<dir>` — the route a Base Map is actually chosen from. Rewired
  * rather than deleted: a route that no longer exists is not a licence to drop the behaviour it
  * covered, and everything below (Range requests, the catalog, the author's default, the refusals)
@@ -55,7 +55,7 @@ const HUB = './';
 /** A Project is addressed by query parameter, never by a per-Project path (ADR-0008). */
 const paneUrl = (directory: string = PROJECT_DIRECTORY) => `${HUB}?p=${directory}`;
 
-/** A Project's manifest as ticket 02 writes it, with anything the test needs overridden. */
+/** A Project's manifest as the app writes it, with anything the test needs overridden. */
 const projectJson = (fields: Record<string, unknown> = {}) =>
 	JSON.stringify({
 		formatVersion: 1,
@@ -97,8 +97,8 @@ async function waitForLoadedMap(page: Page): Promise<void> {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -210,9 +210,9 @@ test.describe('the Base Map pane', () => {
 		const canvas = page.locator('canvas.maplibregl-canvas');
 		await expect(canvas).toBeVisible();
 
-		// Zoom is at the bottom-left in every map pane (the-annotation-inspector story 18), asserted
-		// against the rendered control rather than the call that placed it: MapLibre creates all four
-		// corner containers whatever is put in them, so the claim is which corner holds the buttons.
+		// Zoom is at the bottom-left in every map pane, asserted against the rendered control rather
+		// than the call that placed it: MapLibre creates all four corner containers whatever is put in
+		// them, so the claim is which corner holds the buttons.
 		const pane = page.getByTestId('base-map-pane');
 		const bottomLeft = pane.locator('.maplibregl-ctrl-bottom-left');
 		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();
@@ -421,7 +421,7 @@ test.describe('the Base Map pane', () => {
 		await page.keyboard.press('Tab');
 		await expect(switcher(page)).toBeFocused();
 
-		// SPEC story 98: the muted entry has to be genuinely selectable, not merely listed.
+		// The muted entry has to be genuinely selectable, not merely listed.
 		await switcher(page).selectOption('muted');
 		await expect(switcher(page)).toHaveValue('muted');
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
@@ -431,7 +431,7 @@ test.describe('the Base Map pane', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// AN ARCHIVE THAT DOES NOT ANSWER, SAID OUT LOUD (ticket 20, SPEC stories 111–112)
+// AN ARCHIVE THAT DOES NOT ANSWER, SAID OUT LOUD
 //
 // On 2026-08-07 `demo-bucket.protomaps.com` — the host every entry in this deployment's catalog
 // read before the repoint to the source.coop mirror — began refusing the archive, and the
@@ -465,8 +465,8 @@ test.describe('a Base Map archive that does not answer', () => {
 		const notice = page.getByTestId('base-map-unavailable');
 		await expect(notice).toBeVisible({ timeout: 45_000 });
 
-		// Visible text and not a tooltip (SPEC story 111, ADR-0016: daisyUI renders tooltips through
-		// CSS `::before`, so they are neither announced nor dismissable).
+		// Visible text and not a tooltip (ADR-0016: daisyUI renders tooltips through CSS `::before`, so
+		// they are neither announced nor dismissable).
 		//
 		// **The whole sentence, and the same sentence the viewer is held to.** Both applications render
 		// `baseMapUnavailableNotice` from `@ballastella/core` precisely so that one outage is not
@@ -500,7 +500,7 @@ test.describe('a Base Map archive that does not answer', () => {
 		// bucket rate-limiting mid-session. Tile data goes through an uncached `getBytes`, so when the
 		// limit lifts and the map moves, tiles arrive and the Base Map draws. Without `'drawing'` the
 		// alert would sit over a plainly working map for the rest of the session, which is a worse lie
-		// than the silence ticket 20 was written to end. `routePartialBaseMapArchive`'s header says
+		// than the silence the notice exists to end. `routePartialBaseMapArchive`'s header says
 		// which archive failures can come back this way and which cannot.
 		//
 		// The pan is inside the poll deliberately: MapLibre has no reason to re-ask for a tile it has
@@ -600,9 +600,9 @@ test.describe('the author’s default', () => {
 		await routeBaseMapArchive(context);
 	});
 
-	// ⚠ **The document half of the author's default is asserted at Seam 1** (epic ticket 09). ADR-0020
-	// makes a Base Map an *id*, never a URL, which makes every one of those claims a question about a
-	// document rather than about a map, and each is now a Vitest test in `packages/core/src/base-map/`:
+	// ⚠ **The document half of the author's default is asserted at Seam 1.** ADR-0020 makes a Base Map
+	// an *id*, never a URL, which makes every one of those claims a question about a document rather
+	// than about a map, and each is a Vitest test in `packages/core/src/base-map/`:
 	//
 	//   - "is written to project.json as an id, with no URL anywhere in the file"
 	//        → `project.test.ts` › "records the author choice as an id, and nothing that could be an
@@ -722,7 +722,7 @@ test.describe('the Project the pane opens', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// Making a Project available offline (ADR-0025, ticket 11)
+// Making a Project available offline (ADR-0025)
 //
 // **What makes these tests non-vacuous.** The failure ADR-0025 warns about is bytes served and
 // nothing drawn — a compression mistake produces exactly that, with no error anywhere — so an
@@ -742,7 +742,7 @@ const CANAL_BELT_BOX = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
 /**
  * The archive every entry in this deployment's catalog points at (ADR-0020).
  *
- * Named here because the cache directory is keyed on it (ticket 12) and a test that asserts on the
+ * Named here because the cache directory is keyed on it and a test that asserts on the
  * *files* has to know where they are. `scripts/check-base-map-catalog.mjs` exempts `*.e2e.ts` for
  * exactly this class of assertion — the switcher test below already names entry ids for the same
  * reason — and never exempts a support module, so the harness stays fork-safe.
@@ -816,7 +816,7 @@ async function seedProjectWithWork(page: Page, ring = CANAL_BELT_RING): Promise<
 }
 
 /**
- * Every cached tile path in the Workspace, sorted. The behaviour *is* the files (SPEC, Seam 1).
+ * Every cached tile path in the Workspace, sorted. The behaviour *is* the files (Seam 1).
  *
  * ⚠ **This is also what holds the harness's copy of `baseMapArchiveKey` to the application's.**
  * `support/editor-deployment.ts` re-derives that key because the suite's tsconfig covers `e2e/`
@@ -849,8 +849,8 @@ async function cachedTilePaths(page: Page): Promise<string[]> {
 			for (const segment of prefix.split('/').filter(Boolean)) {
 				directory = await directory.getDirectoryHandle(segment);
 			}
-			// Tiles only: the provenance record lives in the same keyed directory since ticket 12, and
-			// counting it as a tile would make "23 tiles for a city centre" quietly 24.
+			// Tiles only: the provenance record lives in the same keyed directory, and counting it as a tile
+			// would make "23 tiles for a city centre" quietly 24.
 			return (await walk(directory, prefix)).filter((path) => path.endsWith('.mvt')).sort();
 		} catch {
 			return [];
@@ -899,7 +899,7 @@ const missedTiles = (page: Page) => page.evaluate(() => window.ballastellaMissed
 const baseMapIsDrawn = async (page: Page): Promise<boolean> =>
 	(await renderedLayerIds(page)).some((id) => id.startsWith('roads_') || id.startsWith('water'));
 
-/** Open the Project screen and wait for its map. Ticket 04 made `?p=` the screen itself. */
+/** Open the Project screen and wait for its map. `?p=` addresses the screen itself. */
 async function openProjectScreen(page: Page, directory: string = PROJECT_DIRECTORY): Promise<void> {
 	await page.goto(paneUrl(directory));
 	await waitForLoadedMap(page);
@@ -920,15 +920,14 @@ async function makeAvailableOffline(page: Page): Promise<void> {
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THIS IS A TEST AND NOT A COMMENT
  *
- * The epic's tracker names the tile counts and byte totals for a realistic Project extent as one of
- * two claims resting on documentation rather than measurement, and forbids a ticket committing to
- * them unverified. Ticket 11 measured them — and then wrote them into a comment, a ticket, and the
- * tracker, where nothing could tell if they went stale. `grep` for the figures found only prose.
+ * The tile counts and byte totals for a realistic Project extent are the one part of ADR-0025 that
+ * rests on measurement rather than on reasoning, and a measurement written into prose goes stale
+ * with nothing able to tell: `grep` for the figures finds only sentences.
  *
  * So they are asserted here instead, against the real fixture: the point is not that the number is
- * interesting, it is that the decision resting on it cannot be quietly undone. Three decisions rest on this table — the
- * 500-tile refusal threshold, the per-tile estimate, and the choice to store decompressed MVT — and
- * each is asserted against the measurement rather than beside it.
+ * interesting, it is that the decision resting on it cannot be quietly undone. Three decisions rest
+ * on this table — the 500-tile refusal threshold, the per-tile estimate, and the choice to store
+ * decompressed MVT — and each is asserted against the measurement rather than beside it.
  *
  * No browser is involved: the body is Node, and it reads the same fixture the suite serves.
  */
@@ -976,10 +975,10 @@ test.describe('making a Project available offline', () => {
 		await seedProjectWithWork(page);
 	});
 
-	// ⚠ **The arithmetic and the record-keeping are asserted at Seam 1** (epic ticket 09). "How many
-	// tiles does this extent need", "what do they weigh", "which of them are already files" and "what
-	// is refused" are questions about a list and a store, and driving them through a browser proved
-	// nothing a `MemoryProjectStore` cannot. Each is now a Vitest test in
+	// ⚠ **The arithmetic and the record-keeping are asserted at Seam 1.** "How many tiles does this
+	// extent need", "what do they weigh", "which of them are already files" and "what is refused" are
+	// questions about a list and a store, and driving them through a browser proved nothing a
+	// `MemoryProjectStore` cannot. Each is a Vitest test in
 	// `packages/core/src/base-map/offline-cache.test.ts`:
 	//
 	//   - "shows a tile count and a byte estimate before fetching anything"
@@ -1028,10 +1027,10 @@ test.describe('making a Project available offline', () => {
 
 	test('does not answer from a record left by a different archive', async ({ page, context }) => {
 		// ADR-0020 lets a catalog entry be repointed with no change anywhere else, so one Workspace can
-		// hold tiles from two pyramids. Since ticket 12 they are in **different directories**, keyed by
-		// archive — but a record inside this archive's own directory naming another archive can still
-		// arrive by hand, and it is not evidence about this one. The screen goes back to saying it
-		// cannot check rather than claiming a depth it has no warrant for.
+		// hold tiles from two pyramids. They are in **different directories**, keyed by archive — but a
+		// record inside this archive's own directory naming another archive can still arrive by hand, and
+		// it is not evidence about this one. The screen goes back to saying it cannot check rather than
+		// claiming a depth it has no warrant for.
 		await openProjectScreen(page);
 		await makeAvailableOffline(page);
 
@@ -1181,7 +1180,7 @@ test.describe('making a Project available offline', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// FINDING A PLACE AND GOING TO IT (ADR-0029, SPEC stories 1–5 and 20–23)
+// FINDING A PLACE AND GOING TO IT (ADR-0029)
 //
 // The pane is shared, so this is one component on two screens, and both are driven here rather than
 // one being assumed from the other.
@@ -1366,7 +1365,7 @@ test.describe('finding a place', () => {
 		// **Asserted here rather than assumed from the shared component.** Excluding either screen
 		// would mean actively suppressing the feature on a screen that renders the same pane, and a
 		// scholar hunting the modern half of a Control Point wants this at least as much as an
-		// annotator does (SPEC story 5).
+		// annotator does.
 		await routePlaceLookup(context);
 		await startAlignment(page);
 
@@ -1512,8 +1511,8 @@ test.describe('finding a place', () => {
 		page,
 		context
 	}) => {
-		// SPEC stories 17 and 18. `navigator.onLine` reports a link rather than reachability and is
-		// false-positive in both directions, so it may take a claim away and may never add one.
+		// `navigator.onLine` reports a link rather than reachability and is false-positive in both
+		// directions, so it may take a claim away and may never add one.
 		const service = await routePlaceLookup(context);
 		await openPane(page);
 
@@ -1555,8 +1554,8 @@ test.describe('finding a place', () => {
 	});
 
 	test('reaches and chooses every candidate from the keyboard alone', async ({ page, context }) => {
-		// SPEC stories 20 and 21. A list of results is precisely the control that ships mouse-only, so
-		// there is no `click` anywhere in this test.
+		// A list of results is precisely the control that ships mouse-only, so there is no `click`
+		// anywhere in this test.
 		await routePlaceLookup(context);
 		await openPane(page);
 
@@ -1633,7 +1632,7 @@ test.describe('finding a place', () => {
 	});
 
 	test('holds no layout open when nobody is searching', async ({ page, context }) => {
-		// SPEC story 23: a two-pane authoring screen keeps its room for the work.
+		// A two-pane authoring screen keeps its room for the work.
 		//
 		// ⚠ **The surface is measured against the pane, not against itself.** Mutation: drop `absolute`
 		// from the wrapper in `PlaceSearch.svelte`. Comparing the map's own box before and after a

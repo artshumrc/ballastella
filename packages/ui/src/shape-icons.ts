@@ -32,7 +32,7 @@ export const TOOL_ICONS = {
 	line: Spline,
 	polygon: Pentagon,
 	// The Label. Named `text` because that is what the editor's tool union will spell it, while the word
-	// a user meets is always **Label**; the tool itself is a later ticket's, and this entry is what makes
+	// a user meets is always **Label**; the tool itself is not built yet, and this entry is what makes
 	// adding it compile.
 	text: Type
 } as const satisfies Record<ToolName, unknown>;

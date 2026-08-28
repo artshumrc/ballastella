@@ -10,8 +10,8 @@
 // The property under test is IIIF Image API 3.0 `size=w,h`: a tile's bytes are the whole region
 // resized onto exactly `w` × `h`, **not** the region scaled by 1 / scaleFactor with the leftover
 // fraction padded. For the coarsest tile of a 1200 × 851 image the two differ by half a pixel at
-// the bottom margin — 0.6% — which ticket 03's `ImagePaneTile.placement` depends on and no
-// assertion about coordinates can see.
+// the bottom margin — 0.6% — which `ImagePaneTile.placement` depends on and no assertion about
+// coordinates can see.
 //
 // Measuring the absolute position of a feature inside a tile turns out not to separate the two
 // hypotheses cleanly: each engine's resampler carries its own sub-pixel sampling offset (fitted
@@ -351,9 +351,9 @@ describe('the pyramid this tiler writes, against the committed fixture', () => {
 	});
 
 	it('agrees with the committed ragged tiles on IIIF semantics, and not on the alternative', async () => {
-		// The reviewer of ticket 03 established the fixture's semantics by decoding all 29 tiles; this
-		// re-establishes it from the tiler's side, and it is the assertion that would fail if a later
-		// change made ragged tiles a 1 ÷ scaleFactor resize.
+		// Decoding all 29 committed tiles establishes the fixture's semantics from the reader's side;
+		// this re-establishes them from the tiler's side, and it is the assertion that would fail if
+		// a later change made ragged tiles a 1 ÷ scaleFactor resize.
 		//
 		// The statistic is the committed tile's per-row mean brightness against the mean brightness
 		// of the source rows each output row would be drawn from under each hypothesis. It compares

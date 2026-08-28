@@ -28,8 +28,8 @@
 //
 // `/image-pane` carries `e2e/editor-image-pane.e2e.ts` — 329 lines of Seam 2 coverage that nothing
 // else makes: MapLibre's `project` and `unproject` composed in opposite directions against a point
-// drawn by `resourceToSynthetic`, a pan pinned to a physical distance, and the zoom-stability
-// acceptance criterion of ticket 03. It needs a bare pane with no alignment workspace around it.
+// drawn by `resourceToSynthetic`, a pan pinned to a physical distance, and zoom stability across a
+// gesture. It needs a bare pane with no alignment workspace around it.
 // So it stays in the app, type-checked and linted and driven by the suite, and it is the *deployed
 // artifact* that leaves it out. `apps/editor/static/fixtures/README.md` records the fixture's
 // provenance; `@ballastella/core`'s unit tests read the same pyramid off disk and are unaffected.

@@ -33,7 +33,7 @@ describe('DeletedProjects', () => {
 	});
 
 	/**
-	 * ⚠ **The reason this is bound to a Workspace at construction** (ticket 12, ticket 21).
+	 * ⚠ **The reason this is bound to a Workspace at construction.**
 	 *
 	 * The OPFS root holds several named Workspaces and one click switches between them. A record
 	 * keyed by directory alone would let a deletion performed in "Marking 2026" be finished, at the
@@ -127,7 +127,7 @@ describe('DeletedProjects', () => {
 
 describe('the evidence a deletion record carries', () => {
 	/**
-	 * ⚠ **The reason `was` exists at all** (ticket 21, review 2).
+	 * ⚠ **The reason `was` exists at all.**
 	 *
 	 * `Workspace.finishInterruptedDeletions` is the one step of the recovery chain that *destroys*
 	 * files, and the folder name it is keyed by is not unique: a folder Workspace's key is
@@ -186,12 +186,11 @@ describe('the evidence a deletion record carries', () => {
 	});
 
 	/**
-	 * ⚠ **`formatVersion` was written and then ignored** (ticket 21, review 3). The field exists so
-	 * that a build which spells the record differently is *recognised* as such — and that is exactly
-	 * the case that was read with this build's rules instead, so a record from another build could
-	 * have handed `finishInterruptedDeletions` an identity it had misread and licensed a removal on
-	 * it. `readJournal` checks its own version; this is the destructive half of the same chain and
-	 * had the weaker check. The safe direction is the one every other path here takes: no evidence.
+	 * ⚠ **`formatVersion` is checked on the way in.** The field exists so that a build which spells
+	 * the record differently is *recognised* as such; read with this build's rules instead, a record
+	 * from another build could hand `finishInterruptedDeletions` an identity it had misread and
+	 * license a removal on it. `readJournal` checks its own version, and this is the destructive half
+	 * of the same chain. The safe direction is the one every other path here takes: no evidence.
 	 */
 	it('reads a record written to another format as no evidence', () => {
 		const storage = new FakeJournalStorage();
@@ -252,13 +251,13 @@ describe('a storage that will not answer', () => {
 });
 
 /**
- * ⚠ **The sweep the first cut did not have** (ticket 21, review 2).
+ * ⚠ **Why a deletion record is swept alongside the journal.**
  *
  * `WorkspaceStorage.#removeWorkspace` discards a deleted Workspace's journal with the reason written
  * on the spot: entries that outlive their Workspace are "put back into somebody else's work under a
  * name they happened to reuse". A deletion record has the same key shape and the same reuse hazard,
- * and its effect is destructive rather than additive — and it was swept by nothing and invisible to
- * the orphan report offered beside the journal keys in the same 5 MB.
+ * and its effect is destructive rather than additive — so it must not be swept by nothing and
+ * invisible to the orphan report offered beside the journal keys in the same 5 MB.
  */
 describe('seeing and sweeping records across every Workspace', () => {
 	it('names every Workspace holding an unfinished deletion, sorted', () => {

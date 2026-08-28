@@ -2,8 +2,8 @@
 //
 // ADR-0018 stated this as a rule about two IIIF parsers meeting — `manifesto.js` inside
 // triiiceratops for navigation, `@allmaps/iiif-parser` for tile geometry — because that is how the
-// editor was expected to browse. **It is not how the editor browses, and since ticket 15 the editor
-// does not carry triiiceratops at all**: navigation is the editor's own canvas list in
+// editor was expected to browse. **It is not how the editor browses, and the editor does not carry
+// triiiceratops at all**: navigation is the editor's own canvas list in
 // `AddRemoteMap.svelte`, over `@allmaps/iiif-parser`, and triiiceratops now lives only in
 // `apps/viewer` (see ADR-0018's amendment note).
 //

@@ -735,7 +735,7 @@ describe('planning without a Baseline', () => {
 	// The one Update that adopts a whole Remote unexamined if nothing checks it. Every row is
 	// `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which
 	// here is nothing — and a Remote that would open as a broken Workspace would be taken whole on the
-	// very transfer that establishes the evidence for every later one (SPEC story 136).
+	// very transfer that establishes the evidence for every later one.
 	it('refuses to establish one from a Remote whose Project names a Map Image it does not hold', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
 		const result = planWorkspaceUpdate({

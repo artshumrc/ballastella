@@ -3,12 +3,12 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // LOCAL ONLY, AND KEYED THE WAY THE WRITE-AHEAD JOURNAL IS
 //
-// SPEC: *"kept **local only**, keyed by Workspace and backing as the write-ahead journal is."* It is
+// Kept **local only**, keyed by Workspace and backing as the write-ahead journal is. It is
 // deliberately **not** a file in the Workspace, and the reason is the whole of what it is for: it
 // records what *this machine* last saw on the Remote, and a record that travelled with the Workspace
 // — into a Backup, into a Clone, up to the Remote itself — would be the other machine's belief
-// arriving as this one's evidence. Ticket 05 refuses a publish that would overwrite work this
-// machine has never seen; a manifest that could be published is a manifest that cannot make that
+// arriving as this one's evidence. A publish that would overwrite work this machine has never seen is
+// refused on this record; a manifest that could be published is a manifest that cannot make that
 // judgement.
 //
 // So it is `localStorage`, under a Workspace-scoped key, exactly as `journal.ts` and
@@ -20,9 +20,9 @@
 //
 // A browser that will not store it, a value truncated by a full `localStorage`, a record written by a
 // build that spells this differently, **a record naming a different repository**: all four answer
-// `null`, which is *we cannot say what the Remote held*. That is a fallback ticket 05 has to handle
-// anyway — SPEC: *"With no manifest, fall back to the bind-time check and say plainly that we cannot
-// tell"* — and it is the only direction that cannot turn a storage problem into an overwrite.
+// `null`, which is *we cannot say what the Remote held*. With no manifest a publish falls back to the
+// bind-time check and says plainly that it cannot tell — a fallback that has to be handled anyway, and
+// the only direction that cannot turn a storage problem into an overwrite.
 //
 // The last of those four is why the record names its Remote rather than only its Workspace. A
 // Workspace can be re-bound with the manifest untouched, and a self-validating record answers that
@@ -146,7 +146,7 @@ export class PublishManifests {
 			// all.** A `QuotaExceededError` leaves the *previous* publish's map in place, and the reader
 			// above cannot tell it from a record of the publish that has just happened — so every path
 			// this publish legitimately changed would come back as somebody else's work. Removing it
-			// degrades the answer to "we cannot say", which is the fallback ticket 05 handles anyway.
+			// degrades the answer to "we cannot say", which is the fallback a publish handles anyway.
 			this.clear();
 			return false;
 		}

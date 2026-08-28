@@ -21,9 +21,9 @@ import {
 } from './support/workspace';
 
 /**
- * A Workspace bound to a Remote (ticket 03, ADR-0032, ADR-0033).
+ * A Workspace bound to a Remote (ADR-0032, ADR-0033).
  *
- * SPEC's Seam 2. The binding document, its tolerant reader, the rights check, the Pages outcomes and
+ * Seam 2. The binding document, its tolerant reader, the rights check, the Pages outcomes and
  * the two hard refusals are all asserted at Seam 1 — `remote-binding.test.ts`, `bind-remote.test.ts`
  * and `credential-store.test.ts` in `@ballastella/core`, where the assertion is the bytes and the
  * answer rather than a screen. What only a browser can show is here:
@@ -38,7 +38,7 @@ import {
  *     neither backing;
  *   - a first visit is never asked to sign in, and asks GitHub nothing.
  *
- * Nothing here publishes. That is ticket 04.
+ * Nothing here publishes; `editor-publish.e2e.ts` is where that is driven.
  */
 
 const HUB = './';
@@ -128,9 +128,7 @@ async function bindingFile(page: Page, workspace = DEFAULT_WORKSPACE): Promise<s
 }
 
 test.describe('binding a Workspace to a repository', () => {
-	test('is done from the Workspace menu, and survives a reload (stories 4, 30)', async ({
-		page
-	}) => {
+	test('is done from the Workspace menu, and survives a reload', async ({ page }) => {
 		await start(page);
 
 		await bind(page);
@@ -153,9 +151,7 @@ test.describe('binding a Workspace to a repository', () => {
 		await expectRemoteNamed(page, REMOTE);
 	});
 
-	test('states the Remote and the sign-in in the Workspace menu’s header (story 36)', async ({
-		page
-	}) => {
+	test('states the Remote and the sign-in in the Workspace menu’s header', async ({ page }) => {
 		await start(page);
 
 		await bind(page);
@@ -189,9 +185,9 @@ test.describe('binding a Workspace to a repository', () => {
 	});
 });
 
-// SPEC story 5, ADR-0033: *"Push rights are checked when a Remote is bound, not when 4,000 tiles
-// have finished uploading."* The binding still succeeds, because it is provenance rather than
-// permission — what must not happen is discovering the refusal after an upload.
+// ADR-0033: *"Push rights are checked when a Remote is bound, not when 4,000 tiles have finished
+// uploading."* The binding still succeeds, because it is provenance rather than permission — what
+// must not happen is discovering the refusal after an upload.
 test.describe('a credential that cannot push', () => {
 	test('says so plainly, and the binding still succeeds', async ({ page }) => {
 		await start(page, { repositories: [{ owner: OWNER, name: REPOSITORY, push: false }] });
@@ -212,8 +208,8 @@ test.describe('a credential that cannot push', () => {
 	});
 });
 
-// SPEC stories 6 and 7. A repository full of correct files that serves nothing is the failure; an
-// error dialog over a binding that otherwise worked is a worse one.
+// A repository full of correct files that serves nothing is the failure; an error dialog over a
+// binding that otherwise worked is a worse one.
 test.describe('turning Pages on', () => {
 	test('turns it on when the credential is permitted to', async ({ page }) => {
 		const github = await start(page);
@@ -255,9 +251,7 @@ test.describe('turning Pages on', () => {
 });
 
 test.describe('the pasted credential', () => {
-	test('is refused before any request when it is not a token at all (story 31)', async ({
-		page
-	}) => {
+	test('is refused before any request when it is not a token at all', async ({ page }) => {
 		const github = await start(page);
 
 		await bind(page, REMOTE, 'ghp_short');
@@ -294,7 +288,7 @@ test.describe('the pasted credential', () => {
 		]);
 	});
 
-	test('survives a reload and is forgotten on signing out (stories 35, 37)', async ({ page }) => {
+	test('survives a reload and is forgotten on signing out', async ({ page }) => {
 		await start(page);
 		await bind(page);
 		await closeRemoteSettings(page);
@@ -317,11 +311,11 @@ test.describe('the pasted credential', () => {
 		await expectCredential(page, 'Not signed in');
 	});
 
-	// SPEC story 37: *"a way to sign out, so that I can hand my machine to somebody"*. Unbinding
+	// There is always a way to sign out, so that a machine can be handed to somebody else. Unbinding
 	// deliberately leaves the credential alive — it belongs to a GitHub account rather than to this
 	// Workspace — so a sign-in section gated on the binding took the only Sign out button off the
 	// screen at exactly the moment it was still needed, and the token stayed in the tab.
-	test('can still be signed out of after unbinding (story 37)', async ({ page }) => {
+	test('can still be signed out of after unbinding', async ({ page }) => {
 		await start(page);
 		await bind(page);
 		await page.getByTestId('unbind-remote').click();
@@ -333,9 +327,7 @@ test.describe('the pasted credential', () => {
 		expect(await whereverTheTokenIs(page, TOKEN)).toEqual([]);
 	});
 
-	test('can be supplied again for a Workspace that is already bound (story 30)', async ({
-		page
-	}) => {
+	test('can be supplied again for a Workspace that is already bound', async ({ page }) => {
 		await start(page);
 		await bind(page);
 		await closeRemoteSettings(page);
@@ -352,16 +344,15 @@ test.describe('the pasted credential', () => {
 	});
 });
 
-// SPEC story 38. A local-first tool stays local-first: a scholar who never publishes must never meet
-// a sign-in prompt, and is never asked for a credential they have no reason to hold.
+// A local-first tool stays local-first: a scholar who never publishes must never meet a sign-in
+// prompt, and is never asked for a credential they have no reason to hold.
 //
-// **Story 38 is read as a sign-in prompt specifically, not as the word "GitHub" being absent** —
-// decided 2026-08-14, closing the question `publish-to-a-remote`'s TRACKER left open. Story 50's
-// "Review from GitHub…" button sits on the hub of a Workspace that has never published, so
-// the two stories only conflict under the broader reading. They are different things: a button a
-// scholar chooses is not a credential asked of one. What 38 protects is that nothing *demands*
-// identity before there is anything to publish, and the sibling test below fences the other half by
-// proving GitHub is not so much as spoken to.
+// That is read as **a sign-in prompt specifically, not as the word "GitHub" being absent** —
+// decided 2026-08-14. The "Review from GitHub…" button sits on the hub of a Workspace that has
+// never published, and the two requirements conflict only under the broader reading. They are
+// different things: a button a scholar chooses is not a credential asked of one. What this protects
+// is that nothing *demands* identity before there is anything to publish, and the sibling test
+// below fences the other half by proving GitHub is not so much as spoken to.
 test.describe('a first visit', () => {
 	test('shows no sign-in affordance anywhere', async ({ page }) => {
 		await start(page);
@@ -370,8 +361,8 @@ test.describe('a first visit', () => {
 		// ⚠ **Visible, not merely present.** The Remote dialog is mounted unconditionally so that its
 		// `<dialog>` element exists before `showModal()` is asked for, and a closed `<dialog>` still
 		// holds its markup — so a bare `toHaveCount(0)` here would be asserting that a component this
-		// spec drives elsewhere does not exist, and would fail for the wrong reason. What story 38 is
-		// about is what a scholar *sees*, which is nothing.
+		// spec drives elsewhere does not exist, and would fail for the wrong reason. What this is about
+		// is what a scholar *sees*, which is nothing.
 		await expect(page.getByText(/sign in/i).filter({ visible: true })).toHaveCount(0);
 		// The prompt itself and the field it asks into, by test id rather than by prose: these are the
 		// two elements that make a scholar produce a credential, and `RemoteSettings` is the only place
@@ -432,9 +423,9 @@ test.describe('a folder Workspace', () => {
 	});
 });
 
-// SPEC story 41, ADR-0032. `remote.json` is inside the published tree deliberately, so a Backup
-// carries it — and a scholar restoring one is somebody recovering from something having gone wrong.
-// Handing them a Publish button aimed at their live, cited address at that moment is the failure.
+// ADR-0032: `remote.json` is inside the published tree deliberately, so a Backup carries it — and a
+// scholar restoring one is somebody recovering from something having gone wrong. Handing them a
+// Publish button aimed at their live, cited address at that moment is the failure.
 test.describe('a restored Backup', () => {
 	test('arrives unbound', async ({ page }) => {
 		await start(page);
@@ -464,13 +455,11 @@ test.describe('a restored Backup', () => {
 	});
 });
 
-// ADR-0024, SPEC stories 39 and 40. Somebody else's work is never published to your own address, and
-// opening a submission must not reach the teacher's own credential. The refusals themselves live in
+// ADR-0024. Somebody else's work is never published to your own address, and opening a submission
+// must not reach the teacher's own credential. The refusals themselves live in
 // `packages/core`; what is asserted here is that the screens say so.
 test.describe('a Review Workspace', () => {
-	test('arrives unbound, and reads no credential while it is open (stories 40, 42)', async ({
-		page
-	}) => {
+	test('arrives unbound, and reads no credential while it is open', async ({ page }) => {
 		await start(page);
 		await bind(page);
 		await closeRemoteSettings(page);
@@ -515,7 +504,7 @@ test.describe('a Review Workspace', () => {
 /**
  * A v1 Workspace's Remote, lifted out of the Workspace and into this installation (ADR-0038).
  *
- * SPEC stories 155–157. What only a browser can show is the *decision*: a binding this installation
+ * What only a browser can show is the *decision*: a binding this installation
  * can corroborate is lifted with its evidence and says so; one it cannot is named and asked about,
  * and declining leaves the Workspace unbound; and once the relationship is installation-local, a
  * `remote.json` arriving inside copied or forked repository content cannot redirect it.
@@ -543,8 +532,8 @@ test.describe('a Workspace bound by an older build', () => {
 		);
 	}
 
-	// SPEC story 155: prior successful Publish evidence is not discarded. The manifest is
-	// installation-local, so it is proof *this browser* published there — and that is enough.
+	// Prior successful Publish evidence is not discarded. The manifest is installation-local, so it is
+	// proof *this browser* published there — and that is enough.
 	test('is lifted with its Baseline when this browser’s own publish evidence agrees', async ({
 		page
 	}) => {
@@ -564,8 +553,8 @@ test.describe('a Workspace bound by an older build', () => {
 		await expectRemoteStatus(page, '');
 	});
 
-	// SPEC stories 156 and 157: a binding with nothing corroborating it is asked about, and confirming
-	// it binds without fabricating a Baseline — so the status is `Cannot tell` rather than "up to date".
+	// A binding with nothing corroborating it is asked about, and confirming it binds without
+	// fabricating a Baseline — so the status is `Cannot tell` rather than "up to date".
 	test('is asked about when nothing corroborates it, and copied content cannot redirect it', async ({
 		page
 	}) => {
@@ -600,7 +589,7 @@ test.describe('a Workspace bound by an older build', () => {
 		await expectRemoteNamed(page, REMOTE);
 		await expectRemoteStatus(page, 'Cannot tell what has changed');
 
-		// ⚠ **Copied or forked repository content cannot redirect the selected repository** (story 109).
+		// ⚠ **Copied or forked repository content cannot redirect the selected repository**.
 		// A fork carries a `remote.json` naming the repository it was forked *from*; the relationship is
 		// installation-local now, so it is never consulted again.
 		await seedBindingFile(page, 'someone-else', 'fork');

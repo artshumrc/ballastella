@@ -1,9 +1,9 @@
-// SPEC's Seam 1 for the number an Annotation is known by: a rule over a collection's order, and a
-// claim about what it must never reach.
+// CONTRIBUTING.md's Seam 1 for the number an Annotation is known by: a rule over a collection's
+// order, and a claim about what it must never reach.
 //
-// Here rather than through a DOM because that is all an ordinal is — the one-shell-two-apps SPEC says
-// so under "The seam each claim belongs at": *ordinals are computed from a collection's order and can
-// be asserted at Seam 1*. What a row and a mark do with the number is asserted where they are.
+// Here rather than through a DOM because that is all an ordinal is: a number computed from a
+// collection's order, which is why it belongs at Seam 1. What a row and a mark do with the number is
+// asserted where they are.
 
 import { describe, expect, test } from 'vitest';
 
@@ -29,7 +29,7 @@ const ordinalsOf = (collection: AnnotationCollection): number[] =>
 
 const utf8 = (encoded: Uint8Array): string => new TextDecoder().decode(encoded);
 
-describe('an Annotation’s number is its place in the collection (stories 37, 38)', () => {
+describe('an Annotation’s number is its place in the collection', () => {
 	test('numbering starts at 1 and follows the order the collection already has', () => {
 		expect(ordinalsOf(collectionOf('a1', 'a2', 'a3'))).toEqual([1, 2, 3]);
 	});
@@ -54,7 +54,7 @@ describe('an Annotation’s number is its place in the collection (stories 37, 3
 	});
 });
 
-describe('the ordinal is display state and reaches no file (ADR-0002, story 43)', () => {
+describe('the ordinal is display state and reaches no file (ADR-0002)', () => {
 	test('the bytes an Annotation Layer is written as carry no number at all', () => {
 		// ⚠ **This is the assertion the mutation check breaks.** Write the ordinal into a feature's
 		// `properties` — or onto the `Feature` object — and this goes red, alongside

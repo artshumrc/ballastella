@@ -30,7 +30,7 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────────────
 	// COLOUR IS NEVER THE ONLY CHANNEL
 	//
-	// A row of nine coloured squares is, on the face of it, exactly the control SPEC story 111 forbids:
+	// A row of nine coloured squares is, on the face of it, exactly the control this screen forbids:
 	// meaning carried by appearance alone. Three things carry it instead, and none of them is the colour:
 	//
 	//   • **every swatch is named** — the name is in `sr-only` text inside the label, so the accessible
@@ -162,10 +162,10 @@
 		<span aria-hidden="true">{caption ?? label}</span>
 
 		<!--
-			What is chosen, in words — the channel that survives a monochrome screen, and the one that
-			makes this row legal under SPEC story 111. `aria-live`, because choosing a swatch changes text
-			that a screen-reader user has just moved focus *past*: the radio announces its own name on
-			arrival, and this is what tells them the file now says so.
+			What is chosen, in words — the channel that survives a monochrome screen, and the one that keeps
+			this row from carrying its meaning in colour alone. `aria-live`, because choosing a swatch
+			changes text that a screen-reader user has just moved focus *past*: the radio announces its own
+			name on arrival, and this is what tells them the file now says so.
 		-->
 		<span class="text-xs opacity-60" aria-live="polite" data-testid="{testid}-chosen">
 			{#if chosenName === null}

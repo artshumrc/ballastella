@@ -1,4 +1,4 @@
-// `EditorSession` against an in-memory store (ticket 06).
+// `EditorSession` against an in-memory store.
 //
 // The session takes a `ProjectStore`, so an in-memory one is the whole of what a test needs — which
 // is what makes this the second thing worth having a Node seam for. What is asserted here is the
@@ -171,7 +171,7 @@ describe('the picker behind “Add a Map Image”', () => {
 });
 
 /**
- * ⚠ **The wiring that ticket 21 claimed and only the browser suite could see.**
+ * ⚠ **The wiring that only the browser suite could see.**
  *
  * "Deleting a Project retires its journal entries" lived at one line of `EditorSession` and was
  * asserted nowhere below the e2e: `journal.test.ts` pins the primitive `forgetUnder`, and
@@ -215,9 +215,9 @@ describe('deleting a Project, at the unit seam', () => {
 	});
 
 	/**
-	 * The other half of the same sweep, and the half that was missing (ticket 21, review 2): the
-	 * journal is written *from* `Autosave`'s pending bytes, so emptying only the journal left
-	 * `pagehide`'s `capture()` free to put the deleted Project's `project.json` straight back.
+	 * The other half of the same sweep, and the half that was missing: the journal is written
+	 * *from* `Autosave`'s pending bytes, so emptying only the journal left `pagehide`'s
+	 * `capture()` free to put the deleted Project's `project.json` straight back.
 	 */
 	it('gives up the pending bytes too, so a pagehide capture cannot re-journal them', async () => {
 		const { session, storage, store } = await sessionWithJournal();
@@ -247,13 +247,13 @@ describe('deleting a Project, at the unit seam', () => {
 
 	/**
 	 * ⚠ **`abandon` cannot call back a write the store already has**, and the sweep alone read as
-	 * though it could (ticket 21, review 3). `Autosave.#drainLoop` captures its `bytes` and then
-	 * awaits `store.write`; clearing the pending bytes does not reach into that await. So a
-	 * `project.json` write in flight when Delete is pressed — a rename inside its debounce whose
-	 * timer has just fired — resolves **after** `#removeEverythingIn` has listed the directory, and
-	 * writes the manifest back behind the deletion. `deleteProject` then drops its own record on the
-	 * next line, so the Project is on the hub again at the next startup with nothing left to catch
-	 * it: the exact defect this ticket exists to close, by a route the sweep could not see.
+	 * though it could. `Autosave.#drainLoop` captures its `bytes` and then awaits `store.write`;
+	 * clearing the pending bytes does not reach into that await. So a `project.json` write in flight
+	 * when Delete is pressed — a rename inside its debounce whose timer has just fired — resolves
+	 * **after** `#removeEverythingIn` has listed the directory, and writes the manifest back behind
+	 * the deletion. `deleteProject` then drops its own record on the next line, so the Project is on
+	 * the hub again at the next startup with nothing left to catch it: the exact defect this test
+	 * exists to close, by a route the sweep could not see.
 	 */
 	it('waits out a write it could not call back, so the manifest is not written back behind it', async () => {
 		const { session, store } = await sessionWithJournal();
@@ -279,12 +279,12 @@ describe('deleting a Project, at the unit seam', () => {
 	});
 
 	/**
-	 * ⚠ **The only exit a refusal had was the destructive one** (ticket 21, round 4).
+	 * ⚠ **The only exit a refusal had was the destructive one.**
 	 *
-	 * Since round 3 a folder Workspace finishes no deletion unattended, so a refusal is the whole of
-	 * what a startup there ever reports — and nothing ended one. No record expires, `#claim` drops
-	 * one only on create or duplicate, Workspace settings cannot reach the Workspace that is open,
-	 * and the panel's dismiss is keyed on report *contents*, so the identical report returns at every
+	 * A folder Workspace finishes no deletion unattended, so a refusal is the whole of what a startup
+	 * there ever reports — and nothing ended one. No record expires, `#claim` drops one only on
+	 * create or duplicate, Workspace settings cannot reach the Workspace that is open, and the
+	 * panel's dismiss is keyed on report *contents*, so the identical report returns at every
 	 * startup. The sentence's one remedy — "delete it again" — destroys the Project of whoever's
 	 * folder this is.
 	 */
@@ -308,7 +308,7 @@ describe('deleting a Project, at the unit seam', () => {
 	});
 
 	/**
-	 * ⚠ **The same corner, reached by a different route** (ticket 07, round 2).
+	 * ⚠ **The same corner, reached by a different route.**
 	 *
 	 * `'superseded'` is the first replay skip that *keeps* its journal entry — deliberately, because
 	 * those bytes are the only copy of an edit that reached no store. The panel's dismiss is keyed on
@@ -359,7 +359,7 @@ describe('deleting a Project, at the unit seam', () => {
 
 	/**
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * A STRANDED EDIT IS PUT BACK, RATHER THAN REPORTED AND HELD (ticket 07, round 4)
+	 * A STRANDED EDIT IS PUT BACK, RATHER THAN REPORTED AND HELD
 	 *
 	 * This is the whole value of the read-path seam, driven end to end: **the same sequence answered
 	 * `'cannot-tell-which-is-newer'` before it existed.**
@@ -402,7 +402,7 @@ describe('deleting a Project, at the unit seam', () => {
 	 *
 	 * Deliberately a collection **already on disk that this session never wrote**: a Layer added in
 	 * this session has its baseline from the `forget` of its own first write, which is the case that
-	 * worked before ticket 07. Last week's Annotations, opened today, are the case that did not.
+	 * already worked. Last week's Annotations, opened today, are the case that did not.
 	 */
 	it.each([
 		['readAnnotations', (s: EditorSession, l: AnnotationLayer) => s.readAnnotations(l)],
@@ -463,7 +463,7 @@ describe('deleting a Project, at the unit seam', () => {
 		// ⚠ **Both readers, one per test row.** The alignment editor reads through the first and the
 		// Project screen draws through the second; a scholar reaches an edit by either route. Driving
 		// them in one test would let each one cover for the other's deletion, which is the coincidence
-		// that has hidden two defects in this ticket already.
+		// that has hidden two defects here already.
 		const { session, storage, store } = await sessionWithJournal();
 		const image = { width: 400, height: 300 };
 		const onDisk = serialiseAlignment({
@@ -688,12 +688,12 @@ describe('deleting a Map Image, at the unit seam', () => {
 
 	/**
 	 * ⚠ **The Alignment is not under `images/<id>/`, and the pending-bytes sweep was only given that
-	 * prefix** (ticket 21, review 3). `alignmentPath(id)` is `alignments/<id>.json` — a sibling — so
-	 * the hole item 2 of review 2 closed for the pyramid was left open on the one path where the
-	 * unsaved specimen *is* the Alignment. Its journal entry was forgotten and the bytes it is
-	 * written from were not, leaving `capture()` to re-journal it at `pagehide` and `flush()` to
-	 * write it outright: `alignments/<id>.json` recreated for a Map Image that is gone, which is
-	 * the orphan `deleteMapImage` exists to prevent.
+	 * prefix**. `alignmentPath(id)` is `alignments/<id>.json` — a sibling — so the hole closed for
+	 * the pyramid was left open on the one path where the unsaved specimen *is* the Alignment. Its
+	 * journal entry was forgotten and the bytes it is written from were not, leaving `capture()` to
+	 * re-journal it at `pagehide` and `flush()` to write it outright: `alignments/<id>.json`
+	 * recreated for a Map Image that is gone, which is the orphan `deleteMapImage` exists to
+	 * prevent.
 	 *
 	 * The test that missed it asserted only that the journal was empty, which the sweep's other half
 	 * already made true.
@@ -729,13 +729,13 @@ describe('deleting a Map Image, at the unit seam', () => {
 	});
 
 	/**
-	 * ⚠ **THE WINDOW, AND IT IS ON BOTH OF THE MAP'S PREFIXES** (ticket 21, rounds 4 and 5).
+	 * ⚠ **THE WINDOW, AND IT IS ON BOTH OF THE MAP'S PREFIXES.**
 	 *
 	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
 	 * *after* the deletion — so a write in flight when Delete is pressed lands on top of a map that
-	 * has gone. Round 4 closed that for `alignments/<id>.json` and left `images/<id>/` wide open with
-	 * no sentence saying why the two were different. They are not: `deleteMapImage` removes both
-	 * and `#forgetJournalled` sweeps both, so the argument covers both or neither.
+	 * has gone. That is as true of `alignments/<id>.json` as of `images/<id>/`, and the two are not
+	 * different: `deleteMapImage` removes both and `#forgetJournalled` sweeps both, so the argument
+	 * covers both or neither.
 	 *
 	 * ⚠ **One prefix per test, and that is not tidiness.** Written as one test holding both writes,
 	 * the two waits sit in the same `Promise.all` and either one alone parks the deletion until both
@@ -862,13 +862,13 @@ describe('deleting a Map Image, at the unit seam', () => {
 
 /**
  * ⚠ **The one function that decides whether a recorded deletion may destroy anything**, and its
- * only coverage was transitive, through the browser suite (ticket 21, round 4).
+ * only coverage was transitive, through the browser suite.
  *
- * `WorkspaceIdentity` is the whole of round 3's design: identity is a property of the **key**,
- * because a copy reproduces a Project's contents perfectly and no comparison of them can tell two
- * folders apart. This is where a key becomes that answer, and it is two lines of prefix matching —
- * which is exactly the kind of thing that gets "simplified" by somebody who has not read the two
- * hundred lines of comment behind it. It belongs in the fast suite.
+ * `WorkspaceIdentity`'s whole design is that identity is a property of the **key**, because a copy
+ * reproduces a Project's contents perfectly and no comparison of them can tell two folders apart.
+ * This is where a key becomes that answer, and it is two lines of prefix matching — which is
+ * exactly the kind of thing that gets "simplified" by somebody who has not read the two hundred
+ * lines of comment behind it. It belongs in the fast suite.
  */
 describe('what a Workspace key says about which directory it is', () => {
 	it('calls a named browser Workspace one place, because this origin owns it', () => {
@@ -893,7 +893,7 @@ describe('what a Workspace key says about which directory it is', () => {
 });
 
 /**
- * An Alignment somebody else changed while this session had it open (ticket 07, ADR-0023).
+ * An Alignment somebody else changed while this session had it open (ADR-0023).
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
  * │ THE FALSE ALARM IS THE PART THAT NEEDS A TEST, AND IT HAS NO GESTURE.                     │
@@ -1007,7 +1007,7 @@ describe('the record of what is on disk for an Alignment', () => {
 
 	it('does raise it when the file really changed underneath', async () => {
 		// The unguarded direction, without which the test above passes against a build that never
-		// reports anything at all — which is precisely what ticket 18 shipped.
+		// reports anything at all.
 		const store = new ImagesGoAway();
 		const opened = await openOn(store);
 		const alignment = await opened.readAlignment(IMAGE_ID, IMAGE);
@@ -1284,7 +1284,7 @@ describe('typing an Annotation’s words costs one write, not one per keystroke 
 	});
 });
 
-// ── The local-change index, installed around whichever store the Workspace is (ticket 10) ─────
+// ── The local-change index, installed around whichever store the Workspace is ─────────────────
 
 describe('tracking a Workspace’s own changes', () => {
 	it('installs the same tracker for browser storage and for a chosen folder', async () => {
@@ -1382,8 +1382,8 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		);
 	});
 
-	// SPEC stories 19 and 54. The bytes rather than a re-serialisation of a parsed model: an
-	// Annotation Layer's document is the scholar's own writing, and undo must not rewrite it.
+	// The bytes rather than a re-serialisation of a parsed model: an Annotation Layer's
+	// document is the scholar's own writing, and undo must not rewrite it.
 	it('puts the stack entry and the Layer’s file back byte-identically', async () => {
 		const { store, session, layerIds } = await withAnnotationLayers(2);
 		const doomed = layerIds[0] as string;
@@ -1405,7 +1405,7 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		expect(session.openProject?.layers).toEqual(stackBefore);
 	});
 
-	// SPEC story 7: an undo pressed by mistake is not itself irreversible.
+	// An undo pressed by mistake is not itself irreversible.
 	it('deletes it again on redo', async () => {
 		const { store, session, layerIds } = await withAnnotationLayers(1);
 		const doomed = layerIds[0] as string;
@@ -1423,7 +1423,7 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		expect(await store.list(path)).toEqual([]);
 	});
 
-	// SPEC stories 6, 10 and 11, driven through the gesture rather than against the class directly.
+	// Driven through the gesture rather than against the class directly.
 	it('walks back five deletions in order, and a sixth forgets the first', async () => {
 		const { session, layerIds } = await withAnnotationLayers(6);
 		const history = session.historyFor(DIRECTORY);
@@ -1466,9 +1466,9 @@ describe('the Project screen’s Edit History (ADR-0039)', () => {
 		expect(session.historyFor(DIRECTORY).undoable).toBeNull();
 	});
 
-	// SPEC story 50. The cursor moves only on a write that landed, so a refused undo leaves the bar
-	// reading exactly as it did before the press — which is what a successful one would look like too
-	// if nothing said otherwise. The sentence is the save-error toast's.
+	// The cursor moves only on a write that landed, so a refused undo leaves the bar reading exactly
+	// as it did before the press — which is what a successful one would look like too if nothing said
+	// otherwise. The sentence is the save-error toast's.
 	it('keeps its place and says so when the write does not land', async () => {
 		const { store, session, layerIds } = await withAnnotationLayers(1);
 		await session.deleteLayer(layerIds[0] as string);
@@ -1520,10 +1520,9 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		return layer.opacity;
 	};
 
-	// SPEC stories 13 and 14, and the disjointness invariant that makes the second one true: the Step
-	// declares `project.json` and nothing else, so undoing the addition cannot reach the Alignment the
-	// gesture also wrote — which belongs to the Workspace and may be drawn by another Project
-	// (ADR-0023).
+	// The disjointness invariant this turns on: the Step declares `project.json` and nothing else, so
+	// undoing the addition cannot reach the Alignment the gesture also wrote — which belongs to the
+	// Workspace and may be drawn by another Project (ADR-0023).
 	it('undoes adding a Map Image, leaving its Alignment and its record exactly where they are', async () => {
 		const { store, session } = await overAMapImage();
 
@@ -1548,8 +1547,8 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		expect(layerIdsOf(session)).toEqual([layer.id]);
 	});
 
-	// SPEC story 15. Both files this gesture wrote go back, which is what keeps the stack and
-	// `annotations/` agreeing: a Layer whose reference names nothing is a Project the importer refuses.
+	// Both files this gesture wrote go back, which is what keeps the stack and `annotations/`
+	// agreeing: a Layer whose reference names nothing is a Project the importer refuses.
 	it('undoes adding an Annotation Layer, taking its FeatureCollection with it', async () => {
 		const { store, session } = await overAMapImage();
 
@@ -1574,8 +1573,8 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		expect(await store.list(path)).toEqual([path]);
 	});
 
-	// SPEC story 16. The label says which way the toggle went, in the scholar's own words for the
-	// Layer and never in a value.
+	// The label says which way the toggle went, in the scholar's own words for the Layer and
+	// never in a value.
 	it('undoes hiding a Layer, and says which way it went', async () => {
 		const { session } = await overAMapImage();
 		const layer = await session.addAnnotationLayer('Trade routes');
@@ -1608,8 +1607,8 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		);
 	});
 
-	// SPEC story 17. The Step opens when the drag starts and closes when it ends, so undo returns the
-	// Layer to the opacity it had before the gesture rather than to some value inside it.
+	// The Step opens when the drag starts and closes when it ends, so undo returns the Layer to the
+	// opacity it had before the gesture rather than to some value inside it.
 	it('makes a whole opacity drag one Step, back to where it started', async () => {
 		const { session } = await overAMapImage();
 		const layer = await session.addWorkspaceMap(MAP);
@@ -1638,7 +1637,6 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		expect(history.undoable?.label).toBe(`Undo adding the Map Image “${layer.name}”`);
 	});
 
-	// SPEC story 18.
 	it('undoes moving a Layer in the stack', async () => {
 		const { session } = await overAMapImage();
 		const first = await session.addAnnotationLayer('Trade routes');
@@ -1663,8 +1661,8 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		expect(layerIdsOf(session)).toEqual([first.id, second.id]);
 	});
 
-	// SPEC stories 31 and 32: tidying up names must not push the deletion out of the history, and must
-	// not throw the history away either.
+	// Tidying up names must not push the deletion out of the history, and must not throw the history
+	// away either.
 	it('spends no Step on a rename, and keeps the history across one', async () => {
 		const { session } = await overAMapImage();
 		const layer = await session.addAnnotationLayer('Trade routes');
@@ -1687,9 +1685,9 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 		expect(history.undoable?.label).toBe(label);
 	});
 
-	// SPEC story 33. The name typed after the Step is carried across into what undo writes: it is the
-	// scholar's, it is not part of the deletion, and taking it back would be undoing words nobody
-	// asked to have undone.
+	// The name typed after the Step is carried across into what undo writes: it is the scholar's, it
+	// is not part of the deletion, and taking it back would be undoing words nobody asked to have
+	// undone.
 	it('carries a name typed after a Step across the undo of that Step', async () => {
 		const { session } = await overAMapImage();
 		const doomed = await session.addAnnotationLayer('Trade routes');
@@ -1711,7 +1709,7 @@ describe('the rest of the Layer stack, as Steps of the Project’s Edit History 
 });
 
 /**
- * The Alignment's own Edit History, driven the way the Align screen drives it (ticket 05, ADR-0039).
+ * The Alignment's own Edit History, driven the way the Align screen drives it (ADR-0039).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE GESTURES ARE SPELLED OUT HERE RATHER THAN CALLED
@@ -1784,9 +1782,9 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		)
 	});
 
-	// SPEC stories 24–29, and acceptance criterion 1: the file is byte-identical to what it was
-	// before the gesture, which is stronger than "equivalent" — `Alignment.unmodelled` means a
-	// re-serialisation of the same document can differ, and a scholar's colleague wrote some of it.
+	// The file is byte-identical to what it was before the gesture, which is stronger than
+	// "equivalent" — `Alignment.unmodelled` means a re-serialisation of the same document can differ,
+	// and a scholar's colleague wrote some of it.
 	it.each([
 		['Undo placing Control Point 2', (ground: Alignment) => withPair(ground, 2)],
 		[
@@ -1832,7 +1830,7 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		await session.flush();
 		expect(await store.read(alignmentPath(MAP))).toEqual(before);
 
-		// SPEC story 7: an undo pressed by mistake is not itself irreversible.
+		// An undo pressed by mistake is not itself irreversible.
 		const after = await store.read(alignmentPath(MAP));
 		expect(await history.redo()).toBe(true);
 		await session.flush();
@@ -1862,8 +1860,8 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		expect(session.alignmentChangedElsewhere).toBeNull();
 	});
 
-	// SPEC story 27 and acceptance criterion 5. There is no merging anywhere in this epic: four
-	// corners are four Steps, so a scholar can back out of the one they got wrong.
+	// There is no merging anywhere here: four corners are four Steps, so a scholar can back out of
+	// the one they got wrong.
 	it('makes four Crop corner moves four Steps', async () => {
 		const { session, alignment } = await overAnAlignment();
 		const history = session.historyFor(MAP);
@@ -1888,7 +1886,8 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 	});
 
 	/**
-	 * SPEC story 12, asserted at the seam that supplies the number rather than the one that obeys it.
+	 * The history ceiling, asserted at the seam that supplies the number rather than the one that
+	 * obeys it.
 	 *
 	 * `EditHistory` implements the ceiling and core tests both halves of it, but the class defaults to
 	 * no ceiling at all — so "every history has a backstop" is a claim about what {@link
@@ -1919,8 +1918,8 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 		expect(history.undoable).toBeNull();
 	});
 
-	// SPEC stories 4 and 5. Keyed by Map Image, so a second map offers its own edits and never the
-	// first's — and one Alignment is one history however many Projects draw it (ADR-0023).
+	// Keyed by Map Image, so a second map offers its own edits and never the first's — and one
+	// Alignment is one history however many Projects draw it (ADR-0023).
 	it('gives each Map Image its own history, and keeps the first’s intact', async () => {
 		const { session, alignment } = await overAnAlignment();
 		await session.addWorkspaceMap(OTHER_MAP);
@@ -1960,7 +1959,7 @@ describe('the Alignment’s Edit History (ADR-0039)', () => {
 });
 
 /**
- * When an Edit History is thrown away, and what it takes with it (ticket 06, ADR-0039).
+ * When an Edit History is thrown away, and what it takes with it (ADR-0039).
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
  * │ THE HARM IS ASYMMETRIC, WHICH IS WHY THE RULE IS BLUNT.                                   │
@@ -2070,8 +2069,8 @@ describe('an Edit History and the writes it did not make', () => {
 			new TextEncoder().encode('{"type":"Annotation","from":"a colleague"}\n') as Bytes
 		);
 
-	// SPEC story 37. Two windows on one Workspace: the other one's write is reported, and this one's
-	// undo must not be able to reverse it.
+	// Two windows on one Workspace: the other one's write is reported, and this one's undo must not
+	// be able to reverse it.
 	it('goes when a concurrent write is reported, and the Project’s does not', async () => {
 		const { store, session } = await withStepsOnBothScreens();
 		const mine = await session.readAlignment(MAP, IMAGE);
@@ -2096,8 +2095,8 @@ describe('an Edit History and the writes it did not make', () => {
 		);
 	});
 
-	// SPEC story 36. Their version is on disk now; an undo that displaced it again would be the same
-	// harm the notice exists to make visible, done by the control that answered it.
+	// Their version is on disk now; an undo that displaced it again would be the same harm the notice
+	// exists to make visible, done by the control that answered it.
 	it('goes when a colleague’s Alignment is put back', async () => {
 		const { store, session } = await withStepsOnBothScreens();
 		const mine = await session.readAlignment(MAP, IMAGE);
@@ -2114,8 +2113,8 @@ describe('an Edit History and the writes it did not make', () => {
 		expect(session.historyFor(MAP).redoable).toBeNull();
 	});
 
-	// SPEC story 38. Nothing may offer to reverse an edit to a map that is not in the Workspace — and
-	// undoing one would write back the very orphan Alignment the deletion swept.
+	// Nothing may offer to reverse an edit to a map that is not in the Workspace — and undoing one
+	// would write back the very orphan Alignment the deletion swept.
 	it('goes when its Map Image is deleted, and the Project’s does not', async () => {
 		const { session } = await withStepsOnBothScreens();
 		// The second map is on no Project, so the deletion is not refused.
@@ -2134,7 +2133,7 @@ describe('an Edit History and the writes it did not make', () => {
 	});
 
 	/**
-	 * Ticket 06's acceptance criterion 4, and the bug it is written to catch.
+	 * A history's own write-back is not a foreign write, and the bug that rule is written to catch.
 	 *
 	 * An Edit History's own `writeBack` puts Alignment bytes back through the same writer a restore
 	 * uses. If that counted as a foreign write, the first undo would raise a notice about a colleague
@@ -2153,7 +2152,7 @@ describe('an Edit History and the writes it did not make', () => {
 		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
 	});
 	/**
-	 * SPEC story 35, and the one event that does not name a subject.
+	 * An Update from GitHub is the one event that does not name a subject.
 	 *
 	 * An Update rewrites arbitrary paths across the whole Workspace — a Project's `project.json`, an
 	 * Annotation, an Alignment a colleague refined on another machine — so there is no history it

@@ -26,8 +26,8 @@ import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapsho
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 /**
- * SPEC's Seam 2 for the Layer stack: showing, hiding, reordering, renaming, and setting the opacity
- * of Layers in the running app (stories 49–54).
+ * Seam 2 for the Layer stack: showing, hiding, reordering, renaming, and setting the opacity
+ * of Layers in the running app.
  *
  * **Every claim about ordering and visibility is asserted on what rendered, never on an absence of
  * errors.** Two handles make that possible, and both are about MapLibre's own state rather than the
@@ -249,8 +249,8 @@ const completedPyramid = (page: Page): Promise<string | null> =>
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -391,12 +391,11 @@ async function emptyProject(page: Page): Promise<string> {
 /**
  * Pick the gradient PNG in the file input, and return once the whole add is over.
  *
- * **The barrier is the pyramid on disk, not the Layer.** Ticket 04 deleted the Project page's list
- * of the Workspace's Map Images, which is what this used to wait on — and the obvious
- * replacement, waiting for the Layer row, is wrong here: one caller below is about the add whose
- * Layer is deliberately *never made*, so waiting for it would hang for thirty seconds and then fail
- * on the wrong line. `images/<id>/info.json` is written by the tiler last, so it lands when the
- * ingest ends and the Layer is on its way.
+ * **The barrier is the pyramid on disk, not the Layer.** The Project page carries no list of the
+ * Workspace's Map Images to wait on, and the obvious replacement — waiting for the Layer row — is
+ * wrong here: one caller below is about the add whose Layer is deliberately *never made*, so waiting
+ * for it would hang for thirty seconds and then fail on the wrong line. `images/<id>/info.json` is
+ * written by the tiler last, so it lands when the ingest ends and the Layer is on its way.
  */
 async function addMapImage(page: Page): Promise<void> {
 	await pickMapImageFile(page, {
@@ -408,7 +407,7 @@ async function addMapImage(page: Page): Promise<void> {
 	// And the *whole* add is over, Layer write included: `ingestImage` clears its job in a `finally`,
 	// which is what takes the preparing card out of the stack — so this is one signal for the success
 	// and the failure alike, which is exactly what the failing-Alignment test below needs. Asked of
-	// the card rather than of the file input, which since ticket 06 is inside a closed dialog: a
+	// the card rather than of the file input, which is inside a closed dialog: a
 	// control the user cannot see is not evidence of anything.
 	await expectNothingPreparing(page, 30_000);
 }
@@ -419,8 +418,8 @@ async function addMapImage(page: Page): Promise<void> {
  *
  * **There is a map Layer in the stack already** (ADR-0023): adding the Map Image is what put it
  * there, and it says it is not aligned yet until the pairs exist. So the barrier is the save
- * indicator rather than a pane: since ticket 03 there is no alignment pane on this page to wait for,
- * and the whole of the add — pyramid, Alignment, `project.json` — is what "Saved" means here.
+ * indicator rather than a pane: there is no alignment pane on this page to wait for, and the whole
+ * of the add — pyramid, Alignment, `project.json` — is what "Saved" means here.
  *
  * @returns the Project directory
  */
@@ -432,7 +431,7 @@ async function projectWithImageThroughTheInterface(page: Page): Promise<string> 
 }
 
 /**
- * On to the alignment route for the Project's one Map Image (ticket 03).
+ * On to the alignment route for the Project's one Map Image.
  *
  * Separate from {@link projectWithImage} because most of this file never needs the panes — it is
  * about the Layer stack — and because the two tests that are about what *adding* the map does have to
@@ -446,7 +445,7 @@ async function projectWithImageThroughTheInterface(page: Page): Promise<string> 
 async function openAlignment(page: Page, directory: string): Promise<void> {
 	await page.goto(`/?p=${directory}`);
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-	// The Align link is inside the Layer's own row since ticket 05, so getting there opens it.
+	// The Align link is inside the Layer's own row, so getting there opens it.
 	await alignFromLayer(page);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 	await expect(page.getByTestId('image-pane')).toBeVisible();
@@ -597,9 +596,9 @@ async function openLayers(
 	directory: string,
 	{ drawn = 1, via = 'load' }: { drawn?: number; via?: 'load' | 'link' } = {}
 ): Promise<void> {
-	// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
-	// that page: the Layer stack is the Project, so arriving is already being there and the two
-	// paths differ only in whether the screen was loaded fresh.
+	// `via: 'link'` used to mean "follow the Project page's Layers link". There is no such page: the
+	// Layer stack is the Project, so arriving is already being there and the two paths differ only in
+	// whether the screen was loaded fresh.
 	if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	else await page.goto(`/?p=${directory}`);
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
@@ -787,7 +786,7 @@ async function watchDragImages(page: Page): Promise<void> {
  * Every iteration is two protocol round trips — an `evaluate` and a key press — so a walk past the
  * Base Map's own controls can be a hundred of them before the first assertion runs. On a loaded
  * machine that is tens of seconds, and the two tests that use it exhausted the default 30 s test
- * budget in 1 of the 10 runs measured on 2026-08-07 (ticket 17). It reported as
+ * budget in 1 of the 10 runs measured on 2026-08-07. It reported as
  * `waiting for … layer-move-down`, which reads like a button that never rendered. Both callers now
  * state a budget; a new one must too.
  */
@@ -830,9 +829,9 @@ const alignmentRefOf = async (page: Page, directory: string): Promise<string> =>
 
 test.describe('a Layer for a Map Image that has just been added', () => {
 	/**
-	 * SPEC stories 18 and 68, and the criterion ticket 02 exists for: **the gesture that makes the
-	 * Layer is adding the map, not aligning it.** Asserted before a single Control Point exists, which
-	 * is what makes it a claim about the add rather than about the alignment that used to follow.
+	 * **The gesture that makes the Layer is adding the map, not aligning it.** Asserted before a single
+	 * Control Point exists, which is what makes it a claim about the add rather than about the
+	 * alignment that used to follow.
 	 */
 	test('adding a Map Image produces a kind: map Layer in project.json, with no Control Point', async ({
 		page
@@ -848,7 +847,7 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 			kind: 'map',
 			// The file the user picked, which is the only record of what they call this Map Image: an
 			// image id is a random identifier (ADR-0015), so naming the Layer from it would name it after
-			// a hash. SPEC story 54 is that they can rename it from here.
+			// a hash, and they can rename it from here.
 			name: 'la-floride.png',
 			visible: true,
 			order: 0,
@@ -949,8 +948,8 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
 
 		// The third pair clears it, and the Layer is on the map. Back through the Project page, because
-		// the alignment view is a route of its own since ticket 03 and its `?layer=` is not a URL this
-		// test knows how to write.
+		// the alignment view is a route of its own and its `?layer=` is not a URL this test knows how
+		// to write.
 		await openAlignment(page, directory);
 		await expect(page.getByTestId('control-point-row')).toHaveCount(2);
 		await pairAt(page, 0.5, 0.7);
@@ -998,17 +997,17 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 	/**
 	 * The Layer must never exist without the Alignment it draws.
 	 *
-	 * A map Layer whose `alignments/<image-id>.json` is not there is a Project ticket 13's import
-	 * refuses — `assertReferencesPresent` says the Layer "needs it to be drawn" — so a Layer written
+	 * A map Layer whose `alignments/<image-id>.json` is not there is a Project an import refuses —
+	 * `assertReferencesPresent` says the Layer "needs it to be drawn" — so a Layer written
 	 * over a failed starter-Alignment write leaves a scholar unable to import their own export. This is
 	 * the same discipline `addAnnotationLayer` already keeps for `geojsonRef`, and there is nothing
 	 * exotic about the interruption: OPFS has a quota, and a folder Workspace can have its permission
 	 * revoked mid-session.
 	 *
 	 * **The failure is arranged before the file is picked**, because the write that can fail is part of
-	 * adding the map — ticket 02 — rather than part of the first pair or, as ticket 03 briefly had it,
-	 * part of pressing Align. The pyramid's own files are left writable — only `alignments/*.json` is
-	 * refused — so this is the Alignment failing and not the ingest.
+	 * adding the map rather than part of the first pair or of pressing Align. The pyramid's own files
+	 * are left writable — only `alignments/*.json` is refused — so this is the Alignment failing and
+	 * not the ingest.
 	 *
 	 * **The ordering this protects is not tied to any one gesture.** Alignment before Layer is what
 	 * `assertReferencesPresent` requires whichever act makes the Layer, which is why this test is
@@ -1039,15 +1038,15 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 		// And the user is told, rather than being left with a Map Image that quietly did not arrive.
 		await expect(page.getByText('Quota exceeded')).toBeVisible();
 
-		// **And there is no way to align it into existence either**, which is ticket 03's half of the
-		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project screen
-		// offers no Align link for this map at all rather than a control that would make one.
+		// **And there is no way to align it into existence either**, which is the alignment route's half
+		// of the same rule: with no Layer in the stack there is no `?layer=` to address, so the Project
+		// screen offers no Align link for this map at all rather than a control that would make one.
 		await expect(page.getByTestId('align-map-image')).toHaveCount(0);
 		await expect(page.getByTestId('align-map-image-now')).toHaveCount(0);
 		// Said, not merely absent. The Project page used to carry a dedicated "this map is in the
-		// Workspace but not in this Project" alert beside its list of the Workspace's Map Images;
-		// ticket 04 deleted that list, so the sentence that has to be true here is the sidebar's own
-		// empty state — and it names the next action rather than only the fact (SPEC story 106).
+		// Workspace but not in this Project" alert beside its list of the Workspace's Map Images; there
+		// is no such list, so the sentence that has to be true here is the sidebar's own empty state —
+		// and it names the next action rather than only the fact.
 		await expect(page.getByText('This Project has no Map Images yet.')).toBeVisible();
 	});
 
@@ -1075,9 +1074,9 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 	 * writes it last, so it lands when the ingest ends and the Layer is on its way — with the
 	 * `manifest.json` read below still to come. See {@link completedPyramid}.
 	 *
-	 * **Ticket 03 leaves this exactly where it is.** The window belongs to the add, and the add is on
-	 * this page; the alignment route is not involved in it at all. That is the whole difference between
-	 * this test and the ones above that had to be re-pointed.
+	 * **The alignment route leaves this exactly where it is.** The window belongs to the add, and the
+	 * add is on this page; the alignment route is not involved in it at all. That is the whole
+	 * difference between this test and the ones above that had to be re-pointed.
 	 */
 	test('making the Layer does not discard a Project rename made while it was being made', async ({
 		page
@@ -1148,7 +1147,7 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 	 * And the stack is asked of MapLibre rather than of the app, for the reason the whole file does:
 	 * MapLibre's layer order *is* the drawing.
 	 *
-	 * **The teardown moved one hop since ticket 03** and is still exactly what this walks. The panes
+	 * **The teardown is one hop further out** and is still exactly what this walks. The panes
 	 * that have to come down are on `/align/`, so the trip is align → Project → Layers rather than
 	 * Project → Layers, and it is the *first* hop that now destroys a Base Map carrying a warped layer.
 	 * `pageerror` is watched across both.
@@ -1180,7 +1179,7 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 });
 
 /**
- * SPEC story 8's reading room, whose wifi answers the request and then never finishes it.
+ * The reading room whose wifi answers the request and then never finishes it.
  *
  * **A request that hangs, not one that fails.** A PMTiles archive that is *refused* leaves the Layer
  * drawing perfectly well over a blank Base Map — MapLibre treats a source, a sprite and a glyph range
@@ -1195,7 +1194,7 @@ test.describe('a Base Map that never finishes loading', () => {
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 	// THE SERVICE WORKER IS BLOCKED HERE, AND THAT IS THE POINT OF THE TEST RATHER THAN A DODGE
 	//
-	// Ticket 18's worker precaches this deployment's own bundled Base Map, and it answers a request
+	// The service worker precaches this deployment's own bundled Base Map, and it answers a request
 	// for the archive out of that cache — so once it is installed the hang below is *unreachable for
 	// the bundled archive*, which is ADR-0012's offline claim working rather than this fallback
 	// breaking. `page.route` cannot see a request the worker answered, so with a worker in place this
@@ -1229,7 +1228,7 @@ test.describe('a Base Map that never finishes loading', () => {
 	});
 });
 
-test.describe('showing and hiding a Layer (SPEC story 50)', () => {
+test.describe('showing and hiding a Layer', () => {
 	test('draws the Map Image warped, and takes it off the map when hidden', async ({ page }) => {
 		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
 		const directory = await alignedProject(page);
@@ -1276,7 +1275,7 @@ test.describe('showing and hiding a Layer (SPEC story 50)', () => {
 	});
 });
 
-test.describe('opacity on a map Layer (SPEC story 51)', () => {
+test.describe('opacity on a map Layer', () => {
 	test('reaches the renderer, is written, and comes back after a reload', async ({ page }) => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
@@ -1308,7 +1307,7 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 	// **A real pointer drag, not `fill()`.** `fill()` sets `value` and dispatches `input`
 	// programmatically, so it cannot see the thing a user meets first: a pointer drag beginning on a
 	// descendant of a `draggable` element can be claimed by the drag machinery instead of by the control
-	// under the cursor. A slider thumb that will not move puts story 51 out of reach by mouse, on the
+	// under the cursor. A slider thumb that will not move puts opacity out of reach by mouse, on the
 	// platform ADR-0014 says authoring targets — and every test in this file would still be green.
 	//
 	// The card is opened first, because that is where the slider is: the redesign left a closed card
@@ -1351,14 +1350,14 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	/**
 	 * A Project with a map Layer below an Annotation Layer that has a feature in it.
 	 *
-	 * The feature is written into the Layer's own `.geojson` behind the app's back, because this slice
-	 * ships **no drawing tools** by design — that is ticket 10 — and an Annotation Layer with nothing
-	 * in it would make "it draws above the map" a claim about an empty layer. The polygon is
+	 * The feature is written into the Layer's own `.geojson` behind the app's back, because the drawing
+	 * tools are `editor-annotations.e2e.ts`'s subject and an Annotation Layer with nothing in it would
+	 * make "it draws above the map" a claim about an empty layer. The polygon is
 	 * deliberately enormous, so it is under the centre of the canvas wherever the Base Map happens to
 	 * be looking.
 	 *
-	 * @param defaultStyle the Annotation Layer's style, written into `project.json` — ticket 10 owns the
-	 * controls that would otherwise set it
+	 * @param defaultStyle the Annotation Layer's style, written into `project.json` — the controls that
+	 * would otherwise set it are the Annotation editor's
 	 * @returns the Project directory and the two Layer ids, Annotation Layer first
 	 */
 	async function stackWithBothKinds(page: Page, defaultStyle: Record<string, unknown> = {}) {
@@ -1459,8 +1458,8 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	 * MapLibre *custom* layer, so it always renders in the translucent pass; a `fill` at
 	 * `fill-opacity: 1` renders in the **opaque** pass, which is a different pass with different
 	 * ordering rules. Every polygon in this file inherits simplestyle's `fill-opacity: 0.6` default, so
-	 * the pass an annotation Layer will normally be in once ticket 10 gives it a solid fill was never
-	 * covered. Asserted through `getLayersOrder()` and `queryRenderedFeatures`, not pixels.
+	 * the pass an annotation Layer with a solid fill normally renders in was never covered. Asserted
+	 * through `getLayersOrder()` and `queryRenderedFeatures`, not pixels.
 	 */
 	test('an opaque annotation above a map Layer still draws above it', async ({ page }) => {
 		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
@@ -1490,7 +1489,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	});
 
 	// ⚠ **Every claim in this describe about a *drag* stays here, and it was probed rather than
-	// assumed** (ticket 08). happy-dom's `DragEvent` is not a `MouseEvent` and its constructor drops
+	// assumed**. happy-dom's `DragEvent` is not a `MouseEvent` and its constructor drops
 	// both members these three tests turn on: `dataTransfer` comes back `undefined`, so
 	// `dragTheWholeCard` takes its own early return and never calls `setDragImage` at all, and
 	// `relatedTarget` comes back `undefined`, so every `dragleave` reads as a real departure and the
@@ -1736,7 +1735,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 
 	// The name field's half of the same question as the opacity drag: `fill()` never presses a mouse
 	// button, so it cannot see a text input inside a `draggable` row where a drag-select is claimed by
-	// the drag machinery and the user cannot select a word to replace it (SPEC story 54).
+	// the drag machinery and the user cannot select a word to replace it.
 	//
 	// **This is now the sharpest version of that question, not a weaker one.** The field is reached by
 	// opening the card and pressing the pencil, and it appears in the header — the same header that holds
@@ -1765,7 +1764,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await expect(field).toBeFocused();
 	});
 
-	// ADR-0010: merely looking must not modify files. Ticket 02's review found an `onblur` that
+	// ADR-0010: merely looking must not modify files. A review once found an `onblur` that
 	// rewrote `project.json` with a fresh `updatedAt` on a focus-and-leave, and the Layer list has
 	// three fields per row that could reintroduce it.
 	test('tabbing through a Layer’s fields writes nothing at all', async ({ page }) => {
@@ -1795,7 +1794,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 // *says* — the kind it declares, the sentence its open card carries, that neither drawable kind's
 // contents are rendered into it, that it can still be renamed and moved — moved to
 // `packages/ui/src/layer-list.dom.test.ts`'s `a Layer kind this build has never heard of
-// (ADR-0014)` in ticket 08, where it is asserted in milliseconds against a `ForeignLayer` handed
+// (ADR-0014)`, where it is asserted in milliseconds against a `ForeignLayer` handed
 // straight to the component. What `parseLayers` and `serialiseLayers` do with an unknown kind has
 // its own tests in `packages/core/src/project/layer.test.ts`.
 //
@@ -1873,13 +1872,13 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 	});
 });
 
-test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
+test.describe('adding an Annotation Layer', () => {
 	/**
 	 * Two clicks, two Layers — the same stale-snapshot failure as `#ensureMapLayer`, found by a test
 	 * that clicked twice and flaked.
 	 *
 	 * `addAnnotationLayer` writes the empty `FeatureCollection` before the Layer that references it, on
-	 * purpose: a `geojsonRef` naming nothing is a Project ticket 13's import refuses. But it read
+	 * purpose: a `geojsonRef` naming nothing is a Project an import refuses. But it read
 	 * `project.json` out of memory *before* that write and wrote the snapshot back after, so a user
 	 * double-clicking the button got one Layer instead of two — and an orphaned `.geojson` in
 	 * `annotations/` that nothing references and no UI can reach.
@@ -1921,7 +1920,7 @@ test.describe('leaving the Project screen and coming back', () => {
 	 * back and look again.
 	 *
 	 * This used to be "the Layers pane links back to its Project", because the two were different
-	 * pages. Ticket 04 makes them one, so the hop that remains is the one that was always the point —
+	 * pages. They are one, so the hop that remains is the one that was always the point —
 	 * Project → Align → Project — and it is the hop that carries the defect: leaving took the stack
 	 * off a map that had already been removed, `Map#getLayer` threw, and Svelte abandoned the rest of
 	 * the flush. **`pageerror` is the whole signal**, because the screen's markup is derived state
@@ -1951,7 +1950,7 @@ test.describe('leaving the Project screen and coming back', () => {
 	});
 });
 
-test.describe('the Layer list reaches assistive technology (SPEC story 96)', () => {
+test.describe('the Layer list reaches assistive technology', () => {
 	test('every control of every Layer is reachable with the keyboard', async ({ page }) => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
@@ -1971,9 +1970,9 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 		// `<span draggable aria-hidden>` with no key handling, so there is no keyboard path on a
 		// closed row at all. **That asymmetry was put to a human and accepted**: keyboard users
 		// expand, pointer users drag. It is written here because a version of this test that quietly
-		// added an `openLayerRow` call would weaken SPEC story 96 without anybody deciding to.
+		// added an `openLayerRow` call would weaken keyboard reachability without anybody deciding to.
 		//
-		// What the story still requires, and what is asserted below: every control is *reachable*
+		// What that still requires, and what is asserted below: every control is *reachable*
 		// with the keyboard, the disclosure that opens a card included — it is a plain `<button>`
 		// precisely so that opening a Layer needs nothing added to be keyboard-operable.
 		// ═════════════════════════════════════════════════════════════════════════════════════════
@@ -1997,7 +1996,7 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 		 * revision, and the pencil is the control the keyboard has to reach.
 		 */
 		const inTheCard: string[][] = [
-			// Ticket 11's delete, which is the one control here that cannot be shrugged off — so it has
+			// The delete, which is the one control here that cannot be shrugged off — so it has
 			// to be on the keyboard path, and the undo that makes it safe has one of its own.
 			['layer-rename', 'layer-move-down', 'layer-delete'],
 			['layer-rename', 'layer-move-up', 'layer-delete', 'layer-opacity']
@@ -2029,7 +2028,7 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// ONE LAYER OPENS AT A TIME (ticket 05)
+// ONE LAYER OPENS AT A TIME
 //
 // A Project is a stack of Layers and a Layer opens to reveal what is inside it. What a *closed* row
 // still shows is the load-bearing half: the name, the visibility toggle, and whatever the Layer is
@@ -2044,12 +2043,12 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 //
 // **That asymmetry was put to a human and accepted on 2026-08-11**: keyboard users expand, pointer
 // users drag. It is written here because this paragraph said the opposite for a while, and prose that
-// contradicts the code is worse than no prose — the next reader believes it. SPEC story 96 is
+// contradicts the code is worse than no prose — the next reader believes it. Keyboard reachability is
 // therefore read as *reachable per open card*, and `every control of every Layer is reachable with the
 // keyboard` says so in its own comment rather than encoding it by accident.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('one Layer opens at a time (ticket 05)', () => {
+test.describe('one Layer opens at a time', () => {
 	/** What an unaligned map Layer says about itself, in the sidebar, once. */
 	const NOT_ALIGNED = 'Not aligned yet, so there is nothing to draw.';
 
@@ -2090,7 +2089,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	 * An Alignment file that is *there and unreadable* is not a map that needs aligning: it is work the
 	 * user made that is not on screen, and the two want different actions. The first cut of the open
 	 * row rendered any `refused` outcome under an id reading "alignment state", which announced the
-	 * second as the first — the mislabelling this epic has been paying for elsewhere.
+	 * second as the first — the mislabelling this file has been paying for elsewhere.
 	 *
 	 * Narrowing to the derived not-aligned set was **not** enough and that is the interesting half: a
 	 * Layer whose Alignment cannot be read has no document at all, and "no document" counts as not
@@ -2130,13 +2129,14 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 
 	/**
 	 * **Kept as the wiring for `layer-list.dom.test.ts`'s `draws each kind’s contents in its own open
-	 * card and in no other`** (ticket 08). That the card renders `mapContents` only when it is open and
+	 * card and in no other`**. That the card renders `mapContents` only when it is open and
 	 * only for a map Layer is the component's, and is asserted there in milliseconds against a marker
 	 * snippet. That the snippet the *application* passes is this link, with a `(directory, layer id)`
 	 * pair that is true together, is not derivable from anything `LayerList` is handed: the directory
 	 * comes from `session.openDirectory` and the id from a Layer read off disk, which is the pair
 	 * `alignLink` exists to keep from drifting. So this is a Seam 2 test and the other is a Seam 1c
-	 * test asserting the same sentence, which SPEC says are not duplicates.
+	 * test asserting the same sentence, which this repository's testing decisions do not count as a
+	 * duplicate.
 	 */
 	test("the Layer's own Align is inside it, and is not on the screen until it is opened", async ({
 		page
@@ -2169,7 +2169,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	 * individually plausible and never true together.
 	 *
 	 * **Kept as the wiring for `layer-list.dom.test.ts`'s `draws the problem action beside the sentence
-	 * of a Layer that was refused`** (ticket 08). That the card renders a `problemAction` beside a
+	 * of a Layer that was refused`**. That the card renders a `problemAction` beside a
 	 * refused Layer's sentence, and only there, is the component's. That the screen answers *this*
 	 * refusal with an Align, and where that Align goes, is the screen's — and only a real Project on
 	 * disk, unaligned, produces the refusal that decides it.
@@ -2195,7 +2195,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		expect(new URL(page.url()).searchParams.get('layer')).toBe(layerId);
 	});
 
-	// **Retired (ticket 08): `a closed, aligned map Layer offers no Align now`.** Two claims, and
+	// **Retired: `a closed, aligned map Layer offers no Align now`.** Two claims, and
 	// neither of them needed a Project on disk. That a Layer which drew carries no `problemAction` at
 	// all — the negative that matters, since the closed row is the one place on the screen where an
 	// Align could appear for every Layer in the stack at once — is
@@ -2235,9 +2235,9 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	 * needing alignment whether it is shown or hidden. Hiding one takes it off the map and out of what
 	 * the renderer reports, which is precisely the way this could go wrong.
 	 *
-	 * Nothing asserts a positive "Aligned" sentence, because there is none: the ticket asks for the
-	 * warning state and the Align button, and an unrequested line claiming success is UI this slice
-	 * has no business adding.
+	 * Nothing asserts a positive "Aligned" sentence, because there is none: what the interface offers
+	 * is the warning state and the Align button, and an unrequested line claiming success is UI the
+	 * Layer stack has no business adding.
 	 */
 	test('an aligned map Layer never claims it needs aligning, hidden or shown', async ({ page }) => {
 		const directory = await alignedProject(page);
@@ -2299,7 +2299,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	});
 });
 
-test.describe('a Label obeys its Annotation Layer (write-on-the-map stories 44-46)', () => {
+test.describe('a Label obeys its Annotation Layer', () => {
 	/**
 	 * MapLibre alone can show that hiding the Layer removes its paint; only a Map Image has an opacity
 	 * slider, so its change is the neighbouring control that must not disturb Annotation paint.

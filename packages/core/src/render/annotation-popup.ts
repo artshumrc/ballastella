@@ -1,8 +1,8 @@
 // An Annotation's popup on a MapLibre map.
 //
 // ⚠ **No screen calls this today, and it is kept deliberately.** The map popup retired from the
-// Project screen in both apps (`one-shell-two-apps` ticket 07): an Annotation is read in its own row
-// in the Layer sidebar, which is one destination for one gesture instead of two that can disagree.
+// Project screen in both apps: an Annotation's content is read in the Annotation Inspector docked over
+// the map (ADR-0035), which is one destination for one gesture instead of two that can disagree.
 // What did *not* retire is the sanitiser — this is the module the payload matrix in
 // `../annotation/markdown.browser.test.ts` exercises, and it is the shape any future popup surface
 // has to take rather than a shape somebody would have to rediscover.

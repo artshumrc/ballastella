@@ -12,8 +12,8 @@
 	 * the decision is made once and every later slice inherits it.
 	 *
 	 * ⚠ **`apps/editor/src/lib/components/MenuPopover.svelte` is the same file and has not gone yet.**
-	 * Its remaining consumer is `ProjectScreen.svelte`, which another ticket of this epic is rewriting;
-	 * moving that one import here belongs to whichever of the two lands second. Change both or neither.
+	 * Its remaining consumer is `ProjectScreen.svelte`; moving that one import here belongs with the
+	 * rewrite of that screen. Change both or neither.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHAT IT OWNS THAT A HAND-ROLLED ONE FORGETS
@@ -46,7 +46,7 @@
 		testid,
 		children
 	}: {
-		/** The button's visible text. Visible words, never an icon with a tooltip (SPEC story 111). */
+		/** The button's visible text. Visible words, never an icon with a tooltip. */
 		label: string;
 		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
 		open?: boolean;

@@ -1,5 +1,5 @@
-// Seam 1 for Update from GitHub's atomicity: the whole operation interrupted at every durable
-// boundary there is, and the Workspace compared with complete snapshots afterwards (SPEC story 141).
+// The in-memory seam for Update from GitHub's atomicity: the whole operation interrupted at every
+// durable boundary there is, and the Workspace compared with complete snapshots afterwards.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE ASSERTION IS THE WHOLE WORKSPACE, AND IT HAS TO BE

@@ -7,10 +7,10 @@ const mapLayer = newMapLayer({ id: 'l-map', name: 'La Floride', imageId: 'florid
 const notes = newAnnotationLayer({ id: 'l-notes', name: 'Trade routes' });
 
 describe('the file a Layer draws', () => {
-	// ADR-0023 and SPEC story 67: removing a Layer leaves the Map Image available. A map Layer's
-	// Alignment and pyramid are the Workspace's and may be drawn by other Projects, so a delete must take
-	// **nothing** with it — which is why `layerFileRef` answers `''` for one. Returning the Alignment path
-	// here would make one Project's delete button destroy another Project's map.
+	// ADR-0023: removing a Layer leaves the Map Image available. A map Layer's Alignment and pyramid are
+	// the Workspace's and may be drawn by other Projects, so a delete must take **nothing** with it —
+	// which is why `layerFileRef` answers `''` for one. Returning the Alignment path here would make one
+	// Project's delete button destroy another Project's map.
 	it('claims no file for a map Layer, because its Map Image is the Workspace’s', () => {
 		expect(layerFileRef(mapLayer)).toBe('');
 		expect(layerFileRef(notes)).toBe('annotations/l-notes.geojson');

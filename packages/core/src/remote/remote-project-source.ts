@@ -65,12 +65,12 @@ export async function readRemoteProjectSource(
 	const remote = { ...options.remote, branch };
 
 	// ⚠ **The commit is resolved first and everything after it is read *at* that commit.** It is what
-	// the Import records as the state it copied (SPEC story 59), and a branch is a moving target: a
+	// the Import records as the state it copied, and a branch is a moving target: a
 	// push landing between the listing and the last pyramid tile would have the tree, the bytes and
 	// the recorded commit describing three different trees — and the SHA check below would refuse the
 	// Import as tampering. Pinned, a push during a long copy is simply not in it, and the provenance
 	// entry names a commit whose tree every byte was verified against, which is the only thing that
-	// makes it a fact Ballastella observed (SPEC story 61).
+	// makes it a fact Ballastella observed.
 	const commit = await readReviewHeadCommit(remote, options.fetch);
 	const at = { ...remote, branch: commit };
 

@@ -1,4 +1,4 @@
-// Reading the leader line out of the running application (ticket 12, SPEC stories 39–41, 45, 46).
+// Reading the leader line out of the running application.
 //
 // ⚠ **What this file deliberately does not offer is a way to check the line against itself.** It
 // hands back the line's own points and nothing else; where each end *ought* to be is the caller's,

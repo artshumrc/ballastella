@@ -39,4 +39,7 @@ Playwright's `webServer` call `scripts/free-e2e-port.mjs` before binding.
 
 ## Ticket Tracker
 
-Local: `./.tracker`
+Epics and Tickets live in Botley; the `botley` command is the only way to read or write them.
+They track work in flight and are deleted once it lands, so **nothing in this repository may
+cite one**. What survives a completed Epic is the code, `CONTEXT.md`'s glossary, `CONTRIBUTING.md`,
+and an ADR where the decision was hard to reverse.

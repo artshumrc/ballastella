@@ -69,8 +69,8 @@ export class DirectoryHandleStore extends TempFileWriteStore {
 			// file allocated, on top of leaving the temporary file behind.
 			await writable.close();
 		} catch (cause) {
-			// `abort` is what discards the swap file. Skipping it in a real folder (ticket 12) leaves
-			// a `.crswap` sibling the user can see and would have to tidy up by hand.
+			// `abort` is what discards the swap file. Skipping it in a real folder leaves a `.crswap`
+			// sibling the user can see and would have to tidy up by hand.
 			await writable.abort().catch(() => undefined);
 			throw describeWriteFailure(cause, path);
 		}
@@ -221,7 +221,7 @@ export class DirectoryHandleStore extends TempFileWriteStore {
  * Workspace being unreachable and replaces the hub with "your Workspace cannot be reached", so a
  * colleague's sync deleting one file told a scholar their work was gone.
  *
- * **Measured, not theorised** (ticket 17): this is the cause of `editor-transfer.e2e.ts`'s "says so
+ * **Measured, not theorised**: this is the cause of `editor-transfer.e2e.ts`'s "says so
  * when an export fails", which deletes a Project behind the app's back and failed in 2 of 10 full
  * suite runs on 2026-08-07 with `element was detached from the DOM` — the hub replacing itself
  * mid-click. Pinned in `opfs-project-store.browser.test.ts`, which is where this class is exercised
@@ -271,7 +271,7 @@ const DRAIN_ATTEMPTS = 5;
  * ⚠ **A partial drain is re-read, never returned.** The obvious handling of a mid-drain
  * `NotFoundError` — keep what was collected and carry on — is a listing that is short by an unknown
  * number of files and reports success. That is a worse bug than the throw it replaces and a much
- * quieter one: `list('')` feeds the Project hub, publishing, and (ticket 13) backup, where a short
+ * quieter one: `list('')` feeds the Project hub, publishing, and backup, where a short
  * listing is an archive that is silently missing somebody's work. So the whole directory is read
  * again instead. The retry converges because the entry that went is gone by the next pass.
  *
@@ -318,7 +318,7 @@ const isNotFound = (cause: unknown): boolean =>
  * `createWritable()` on a file in a *real* folder takes an exclusive lock, so it raises
  * `NoModificationAllowedError` when something else on the machine is holding that file: a Dropbox or
  * iCloud daemon syncing it, an editor with it open, antivirus scanning it. That is **the
- * characteristic failure of SPEC story 2** — pointing a Workspace at a synced folder — and OPFS
+ * characteristic failure of a folder Workspace** — pointing one at a synced folder — and OPFS
  * cannot produce it at all, so it is a state no test in this repository can reach: every handle an
  * automated browser can obtain comes from `navigator.storage.getDirectory()`.
  *

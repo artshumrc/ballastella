@@ -2,8 +2,8 @@
 
 declare global {
 	/**
-	 * The Workspace the app currently has open, in OPFS — a **named subdirectory of the root** since
-	 * ticket 12, and not the root itself.
+	 * The Workspace the app currently has open, in OPFS — a **named subdirectory of the root**, not
+	 * the root itself.
 	 *
 	 * Which one that is follows the editor's own `localStorage`, so a spec that has switched
 	 * Workspaces reads the one it is looking at rather than the default.

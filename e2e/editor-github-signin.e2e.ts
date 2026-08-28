@@ -15,12 +15,12 @@ import {
 } from './support/workspace';
 
 /**
- * Signing in with the GitHub App, through the broker (ticket 10, ADR-0031).
+ * Signing in with the GitHub App, through the broker (ADR-0031).
  *
- * SPEC's Seam 2. The flow's parts are asserted at Seam 1 — `github-sign-in.test.ts` has the
- * authorize URL, the `state` verdicts, the code exchange, the refresh, the expiry and the grant
- * record, against the one shared fake, where the assertion is the answer rather than a screen. What
- * only a browser can show is here:
+ * Seam 2. The flow's parts are asserted at Seam 1 — `github-sign-in.test.ts` has the authorize URL,
+ * the `state` verdicts, the code exchange, the refresh, the expiry and the grant record, against
+ * the one shared fake, where the assertion is the answer rather than a screen. What only a browser
+ * can show is here:
  *
  *   - the whole round trip: pressing the button, going to GitHub, and coming back signed in;
  *   - the identity, which is the thing a redirect the scholar cannot watch owes them on return;
@@ -31,7 +31,7 @@ import {
  *   - a forged or absent `state` refused, and a declined authorisation told apart from a bad code;
  *   - an expired sign-in renewed through the broker, or surfaced as "sign in again" before any work
  *     starts — and not taking a token pasted since down with it;
- *   - a Review Workspace reading, offering and spending nothing (story 40, ticket 03's criterion 9);
+ *   - a Review Workspace reading, offering and spending nothing;
  *   - and, with no broker, the sign-in failing legibly while the pasted token binds as it always did.
  *
  * ⚠ **No spec here reaches `github.com`, `api.github.com`, or a real broker.** Every one of those
@@ -111,8 +111,8 @@ async function arriveAt(page: Page, search: string, seeded: string | null): Prom
 }
 
 test.describe('signing in with GitHub', () => {
-	// SPEC stories 32 and 56, and the ticket's first acceptance criterion: pressing sign in, going to
-	// GitHub, coming back, and arriving signed in with the identity shown.
+	// The whole round trip: pressing sign in, going to GitHub, coming back, and arriving signed in
+	// with the identity shown.
 	test('completes the round trip and says whose account it is', async ({ page }) => {
 		await start(page, { login: 'ada' });
 
@@ -156,10 +156,10 @@ test.describe('signing in with GitHub', () => {
 		expect(url.searchParams.get('state')).toBeNull();
 	});
 
-	// SPEC story 57: a scholar who changes their mind on GitHub's own screen is sent back with
-	// `error=access_denied`, **the real `state`**, and no code at all. Read as a code-and-state pair
-	// alone, that verifies and then posts the empty string to the broker — so somebody who chose
-	// Cancel was told the code passed was incorrect or expired.
+	// A scholar who changes their mind on GitHub's own screen is sent back with `error=access_denied`,
+	// **the real `state`**, and no code at all. Read as a code-and-state pair alone, that verifies and
+	// then posts the empty string to the broker — so somebody who chose Cancel was told the code
+	// passed was incorrect or expired.
 	test('says the authorisation was declined when Cancel was pressed on GitHub', async ({
 		page
 	}) => {
@@ -178,15 +178,15 @@ test.describe('signing in with GitHub', () => {
 		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
 	});
 
-	// ADR-0033, SPEC "Out of scope" item 9: the credential and the grant beside it live in
-	// `sessionStorage` and nowhere else. `localStorage` holds the write-ahead journal, and the
-	// Workspace is what a Backup packs and a Publish uploads.
+	// ADR-0033: the credential and the grant beside it live in `sessionStorage` and nowhere else.
+	// `localStorage` holds the write-ahead journal, and the Workspace is what a Backup packs and a
+	// Publish uploads.
 	//
 	// ⚠ **The refresh token is scanned for by value, and it is the one that matters most.** It
 	// outlives the eight-hour access token it mints and is the longer-lived credential of the two, so
-	// ticket 03's scan — the same function, comparing values and walking OPFS and IndexedDB as well
-	// as web storage — is what asks. A scan that enumerated keys would report the same shape here
-	// while asserting nothing about where the secret actually is.
+	// `whereverTheTokenIs` — comparing values and walking OPFS and IndexedDB as well as web storage —
+	// is what asks. A scan that enumerated keys would report the same shape here while asserting
+	// nothing about where the secret actually is.
 	test('keeps the sign-in in session storage and nothing in localStorage', async ({ page }) => {
 		await start(page);
 
@@ -235,10 +235,9 @@ test.describe('binding while already signed in', () => {
 
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		// ⚠ **Not merely empty: not on the screen** (SPEC stories 37, 46). A field standing beside the
-		// button, even an empty one, is the two-credentials question a signed-in scholar must never be
-		// asked, so the assertion is absence rather than emptiness — the paste lives behind the
-		// disclosure the test above opens.
+		// ⚠ **Not merely empty: not on the screen**. A field standing beside the button, even an empty
+		// one, is the two-credentials question a signed-in scholar must never be asked, so the assertion
+		// is absence rather than emptiness — the paste lives behind the disclosure the test above opens.
 		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
 		await page.getByTestId('bind-remote').click();
 
@@ -383,9 +382,9 @@ test.describe('a callback this tab did not ask for', () => {
 	});
 });
 
-// SPEC story 33. A GitHub App's user token lasts eight hours, and the answer is never a publish that
-// fails partway through — it is checked before work starts, renewed where it can be, and turned into
-// "sign in again" where it cannot.
+// A GitHub App's user token lasts eight hours, and the answer is never a publish that fails partway
+// through — it is checked before work starts, renewed where it can be, and turned into "sign in
+// again" where it cannot.
 test.describe('a sign-in that has run out', () => {
 	test('is renewed through the broker without the scholar noticing', async ({ page }) => {
 		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS });
@@ -393,7 +392,7 @@ test.describe('a sign-in that has run out', () => {
 		// The redirect closed the dialog on its way through, so there is nothing to close here.
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
 
-		// Opening this screen is what asks; ticket 04's Publish asks the same question the same way.
+		// Opening this screen is what asks; a Publish asks the same question the same way.
 		await openRemoteSettings(page);
 
 		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
@@ -401,10 +400,10 @@ test.describe('a sign-in that has run out', () => {
 		expect(github.requests).toContain('/github/refresh');
 	});
 
-	// The ticket's seventh acceptance criterion, end to end: *before* a publish starts, not during
-	// one. The fake's own tokens are aged as eight hours would age them, so GitHub would now refuse
-	// the credential — and what has to be shown is that the app never presents it. The remedy comes
-	// from the check, and the only thing that reached GitHub was the refresh that was refused.
+	// End to end, and *before* a publish starts rather than during one. The fake's own tokens are aged
+	// as eight hours would age them, so GitHub would now refuse the credential — and what has to be
+	// shown is that the app never presents it. The remedy comes from the check, and the only thing
+	// that reached GitHub was the refresh that was refused.
 	test('is caught before any work starts, rather than by a 401 partway through', async ({
 		page
 	}) => {
@@ -478,11 +477,10 @@ test.describe('a sign-in that has run out', () => {
 	});
 });
 
-// ADR-0024, SPEC story 40 and ticket 03's ninth criterion: *with a Review Workspace open, the
-// credential store neither reads nor writes.* The App path has two more things to seal than the
-// pasted one — the sign-in button, and the grant record whose refresh token can mint fresh
-// credentials — and it is asserted here rather than only in `editor-remote-binding.e2e.ts` because
-// none of the three exists over there.
+// ADR-0024: with a Review Workspace open, the credential store neither reads nor writes. The App
+// path has two more things to seal than the pasted one — the sign-in button, and the grant record
+// whose refresh token can mint fresh credentials — and it is asserted here rather than only in
+// `editor-remote-binding.e2e.ts` because none of the three exists over there.
 test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 	test('reads no sign-in, offers none, and spends nothing while it is open', async ({ page }) => {
 		// Stale on arrival, which is what makes the refresh below a thing that *would* happen: this is
@@ -535,9 +533,9 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 	});
 });
 
-// SPEC story 56 and ADR-0031's first consequence: *a fork with no infrastructure is fully
-// functional, not degraded.* This is also the state **this deployment ships in** — `github-app.ts`
-// points at a reserved domain that will never answer — so it is not a hypothetical.
+// ADR-0031's first consequence: *a fork with no infrastructure is fully functional, not degraded.*
+// This is also the state **this deployment ships in** — `github-app.ts` points at a reserved domain
+// that will never answer — so it is not a hypothetical.
 test.describe('with no broker served at all', () => {
 	test('the pasted token still binds, with nothing anywhere near the broker', async ({ page }) => {
 		// `signIn: false`: the authorize address and the broker are not routed, so the default-deny
@@ -592,12 +590,12 @@ test.describe('with no broker served at all', () => {
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 	});
 
-	// ⚠ **The gate itself, which no seam below this one can see** (SPEC stories 37, 46, 50, and this
-	// ticket's first two criteria). Which fields `RemoteSettings` renders for which value of
-	// `signInWithGitHubOffered` is markup, and the derivation is asserted at Seam 1c — but *the value
-	// this deployment computes* is `isGitHubAppConfigured(GITHUB_APP)` read out of the real
-	// `WorkspaceStorage` in the real application, and a component seam is given it rather than reading
-	// it. So: the screen a scholar actually meets, in the state this deployment actually ships in.
+	// ⚠ **The gate itself, which no seam below this one can see.** Which fields `RemoteSettings`
+	// renders for which value of `signInWithGitHubOffered` is markup, and the derivation is asserted
+	// at Seam 1c — but *the value this deployment computes* is `isGitHubAppConfigured(GITHUB_APP)`
+	// read out of the real `WorkspaceStorage` in the real application, and a component seam is given
+	// it rather than reading it. So: the screen a scholar actually meets, in the state this deployment
+	// actually ships in.
 	//
 	// The broker is unreachable here because that is the fork's own case as well as this deployment's,
 	// and it makes the second half a real claim rather than a convenience: the paste is not deleted,
@@ -617,7 +615,7 @@ test.describe('with no broker served at all', () => {
 		await expect(page.getByTestId('sign-in-with-github')).toBeVisible();
 
 		// Opened, then closed again with the dialog: an escape hatch left standing open would be on the
-		// screen of whoever opens this next, which is the second door this epic exists to remove.
+		// screen of whoever opens this next — the second door to GitHub this design exists to remove.
 		await revealBindToken(page);
 		await closeRemoteSettings(page);
 		await openRemoteSettings(page);
@@ -657,17 +655,17 @@ test.describe('with no broker served at all', () => {
 });
 
 // ⚠ **The last second door, and the state a scholar reaches it from is an ordinary arrival.** The
-// credential is this tab's and the binding is the installation's (SPEC story 64), so a bound
-// Workspace reopened tomorrow morning and pressed to Publish is signed out with somewhere to publish
-// to. It is the last screen in the editor that has a credential to ask for, so it is gated on the
-// deployment's own answer exactly as every other one is: where an App is configured, no token field.
+// credential is this tab's and the binding is the installation's, so a bound Workspace reopened
+// tomorrow morning and pressed to Publish is signed out with somewhere to publish to. It is the
+// last screen in the editor that has a credential to ask for, so it is gated on the deployment's
+// own answer exactly as every other one is: where an App is configured, no token field.
 //
 // It gets one test in a browser, here rather than in `editor-publish.e2e.ts`, because the claim is
 // about the **real** `isGitHubAppConfigured(GITHUB_APP)`: the gate reads it through
 // `WorkspaceStorage.signInWithGitHubOffered`, and this is the spec where that value is the subject
 // rather than the setting. The round trip is the other half — a redirect off the page cannot be
 // asserted anywhere but a browser, and what it has to land on is a publish.
-test.describe('a bound Workspace pressed to Publish with no credential (stories 37, 64)', () => {
+test.describe('a bound Workspace pressed to Publish with no credential', () => {
 	test('offers the GitHub sign-in and no token field, and the return leg reaches a publish', async ({
 		page
 	}) => {
@@ -746,35 +744,35 @@ test.describe('the guided sequence, wired to the real thing', () => {
 			}
 		});
 
-		// Story 1 and 2: one control, in the bar, on Workspace Home — before any Project is open.
+		// One control, in the bar, on Workspace Home — before any Project is open.
 		await page.getByTestId('connect-to-github').click();
 
-		// Story 3: the first thing on screen is the prerequisite, rather than a sign-in button that
-		// cannot succeed for somebody with no GitHub account. It is offered rather than detected, so
+		// The first thing on screen is the prerequisite, rather than a sign-in button that cannot
+		// succeed for somebody with no GitHub account. It is offered rather than detected, so
 		// somebody who has an account presses past it — which is what this fake author is.
 		await expect(page.getByTestId('connect-needs-account')).toBeVisible();
 		await page.getByTestId('connect-have-account').click();
 		await expect(page.getByTestId('connect-sign-in')).toBeVisible();
 
-		// Story 7 and 8: out to GitHub, authorise, and back **inside the sequence** at the next step.
+		// Out to GitHub, authorise, and back **inside the sequence** at the next step.
 		// The redirect replaces the document, so landing on the choice is the claim no fake can carry.
 		await page.getByTestId('connect-sign-in-with-github').click();
 		await expect(page.getByTestId('connect-choosing')).toBeVisible({ timeout: 30_000 });
 		await expect(page.getByTestId('connect-account')).toContainText(`as ${OWNER}`);
 
-		// Story 11 and 26: the list is GitHub's own answer, and choosing is one act.
+		// The list is GitHub's own answer, and choosing is one act.
 		await expect(page.getByTestId('granted-repository')).toHaveText(new RegExp(REMOTE));
 		await page.getByTestId('choose-repository').click();
 
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
-		// Story 29: Pages was turned on as part of that one press, with nothing else asked of anybody.
+		// Pages was turned on as part of that one press, with nothing else asked of anybody.
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
-		// Story 32: the address the assignment asked for.
+		// The address the assignment asked for.
 		await expect(page.getByTestId('published-site-address')).toHaveText(
 			`https://${OWNER}.github.io/${REPOSITORY}/`
 		);
 
-		// Story 28: the handoff is the Publish button that was always on the bar, and it reaches GitHub.
+		// The handoff is the Publish button that is always on the bar, and it reaches GitHub.
 		await page.getByTestId('connect-publish').click();
 		const dialog = page.getByRole('dialog');
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });

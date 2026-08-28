@@ -1,5 +1,5 @@
 // "Make this Project available offline": the state of that job, from the button to the last tile
-// (ADR-0025, SPEC stories 70–73).
+// (ADR-0025).
 //
 // A class of its own beside `OfflineCopyJob`, and shaped like it deliberately — the two are the same
 // decision about two different servers, and ADR-0007's rule governs both: **the cost is stated before
@@ -36,7 +36,7 @@ import { openArchiveTiles } from './archive-tiles';
 import { readProjectContent } from './opening-view';
 import type { EditorSession } from '../editor-session.svelte.js';
 
-/** Which step the job is on, for the region that announces it (SPEC story 112). */
+/** Which step the job is on, for the region that announces it. */
 export type OfflineStep =
 	| 'idle'
 	/** Opening the archive and counting what the extent needs. Nothing has been written. */
@@ -298,10 +298,10 @@ export async function readOfflineCoverage(
  * offline, the last thing the source said answers; and the caller is told which, so the sentence
  * beside the map can be honest about it.
  *
- * ⚠ **The record is this archive's or it is nothing.** Since ticket 12 the cache directory is keyed
- * by the entry's own `archive` string, so a deployment giving two catalog entries two archives has two
- * caches and two records; `readCachedTileSource` additionally refuses a record inside one key naming a
- * different archive. Either way, what comes back here can only be about the entry that was asked for.
+ * ⚠ **The record is this archive's or it is nothing.** The cache directory is keyed by the entry's own
+ * `archive` string, so a deployment giving two catalog entries two archives has two caches and two
+ * records; `readCachedTileSource` additionally refuses a record inside one key naming a different
+ * archive. Either way, what comes back here can only be about the entry that was asked for.
  */
 async function sourceMaxZoom(
 	session: EditorSession,

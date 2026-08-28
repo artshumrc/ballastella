@@ -87,13 +87,13 @@ describe('leaderPath', () => {
 
 	test('nothing is drawn when the row has been scrolled out of the sidebar', () => {
 		// The column scrolled until the row's own middle passed the top edge. A line to a row that is
-		// not there is the "line to nowhere" story 41 refuses.
+		// not there is a line to nowhere.
 		expect(leaderPath(boxes({ row: { left: 10, top: -40, right: 290, bottom: -10 } }))).toBeNull();
 	});
 
 	test('nothing is drawn when the layout has stacked the sidebar under the canvas', () => {
 		// Both columns full width, one above the other: a line across a stacked layout claims a
-		// left-to-right relationship the layout does not have (story 46).
+		// left-to-right relationship the layout does not have.
 		expect(
 			leaderPath(
 				boxes({

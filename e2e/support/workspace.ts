@@ -1,5 +1,5 @@
 // Driving the Workspace control on the navigation bar: which Workspace you are in, moving between
-// them, and the settings dialog behind them (ticket 12).
+// them, and the settings dialog behind them.
 //
 // One module because the bar is on every screen and every spec that used to reach for the hub's
 // "Where your work is stored" section now goes through here — and because the two-step (menu, then
@@ -11,7 +11,7 @@ import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
 export const workspaceButton = (page: Page) => page.getByTestId('workspace-switcher');
 
 /**
- * What the bar says the current Workspace is. Visible on every screen (SPEC story 88).
+ * What the bar says the current Workspace is. Visible on every screen.
  *
  * ⚠ **Asserted on the switcher button, never on the `workspace-identity` block around it.** The
  * popover is rendered *inside* that block, so `toContainText(name)` was satisfied by the menu's own
@@ -92,7 +92,7 @@ export async function openRemoteSettings(page: Page): Promise<void> {
  *
  * ⚠ **Every spec that pastes a token needs this, and that is the point.** Where a GitHub App is
  * configured — which this checkout is, and every spec is built with — a scholar is never shown a
- * token field: one door, and it is the sign-in (SPEC stories 37, 46). The paste is not deleted, and
+ * token field: one door, and it is the sign-in. The paste is not deleted, and
  * these specs are what proves it still works; it is one press away, closed by default, for the
  * instructor whose App installation has broken during a class.
  */
@@ -251,7 +251,7 @@ export async function seedRemoteRelationship(
  * ⚠ **Behind the app's back, and on purpose** — the companion to {@link seedRemoteRelationship}. A
  * spec whose subject is the bytes that arrive at a Remote needs a signed-in Workspace, not a
  * sign-in, and on a deployment with a GitHub App the publish dialog offers no token field to type
- * one into: the door there is a redirect off the page (SPEC story 37). Driving the real door for
+ * one into: the door there is a redirect off the page. Driving the real door for
  * every such spec would make each of them a test of the door, and it is asserted once, in
  * `editor-github-signin.e2e.ts`, where the real `isGitHubAppConfigured` is legible.
  *

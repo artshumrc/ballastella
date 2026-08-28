@@ -13,8 +13,9 @@ import { serveDirectory, type StaticSite } from './static-site.js';
 //
 // `e2e/editor-publish.e2e.ts` already drives publishing end to end — through the dialog, out of OPFS,
 // onto disk, and served at two base paths — and that is where "publishing produces a working site"
-// belongs. What ticket 17 needs is the *other* half: a great many Reader behaviours over a Project with
-// several Layers, an unreachable host, a newer `formatVersion`, an XSS payload, and a 375 px viewport.
+// belongs. What the Reader specs need is the *other* half: a great many Reader behaviours over a
+// Project with several Layers, an unreachable host, a newer `formatVersion`, an XSS payload, and a
+// 375 px viewport.
 // Going through the editor's UI for each of those would put OPFS seeding, a Publish dialog, and a
 // 30-second bundle write in front of every assertion, on a suite already at its contention ceiling.
 //
@@ -23,11 +24,11 @@ import { serveDirectory, type StaticSite } from './static-site.js';
 // plus a `ballastella-site.json` of the same shape `serialisePublishedSite` writes. Nothing here
 // reimplements the *viewer*, which is the thing under test; what it stands in for is the copying.
 //
-// `serveDirectory` is ticket 16's, unchanged, and for its own reason: it is deliberately dumb — no
-// rewriting, no SPA fallback, no index-guessing beyond a trailing slash — because a static host does
-// none of those, and a server cleverer than GitHub Pages would hide exactly the failure being looked
-// for. Ticket 16 mutation-verified that **the subdirectory is the load-bearing half**: pointing data
-// reads at `/` instead of at the document leaves the root site green and only the subdirectory red.
+// `serveDirectory` is deliberately dumb — no rewriting, no SPA fallback, no index-guessing beyond a
+// trailing slash — because a static host does none of those, and a server cleverer than GitHub Pages
+// would hide exactly the failure being looked for. Mutation-verified: **the subdirectory is the
+// load-bearing half**, since pointing data reads at `/` instead of at the document leaves the root
+// site green and only the subdirectory red.
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const viewerBuild = path.join(repoRoot, 'apps/viewer/build');
@@ -47,7 +48,7 @@ export type SiteFiles = Record<string, string | Uint8Array>;
  * Layer drawn?" assertion a test of nothing.
  *
  * `withoutBaseMap` is the **other** supported state and not a broken one: including those 4.9 MB is opt-in
- * at publish time (SPEC stories 88 and 89), so a great many real sites will not have them. A bundled
+ * at publish time, so a great many real sites will not have them. A bundled
  * catalog entry's archive, glyphs, and sprites are all site-relative paths, so this is the shape in which
  * a viewer that asked for them anyway would answer a Reader with three 404s and a blank rectangle.
  */
@@ -97,14 +98,14 @@ export function siteRecord(
 			viewerVersion: 'test-viewer',
 			publishedAt: '2026-08-06T00:00:00.000Z',
 			projects: [...projects],
-			// **Two independent facts since ticket 11** (ADR-0025). `baseMapBundled` now means the site
-			// carries cached *tiles* under `base-map/tiles/`, which `writePublishedSite` does not write
-			// unless a test asks for them; `baseMapAssetsBundled` is the glyphs and sprites, which it
-			// copies by default. Conflating them is what the field used to do, and the two failures read
-			// completely differently to a Reader: no tiles is no geography, no glyphs is no place names.
+			// **Two independent facts** (ADR-0025). `baseMapBundled` means the site carries cached *tiles*
+			// under `base-map/tiles/`, which `writePublishedSite` does not write unless a test asks for
+			// them; `baseMapAssetsBundled` is the glyphs and sprites, which it copies by default. The two
+			// failures read completely differently to a Reader: no tiles is no geography, no glyphs is no
+			// place names.
 			baseMapBundled: false,
 			baseMapAssetsBundled: true,
-			// One entry per archive the site carries tiles for, and empty by default (ticket 12). The
+			// One entry per archive the site carries tiles for, and empty by default. The
 			// directory is keyed by archive, and a Reader's HTTP store cannot list one — so this is the
 			// only way the viewer can tell whether the entry it is showing has tiles here.
 			baseMapCaches: [],
@@ -146,9 +147,9 @@ export async function servePublishedSite(
 /**
  * A real, decodable JPEG for a pyramid's tiles: one baseline 8 × 8 block.
  *
- * **Real bytes rather than a string standing in for a tile**, because a tile that will not decode is the
- * failure ticket 06 spent a patch on — `@allmaps/render` logs and swallows it — so the map renders blank
- * and any assertion short of "did bytes reach the tile cache?" goes green. Written inline rather than
+ * **Real bytes rather than a string standing in for a tile**, because a tile that will not decode is
+ * a failure `@allmaps/render` logs and swallows — so the map renders blank and any assertion short of
+ * "did bytes reach the tile cache?" goes green. Written inline rather than
  * read from a fixture file so this helper has nothing to keep in sync.
  */
 export function tileJpeg(): Uint8Array {
@@ -187,7 +188,7 @@ export const readSiteFile = (directory: string, relative: string): Promise<Buffe
  * `serveDirectory` reads from disk per request and caches nothing, exactly as a static host does, so this
  * takes effect on the next request with no restart. It exists because one thing a Reader test needs to
  * write can only be written **after** the site has an address: the canonical stamp `stampCanonicalUrl`
- * puts in a pyramid's `info.json` is the address the Workspace is published at (SPEC story 92), and the
+ * puts in a pyramid's `info.json` is the address the Workspace is published at, and the
  * harness cannot know a port it has not yet been given.
  */
 export async function writeSiteFile(

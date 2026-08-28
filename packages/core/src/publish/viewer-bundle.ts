@@ -52,7 +52,7 @@ export type ViewerBundle = {
 	readonly files: readonly ViewerBundleFile[];
 	/**
 	 * The Base Map's glyphs and sprites, written with every Published Site so labels and symbols are
-	 * available independently of the tile source (ADR-0020, SPEC stories 88 and 89).
+	 * available independently of the tile source (ADR-0020).
 	 */
 	readonly baseMap: readonly ViewerBundleFile[];
 };

@@ -1,4 +1,4 @@
-// What makes a Workspace a **Review Workspace** (ticket 14, ADR-0024).
+// What makes a Workspace a **Review Workspace** (ADR-0024).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE MARK IS A FILE IN THE WORKSPACE AND NOT A SETTING
@@ -24,10 +24,10 @@
 // THE CONTAINMENT IS STRUCTURAL; THE MARK IS ONLY HOW IT IS *SAID*
 //
 // A Review Workspace is absent from the user's Project list, absent from a backup of their
-// Workspace, and uncounted in its size **because it is a different directory in the OPFS root**
-// (ticket 12), not because anything filters on this mark. Nothing here is load-bearing for any of
-// those three, and it must not become so: a filter is something that can be forgotten at a fourth
-// call site, and containment cannot.
+// Workspace, and uncounted in its size **because it is a different directory in the OPFS root**, not
+// because anything filters on this mark. Nothing here is load-bearing for any of those three, and it
+// must not become so: a filter is something that can be forgotten at a fourth call site, and
+// containment cannot.
 //
 // What the mark is load-bearing for is the *banner* — which screen says "you are in a review copy",
 // what it names, and which two exits it offers — and for refusing to publish or back one up.
@@ -188,8 +188,8 @@ function parseReviewOrigin(raw: unknown): ReviewOrigin | null {
  *
  * ⚠ **Unreadable is not absent, and here that rule points the opposite way from usual.** Everywhere
  * else in this codebase a file that will not read is treated as *present* so that nothing overwrites
- * it (see `alignment-file.ts`, and ticket 20's replay). The same rule applies here and produces the
- * same answer for a different reason: a Workspace whose mark exists but will not parse is answered
+ * it (see `alignment-file.ts`, and the journal's replay). The same rule applies here and produces
+ * the same answer for a different reason: a Workspace whose mark exists but will not parse is answered
  * with a mark rather than with `null`, because the failure to avoid is a scholar doing an
  * afternoon's work inside a Workspace built to be thrown away. Only `PathNotFoundError` — the file
  * genuinely is not there — means "this is your own Workspace".
@@ -241,7 +241,7 @@ export function describeReviewSubject(mark: ReviewMark): string {
 }
 
 /**
- * Refuse an action a Review Workspace does not get, in the words the user should see (workspace-and-layers SPEC story 111).
+ * Refuse an action a Review Workspace does not get, in the words the user should see.
  *
  * ⚠ **One sentence for every one of them rather than a phrase per call site.** Publishing and backing
  * up are refused for the same reason and the user is owed the same explanation; two spellings is how

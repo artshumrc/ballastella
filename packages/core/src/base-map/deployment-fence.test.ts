@@ -9,10 +9,9 @@ import { describe, expect, it } from 'vitest';
 // `scripts/check-base-map-catalog.mjs`, driven both ways.
 //
 // **The failing direction is the whole point.** This repository has already shipped a fence that
-// printed its success message unconditionally, and ticket 10's verification says so in bold:
-// assert the refusal, not only the acceptance. A green `pnpm check:deployment` means nothing
-// unless a red one is reachable, and the only way to reach red is to hand the script a catalog
-// that should be refused.
+// printed its success message unconditionally, so the rule is to assert the refusal and not only
+// the acceptance. A green `pnpm check:deployment` means nothing unless a red one is reachable, and
+// the only way to reach red is to hand the script a catalog that should be refused.
 //
 // The script is run against a **synthetic repository** — a temp directory holding a copy of the
 // script and a catalog written for the case under test — rather than by mutating this repo's own

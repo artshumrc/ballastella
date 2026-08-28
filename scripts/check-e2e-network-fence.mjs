@@ -4,7 +4,7 @@
 // so a spec is covered by importing a `test` built on it and by nothing else.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// THERE IS ONE ROOT `test`, AND THIS CHECKS BOTH HALVES OF IT (ticket 12)
+// THERE IS ONE ROOT `test`, AND THIS CHECKS BOTH HALVES OF IT
 //
 // `e2e/support/test.ts` composes two fixtures that arrived separately: the network fence, and the
 // `workspaceRoot()` a `page.evaluate` needs now that a Workspace is a *named directory* in the OPFS
@@ -25,10 +25,10 @@
 // reader can see — it simply is not behind the fence, and it will reach the network the first time
 // somebody adds a Base Map to it.
 //
-// That is exactly the failure this fence replaces. `routeBaseMapArchive` has existed since ticket 10
-// and was opt-in per spec; thirteen specs called it and eleven did not, so when
-// `demo-bucket.protomaps.com` began answering 404 on 2026-08-07 the suite went red for a reason
-// that had nothing to do with the code under test. Ticket 17 routed the three that were failing.
+// That is exactly the failure this fence replaces. `routeBaseMapArchive` was opt-in per spec;
+// thirteen specs called it and eleven did not, so when `demo-bucket.protomaps.com` began answering
+// 404 on 2026-08-07 the suite went red for a reason that had nothing to do with the code under
+// test. The three that were failing were routed one at a time.
 // Nothing structurally stopped the fourteenth spec from being written the old way, which is why the
 // class recurred rather than the instance.
 //

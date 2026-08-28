@@ -45,9 +45,9 @@
 	//
 	// `referencedImageIds` is withheld for a different reason, and it is not a safety one: where a
 	// Map Image's tiles are held is the author's publishing decision, and a Reader cannot copy a
-	// pyramid or repoint a service. The badge stays in the editor, where the fact is actionable (SPEC
-	// stories 20 and 21). {@link needsNetwork} below is not that badge and stays: it names what will not
-	// draw without a connection, which is a thing a Reader meets.
+	// pyramid or repoint a service. The badge stays in the editor, where the fact is actionable.
+	// {@link needsNetwork} below is not that badge and stays: it names what will not draw without a
+	// connection, which is a thing a Reader meets.
 	//
 	// ⚠ **There is no `readOnly`, `mode` or `editable` prop to pass, and adding one would be wrong.** A
 	// flag beside the callbacks is a second description of the same thing and the two can disagree; the
@@ -158,7 +158,7 @@
 	 */
 	const openDirectory = $derived(hydrated ? page.url.searchParams.get('p') : null);
 
-	/** Which Map Image is being read as a document, or `null` for the map (SPEC story 85). */
+	/** Which Map Image is being read as a document, or `null` for the map. */
 	const unwarpedLayerId = $derived(hydrated ? page.url.searchParams.get('unwarped') : null);
 
 	let site = $state<PublishedSite | null>(null);
@@ -191,7 +191,7 @@
 				site = record;
 				siteError = '';
 				// Asked for only when there is an instance to link back to, so a site that records no
-				// editor — every site published before ticket 09 — costs its Readers no request at all;
+				// editor — an older site published without one — costs its Readers no request at all;
 				// and only when the record itself does not say, so a current site costs none either.
 				remote =
 					record.editorUrl === ''
@@ -204,7 +204,7 @@
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE WAY BACK TO THE EDITOR (SPEC stories 49–51)
+	// THE WAY BACK TO THE EDITOR
 	//
 	// The only **absolute** addresses this app renders. Everything else goes through `resolve` because
 	// the site's own base path is unknown at build time (ADR-0006); these are different in kind — they
@@ -246,7 +246,7 @@
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// WHAT THE NAVIGATION BAR SAYS ABOUT THIS SCREEN (SPEC stories 3, 5 and 9)
+	// WHAT THE NAVIGATION BAR SAYS ABOUT THIS SCREEN
 	//
 	// The bar is mounted in the layout, above this page and outside it, so what it says arrives
 	// through two slots rather than through props: the shared page-chrome slot for where you are and
@@ -285,11 +285,11 @@
 		// The whole-Workspace invitation belongs to the Front Page and the Project's to a Project: a
 		// Reader looking at one piece of work is offered that piece of work.
 		//
-		// ⚠ **The two are labelled apart, and only the Project's says “Open in Ballastella”** (SPEC
-		// stories 72 and 77). A Project's link raises an offer with two answers behind it — keep this
-		// work, or look at it in a review copy — so naming either one here would be a navbar deciding
-		// something the Reader has not been asked yet. The Front Page's is one operation and says
-		// which: a whole Workspace, out of GitHub, next to the author's own.
+		// ⚠ **The two are labelled apart, and only the Project's says “Open in Ballastella”.** A
+		// Project's link raises an offer with two answers behind it — keep this work, or look at it in a
+		// review copy — so naming either one here would be a navbar deciding something the Reader has
+		// not been asked yet. The Front Page's is one operation and says which: a whole Workspace, out
+		// of GitHub, next to the author's own.
 		if (openDirectory === null) {
 			returnLink.current =
 				cloneLink === null ? null : { href: cloneLink, label: 'Open a Workspace from GitHub' };
@@ -389,12 +389,12 @@
 	 *
 	 * Hiding a Layer changes the map and nothing near the control that changed it, so without this a
 	 * screen-reader user toggles a Layer and is told only that a checkbox is unchecked — not that a
-	 * Map Image has left the map (SPEC story 22).
+	 * Map Image has left the map.
 	 *
-	 * **On the page rather than inside the card**, which is the choice this ticket was given between:
-	 * the card announces the one change it makes on its own — a reorder — and every other announcement
-	 * belongs to whichever consumer performed the change. This page is what applies a Reader's
-	 * visibility and opacity, so it is what can say what happened.
+	 * **On the page rather than inside the card**, and the line between them is this: the card
+	 * announces the one change it makes on its own — a reorder — and every other announcement belongs
+	 * to whichever consumer performed the change. This page is what applies a Reader's visibility and
+	 * opacity, so it is what can say what happened.
 	 */
 	let announced = $state('');
 
@@ -538,8 +538,8 @@
 	/**
 	 * The most recent refusal of a Map Image's tiles, or `null` while they are arriving.
 	 *
-	 * ⚠ **Not a one-way flag**, and that shape is the failure this ticket was told to avoid: the
-	 * previous epic left an alert sitting over a working map because nothing ever took it down.
+	 * ⚠ **Not a one-way flag**, and that shape is the failure to avoid: a notice that is only ever
+	 * raised sits over a working map forever, because nothing ever takes it down.
 	 *
 	 * **When it goes back to `null` is not this component's decision.** `createStoreImageFetch` reports
 	 * an arrival only when the last URL that was *refused* has come back — never on the strength of
@@ -579,8 +579,8 @@
 	const fetchTile = $derived(
 		createStoreImageFetch({
 			store: siteStore(),
-			// Ticket 04: a refusal is caught at this boundary and becomes something a Reader reads,
-			// rather than escaping into `@allmaps/render` as an uncaught page error nobody sees.
+			// A refusal is caught at this boundary and becomes something a Reader reads, rather than
+			// escaping into `@allmaps/render` as an uncaught page error nobody sees.
 			onOutcome: (outcome) => {
 				tileFailure = outcome.ok ? null : { failure: outcome.failure, imageId: outcome.imageId };
 			}
@@ -592,8 +592,8 @@
 	 *
 	 * ⚠ **The sentence is `mapImageTilesUnavailableNotice`'s, not this template's**, and that is
 	 * the contract rather than a convenience: the editor renders the same function's output for the
-	 * same failure (ticket 05), so the two deployments cannot drift into describing one outage two
-	 * ways at the same person. The same arrangement as {@link archiveUnavailable} above, for the same
+	 * same failure, so the two deployments cannot drift into describing one outage two ways at the same
+	 * person. The same arrangement as {@link archiveUnavailable} above, for the same
 	 * reason.
 	 *
 	 * The Layer's name is resolved here rather than in core, because which Layer an `imageId` belongs
@@ -621,7 +621,7 @@
 			const read = documents[layer.id];
 			// **Nothing is handed to the map until its documents have arrived.** A map Layer given
 			// `service: ''` while its `remote.json` is still in flight draws blank and reports itself drawn
-			// — the defect recorded on ticket 09, which this avoids by having a third state rather than two
+			// — the defect that module records, which this avoids by having a third state rather than two
 			// (see `$lib/project-documents`).
 			if (read?.status !== 'ready') return [];
 			if (layer.kind === 'map') {
@@ -648,10 +648,9 @@
 	 * **Keyed off the Layers that are currently shown, and nothing else.** That is not incidental
 	 * tidiness: the editor's equivalent merges over `{ ...rendered }`, which is never pruned, so a Layer
 	 * the Reader has just hidden goes on being counted as drawn — the `data-drawn` defect recorded
-	 * against the editor's Layer stack, which ticket 04 moved into
-	 * `apps/editor/src/lib/project/ProjectScreen.svelte`. Building the record from `shown` means a
-	 * Layer that has left the stack cannot survive in it, so the count below is a fact about the map
-	 * rather than a high-water mark.
+	 * against the editor's Layer stack in `apps/editor/src/lib/project/ProjectScreen.svelte`. Building
+	 * the record from `shown` means a Layer that has left the stack cannot survive in it, so the count
+	 * below is a fact about the map rather than a high-water mark.
 	 */
 	const outcomes = $derived.by((): Readonly<Record<string, DrawnOutcome>> => {
 		const merged: Record<string, DrawnOutcome> = {};
@@ -687,7 +686,7 @@
 	);
 
 	/**
-	 * Which Layers still fetch their Map Image from the library that holds it (SPEC story 29).
+	 * Which Layers still fetch their Map Image from the library that holds it.
 	 *
 	 * Said out loud on the page rather than only warned about at publish time, because the Reader is the
 	 * person who meets the consequence: on a train, or after the library reorganises, those Layers draw
@@ -728,7 +727,7 @@
 		)
 	);
 
-	/** Every referenced host that failed to answer, so the message can name it (ticket 17's table). */
+	/** Every referenced host that failed to answer, so the message can name it. */
 	const unreachable = $derived(
 		layers.flatMap((layer) => {
 			const read = documents[layer.id];
@@ -754,8 +753,8 @@
 	/**
 	 * This Reader's own choice, or `null` — read once per site rather than watched.
 	 *
-	 * `null` until the Reader chooses, so the **author's default governs first contact** (SPEC story 69),
-	 * which is the moment that carries the argument.
+	 * `null` until the Reader chooses, so the **author's default governs first contact**, which is the
+	 * moment that carries the argument.
 	 */
 	let chosen = $state<string | null>(null);
 	$effect(() => {
@@ -787,7 +786,7 @@
 	const baseMapNotice = $derived(baseMapFallbackNotice(baseMap));
 
 	/**
-	 * Whether this site carries the Base Map's own files (ADR-0020, SPEC stories 88 and 89).
+	 * Whether this site carries the Base Map's own files (ADR-0020).
 	 *
 	 * Read out of the site record so legacy sites published without them still degrade honestly. New
 	 * publishes always carry the assets, despite their roughly 4.9 MB cost against the same hosting
@@ -806,7 +805,7 @@
 	/**
 	 * The site's own Base Map tiles, or `null` when it carries none (ADR-0025).
 	 *
-	 * **Matched to the entry the Reader is looking at** (ticket 12). The cache directory is keyed by
+	 * **Matched to the entry the Reader is looking at.** The cache directory is keyed by
 	 * archive, and ADR-0020 lets a Reader switch entries — so a site carrying tiles for one archive must
 	 * draw the *other* entry from the network rather than from a pile of tiles that are not its. The
 	 * match is on the entry's own `archive` string, which is what the key is derived from.
@@ -820,8 +819,8 @@
 	const cachedBaseMap = $derived.by(() => {
 		const archive = baseMap.entry.archive;
 		// An exact match first, so a site carrying tiles for two archives serves the right one. A
-		// `null` archive is the pre-ticket-12 layout — one unkeyed directory that belonged to no
-		// entry in particular — and it answers for any entry, which is what it did when it was written.
+		// `null` archive is the older layout — one unkeyed directory that belonged to no entry in
+		// particular — and it answers for any entry, which is what it did when it was written.
 		const held =
 			site?.baseMapCaches.find((cache) => cache.archive === archive) ??
 			site?.baseMapCaches.find((cache) => cache.archive === null);
@@ -851,7 +850,7 @@
 	const siteRecordKnown = $derived(site !== null || siteError !== '');
 
 	/**
-	 * Whether the Base Map's own source failed, as `ReaderMapPane` reports it (ticket 22).
+	 * Whether the Base Map's own source failed, as `ReaderMapPane` reports it.
 	 *
 	 * `false` until the pane has said otherwise, so the notice below appears when the archive has
 	 * actually failed and not in the moment before it has been asked for. The pane sends `'drawing'`
@@ -954,8 +953,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// The selected Annotation (one-shell-two-apps stories 32–34) — the highest-stakes surface in
-	// the epic
+	// The selected Annotation — the highest-stakes surface on this page
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
@@ -964,12 +962,11 @@
 	 * **One value, because "which Annotation is active" has one answer.** It is the selected row in the
 	 * Layer card, it is what the Annotation Inspector over the map describes, and it is what a pin on
 	 * the map chooses: clicking a pin names the Annotation to read and its Layer's card opens with it,
-	 * so the answer to "what is this pin?" is one panel rather than a bubble over the pin (ticket 07,
-	 * ADR-0035).
+	 * so the answer to "what is this pin?" is one panel rather than a bubble over the pin (ADR-0035).
 	 *
 	 * Its `title` and `description` are **untrusted text**: a Published Site runs on the author's own
-	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a
-	 * remote library (ticket 14). Neither is turned into HTML here, and neither may be. The title is a
+	 * domain, and the Project may have arrived from a stranger by zip import or from a remote library.
+	 * Neither is turned into HTML here, and neither may be. The title is a
 	 * Svelte interpolation in `AnnotationRow` and in `AnnotationInspector`'s identity header, and the
 	 * description is `AnnotationDescription`'s — `@ballastella/ui`'s one `{@html}`, fed nothing but
 	 * `renderDescription`'s output, which is core's `marked`-then-DOMPurify pipeline. This app composes
@@ -1022,7 +1019,7 @@
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// The leader (ticket 12, SPEC stories 39–42, 46)
+	// The leader
 	//
 	// The same line the editor draws, from the same component, between the same two ends: the
 	// Annotation's own drawing on the map, and its row. A Reader gets it because it is the answer to
@@ -1030,7 +1027,7 @@
 	// drawn from the same code, so the two apps cannot disagree about where it goes.
 	//
 	// Below `lg` the stack sits below the map: `LeaderLine` measures that and draws nothing, which is
-	// story 46 without a breakpoint being written down twice.
+	// the stacked-layout rule without a breakpoint being written down twice.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/** The map pane, for the one thing this page asks of its camera. */
@@ -1087,7 +1084,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Reading a Map Image as a document (SPEC story 85)
+	// Reading a Map Image as a document
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/** The map Layer being read unwarped, or `null`. */
@@ -1123,8 +1120,8 @@
 				if (servedImageServiceId(info) === null) {
 					// **Refused rather than shown empty.** The pyramid's `info.json` still carries the ADR-0004
 					// placeholder, so every tile OpenSeadragon asked for would fail at DNS and the Reader would
-					// be looking at a blank rectangle with nothing to explain it. Ticket 17's degradation rule
-					// is to say so plainly rather than misrender, and this is that case.
+					// be looking at a blank rectangle with nothing to explain it. The degradation rule is to say
+					// so plainly rather than misrender, and this is that case.
 					unwarped = null;
 					unwarpedError =
 						'This Map Image cannot be opened on its own from this site yet. Its image was ' +
@@ -1169,7 +1166,7 @@
 	});
 
 	/**
-	 * Open a Map Image as a document, and come back (SPEC story 85).
+	 * Open a Map Image as a document, and come back.
 	 *
 	 * Query only, on the one route ADR-0008 chose: a second route would be a second prerendered
 	 * directory, which `VIEWER_FILE_PATHS` would have to claim before publishing would write it.
@@ -1293,8 +1290,8 @@
 
 			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
 			this expression and nothing else — because the sentence is *about* the invitation. A site
-			published into a folder, and every site published before this epic, records no instance or
-			no repository, so the bar carries no "Open a Workspace from GitHub" and this would be telling a
+			published into a folder, and any site published without them, records no instance or no
+			repository, so the bar carries no "Open a Workspace from GitHub" and this would be telling a
 			Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
 			drift into a page that offers the link without the sentence or the sentence without the link.
 		-->
@@ -1331,13 +1328,13 @@
 				{/if}
 			{:else}
 				<!--
-				The same list of cards the editor's Hub renders, from the one component (SPEC stories 8 and
-				53) — so publishing does not reformat a scholar's Projects into something else.
+				The same list of cards the editor's Hub renders, from the one component — so publishing does
+				not reformat a scholar's Projects into something else.
 
 				**A Reader gets it with nothing else passed to it**, and that is the whole of how the
 				authoring controls are absent: no New Project, no per-Project actions, no Front Page
-				choice, because none of them is a snippet this call hands over (SPEC story 54). The name is
-				interpolated as text by the card itself and never as markup, which
+				choice, because none of them is a snippet this call hands over. The name is interpolated as
+				text by the card itself and never as markup, which
 				`packages/ui/src/project-card-list.dom.test.ts` asserts against the component
 				and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
 				published site (ADR-0009).
@@ -1345,7 +1342,7 @@
 				<!--
 				`workspace-home-column` is the measure, and it is the editor's too: it is declared once in
 				`packages/ui/src/layout.css`, so a Project's row is the same width here as in the editor
-				rather than the two apps each stating a `max-w-*` of their own (SPEC story 35).
+				rather than the two apps each stating a `max-w-*` of their own.
 			-->
 				<ProjectCardList
 					class="mt-8 workspace-home-column"
@@ -1563,9 +1560,8 @@
 
 	⚠ **`AnnotationDescription` alone, and no title.** The Inspector's identity header directly above
 	this already names the Annotation from the rule its row draws from, so a face that titled it too
-	would put one title twice a few pixels apart in the same weight — the epic's central fault
-	(the-annotation-inspector story 4). The editor's Text face is the same component plus the controls
-	that change the words.
+	would put one title twice a few pixels apart in the same weight. The editor's Text face is the same
+	component plus the controls that change the words.
 
 	⚠ **It is `@ballastella/ui`'s rather than markup composed here**, and that is the security boundary
 	rather than tidiness. A `description` is a stranger's Markdown, and the only thing that may render
@@ -1573,8 +1569,7 @@
 	reachable (ADR-0009) — which is this component's, the one `{@html}` in that package. Keeping it in
 	shared code is what keeps this app's own source free of one, so there is no expression here for a
 	later edit to feed something unsanitised into, and it is what makes
-	`e2e/viewer-reader.e2e.ts`'s inertness claim a claim about the thing that ships
-	(the-annotation-inspector story 52).
+	`e2e/viewer-reader.e2e.ts`'s inertness claim a claim about the thing that ships.
 -->
 {#snippet inspectorText(annotation: Annotation)}
 	<AnnotationDescription {annotation} />
@@ -1582,10 +1577,10 @@
 
 <!--
 	⚠ **No `style` snippet, and that absence is the whole of why a Reader has no tab strip** — not a
-	disabled Style tab and not a lone Text tab, because one face is not a choice
-	(the-annotation-inspector stories 45, 46, 66). No `ontext`, no `oncommit` and no `ondelete` either,
-	so there is no *Edit text* and no *Delete*: every difference from the author's panel is a prop this
-	app does not pass rather than a flag it sets, which is the rule the whole shared package follows.
+	disabled Style tab and not a lone Text tab, because one face is not a choice. No `ontext`, no
+	`oncommit` and no `ondelete` either, so there is no *Edit text* and no *Delete*: every difference
+	from the author's panel is a prop this app does not pass rather than a flag it sets, which is the
+	rule the whole shared package follows.
 
 	**Docked inside the reader pane's own positioned container**, which is what the pane's `overlay`
 	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
@@ -1595,8 +1590,8 @@
 
 	⚠ **Below `lg` — the width at which this page's workspace stacks — it is a sheet
 	across the bottom of the pane instead**, because a panel docked to a corner has no corner to dock to
-	on a phone (the-annotation-inspector story 61). The same component with the same props: where it
-	sits is this page's, which is why nothing about the sheet is a flag passed into it.
+	on a phone. The same component with the same props: where it sits is this page's, which is why
+	nothing about the sheet is a flag passed into it.
 
 	⚠ **The bottom inset carries the zoom control as well as the attribution.** A sheet spanning the
 	pane's width crosses the whole of its bottom edge, and `z-index: 7` puts the sheet over MapLibre's
@@ -1611,7 +1606,7 @@
 	`keepAnnotationClear` is the editor's `BaseMapPane` — it has never existed here, on a desktop either —
 	and a Reader's way out is the sheet's own dismiss control, which is the same way out a Reader has had
 	since the panel docked. Giving the Reader the same reservation means one of two costs, neither of them
-	this ticket's: duplicating the function in `ReaderMapPane`, which is a second place for the geometry to
+	small: duplicating the function in `ReaderMapPane`, which is a second place for the geometry to
 	drift, or lifting it into `@ballastella/core/render` beside `annotationMarkBox`, which puts a camera
 	move into a package that today only computes.
 
@@ -1636,8 +1631,7 @@
 {/snippet}
 
 <!--
-	What is inside an Annotation Layer for a Reader: its Annotations, each in a row that selects it
-	(one-shell-two-apps stories 32–34).
+	What is inside an Annotation Layer for a Reader: its Annotations, each in a row that selects it.
 
 	**The same list and the same row a scholar authors on**, and nothing opens inside either: an
 	Annotation's content is read in the Annotation Inspector over the map, in both apps (ADR-0035). So
@@ -1661,7 +1655,7 @@
 {/snippet}
 
 <!--
-	What is inside a Map Image Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
+	What is inside a Map Image Layer for a Reader: the sheet on its own, unwarped.
 
 	**A snippet rather than a callback prop on the card**, for the reason `ProjectScreen`'s own
 	`mapContents` gives: what this button does is a navigation on this app's one route, and the shared
@@ -1669,8 +1663,8 @@
 	Map Image cards — the editor's slot holds Align and the library the tiles came from, and this
 	one holds the only thing a Reader can do to a sheet.
 
-	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here
-	because a Reader who wants to read the sheet as a document has nowhere else to go.
+	The editor has no unwarped view, and this is offered here because a Reader who wants to read the
+	sheet as a document has nowhere else to go.
 -->
 {#snippet mapContents(layer: MapLayer)}
 	<div>

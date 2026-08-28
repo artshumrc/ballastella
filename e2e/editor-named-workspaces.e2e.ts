@@ -15,9 +15,9 @@ import {
 } from './support/workspace';
 
 /**
- * Browser-managed storage as a place that holds **several named Workspaces** (ticket 12, ADR-0024).
+ * Browser-managed storage as a place that holds **several named Workspaces** (ADR-0024).
  *
- * SPEC's Seam 2: the running app in a real browser against real OPFS. What this file is about is the
+ * Seam 2: the running app in a real browser against real OPFS. What this file is about is the
  * thing `packages/core` cannot see — that the Workspace you are in is on screen, that moving between
  * them is one gesture, and above all **which directory the bytes land in when you move**. The store
  * layer's own containment is asserted in `opfs-workspaces.browser.test.ts` and in the shared adapter
@@ -25,9 +25,9 @@ import {
  *
  * ⚠ Every claim about where work went is a claim about **files**, read out of OPFS behind the app's
  * back. Not the save indicator: its sequence is `saved → unsaved → saving → saved`, so "Saved" is
- * also what it says before a save begins — which is precisely the ticket-12 bug `WorkspaceStorage`'s
- * class comment records, the indicator reading "Saved" while the bytes went to the Workspace the
- * user had left.
+ * also what it says before a save begins — which is precisely the bug `WorkspaceStorage`'s class
+ * comment records, the indicator reading "Saved" while the bytes went to the Workspace the user
+ * had left.
  */
 
 const HUB = './';
@@ -143,8 +143,8 @@ test.describe('the Workspace on the bar', () => {
 		await expect(page.getByTestId('settings-choose-folder')).toBeHidden();
 		await expect(page.getByTestId('install-offer')).toBeHidden();
 
-		// ⚠ **And the menu does not ask either** (SPEC stories 40, 45). It states what this Workspace
-		// is — the only place its name, its backing and where it publishes appear together (story 41) —
+		// ⚠ **And the menu does not ask either**. It states what this Workspace
+		// is — the only place its name, its backing and where it publishes appear together —
 		// and every storage decision is behind Workspace settings, so the same choice cannot be offered
 		// in two places that could disagree.
 		await openWorkspaceMenu(page);
@@ -165,7 +165,7 @@ test.describe('the Workspace on the bar', () => {
 	});
 
 	test('names the Workspace on the hub and on the Project screen', async ({ page }) => {
-		// SPEC story 88, and it must be *every* screen: from ticket 14 a user can be inside a throwaway
+		// The name is on the bar, and it must be on *every* screen: a user can be inside a throwaway
 		// Review Workspace, and a control that says which one you are in is worth nothing on the screens
 		// it is missing from.
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
@@ -180,7 +180,7 @@ test.describe('the Workspace on the bar', () => {
 	test('creates a second Workspace, finds it empty, and finds the first one again', async ({
 		page
 	}) => {
-		// The demonstration the ticket asks for, end to end.
+		// The whole demonstration, end to end.
 		await createProject(page, 'Amsterdam 1625');
 
 		await createWorkspace(page, 'Marking 2026');
@@ -224,8 +224,8 @@ test.describe('the Workspace on the bar', () => {
 	test('announces a switch and a creation, which a mutating button label does not', async ({
 		page
 	}) => {
-		// SPEC stories 111 and 112. Switching changes almost everything on screen; the only visible
-		// signal is the switcher button's own label, and a control's accessible name changing is not
+		// Switching changes almost everything on screen; the only visible signal is the switcher
+		// button's own label, and a control's accessible name changing is not
 		// something a screen reader reports. Without this a scholar using one moves between Workspaces,
 		// hears silence, and is looking at somebody else's Project list.
 		const announced = page.getByTestId('workspace-announcement');
@@ -407,8 +407,8 @@ test.describe('Workspace settings', () => {
 		await expect(dialog.getByTestId('settings-workspace-name')).toHaveText(DEFAULT_WORKSPACE);
 		await expect(dialog.getByTestId('install-offer')).toBeVisible();
 
-		// `navigator.storage.persist()` is called nowhere before this ticket, so OPFS data was
-		// evictable under disk pressure (ADR-0024). What the browser answers is its own business —
+		// `navigator.storage.persist()` is what keeps OPFS data from being evicted under disk
+		// pressure (ADR-0024). What the browser answers is its own business —
 		// Chromium decides on heuristics — so what is asserted is that an answer arrives and is
 		// **reported**, in one of the three honest forms, rather than being swallowed.
 		await expect
@@ -475,7 +475,7 @@ test.describe('deleting a Workspace', () => {
 	});
 
 	/**
-	 * ⚠ **The record has to go with the Workspace, and it was swept by nothing** (ticket 21, review 2).
+	 * ⚠ **The record has to go with the Workspace, and it was swept by nothing.**
 	 *
 	 * `#removeWorkspace` already discards the deleted Workspace's write-ahead journal, with the reason
 	 * written on the spot: entries that outlive their Workspace are "put back into somebody else's
@@ -513,10 +513,9 @@ test.describe('deleting a Workspace', () => {
 
 	/**
 	 * ⚠ **And a record for a Workspace that is already gone has to be *visible*, like the journal keys
-	 * beside it in the same 5 MB** (ticket 21, review 2). The orphan report walked
-	 * `ballastella.journal.` only, so a deletion record naming a Workspace this browser will never
-	 * open again could never be seen or discarded from settings — while the additive keys next to it
-	 * could.
+	 * beside it in the same 5 MB.** The orphan report walked `ballastella.journal.` only, so a
+	 * deletion record naming a Workspace this browser will never open again could never be seen or
+	 * discarded from settings — while the additive keys next to it could.
 	 */
 	test('reports and discards an unfinished deletion left by a Workspace that is gone', async ({
 		page
@@ -537,11 +536,11 @@ test.describe('deleting a Workspace', () => {
 		);
 		await page.getByTestId('discard-orphaned-journal').click();
 
-		// ⚠ **What went is an unfinished deletion, and the sentence used to call it an unsaved change**
-		// (ticket 21, round 4). Round 2 added the deletion records to this button and *summed* their
-		// count into the journal's, so this Workspace — which holds exactly one deletion note and no
-		// edits at all — reported "Threw away 1 unsaved change": false in both nouns, and silent about
-		// the one of the two that carries a standing instruction to delete a Project.
+		// ⚠ **What went is an unfinished deletion, and the sentence used to call it an unsaved change.**
+		// Summing the deletion records into the journal's count made this Workspace — which holds
+		// exactly one deletion note and no edits at all — report "Threw away 1 unsaved change": false
+		// in both nouns, and silent about the one of the two that carries a standing instruction to
+		// delete a Project.
 		await expect(page.getByTestId('workspace-delete-outcome')).toContainText(
 			'Threw away 1 unfinished deletion'
 		);

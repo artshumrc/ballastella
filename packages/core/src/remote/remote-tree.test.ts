@@ -142,7 +142,7 @@ describe('what the listing refuses', () => {
 	it('the anonymous hourly limit, told apart from a private repository by the count', async () => {
 		// ⚠ **60 requests an hour per IP address, answered 403 — the same status a private repository
 		// gives.** A class of students on one campus connection all reading their instructor's
-		// repository spends that between them (SPEC story 48), and reported as "not public" it tells a
+		// repository spends that between them, and reported as "not public" it tells a
 		// room full of people to change a setting on a repository none of them own.
 		const { fetch } = answering(() =>
 			jsonResponse({ message: 'API rate limit exceeded' }, 403, {
@@ -265,7 +265,7 @@ describe('against the shared fake GitHub', () => {
 	});
 });
 
-// The commit an Import records as the state it copied (SPEC story 59). One request, anonymous, and
+// The commit an Import records as the state it copied. One request, anonymous, and
 // the tree listing cannot answer it: `/git/trees/{ref}` reports the tree object's hash, which names
 // no history.
 describe('reading the commit a public branch stands at', () => {

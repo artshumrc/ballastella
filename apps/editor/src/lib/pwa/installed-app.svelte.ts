@@ -11,16 +11,16 @@ import { installedAppOr } from './installed-app-context.js';
  * One object for both because they are one subject — the app shell's identity and its lifetime —
  * and because both are answered by the same service worker registration. ADR-0012 puts them
  * together for the same reason: installing is the remedy for the permission friction ADR-0001
- * imposed (SPEC story 6), offline is what the shell cache buys (story 8), and the update prompt is
- * the price of not activating silently (story 9).
+ * imposed, offline is what the shell cache buys, and the update prompt is the price of not
+ * activating silently.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE REGISTRATION IS OURS AND NOT SVELTEKIT'S
  *
  * `kit.serviceWorker.register` is `false` in `svelte.config.js`. SvelteKit's own registration is a
  * bare `navigator.serviceWorker.register(...)` inside an inline script with nothing handed back,
- * so there is nowhere to attach the `updatefound` listener that story 9 is entirely about — and
- * fishing the registration back out with `getRegistration()` afterwards is a race against the
+ * so there is nowhere to attach the `updatefound` listener the update prompt is entirely about —
+ * and fishing the registration back out with `getRegistration()` afterwards is a race against the
  * update it is meant to observe.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -156,12 +156,11 @@ export class InstalledApp {
 	 * would keep being told about a version they had already accepted.
 	 *
 	 * The usual answer is to have the waiting worker end its own wait in response to a message from
-	 * the page. ADR-0012 forbids that call by name and this ticket's acceptance criteria grep the
-	 * source for it, so the registration is dropped instead. The reload that follows arrives with no
-	 * controller and is therefore served the deployment's current bytes, and the fresh registration it
-	 * makes installs and activates immediately, there being nothing left to wait behind. The user gets
-	 * the new version in the gesture they asked for it in, and nothing ever activated behind their
-	 * back.
+	 * the page. ADR-0012 forbids that call by name, so the registration is dropped instead. The reload
+	 * that follows arrives with no controller and is therefore served the deployment's current bytes,
+	 * and the fresh registration it makes installs and activates immediately, there being nothing left
+	 * to wait behind. The user gets the new version in the gesture they asked for it in, and nothing
+	 * ever activated behind their back.
 	 *
 	 * It needs the network for that one load, which is why {@link online} gates the offer. That is not
 	 * a real narrowing: a waiting worker exists only because the network delivered it.
@@ -248,7 +247,7 @@ export class InstalledApp {
 		);
 
 		// The browser checks for a new worker on navigation, which is no help to somebody who has had
-		// the app open for an afternoon — the exact person story 9 is about. So the check is repeated
+		// the app open for an afternoon — the exact person the update prompt is for. So it is repeated
 		// when they come back to the tab, throttled, because it is a network request.
 		addEventListener('visibilitychange', () => void this.#checkForUpdate(), { signal });
 	}
@@ -272,11 +271,11 @@ export class InstalledApp {
 	 *
 	 * ⚠ **This makes the activation visible; it cannot make it wait.** Nothing a page can do keeps a
 	 * new worker back when the page is not controlled: no worker cuts its own wait short here — that
-	 * one call is forbidden by ADR-0012 and by this ticket's acceptance criteria, and no comment in
-	 * this app spells it, so the grep for it has no decoys to sift — the browser simply has no client
-	 * to protect and does not wait at all. What this buys is that the user is told, and that
-	 * {@link applyUpdate} puts them on the version the caches now hold. The one thing it does not buy
-	 * is choosing *when*, on that one page load, and there is no API that would.
+	 * one call is forbidden by ADR-0012, and no comment in this app spells its name, so a search for
+	 * it has no decoys to sift — the browser simply has no client to protect and does not wait at
+	 * all. What this buys is that the user is told, and that {@link applyUpdate} puts them on the
+	 * version the caches now hold. The one thing it does not buy is choosing *when*, on that one page
+	 * load, and there is no API that would.
 	 */
 	#considerNewer(registration: ServiceWorkerRegistration): void {
 		const newest = registration.waiting ?? registration.active;

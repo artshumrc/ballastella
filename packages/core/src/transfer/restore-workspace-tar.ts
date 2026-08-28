@@ -39,8 +39,8 @@ export interface RestoreDestination {
 	 * The name the Workspace really got.
 	 *
 	 * Not necessarily the one the backup carries: the user may already have a Workspace by that name —
-	 * restoring the same backup twice to compare them is a thing people do — and ticket 12 suffixes
-	 * rather than refusing.
+	 * restoring the same backup twice to compare them is a thing people do — and a taken name is
+	 * suffixed rather than refused.
 	 */
 	readonly name: string;
 	readonly store: ProjectStore;
@@ -111,9 +111,9 @@ export interface WorkspaceRestore {
 	/**
 	 * What the user has to be told, in the words they should see.
 	 *
-	 * Not a boolean flag for the UI to phrase, because ADR-0006's staleness warning and story 111's
-	 * "visible text rather than tooltips" are both about the *sentence*, and a flag is how two screens
-	 * end up saying different things about the same fact.
+	 * Not a boolean flag for the UI to phrase, because ADR-0006's staleness warning and the rule that
+	 * the user is told in visible text rather than in a tooltip are both about the *sentence*, and a
+	 * flag is how two screens end up saying different things about the same fact.
 	 */
 	readonly notice: string;
 }
@@ -165,8 +165,8 @@ const MAX_PROJECT_FILE_BYTES = 4 * 1024 * 1024;
  *    {@link RestoreDestination}.
  *
  * ⚠ **What this does not do, stated rather than implied.** Nothing here detects a concurrent edit.
- * Ticket 18 deliberately left that open and ADR-0023 accepts it: a colleague's change arriving through
- * a synced Workspace between a read and a write is lost, and the mitigation is visibility rather than
+ * That is deliberately left open and ADR-0023 accepts it: a colleague's change arriving through a
+ * synced Workspace between a read and a write is lost, and the mitigation is visibility rather than
  * prevention. A backup and restore is exactly the place somebody might assume that gap is covered, so:
  * it is not. Restoring is not a merge, does not compare timestamps, and does not know whether the
  * backup is older or newer than anything. It makes a second Workspace and puts the archive's contents
@@ -232,8 +232,8 @@ export async function restoreWorkspaceTar(
 			// ADR-0006: a restored Workspace is data, not a site. Said here rather than left for the
 			// user to discover, because what they would otherwise discover is a Published Site that
 			// still opens and quietly shows the work they had *before* the backup — or, for the Base
-			// Map extract, a reader looking at a blank map with no explanation, which is exactly the
-			// failure ticket 17 found the product had no notice for.
+			// Map extract, a reader looking at a blank map with no explanation. Nothing else in the
+			// product gives notice of either.
 			notice:
 				`Restored into a new Workspace called “${destination.name}”. Your other Workspaces have ` +
 				`not been touched. A backup holds your work rather than a website, so publish this ` +
@@ -304,21 +304,20 @@ interface RestoreOutcome {
  * Write the archive's entries into the new Workspace, manifests last.
  *
  * ⚠ **`files` and `bytes` count what was *written*, never what was *read*, and the difference is the
- * whole point.** An Alignment goes through ticket 18's one writer, which may decline it — see
- * {@link writeRestored} — and the first cut of this function incremented the counters regardless.
+ * whole point.** An Alignment goes through `alignment-file.ts`, the one writer, which may decline it
+ * — see {@link writeRestored} — and the first cut of this function incremented the counters regardless.
  * That made a restore report more than it had delivered: the archive's Alignment was dropped and
  * still counted. **A transfer that reports more than it wrote is the zip writer claiming 4,464 of
  * 70,000 with a different spelling** — which is the failure this entire format change exists to
  * escape. So a declined file is counted nowhere and named in {@link RestoreOutcome.declined}, and
  * the caller says so.
  *
- * ⚠ **`writeRestored`'s own decline is still unreached, and that is stated rather than implied.**
- * The claim here used to be that ticket 14's Review Workspaces reach it; they do not. A bundle goes
- * through `open-project-bundle.ts`, which has its own writer with its own decline — the *equivalent*
- * path in a different module. A restore destination is still always a brand-new Workspace, so
- * nothing on this path has an Alignment to refuse: what makes the counting correct here is that it
- * is written to be correct, not that a test has driven it. Duplicate entries in a *restore* archive
- * are the case that would reach it, and no test lays one down.
+ * ⚠ **`writeRestored`'s own decline is unreached, and that is stated rather than implied.** Nothing
+ * reaches it: a bundle goes through `open-project-bundle.ts`, which has its own writer with its own
+ * decline — the *equivalent* path in a different module — and a restore destination is always a
+ * brand-new Workspace, so nothing on this path has an Alignment to refuse. What makes the counting
+ * correct here is that it is written to be correct, not that a test has driven it. Duplicate entries
+ * in a *restore* archive are the case that would reach it, and no test lays one down.
  */
 async function drainInto(
 	store: ProjectStore,
@@ -361,8 +360,8 @@ async function drainInto(
 		// Two checks, in this order, and deliberately **not** three.
 		//
 		// The fence first: an entry outside the folder the archive named is refused before anything
-		// is derived from it. On ticket 12's OPFS root, "outside" means another Workspace of the
-		// user's — including the damaged one they are restoring in order to recover from.
+		// is derived from it. In the OPFS root, "outside" means another Workspace of the user's
+		// (ADR-0008) — including the damaged one they are restoring in order to recover from.
 		if (!header.name.startsWith(prefix)) {
 			throw new BackupRejectedError(
 				'path-traversal',
@@ -384,7 +383,7 @@ async function drainInto(
 		const path = header.name.slice(prefix.length) as StorePath;
 		assertSafeBackupPath(path);
 
-		// ⚠ **A restored Backup arrives unbound** (SPEC story 41, ADR-0032). `remote.json` is inside the
+		// ⚠ **A restored Backup arrives unbound** (ADR-0032). `remote.json` is inside the
 		// published tree, so a Backup taken from a bound Workspace carries it — and restoring it would
 		// hand the user a Publish button aimed at a live, cited address, from a state they restored
 		// precisely because something had gone wrong. Dropped on the way *in* rather than left out of
@@ -503,19 +502,19 @@ function readManifest(bytes: Bytes): void {
 }
 
 /**
- * Write one restored file, sending an Alignment through the one writer (ticket 18, ADR-0023).
+ * Write one restored file, sending an Alignment through the one writer (ADR-0023).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * **WHY THIS IS ROUTED RATHER THAN WRITTEN DIRECTLY, WHEN IT PROVABLY CANNOT COLLIDE**
  *
- * Ticket 18 made `alignment-file.ts` the only writer of `alignments/<image-id>.json`, behind two
- * layers: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write` refuses, and
+ * `alignment-file.ts` is the only writer of `alignments/<image-id>.json`, behind two layers:
+ * `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write` refuses, and
  * `scripts/check-alignment-writers.mjs` covers the spellings a type cannot see.
  *
  * **Restore walks through both of them, and it is worth being exact about how**, because the first
  * draft of this module did walk through and nothing failed. The path here is `header.name` with a
  * prefix sliced off — a value the compiler only ever sees as `string` — so the brand never applies;
- * that is the limit 18 states about itself rather than claims away. And the script did not flag it
+ * that is a limit of the layer rather than something it claims away. And the script did not flag it
  * either: it looks for the `alignments/` spelling, and this code never spells it, because the path
  * arrives as data out of somebody's archive.
  *
@@ -525,7 +524,7 @@ function readManifest(bytes: Bytes): void {
  * through `writeAlignmentBytes` with `intent: 'create'` therefore always writes, and costs one
  * failed `read` per Alignment.
  *
- * It is routed anyway, for the reason 18's own remediation gives: the danger is not this call site
+ * It is routed anyway, for the reason the rule itself gives: the danger is not this call site
  * today, it is that "restore writes Alignments with the generic writer" is a *true statement about
  * the codebase* that the next person reads as permission. The zip importer had a third existence
  * check sitting unnoticed for exactly that reason. Cheap, and it keeps the sentence "every Alignment
@@ -533,16 +532,17 @@ function readManifest(bytes: Bytes): void {
  *
  * The bytes go through verbatim — `writeAlignmentBytes`, not `writeAlignmentFile` — because what is
  * being restored is a document some build wrote, and re-serialising it from this build's model is
- * the loss SPEC story 60 forbids.
+ * exactly the loss `Alignment.unmodelled` exists to prevent.
  *
  * ⚠ **The outcome is returned, not swallowed, and swallowing it was a real defect.** `intent: 'create'`
  * means *write only if there is nothing there worth keeping*, so `writeAlignmentBytes` can answer
  * `'kept over the offer'` — the archive's Alignment is deliberately not written, which is the safe
  * direction ADR-0023 requires. The first cut of this function returned `void` and the caller counted
  * the file as restored anyway, so a restore could report delivering a file it had dropped. Nothing
- * today can reach it, because `restoreWorkspaceTar` always gets an empty destination; ticket 14's
- * Review Workspaces will. Reported rather than left for 14, because a transfer that quietly delivers
- * less than it was handed is precisely the failure this format change escaped.
+ * today can reach it, because `restoreWorkspaceTar` always gets an empty destination; a caller that
+ * handed over a store with something already in it would. Reported rather than left to that caller,
+ * because a transfer that quietly delivers less than it was handed is precisely the failure this
+ * format change escaped.
  *
  * @returns `'written'`, or `'declined'` when the destination already had an Alignment for that map.
  */
@@ -613,13 +613,13 @@ async function readEntry(
 /**
  * One entry's body, into one buffer.
  *
- * This is where "streaming" stops and it is worth being exact about why, because the acceptance
- * criterion is about the *archive* rather than about each file. `ProjectStore.write` is atomic by
+ * This is where "streaming" stops and it is worth being exact about why, because the bound that
+ * matters is about the *archive* rather than about each file. `ProjectStore.write` is atomic by
  * ADR-0017 rule 4 — a temporary file and a rename — and takes the bytes it is to write; there is no
  * streaming write to hand a `ReadableStream` to. So peak memory during a restore is **one file**,
  * not one archive, which is the bound that makes a 400 MB backup restorable on an iPad and the one a
  * zip could not offer at any size. The alternative — a streaming store write — is a change to the
- * storage layer that ADR-0017 would have to speak to, and this ticket moves bytes.
+ * storage layer that ADR-0017 would have to speak to; this module moves bytes.
  *
  * The declared size is not trusted as a buffer length. It is a number in a file somebody else made;
  * what is written is what actually arrived, and if the two disagree the archive was truncated, which

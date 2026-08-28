@@ -3,7 +3,7 @@
 // This is the claim that used to be made twice — once in `e2e/editor-base-map.e2e.ts` against the
 // authoring app and once in `e2e/viewer-reader.e2e.ts` against a published site — because the
 // component existed twice. It is one component now, so it is one test, and it lives beside the
-// component rather than in either consumer (SPEC story 59).
+// component rather than in either consumer.
 //
 // ⚠ What stays in `e2e/` is unchanged: that *this deployment's* catalog is what the editor offers,
 // that a Published Site keeps offering what it was published with, and that choosing an entry

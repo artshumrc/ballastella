@@ -3,8 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // A WRAPPER, NOT A HOOK IN EVERY AUTHORING METHOD
 //
-// SPEC needs *"a durable local-change index at the managed ProjectStore write/delete seam"*, and
-// there are dozens of places that author bytes: autosave, the tiler, the Annotation editor, offline
+// The local-change index has to be durable and it has to sit at one seam, and there are dozens of
+// places that author bytes: autosave, the tiler, the Annotation editor, offline
 // copies, Base Map tile caching, Alignment commits, tar restore, Project Import. Marking the index
 // from each of them is a rule every future feature has to remember, and the one that forgets it does
 // not fail a test — it silently reports a changed Workspace as `Up to date`.

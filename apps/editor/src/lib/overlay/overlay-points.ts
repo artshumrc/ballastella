@@ -1,10 +1,8 @@
 // Labelled points drawn over a pane, in whatever coordinate space that pane speaks.
 //
-// This is the seam Control Points arrive on. It was built in ticket 03 for the image pane's
-// one-sided reference and reported points, and ticket 07 widened it rather than adding a second
-// overlay API beside it — a Control Point is drawn on *both* panes, so a per-pane implementation
-// would be the same eighty lines of marker, focus, and drag handling written twice, diverging on
-// the third change.
+// This is the seam Control Points arrive on, and it is one seam rather than an overlay API per pane
+// — a Control Point is drawn on *both* panes, so a per-pane implementation would be the same eighty
+// lines of marker, focus, and drag handling written twice, diverging on the third change.
 //
 // Deliberately not called a marker layer. CONTEXT.md lists **marker** and **pin** under the words
 // to avoid for a Control Point, and CONTRIBUTING makes that binding on code as well as UI.
@@ -22,23 +20,22 @@ import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
  * What a point is for, which decides how it is drawn and whether it can be touched.
  *
  * `reference` and `reported` are the image pane's one-sided annotations of its own coordinate
- * space, from ticket 03 — **not** Control Points, which pair an image pixel with a place on the
- * earth and are incomplete without both halves (ADR-0022).
+ * space — **not** Control Points, which pair an image pixel with a place on the earth and are
+ * incomplete without both halves (ADR-0022).
  *
  * `mask-vertex` and `mask-edge` are the Resource Mask's handles, on the image pane only: the mask
  * is in image pixel space, so it has no meaning on the Base Map. A vertex can be moved and
  * removed; an edge handle sits at the midpoint of an edge and adds a vertex there.
  *
- * `annotation-vertex` and `annotation-draft` are ticket 10's, on the Base Map only — an Annotation is
- * on real geography. A vertex is the same object to a keyboard as a Control Point or a mask corner, so
+ * `annotation-vertex` and `annotation-draft` are on the Base Map only — an Annotation is on real
+ * geography. A vertex is the same object to a keyboard as a Control Point or a mask corner, so
  * it arrives on this seam rather than inside a WebGL drawing library that cannot be focused.
  * `annotation-draft` is a vertex of a shape still being placed — it has no identity to move or delete
  * yet, so it is drawn and not operable.
  *
- * There is deliberately **no** `annotation-edge` to match `mask-edge`. Ticket 10 declared one, gave it
- * a `+` glyph and a style, and never emitted a single one: inserting a vertex into a line or a shape is
- * not in that ticket. A kind nothing produces is an affordance the code promises and the app does not
- * have, so it is not here until something draws it.
+ * There is deliberately **no** `annotation-edge` to match `mask-edge`: nothing inserts a vertex into a
+ * line or a shape, so nothing would ever emit one. A kind nothing produces is an affordance the code
+ * promises and the app does not have, so it is not here until something draws it.
  */
 export type OverlayPointKind =
 	| 'reference'
@@ -132,8 +129,8 @@ export interface OverlayPointLayerOptions<TPoint> {
 	 * The point's own coordinates as `data-` attributes, for the Playwright suite.
 	 *
 	 * Per pane rather than per point, because only the pane knows what its coordinates are called.
-	 * It is how ticket 03's browser tests establish something a round trip cannot: a reference point
-	 * states the image pixel it claims to be at, the test clicks it, and the pane has to report that
+	 * It is how the browser tests establish something a round trip cannot: a reference point states
+	 * the image pixel it claims to be at, the test clicks it, and the pane has to report that
 	 * same pixel back — the point is *drawn* through `resourceToSynthetic` and MapLibre's project,
 	 * and the click returns through MapLibre's unproject and `syntheticToResource`, which is two
 	 * different directions rather than one function inverted by its own inverse.
@@ -170,12 +167,12 @@ interface Handle<TPoint> {
 /**
  * Draw and maintain a pane's overlay points.
  *
- * Reconciled by key rather than rebuilt wholesale. Ticket 03 rebuilt on every change, reasoning
- * that a stale point is a coordinate claim that is no longer true — which is right, and is still
- * enforced here by removing any point whose key has gone. But rebuilding also destroys the
- * element under the user's finger, and a Control Point is draggable and focusable: rebuilding
- * mid-gesture drops the drag, and rebuilding after an arrow-key nudge throws focus back to the
- * document, which makes the keyboard path unusable after exactly one keypress.
+ * Reconciled by key rather than rebuilt wholesale. A stale point is a coordinate claim that is no
+ * longer true, which is why any point whose key has gone is removed — but rebuilding everything to
+ * achieve that also destroys the element under the user's finger, and a Control Point is draggable
+ * and focusable: rebuilding mid-gesture drops the drag, and rebuilding after an arrow-key nudge
+ * throws focus back to the document, which makes the keyboard path unusable after exactly one
+ * keypress.
  */
 export function createOverlayPointLayer<TPoint>(
 	options: OverlayPointLayerOptions<TPoint>
@@ -221,7 +218,7 @@ export function createOverlayPointLayer<TPoint>(
 		// which cost the element `position: absolute` and left every point laid out in the container's
 		// normal flow: horizontally it happened to land near the right answer, vertically it was tens
 		// of pixels out, and the visible symptom was Control Points that did not sit where they were
-		// placed. Ticket 03 got away with assigning it because it assigned once, before construction.
+		// placed. Assigning the whole `className` is safe only before construction, and this runs after.
 		element.classList.add('pane-overlay-point', `pane-overlay-point-${point.kind}`);
 		element.classList.toggle('pane-overlay-point-selected', Boolean(point.selected));
 		element.classList.toggle('pane-overlay-point-pending', Boolean(point.pending));
@@ -260,9 +257,9 @@ export function createOverlayPointLayer<TPoint>(
 			element.removeAttribute('aria-hidden');
 			element.removeAttribute('title');
 		} else {
-			// Unchanged from ticket 03. A native `title` is a tooltip, which CONTRIBUTING says is not an
-			// information channel — compliant only because the element is `aria-hidden` and the same
-			// text is in the page as visible prose, so this is a mouse convenience on decoration.
+			// A native `title` is a tooltip, which CONTRIBUTING says is not an information channel —
+			// compliant only because the element is `aria-hidden` and the same text is in the page as
+			// visible prose, so this is a mouse convenience on decoration.
 			element.title = point.label;
 			element.setAttribute('aria-hidden', 'true');
 		}

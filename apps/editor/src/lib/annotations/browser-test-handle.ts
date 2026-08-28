@@ -7,11 +7,11 @@ export type AnnotationWrite = {
 	/**
 	 * How many bytes it was.
 	 *
-	 * ⚠ **Which write was counted, and not merely how many there were.** Ticket 03's "placing costs
-	 * one store write" has a second failure the count alone cannot see: a creation followed by a
-	 * *debounced* retitle records nothing for the second write, so the count stays at 1 while the
-	 * gesture cost two. The size says whether the write that was counted is the document that was
-	 * kept.
+	 * ⚠ **Which write was counted, and not merely how many there were.** The rule that placing an
+	 * Annotation costs one store write has a second failure the count alone cannot see: a creation
+	 * followed by a *debounced* retitle records nothing for the second write, so the count stays at 1
+	 * while the gesture cost two. The size says whether the write that was counted is the document
+	 * that was kept.
 	 */
 	bytes: number;
 };
@@ -21,11 +21,11 @@ declare global {
 		/**
 		 * Every Annotation write the app has made, in order, for the Playwright suite.
 		 *
-		 * The same bargain `ballastellaAlignmentWrites` struck in ticket 07, and for the same reason:
-		 * ticket 10's vertex criterion is about a **count** — editing a vertex must produce exactly one
-		 * store write, on gesture end (ADR-0017 rule 1). A per-pointer-move implementation passes any
-		 * "did it save?" assertion and fails this one, so the number is the whole point, and a write
-		 * into OPFS issues no request so there is nothing outside the page to count.
+		 * The same bargain `ballastellaAlignmentWrites` struck, and for the same reason: the vertex
+		 * criterion is about a **count** — editing a vertex must produce exactly one store write, on
+		 * gesture end (ADR-0017 rule 1). A per-pointer-move implementation passes any "did it save?"
+		 * assertion and fails this one, so the number is the whole point, and a write into OPFS issues
+		 * no request so there is nothing outside the page to count.
 		 *
 		 * It is not an API. Nothing in `src/` may read it.
 		 */

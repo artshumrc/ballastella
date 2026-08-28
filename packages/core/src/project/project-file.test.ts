@@ -49,7 +49,7 @@ describe('project.json', () => {
 	 * Asserted as the exact key set rather than as an absence, so the day something is added to
 	 * `ProjectFile` this test says so and somebody decides on purpose. An absence assertion goes green
 	 * for a field nobody has thought about, which is how the deleted one would come back under another
-	 * name — the thing ticket 02 forbids by name.
+	 * name.
 	 */
 	it('parses to exactly the fields this build understands', () => {
 		const opened = parseProjectFile(serialiseProjectFile(newProjectFile('x', new Date(0))));
@@ -373,7 +373,7 @@ describe('Import Provenance (ADR-0037)', () => {
 	});
 
 	/**
-	 * ⚠ **Only the literal `'observed'` is observed** (SPEC story 64).
+	 * ⚠ **Only the literal `'observed'` is observed.**
 	 *
 	 * An entry with no `evidence`, or one from a build that spells it a third way, reads as inherited:
 	 * the direction that costs nothing is the one that does not claim this application witnessed a
@@ -430,7 +430,7 @@ describe('Import Provenance (ADR-0037)', () => {
 
 	// The carried field and a real history cannot both be written under one key, and the history is
 	// the one this build is appending to: a transfer that let the unreadable value win would report a
-	// Project imported and leave no trace that it ever was (SPEC story 65).
+	// Project imported and leave no trace that it ever was.
 	it('lets a transfer append over an importProvenance of some other shape', () => {
 		const parsed = parseProjectFile(withHistory('one day this was a string'));
 

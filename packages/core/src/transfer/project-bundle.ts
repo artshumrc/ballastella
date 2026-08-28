@@ -1,4 +1,4 @@
-// What a **handoff bundle** is, shared by the writer and the reader (ticket 14, ADR-0024).
+// What a **handoff bundle** is, shared by the writer and the reader (ADR-0024).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // A BUNDLE IS ONE PROJECT, AND IT OPENS ONLY INTO A REVIEW WORKSPACE
@@ -37,12 +37,12 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A TAR AND NOT A ZIP, ON THIS PATH TOO
 //
-// The whole-Workspace path moved first (ticket 13), and the arguments are the same here with one
-// addition. The zip writer counted entries in a sixteen-bit field: 70,000 entries produced an archive
-// whose index claimed 4,464, and `unzipSync` read back 4,464 files **with no error at all**.
-// The zip exporter refused above 65,535 files so that never shipped — and SPEC puts "tens of
-// thousands of files" on a single 2 GB pyramid, so a Project with two large archival scans was
-// refused *by the export path a student uses to hand their work in*.
+// The whole-Workspace path moved first (`workspace-tar.ts`), and the arguments are the same here with
+// one addition. The zip writer counted entries in a sixteen-bit field: 70,000 entries produced an
+// archive whose index claimed 4,464, and `unzipSync` read back 4,464 files **with no error at all**.
+// The zip exporter refused above 65,535 files so that never shipped — and a single 2 GB pyramid runs
+// to tens of thousands of files, so a Project with two large archival scans was refused *by the
+// export path a student uses to hand their work in*.
 //
 // Tar has no central directory and no entry count, so the ceiling does not exist; it is streamable in
 // both directions, so a large bundle can be read on an iPad; and a truncated tar **throws** rather
@@ -139,7 +139,7 @@ export class BundleRejectedError extends Error {
  * **The stakes are lower here than on either other path, and the check is kept anyway.** A bundle is
  * written into a Review Workspace created seconds ago, so an escaping entry lands inside a directory
  * that is about to be thrown away — unless it climbs out of the Workspace altogether, which is the
- * case this exists for: since ticket 12 the OPFS root holds *every* Workspace the user has, and on a
+ * case this exists for: the OPFS root holds *every* Workspace the user has (ADR-0008), and on a
  * folder-backed one it is a folder granted for one purpose. A bundle is the artefact most likely to
  * have come from a stranger, so it gets the strictest reading rather than the most relaxed.
  *

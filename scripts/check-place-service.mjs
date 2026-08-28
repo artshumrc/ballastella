@@ -265,7 +265,7 @@ if (violations.length > 0) {
 
 if (failed) process.exit(1);
 
-console.log(`${serviceModule}: ${host} named nowhere else (ADR-0029, SPEC story 26).`);
+console.log(`${serviceModule}: ${host} named nowhere else (ADR-0029).`);
 
 /** @param {string} directory @returns {string[]} */
 function walk(directory) {

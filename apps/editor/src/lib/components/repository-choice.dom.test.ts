@@ -1,10 +1,10 @@
-// What the choice of repository shows and what it refuses (SPEC stories 11–15), at Seam 1c.
+// What the choice of repository shows and what it refuses, at Seam 1c.
 //
 // ⚠ **The subject is the list as a choice, not the listing.** Which repositories GitHub reports and
-// what a rejected sign-in does are `github-installations.ts`'s at Seam 1; that the sequence reads
-// them and connects one is later tickets'. What only this seam can say cheaply is which rows are
-// present, what each is marked with, which of them a press reports, and which it refuses — none of
-// which needs a browser.
+// what a rejected sign-in does are `github-installations.ts`'s at Seam 1; that they are read and
+// one is connected belongs to whoever owns the sequence. What only this seam can say cheaply is
+// which rows are present, what each is marked with, which of them a press reports, and which it
+// refuses — none of which needs a browser.
 //
 // ⚠ **Unselectable is asserted through the callback, not through `disabled`.** The rows stay in the
 // tab order deliberately, so "it cannot lead me into the failure it just warned me about" is a claim
@@ -76,8 +76,8 @@ const text = (element: Element | null | undefined): string =>
 const said = (): string => text(document.body);
 
 describe('the repositories a person may put their map in', () => {
-	// Story 14: an absent repository has to read as access not granted rather than as a repository
-	// that is not there, and only the list itself can say so.
+	// An absent repository has to read as access not granted rather than as a repository that is not
+	// there, and only the list itself can say so.
 	test('says the list is what has been given access, before the list', () => {
 		choice([publishable]);
 
@@ -85,7 +85,7 @@ describe('the repositories a person may put their map in', () => {
 		expect(said()).toContain('has not been given access yet');
 	});
 
-	// Story 12: every row, not only the refused ones — absence is not a mark.
+	// Every row, not only the refused ones — absence is not a mark.
 	test('marks each repository with whether it can be published to', () => {
 		choice([publishable, readOnly]);
 
@@ -104,7 +104,7 @@ describe('the repositories a person may put their map in', () => {
 });
 
 /**
- * Story 13. Hiding these rows reproduces the mystery this epic exists to remove — the author goes
+ * Hiding these rows reproduces the very mystery this screen exists to remove — the author goes
  * looking for the repository they made and cannot tell a permission they did not grant from a
  * repository that is not there — so each is present, marked, and refused.
  */
@@ -156,8 +156,8 @@ describe('a repository that cannot be published to', () => {
 	});
 });
 
-// Story 15: nothing granted is the ordinary state of somebody who has just made an account, and a
-// blank area under a heading reads as something that failed.
+// Nothing granted is the ordinary state of somebody who has just made an account, and a blank area
+// under a heading reads as something that failed.
 describe('having granted nothing', () => {
 	test('is a step with an instruction rather than an empty area', () => {
 		choice([]);

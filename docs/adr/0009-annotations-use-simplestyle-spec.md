@@ -32,7 +32,7 @@ Both packages are **direct dependencies of both apps, declared in the ADR-0019 c
 
 The motivation above names footnotes, and they are the one part with a real cost. Footnote syntax emits anchor ids and back-references, so several annotation popups rendered on one page collide in the DOM unless the renderer namespaces ids per feature — and the sanitiser must then be configured to permit those ids and fragment links, widening the allowlist on the single surface in this project where a mistake is a vulnerability rather than a defect.
 
-v1 ships **emphasis and links**. Footnote syntax typed by a user degrades to literal text, which is the same graceful-degradation property that motivated choosing Markdown in the first place. User story 62 is amended to match.
+v1 ships **emphasis and links**. Footnote syntax typed by a user degrades to literal text, which is the same graceful-degradation property that motivated choosing Markdown in the first place.
 
 ## Style precedence
 

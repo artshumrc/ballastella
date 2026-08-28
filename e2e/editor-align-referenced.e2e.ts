@@ -21,7 +21,7 @@ import { alignFromLayer, layerRows, openLayerRow } from './support/layers.js';
 import { seedFile } from './support/stored-file.js';
 
 /**
- * Ticket 07: a Map Image whose tiles are on a Library's server is aligned **in place**.
+ * A Map Image whose tiles are on a Library's server is aligned **in place**.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHAT ONLY THIS FILE CAN ASSERT
@@ -31,16 +31,16 @@ import { seedFile } from './support/stored-file.js';
  * `packages/core/src/image-pane/iiif-image-pane.test.ts`. That is deliberate: it is what makes the
  * add-time refusal decidable without a browser.
  *
- * What is left is everything a browser is needed for, and it is the whole of the ticket:
+ * What is left is everything a browser is needed for:
  *
  *   * that the align route really builds its pane from the Library rather than from the Workspace,
  *     asserted by **where the tile requests went** and by the pane's own reported geometry;
  *   * that Control Points place on it and the warped Layer draws — asserted through the per-Layer
  *     tile cache, which counts tiles that arrived **and decoded**. A check for an absence of console
- *     errors is not acceptable here and the ticket says so: the pre-patch `@allmaps/render` failure
- *     was swallowed, and a console-only check went green over a blank map;
+ *     errors is not acceptable here: the pre-patch `@allmaps/render` failure was swallowed, and a
+ *     console-only check went green over a blank map;
  *   * that **no pyramid appears in the Workspace**, asserted as an exact file list rather than a
- *     count, which is the shape ticket 06 established for "nothing was copied";
+ *     count, which is the shape this suite keeps for "nothing was copied";
  *   * and what happens with the connection cut, on both sides of the pane existing.
  *
  * Every host is routed from `support/iiif-hosts.ts`, so **nothing in this file reaches the internet.**
@@ -128,7 +128,7 @@ async function addReferenced(
 const layerFor = (page: Page, imageId: string) =>
 	page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`);
 
-/** Every file under `images/<imageId>/`, sorted. The exact-list shape ticket 06 established. */
+/** Every file under `images/<imageId>/`, sorted, so "nothing was copied" is a list and not a count. */
 const imageFiles = (page: Page, imageId: string): Promise<string[]> =>
 	page.evaluate(async (id) => {
 		const root = await workspaceRoot();
@@ -194,8 +194,8 @@ for (const [what, host] of [
 
 		// Every tile request, by host, so "the pane read the Library" is a claim about the network
 		// rather than about a variable. And nothing may reach the ADR-0004 placeholder host: that is
-		// what a referenced map drawn as though its pyramid were here would ask for, and before this
-		// ticket it is exactly what the pane asked for.
+		// what a referenced map drawn as though its pyramid were here would ask for, and it is exactly
+		// what the pane asked for before it read the Library.
 		const tileRequests: string[] = [];
 		const placeholderRequests: string[] = [];
 		page.on('request', (request) => {
@@ -216,8 +216,8 @@ for (const [what, host] of [
 		await expect(pyramid).toHaveAttribute('data-width', '700');
 		await expect(pyramid).toHaveAttribute('data-height', '500');
 
-		// Deep zoom: the finest level exists and is asked for. Before this ticket every one of these
-		// requests went to `unset.invalid` and was answered out of a store with no such pyramid.
+		// Deep zoom: the finest level exists and is asked for. Every one of these requests used to go
+		// to `unset.invalid`, answered out of a store with no such pyramid.
 		//
 		// **A tile served 1:1 is what "the finest level" means**, and that is what `atFullResolution`
 		// asks: region width equals output width. The first cut of this matched `/1,0/0/default` as an
@@ -243,8 +243,8 @@ for (const [what, host] of [
 		});
 
 		// ⚠ **`data-warped-status="drawn"` is not the assertion, and this is why.** It says the
-		// renderer accepted a document, not that any of the map arrived. Before this ticket the align
-		// route built that document from the ADR-0004 placeholder even for a referenced map, so
+		// renderer accepted a document, not that any of the map arrived. The align route used to build
+		// that document from the ADR-0004 placeholder even for a referenced map, so
 		// `@allmaps/maplibre` asked the ADR-0011 shim for a pyramid the Workspace does not contain —
 		// and because the shim answers internally, **there is no request on the wire to catch it**, so
 		// `placeholderRequests` above stays empty either way. The status went `drawn`, the map was
@@ -282,7 +282,7 @@ test('writes an Alignment addressed at the library, which round-trips unchanged'
 	expect(written).not.toBeNull();
 	const document = JSON.parse(written as string);
 
-	// SPEC story 60 and ADR-0007: this is what makes the file resolvable by Allmaps, and what makes
+	// ADR-0007: this is what makes the file resolvable by Allmaps, and what makes
 	// the warped Layer render at all — `@allmaps/maplibre` fetches tiles from this id. The placeholder
 	// here would be a standard-shaped document nothing in the world can resolve.
 	expect(document.target.source.id).toBe(service('images.test', 'florida'));
@@ -336,9 +336,9 @@ test('refuses a service that publishes no tiles when the map is added, naming th
 	// A remedy that exists at this moment: the map has not been added, so nothing about it can be
 	// copied yet.
 	await expect(error).toContainText('add it from a file');
-	// **Not** the diagnosis for a document of the wrong shape. This is the message the app gave before
-	// ticket 07, and it sends the user hunting for a IIIF link on a page that already gave them the
-	// right URL — see `remote-resource.ts` for why one `IIIF.parse` call produces both faults.
+	// **Not** the diagnosis for a document of the wrong shape. That message sends the user hunting for
+	// a IIIF link on a page that already gave them the right URL — see `remote-resource.ts` for why
+	// one `IIIF.parse` call produces both faults.
 	await expect(error).not.toContainText('not a IIIF Manifest');
 
 	// **No Layer, and nothing on disk.** The unguarded direction: a refusal that still added the map
@@ -351,8 +351,8 @@ test('refuses a service that publishes no tiles when the map is added, naming th
 test('still refuses a host whose info.json is readable and whose tiles are not', async ({
 	page
 }) => {
-	// Ticket 06's behaviour, asserted here so this ticket cannot regress it: extending the add-time
-	// probe to *build the pane* must not displace the CORS half of the same probe.
+	// Asserted here so the pane cannot regress it: extending the add-time probe to *build the pane*
+	// must not displace the CORS half of the same probe.
 	await installIiifHosts(page);
 	await openNewProject(page);
 
@@ -371,8 +371,8 @@ test('says on the Layer, in text, where this map’s tiles live', async ({ page 
 	await openNewProject(page);
 	await addReferenced(page, 'images.test');
 
-	// **Text in the accessibility tree, not a colour** — the same treatment ticket 05 gave the
-	// not-aligned state. Asserted by reading the accessible text rather than the `data-` attribute,
+	// **Text in the accessibility tree, not a colour** — the same treatment the not-aligned state
+	// gets. Asserted by reading the accessible text rather than the `data-` attribute,
 	// because the attribute is for tests and the sentence is for the user; a version that kept the
 	// attribute and dropped the words would pass an attribute assertion.
 	// Inside the open card since the Layers revision, so the card is opened rather than the badge
@@ -391,7 +391,7 @@ test('says on the Layer, in text, where this map’s tiles live', async ({ page 
 //
 // `context.setOffline` is the emulation, and it feeds `navigator.onLine` and the `offline` event —
 // which is the app's one online signal, owned by `InstalledApp`. No second listener was added for
-// this (ticket 07's out-of-scope list), so what these two tests exercise is that signal.
+// this, so what these two tests exercise is that signal.
 
 test('refuses to open the alignment view offline, and names the host', async ({
 	page,
@@ -541,16 +541,16 @@ test('an offline copy of a map aligned in place keeps every Control Point', asyn
 // session's read and its write. It asks for **visibility, not prevention** — and visibility is a
 // screen, so nothing under `packages/core` and nothing on `EditorSession` can stand in for it.
 //
-// The first cut of this ticket asserted `opened.alignmentChangedElsewhere?.imageId` in a unit test:
-// a **session field**, which is precisely the proxy SPEC's Testing Decisions rule out — "assert on
-// file contents and on rendered UI, never on internal call sequences, private state". Every one of
-// the four deletions below left the whole suite green: the alert, both handlers, the assignment that
-// lets `reload()` find the pyramid, and the `reload()` call itself, which is a real data-loss path —
-// without it the screen keeps drawing the Control Points the user has just given up and the next
-// drag writes them back.
+// The first cut of this asserted `opened.alignmentChangedElsewhere?.imageId` in a unit test: a
+// **session field**, which is precisely the proxy CONTRIBUTING's testing decisions rule out —
+// "assert on file contents and on rendered UI, never on internal call sequences, private state, or
+// module structure". Every one of the four deletions below left the whole suite green: the alert,
+// both handlers, the assignment that lets `reload()` find the pyramid, and the `reload()` call
+// itself, which is a real data-loss path — without it the screen keeps drawing the Control Points
+// the user has just given up and the next drag writes them back.
 //
 // The Workspace here holds a **referenced** map because this file's subject is a referenced map, and
-// the concurrent-edit path is the one place ticket 07's own writer runs with `basedOn` set.
+// the concurrent-edit path is the one place a referenced map's own writer runs with `basedOn` set.
 
 /**
  * A colleague's Alignment, arriving through a synced Workspace while this session has it open.
@@ -710,12 +710,12 @@ const usedByFor = (page: Page, imageId: string) =>
 	page.getByTestId('map-image').filter({ hasText: imageId }).getByTestId('used-by');
 
 /**
- * SPEC story 68: this is a fact about a Map Image, so it is told on the Map Image's own row.
+ * This is a fact about a Map Image, so it is told on the Map Image's own row.
  *
  * ADR-0023 shares one Alignment between every Project that draws the map, so refining a placement
  * moves all of them — published ones included. That is something to know *before* opening the align
  * screen rather than prose beside the controls while a scholar is clicking, so the sentence belongs
- * to the Workspace Home's Map Image row and the align sidebar carries no copy of it (ticket 07).
+ * to the Workspace Home's Map Image row and the align sidebar carries no copy of it.
  *
  * **Both halves are asserted here.** Asserting only the row leaves nothing pinning the sidebar's
  * silence, and a fact explained in words nowhere else could stop being told at all with the suite
@@ -819,8 +819,8 @@ test('says what this screen is doing, in regions a screen reader is told about',
 	await alignFromLayer(page);
 	await waitForPane(page);
 
-	// SPEC story 112, and the reason it needs asserting *here*: both panes are WebGL canvases, which
-	// announce their accessible name and nothing about what happens in them. Every claim below is
+	// Announced rather than merely rendered, and the reason it needs asserting *here*: both panes are
+	// WebGL canvases, which announce their accessible name and nothing about what happens in them. Every claim below is
 	// about the accessibility tree rather than about a `data-testid`, which is what the rest of this
 	// file reads.
 	await expect(page.getByTestId('pairing-status')).toHaveAttribute('aria-live', 'polite');
@@ -843,10 +843,9 @@ test('says what this screen is doing, in regions a screen reader is told about',
 	await expect(region).toBeEmpty();
 	await expect(page.getByTestId('map-image-offline')).toHaveCount(0);
 
-	// ⚠ **Four regions above, and the fifth one the Contract names is on another screen.** The
-	// used-by sentence lives on the Map Image's row on the Workspace Home (ticket 07), so the
-	// roll-call follows it there rather than counting one region fewer — which is how the fact would
-	// vanish with the suite green.
+	// ⚠ **Four regions above, and the fifth is on another screen.** The used-by sentence lives on the
+	// Map Image's row on the Workspace Home, so the roll-call follows it there rather than counting one
+	// region fewer — which is how the fact would vanish with the suite green.
 	//
 	// **It carries no region there, and that is the arrangement rather than an omission**: the
 	// sentence arrives with the row from the one `refreshMapImages` walk that fills the rest of it, so

@@ -1,6 +1,6 @@
 // The cache as files in a Workspace: what makes a Project available offline, and what unmakes it.
 //
-// SPEC's Seam 1 — "after this sequence of actions the store holds these files with this content" is
+// Seam 1 — "after this sequence of actions the store holds these files with this content" is
 // the behaviour and not a proxy for it. Everything the criteria claim about deduplication, growth,
 // refetching, and clearing is a claim about which paths exist, so it is asserted about paths.
 
@@ -32,8 +32,8 @@ import { MemoryProjectStore } from '../store/memory-project-store';
 /**
  * The deployment's archive, as a catalog entry spells it. Every cache in this file is keyed on it.
  *
- * A second one appears where two archives have to meet — the arrangement ticket 12 keyed the
- * directory for, and the one an unkeyed cache drew the wrong world in.
+ * A second one appears where two archives have to meet — the arrangement the directory is keyed for,
+ * and the one an unkeyed cache drew the wrong world in.
  */
 const ARCHIVE = 'https://example.test/basemaps.pmtiles';
 
@@ -188,7 +188,7 @@ describe('fetchTilesIntoCache', () => {
 
 	it('writes a tile file for every zoom from 0 to the source maximum', async () => {
 		// **Every** zoom, because omitting the low ones makes zooming out go blank inside an area the
-		// user was told is available offline (ADR-0025, SPEC story 6) — and an empty tile is not an
+		// user was told is available offline (ADR-0025) — and an empty tile is not an
 		// error, so the failure is a blank pane with nothing to show for it.
 		const store = new MemoryProjectStore();
 		await fetchTilesIntoCache({
@@ -386,8 +386,8 @@ describe('what the cache records about where it came from', () => {
 	});
 });
 
-describe('a Workspace filled before the directory was keyed (ticket 11)', () => {
-	/** The unkeyed layout, seeded the way ticket 11's build left it. */
+describe('a Workspace filled before the directory was keyed', () => {
+	/** The unkeyed layout, seeded the way an older build left it. */
 	const seedLegacy = async (store: MemoryProjectStore, tiles: readonly TileCoordinate[]) => {
 		for (const tile of tiles) await store.write(legacyCachedTilePath(tile), new Uint8Array(100));
 	};

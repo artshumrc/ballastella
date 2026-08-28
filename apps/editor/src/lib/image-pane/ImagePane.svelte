@@ -9,9 +9,8 @@
 	 * Deliberately not called a marker and deliberately not called a registration point.
 	 * CONTEXT.md lists **marker** under the words to avoid for a Control Point and **register**
 	 * under those to avoid for an Alignment, and CONTRIBUTING makes that binding on the code as
-	 * well as the UI. It matters more than usual here: ticket 07 adds Control Points to this pane
-	 * through this exact interface, so a banned word in the name would become the name of the
-	 * seam Control Points arrive on, and renaming it then is a cross-ticket change.
+	 * well as the UI. It matters more than usual here: Control Points reach this pane through this
+	 * exact interface, so a banned word in the name would be the name of the seam they arrive on.
 	 *
 	 * `reference` and `reported` are **not** Control Points. A Control Point pairs an image pixel
 	 * with a place on the earth and is incomplete without both halves (ADR-0022); those two are
@@ -19,7 +18,7 @@
 	 * whose pixel is known in advance, `reported` for the pixel the user last asked about.
 	 *
 	 * A Control Point's image half arrives here as `kind: 'control-point'`, through this same
-	 * interface and not a parallel one, which is what ticket 03 renamed `PaneMarker` for.
+	 * interface and not a parallel one.
 	 */
 	export type PaneOverlayPoint = OverlayPoint<ResourcePoint>;
 </script>
@@ -134,7 +133,7 @@
 				version: 8,
 				// No glyphs and no sprite: nothing in this style needs them, and pointing at a
 				// remote font endpoint would put a network dependency in the middle of a pane whose
-				// whole content is local (user story 8).
+				// whole content is local.
 				sources: {
 					'map-image': {
 						type: 'raster',
@@ -274,7 +273,7 @@
 			return [at.lng, at.lat];
 		});
 		// GeoJSON rings are closed, and the model's is not — the closing vertex is redundant data that
-		// upstream's own parser strips (SPEC story 91), so it is added here rather than stored.
+		// upstream's own parser strips, so it is added here rather than stored.
 		if (hole.length >= 3) hole.push(hole[0] as number[]);
 
 		return {

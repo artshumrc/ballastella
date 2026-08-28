@@ -15,7 +15,7 @@ export interface HideEventTargets {
  * indistinguishable from working until somebody loses an afternoon.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
- * ⚠ THE FLUSH ALONE WAS NEVER ENOUGH, AND IT IS MEASURED (ticket 20, 2026-08-07)
+ * ⚠ THE FLUSH ALONE WAS NEVER ENOUGH, AND IT IS MEASURED (2026-08-07)
  *
  * The measurement is in ADR-0017, "Rule 3, amended", which is its one home; it is not transcribed
  * here, because a number copied into four files is four numbers.

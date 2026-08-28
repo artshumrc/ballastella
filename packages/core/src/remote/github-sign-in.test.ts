@@ -23,7 +23,7 @@ import {
 	writeGrantRecord
 } from './github-sign-in.js';
 
-// SPEC's Seam 1 for the GitHub App path (ticket 10, ADR-0031). The whole flow is asserted here
+// The in-memory seam for the GitHub App path (ADR-0031). The whole flow is asserted here
 // against the one shared fake — the authorize redirect, the `state` check, the code exchange, the
 // refresh, and the expiry — so that the browser suite has to assert only what a browser can show.
 
@@ -145,10 +145,10 @@ describe('the state', () => {
 	});
 });
 
-// SPEC story 57. GitHub answers a refusal with `error`, `error_description` and **the real `state`**,
-// and no code at all — so a reader that took only `code` and `state` found a state that verifies and
-// posted the empty string to the broker, and the scholar who pressed Cancel was told the code passed
-// was incorrect or expired.
+// GitHub answers a refusal with `error`, `error_description` and **the real `state`**, and no code at
+// all — so a reader that took only `code` and `state` found a state that verifies and posted the empty
+// string to the broker, and the scholar who pressed Cancel was told the code passed was incorrect or
+// expired.
 describe('a callback that refuses rather than authorises', () => {
 	const cancelled = new URLSearchParams(
 		'error=access_denied&error_description=The+user+has+denied+your+application+access.&state=abc123'
@@ -314,8 +314,9 @@ describe('the refresh', () => {
 		expect(who.status).toBe(200);
 	});
 
-	// Story 33's other half: when the refresh fails there is nothing left to do but sign in again, and
-	// the caller has to be able to tell that apart from a broker that was merely unreachable.
+	// The other half of an expiring sign-in: when the refresh fails there is nothing left to do but
+	// sign in again, and the caller has to be able to tell that apart from a broker that was merely
+	// unreachable.
 	it('surfaces an expired refresh token as a refusal', async () => {
 		const fake = await github();
 		fake.refuseRefresh = true;

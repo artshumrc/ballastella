@@ -28,7 +28,7 @@ import { addMapImageButton, pickMapImageFile } from './support/map-images.js';
 import { alignFromLayer, openLayerRow } from './support/layers';
 
 /**
- * Ticket 03: aligning is a route of its own.
+ * Aligning is a route of its own.
  *
  * The pairing, mask, undo and distortion behaviour the route carries is asserted where it already was
  * — `editor-alignment.e2e.ts`, `editor-alignment-refinement.e2e.ts` and `editor-undo.e2e.ts` all now
@@ -38,7 +38,7 @@ import { alignFromLayer, openLayerRow } from './support/layers';
  */
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET.
 //
 // Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
 // bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
@@ -83,8 +83,7 @@ async function projectWithMap(page: Page): Promise<void> {
 const layerParam = (page: Page): string => new URL(page.url()).searchParams.get('layer') ?? '';
 
 /**
- * At `width`: the two panes are exactly equal, and the Control Point column is solid and docked
- * (ticket 10, SPEC stories 48 and 49).
+ * At `width`: the two panes are exactly equal, and the Control Point column is solid and docked.
  *
  * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
  * │ MEASURED FROM THE RENDERED BOXES, NEVER READ OFF A CLASS NAME.                             │
@@ -226,7 +225,7 @@ test.describe('the alignment route', () => {
 		// Nothing has been aligned, and the Layer is nonetheless already there: adding the Map Image
 		// is what put it in the stack (ADR-0023). So Align is a plain link whose `href` was knowable
 		// before the click, which is what the URL assertions below are really measuring.
-		// Opened first, because Align is inside the Layer it aligns (ticket 05).
+		// Opened first, because Align is inside the Layer it aligns.
 		const row = await openLayerRow(page);
 		await expect(row.getByTestId('align-map-image')).toHaveRole('link');
 		await row.getByTestId('align-map-image').click();
@@ -272,7 +271,7 @@ test.describe('the alignment route', () => {
 		await makePair(page, [0.3, 0.3]);
 		await expect(rows(page)).toHaveCount(1);
 
-		// ─── The shell (ticket 10, SPEC stories 47 and 51) ───────────────────────────────────────
+		// ─── The shell ───────────────────────────────────────────────────────────────────────────
 		//
 		// The route wears the application's own bar rather than a header strip of its own: where you
 		// are, the way back, and — because they are on every screen — the save indicator and undo.
@@ -364,8 +363,8 @@ test.describe('the alignment route', () => {
 		).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
 
-		// 4. A `layer` this Project has no Map Image Layer for — the state ticket 03 adds, and the
-		//    one that used to be an empty split screen.
+		// 4. A `layer` this Project has no Map Image Layer for — a named state rather than an empty
+		//    split screen.
 		await page.goto(`/align?p=${PROJECT_DIRECTORY}&layer=not-a-layer-in-this-project`);
 		await expect(page.getByTestId('layer-missing')).toBeVisible();
 		await expect(page.getByTestId('layer-missing')).toContainText('not-a-layer-in-this-project');
@@ -464,16 +463,16 @@ test.describe('the alignment route', () => {
 	 * every Project that draws the map, published sites included — so a route that wrote one on the
 	 * way in would make opening a view a sync event in a git or Dropbox Workspace, and would push any
 	 * field of a third-party Alignment document that `Alignment` does not model through
-	 * `serialiseAlignment` and out of existence (SPEC story 60).
+	 * `serialiseAlignment` and out of existence.
 	 *
 	 * A draft of this route did exactly that: the Align control resolved its Layer by routing
 	 * `readAlignment` into `writeAlignment`. **Counted rather than compared**, because byte-identity
 	 * cannot tell "no write" from "a rewrite of the same content", and it is the write itself that is
 	 * the defect here.
 	 *
-	 * It also carries SPEC story 36 — one Layer per Map Image per Project — against the gesture
-	 * ticket 03 adds, which is the one gesture that could newly break it: `project.json` byte-identical
-	 * across a round trip through the route says no Layer was created, renamed, or reordered by it.
+	 * It also carries "one Layer per Map Image per Project" against the gesture this route adds, which
+	 * is the one gesture that could break it: `project.json` byte-identical across a round trip through
+	 * the route says no Layer was created, renamed, or reordered by it.
 	 */
 	test('opening it writes no Alignment and adds no Layer', async ({ page }) => {
 		test.setTimeout(120_000);
@@ -529,22 +528,22 @@ test.describe('the alignment route', () => {
 		await expect(addMapImageButton(page)).toBeVisible();
 		await page.waitForTimeout(1000);
 
-		// The bytes agree with the counter, on both documents. `project.json` is SPEC story 36 against
-		// the gesture ticket 03 adds: no Layer created, renamed, or reordered by a trip through the
-		// route.
+		// The bytes agree with the counter, on both documents. `project.json` carries "one Layer per Map
+		// Image per Project" against the gesture this route adds: no Layer created, renamed, or
+		// reordered by a trip through it.
 		expect(await storedAlignment(page, imageId)).toBe(alignmentBefore);
 		expect(await storedProjectFile(page)).toBe(before);
 	});
 
 	/**
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * THE POSITIVE CONTROL FOR THE TEST ABOVE (ticket 18)
+	 * THE POSITIVE CONTROL FOR THE TEST ABOVE
 	 *
 	 * The test above proves a write did not happen by reading an array that `recordAlignmentWrite`
-	 * pushes into. **On its own that is vacuous**, and in exactly the way this epic keeps producing:
-	 * delete the instrumentation, or arm it after the reload that throws it away, and the array is
-	 * empty for reasons that have nothing to do with the route. An assertion that something is absent
-	 * needs a companion showing the same apparatus reporting it present.
+	 * pushes into. **On its own that is vacuous**, and in the way this suite keeps finding: delete the
+	 * instrumentation, or arm it after the reload that throws it away, and the array is empty for
+	 * reasons that have nothing to do with the route. An assertion that something is absent needs a
+	 * companion showing the same apparatus reporting it present.
 	 *
 	 * So this places one Control Point and asserts the counter is non-empty, through the same
 	 * `watchWrites` / `writes` pair, in the same route, on the same document. Together the two say
@@ -749,8 +748,7 @@ test.describe('“Check this alignment”', () => {
 
 test.describe('the route from the keyboard', () => {
 	/**
-	 * SPEC story 111 and ticket 03's last criterion: every control is reachable by Tab, and the way
-	 * back is among them.
+	 * Every control is reachable by Tab, and the way back is among them.
 	 *
 	 * Walked rather than asserted one control at a time, because "reachable" is a property of the tab
 	 * order and not of any single element — a control with `tabindex="-1"`, or one inside a container
@@ -812,7 +810,7 @@ test.describe('the route from the keyboard', () => {
 	});
 
 	/**
-	 * SPEC stories 62, 63 and 69: the column is ordered by what a scholar is doing.
+	 * The column is ordered by what a scholar is doing.
 	 *
 	 * The prompt answers "what do I click next" and is read after every half-pair, so it is first. The
 	 * Control Points are what the screen is *for*, so they come before how the map is stretched and
@@ -825,7 +823,7 @@ test.describe('the route from the keyboard', () => {
 	 * **The alerts sit above the Control Points**, which is why this drives the column into a state
 	 * that raises the fold warning and asserts its place in the sequence: below `lg` the column is a
 	 * footer, so a fifty-point Alignment between the maps and a warning would put the warning off the
-	 * bottom of a phone. Story 63 asks for the points before the stretch controls, not before the
+	 * bottom of a phone. The order asked for is the points before the stretch controls, not before the
 	 * warnings.
 	 */
 	test('puts the prompt first, then the Control Points, then the stretch, then Done', async ({
@@ -871,12 +869,11 @@ test.describe('the route from the keyboard', () => {
 	});
 
 	/**
-	 * SPEC story 112: what this screen does, in text.
+	 * What this screen does, in text.
 	 *
-	 * **Behind "How this works" in the sidebar now.** It was standing prose above the panes, which is
-	 * the height the maps needed. What story 112 asks for is asserted unchanged — visible text rather
-	 * than a `title` — and the trade is stated rather than hidden: the sentence now follows the two
-	 * canvases in the reading order instead of introducing them.
+	 * **Behind "How this works" in the sidebar.** Standing prose above the panes costs the height the
+	 * maps need, so the sentence is disclosed rather than always present — still visible text rather
+	 * than a `title`, and following the two canvases in the reading order instead of introducing them.
 	 */
 	test('says what the two panes are for, as text rather than as a tooltip', async ({ page }) => {
 		await start(page);
@@ -890,7 +887,7 @@ test.describe('the route from the keyboard', () => {
 		await expect(explainer).toContainText('Click a feature on the Map Image');
 		await expect(explainer).not.toHaveAttribute('title', /.+/);
 
-		// **The two notes about consequences are in here with it** (SPEC stories 62, 67). Both are
+		// **The two notes about consequences are in here with it**. Both are
 		// prose about what a choice costs rather than help for making it, so they sit behind the same
 		// disclosure as the rest of the explanation instead of standing in the transformation group.
 		// `transformation-picker.dom.test.ts` asserts the other half: that neither renders in that

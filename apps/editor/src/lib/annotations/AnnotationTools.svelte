@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The drawing toolbar (SPEC stories 57, 58, 59).
+	// The drawing toolbar.
 	//
 	// **Ours to build, and ADR-0005 treats that as desirable** rather than as a cost: a teaching tool
 	// wants a small curated set of tools, not a generic GIS toolbar.
@@ -76,13 +76,13 @@
 	 *
 	 * **The "no Layer to draw into" announcement is gone because the state is now unreachable, not
 	 * because it stopped mattering.** It read "Add an Annotation Layer to start drawing." and rode a
-	 * `disabled` prop that `AnnotationPanel` passed as `layer === null`. Since ticket 05 the only
-	 * render path to this component is `AnnotationLayerContents`, which `LayerList` renders only from
-	 * its `annotationContents` snippet, which it invokes only for a Layer that is both `kind ===
-	 * 'annotation'` and open — so `layer` is always a real Annotation Layer and there is no state
-	 * left for the sentence to describe. Removing an announcement is otherwise an accessibility
-	 * regression (SPEC story 112), so if a second render path is ever added, the `disabled` state and
-	 * its sentence have to come back with it.
+	 * `disabled` prop that `AnnotationPanel` passed as `layer === null`. The only render path to this
+	 * component is `AnnotationLayerContents`, which `LayerList` renders only from its
+	 * `annotationContents` snippet, which it invokes only for a Layer that is both `kind ===
+	 * 'annotation'` and open — so `layer` is always a real Annotation Layer and there is no state left
+	 * for the sentence to describe. Removing an announcement is otherwise an accessibility regression,
+	 * so if a second render path is ever added, the `disabled` state and its sentence have to come back
+	 * with it.
 	 *
 	 * What that sentence *also* did — tell a scholar with no Annotation Layer yet what to do about it
 	 * — did not go away with it. It is beside the "Add an Annotation Layer" button in
@@ -122,11 +122,11 @@
 			a radio group would promise arrow-key navigation between them that a `<button>` set does not
 			have.
 
-			The glyph goes **beside** each shape's name, never instead of it (SPEC story 111): the words
-			stay on the button, so the icon is a second channel rather than the only one. It is the same
-			glyph the list of Annotations marks each drawn shape with — one mapping, in
-			`@ballastella/ui`'s `shape-icons.ts`, so a scholar learns the pin once and then recognises it
-			in the list, and a Reader meets the same glyph on a published site.
+			The glyph goes **beside** each shape's name, never instead of it: the words stay on the button,
+			so the icon is a second channel rather than the only one. It is the same glyph the list of
+			Annotations marks each drawn shape with — one mapping, in `@ballastella/ui`'s `shape-icons.ts`,
+			so a scholar learns the pin once and then recognises it in the list, and a Reader meets the
+			same glyph on a published site.
 
 			Cancel puts the tools away. It is not one of the shapes, so it sits outside the group.
 		-->

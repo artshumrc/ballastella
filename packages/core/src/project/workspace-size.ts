@@ -5,8 +5,8 @@
 //
 // An offline copy's pyramid is thousands of tile files. `ProjectStore#size` exists in ADR-0001's
 // interface precisely so that a byte total can be had **without opening anything** — both real
-// backends answer it from directory metadata for free, and ticket 02's shared adapter suite has a
-// spy on `read` keeping it that way. A total assembled by reading every tile would be the slowest
+// backends answer it from directory metadata for free, and the shared adapter suite has a spy on
+// `read` keeping it that way. A total assembled by reading every tile would be the slowest
 // possible way to answer the one question a user needs answered *before* they start a copy, and it
 // would grow with the size of the Workspace rather than with the number of files in it.
 //
@@ -19,8 +19,8 @@
 // `list` never reports a file matching the reserved temporary suffix — with or without a further
 // extension, since Chromium's `createWritable()` leaves `<name>.ballastella-tmp.crswap` behind — so a
 // total built from `list` is a floor rather than an exact figure whenever a crashed tab has left
-// litter on the disk. Ticket 12's review found that, and this function answered it by calling
-// `reclaimAbandonedWrites` before totalling.
+// litter on the disk. This function once answered that by calling `reclaimAbandonedWrites` before
+// totalling.
 //
 // **That was a measurement with a destructive sweep of the whole Workspace inside it**, and the
 // caller is a user clicking "Make an offline copy" or opening the publish dialog.
@@ -107,9 +107,9 @@ export function describeBytes(bytes: number): string {
 /**
  * What to tell the user before a copy that would cross the cliff, or `''` when it would not.
  *
- * **Information, not a gate** (ADR-0007, and ticket 15 says so in as many words): the scholar may be
- * copying a map they have every right to and may never publish this Workspace at all. What must not
- * happen is that they find out from `git push` failing, which is the failure ADR-0008 names.
+ * **Information, not a gate** (ADR-0007): the scholar may be copying a map they have every right to
+ * and may never publish this Workspace at all. What must not happen is that they find out from `git
+ * push` failing, which is the failure ADR-0008 names.
  */
 export function hostingLimitWarning(current: number, adding: number): string {
 	if (!crossesHostingLimit(current, adding)) return '';

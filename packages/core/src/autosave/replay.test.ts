@@ -86,7 +86,7 @@ describe('replayJournal', () => {
 		const report = await replayJournal(storage, store, 'Marking 2026');
 
 		expect(report.restored).toEqual([]);
-		// The whole of ticket 12's hazard: an edit typed into one named Workspace must not appear in
+		// The whole hazard: an edit typed into one named Workspace must not appear in
 		// another, and it must still be there when the user goes back to the one they typed it in.
 		expect(text(await store.read('amsterdam-1625/project.json'))).toContain('Amsterdam 1625');
 		expect(readJournal(storage, 'Teaching').entries).toHaveLength(1);
@@ -154,7 +154,7 @@ describe('replayJournal', () => {
 
 		/**
 		 * ⚠ **The one case the exemption directly above opens, and the only evidence that can close
-		 * it** (ticket 21).
+		 * it.**
 		 *
 		 * `<project>/project.json` is exempt from every check here, and it has to be: writing it is
 		 * what makes the Project exist. So no question asked *of the store* can tell an interrupted
@@ -181,7 +181,7 @@ describe('replayJournal', () => {
 					detail: expect.stringContaining('you deleted the Project')
 				}
 			]);
-			// Nothing was recreated under the deleted Project's name — the failure this ticket closes.
+			// Nothing was recreated under the deleted Project's name — the failure this branch closes.
 			expect(await store.list('')).toEqual([]);
 			// Dropped, after being reported: a Project the user deleted is never coming back, so the
 			// entry can never be used and would otherwise be re-reported at every startup for ever.
@@ -325,7 +325,7 @@ describe('replayJournal', () => {
 			// Unreadable is not absent — the direction `alignment-file.ts` takes for the same reason.
 			// So it is not *skipped*: nothing here concluded the Project had gone.
 			expect(report.skipped).toEqual([]);
-			// It is reported as a failure and its entry is kept, because since ticket 07 the same
+			// It is reported as a failure and its entry is kept, because that same
 			// `read` also answers "what does the store hold now", and a Workspace that cannot answer
 			// that cannot license a write either. "Could not be put back yet", which is what `failed`
 			// means, is the honest one — and it is tried again at the next startup.
@@ -347,7 +347,7 @@ describe('replayJournal', () => {
 		});
 	});
 
-	describe('an Alignment goes through the one Alignment writer (ticket 18)', () => {
+	describe('an Alignment goes through the one Alignment writer', () => {
 		it('writes it, and reports it as restored', async () => {
 			await store.write('images/floride-1657/info.json', utf8.encode('{}'));
 			// alignment-write-is-the-fixture: the Alignment already on disk that the replay has to write over, seeded so the assertion below is about replacement and not creation
@@ -698,11 +698,10 @@ describe('replayJournal', () => {
 		 * ─────────────────────────────────────────────────────────────────────────────────────
 		 * A KEPT COPY IS KEPT (round 5, findings A and B)
 		 *
-		 * Both were the same sentence being false. A declined copy used to be "kept" by leaving the
-		 * ordinary journal entry in place — and an entry is addressed by path alone, so the next edit
-		 * to that file overwrote it, which is SPEC story 6 verbatim; and the notice's remedy was keyed
-		 * on the path too, so pressing it destroyed whatever was there by then rather than the copy the
-		 * sentence named.
+		 * Both are the same sentence being false. A declined copy "kept" by leaving the ordinary
+		 * journal entry in place is not kept — an entry is addressed by path alone, so the next edit
+		 * to that file overwrites it; and a remedy on the notice keyed on the path too destroys
+		 * whatever is there by then rather than the copy the sentence named.
 		 */
 		describe('a copy the replay declined', () => {
 			it('survives the next edit to the same file', async () => {
@@ -855,17 +854,17 @@ describe('replayJournal', () => {
 		 * ⚠ **THE PLANTED REVERT, and this suite's positive control.**
 		 *
 		 * A broken harness here fails toward "no problem found", which is the same direction as the
-		 * defect: ticket 01's implementer probed this twice with wrong constructor signatures and both
-		 * attempts answered `restored: []` — the newer bytes apparently surviving, the defect apparently
-		 * absent. So the first test below plants a revert of exactly the shape the module used to
-		 * perform and asserts the harness **sees** it. If this fixture ever stops being able to observe
-		 * older bytes landing on newer ones, it goes red before any green result above can be believed.
+		 * defect: two probes of this with wrong constructor signatures both answered `restored: []` —
+		 * the newer bytes apparently surviving, the defect apparently absent. So the first test below
+		 * plants a revert of exactly the shape the module used to perform and asserts the harness
+		 * **sees** it. If this fixture ever stops being able to observe older bytes landing on newer
+		 * ones, it goes red before any green result above can be believed.
 		 *
 		 * ⚠ **It is a control and not a claim about shipped behaviour**, and that distinction has to
 		 * stay: since round 3 no row of `compare` reverts. The revert is performed by the test itself,
-		 * standing in for the unconditional `store.write` this module did before ticket 07. The
-		 * standing proof that the *shipped* refusal is load-bearing is the mutation that neuters
-		 * `compare` to always answer `'write'`, which turns nine of these red.
+		 * standing in for an unconditional `store.write`. The standing proof that the *shipped* refusal
+		 * is load-bearing is the mutation that neuters `compare` to always answer `'write'`, which
+		 * turns nine of these red.
 		 */
 		describe('the harness can see a revert', () => {
 			it('sees older bytes landing on newer ones, which is what the old code did here', async () => {
@@ -873,7 +872,7 @@ describe('replayJournal', () => {
 				const entry = readJournal(storage, 'Marking 2026').entries[0];
 				await store.write(PATH, utf8.encode('v2-NEWER'));
 
-				// The pre-ticket-07 replay, in one line: write the entry, drop it, call it restored.
+				// An unconditional replay, in one line: write the entry, drop it, call it restored.
 				await store.write(PATH, entry?.bytes ?? new Uint8Array());
 				journal.forget(PATH);
 
@@ -945,11 +944,11 @@ describe('replayJournal', () => {
 
 	/**
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * THE FIVE ROUTES THAT WRITE THE STORE WITHOUT RECORDING, ONE AT A TIME (ticket 07)
+	 * THE FIVE ROUTES THAT WRITE THE STORE WITHOUT RECORDING, ONE AT A TIME
 	 *
-	 * The SPEC names five, and they are not one thing: two of them can land on a path the journal
-	 * holds an entry for and three of them cannot, so "the five are covered" is not a claim any single
-	 * test can make. Each is driven through its **own real entry point** here.
+	 * There are five, and they are not one thing: two of them can land on a path the journal holds an
+	 * entry for and three of them cannot, so "the five are covered" is not a claim any single test can
+	 * make. Each is driven through its **own real entry point** here.
 	 *
 	 * The out-of-reach argument rests on which paths this application hands to `Autosave`, and
 	 * therefore journals. **Six call sites, in two packages** — `Workspace.writeProject` and its
@@ -966,7 +965,7 @@ describe('replayJournal', () => {
 	 * journalled path always begins with a Project directory, while both out-of-reach routes write at
 	 * the Workspace root under `images/` or `base-map/`.
 	 *
-	 * Two questions about that string are left named and unanswered, both wider than this ticket:
+	 * Two questions about that string are left named and unanswered, both wider than this suite:
 	 * whether a `..` inside it could escape the Project prefix, and that `writeAnnotations` writes
 	 * `annotationStorePath(directory, layer.id)` while the readers read
 	 * `${directory}/${layer.geojsonRef}` — so a non-canonical `geojsonRef` from a colleague's bundle

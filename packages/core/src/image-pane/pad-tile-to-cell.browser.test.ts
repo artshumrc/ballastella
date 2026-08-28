@@ -85,7 +85,7 @@ describe('padTileToCell', () => {
 		// fractional placement it lands at 30 × 37.5/38 = 29.605 and 100 × 162.5/163 = 99.693; drawn
 		// at the served size it would land at exactly 30 and 100. Four tenths of a pixel and three
 		// tenths of a pixel — sub-pixel, systematic, at the margins of every Map Image, which is
-		// exactly the drift SPEC ranks as the project's first risk.
+		// exactly the drift that is the project's first risk.
 		const whiteWidth = 30;
 		const whiteHeight = 100;
 		const padded = await padTileToCell(

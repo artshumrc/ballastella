@@ -7,8 +7,8 @@
 // becoming the shape the application reasons about. Everything above this file sees `Alignment`.
 //
 // The format is standard and stands on its own: the file is readable by Allmaps and by anything
-// else that implements the IIIF Georeference Extension (SPEC story 91), and a Project therefore
-// consists of standard formats with no proprietary index (story 94).
+// else that implements the IIIF Georeference Extension, and a Project therefore consists of
+// standard formats with no proprietary index.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE TRANSFORMATION TYPE IS NOT WRITTEN AS ITS OWN NAME, AND CANNOT BE
@@ -105,7 +105,7 @@ export class AlignmentUnwritableError extends Error {
  * **A different failure from {@link AlignmentUnwritableError}, and it must say so.** That one means
  * "the bytes we were about to write would not be readable again". This one means the opposite: the
  * file is perfectly good, and it is *ours* that would be worse — a rewrite would drop something the
- * author put there. SPEC story 60 allows exactly two answers for an unmodelled field, preserve or
+ * author put there. An unmodelled field has exactly two allowed answers, preserve or
  * refuse-with-a-reason, and this is the refusal.
  *
  * The user can still open, view and export the Alignment. Only writing over it is refused.
@@ -138,11 +138,11 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
 /**
  * Where the document says this Map Image's image is served from.
  *
- * **The only thing that differs between a local copy and a referenced remote image** (ticket 14),
- * and it is an argument here rather than a rewrite performed elsewhere because CONTEXT.md confines
- * the Georeference Annotation's own fields to this module: a second module that `JSON.parse`d this
- * one's output and reassigned `target.source.id` would be a second writer of the format, and the
- * two would drift the first time upstream moved the field.
+ * **The only thing that differs between a local copy and a referenced remote image**, and it is an
+ * argument here rather than a rewrite performed elsewhere because CONTEXT.md confines the
+ * Georeference Annotation's own fields to this module: a second module that `JSON.parse`d this one's
+ * output and reassigned `target.source.id` would be a second writer of the format, and the two would
+ * drift the first time upstream moved the field.
  */
 export type AlignmentAddress = {
 	/**
@@ -155,7 +155,7 @@ export type AlignmentAddress = {
 	 * referenced image's tile requests into the ADR-0011 injection layer, which looks for a pyramid
 	 * the Project by definition does not contain. In a file it is worse than blank: a document
 	 * claiming `unset.invalid` is standard-shaped and unresolvable by Allmaps or by anyone else,
-	 * which is exactly the interoperability ADR-0007 is claiming (SPEC stories 91, 92).
+	 * which is exactly the interoperability ADR-0007 is claiming.
 	 */
 	readonly imageService?: string;
 };
@@ -243,8 +243,8 @@ export function toRendererResourceMask(alignment: Alignment): [number, number][]
  * **Deterministic: there is no clock in the output.** `created` and `modified` are deliberately
  * omitted, so serialising an unchanged Alignment is byte-identical. Two things need that. A
  * timestamp would make every write a diff even when nothing moved, which ADR-0010 objects to for
- * `project.json` and objects to here for the same reason; and ticket 09 has to show that
- * reordering or renaming a Layer leaves `alignments/*.json` byte-identical, which is not a
+ * `project.json` and objects to here for the same reason; and `e2e/editor-layers.e2e.ts` asserts
+ * that reordering or renaming a Layer leaves `alignments/*.json` byte-identical, which is not a
  * testable claim against a file that stamps the time it was written. When the Project was last
  * touched is already recorded, once, in `project.json`'s `updatedAt`.
  *
@@ -258,7 +258,7 @@ export function toRendererResourceMask(alignment: Alignment): [number, number][]
  * Mask's plain-decimal fix, the absent timestamps and the validation below all apply to it.
  */
 export function serialiseAlignment(alignment: Alignment, address: AlignmentAddress = {}): Bytes {
-	// SPEC story 60's other branch. See {@link Alignment.unpreservable}: this document holds
+	// The refuse branch. See {@link Alignment.unpreservable}: this document holds
 	// something this build can neither model nor carry, so it is refused by name rather than
 	// rewritten without it. Checked before anything is generated, so the reason is the real one.
 	if (alignment.unpreservable !== undefined) {
@@ -295,8 +295,8 @@ export function serialiseAlignment(alignment: Alignment, address: AlignmentAddre
  * repository proves it: `allmaps-shaped.json` carries `target.source.partOf`,
  * `target.source.provider` and `body._allmaps` — three members, none of them at depth 1, all of
  * them silently dropped by a top-level diff. `_allmaps` is what Allmaps itself writes. So the
- * "preserve" half of SPEC story 60 has to reach into the objects or it does not hold for the
- * documents it exists for.
+ * "preserve" half of the rule has to reach into the objects or it does not hold for the documents
+ * it exists for.
  *
  * The rule is the same at every depth: a member the generated document does not have is carried
  * whole; a member both have, where both are plain objects, is recursed into. **Arrays are not
@@ -307,8 +307,8 @@ export function serialiseAlignment(alignment: Alignment, address: AlignmentAddre
  * `partOf` and `provider` are.
  *
  * That leaves exactly one shape this cannot preserve — an unknown member *inside* an element of an
- * array both documents have — and story 60's criterion allows preserving **or** refusing, not
- * silently dropping. So {@link unpreservableArrayMember} finds it and the write is refused by name.
+ * array both documents have — and the criterion allows preserving **or** refusing, not silently
+ * dropping. So {@link unpreservableArrayMember} finds it and the write is refused by name.
  *
  * **Only for a single `Annotation`.** An `AnnotationPage`'s own members describe the *page* — its
  * `items` above all — and copying them onto the single Annotation this module writes would produce
@@ -355,7 +355,7 @@ function residue(
  * The path of an unknown member inside an element of an array both documents carry, or `''`.
  *
  * The one shape {@link residue} cannot preserve, found so that the write can be refused rather than
- * quietly losing it (SPEC story 60 offers preserve or refuse, and nothing else). In practice this is
+ * quietly losing it (preserve or refuse, and nothing else). In practice this is
  * a per-Control-Point annotation somebody's tool wrote into `body.features[].properties`.
  */
 function unpreservableArrayMember(
@@ -616,9 +616,9 @@ function toControlPoint(
 	const [x, y] = gcp.resource;
 	const [lng, lat] = gcp.geo;
 	return {
-		// The file carries no per-point identifier, and adding one would be the proprietary index
-		// SPEC story 94 rules out. Position is identity, which is also what the ordinal is derived
-		// from, so the two cannot disagree.
+		// The file carries no per-point identifier, and adding one would be the proprietary index a
+		// Project deliberately has none of. Position is identity, which is also what the ordinal is
+		// derived from, so the two cannot disagree.
 		id: `${index}`,
 		ordinal: index + 1,
 		resource: { x, y } satisfies ResourcePoint,

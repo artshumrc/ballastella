@@ -1,7 +1,7 @@
 // One remote IIIF image service, read and judged: is this a Map Image this app can
 // actually draw, and what is its identity?
 //
-// This is the module where ticket 03's guards stop being theoretical. Everything before this
+// This is the module where the image pane's guards stop being theoretical. Everything before this
 // slice parsed an `info.json` that *this app wrote*, so a pyramid whose finest level is not full
 // resolution, or whose levels disagree about tile size, could not occur. Here the document comes
 // from somebody else's server, so both can — and both render *plausibly and wrongly* rather than
@@ -10,8 +10,8 @@
 // file and "scale factors must be 1, 2, 4, …" is not one they can act on.
 //
 // **The guards are not relaxed for a real service.** If a library's service trips one, the
-// answer is a legible refusal and an offline copy (ticket 15, which re-tiles it with our own
-// geometry), never a guard loosened until the pane draws something.
+// answer is a legible refusal and an offline copy (which re-tiles it with our own geometry),
+// never a guard loosened until the pane draws something.
 
 import { generateId } from '@allmaps/id';
 import { Image } from '@allmaps/iiif-parser';
@@ -34,11 +34,10 @@ import { canonicalServiceUri } from './service-uri.js';
 /**
  * Largest image, in pixels, this will accept a reference to.
  *
- * A bound on a number a stranger declared, in the spirit of ticket 13's review: `width` and
- * `height` come out of the document and are multiplied together in several places before
- * anything is fetched. 4 gigapixels is about eight times the largest map sheet in the Library of
- * Congress' collection and still nowhere near overflowing anything; what it refuses is a
- * document claiming 2³¹ × 2³¹.
+ * A bound on a number a stranger declared: `width` and `height` come out of the document and are
+ * multiplied together in several places before anything is fetched. 4 gigapixels is about eight
+ * times the largest map sheet in the Library of Congress' collection and still nowhere near
+ * overflowing anything; what it refuses is a document claiming 2³¹ × 2³¹.
  */
 export const MAX_REMOTE_IMAGE_PIXELS = 4_000_000_000;
 
@@ -73,8 +72,8 @@ export type RemoteImageService = {
 	 * That is the whole mechanism behind "3 existing alignments found" costing a dozen lines
 	 * rather than being a feature.
 	 *
-	 * A locally ingested image gets `generateRandomId()` instead (ticket 05): there is no URI to
-	 * hash, and two ingests of one file are two Map Images.
+	 * A locally ingested image gets `generateRandomId()` instead: there is no URI to hash, and two
+	 * ingests of one file are two Map Images.
 	 */
 	readonly imageId: string;
 	readonly width: number;
@@ -155,13 +154,13 @@ export async function acceptRemoteImageService(
 	assertDeclaredSizeIsSane(info, { url: context.requestedUrl, host });
 
 	// ⚠ **The remedies are worded so that both callers can offer them, because this refusal has two
-	// moments and they are not the same one** (ticket 07's second round). `offline-copy-job` reaches
-	// it for a map already in a Project, where "make an offline copy" is the very gesture in progress;
-	// `remote-resource` reaches it when a Manifest is being *added*, where there is no map yet and
-	// therefore nothing to copy. The old wording named the copy first and flatly, which sent a scholar
-	// adding a Manifest looking for a button that does not exist until the map does. Naming what has
-	// to be true first — "once it is in a Project" — is the cheap fix; the expensive one is a context
-	// argument threaded through both call paths, which buys a better sentence and nothing else.
+	// moments and they are not the same one**. `offline-copy-job` reaches it for a map already in a
+	// Project, where "make an offline copy" is the very gesture in progress; `remote-resource` reaches
+	// it when a Manifest is being *added*, where there is no map yet and therefore nothing to copy.
+	// Naming the copy first and flatly would send a scholar adding a Manifest looking for a button
+	// that does not exist until the map does. Naming what has to be true first — "once it is in a
+	// Project" — is the cheap fix; the expensive one is a context argument threaded through both call
+	// paths, which buys a better sentence and nothing else.
 	const refuse = (cause: unknown) =>
 		new RemoteIiifRejectedError({
 			url: context.requestedUrl,
@@ -268,8 +267,9 @@ export function extendedTileset(
 	if (!finest) return null;
 
 	// Only a single square tile size, and only a pyramid that already starts at full resolution.
-	// Both of those are ticket 03's guards, and extending a pyramid that fails either would replace
-	// its diagnostic with a different one — the two failures this slice exists to make legible.
+	// Both of those are the image pane's guards, and extending a pyramid that fails either would
+	// replace its diagnostic with a different one — the two failures this slice exists to make
+	// legible.
 	const square = levels.every(
 		(level) => level.width === finest.width && level.height === finest.width
 	);
@@ -344,9 +344,8 @@ function readDeclaredId(info: unknown): string | null {
  * Refuse a declared size that is not a size.
  *
  * Before `createImagePane`, because `Image.parse` accepts what its schema accepts and the
- * pyramid arithmetic downstream multiplies these two numbers. Ticket 13's review found the
- * matching failure on the other untrusted path: a declared size trusted, with nothing bounding
- * it.
+ * pyramid arithmetic downstream multiplies these two numbers. The other untrusted path has the
+ * matching failure: a declared size trusted, with nothing bounding it.
  */
 function assertDeclaredSizeIsSane(info: unknown, at: { url: string; host: string }): void {
 	const { width, height } = (info ?? {}) as { width?: unknown; height?: unknown };

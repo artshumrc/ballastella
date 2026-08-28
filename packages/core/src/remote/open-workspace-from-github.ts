@@ -1,18 +1,18 @@
 // Open a Workspace from GitHub: which Workspace of this installation a repository belongs to, and the
-// evidence a successful transfer is entitled to record (ADR-0038, SPEC stories 96–104).
+// evidence a successful transfer is entitled to record (ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE INSTALLATION, ONE SYNCHRONIZED WORKSPACE PER REPOSITORY
 //
-// SPEC: *"One Ballastella installation keeps at most one synchronized local Workspace for a
-// repository; opening it again returns to that Workspace."* The reason is not tidiness. Two local
+// One Ballastella installation keeps at most one synchronized local Workspace for a repository, and
+// opening it again returns to that Workspace. The reason is not tidiness. Two local
 // Workspaces both bound to `ada/atlas` are two Publish buttons aimed at one site, and whichever is
 // pressed second silently replaces the other author's afternoon with its own idea of the whole
 // Workspace — the Baselines say nothing about each other, so neither side is even told.
 //
 // ⚠ **The uniqueness is installation-local and deliberately not global.** A second machine holds its
 // own metadata and may open its own Workspace with its own Baseline, which is the whole point of
-// having a Remote: SPEC story 102. Nothing here asks GitHub whether somebody else has opened it.
+// having a Remote. Nothing here asks GitHub whether somebody else has opened it.
 //
 // The lookup is `listRemoteRelationships`, which reads the relationship records themselves rather
 // than a second index — so there is no reverse map that can come to disagree with the relationships
@@ -36,21 +36,21 @@
 // this module exists to prevent. So Opens of the same repository run one after another, and the
 // second — reaching the lookup after the first has recorded its relationship — selects rather than
 // downloads. It is a lock over one tab's presses, which is the race a user can actually produce;
-// two tabs of the same installation are not addressed here and are not what SPEC asks about.
+// two tabs of the same installation are not addressed here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT IS RECORDED, AND WHEN
 //
-// SPEC: *"Establish a local-only Synchronization Baseline at successful Open."* Nothing is recorded
-// until `cloneFromRemote` has fetched every selected file, checked each against the blob SHA its tree
-// named, and validated the whole prospective Workspace — so a refused, interrupted or graph-broken
-// Remote leaves a directory that no relationship names, which no publish and no status will act on
-// and which a later Open can resume into.
+// A local-only Synchronization Baseline is established at successful Open, and not before. Nothing is
+// recorded until `cloneFromRemote` has fetched every selected file, checked each against the blob SHA
+// its tree named, and validated the whole prospective Workspace — so a refused, interrupted or
+// graph-broken Remote leaves a directory that no relationship names, which no publish and no status
+// will act on and which a later Open can resume into.
 //
-// The relationship goes first and the Baseline second, and the asymmetry is SPEC's: a store that will
-// not keep the relationship means the Workspace is *not* synchronized and is said so out loud, while a
-// store that will not keep the Baseline leaves a bound Workspace reporting `Cannot tell` — never an
-// Open reported as failed after the bytes have already arrived.
+// The relationship goes first and the Baseline second, and the asymmetry is deliberate: a store that
+// will not keep the relationship means the Workspace is *not* synchronized and is said so out loud,
+// while a store that will not keep the Baseline leaves a bound Workspace reporting `Cannot tell` —
+// never an Open reported as failed after the bytes have already arrived.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { EstimateStorage, OpenRestoreDestination } from '../transfer/restore-workspace-tar.js';
@@ -78,7 +78,7 @@ export interface OpenWorkspaceFromGitHubOptions {
 	 * `null` degrades exactly as everything else on this path does: no lookup, so no reopening and no
 	 * uniqueness, and no Baseline, so the Workspace reads `Cannot tell`. Refusing instead would make a
 	 * browser with site data blocked unable to open a public Workspace at all, which is the one
-	 * operation in this epic that is meant to need nothing.
+	 * operation on this path that is meant to need nothing.
 	 */
 	readonly metadata: MetadataStorage | null;
 	/** How this installation names a new browser-backed Workspace in its metadata. */
@@ -169,7 +169,7 @@ async function openOrSelect(
 		// ⚠ **Selected, and nothing else.** Not a download into it, not a fresh listing, and above all
 		// not an advance of its Baseline: reopening is a way back to work already here, and a Baseline
 		// moved on from a listing nobody transferred would report the author's own unpublished edits as
-		// the Remote's (SPEC story 100). Bringing Remote changes in is Update's, in ticket 14.
+		// the Remote's. Bringing Remote changes in is `update-from-github.ts`'s job.
 		if (existing !== null) return { outcome: 'selected', workspaceKey: existing, remote };
 	}
 

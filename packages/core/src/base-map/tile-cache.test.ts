@@ -216,13 +216,13 @@ describe('cachedTilePath', () => {
 			parseCachedTilePath(ARCHIVE, `${baseMapTileDirectory(ARCHIVE)}14/8434/5403.png`)
 		).toBeNull();
 		expect(parseCachedTilePath(ARCHIVE, 'images/abc/info.json')).toBeNull();
-		// The unkeyed layout ticket 11 wrote is not this archive's, and is not anybody's: without the
+		// The unkeyed layout is not this archive's, and is not anybody's: without the
 		// key there is no archive it can be attributed to. It is still *recognised* — see below.
 		expect(parseCachedTilePath(ARCHIVE, 'base-map/tiles/14/8434/5403.mvt')).toBeNull();
 	});
 });
 
-describe('the cache directory is keyed by archive (ticket 12)', () => {
+describe('the cache directory is keyed by archive', () => {
 	it('gives two archives two directories, so neither can serve the other’s tiles', () => {
 		// The failure this ends: ADR-0020 makes two entries on two archives a supported deployment, and
 		// one directory serving both draws a plausible pane of the *wrong world* — well-formed tiles,
@@ -259,8 +259,8 @@ describe('the cache directory is keyed by archive (ticket 12)', () => {
 		}
 	});
 
-	it('still recognises the unkeyed layout ticket 11 wrote, as belonging to no archive', () => {
-		// A Workspace filled before this change holds `base-map/tiles/{z}/{x}/{y}.mvt`. A reader that
+	it('still recognises the older unkeyed layout, as belonging to no archive', () => {
+		// A Workspace filled by an older build holds `base-map/tiles/{z}/{x}/{y}.mvt`. A reader that
 		// stopped seeing those bytes would make them invisible to the hub's size report and to its
 		// clear button — megabytes a user deliberately fetched from somebody else's server, occupying
 		// disk that nothing in the application admits to.

@@ -17,7 +17,7 @@ coverage
 # Static assets are served verbatim
 apps/*/static/
 
-# The Alignment round-trip fixtures, where the **bytes are the assertion** (ADR-0010, ticket 07).
+# The Alignment round-trip fixtures, where the **bytes are the assertion** (ADR-0010).
 #
 # These are frozen Georeference Annotations, and `georeference-annotation.test.ts` requires
 # `serialiseAlignment` to reproduce them byte for byte — which is what makes them catch a pre-1.0

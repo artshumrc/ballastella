@@ -80,7 +80,7 @@ describe('a credential store over web storage', () => {
 	});
 });
 
-// SPEC story 40, ADR-0024. **The rule is on the store rather than on each screen**, because it has
+// ADR-0024. **The rule is on the store rather than on each screen**, because it has
 // to hold for code written later that never saw it: a teacher opening a student's submission must
 // not be able to reach their own push credential from inside it, by any route.
 describe('while a Review Workspace is open the credential store reads and writes nothing', () => {
@@ -134,9 +134,9 @@ describe('a pasted credential that is not one', () => {
 		expect(describeTokenProblem('ghp_0123456789abcdefghijklmnopqrstuvwxyz')).toBe('');
 	});
 
-	// ⚠ The prefix is deliberately not checked: `gho_`, `ghu_` and ticket 10's broker-exchanged token
-	// are all real, and a fence on a list of prefixes refuses tomorrow's valid credential with a
-	// message saying it is malformed — the one refusal a user cannot act on.
+	// ⚠ The prefix is deliberately not checked: `gho_`, `ghu_` and a broker-exchanged token are all
+	// real, and a fence on a list of prefixes refuses tomorrow's valid credential with a message saying
+	// it is malformed — the one refusal a user cannot act on.
 	it('accepts a prefix this build has never heard of', () => {
 		expect(describeTokenProblem('ghs_0123456789abcdefghijklmnopqrstuvwxyz')).toBe('');
 	});

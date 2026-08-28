@@ -71,7 +71,7 @@ describe('where a Map Image’s tiles come from', () => {
 		expect(isReferenced(offlineCopySource)).toBe(false);
 	});
 
-	it('is asserted by ticket 03’s own guard: a local base as a string is refused', () => {
+	it('is asserted by the image pane’s own guard: a local base as a string is refused', () => {
 		// The distinction would be worth nothing if a caller could pass the placeholder as a string
 		// and have it work by accident. `createImagePane` refuses it, naming the missing override —
 		// which is the assertion that makes `tileBaseFor`'s two branches mean different things.
@@ -136,7 +136,7 @@ describe('where a Map Image’s tiles come from', () => {
 });
 
 /**
- * The pair a pane is handed (ticket 07): the tile base and the `info.json` beside it.
+ * The pair a pane is handed: the tile base and the `info.json` beside it.
  *
  * The point of the pair is that it is built in one place from one fact, so a pane cannot be given a
  * Library's tiles with the Workspace's description of them. That combination has no symptom — the
@@ -397,8 +397,8 @@ describe('an Alignment of a referenced image', () => {
 	it('writes a Georeference Annotation Allmaps can actually resolve', () => {
 		// ADR-0007's interoperability claim, made true rather than aspirational. For a referenced image
 		// — the one case where the resource has a real public URI — the file is directly consumable by
-		// Allmaps and by anything else implementing the extension (SPEC stories 91, 92). The
-		// placeholder would produce a standard-shaped document nothing in the world can resolve.
+		// Allmaps and by anything else implementing the extension. The placeholder would produce a
+		// standard-shaped document nothing in the world can resolve.
 		const bytes = serialiseAlignment(alignment(), referencedAlignmentAddress(SERVICE));
 		const document = JSON.parse(new TextDecoder().decode(bytes)) as {
 			target: { source: { id: string } };

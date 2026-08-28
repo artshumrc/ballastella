@@ -1,9 +1,8 @@
 # An Annotation's content is read beside the map, not inside its row
 
-> **Reverses the decision recorded in [`one-shell-two-apps` ticket
-> 01](../../.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md) and argued
-> in the header of `packages/ui/src/AnnotationRow.svelte`.** That argument is not wrong. It is
-> answered differently here, and this ADR replaces it rather than sitting beside it.
+> **Reverses the earlier decision that an Annotation opens in its own row**, which is argued in full
+> in the header of `packages/ui/src/AnnotationRow.svelte`. That argument is not wrong. It is answered
+> differently here, and this ADR replaces it rather than sitting beside it.
 
 An Annotation's **content** — its title, its rendered description, whatever metadata comes next, and
 for an author how it is drawn — is read in a panel docked over the map: the **Annotation Inspector**.
@@ -13,11 +12,11 @@ nothing.
 
 ## What the row-as-disclosure decision was for
 
-Before that ticket, the editor rendered an Annotation's details as a **sibling of the list**: a box
-headed "The west quay" sitting under a list in which "The west quay" was one of four rows, with
-nothing joining the two. In a 24 rem column with four Annotations in it, which row the box belonged to
-was inferred rather than seen — read off proximity and a repeated string, both of which stop working
-the moment the column scrolls.
+Before the row became a disclosure, the editor rendered an Annotation's details as a **sibling of the
+list**: a box headed "The west quay" sitting under a list in which "The west quay" was one of four
+rows, with nothing joining the two. In a 24 rem column with four Annotations in it, which row the box
+belonged to was inferred rather than seen — read off proximity and a repeated string, both of which
+stop working the moment the column scrolls.
 
 Putting the details **inside the row** moored them. The row that was open was the Annotation that was
 selected; one fact, one place, and the same shape the Layer card one level up already used. That is
@@ -42,7 +41,7 @@ against the thing it is about.
 
 This is the load-bearing paragraph, because mooring is the one thing the sibling box never had and the
 only reason the reversal is safe. Two mechanisms hold the panel to its Annotation, and neither existed
-in the arrangement ticket 01 replaced:
+in the sibling-box arrangement:
 
 - **The dashed leader.** `LeaderLine` draws from the selected mark on the canvas to its row in the
   stack, and it keeps doing exactly that — `leaderPath` is unchanged and no second leader is drawn to

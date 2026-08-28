@@ -1,10 +1,10 @@
-// A Reader's own Base Map choice on one Published Site (ADR-0020, SPEC stories 70 and 71).
+// A Reader's own Base Map choice on one Published Site (ADR-0020).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THREE RULES, AND EACH ONE IS A DIFFERENT WAY OF GETTING IT WRONG
 //
 // **It is never Project data.** The author's default is theirs — it is how the work is framed on
-// first contact (SPEC story 69) — and a Reader switching away from it is a preference, not an edit.
+// first contact — and a Reader switching away from it is a preference, not an edit.
 // `project.json` is read-only over HTTP anyway, so a naive reuse of the editor's control would try,
 // fail, and surface a confusing error at a Reader; the point is that there is nothing here that
 // could try. Nothing in this module takes a store.

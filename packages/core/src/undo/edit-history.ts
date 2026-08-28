@@ -44,7 +44,7 @@ export interface Step {
  * How a history reads and writes the files it holds. Injected; the history never touches a store.
  *
  * `writeBack` exists as a port rather than a store call because exactly one module may write an
- * `alignments/<image-id>.json` and every caller of it must name its intent (ticket 18). The session's
+ * `alignments/<image-id>.json` and every caller of it must name its intent. The session's
  * implementation routes an Alignment through that module and everything else through `Autosave`.
  */
 export interface HistoryFiles {
@@ -56,9 +56,9 @@ export interface HistoryFiles {
 }
 
 export interface EditHistoryOptions {
-	/** The whole span, cursor included. A sixth Step evicts the oldest (SPEC stories 10, 11). */
+	/** The whole span, cursor included. A sixth Step evicts the oldest. */
 	readonly depth?: number;
-	/** A backstop, not the rule. The most recent Step is never evicted for it (SPEC story 12). */
+	/** A backstop, not the rule. The most recent Step is never evicted for it. */
 	readonly byteCeiling?: number;
 }
 
@@ -168,7 +168,7 @@ export class EditHistory {
 			const landed = await this.#writeBack(step, direction === -1 ? 'before' : 'after');
 			// **The cursor moves only on success.** A failure leaves it and the Step exactly where
 			// they are, so the affordance stays on the bar rather than vanishing over a failure the
-			// scholar can retry (SPEC story 50).
+			// scholar can retry.
 			if (!landed) return false;
 			this.#cursor += direction;
 			this.#publish();

@@ -18,7 +18,7 @@ import {
 /**
  * The committed fixture pyramid, which `apps/editor/static/fixtures/README.md` names as what
  * this tiler's output is compared against. Read from disk rather than restated, so the bytes
- * these assertions reason about are the bytes ticket 03's image pane fetches.
+ * these assertions reason about are the bytes the image pane fetches.
  */
 const FIXTURE_DIRECTORY = new URL(
 	'../../../../apps/editor/static/fixtures/images/floride-1657/',
@@ -38,7 +38,7 @@ describe('pyramidScaleFactors', () => {
 	});
 
 	it('gives a 2 megapixel photograph a real pyramid rather than a shortcut', () => {
-		// SPEC story 21 and ADR-0003: there is no exemption for small images, because
+		// ADR-0003: there is no exemption for small images, because
 		// @allmaps/iiif-parser cannot construct an Image for an untiled level-0 service at all.
 		expect(pyramidScaleFactors({ width: 1632, height: 1224 })).toEqual([1, 2, 4, 8]);
 	});
@@ -73,9 +73,9 @@ describe('buildImageInfo', () => {
 	});
 
 	it('constructs an @allmaps/iiif-parser Image without throwing', () => {
-		// The acceptance criterion, and the reason ADR-0003 exists: `getTileZoomLevels` throws
-		// 'Image does not support tiles or custom regions and sizes.' for a level-0 service with no
-		// usable `tiles`, inside the constructor. An untiled pyramid cannot even be parsed.
+		// The reason ADR-0003 exists: `getTileZoomLevels` throws 'Image does not support tiles or
+		// custom regions and sizes.' for a level-0 service with no usable `tiles`, inside the
+		// constructor. An untiled pyramid cannot even be parsed.
 		const image = Image.parse(info);
 		expect(image.width).toBe(1200);
 		expect(image.height).toBe(851);
@@ -167,7 +167,7 @@ describe('planPyramid', () => {
 		const coarsest = tiles.find((tile) => tile.scaleFactor === 8);
 		// One tile covering everything, served at ceil(1200/8) × ceil(851/8) = 150 × 107. 851/8 is
 		// 106.375: the ceiling is what makes a tile file whole pixels, and the fraction is what
-		// ticket 03's `placement` is about.
+		// `ImagePaneTile.placement` is about.
 		expect(coarsest?.region).toEqual({ x: 0, y: 0, width: 1200, height: 851 });
 		expect(coarsest?.size).toEqual({ width: 150, height: 107 });
 		expect(Math.ceil(851 / 8)).toBe(107);

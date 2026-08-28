@@ -8,7 +8,7 @@ Recorded because unnamed adjacent scope is where a plan quietly triples, and bec
 > - **"Undo is single-level, not a history stack"** — reversed by [ADR-0039](./0039-an-edit-history-per-screen-holds-file-images-not-commands.md). The fence's reasoning is why it was reversed rather than why it stood: the command objects it declined are exactly what ADR-0039 also declines, and an Edit History of file images buys a dozen actions five deep without them.
 > - **"Annotating the unwarped image is the most likely v2 feature"** — still plausible, but note that [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md) moves map images and alignments to the workspace, so a second annotation model would target a *workspace-level* image rather than a project-level one. The tolerance this section asks for — a third layer kind, and nothing assuming all annotations are geographic — is unaffected and still required, `"foreign"` still reserved.
 >
-> "Authoring is desktop-only; viewing is fully responsive" holds and is load-bearing for everything the next epic adds.
+> "Authoring is desktop-only; viewing is fully responsive" holds and is load-bearing for everything built on top of v1.
 >
 > **Fences 2 and 3 are reversed by [ADR-0031](./0031-the-broker-exchanges-a-code-never-data.md) and [ADR-0032](./0032-publish-means-the-remote.md).** Both were correct on their premises and both premises moved:
 >
@@ -47,4 +47,4 @@ It is deferred because it is a **second annotation model**: targets are image co
 
 **Recorded here so that annotation storage is not designed in a way that blocks it.** Specifically: the layer kind discriminator from ADR-0002 must tolerate a third kind, and nothing may assume that all annotations are geographic.
 
-**`"foreign"` is a reserved `kind` literal, so the third kind must not be called that.** Ticket 09 implemented the tolerance above by parsing a `kind` this build has never heard of into a `ForeignLayer` — a layer that can be named, hidden, and reordered, and that serialises back with the kind the file carried and every field it arrived with. `kind: "foreign"` is the in-memory discriminator that makes narrowing work; the declared kind lives beside it. An author reading this section for the third kind would otherwise have no reason to know the name is taken.
+**`"foreign"` is a reserved `kind` literal, so the third kind must not be called that.** The tolerance above is implemented by parsing a `kind` this build has never heard of into a `ForeignLayer` — a layer that can be named, hidden, and reordered, and that serialises back with the kind the file carried and every field it arrived with. `kind: "foreign"` is the in-memory discriminator that makes narrowing work; the declared kind lives beside it. An author reading this section for the third kind would otherwise have no reason to know the name is taken.

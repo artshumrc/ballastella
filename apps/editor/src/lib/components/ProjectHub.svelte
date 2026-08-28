@@ -45,7 +45,7 @@
 	let deleting = $state<ProjectSummary | null>(null);
 
 	/**
-	 * The "review a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
+	 * The "review a Project somebody sent you" dialog.
 	 *
 	 * ⚠ **This is not the Import beside it, and it must never become it.** A bundle read here opens
 	 * into a *new Review Workspace* and nothing merges it into the Workspace this hub is showing:
@@ -79,7 +79,7 @@
 	let bundleNoticeLine: HTMLElement | null = $state(null);
 
 	/**
-	 * The "review a Project from a Remote" dialog (SPEC story 50, ADR-0031).
+	 * The "review a Project from a Remote" dialog (ADR-0031).
 	 *
 	 * ⚠ **Beside the bundle's button and not beside Clone's, because it is the bundle's operation.**
 	 * A Clone makes a Workspace of the user's own that they may go on working in, which is why it
@@ -241,8 +241,9 @@
 		bundleBusy = true;
 		try {
 			// ⚠ **The reader's own sentence, shown rather than dropped.** It says how the review copy was
-			// named — which is not always the name on the file, because ticket 12 suffixes a taken one —
-			// and, when the bundle named the same Alignment twice, which entries were **not** written.
+			// named — which is not always the name on the file, because `unusedDirectoryName` suffixes a
+			// taken one — and, when the bundle named the same Alignment twice, which entries were **not**
+			// written.
 			// The first cut of this handler threw the whole thing away, and a transfer that quietly
 			// delivers less than it was handed is the failure this format change exists to escape.
 			bundleNotice = (await storage.openBundle(file)).notice;
@@ -254,7 +255,7 @@
 		}
 	};
 
-	// ── Import: the inverse of Export (SPEC stories 1–3, 7–14, ADR-0037) ───────────────────
+	// ── Import: the inverse of Export (ADR-0037) ───────────────────────────────────────────
 	//
 	// ⚠ **A different operation from the two dialogs above, and the labels are the difference.** All
 	// three take the same kind of file, so the only thing standing between "keep this colleague's
@@ -282,9 +283,9 @@
 	/**
 	 * The line naming what was Imported, focused when the Import finishes.
 	 *
-	 * This is how the allocated result is *reached* rather than merely rendered (SPEC story 9): the
-	 * name a Project arrived under is not always the name on the file, so a keyboard user put back on
-	 * the trigger would have to go looking through the list for a Project they cannot predict.
+	 * This is how the allocated result is *reached* rather than merely rendered: the name a Project
+	 * arrived under is not always the name on the file, so a keyboard user put back on the trigger
+	 * would have to go looking through the list for a Project they cannot predict.
 	 */
 	let importNoticeLine: HTMLElement | null = $state(null);
 	/** How far this Import's copy has got, or `''` when none is running. */
@@ -345,7 +346,7 @@
 		}
 	};
 
-	// ── The Workspace's Map Images (SPEC stories 63–65, 98) ────────────────────────────────
+	// ── The Workspace's Map Images ─────────────────────────────────────────────────────────
 	//
 	// On the hub rather than inside a Project for the same reason Publish is: a pyramid belongs to the
 	// **Workspace** and is drawn by any number of Projects (ADR-0023), so "what does this Workspace
@@ -372,10 +373,10 @@
 	});
 
 	const mapImagesBytes = $derived(session.mapImages.reduce((sum, map) => sum + map.bytes, 0));
-	// Core's figure, not a second one derived here. This is the sentence the ticket exists for — "of
-	// which 340 MB is used by no Project" — and publishing's hosting warning states the same number
-	// from `unusedMapImageBytes`; two reductions spelling it out separately is how one screen ends
-	// up quoting two totals for one Workspace.
+	// Core's figure, not a second one derived here. This is the sentence the reclaim total exists
+	// for — "of which 340 MB is used by no Project" — and publishing's hosting warning states the
+	// same number from `unusedMapImageBytes`; two reductions spelling it out separately is how one
+	// screen ends up quoting two totals for one Workspace.
 	const unused = $derived(unusedMapImages(session.mapImages));
 
 	/**
@@ -397,7 +398,7 @@
 		`${map.files} ${map.files === 1 ? 'file' : 'files'}`;
 
 	/**
-	 * Which Projects draw a map, what refining it moves, and plainly when none do (SPEC story 63).
+	 * Which Projects draw a map, what refining it moves, and plainly when none do.
 	 *
 	 * ⚠ **The sentence itself is `alignment/used-by.ts`, and this is its only render site.**
 	 * One Alignment belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so
@@ -496,7 +497,7 @@
 	 */
 	const transfer = $derived(storage?.transfer ?? session.transfer);
 
-	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
+	/** A transfer in flight, which the Export buttons must not lose focus to. */
 	const transferring = $derived(transfer !== null && !transfer.finished);
 
 	/**
@@ -552,7 +553,7 @@ What else the Hub says about a Project: whether this build can read it.
 
 <!--
 	What can be done to one Project. **Nowhere in the viewer**: a Reader is handed the same card
-	without these, rather than a menu of controls that are there and refused (SPEC story 54).
+	without these, rather than a menu of controls that are there and refused.
 -->
 {#snippet actions(project: ListedProject)}
 	<button
@@ -576,7 +577,7 @@ What else the Hub says about a Project: whether this build can read it.
 	     order the moment it is pressed, so a keyboard user's focus fell to `<body>`
 	     for the length of the export and was not restored when it came back —
 	     leaving them to tab in from the top of the page after every export
-	     (SPEC story 95, WCAG 2.4.3). -->
+	     (WCAG 2.4.3). -->
 	<button
 		class="btn btn-sm"
 		class:btn-disabled={transferring}
@@ -602,15 +603,15 @@ What else the Hub says about a Project: whether this build can read it.
 
 <!--
 	What a Map Image weighs, how many files that is, and where its tiles are — visible text rather
-	than a tooltip or a badge colour (SPEC story 111), because where the tiles are is the fact that
-	decides whether this map draws anything on a train. The folder is the row's own, said after these.
+	than a tooltip or a badge colour, because where the tiles are is the fact that decides whether
+	this map draws anything on a train. The folder is the row's own, said after these.
 -->
 {#snippet mapFacts(entry: ListedMapImage)}
 	{describeBytes(entry.map.bytes)} in {fileCount(entry.map)} · {whereTilesAre(entry.map)}
 {/snippet}
 
 <!--
-	Who draws this Map Image, and so what refining its Alignment moves (SPEC story 34, ADR-0023).
+	Who draws this Map Image, and so what refining its Alignment moves (ADR-0023).
 
 	**Not a live region.** `usedBy` is a field of the same `WorkspaceMapImage` record as the bytes and
 	the file count, filled by the one `refreshMapImages` walk, and the list renders nothing until that
@@ -624,7 +625,7 @@ What else the Hub says about a Project: whether this build can read it.
 	</p>
 {/snippet}
 
-<!-- Delete is the last control in the row and the only one in `error` (SPEC story 33). -->
+<!-- Delete is the last control in the row and the only one in `error`. -->
 {#snippet mapActions(entry: ListedMapImage)}
 	<button class="btn btn-outline btn-error btn-sm" onclick={() => askToDelete(entry.map)}>
 		Delete<span class="sr-only"> {entry.name}</span>
@@ -633,7 +634,7 @@ What else the Hub says about a Project: whether this build can read it.
 
 <!--
 	The Workspace Home's two columns: what the author has on the left, what it is made of on the
-	right, divided by one vertical rule (SPEC stories 30, 34).
+	right, divided by one vertical rule.
 
 	**`xl` rather than the Project page's `lg`, and it was measured.** At exactly 1024 the Projects
 	column takes its pinned measure and leaves the Map Images column 224px, where a Map Image row
@@ -641,11 +642,11 @@ What else the Hub says about a Project: whether this build can read it.
 	row's text block sizes to its max-content, so no choice of measure buys it out. At 1280 that
 	column gets roughly 480px and the row fits. The two surfaces disagreeing about "wide" is the
 	lesser evil: below `xl` this screen stacks, **Projects first**, which is source order here and a
-	state story 38 already requires to work.
+	state this screen has to work in at any width anyway.
 
 	**The Projects column is pinned to `--workspace-home-measure`** rather than taking half of
 	whatever the page is, so that it measures the same above `xl`, below `xl`, and on a Published
-	Site — one width from one declaration in `packages/ui/src/layout.css` (SPEC story 35).
+	Site — one width from one declaration in `packages/ui/src/layout.css`.
 
 	The rule is a boundary between two regions, which is the one thing ADR-0036's no-left-border rule
 	explicitly does not forbid: it separates the columns and marks nothing.
@@ -658,11 +659,11 @@ What else the Hub says about a Project: whether this build can read it.
 			<div class="flex flex-wrap items-baseline gap-3">
 				<h2 class="text-2xl font-semibold">Projects</h2>
 				<!--
-					The count is beside the heading rather than inside it (SPEC story 31). Every spec that
-					arrives at this screen does so through `heading, { name: 'Projects' }`, and a number in
-					the accessible name would break all of them for a fact that is not part of the name —
-					so the figure is a sibling, with the noun in `sr-only` text so it is still a sentence
-					when it is read aloud.
+					The count is beside the heading rather than inside it. Every spec that arrives at this
+					screen does so through `heading, { name: 'Projects' }`, and a number in the accessible
+					name would break all of them for a fact that is not part of the name — so the figure is
+					a sibling, with the noun in `sr-only` text so it is still a sentence when it is read
+					aloud.
 
 					The separator is `&nbsp;` because Svelte trims the whitespace at the start of an
 					element's content, and without it the count is announced as “3Projects”.
@@ -677,9 +678,9 @@ What else the Hub says about a Project: whether this build can read it.
 			</div>
 			<div class="flex flex-wrap gap-2">
 				<!--
-				Opening a Project somebody sent you (workspace-and-layers SPEC story 90). Beside New Project rather than in a
-				menu, because for a Firefox, Safari, or iPad user whose Workspace lives in storage they
-				cannot see (ADR-0001), a file is the only way anything gets in or out at all.
+				Opening a Project somebody sent you. Beside New Project rather than in a menu, because
+				for a Firefox, Safari, or iPad user whose Workspace lives in storage they cannot see
+				(ADR-0001), a file is the only way anything gets in or out at all.
 
 				**Absent inside a review copy**, rather than present and refused. A review copy is a
 				throwaway Workspace holding one Project, and opening a second bundle from inside it would
@@ -690,9 +691,9 @@ What else the Hub says about a Project: whether this build can read it.
 				{#if review === null}
 					<!--
 					Import: the inverse of Export, and the **first** of the three because it is what an
-					author reaching for a file someone sent them usually means (SPEC stories 1, 2, 12,
-					ADR-0037). It copies into the Workspace already open, which is what makes it a
-					different action from the two beside it rather than a setting on one of them.
+					author reaching for a file someone sent them usually means (ADR-0037). It copies
+					into the Workspace already open, which is what makes it a different action from the
+					two beside it rather than a setting on one of them.
 
 					**Absent inside a review copy.** Copying the reviewed Project out is its own
 					operation with its own destination — the ordinary Workspace review began in — and
@@ -705,10 +706,10 @@ What else the Hub says about a Project: whether this build can read it.
 						Review a Project…
 					</button>
 					<!--
-					The same operation from a Remote rather than from a file (SPEC story 50). Absent inside
-					a review copy for the reason above and one more: a reviewer who follows a second link
-					from inside the first would accumulate review copies, which is the mental model
-					ADR-0024 exists to prevent.
+					The same operation from a Remote rather than from a file. Absent inside a review copy
+					for the reason above and one more: a reviewer who follows a second link from inside the
+					first would accumulate review copies, which is the mental model ADR-0024 exists to
+					prevent.
 
 					⚠ **Shorter than its dialog's title, and the four labels have to share one line.**
 					The Projects column is pinned to `--workspace-home-measure` (42rem), and with
@@ -726,9 +727,9 @@ What else the Hub says about a Project: whether this build can read it.
 			</div>
 		</div>
 
-		<!-- ADR-0024: a Review Workspace is never published. Since ticket 04 the control and its dialog
-	     are on the navigation bar, where they are on every screen — so what is left here is the
-	     sentence explaining the absence, which the bar has nowhere to put. -->
+		<!-- ADR-0024: a Review Workspace is never published. The control and its dialog are on the
+	     navigation bar, where they are on every screen — so what is left here is the sentence
+	     explaining the absence, which the bar has nowhere to put. -->
 		{#if review !== null}
 			<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
 				A review copy is not published and not backed up: it holds somebody else's work and is meant
@@ -741,10 +742,9 @@ What else the Hub says about a Project: whether this build can read it.
 		first text is not reliably announced.
 
 		`aria-live="polite"` and **not** `role="status"`, which is this app's settled convention
-		wherever the save indicator is also on screen — and since ticket 04 the save indicator is on
-		the navigation bar, so it is on screen *here too*. Two `status` roles make `getByRole('status')`
-		a strict-mode violation, which is a hint that a screen-reader user would have to disambiguate
-		as well.
+		wherever the save indicator is also on screen — and the save indicator is on the navigation bar,
+		so it is on screen *here too*. Two `status` roles make `getByRole('status')` a strict-mode
+		violation, which is a hint that a screen-reader user would have to disambiguate as well.
 	-->
 		<p
 			aria-live="polite"
@@ -825,7 +825,7 @@ What else the Hub says about a Project: whether this build can read it.
 		{#if session.status === 'unreachable'}
 			<!--
 			ADR-0008: a normal state with a recovery, never an error boundary — and **the alert and the
-			recovery are `WorkspaceRecovery`'s**, one level up, not this component's (ticket 12).
+			recovery are `WorkspaceRecovery`'s**, one level up, not this component's.
 
 			This used to be a second `role="alert"` saying the same thing, with a "Locate Workspace again"
 			button that is only the right recovery for browser storage: for a folder Workspace the way back
@@ -844,9 +844,9 @@ What else the Hub says about a Project: whether this build can read it.
 			<p class="mt-6">No Projects yet.</p>
 		{:else}
 			<!--
-			The same list a Reader is offered on a Published Site's Front Page, from the one component
-			(SPEC stories 8, 52–54). What is the Hub's rather than the card's arrives as the three
-			snippets below, and what a Reader must not be offered is what the viewer does not pass.
+			The same list a Reader is offered on a Published Site's Front Page, from the one
+			component. What is the Hub's rather than the card's arrives as the three snippets below,
+			and what a Reader must not be offered is what the viewer does not pass.
 		-->
 			<ProjectCardList
 				class="mt-6 workspace-home-column"
@@ -892,9 +892,8 @@ What else the Hub says about a Project: whether this build can read it.
 			</p>
 
 			{#if session.mapImageError}
-				<!-- SPEC story 64: the refusal, naming the Projects that would break. A warning beside the
-			     list rather than a dialog over it — nothing has happened, and every other map stays
-			     reachable. -->
+				<!-- The refusal, naming the Projects that would break. A warning beside the list rather
+			     than a dialog over it — nothing has happened, and every other map stays reachable. -->
 				<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
 					<p data-testid="map-image-refused">{session.mapImageError}</p>
 				</div>
@@ -906,10 +905,9 @@ What else the Hub says about a Project: whether this build can read it.
 				<p class="mt-4" data-testid="no-map-images">No Map Images yet.</p>
 			{:else}
 				<!--
-				The same row the Projects list is drawn with, from the one component (SPEC story 37). It
-				used to be this markup written a second time, so a change to a row could land in one list
-				and miss the other; what is a Map Image's rather than a row's arrives as the four snippets
-				above.
+				The same row the Projects list is drawn with, from the one component. It used to be this
+				markup written a second time, so a change to a row could land in one list and miss the
+				other; what is a Map Image's rather than a row's arrives as the four snippets above.
 			-->
 				<ProjectCardList
 					class="mt-4 workspace-home-column"
@@ -1007,10 +1005,10 @@ What else the Hub says about a Project: whether this build can read it.
 	dismissable={!importBusy}
 >
 	<!--
-		⚠ **The destination, before the file is chosen** (SPEC story 7). This is the one sentence that
-		tells an author they are about to copy work into their own Workspace rather than look at it in a
-		throwaway one, and both offers take the same kind of file — so it is above the input, not below
-		it, and it names the Workspace rather than saying "this Workspace".
+		⚠ **The destination, before the file is chosen.** This is the one sentence that tells an author
+		they are about to copy work into their own Workspace rather than look at it in a throwaway one,
+		and both offers take the same kind of file — so it is above the input, not below it, and it
+		names the Workspace rather than saying "this Workspace".
 	-->
 	<p data-testid="import-destination">
 		Import into <strong>{importTarget?.name ?? storage?.name ?? ''}</strong>
@@ -1035,9 +1033,8 @@ What else the Hub says about a Project: whether this build can read it.
 		never travel here, and yours never travel there.
 	</p>
 	<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real minutes,
-	     and an Import is one of the places a scholar waits on something they cannot see
-	     (workspace-and-layers SPEC story 96). No percentage: the two numbers are files, which is what
-	     the closure knows.
+	     and an Import is one of the places a scholar waits on something they cannot see. No
+	     percentage: the two numbers are files, which is what the closure knows.
 
 	     `aria-live="polite"` and **not** `role="status"`, which is CONTRIBUTING's mandated pattern and
 	     this app's settled convention: the save indicator on the navigation bar owns that role on
@@ -1133,10 +1130,9 @@ What else the Hub says about a Project: whether this build can read it.
 		<!-- `aria-disabled` for the *busy* half, never `disabled`. A `disabled` button leaves the tab
 		     order the moment it is pressed, so a keyboard user's focus fell to `<body>` for the length
 		     of the read — the identical defect the Export buttons above are shaped by, and the one
-		     `keeps the Export button focusable while an export runs` already guards
-		     (workspace-and-layers SPEC story 95, WCAG 2.4.3). `disabled` is still right for "no file
-		     chosen yet", because that button has never been pressed and cannot lose a focus it never
-		     had. -->
+		     `keeps the Export button focusable while an export runs` already guards (WCAG 2.4.3).
+		     `disabled` is still right for "no file chosen yet", because that button has never been
+		     pressed and cannot lose a focus it never had. -->
 		<button
 			class="btn btn-primary"
 			class:btn-disabled={bundleBusy}
@@ -1190,10 +1186,9 @@ What else the Hub says about a Project: whether this build can read it.
 		can be brought back into it, and a review copy is never published.
 	</p>
 	<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real minutes,
-	     and this is one of the places a scholar waits on something they cannot see
-	     (workspace-and-layers SPEC story 96). `aria-live="polite"` rather than `role="status"`, and
-	     persistent rather than inserted with its first text: see the Import dialog's own progress line
-	     above for both arguments. -->
+	     and this is one of the places a scholar waits on something they cannot see.
+	     `aria-live="polite"` rather than `role="status"`, and persistent rather than inserted with
+	     its first text: see the Import dialog's own progress line above for both arguments. -->
 	<p
 		aria-live="polite"
 		class="text-sm"

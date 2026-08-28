@@ -38,7 +38,7 @@ export type BaseMapEntry = {
 	/**
 	 * pmtiles bundled in the Workspace → `false`; remote → `true`. This is **used**, not
 	 * merely stored: `baseMapOptions` marks the entry so a Reader on a plane is not offered a
-	 * blank map with no explanation (ADR-0020). Ticket 17 relies on it.
+	 * blank map with no explanation (ADR-0020).
 	 */
 	readonly needsNetwork: boolean;
 	/**
@@ -55,9 +55,9 @@ export type BaseMapEntry = {
 /**
  * Everything this deployment knows about Base Maps.
  *
- * This whole value is what a forker replaces to point at their own tiles (SPEC story 100),
- * and replacing it must require no change anywhere else — which is why the initial view, the
- * glyph and sprite locations, and the attribution live here too rather than in the app. See
+ * This whole value is what a forker replaces to point at their own tiles, and replacing it must
+ * require no change anywhere else — which is why the initial view, the glyph and sprite
+ * locations, and the attribution live here too rather than in the app. See
  * `scripts/check-base-map-catalog.mjs`, which fails the build if any module outside the
  * catalog names an entry.
  */

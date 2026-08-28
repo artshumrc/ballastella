@@ -13,9 +13,8 @@
 // A public repository's file list and its bytes are readable with no token at all, so a student with
 // no GitHub account can seed a Workspace from their instructor's Remote. Nothing here takes a
 // `token`, builds an `Authorization` header, or reads the credential store — and none of those may
-// be added. Doing so would make an account a prerequisite for the one operation in this epic that
-// needs none, and it would do it silently: the flow would go on working for everybody who had
-// already signed in.
+// be added. Doing so would make an account a prerequisite for the one operation that needs none, and
+// it would do it silently: the flow would go on working for everybody who had already signed in.
 //
 // Private repositories are therefore out, and the refusal says so rather than reporting GitHub's
 // 404 as a missing repository.
@@ -49,9 +48,9 @@
 // Workspace file — so a file dragged in from outside the namespace is authored content of every
 // later publish. The student who opens an instructor's repository, binds to their own and presses
 // Publish would find their own `CNAME` overwritten with the instructor's domain and their
-// `README.md` replaced (SPEC story 17). That is exactly the "full mirror" ADR-0033 rejected,
-// arriving through the transfer rather than through the namespace rule — so the predicate is
-// imported rather than restated, and there is no second copy of it to drift.
+// `README.md` replaced. That is exactly the "full mirror" ADR-0033 rejected, arriving through the
+// transfer rather than through the namespace rule — so the predicate is imported rather than
+// restated, and there is no second copy of it to drift.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // RESTORE'S SEMANTICS, WITH A DIFFERENT SOURCE OF BYTES
@@ -75,12 +74,12 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // VALIDATED WHOLE, BEFORE THE CALLER MAY ADOPT IT
 //
-// SPEC: an Open establishes a Baseline *only* once the complete Workspace is valid. So the last thing
-// this does is ask the Workspace's own invariants of what arrived — through `compareWorkspace`, which
-// is ticket 09's one implementation of them, rather than a second reading of the same rules. A
-// Project whose `project.json` names a Layer the Remote never published, an Alignment for a Map Image
-// that is not there, or a Project written by a newer Ballastella is refused here, so the caller never
-// gets the chance to record evidence about a Workspace that cannot be opened.
+// An Open establishes a Baseline *only* once the complete Workspace is valid. So the last thing this
+// does is ask the Workspace's own invariants of what arrived — through `compareWorkspace`, which is
+// `synchronization-planner.ts`'s one implementation of them, rather than a second reading of the same
+// rules. A Project whose `project.json` names a Layer the Remote never published, an Alignment for a
+// Map Image that is not there, or a Project written by a newer Ballastella is refused here, so the
+// caller never gets the chance to record evidence about a Workspace that cannot be opened.
 
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import { alignmentImageId } from '../alignment/alignment.js';
@@ -209,10 +208,10 @@ export interface WorkspaceClone {
 	/**
 	 * Every **source** path that arrived, and the blob SHA it was verified against.
 	 *
-	 * ⚠ **Verified rather than listed**, which is the whole distinction SPEC draws for the Baseline:
-	 * every entry here was either fetched and hashed against the tree's SHA, or found already on disk
-	 * with those exact bytes. Published output — the viewer, `.nojekyll`, `remote.json` — is
-	 * deliberately absent (ticket 02): it is generated, so it is never source drift and never part of
+	 * ⚠ **Verified rather than listed**, which is the whole distinction a Baseline draws: every entry
+	 * here was either fetched and hashed against the tree's SHA, or found already on disk with those
+	 * exact bytes. Published output — the viewer, `.nojekyll`, `remote.json` — is deliberately absent
+	 * (see `synchronization-paths.ts`): it is generated, so it is never source drift and never part of
 	 * what the two sides are said to have shared.
 	 */
 	readonly source: ReadonlyMap<string, string>;
@@ -324,7 +323,7 @@ export async function cloneFromRemote(
 		// ⚠ **The resume, and the whole reason this is bearable to interrupt.** The tree gave a blob
 		// SHA per path, so what is already on disk can be checked against it without asking GitHub
 		// anything — one local read and one hash against a request for a pyramid tile. `gitBlobSha` is
-		// ticket 01's function used in the other direction; there is deliberately no second hash here.
+		// used in the other direction here; there is deliberately no second hash.
 		if (await alreadyHere(destination.store, entry)) {
 			skipped += 1;
 			bytes += entry.bytes;
@@ -367,7 +366,7 @@ export async function cloneFromRemote(
 	// ⚠ **Validated whole, and only now.** The Workspace's own invariants are asked of everything that
 	// arrived — a Layer's file, an Alignment's Map Image, a `project.json` this build can read — so a
 	// Remote that would open as a broken Workspace is refused *before* the caller adopts it or records
-	// a Baseline about it. `compareWorkspace` is ticket 09's one reading of those rules; a second
+	// a Baseline about it. `compareWorkspace` is the one reading of those rules; a second
 	// reading here is how the Update and the Open come to disagree about what a valid Workspace is.
 	const verified = await verifiedSource(remote, destination.store, entries, manifests, declined);
 
@@ -400,11 +399,11 @@ export async function cloneFromRemote(
 /**
  * The source paths and SHAs of what arrived, having asked the Workspace's invariants of the whole.
  *
- * Both answers come out of one call to `compareWorkspace`: the source classification (ticket 02) that
- * keeps the viewer's own files out of a Baseline, and the graph verdict (ticket 09) that decides
- * whether this is a Workspace at all. The same inventory is given as both sides of the comparison
- * because there is nothing to compare — no Baseline exists yet, and what is wanted is the *prospective*
- * path set, which for a first Open is exactly what the Remote holds.
+ * Both answers come out of one call to `compareWorkspace`: the source classification of
+ * `synchronization-paths.ts`, which keeps the viewer's own files out of a Baseline, and the graph
+ * verdict, which decides whether this is a Workspace at all. The same inventory is given as both
+ * sides of the comparison because there is nothing to compare — no Baseline exists yet, and what is
+ * wanted is the *prospective* path set, which for a first Open is exactly what the Remote holds.
  *
  * @throws CloneRefusedError `'invalid'` or `'unsupported'`, leaving the destination in place
  */
@@ -461,8 +460,8 @@ async function verifiedSource(
 	// ⚠ **A declined Alignment is left out.** The Remote's bytes for it were never written — the
 	// Workspace kept the Alignment it already had for that Map Image — so recording the Remote's SHA
 	// would be a Baseline claiming the two sides share bytes that are not here, and the first status
-	// check would read `Up to date` over an Alignment GitHub has never seen (SPEC story 99). Absent, it
-	// is an unattributable path, which is what it is.
+	// check would read `Up to date` over an Alignment GitHub has never seen. Absent, it is an
+	// unattributable path, which is what it is.
 	const withheld = new Set(declined);
 	const source = new Map<string, string>();
 	for (const path of comparison.paths) {
@@ -500,7 +499,7 @@ async function readCloneTree(
 	const projects = projectDirectories(blobs.map((entry) => entry.path));
 
 	return blobs.flatMap<CloneEntry>((entry) =>
-		// ⚠ **`remote.json` is left where it is, and nothing here writes one** (SPEC story 80). The
+		// ⚠ **`remote.json` is left where it is, and nothing here writes one.** The
 		// relationship is installation-local metadata recorded by `open-workspace-from-github.ts` for
 		// the repository the user actually selected; the copy inside a published tree is the *source's*
 		// claim about itself, so a fork's names the repository it was forked from. Downloaded it would
@@ -584,7 +583,7 @@ async function alreadyHere(store: ProjectStore, entry: CloneEntry): Promise<bool
 }
 
 /**
- * Write one downloaded file, sending an Alignment through the one writer (ticket 18, ADR-0023).
+ * Write one downloaded file, sending an Alignment through the one writer (ADR-0023).
  *
  * Routed for the reason `restore-workspace-tar.ts` gives at length, and it is the same situation: the
  * path arrives as *data* — an entry in somebody else's tree — so neither the `AlignmentPath` brand
@@ -643,8 +642,8 @@ function notPublicMessage(remote: CloneReference): string {
  * ⚠ **It names the limit as *anonymous* and the address as *shared*, because both are what make it
  * legible.** An Open signs in to nothing, so the budget is GitHub's 60 requests an hour per IP
  * address rather than a personal one — which means the person reading this may have made no requests
- * at all and is sharing a campus NAT with a class doing the same thing at the same time (SPEC story
- * 48). Without that, the honest reading of "rate limit" is "I did something too many times".
+ * at all and is sharing a campus NAT with a class doing the same thing at the same time. Without
+ * that, the honest reading of "rate limit" is "I did something too many times".
  */
 function rateLimitedMessage(remote: CloneReference, resetAt: Date | null): string {
 	const at = describeReset(resetAt);

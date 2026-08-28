@@ -153,8 +153,8 @@ export async function baseMapArchiveFixture(): Promise<Buffer> {
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHAT ROUTING STILL EXERCISES, AND WHAT IT GIVES UP
  *
- * Stated from measurement rather than from reasoning, because ticket 17 extended this to the last
- * three specs that reached the network for real, and the reasoning turned out to be wrong.
+ * Stated from measurement rather than from reasoning, because the reasoning turned out to be wrong
+ * when the last specs reaching the network for real were routed here.
  *
  * **Still exercised:** PMTiles is a byte-range format, and {@link byteRange} answers with genuine
  * `206`, `content-range` and `accept-ranges` over the real bytes of a real Protomaps extract, not a
@@ -164,7 +164,7 @@ export async function baseMapArchiveFixture(): Promise<Buffer> {
  * any of it. And worldwide coverage: the fixture is a city-centre extract of Amsterdam, which is
  * where every spec routed here works and where the alignment fixtures place their Control Points.
  *
- * ⚠ **For the three specs ticket 17 added, the honest answer is that this gives up nothing at all,
+ * ⚠ **For the three specs routed here last, the honest answer is that this gives up nothing at all,
  * and the measurement is worth keeping because it is surprising.** They pass with this fixture, they
  * pass with an archive of **all zeros**, and they pass with the route answering **404**. They never
  * depended on the Base Map's content: what they need is for the archive request to be *answered* so
@@ -332,8 +332,8 @@ export async function routePartialBaseMapArchive(
  * safe in the direction that matters: this harness *produces* the layout the app *reads*, so a drift
  * between the two makes the offline assertion fail rather than pass quietly.
  *
- * **The archive is a parameter and is never named here.** Since ticket 12 the directory is keyed by
- * the catalog entry's own `archive` string, and `scripts/check-base-map-catalog.mjs` exempts
+ * **The archive is a parameter and is never named here.** The directory is keyed by the catalog
+ * entry's own `archive` string, and `scripts/check-base-map-catalog.mjs` exempts
  * `*.e2e.ts` but not this file — for the good reason that a fork repointing its catalog must not have
  * to edit the harness. So the specs supply it and this computes the key.
  *
@@ -415,10 +415,9 @@ function tilesForBounds(
  * tiles would arrive, MapLibre would parse nothing, and no error would be raised anywhere.
  *
  * **It also weighs them, and that is not a by-product.** ADR-0025's per-tile byte estimate and the
- * refusal threshold both rest on a measurement of this archive, and the epic's tracker forbids a
- * ticket committing to that measurement unverified. A table in a comment is prose; this returns the
- * totals so a test can assert them, and `editor-base-map.e2e.ts` does, so the figure cannot rot
- * unnoticed.
+ * refusal threshold both rest on a measurement of this archive, and a measurement in a comment is
+ * prose. This returns the totals so a test can assert them, and `editor-base-map.e2e.ts` does, so the
+ * figure cannot rot unnoticed.
  *
  * @param archive the catalog entry's own `archive` string, which the directory is keyed on
  * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent

@@ -14,8 +14,8 @@
 // to `createImageBitmap(blob)` and binary-searching between the last success and the first
 // failure therefore measures the decode ceiling directly, with no dependence on how well any
 // real image compresses. Each probe ran in a fresh browser process, and each decoded bitmap was
-// sampled at its far corner so that a lazy decode could not pass. The probe script is recorded
-// in v1 ticket 05; it is not part of the app.
+// sampled at its far corner so that a lazy decode could not pass. The probe script is not part of
+// the app.
 //
 // ## Measurements — 2026-08-05, Linux x86-64, 62 GiB RAM
 //

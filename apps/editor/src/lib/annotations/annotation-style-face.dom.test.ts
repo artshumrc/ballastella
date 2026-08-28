@@ -62,7 +62,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 	await settle();
 };
 
-describe('a geometry is offered the controls it has and no others (SPEC stories 63, 64, 65)', () => {
+describe('a geometry is offered the controls it has and no others', () => {
 	// The union doing its job in the interface: there is no fill on a pin, so there is no control for
 	// one — absent rather than present and empty, which is the distinction each count is about.
 	test('a pin has marker controls and neither a line nor a fill', () => {
@@ -172,7 +172,7 @@ describe('a geometry is offered the controls it has and no others (SPEC stories 
 	});
 });
 
-describe('an Annotation may be one of nine colours and no other (SPEC story 111)', () => {
+describe('an Annotation may be one of nine colours and no other', () => {
 	test('nine swatches, each a real radio and each named in words', () => {
 		editor({ geometry: POINT });
 

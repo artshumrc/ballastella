@@ -1,6 +1,6 @@
 <script lang="ts">
-	// The Annotation Inspector's Text face in the editor: the words, and the controls that change them
-	// (the-annotation-inspector stories 30, 31, 35).
+	// The Annotation Inspector's Text face in the editor: the words, and the controls that change
+	// them.
 	//
 	// **Text until somebody asks to change it**, which is the same rule the Layer card's name follows
 	// and for the same reason: a column of bordered fields reads as a form to fill in, and this is
@@ -11,8 +11,8 @@
 	// **The title is not drawn here at all.** `AnnotationInspector`'s identity header, directly above
 	// this face, already names the Annotation from the rule its row draws from (ADR-0035) — so a title
 	// in the resting text would be the same words twice a few pixels apart in the same weight, which
-	// reads as two fields rather than one (the-annotation-inspector story 4). The title is on screen as
-	// a *field*, where it is labelled, or not at all.
+	// reads as two fields rather than one. The title is on screen as a *field*, where it is labelled,
+	// or not at all.
 	//
 	// **And no preview beside the textarea**, for the same reason: the resting state is already the
 	// rendered description, so a preview would be that rendering twice. The rendering itself is
@@ -31,15 +31,13 @@
 	// them.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
-	// **A LABEL IS THE ONE KIND WHOSE WORDS ARE A FIELD ON ARRIVAL** (write-on-the-map stories 11, 12,
-	// 15, 17).
+	// **A LABEL IS THE ONE KIND WHOSE WORDS ARE A FIELD ON ARRIVAL**
 	//
 	// For a Pin, a Line or a Shape the words are prose to *read* and *Edit text* turns them into a
 	// form. For a Label the single field **is** the Annotation's content and the thing drawn on the
 	// map, so a gate in front of it would make placing one and typing into "click, press Edit, type"
-	// where story 4 asks for one gesture. It is therefore a field always, and there is no description
-	// control beside it: a surface offering two kinds of prose would make an author choose which one
-	// draws.
+	// where one gesture will do. It is therefore a field always, and there is no description control
+	// beside it: a surface offering two kinds of prose would make an author choose which one draws.
 	//
 	// **A description a stranger's file already carries is still rendered**, read-only, below the
 	// field — nothing in a file is hidden because this app offers no control for it — and `setText`
@@ -70,7 +68,7 @@
 		/**
 		 * Whether this Annotation has just been drawn, and so arrives with the keyboard in its title.
 		 *
-		 * Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40).
+		 * Titling a shape straight after drawing it is one gesture.
 		 * `false` for every other way the Inspector opens: selecting an Annotation to *read* it must not
 		 * put a form in front of the reader.
 		 */
@@ -207,7 +205,7 @@
 			above still owns the *name*, which is why nothing here draws `annotationName` a second time.
 
 			Clearing it leaves no `"title": ""` behind — `setText` removes the property on an empty string,
-			so a Label somebody emptied is not an empty label in another tool (story 17).
+			so a Label somebody emptied is not an empty label in another tool.
 		-->
 		<label class="floating-label">
 			<span>Label text</span>
@@ -230,8 +228,7 @@
 			<!--
 				**Ordinary text in the face, associated with the field** — not a tooltip and not a toast,
 				because a tooltip is not an information channel (CONTRIBUTING). An Annotation placed and not
-				finished is otherwise invisible on the map and indistinguishable from one that was never
-				placed (story 15).
+				finished is otherwise invisible on the map and indistinguishable from one that was never placed.
 			-->
 			<p id={emptyLabelId} class="text-sm opacity-70" data-testid="annotation-label-empty">
 				This Label draws nothing on the map until it has words.
@@ -242,7 +239,7 @@
 			<!--
 				**Rendered, read-only, and only when there is one.** This app offers a Label no description
 				control, but a Label that arrived from another tool carrying prose must still show it —
-				opening a stranger's file never hides what is in it (story 13). Rendered when it exists
+				opening a stranger's file never hides what is in it. Rendered when it exists
 				rather than always, because `AnnotationDescription` says "No description." for the absent
 				case, which here would be an answer to a question nobody can ask.
 			-->
@@ -290,8 +287,8 @@
 				**The sentence is here rather than behind a Style tab of its own.** An Annotation whose shape
 				this build cannot draw is passed no `style` snippet at all, so it has no Style tab — a tab
 				that opened on an explanation of its own emptiness would be a control offered in order to be
-				refused (the-annotation-inspector story 28). What is worth saying is said where the scholar
-				already is, beside the half of the Annotation that is still theirs to edit.
+				refused. What is worth saying is said where the scholar already is, beside the half of the
+				Annotation that is still theirs to edit.
 			-->
 			<p class="text-sm text-warning" data-testid="annotation-not-drawable">
 				This Annotation's shape is one this version cannot draw, so it has no style controls. Its
@@ -308,10 +305,10 @@
 
 		ADR-0016 makes the keyboard path the contract and the drag the convenience, so the drag handle
 		on the row cannot be the only way to reorder an Annotation. It could not have the buttons beside
-		it either: the row holds one button and nothing opens in it (the-annotation-inspector stories
-		10, 69), and a control strip unfolding under the selected row is exactly the growth that claim
-		exists to prevent. So they are here, for the same reason Delete is — they act on the Annotation
-		this panel is describing, and the ordinal in the header above is the very number they change.
+		it either: the row holds one button and nothing opens in it, and a control strip unfolding under
+		the selected row is exactly the growth that claim exists to prevent. So they are here, for the
+		same reason Delete is — they act on the Annotation this panel is describing, and the ordinal in
+		the header above is the very number they change.
 
 		**The picker's first option is not a value.** Moving an Annotation into another Layer moves it
 		between two GeoJSON files, so there is no "current" Layer to show as chosen — the Layer it is in

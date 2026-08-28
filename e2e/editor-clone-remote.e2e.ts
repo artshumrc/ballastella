@@ -12,9 +12,9 @@ import {
 } from './support/workspace';
 
 /**
- * Open a Workspace from GitHub (ticket 11, ADR-0031, ADR-0032, ADR-0038).
+ * Open a Workspace from GitHub (ADR-0031, ADR-0032, ADR-0038).
  *
- * SPEC's Seam 2. The transfer — the tree listing, the skip-by-blob-SHA resume, the refusals and
+ * Seam 2. The transfer — the tree listing, the skip-by-blob-SHA resume, the refusals and
  * their sentences — is asserted at Seam 1 in `clone-from-remote.test.ts`, and what the installation
  * then believes about the Remote in `open-workspace-from-github.test.ts`. Both assert bytes and
  * records rather than a screen. What only a browser can show is here:
@@ -43,7 +43,7 @@ import {
  *
  * ⚠ **"Clone" is not product vocabulary any more, and the file name is the one place it survives.**
  * The shipped `?clone=owner/repository` invitation parameter is kept exactly as it is, because old
- * Published Sites carry it (SPEC story 165) — only what the editor *says* about it changed.
+ * Published Sites carry it — only what the editor *says* about it changed.
  */
 
 const HUB = './';
@@ -98,7 +98,7 @@ const WAREHOUSES = '{"type":"FeatureCollection","features":[]}';
  * The scholar's own work on their own repository: the address they cite in print, the licence, the
  * workflow that deploys their site. A publish leaves every one of them alone and so does an Open —
  * anything downloaded becomes the opener's Workspace content, and their first publish would push it
- * into their own repository as though they had written it (SPEC story 17).
+ * into their own repository as though they had written it.
  */
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
@@ -360,7 +360,7 @@ test.describe('opening a published Workspace', () => {
 		});
 
 		// Started from the keyboard alone, which is the half a `click()` cannot show: an Open a scholar
-		// with no pointer cannot begin is one they cannot do (SPEC story 148).
+		// with no pointer cannot begin is one they cannot do.
 		await openRemoteSettings(page);
 		await page.getByTestId('open-repository-field').fill(REMOTE);
 		await page.getByTestId('open-from-github').focus();
@@ -368,7 +368,7 @@ test.describe('opening a published Workspace', () => {
 
 		// `role="status"`, so it reaches assistive technology rather than only the screen. And it
 		// settles on what has actually arrived: a line counting the plan rather than the transfer would
-		// read the total from the first moment (SPEC story 149).
+		// read the total from the first moment.
 		const progress = page.getByTestId('open-progress');
 		await expect(progress).toHaveText(
 			`${DOWNLOADED.length - 1} of ${DOWNLOADED.length} files downloaded from ${REMOTE}.`,
@@ -463,11 +463,11 @@ test.describe('what Open never does', () => {
 	test('makes a second synchronized copy of a repository it has already opened', async ({
 		page
 	}) => {
-		// ⚠ **SPEC stories 100 and 101, and the reason the reverse lookup exists.** Two local
-		// Workspaces both synchronized with `ada/atlas` are two Publish buttons aimed at one site, and
-		// whichever is pressed second silently replaces the other's work with its own idea of the whole
-		// Workspace. So opening it again goes *back*, downloading nothing — and the author's own edits
-		// since are still there, because reopening is a way back to work rather than a transfer.
+		// ⚠ **The reason the reverse lookup exists.** Two local Workspaces both synchronized with
+		// `ada/atlas` are two Publish buttons aimed at one site, and whichever is pressed second silently
+		// replaces the other's work with its own idea of the whole Workspace. So opening it again goes
+		// *back*, downloading nothing — and the author's own edits since are still there, because
+		// reopening is a way back to work rather than a transfer.
 		await start(page);
 
 		await openFromGitHub(page);
@@ -505,15 +505,14 @@ test.describe('what Open never does', () => {
 });
 
 /**
- * A Reader who followed "Open this Workspace in Ballastella" off a Published Site's Front Page
- * (ticket 09; SPEC stories 49 and 51).
+ * A Reader who followed "Open this Workspace in Ballastella" off a Published Site's Front Page.
  *
  * ⚠ **The offer is the behaviour under test, not the transfer.** A URL is a thing anyone can send,
  * and one that silently created a Workspace and switched to it would let a link rearrange a
  * stranger's editor — so what is asserted here is that landing changes nothing at all, that a press
  * is what runs the Open, and that the parameter does not survive to be replayed by a reload.
  *
- * ⚠ **`?clone=` is the shipped parameter and is kept** (SPEC story 165): every Published Site already
+ * ⚠ **`?clone=` is the shipped parameter and is kept**: every Published Site already
  * in the world carries it. Only what the editor *says* about it is Open now.
  *
  * The *link* — its wording, its address, and both base paths it has to work at — is the viewer's
@@ -539,7 +538,7 @@ test.describe('arriving on a link from a Published Site', () => {
 
 	test('confirming runs the Open, and switches to what it made', async ({ page }) => {
 		// ⚠ **No sign-in anywhere on this path**, which is the whole point of a link a student with no
-		// GitHub account can follow (SPEC stories 48, 97).
+		// GitHub account can follow.
 		await start(page);
 		await page.goto(`${HUB}?clone=${REMOTE}`);
 
@@ -614,8 +613,7 @@ test.describe('arriving on a link from a Published Site', () => {
 test.describe('refusals, all before a byte is written', () => {
 	test('a truncated file list, with no Workspace made at all', async ({ page }) => {
 		// ⚠ A truncated listing answers **200**, so nothing throws anywhere. Proceeding would hand the
-		// user a Workspace with most of a pyramid silently missing — ticket 02's failure arriving from
-		// the other direction.
+		// user a Workspace with most of a pyramid silently missing.
 		const github = await start(page, { truncateAfter: 3 });
 
 		await openFromGitHub(page);

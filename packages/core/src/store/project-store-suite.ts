@@ -16,8 +16,8 @@ export type WriteStep = 'bytes' | 'rename';
  *
  * Each of these is supplied by the backend's own test file rather than reached for inside the
  * suite. That is the difference that matters: the suite knows nothing structural about any
- * backend, so ticket 12's adapter passes it unchanged by providing a fixture, not by having to
- * inherit from a particular base class.
+ * backend, so the File System Access adapter passes it unchanged by providing a fixture, not by
+ * having to inherit from a particular base class.
  */
 export interface StoreUnderTest {
 	readonly store: ProjectStore;
@@ -56,8 +56,8 @@ export interface StoreUnderTest {
  * The behaviour every {@link ProjectStore} backend owes its callers, run against each of
  * them unchanged.
  *
- * This is the load-bearing artefact of the storage layer, not a convenience. Ticket 12's
- * File System Access adapter has to pass this suite **with no changes to the suite**: if a
+ * This is the load-bearing artefact of the storage layer, not a convenience. Every
+ * backend has to pass this suite **with no changes to the suite**: if a
  * backend needs the interface widened or an assertion relaxed, that is evidence the
  * interface was shaped around whichever backend was written first, and the fix belongs in
  * the interface (ADR-0001).
@@ -256,8 +256,8 @@ export function describeProjectStore(
 
 				// `list` cannot report it and `delete` cannot be handed it, so without a sweep a
 				// "deleted" Project's directory survives on disk forever — outside the `list` + `size`
-				// totals tickets 15 and 16 need for the ~1 GB hosting warning, and in ticket 12's real
-				// folder a stray dotfile the user commits to their git repository.
+				// totals the ~1 GB hosting warning is judged against, and in a real folder a stray dotfile the
+				// user commits to their git repository.
 				expect(await store.list('')).toEqual(['p/project.json']);
 				expect(await subject.everyStoredPath()).toEqual([abandoned, 'p/project.json']);
 

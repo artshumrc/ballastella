@@ -37,7 +37,7 @@
 //      claiming it.
 //   2. **Nothing is written and no `remote.json` is made.** A Clone binds what it made, last, as
 //      provenance. A Review Workspace is bound to nothing at all: `writeRemoteBinding` would refuse
-//      it (ticket 03), and so this never asks.
+//      it, and so this never asks.
 //   3. **A failure discards the whole Review Workspace**, where a Clone keeps its partial one. A
 //      Clone is resumable and as expensive as a first publish, so keeping what arrived is what makes
 //      an interruption bearable. A review copy is a thing you throw away when you have finished
@@ -381,9 +381,9 @@ export async function readReviewTree(
 /**
  * The commit the Remote's branch stands at, with the refusals said in a Review's words.
  *
- * Exported for `remote-project-source.ts`: an Import records the commit it copied a Project from
- * (SPEC story 59), and a repository that cannot be read has to say the same thing here as it says
- * about the file list one request earlier.
+ * Exported for `remote-project-source.ts`: an Import records the commit it copied a Project from, and
+ * a repository that cannot be read has to say the same thing here as it says about the file list one
+ * request earlier.
  */
 export async function readReviewHeadCommit(
 	remote: Required<ReviewReference>,
@@ -622,7 +622,7 @@ function readManifest(bytes: Bytes): ProjectFile {
 }
 
 /**
- * Write one reviewed file, sending an Alignment through the one writer (ticket 18, ADR-0023).
+ * Write one reviewed file, sending an Alignment through the one writer (ADR-0023).
  *
  * Routed for the reason `clone-from-remote.ts` and `open-project-bundle.ts` both give at length, and
  * it is the same situation: the path arrives as *data* — an entry in somebody else's tree — so
@@ -719,7 +719,7 @@ function notPublicMessage(remote: Named): string {
  *
  * ⚠ **It names the limit as *anonymous* and the address as *shared*, and this path is where that
  * matters most.** Reviewing signs in to nothing, so the budget is GitHub's 60 requests an hour per IP
- * address — and the scenario SPEC story 48 describes is a class of students all reviewing their
+ * address — and the scenario to keep in view is a class of students all reviewing their
  * instructor's Project from one campus connection, where the 61st reader meets this having made no
  * requests at all. Reported as a private repository it sends a room full of people to change a
  * setting on a repository none of them own.

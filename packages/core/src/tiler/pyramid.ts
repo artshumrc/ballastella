@@ -7,7 +7,7 @@
 //
 // **Every tile's region and size comes from `@allmaps/iiif-parser`'s
 // `Image#getTileImageRequest`, and every tile's path from its `Image#getImageUrl`.** Not from
-// arithmetic here. Ticket 03's image pane reads the pyramid through the same two functions, so
+// arithmetic here. The image pane reads the pyramid through the same two functions, so
 // reader and writer cannot disagree about what a tile is or where it lives — which is the
 // entire reason ADR-0003 names that function rather than describing the geometry in prose.
 
@@ -76,7 +76,7 @@ export type PlannedTile = {
 	 * tile at the right or bottom margin.
 	 *
 	 * IIIF Image API 3.0 `size=w,h` means the returned image **is** exactly `w` by `h`: an exact
-	 * resize of the whole region onto those dimensions. Ticket 03's reader draws the tile at
+	 * resize of the whole region onto those dimensions. The image pane draws the tile at
 	 * `region / scaleFactor` — 106.375 rather than the served 107 — which is only the right
 	 * placement if the file's full extent is the region's full extent. A tiler that instead
 	 * scaled by exactly 1 / scaleFactor and padded the leftover fraction, or that scaled to
@@ -94,7 +94,7 @@ export type PlannedTile = {
  * The scale factors a complete pyramid needs: `1, 2, 4, …` up to the first factor at which the
  * whole image fits in a single tile.
  *
- * Contiguous and starting at 1 because ticket 03's `createImagePane` refuses anything else —
+ * Contiguous and starting at 1 because `createImagePane` refuses anything else —
  * the map's zoom range is derived from the coarsest level down, so a gap is a zoom that renders
  * blank with nothing anywhere to say why. Ending at one tile because that is the level the pane
  * shows when the whole image is in view; going further would add levels no zoom can reach.
@@ -193,11 +193,11 @@ export function planPyramid(info: unknown, directory: StorePath): PlannedTile[] 
 /**
  * The pixel dimensions a stored `info.json` declares, or `null` when it declares none.
  *
- * **What it is for**: adding a Map Image that is already in the Workspace to another Project
- * (ticket 06). That gesture writes no pyramid and copies no bytes, but it still has to be able to
- * give the map a starter Alignment if it has none — and a starter Alignment's Resource Mask is the
- * whole sheet, so it needs the sheet's size. The one record of that size, for a map whose tiles are
- * here, is the `info.json` the ingest wrote.
+ * **What it is for**: adding a Map Image that is already in the Workspace to another Project. That
+ * gesture writes no pyramid and copies no bytes, but it still has to be able to give the map a
+ * starter Alignment if it has none — and a starter Alignment's Resource Mask is the whole sheet, so
+ * it needs the sheet's size. The one record of that size, for a map whose tiles are here, is the
+ * `info.json` the ingest wrote.
  *
  * **`null` rather than a guess, and never a zero.** A Resource Mask over a 0 × 0 rectangle is an
  * Alignment that can never be solved and a Layer that draws nothing, with nothing on screen saying

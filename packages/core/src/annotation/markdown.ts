@@ -2,8 +2,8 @@
 //
 // **This is the one place in this codebase where a bug is a security vulnerability rather than a
 // defect**, and everything about the shape of this module is chosen for that. A user can open a
-// Project authored by somebody else — ticket 13's zip import, ticket 14's remote sources — and the
-// Published Site runs on the user's own domain, so an unsanitised `description` is stored XSS on
+// Project authored by somebody else — a zip import, a remote source — and the Published Site runs
+// on the user's own domain, so an unsanitised `description` is stored XSS on
 // `maps.digitalhumanities.harvard.edu` or on a student's GitHub Pages origin.
 //
 // **One function owns both stages, and that is the point.** ADR-0009: the pipeline is `marked` →
@@ -15,8 +15,8 @@
 // inside it is not reachable from outside.
 //
 // Exported from `core` and imported by **both** apps rather than reimplemented in the viewer, which
-// is what makes ticket 17's assertion — that the same payload is inert in the Published Site —
-// mean anything at all.
+// is what makes the guarantee — the same payload is inert in the Published Site — mean anything at
+// all.
 
 import DOMPurify from 'dompurify';
 import { Marked, type TokenizerAndRendererExtension } from 'marked';
@@ -213,7 +213,7 @@ function sanitise(html: string): string {
 }
 
 /**
- * An Annotation's `description` as HTML safe to insert (SPEC stories 62 and 67).
+ * An Annotation's `description` as HTML safe to insert.
  *
  * Markdown in, sanitised HTML out. Emphasis and links render; footnote syntax is literal text;
  * scripts, event handlers, `javascript:` and `data:` URLs, and `<img onerror>` do not survive.
@@ -233,7 +233,7 @@ export interface AnnotationText {
 }
 
 /**
- * One Annotation's popup, as sanitised HTML (SPEC story 67; ticket 17 reuses this).
+ * One Annotation's popup, as sanitised HTML.
  *
  * Here rather than in either app because **the title is untrusted text too**, and a popup assembled
  * in an app would be a second place where that has to be remembered. It is the surface most likely

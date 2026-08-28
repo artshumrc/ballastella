@@ -1,5 +1,5 @@
 // Detaching an imported Project: the publication reset and the provenance entry, in one place
-// (ticket 08, ADR-0037).
+// (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THESE THREE CHANGES ARE ONE FUNCTION
@@ -13,7 +13,7 @@
 //
 // ⚠ **`updatedAt` is not touched.** Being copied is not an edit its author made, and stamping it here
 // would overwrite the one date in the file that says when the scholarship last changed with the date
-// somebody pressed Import (SPEC "Import does not itself change authorship timestamps").
+// somebody pressed Import.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHERE THIS GOES IN AN IMPORT
@@ -30,7 +30,7 @@
 //
 // The order is safe in both directions — this pass touches no Layer and the remapping touches no
 // publication field — and that is the argument for doing it here rather than folding it into the
-// remapping, where the ticket-06 test asserts its absence.
+// remapping, where `project-import-remapping.test.ts` asserts its absence.
 
 import {
 	inheritImportProvenance,
@@ -46,7 +46,7 @@ import type { ProjectImportOrigin } from './project-import-source.js';
  * {@link ProjectImportOrigin}, which is itself only what a source reader saw: a filename is the file
  * the user picked, a repository owner is the account the bytes came from, and a Project name is the
  * string inside `project.json`. None of the three is an author, and turning any of them into one is
- * the failure this narrowness exists to prevent (SPEC stories 61, 62).
+ * the failure this narrowness exists to prevent.
  *
  * A Review's `directory` is deliberately dropped: it names a folder inside a Workspace that is about
  * to be thrown away, so it identifies nothing a reader could ever look at.
@@ -84,18 +84,18 @@ export function observedImportProvenance(
  * one more entry in its transfer history.
  *
  * The history is appended to rather than replaced, and what was already there becomes `inherited` —
- * so a Project handed on three times says so, and says which of the three this build witnessed
- * (stories 63–65). An entry is never removed: a Project whose route this build cannot fully read
- * still keeps every entry it arrived with.
+ * so a Project handed on three times says so, and says which of the three this build witnessed. An
+ * entry is never removed: a Project whose route this build cannot fully read still keeps every entry
+ * it arrived with.
  *
  * ⚠ **`canonicalUrl` is cleared and survives only inside the entry**, where it is a historical route
- * rather than an address (story 55, 56). Left in place it would be a copy claiming the source's
- * citable IIIF endpoint as its own, and the next publish would offer to stamp somebody else's site.
+ * rather than an address. Left in place it would be a copy claiming the source's citable IIIF
+ * endpoint as its own, and the next publish would offer to stamp somebody else's site.
  *
  * ⚠ **`onFrontPage` is `false` whatever the source chose**, because the source's choice was about the
- * source's site (story 53). It is not privacy and nothing here should be read as making it privacy:
- * the imported Project is as publishable as any other, and the control that decides the listing says
- * so in words.
+ * source's site. It is not privacy and nothing here should be read as making it privacy: the
+ * imported Project is as publishable as any other, and the control that decides the listing says so
+ * in words.
  */
 export function detachImportedProject(
 	project: ProjectFile,

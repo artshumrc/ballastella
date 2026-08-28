@@ -14,8 +14,8 @@
 	//
 	// The three stroke glyphs are ours (`../icons/Line*.svelte`) because the icon set has no
 	// solid/dashed/dotted trio; they are drawn on its grid so they sit beside its icons without
-	// looking borrowed. The word stays beside the glyph (SPEC story 111), so each button says what it is
-	// in text as well as in a picture.
+	// looking borrowed. The word stays beside the glyph, so each button says what it is in text as well
+	// as in a picture.
 	//
 	// **What a stroke means is no longer written under it.** There was a caption reading "dashed —
 	// conjectural", inherited from the `<option>` labels this replaced, and it was the app telling

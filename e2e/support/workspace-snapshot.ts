@@ -153,8 +153,8 @@ const writeSnapshot = (name: string, snapshot: WorkspaceSnapshot): void => {
 /**
  * Every file in the open Workspace, as base64.
  *
- * The **open** Workspace rather than the OPFS root: since ticket 12 the root holds Workspaces, and
- * `workspaceRoot()` is the suite's one answer to which of them the app is looking at.
+ * The **open** Workspace rather than the OPFS root: the root holds Workspaces, and `workspaceRoot()`
+ * is the suite's one answer to which of them the app is looking at.
  */
 export async function captureWorkspace(page: Page): Promise<(readonly [string, string])[]> {
 	return page.evaluate(async () => {

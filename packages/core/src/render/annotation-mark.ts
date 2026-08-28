@@ -1,4 +1,4 @@
-// Where an Annotation is drawn on the screen, for whatever has to point at it (SPEC stories 39–41).
+// Where an Annotation is drawn on the screen, for whatever has to point at it.
 //
 // ⚠ **This is the only place that turns an Annotation's coordinate into a box on the screen.** The
 // leader used to find its map end by querying for a numbered mark that MapLibre had positioned, so

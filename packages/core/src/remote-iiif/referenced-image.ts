@@ -15,8 +15,8 @@
 //     must **not** go through that shim — `createStoreImageFetch` passes it straight to the
 //     network unmodified, which is the half of that function that is easy to get wrong.
 //
-// So the model says which, `tileBaseFor` turns that into ticket 03's {@link ImagePaneTileBase},
-// and ticket 03's own guard is where the mistake becomes an exception rather than a blank pane:
+// So the model says which, `tileBaseFor` turns that into the pane's {@link ImagePaneTileBase},
+// and the pane's own guard is where the mistake becomes an exception rather than a blank pane:
 // pass a local image's placeholder as a *string* base and `createImagePane` throws, because a
 // string means "served over HTTP from here" and `{ storedImageId }` means "in the Project, reach
 // it through the shim". Forgetting and choosing cannot look alike, because they are different
@@ -71,17 +71,17 @@ export type MapImageSource =
 	  };
 
 /**
- * Where this Map Image's tiles are served from, in the form ticket 03's reader takes.
+ * Where this Map Image's tiles are served from, in the form the image pane's reader takes.
  *
  * **The whole distinction, in one expression**, so that the rule lives in one place rather than one
  * per pane — and the `ImagePaneTileBase` union means the answer cannot be mistaken for the other
  * kind downstream.
  *
- * **Every consumer now, which it was not before ticket 07.** `MapImagePane.svelte` used to build
- * `{ storedImageId }` for itself, so the pane the Alignment workspace draws a Map Image in always
- * reached into the Workspace's own pyramids — correct for a local copy, and for a referenced image an
- * ask to the injection layer for a pyramid that is not there. It takes {@link ImagePaneSource} as a
- * prop now and decides nothing, which is what makes aligning a referenced Map Image work.
+ * **Every consumer's answer, `MapImagePane.svelte` included.** A pane that built `{ storedImageId }`
+ * for itself would always reach into the Workspace's own pyramids — correct for a local copy, and
+ * for a referenced image an ask to the injection layer for a pyramid that is not there. It takes
+ * {@link ImagePaneSource} as a prop and decides nothing, which is what makes aligning a referenced
+ * Map Image work.
  */
 export function tileBaseFor(source: MapImageSource): ImagePaneTileBase {
 	return source.imageMode === 'referenced' ? source.service : { storedImageId: source.imageId };
@@ -159,8 +159,8 @@ export const referencedImagePath = (imageId: string): StorePath =>
  * Everything here except `service` is provenance a scholar needs and cannot recover once the
  * remote resource is out of reach: which Manifest it was in, what the library called it, and what
  * the library said about rights. ADR-0007 asks for `rights` and `requiredStatement` at the moment
- * the user chooses to make an offline copy, and that moment is ticket 15's — long after the
- * Manifest has been navigated away from. So they are written now.
+ * the user chooses to make an offline copy, and that moment comes long after the Manifest has been
+ * navigated away from. So they are written now.
  */
 export type ReferencedImage = {
 	readonly imageId: string;
@@ -367,8 +367,8 @@ export const sourceOf = (image: ReferencedImage): MapImageSource => ({
  * That substitution is exactly ADR-0004's own rule applied to the other case — the address is
  * resolved at load time from wherever the tiles are really served — and the address comes from
  * `remote.json`. Without it `@allmaps/maplibre` fetches tiles from the placeholder, which asks the
- * injection layer for a pyramid the Project does not contain: a blank warped Layer, the same silent
- * failure ticket 06 spent a patch on.
+ * injection layer for a pyramid the Project does not contain: a blank warped Layer, and no error
+ * anywhere to say why.
  *
  * **A delegation, and it has to be.** This module names no field of the Georeference Annotation and
  * parses none of it; the address is an argument to the one module that reads and writes the format
@@ -384,16 +384,14 @@ export const referencedRendererDocument = (alignment: Alignment, service: string
  * This is what makes ADR-0007's interoperability claim true rather than aspirational: Allmaps' own
  * model is a Georeference Annotation pointing at a remote IIIF resource, so for a referenced image —
  * the one case where the resource has a real public URI — the file we write is directly consumable
- * by Allmaps and by anything else implementing the extension (SPEC stories 91, 92). The
- * `unset.invalid` placeholder would produce a standard-shaped document nothing in the world can
- * resolve.
+ * by Allmaps and by anything else implementing the extension. The `unset.invalid` placeholder would
+ * produce a standard-shaped document nothing in the world can resolve.
  *
- * **An address rather than a serialiser, and that is ticket 18.** This used to be
- * `serialiseReferencedAlignment`, which produced the bytes; but `alignment-file.ts` is now the one
- * writer of `alignments/<image-id>.json` and it takes an `AlignmentAddress`, so a function that
- * returned bytes could only be called by something that then had to write them itself. Handing the
- * writer a value keeps the Resource Mask's plain-decimal fix, the absent timestamps, the write-path
- * validation and the byte-for-byte formatting all coming from the one writer that owns them.
+ * **An address rather than a serialiser.** `alignment-file.ts` is the one writer of
+ * `alignments/<image-id>.json` and it takes an `AlignmentAddress`, so a function that returned bytes
+ * could only be called by something that then had to write them itself. Handing the writer a value
+ * keeps the Resource Mask's plain-decimal fix, the absent timestamps, the write-path validation and
+ * the byte-for-byte formatting all coming from the one writer that owns them.
  *
  * `canonicalServiceUri` is applied here, once, so that "which spelling of the service URI goes in
  * the file" has one answer rather than one per call site.

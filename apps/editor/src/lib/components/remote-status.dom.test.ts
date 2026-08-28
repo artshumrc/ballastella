@@ -1,5 +1,4 @@
-// The plain answer the navigation bar gives to *is my work on GitHub*, at Seam 1c (SPEC stories
-// 39–42, 59).
+// The plain answer the navigation bar gives to *is my work on GitHub*, at Seam 1c.
 //
 // ⚠ **The subject is the projection, not the determination.** Which of the six a Workspace is in is
 // `remote-status.ts`'s at Seam 1, and this file must not be able to change that answer: it renders

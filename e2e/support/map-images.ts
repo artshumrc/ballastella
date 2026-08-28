@@ -1,15 +1,15 @@
-// Driving the one way a Map Image gets into a Project (ticket 06).
+// Driving the one way a Map Image gets into a Project.
 //
 // **Why every suite needs this and did not before.** The file input used to sit in the Project's
-// sidebar, so a spec could reach it the moment the screen was up. Ticket 06 makes adding a map one
+// sidebar, so a spec could reach it the moment the screen was up. Adding a map is now one
 // affordance offering three sources — a file, a library, or a map this Workspace already holds — and
 // the three of them live in a dialog, because the sidebar is a 24rem column and the library flow
 // alone is a form, a rights statement and a scrolling canvas list. So the step this file adds is a
 // real one a user takes: the sources are reached by pressing the button that offers them.
 //
 // It matters that this is written once. Twelve suites drove the old input by its label, and a
-// helper is what keeps the next change to this flow from being 95% done — which is exactly what
-// ticket 16 left behind and `pnpm check` could not see.
+// helper is what keeps the next change to this flow from being 95% done — which is exactly the
+// shape of gap that has been left here before, and that `pnpm check` could not see.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ⚠ THIS FILE ONCE CLAIMED A BUG FIXED THAT IT HAD ONLY HALF FIXED. READ {@link settle} BEFORE
@@ -17,7 +17,7 @@
 //
 // The first fix replaced an `isVisible()` question with `HTMLDialogElement.open`, and said so as
 // though that were the end of it. It was not: the suite went on failing at roughly one full run in
-// three for another epic, with the same signature — "element is not stable", twice, then "element
+// three for months afterwards, with the same signature — "element is not stable", twice, then "element
 // is not visible", hundreds of times, on a control in a dialog the suite believed was open.
 //
 // `.open` was never the wrong *fact*. It was the wrong *question*. It answers "is this dialog open
@@ -106,7 +106,7 @@ const settle = (page: Page): Promise<void> =>
 /**
  * Open the dialog and wait until all three sources are on screen.
  *
- * The three assertions are the ticket's contract, made on every open rather than once in a single
+ * The three assertions are the dialog's contract, made on every open rather than once in a single
  * spec: a source that quietly stopped rendering would otherwise show up as a puzzling timeout in
  * whichever suite happened to use it next.
  */
@@ -161,9 +161,9 @@ export interface PickedFile {
 /**
  * Pick a file, from the dialog, exactly as a user does.
  *
- * Returns once the pick has been made — **not** once the pyramid is written. What happens next is
- * the point of the ticket and belongs to the caller: the dialog closes, a card appears at the top of
- * the stack, and it reports its own preparation until the Layer takes its place.
+ * Returns once the pick has been made — **not** once the pyramid is written. What happens next
+ * belongs to the caller: the dialog closes, a card appears at the top of the stack, and it reports
+ * its own preparation until the Layer takes its place.
  */
 export async function pickMapImageFile(page: Page, file: PickedFile): Promise<void> {
 	const dialog = await openAddMapImage(page);

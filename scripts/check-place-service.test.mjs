@@ -1,4 +1,4 @@
-// The place lookup service's fences (ADR-0029, ticket 04): the containment scan, and the composite
+// The place lookup service's fences (ADR-0029): the containment scan, and the composite
 // `pnpm check:deployment` it now sits inside.
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐

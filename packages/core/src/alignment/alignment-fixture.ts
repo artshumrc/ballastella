@@ -1,4 +1,4 @@
-// Putting an Alignment on disk as a test's *arrange* step (ticket 18).
+// Putting an Alignment on disk as a test's *arrange* step.
 //
 // Not part of the application, and nothing outside a test may import it — the same standing
 // `store/project-store-suite.ts` has, and for the same reason: it needs the real types, so it lives
@@ -7,12 +7,12 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS EXISTS RATHER THAN A `store.write` IN EVERY TEST
 //
-// `alignmentPath` returns an `AlignmentPath`, which `store.write` will not take (ticket 18), so a
-// test that needs a file at that path has to spell it out — and then
-// `scripts/check-alignment-writers.mjs` asks it, correctly, to say why. Done in each test that
-// meant nine near-identical opt-out pragmas across the core suite on the first day, which is heavy
-// enough pressure on the mechanism that people start pasting the pragma without reading it. Its
-// sibling fence `check-workspace-rooted-paths.mjs` carries four opt-outs in total.
+// `alignmentPath` returns an `AlignmentPath`, which `store.write` will not take, so a test that
+// needs a file at that path has to spell it out — and then `scripts/check-alignment-writers.mjs`
+// asks it, correctly, to say why. Done in each test that meant nine near-identical opt-out pragmas
+// across the core suite on the first day, which is heavy enough pressure on the mechanism that
+// people start pasting the pragma without reading it. Its sibling fence
+// `check-workspace-rooted-paths.mjs` carries four opt-outs in total.
 //
 // So there is one, here, with the reasoning written once. What a test seeding an Alignment wants is
 // almost never an Alignment: it is a file of a known size at a known path, or a specific colleague's

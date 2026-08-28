@@ -8,7 +8,7 @@
 	// snippet and gets a tab strip; the viewer passes none and gets no strip at all — not a disabled
 	// Style tab and not a lone Text tab, because one face is not a choice. There is no `readOnly` prop
 	// and no `mode` prop: a flag beside the snippet would be a second description of the same fact, and
-	// two descriptions can disagree (the-annotation-inspector stories 65, 66).
+	// two descriptions can disagree.
 	//
 	// **The Inspector does not position itself.** Where it sits — top-right over the map pane on a
 	// desktop, a sheet at the bottom on a phone — is the consumer's, because only the consumer knows
@@ -18,8 +18,7 @@
 	// knows what its panel must stay clear of, which over a Base Map is the attribution its licence
 	// requires — and what happens once that cap binds is this component's: the identity header and the tab
 	// strip hold their place and the **face scrolls inside**, so a paragraph of prose is read in the panel
-	// rather than growing it past whatever the consumer capped it for
-	// (the-annotation-inspector stories 9, 21).
+	// rather than growing it past whatever the consumer capped it for.
 	//
 	// **The block a consumer renders this in must be unkeyed, and must not dip false between
 	// selections.** This component carries a fixed element id and a 220 ms out transition, so a
@@ -68,8 +67,8 @@
 		 *
 		 * ⚠ **A face must not draw the title.** The header above it already does, from the rule the row
 		 * draws from, so a face that named its Annotation too would title it twice a few pixels apart in
-		 * the same weight (the-annotation-inspector story 4). What belongs here is the description —
-		 * `AnnotationDescription` — and whatever controls the consumer has for it.
+		 * the same weight. What belongs here is the description — `AnnotationDescription` — and whatever
+		 * controls the consumer has for it.
 		 */
 		text: Snippet<[Annotation]>;
 		/**
@@ -118,8 +117,7 @@
 	 * pointer. The editor's `AnnotationTextFace` carries the same guard, for the same rule and the same
 	 * suite failure. Comparing the id makes "a different Annotation arrived" the trigger,
 	 * which is the whole of what the reset is for: the strip has no memory, so selecting another
-	 * Annotation shows its words rather than the previous one's swatches
-	 * (the-annotation-inspector story 26).
+	 * Annotation shows its words rather than the previous one's swatches.
 	 */
 	let shown = $state('');
 
@@ -136,7 +134,7 @@
 	 * The same 220 ms `cubicOut` the Layer cards and the Annotation rows already use, because "how long
 	 * a surface takes to appear in this application" is one thing to learn. Zero when the user has
 	 * asked for less motion, which is the whole of respecting that here: the panel arrives rather than
-	 * travels (the-annotation-inspector story 58).
+	 * travels.
 	 */
 	const arrival = $derived({
 		duration: prefersReducedMotion.current ? 0 : 220,
@@ -289,9 +287,9 @@
 		is announced as "Text" or "Style" without anything having to look through a radio for its name.
 
 		**`overflow-y-auto` is the whole of "a paragraph of prose is *read* in the panel rather than growing
-		it"** (the-annotation-inspector stories 9, 21). What keeps the panel inside the consumer's cap is a
-		box up the tree; what keeps the words reachable once it binds is this one class. The note on the
-		`<section>` separates the two and says why neither needs a `min-h-0`.
+		it"**. What keeps the panel inside the consumer's cap is a box up the tree; what keeps the words
+		reachable once it binds is this one class. The note on the `<section>` separates the two and says
+		why neither needs a `min-h-0`.
 
 		The `pt-2` is that clipping's other half: a `floating-label` sits its caption astride the field's
 		top border, above the field's own box, so the first field in a face would have its label sheared

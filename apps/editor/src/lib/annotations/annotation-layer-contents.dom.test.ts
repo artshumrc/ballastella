@@ -80,8 +80,7 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 		// titled after the *previous* Annotation — it is not an edit to that one, and its panel would
 		// otherwise sit under the tool about to draw a different one, in the place the new one's own
 		// panel appears. What must *not* go with it is the list: "what is already in this Layer" is not
-		// the thing to take away from somebody who is adding to it
-		// (the-annotation-inspector stories 11, 36).
+		// the thing to take away from somebody who is adding to it.
 		const chose = vi.fn();
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })),
@@ -99,8 +98,7 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 		expect(one('annotation-tools')).toBeInTheDocument();
 		expect(one('annotation-list')).toBeInTheDocument();
 		// **And the caption with it**, which is the half that says what the list is: a Layer holding one
-		// Annotation and a Layer nobody has counted have to stay distinguishable
-		// (the-annotation-inspector story 13).
+		// Annotation and a Layer nobody has counted have to stay distinguishable.
 		expect(one('annotation-row')).toHaveTextContent('The west quay');
 		expect(document.getElementById('annotation-list-caption')).toHaveTextContent('1 Annotation');
 	});

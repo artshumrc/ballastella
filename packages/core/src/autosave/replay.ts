@@ -1,4 +1,4 @@
-// Putting the write-ahead journal back into the ProjectStore at startup (ticket 20).
+// Putting the write-ahead journal back into the ProjectStore at startup.
 //
 // The other half of `journal.ts`. Everything interesting here is a refusal: what this must **not**
 // write, and how it says so.
@@ -6,9 +6,9 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE RULE THIS MODULE IS BUILT AROUND
 //
-// **Nothing is reported as restored that was not written.** Ticket 13 shipped a restore whose
-// counter included a write the writer had declined, and review caught it; the same mistake here
-// would tell a scholar their Control Points were recovered when the file was left alone.
+// **Nothing is reported as restored that was not written.** A counter that included a write the
+// writer had declined would tell a scholar their Control Points were recovered when the file was
+// left alone.
 //
 // So a path reaches `restored` on one line only, immediately after the write that put it there
 // resolved; the outcome `writeAlignmentBytes` answers with is checked rather than assumed, and
@@ -17,14 +17,14 @@
 // put back yet" and "this build will not read it" are four different things to tell somebody.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHAT "NEWER" MEANS HERE, AND WHICH CASES ARE DECIDABLE (ticket 07)
+// WHAT "NEWER" MEANS HERE, AND WHICH CASES ARE DECIDABLE
 //
-// This module used to write every entry unconditionally, checking only that the thing the file
-// belongs to still existed. So a Workspace tar restored, a Project bundle opened, or a pyramid
-// ingested *after* an edit was journalled put the older bytes back over the newer ones — and named
-// the path in `restored`, which reads to the user as good news. Under the epic's change of direction
-// the journal is what makes a failed write safe, so an entry deliberately outlives a restart and
-// that stops being a latent hazard.
+// Writing every entry unconditionally — checking only that the thing the file belongs to still
+// exists — is not safe here. A Workspace tar restored, a Project bundle opened, or a pyramid
+// ingested *after* an edit was journalled would put the older bytes back over the newer ones, and
+// name the path in `restored`, which reads to the user as good news. The journal is what makes a
+// failed write safe, so an entry deliberately outlives a restart; that makes this a live hazard
+// rather than a latent one.
 //
 // **The journal and the store are different backends with no shared clock, so "newer" is decided by
 // content and never by time.** An entry carries `held` — a fingerprint of what the store held when
@@ -54,8 +54,8 @@
 // can revert somebody's newer work and refusing-and-dropping can lose a real strand. So the entry is
 // kept and named, with both versions described — `'cannot-tell-which-is-newer'`, below.
 //
-// ⚠ **That row is the domain half. Applying the held copy is a chooser that does not exist yet**, and
-// is ticket 03's; the panel today shows the sentence and offers to throw the copy away.
+// ⚠ **That row is the domain half. Applying the held copy is a chooser that does not exist yet**;
+// the panel shows the sentence and offers to throw the copy away.
 //
 // **Direction of error.** `held` is read on one line, and only to *refuse* a write — absent, the
 // write does not happen either, so nothing here turns a wrong baseline into an overwrite. What can
@@ -64,15 +64,15 @@
 // written over by an edit that predates the restore, and named in `restored`. That is a hole in what
 // the comparison can see, and the one channel in which this module can still cost an edit.
 //
-// **What this delivers for "recovery without knowing to act" (story 9): the ground for it, not it.**
-// The only thing that triggers a recovery is a startup replay. Nothing re-attempts within a session,
-// and the retry machinery is being deleted, so the scholar is relieved of knowing to make another
-// *edit* and left needing to know to *restart* — which nothing tells them to do. The undecidable row
-// above asks them to act as well, deliberately. Story 9 is **unblocked** by this and not fulfilled;
-// ticket 08 is what would close it.
+// **What this delivers for "recovery without knowing to act": the ground for it, not it.** The only
+// thing that triggers a recovery is a startup replay. Nothing re-attempts a failed write within a
+// session on its own, so the scholar is relieved of knowing to make another *edit* and left needing
+// to know to *restart* — which nothing tells them to do. The undecidable row above asks them
+// to act as well, deliberately. Recovery without knowing to act is **unblocked** by this module and
+// not delivered by it.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// AN ALIGNMENT IS WRITTEN THROUGH `alignment-file.ts`, AND THE FENCE CANNOT SEE THIS (ticket 18)
+// AN ALIGNMENT IS WRITTEN THROUGH `alignment-file.ts`, AND THE FENCE CANNOT SEE THIS
 //
 // Saying that plainly rather than relying on it: the path here comes out of a journal key, which is
 // **data read at runtime**. `WritablePath`'s brand only refuses a value that came out of
@@ -87,9 +87,9 @@
 // interrupted edit of an Alignment they had open, which is precisely what `update` means; a
 // `create` would decline whenever a file exists, which is every case that matters here, and this
 // fix would not fix Alignments at all. `update`'s documented gap is **narrowed and not closed** by
-// ticket 07: a colleague's edit arriving through a synced Workspace between the interrupted write
-// and this replay is refused when the entry carries a baseline, and reported rather than overwritten
-// when it does not. ADR-0023 accepts that gap and offers visibility rather than prevention — which
+// {@link compare}: a colleague's edit arriving through a synced Workspace between the interrupted
+// write and this replay is refused when the entry carries a baseline, and reported rather than
+// overwritten when it does not. ADR-0023 accepts that gap and offers visibility rather than prevention — which
 // is what the report below is.
 
 import {
@@ -126,7 +126,7 @@ export type ReplaySkipReason =
 	/** The Project it belongs to is no longer in this Workspace. */
 	| 'no-such-project'
 	/**
-	 * The user deleted the Project it belongs to (ticket 21).
+	 * The user deleted the Project it belongs to.
 	 *
 	 * Distinct from `no-such-project`, and the distinction is the point. That one is an *inference*
 	 * from files not being there, which is why it has to err toward keeping the entry — "unreadable
@@ -139,7 +139,7 @@ export type ReplaySkipReason =
 	/** The Map Image it belongs to is no longer in this Workspace. */
 	| 'no-such-map-image'
 	/**
-	 * The store already holds exactly these bytes, so there is nothing to put back (ticket 07).
+	 * The store already holds exactly these bytes, so there is nothing to put back.
 	 *
 	 * Not `restored`, and the distinction is the whole of one acceptance criterion: nothing was
 	 * written, so naming the path under "the change has been written now" would be a claim about a
@@ -149,8 +149,8 @@ export type ReplaySkipReason =
 	 */
 	| 'already-in-the-store'
 	/**
-	 * There is an edit here, and nothing can tell whether the file on disk is newer than it or older
-	 * (ticket 07, round 3).
+	 * There is an edit here, and nothing can tell whether the file on disk is newer than it or
+	 * older.
 	 *
 	 * The entry carries no baseline — see `journal.ts`. Since the read-path seam that is a narrow case
 	 * rather than the normal one: a file has to have been read to be edited, and every read reports.
@@ -166,13 +166,13 @@ export type ReplaySkipReason =
 	 * An earlier round wrote silently here and described it as a narrow residual in three places.
 	 *
 	 * ⚠ **The domain half only.** The panel renders the sentence and offers to throw the copy away;
-	 * *applying* it is a chooser that does not exist yet and is ticket 03's. Everything one needs is
-	 * reachable: the kept bytes from `readJournal`, the bytes on disk from `store.read`.
+	 * *applying* it is a chooser that does not exist yet. Everything one needs is reachable: the kept
+	 * bytes from `readJournal`, the bytes on disk from `store.read`.
 	 */
 	| 'cannot-tell-which-is-newer'
 	/**
-	 * Something wrote this file after the edit was journalled, so putting it back would be a revert
-	 * (ticket 07).
+	 * Something wrote this file after the edit was journalled, so putting it back would be a
+	 * revert.
 	 *
 	 * See the module header for how that is decided and for the case it cannot decide. This is the
 	 * one skip reason whose entry is **kept**: its bytes are a real edit of the user's that is on
@@ -241,7 +241,7 @@ export const replayIsNoteworthy = (report: JournalReplayReport): boolean =>
 /** What a replay may be told beyond the store it is writing into. */
 export interface ReplayOptions {
 	/**
-	 * Which Projects the user deleted (ticket 21).
+	 * Which Projects the user deleted.
 	 *
 	 * Without it the replay behaves exactly as it did before, which is the honest default for a
 	 * browser that cannot store the record at all — the same absence-is-a-state shape the journal
@@ -249,7 +249,7 @@ export interface ReplayOptions {
 	 */
 	readonly deleted?: DeletedProjects;
 	/**
-	 * The journal this Workspace's session already holds, if it has one (ticket 07).
+	 * The journal this Workspace's session already holds, if it has one.
 	 *
 	 * Without it a replay builds its own and throws it away, and everything it learned about the
 	 * store goes with it. That matters for one case in particular: a `'superseded'` skip keeps an
@@ -264,7 +264,7 @@ export interface ReplayOptions {
  * Put one Workspace's journalled edits back into its store.
  *
  * Run once per Workspace, as it is opened — never for all of them at once, because a journal entry
- * belongs to the Workspace it was typed into (ticket 12 put several in the OPFS root) and a store
+ * belongs to the Workspace it was typed into (the OPFS root holds several named ones) and a store
  * only ever addresses one.
  *
  * **An entry is dropped only when its bytes are in the store, or when it can never be used.** A
@@ -483,7 +483,7 @@ async function currentBytes(store: ProjectStore, path: StorePath): Promise<Bytes
 }
 
 /**
- * Whether this entry may be written over what the store holds now (ticket 07).
+ * Whether this entry may be written over what the store holds now.
  *
  * The whole of "replay never reverts newer bytes". Every branch is named for the answer it gives and
  * driven by a `describe` of the same name in `replay.test.ts`; the module header carries what no
@@ -534,8 +534,9 @@ async function write(store: ProjectStore, path: StorePath, bytes: Bytes): Promis
 		});
 		// `update` writes unconditionally, so `'written'` is the only answer this can get today.
 		// Checked rather than assumed, because "counted as restored without having been written" is
-		// the exact bug ticket 13 shipped and review caught. If the intent above is ever narrowed to
-		// one that can decline, this becomes a reported failure instead of a silent false claim.
+		// exactly what the rule at the top of this module forbids. If the intent above is ever
+		// narrowed to one that can decline, this becomes a reported failure instead of a silent
+		// false claim.
 		if (outcome !== 'written') {
 			throw new Error(
 				`the one Alignment writer answered “${outcome}” rather than writing it, so this ` +
@@ -563,9 +564,7 @@ async function write(store: ProjectStore, path: StorePath, bytes: Bytes): Promis
  */
 async function writePlain(store: ProjectStore, path: StorePath, bytes: Bytes): Promise<void> {
 	if (alignmentImageId(path) !== null) {
-		throw new Error(
-			`“${path}” is an Alignment and may only be written through alignment-file.ts (ticket 18)`
-		);
+		throw new Error(`“${path}” is an Alignment and may only be written through alignment-file.ts`);
 	}
 	await store.write(path, bytes);
 }
@@ -654,25 +653,25 @@ async function hasMapImage(store: ProjectStore, imageId: string): Promise<boolea
  * directory to point at yet, and requiring one would discard the only copy of a Project the user has
  * just made.
  *
- * **A third layer arrived with ticket 21, and it is the only one that can see inside that
- * exemption**: `DeletedProjects`, the user's deletion written down synchronously at the moment they
- * asked for it. Layers 1 and 2 both reason from *files* — an entry swept at deletion time, or a
- * manifest that is no longer readable — and neither can say anything about `project.json` itself,
- * because its absence is equally the signature of a Project being born. Layer 3 reasons from the
- * gesture, which has an answer for it. It goes first, below.
+ * **A third layer, and the only one that can see inside that exemption**: `DeletedProjects`, the
+ * user's deletion written down synchronously at the moment they asked for it. Layers 1 and 2 both
+ * reason from *files* — an entry swept at deletion time, or a manifest that is no longer readable —
+ * and neither can say anything about `project.json` itself, because its absence is equally the
+ * signature of a Project being born. Layer 3 reasons from the gesture, which has an answer for it.
+ * It goes first, below.
  */
 async function missingOwner(
 	store: ProjectStore,
 	path: StorePath,
 	deleted: DeletedProjects | undefined
 ): Promise<ReplaySkipped | null> {
-	// ⚠ **First, and above the `project.json` exemption below, which is the only reason it works**
-	// (ticket 21). Every other check here asks the store whether something is still there, and none
-	// of them can be asked about `<project>/project.json`: writing that file is *what makes the
-	// Project exist*, so an interrupted `createProject` has no directory to point at and requiring
-	// one would discard the only copy of a Project the user has just made. This asks a different
-	// question, of a different source — did the user delete this Project? — and that one has an
-	// answer for `project.json` too.
+	// ⚠ **First, and above the `project.json` exemption below, which is the only reason it works.**
+	// Every other check here asks the store whether something is still there, and none of them can be
+	// asked about `<project>/project.json`: writing that file is *what makes the Project exist*, so
+	// an interrupted `createProject` has no directory to point at and requiring one would discard the
+	// only copy of a Project the user has just made. This asks a different question, of a different
+	// source — did the user delete this Project? — and that one has an answer for `project.json`
+	// too.
 	//
 	// A reserved directory (`images/`, `alignments/`, `base-map/`) can never be created as a Project
 	// and therefore never recorded here, so asking before the branches below costs nothing and cannot

@@ -7,7 +7,7 @@
 // nothing asked "is this scholarship or is it a rebuilt viewer?" — so `_app/**` counted as
 // Workspace content, which is the same question with the worst possible answer once Update exists.
 // Two editor versions synchronizing would then trade obsolete bundles forever, each side seeing the
-// other's chunk names as inbound change (SPEC stories 120, 166).
+// other's chunk names as inbound change.
 //
 // So the rules live here once and callers ask rather than restate. A path is exactly one of three
 // things:
@@ -81,7 +81,7 @@ export type PathInventories = {
  * live sides have already lost sight of: a directory deleted on the Remote and locally by different
  * operations still has files under it that are ours to finish deleting.
  *
- * The union is also what Project Import allocates directory names against (SPEC story 143), so an
+ * The union is also what Project Import allocates directory names against, so an
  * imported Project cannot be given a name that a Remote nobody has looked at is already using.
  *
  * **A recognised directory stays source-owned for its whole subtree**, `project.json` gone or not,
@@ -170,7 +170,7 @@ export function classifyInventory<E extends { readonly path: string }>(
 /**
  * Where two sides' Publish-owned output disagrees: the paths, sorted, or empty for none.
  *
- * **This is Published Site staleness and nothing else** (SPEC story 120). A viewer built by another
+ * **This is Published Site staleness and nothing else.** A viewer built by another
  * editor version has different chunk names, so this list is routinely long and routinely means only
  * "republish when you like". It is deliberately not a Conflict, not inbound change, and not part of
  * any source comparison: the two sides never have to agree here, and an Update that tried to make

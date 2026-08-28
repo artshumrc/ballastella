@@ -1,4 +1,4 @@
-// Which Projects a Map Image's Alignment is shared with, in words (SPEC story 56, ADR-0023).
+// Which Projects a Map Image's Alignment is shared with, in words (ADR-0023).
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 // │ A PURE FUNCTION BECAUSE THREE OF ITS FOUR BRANCHES HAVE NO GESTURE THAT REACHES THEM.      │
@@ -45,7 +45,7 @@ const namesOf = (users: readonly MapImageUser[]): string =>
  *   newer build.
  * The align sidebar is deliberately not a caller. The fact belongs to the Map Image rather than to
  *   the screen, so a scholar meets it on the Map Image's row before they start refining rather than
- *   beside the controls while they click (SPEC story 68).
+ *   beside the controls while they click.
  *
  * An earlier version composed prose here for an empty list and another paragraph for its
  * newer-build variant. Both spoke for a caller that had not been asked, and prose about who might
@@ -66,8 +66,8 @@ export function describeAlignmentUsers(users: AlignmentUsers | null): string {
 	// several Projects is the fact a reader needs, and it cannot be inferred from a count.
 	//
 	// "Refining it", not "refining it here": this sentence reads on the Map Image's own row on the
-	// Workspace Home (SPEC story 68), which carries no align control, so a deictic pointing at one
-	// would be false. The fact travels with the Map Image rather than with the screen.
+	// Workspace Home, which carries no align control, so a deictic pointing at one would be false.
+	// The fact travels with the Map Image rather than with the screen.
 	return users.usedBy.length === 1
 		? `${shared}. Right now that is ${namesOf(users.usedBy)}.${caveat}`
 		: `${shared} — and ${users.usedBy.length} Projects do: ${namesOf(users.usedBy)}. ` +

@@ -2,7 +2,7 @@
 	import { useInstalledApp } from './installed-app.svelte.js';
 
 	/**
-	 * "Install Ballastella" — offered where the question it answers is being asked (SPEC story 6).
+	 * "Install Ballastella" — offered where the question it answers is being asked.
 	 *
 	 * This sits inside Workspace settings, under that dialog's account of the folder permission and of
 	 * whether the browser will keep this origin's storage at all. ADR-0012 is blunt about what the PWA

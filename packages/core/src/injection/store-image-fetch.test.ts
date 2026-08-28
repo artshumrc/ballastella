@@ -1,4 +1,4 @@
-// SPEC's Seam 1: the injection layer driven against an in-memory ProjectStore.
+// CONTRIBUTING.md's Seam 1: the injection layer driven against an in-memory ProjectStore.
 //
 // The whole of ADR-0011 is in the two describes below. The first asserts the routing rule —
 // what is captured, what is passed through, and what a missing tile answers — against files put
@@ -192,7 +192,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE ROOTING ITSELF (ADR-0023), which is the riskiest change in the epic because it cannot fail
+	// THE ROOTING ITSELF (ADR-0023), which is the riskiest change here because it cannot fail
 	// loudly: a Project-rooted shim returns *another map's* bytes, at a plausible size, in the right
 	// pane. So it is asserted from both sides — the Workspace bytes come back, and the Project-rooted
 	// bytes are the ones that do not.
@@ -232,7 +232,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// A REFUSAL IS CAUGHT HERE, AND SAID (ticket 04, SPEC stories 14–21)
+	// A REFUSAL IS CAUGHT HERE, AND SAID
 	//
 	// This shim used to rethrow anything that was not "there is nothing there". The caller never sees
 	// that promise: `@allmaps/render`'s `WarpedMap.loadImage` rethrows whatever `fetchFn` rejected
@@ -505,7 +505,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('does not report a refusal for bytes an overlapping request already brought back', async () => {
-		// ⚠ **Reachable in the viewer today, and not only through ticket 05's probe.**
+		// ⚠ **Reachable in the viewer today, and not only through the editor's cross-origin probe.**
 		// `BaseRenderer.loadMissingImagesInViewport` filters on `!warpedMap.fetchingImageInfo`, so one
 		// `WarpedMap` never double-fetches — but `WarpedMap.loadImage` fills `imagesById` only AFTER
 		// its fetch resolves, so **two Layers on the same `imageId`** (which ADR-0023 exists to make
@@ -672,11 +672,11 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('is not destroyed by a subscriber that throws, on a refusal or on bytes that arrived', async () => {
-		// ⚠ **Ticket 01's `9ee43b5` defect, at a new seam.** `onOutcome` is application code called
+		// ⚠ **The `9ee43b5` defect, at a new seam.** `onOutcome` is application code called
 		// from the middle of a fetch — once from a `catch`, once beside a 200 whose `Response` is
 		// already built. Unguarded, a subscriber that throws turns a tile that ARRIVED into a rejected
-		// promise, inside the one function in this epic whose purpose is that refusals do not escape
-		// into a renderer.
+		// promise, inside the one function whose purpose is that refusals do not escape into a
+		// renderer.
 		//
 		// ⚠ **The subscriber's own error is not swallowed — it is rethrown out of band**, so it reaches
 		// `window.onerror` in a browser and this suite's `pageerror` watch in the viewer. Node turns
@@ -948,9 +948,9 @@ describe('a pyramid the tiler wrote, read back through the pane', () => {
 	/**
 	 * Worst round-trip error over a grid of points deliberately **off** the binary grid.
 	 *
-	 * Ticket 03's review recorded why that matters: sample at integers or half-integers on a
-	 * power-of-two window and `WINDOW_ORIGIN + t` comes out exact, so the measurement reads 0 and
-	 * says nothing about float64. The strides below are chosen to be non-dyadic.
+	 * Why that matters: sample at integers or half-integers on a power-of-two window and
+	 * `WINDOW_ORIGIN + t` comes out exact, so the measurement reads 0 and says nothing about
+	 * float64. The strides below are chosen to be non-dyadic.
 	 */
 	const worstRoundTrip = (pane: ReturnType<typeof createImagePane>) => {
 		let x = 0;

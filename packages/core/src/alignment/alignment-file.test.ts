@@ -12,13 +12,13 @@ import {
 } from './alignment-file.js';
 import { parseAlignment, serialiseAlignment } from './georeference-annotation.js';
 
-// Ticket 18's whole subject: `alignments/<image-id>.json` belongs to the Workspace and is shared by
-// every Project that draws the map (ADR-0023), so a write that does not ask what is already there
-// can destroy Control Points somebody placed in a Project nobody has open.
+// The whole subject: `alignments/<image-id>.json` belongs to the Workspace and is shared by every
+// Project that draws the map (ADR-0023), so a write that does not ask what is already there can
+// destroy Control Points somebody placed in a Project nobody has open.
 //
 // **The unguarded direction is what is asserted here**, not merely the guarded one. A test that only
 // checks "the starter is written when there is no file" passes just as happily against a blind
-// overwrite, which is how two tickets in this epic shipped one.
+// overwrite, which is how one reaches the tree unnoticed.
 
 const IMAGE = { width: 4000, height: 3000 };
 const IMAGE_ID = 'floride-1657';
@@ -87,7 +87,7 @@ const seed = (store: MemoryProjectStore, bytes: Bytes): Promise<void> =>
 // `pnpm --filter @ballastella/core exec tsc --noEmit` fails if the brand is ever removed or the
 // signature widened. An unused `@ts-expect-error` is itself an error, which is the whole trick —
 // the same one `project/layer.test.ts` uses on `opacity`.
-describe('the type refuses a blind write (ticket 18)', () => {
+describe('the type refuses a blind write', () => {
 	const store = new MemoryProjectStore();
 	const autosave = new Autosave(store);
 	const bytes = new Uint8Array([1]) as Bytes;
@@ -317,19 +317,19 @@ describe('the address the file names its image by (ADR-0007)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// A COLLEAGUE'S EDIT, ARRIVING BETWEEN THE READ AND THE WRITE (ticket 07)
+// A COLLEAGUE'S EDIT, ARRIVING BETWEEN THE READ AND THE WRITE
 //
 // ADR-0023 made an Alignment the Workspace's, shared by every Project that draws the map, and a
 // Workspace can be a git checkout or a Dropbox folder. So the file can change under an open
-// alignment view, and ticket 18 left that undetected: `update` wrote over whatever was there.
+// alignment view, and an `update` that simply writes over whatever is there leaves that undetected.
 //
 // ADR-0023's terms are **visibility, not prevention**. The write still happens — the alternative is
 // discarding the edit in front of the user to protect one they cannot see — so what is asserted here
 // is that the displacement is *noticed and handed back*, and that the bytes really do go down.
 //
 // **The unguarded direction is what makes these mean anything.** Every assertion below distinguishes
-// "the file changed" from "the file did not", so a `changedSince` that always returned `null` — the
-// shape ticket 18 shipped — fails them.
+// "the file changed" from "the file did not", so a `changedSince` that always returned `null` fails
+// them.
 describe('an Alignment that changed somewhere else while it was open', () => {
 	/** What this session read, and what it is about to write. */
 	const opened = async (store: MemoryProjectStore) => {
@@ -438,8 +438,8 @@ describe('an Alignment that changed somewhere else while it was open', () => {
 	});
 
 	it('says nothing when the caller made no claim about what is on disk', async () => {
-		// `basedOn` omitted — ticket 18's `update`, unchanged. A required field would have forced every
-		// existing caller to invent an answer, and an invented baseline is a false alarm on every save.
+		// `basedOn` omitted — an `update` making no claim about the file. A required field would force
+		// every caller to invent an answer, and an invented baseline is a false alarm on every save.
 		const store = new MemoryProjectStore();
 		await seed(store, serialiseAlignment(workedOn(), {}));
 

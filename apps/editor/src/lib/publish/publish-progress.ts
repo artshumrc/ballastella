@@ -1,4 +1,4 @@
-// What a publish is doing right now, said in two places at two lengths (ticket 04, SPEC stories 13, 14).
+// What a publish is doing right now, said in two places at two lengths.
 //
 // Here rather than inside `PublishDialog.svelte` because two components render it: the dialog, from
 // a live region inside the open modal — the only non-inert subtree while a publish runs — and the
@@ -32,8 +32,8 @@ export type PublishProgress = {
  *
  * ⚠ **Three numbers while uploading, because a publish can be slow for three different reasons and
  * a scholar cannot tell them apart otherwise**: files done and files total say whether it is moving,
- * and the remaining hourly budget is the only warning that it is about to stop (SPEC story 14). Two
- * numbers make a publish that halts at 900 of 4 000 files look like a hang.
+ * and the remaining hourly budget is the only warning that it is about to stop. Two numbers make a
+ * publish that halts at 900 of 4 000 files look like a hang.
  */
 export function describePublishProgress(progress: PublishProgress | null): string {
 	if (progress === null) return '';

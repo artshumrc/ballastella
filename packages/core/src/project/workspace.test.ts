@@ -162,7 +162,7 @@ describe('Workspace', () => {
 
 		/**
 		 * ─────────────────────────────────────────────────────────────────────────────────────
-		 * WHAT THE STORE HELD, REPORTED FROM THE READ THAT ALREADY HAPPENS (ticket 07)
+		 * WHAT THE STORE HELD, REPORTED FROM THE READ THAT ALREADY HAPPENS
 		 *
 		 * The write-ahead journal has to record what an edit was made *against*, and it cannot ask the
 		 * store: `WriteAheadJournal.record` is synchronous by contract, and `Autosave` learns what the
@@ -498,9 +498,9 @@ describe('Workspace', () => {
 		});
 
 		/**
-		 * ⚠ **The whole of ticket 21, and why `--repeat-each=20` on the e2e was 4 flaky in 20.**
+		 * ⚠ **Why `--repeat-each=20` on the e2e was 4 flaky in 20.**
 		 *
-		 * A deletion is as asynchronous as an edit and had none of ticket 20's protection: it lists,
+		 * A deletion is as asynchronous as an edit and had none of the journal's protection: it lists,
 		 * deletes each file, then reclaims — and a document being unloaded runs none of those
 		 * continuations. The store below stalls on the **first** of them, which is where the browser
 		 * measurement said the real failure stopped.
@@ -509,7 +509,7 @@ describe('Workspace', () => {
 		 * the *gesture* was written down synchronously, so the next startup can carry it out. That is
 		 * the discrimination the application actually has: “the user deleted this Project”, not “this
 		 * Project's files are not there right now”, which is a guess and is the shape of the two fresh
-		 * data-loss paths ticket 20's first cut opened.
+		 * data-loss paths this recovery chain has opened before.
 		 */
 		it('writes the gesture down before its first await, so a lost page does not lose it', async () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
@@ -648,7 +648,7 @@ describe('Workspace', () => {
 			// What a tab that died between the two steps of an atomic write leaves. `list` cannot
 			// report it and `delete` cannot be handed it, so before `reclaimAbandonedWrites` the
 			// "deleted" Project's directory survived permanently — outside the `list` + `size` totals
-			// tickets 15 and 16 need, and in ticket 12's real folder a dotfile committed to git.
+			// the hosting warning is judged against, and in a real folder a dotfile committed to git.
 			store.plant(
 				`${doomed.directory}/.project.json.abandoned${TEMP_PATH_SUFFIX}`,
 				new TextEncoder().encode('half a document')
@@ -821,7 +821,7 @@ describe('Workspace', () => {
 		/**
 		 * The other half: in a Workspace whose key *does* name one place, the very same record is
 		 * carried out. Without this the test above would be satisfied by never finishing anything, and
-		 * the defect ticket 21 exists for would be back.
+		 * the defect the durable record exists for would be back.
 		 */
 		it('finishes the same deletion in a Workspace whose key names one place', async () => {
 			const storage = new FakeJournalStorage();
@@ -1153,7 +1153,7 @@ describe('Workspace', () => {
 		});
 
 		/**
-		 * ⚠ **A second refusal, not the first one wearing a hat** (ADR-0017; ticket 21, review 2).
+		 * ⚠ **A second refusal, not the first one wearing a hat** (ADR-0017).
 		 *
 		 * `record` answers "is this durable" and the answer was being dropped. Two real browsers reach
 		 * it — a `localStorage` full of one enormous Annotation collection, and Safari with cookies
@@ -1248,7 +1248,8 @@ describe('toDirectoryName', () => {
 //
 // The whole of the storage move, asserted against files. "After this sequence of actions the store
 // contains these files with this content" is not a proxy for the behaviour here — the user's folder
-// *is* the product (SPEC, Testing Decisions), and what moved is which files exist and where.
+// *is* the product (CONTRIBUTING.md's testing decisions), and what moved is which files exist and
+// where.
 
 describe('the Workspace’s shared Map Images (ADR-0023)', () => {
 	let store: MemoryProjectStore;
@@ -1313,8 +1314,8 @@ describe('the Workspace’s shared Map Images (ADR-0023)', () => {
 		}
 	});
 
-	// SPEC story 66: tidying up one piece of work must not cost the material. The map was prepared once
-	// and may be the only copy of a pyramid that took minutes to tile and gigabytes to hold.
+	// Tidying up one piece of work must not cost the material. The map was prepared once and may be the
+	// only copy of a pyramid that took minutes to tile and gigabytes to hold.
 	it('leaves every Map Image and Alignment in place when a Project is deleted', async () => {
 		await addMapImage('floride-1657');
 		const doomed = await workspace.createProject('A false start');
@@ -1372,7 +1373,7 @@ describe('the Workspace’s shared Map Images (ADR-0023)', () => {
 		});
 	});
 
-	// ADR-0023's split of an archive path, which since ticket 14 is the bundle reader's rather than
+	// ADR-0023's split of an archive path, which is the bundle reader's rather than
 	// `Workspace`'s: a bundle opens into a Review Workspace and there is no path that writes one into
 	// the user's own (ADR-0024). The function still lives here because it is a statement about what a
 	// *Workspace* keeps at its root, and `open-project-bundle.ts` is its one caller.

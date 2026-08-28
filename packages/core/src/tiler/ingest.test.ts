@@ -1,6 +1,6 @@
-// SPEC's Seam 1: the ingest job driven against an in-memory ProjectStore, with assertions on
-// the resulting files. The tiler itself is a stub here — a stub is enough to assert the job's
-// behaviour, and the real one is asserted where its pixels can be looked at
+// CONTRIBUTING.md's Seam 1: the ingest job driven against an in-memory ProjectStore, with
+// assertions on the resulting files. The tiler itself is a stub here — a stub is enough to assert
+// the job's behaviour, and the real one is asserted where its pixels can be looked at
 // (`decode-and-crop-tiler.browser.test.ts`).
 
 import { Image } from '@allmaps/iiif-parser';
@@ -84,10 +84,10 @@ describe('ingestImageFile', () => {
 		expect(info.id).toBe(`https://unset.invalid/${result.imageId}`);
 	});
 
-	// ADR-0023, and the criterion in as many words: adding a Map Image writes
-	// `images/<image-id>/info.json` at the Workspace root and **no bytes inside any Project directory**.
-	// A pyramid is prepared once and shared, so a copy landing inside the Project that happened to be open
-	// is the whole failure the move exists to end.
+	// ADR-0023, in as many words: adding a Map Image writes `images/<image-id>/info.json` at the
+	// Workspace root and **no bytes inside any Project directory**. A pyramid is prepared once and
+	// shared, so a copy landing inside the Project that happened to be open is the whole failure the
+	// move exists to end.
 	it('writes nothing inside any Project directory', async () => {
 		await store.write(
 			'amsterdam-1625/project.json',
@@ -131,7 +131,7 @@ describe('ingestImageFile', () => {
 	});
 
 	it('gives a 2 megapixel photograph a pyramid, not a shortcut', async () => {
-		// SPEC story 21, ADR-0003. 1632 × 1224 is a phone photograph, and it still gets four levels.
+		// ADR-0003. 1632 × 1224 is a phone photograph, and it still gets four levels.
 		const result = await ingestImageFile({
 			store,
 			file: imageFile(1632, 1224, 'photo.jpg'),
@@ -159,7 +159,7 @@ describe('ingestImageFile', () => {
 		expect(progress.map((update) => update.phase)).toContain('tiling');
 		expect(progress.map((update) => update.phase)).toContain('finishing');
 
-		// SPEC story 23: the number must move, and it must not claim to be finished early.
+		// The number must move, and it must not claim to be finished early.
 		const fractions = progress.map((update) => update.fraction);
 		expect(fractions).toEqual([...fractions].sort((a, b) => a - b));
 		expect(Math.max(...fractions.slice(0, -1))).toBeLessThan(1);
@@ -208,8 +208,8 @@ describe('ingestImageFile', () => {
 	// obstacle was a streaming tiler that could not start on a static host. That was accurate about
 	// the cause and actionable by nobody. Before that it was worse still: it arrived as
 	// `UnreadableImageError`, telling a scholar their valid JPEG "could not be read as an image" and
-	// to convert a TIFF they do not have. SPEC's *On the audience* makes "errors must name what is
-	// wrong and what to do" binding, and the size plus the IIIF remedy is that.
+	// to convert a TIFF they do not have. An error must name what is wrong and what to do, and the
+	// size plus the IIIF remedy is that.
 	it('refuses an image above the ceiling by naming its size and the remedy', async () => {
 		const opened: string[] = [];
 
@@ -503,7 +503,7 @@ describe('ingestImageFile', () => {
 		});
 
 		// `generateRandomId`, not `generateId(uri)`: two ingests of the same file are two Map
-		// Images, and deduplicating them by content is ticket 14's question about remote resources.
+		// Images, and deduplicating them by content is a question about remote resources.
 		expect(first.imageId).not.toBe(second.imageId);
 		expect(first.imageId).toMatch(/^[0-9a-f]{16}$/);
 	});
