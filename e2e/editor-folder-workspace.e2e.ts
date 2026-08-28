@@ -10,7 +10,8 @@ import {
 	openRemoteSettings,
 	openWorkspaceMenu,
 	openWorkspaceSettings,
-	revealBindToken
+	revealBindToken,
+	showRemoteStatusDetail
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
@@ -1447,11 +1448,12 @@ test.describe('synchronizing a folder Workspace', () => {
 		);
 	}
 
-	/** The bar's plain answer, which each determination has exactly one of. */
-	const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
+	/** The one badge's GitHub clause, which each determination has exactly one of (ADR-0041). */
+	const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
 	/** Ask for a check the way an author does, and wait for it to finish. */
 	async function checkNow(page: Page): Promise<void> {
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('check-remote-status').click();
 		await expect(remoteStatus(page)).not.toContainText('Checking…');
 	}
@@ -1509,6 +1511,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
 
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		// In the folder, as real files: the transfer wrote through the File System Access adapter and
@@ -1521,6 +1524,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		// ── And a destructive one, which is refused until it is confirmed ─────────────────────────
 		const before = await everyPathInFolder(page);
 		await github.commitFiles(OWNER, FROM_FOLDER, { 'delft/project.json': null });
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		const dialog = page.getByRole('dialog', {
 			name: 'Update will remove work from this Workspace'
@@ -1533,6 +1537,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await expect(page.getByTestId('update-from-github')).toBeFocused();
 		expect(await everyPathInFolder(page)).toEqual(before);
 
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await dialog.getByTestId('confirm-deletions').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');

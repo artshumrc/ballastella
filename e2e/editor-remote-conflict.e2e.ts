@@ -10,6 +10,7 @@ import {
 	seedBaseline,
 	seedGitHubCredential,
 	seedRemoteRelationship,
+	showRemoteStatusDetail,
 	switchToWorkspace
 } from './support/workspace.js';
 import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
@@ -405,9 +406,9 @@ test.describe('a publish that would overwrite work this browser has never seen',
 // them are exhausted at Seam 1 (`synchronization-planner.test.ts`, `local-change-index.test.ts`),
 // and the bounded checking, the retained failure and the per-Workspace isolation at Seam 1 too
 // (`remote-status.test.ts`) — all of it without a browser. What only a browser can settle is that
-// the control is *there*, on every screen, in words, beside a `Saved locally` that stays its own
-// thing; that an authenticated session checks by itself and a signed-out one does not; and that a
-// failed check leaves the last answer on screen rather than reporting agreement.
+// the clause is *there*, on every screen, in words, beside a `Saved locally` that is never allowed to
+// stand for it; that an authenticated session checks by itself and a signed-out one does not; and
+// that a failed check leaves the last answer on screen rather than reporting agreement.
 //
 // The Baseline is seeded rather than earned through a Publish: a spec that had to publish to reach
 // each state would be testing publishing five times over to arrive at the thing it wanted to assert.
@@ -424,18 +425,19 @@ async function sharedShas(files: Record<string, string>): Promise<Record<string,
 }
 
 /**
- * The status control's own words. Never `role="status"` — that is the save indicator's.
+ * The one badge, and its two clauses (ADR-0041).
  *
- * ⚠ **The bar leads with the plain answer, not with the determination.** `Changes on both sides` and
+ * ⚠ **The GitHub clause is the plain answer, not the determination.** `Changes on both sides` and
  * the other five are one press behind it, so the sentences asserted here are `REMOTE_STATUS_LEADS`'s
- * and each still stands for exactly one of the six. Which lead belongs to which determination is
+ * and each still stands for exactly one of the six. Which clause belongs to which determination is
  * `remote-status.dom.test.ts`'s at Seam 1c; what this file can say is that the determination the
  * checker reached is the one the bar is speaking for.
  */
-const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
+const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
 /** Ask for a check the way an author does, and wait for it to finish. */
 async function checkNow(page: Page): Promise<void> {
+	await showRemoteStatusDetail(page);
 	await page.getByTestId('check-remote-status').click();
 	await expect(remoteStatus(page)).not.toContainText('Checking…');
 }
@@ -484,16 +486,17 @@ test.describe('Remote Status on the navigation bar', () => {
 		);
 		expect(listings(github)).toBe(0);
 
-		// ⚠ **`Saved locally` is still the one `status` region on this bar**, and strict mode is the
-		// assertion: a control that had taken that role would make the two facts a scholar most needs
-		// kept apart indistinguishable to a screen reader.
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		// ⚠ **One `status` region on this bar, carrying both clauses**, and strict mode is the
+		// assertion: a second region would make the two facts a scholar most needs kept apart into two
+		// announcements, of which a screen-reader user has to work out which is now true.
+		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('GitHub');
 		expect(
 			await remoteStatus(page).evaluate((element) => [
-				element.getAttribute('aria-live'),
-				element.getAttribute('role')
+				element.getAttribute('role'),
+				element.getAttribute('aria-atomic')
 			])
-		).toEqual(['polite', null]);
+		).toEqual(['status', 'true']);
 
 		await seedBaseline(page, {
 			owner: OWNER,
@@ -506,13 +509,15 @@ test.describe('Remote Status on the navigation bar', () => {
 		// ⚠ **Signed out, nothing is polled**. GitHub allows an anonymous reader sixty
 		// requests an hour *per IP address*, so a seminar room on one campus address checking on every
 		// window focus would spend the room's whole budget on status.
-		await expect(remoteStatus(page)).toContainText('Not checked yet');
+		await expect(remoteStatus(page)).toContainText('GitHub has not been checked yet');
 		await refocus(page);
 		await refocus(page);
 		expect(listings(github)).toBe(0);
 
 		// The gesture, reached by the keyboard alone, is what makes status available with no account at
-		// all — and the answer is dated, so a retained one can later be told from a current one.
+		// all — and the answer is dated, so a retained one can later be told from a current one. Both
+		// are behind the badge's disclosure, which is the one press the eyebrow now costs.
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('check-remote-status').focus();
 		await page.keyboard.press('Enter');
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
@@ -588,7 +593,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// The same path on both sides, which is the one state the passive check may not read as
 		// agreement: it knows `delft/project.json` changed here and cannot compare the bytes.
@@ -601,6 +606,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		// ⚠ **A failed check is not agreement**. The last determination stays, dated,
 		// with an alert beside it saying it is no longer being confirmed — never relabelled `Up to
 		// date`, and never the successful determination `Cannot tell`.
+		await showRemoteStatusDetail(page);
 		const checkedBefore = await page.getByTestId('remote-status-checked').textContent();
 		await page.route('https://api.github.com/**/git/trees/**', (route) =>
 			route.abort('connectionfailed')
@@ -647,6 +653,7 @@ test.describe('Remote Status on the navigation bar', () => {
 			await held;
 			await route.fallback();
 		});
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('check-remote-status').click();
 		await expect(remoteStatus(page)).toContainText('Checking…');
 
@@ -788,6 +795,7 @@ test.describe('Update from GitHub', () => {
 		};
 		await page.route(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 		const release = await holdRawFile(page, 'delft/annotations/l2.geojson');
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
 
@@ -842,12 +850,13 @@ test.describe('Update from GitHub', () => {
 		// And the next required action is on screen already: the Baseline advanced only for what is now
 		// shared, so the Project GitHub has never seen is still Changes to publish.
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// Finally: a switch inside a transfer. The Workspace the Update was aimed at is the one it
 		// writes to, and the one that arrives wears none of it.
 		await github.commitFiles(OWNER, REPOSITORY, { 'atlas-1625/annotations/l9.geojson': '{}' });
 		const holdAgain = await holdRawFile(page, 'atlas-1625/annotations/l9.geojson');
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(page.getByTestId('update-progress')).toContainText('files');
 		await createWorkspace(page, 'Elsewhere');
@@ -873,13 +882,14 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// ⚠ **And an Edit History does not survive an Update** (ADR-0039). A Step holds the bytes of the
 		// files its gesture wrote, so a Step taken before an Update describes files the Update may have
@@ -898,6 +908,7 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l4.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
@@ -939,6 +950,7 @@ test.describe('Update from GitHub', () => {
 		const head = github.head(OWNER, REPOSITORY);
 
 		// ── The preview, reached from the control and naming the Project by its own name ──────────
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
 		const dialog = page.getByRole('dialog', {
@@ -966,6 +978,7 @@ test.describe('Update from GitHub', () => {
 		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
 
 		// ── Confirm: the Project goes, and the one the Remote kept does not ───────────────────────
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(dialog).toBeVisible();
 		await dialog.getByTestId('confirm-deletions').focus();
@@ -1055,6 +1068,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 
 		// Taking that inbound work leaves the Import as the only difference between the two sides, which
 		// is what makes the publish below an ordinary one rather than a conflict.
+		await showRemoteStatusDetail(page);
 		await page.getByTestId('update-from-github').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');

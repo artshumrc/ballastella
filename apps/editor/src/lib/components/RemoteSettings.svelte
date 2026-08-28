@@ -542,12 +542,21 @@
 			moves.
 		-->
 		{#if storage.review === null && (storage.signedIn || bound || storage.signInWithGitHubOffered)}
-			<section class="rounded-box border border-base-300 p-4">
+			<section class="rounded-box border border-base-300 p-4" data-testid="remote-sign-in-section">
 				<h3 class="font-semibold">Your GitHub sign-in</h3>
 				{#if storage.signedIn}
+					<!--
+						⚠ **The account is named here** (ADR-0041). It was in the Workspace menu's header, which
+						no longer restates the credential — and *which* account is the question a scholar on a
+						shared or a classmate's machine is actually asking. Read from the credential store rather
+						than from anything remembered, so it says what is true: the store is sealed while a
+						Review Workspace is open (ADR-0033), and a token that cannot be read is a token this
+						screen must not claim to hold.
+					-->
 					<p class="mt-1 text-sm opacity-70" data-testid="remote-signed-in">
-						Signed in to GitHub. The sign-in survives a reload and is forgotten when this tab
-						closes, so a shared machine keeps no credential.
+						Signed in to GitHub{storage.identity ? ` as ${storage.identity}` : ''}. The sign-in
+						survives a reload and is forgotten when this tab closes, so a shared machine keeps no
+						credential.
 					</p>
 					<div class="mt-3 flex flex-wrap gap-2">
 						<button class="btn btn-sm" data-testid="remote-sign-out" onclick={() => signOut()}>

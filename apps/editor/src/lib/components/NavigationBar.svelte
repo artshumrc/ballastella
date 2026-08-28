@@ -55,7 +55,7 @@
 
 	import ConnectToGitHub from './ConnectToGitHub.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
-	import SaveIndicator from './SaveIndicator.svelte';
+	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
 	const host = useWorkspaceHost();
@@ -97,21 +97,6 @@
 		storage?.backing === 'folder' ? 'A folder on this computer' : 'Kept in this browser'
 	);
 
-	/**
-	 * Whether a push credential is held, and as whom.
-	 *
-	 * Read from the credential store rather than from anything remembered here, so it says what is
-	 * **true**: the store is sealed while a Review Workspace is open (ADR-0033), and a token that
-	 * cannot be read is a token this menu must not claim to hold.
-	 */
-	const credentialSentence = $derived(
-		storage?.signedIn
-			? storage.identity
-				? `Signed in to GitHub as ${storage.identity}`
-				: 'Signed in to GitHub'
-			: 'Not signed in'
-	);
-
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
 	let settingsOpen = $state(false);
 	let publishOpen = $state(false);
@@ -141,21 +126,6 @@
 		storage !== null && storage.review === null && storage.unavailable === ''
 	);
 
-	/**
-	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared
-	 * (ADR-0038).
-	 *
-	 * ⚠ **Text rather than a colour, and stated rather than omitted**, for the reason the publishing
-	 * line above it is: `Cannot tell` is a *determination* — absence, corruption, a record naming
-	 * another repository, or a Baseline this browser refused to keep — and a scholar who is shown
-	 * nothing reads it as "up to date". The three-way comparison itself is not here; what this says is
-	 * whether there is anything to compare against.
-	 */
-	const remoteStatusSentence = $derived(
-		storage === null || storage.remoteStatus !== 'cannot-tell'
-			? ''
-			: 'Cannot tell what has changed since this Workspace and GitHub last agreed.'
-	);
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
 	let newNameField = $state<HTMLInputElement | undefined>();
@@ -259,14 +229,13 @@
 				testid="workspace-switcher"
 			>
 				<!--
-					What this Workspace is: its name, where its bytes are, and where it publishes. The only
-					place in the app those facts appear together, and a heading rather than a set of controls
-					— every decision behind them is in Workspace settings, so the same choice is never offered
-					in two places that could disagree.
+					What this Workspace is: its name, and where its bytes are.
 
-					**The publishing line is stated even when there is nothing bound.** An omitted line
-					reads as a rendering fault, and "no Remote yet" is the state a first-time author is
-					in. It is still not a sign-in prompt: nothing here asks for a credential.
+					⚠ **The repository, the credential and the Remote Status are not restated here**
+					(ADR-0041). All three were said in the eyebrow at the same time, and a scholar asking
+					*is my work safe* had five candidates and no way to choose between them. The badge
+					answers it, and the door names the repository; a third copy in prose could only
+					disagree with them.
 				-->
 				<!--
 					⚠ **Every line states its own ink, and none of them may inherit.** daisyUI paints
@@ -296,19 +265,6 @@
 							</span>
 						{:else}
 							<span class="text-base-content opacity-70">{backingSentence}</span>
-						{/if}
-					</span>
-					<span
-						class="block font-normal text-base-content opacity-70"
-						data-testid="workspace-publishes"
-					>
-						{#if storage.remote}
-							Publishes to <span data-testid="workspace-remote"
-								>{describeRemote(storage.remote)}</span
-							>. <span data-testid="workspace-credential">{credentialSentence}</span>.
-							<span data-testid="remote-status">{remoteStatusSentence}</span>
-						{:else}
-							No Remote yet, so nothing is published from this Workspace.
 						{/if}
 					</span>
 				</li>
@@ -556,23 +512,50 @@
 -->
 {#snippet status()}
 	{#if session !== null}
-		<!-- 7. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
-		     only signal that anything reached storage — which is why it is on every screen and not
-		     only on the ones that happen to write. -->
-		<!-- `min-h-8`, matching the Remote status's leading row: the eyebrow top-aligns its clusters, so
-		     the badge keeps its centre line beside the Remote status and its buttons. -->
-		<div class="flex min-h-8 items-center" data-testid="save-slot">
-			<SaveIndicator saveState={session.saveState} />
+		<!--
+			7. Where the work is: one badge, two clauses, and everything else one press away (ADR-0041).
+
+			**Whether the work is kept here, and whether GitHub has it, in one line.** ADR-0017 rule 5:
+			there is no Save button, so the first clause is the only signal that anything reached storage,
+			which is why it is on every screen and not only on the ones that happen to write. The second
+			is the question the first does not answer — "Saved locally" is about this machine and says
+			nothing about the Remote, and a scholar who reads the one as the other publishes over a
+			colleague's afternoon.
+
+			**Two clauses rather than two badges** (ADR-0041). They are the two halves of one question, so
+			they share one region and one line; what keeps them apart is that both are always said.
+
+			The GitHub clause only for an ordinary bound Workspace. A Review Workspace is never bound
+			(ADR-0024) and an unbound one has nothing to compare against, so the badge is the local clause
+			alone and `RemoteStatus`'s disclosure is not mounted at all.
+		-->
+		<div class="flex min-h-8 items-start" data-testid="save-slot">
+			{#if storage !== null && storage.remote !== null && storage.review === null}
+				<RemoteStatus
+					saveState={session.saveState}
+					state={storage.remoteStatusState}
+					baseline={storage.baseline}
+					onCheck={() => void storage.checkRemoteStatus()}
+					update={storage.updateProgress}
+					notice={storage.updateNotice}
+					failure={storage.updateFailure}
+					onUpdate={() => void storage.updateFromRemote()}
+					deletionPreview={storage.deletionPreview}
+					onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
+				/>
+			{:else}
+				<WhereYourWorkIs saveState={session.saveState} />
+			{/if}
 		</div>
 
 		<!--
 			Why the work is not kept, and every neighbouring refusal, as messages the reader can put
 			away rather than sentences under the bar for the rest of the session.
 
-			**`SaveIndicator` still says *whether* the work is kept and this says *why not*.** The badge
+			**The badge still says *whether* the work is kept and this says *why not*.** The badge
 			is a standing fact and belongs in the bar; each of these is news about something that just
 			happened, and the eyebrow is not a log. `Toast` renders nothing here — the words are drawn
-			in the layout's one stack — so a save error no longer moves the Remote status beside it.
+			in the layout's one stack — so a save error no longer moves the badge beside it.
 
 			`refusal` on the three that are inserted at the moment their text first exists, which a polite
 			region does not reliably announce (ADR-0016's amendment). `unprotected-browser` is not one of
@@ -584,32 +567,6 @@
 		<Toast text={session.protectionWarning} testid="protection-warning" refusal />
 		<Toast text={session.deletionWarning} testid="deletion-warning" refusal />
 		<Toast text={storage?.unprotected ?? ''} testid="unprotected-browser" />
-
-		<!--
-			8. Whether GitHub agrees with this Workspace (ADR-0038).
-
-			**Its own region, beside the save indicator and never inside it.** "Saved locally" is about
-			this machine and says nothing about the Remote; a scholar who reads the one as the other
-			publishes over a colleague's afternoon. They sit next to each other because they are the two
-			halves of "where is my work", and they are two controls because they have two remedies.
-
-			Only for an ordinary bound Workspace. A Review Workspace is never bound (ADR-0024) and an
-			unbound one has nothing to compare against — the Workspace menu already states "No Remote
-			yet, so nothing is published from this Workspace" in words, so a second empty control here
-			would be a gap that reads as a rendering fault.
-		-->
-		{#if storage !== null && storage.remote !== null && storage.review === null}
-			<RemoteStatus
-				state={storage.remoteStatusState}
-				onCheck={() => void storage.checkRemoteStatus()}
-				update={storage.updateProgress}
-				notice={storage.updateNotice}
-				failure={storage.updateFailure}
-				onUpdate={() => void storage.updateFromRemote()}
-				deletionPreview={storage.deletionPreview}
-				onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
-			/>
-		{/if}
 	{/if}
 {/snippet}
 

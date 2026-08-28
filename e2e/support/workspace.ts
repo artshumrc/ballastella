@@ -119,64 +119,74 @@ export async function closeRemoteSettings(page: Page): Promise<void> {
 	await closeWorkspaceSettings(page);
 }
 
-/**
- * Read something out of the Workspace menu's header block, and close the menu again.
- *
- * The header is where the current Workspace's name, its backing and its Remote are stated together,
- * and it is only on screen while the menu is open — so every assertion about those three facts pays
- * for the two clicks around it, and pays for them once, here.
- */
-async function inWorkspaceHeader(page: Page, act: () => Promise<void>): Promise<void> {
-	await openWorkspaceMenu(page);
-	await act();
-	await page.keyboard.press('Escape');
-	await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
-}
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHERE THE WORK IS, READ FROM THE ONE PLACE THAT SAYS SO (ADR-0041)
+//
+// ⚠ **The Workspace menu's header no longer restates the repository, the credential or the Remote
+// Status**, so none of the four assertions below reads it. All three were said in the eyebrow at the
+// same time, and a scholar asking *is my work safe* had five candidates and no way to choose between
+// them. What each fact is now read from is named on its own helper, and each is the surface a
+// scholar would actually be looking at.
 
-/** What the menu's header says this Workspace publishes to. */
+/** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
 export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-remote')).toHaveText(remote);
-	});
+	await expect(page.getByTestId('connect-to-github')).toHaveText(`Connected to ${remote}`);
 }
 
 /**
- * What the menu's header says about the Synchronization Baseline (ADR-0038).
+ * What Remote settings says about the Synchronization Baseline (ADR-0038).
  *
  * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
  * stating, and saying nothing when the two sides' history is known is what keeps the sentence
  * meaningful when it appears.
  */
 export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('remote-status')).toContainText(sentence);
-	});
+	await openRemoteSettings(page);
+	await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
+	await closeRemoteSettings(page);
 }
 
-/** What the menu's header says about the push credential — "Signed in to GitHub", or not. */
+/** What Remote settings says about the push credential — "Signed in to GitHub", or not. */
 export async function expectCredential(page: Page, sentence: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-credential')).toHaveText(sentence);
-	});
+	await openRemoteSettings(page);
+	await expect(page.getByTestId('remote-sign-in-section')).toContainText(sentence);
+	await closeRemoteSettings(page);
 }
 
 /**
- * That the menu's header says this Workspace has no Remote at all.
+ * That this Workspace has no Remote at all.
  *
- * Stated rather than omitted, so a first-time author reads a sentence rather than a gap — and the
- * `workspace-remote` count is asserted with it, because "publishes nowhere" and "names a repository"
- * must not both be true.
- *
- * `workspace-credential` is counted too, and it is a separate claim rather than a consequence of the
- * markup: the sealed credential store is what a Review Workspace is for (ADR-0033), and a header
- * that named a signed-in identity in one would be reporting a token it must not be able to read.
+ * Read from the door, which offers connecting rather than naming a repository, and from the badge,
+ * which carries no GitHub clause because there is nothing to compare against. Two claims rather than
+ * one: "publishes nowhere" and "names a repository" must not both be true.
  */
 export async function expectNoRemote(page: Page): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-publishes')).toContainText('No Remote yet');
-		await expect(page.getByTestId('workspace-remote')).toHaveCount(0);
-		await expect(page.getByTestId('workspace-credential')).toHaveCount(0);
-	});
+	await expect(page.getByTestId('connect-to-github')).toHaveText('Connect to GitHub');
+	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+}
+
+/**
+ * That a Review Workspace names no Remote, which is a stronger claim than having none.
+ *
+ * The door is absent rather than offering to connect: a Review Workspace holds somebody else's work
+ * and is never published (ADR-0024), so there is no gesture here to refuse.
+ */
+export async function expectNoRemoteInReview(page: Page): Promise<void> {
+	await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
+	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+}
+
+/**
+ * Open the badge's disclosure, which is where the determination, the reading's time, the Baseline
+ * and the two gestures live (ADR-0041).
+ *
+ * Idempotent, because a check and an Update both leave it open: pressing a disclosure that is
+ * already expanded would close the panel the caller is about to reach into.
+ */
+export async function showRemoteStatusDetail(page: Page): Promise<void> {
+	const disclosure = page.getByTestId('remote-status-explain');
+	if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+	await expect(page.getByTestId('remote-status-detail')).toBeVisible();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────

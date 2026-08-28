@@ -821,8 +821,10 @@ test.describe('publishing a Workspace', () => {
 
 		// ⚠ **Strict-mode `getByRole('status')` is the assertion here, not a convenience.** A second
 		// `status` on the editor makes this throw, and a locator that has to be disambiguated is a hint
-		// that a screen-reader user would have to disambiguate as well (ADR-0016).
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		// that a screen-reader user would have to disambiguate as well (ADR-0016). One region carries
+		// both clauses of the badge (ADR-0041), which is why this reads the local one rather than the
+		// whole line.
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 		await expect(page.getByTestId('publish')).toBeVisible();
 
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
@@ -835,8 +837,12 @@ test.describe('publishing a Workspace', () => {
 		await page.evaluate(() => {
 			const indicator = document.querySelector('[data-save-state]');
 			if (!indicator) throw new Error('no [data-save-state] element to observe');
+			// The local clause alone: the badge's other clause is about GitHub and changes on its own
+			// schedule, and what this records is the three save states in their own words.
 			const read = () =>
-				`${indicator.getAttribute('data-save-state')}=${indicator.textContent?.trim()}`;
+				`${indicator.getAttribute('data-save-state')}=${(indicator.textContent ?? '')
+					.split('·')[0]
+					.trim()}`;
 			const seen: string[] = [read()];
 			new MutationObserver(() => {
 				if (read() !== seen[seen.length - 1]) seen.push(read());

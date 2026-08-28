@@ -7,7 +7,7 @@ import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	closeRemoteSettings,
 	expectCredential,
-	expectNoRemote,
+	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
 	openRemoteSettings,
@@ -206,7 +206,9 @@ test.describe('signing in with GitHub', () => {
 		]);
 	});
 
-	test('names the account in the Workspace menu once the Workspace is bound', async ({ page }) => {
+	test('names the account where the sign-in is held, once the Workspace is bound', async ({
+		page
+	}) => {
 		await start(page, { login: 'ada' });
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
@@ -501,7 +503,7 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		await page.getByTestId('confirm-open-bundle').click();
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 
-		await expectNoRemote(page);
+		await expectNoRemoteInReview(page);
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('no-remote-in-review')).toContainText(
 			'cannot be bound to a repository'
