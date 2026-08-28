@@ -157,9 +157,15 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  * **The backing is in the key**, because a folder called `Marking 2026` and an OPFS Workspace
  * called `Marking 2026` are two different places holding two different people's afternoons, and one
  * replaying into the other is exactly the failure this key prevents.
+ *
+ * ⚠ **A folder Workspace is keyed by its minted reference, never by its directory's name**
+ * (ADR-0042). Two folders called `maps` on two drives are two Workspaces, and a name would make them
+ * one key — over a Remote binding, a Synchronization Baseline and a journal. `folder-workspaces.ts`
+ * mints and keeps the reference; what arrives here is that, or — for a browser with no IndexedDB to
+ * keep a record in — the directory's name, which is what the single-folder build always used.
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
-export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+export const folderWorkspaceKey = (folderReference: string): string => `folder:${folderReference}`;
 
 /**
  * Install local-change tracking around the store an ordinary Workspace is about to be opened from.
@@ -206,14 +212,22 @@ export const workspaceIdentityOf = (key: string): WorkspaceIdentity =>
  * The folder case keeps a qualifier rather than dropping the distinction, because a folder
  * Workspace and a browser-storage one may share a name and the sentence has to be true of exactly
  * one of them.
+ *
+ * ⚠ **A folder key holds a minted reference, which is not a name at all** (ADR-0042). Anything with
+ * a record to read should go through `WorkspaceStorage.workspaceLabel`, which puts the author's own
+ * name in; what is left here is the reference, shown as-is for the reason the unknown prefix is —
+ * the user is being asked to recognise a Workspace, and a mangled reference helps nobody.
  */
 export function workspaceKeyLabel(key: string): string {
 	if (key.startsWith('opfs:')) return key.slice('opfs:'.length);
-	if (key.startsWith('folder:')) return `${key.slice('folder:'.length)} (Workspace folder)`;
+	if (key.startsWith('folder:')) return folderWorkspaceLabel(key.slice('folder:'.length));
 	// A key from a build that keyed them differently. Shown as it is rather than mangled: the user
 	// is being asked to recognise it, and a prefix this build does not know is information.
 	return key;
 }
+
+/** A folder Workspace's name as a sentence about it says it, so the qualifier is written once. */
+export const folderWorkspaceLabel = (name: string): string => `${name} (Workspace folder)`;
 
 /**
  * A transfer in flight, for the status region that announces it.

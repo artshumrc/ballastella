@@ -17,7 +17,13 @@ const DATABASE_NAME = 'ballastella';
  */
 const DATABASE_VERSION = 2;
 
-/** The folder handle store, from version 1. Its one key is `folder`. */
+/**
+ * The folder handle store, from version 1.
+ *
+ * Three namespaces share it, told apart by their key: `folder` is the single pre-plural slot a
+ * resume is offered from, `retained:<uuid>` is a Review Workspace's hold on the folder it began in
+ * (ADR-0037), and `workspace:<uuid>` is a folder Workspace's own record (ADR-0042).
+ */
 export const WORKSPACE_STORE = 'workspace';
 
 /** Installation-local synchronization records, keyed by the strings `synchronization-metadata.ts` builds. */

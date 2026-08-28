@@ -249,6 +249,18 @@ export {
 	reopenWorkspaceFolder,
 	retainWorkspaceFolder
 } from './store/workspace-folder.js';
+// A folder Workspace's own durable record, which is what makes there able to be more than one
+// (ADR-0042). Keyed by a minted reference; the folder's name is shown, never asked.
+export {
+	listFolderWorkspaces,
+	migratePreExistingFolderWorkspace,
+	resolveFolderWorkspace,
+	type FolderWorkspaceRecord
+} from './store/folder-workspaces.js';
+export {
+	rekeyWorkspaceRecords,
+	type WorkspaceRecordStores
+} from './store/rekey-workspace-records.js';
 
 // Handing one Project to somebody else, and reviewing one you were handed (ADR-0024).
 // Importing one into the Workspace already open is a different operation over the same file format —

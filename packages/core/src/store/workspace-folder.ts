@@ -174,6 +174,18 @@ export async function grantWorkspaceFolder(
 }
 
 /**
+ * The remembered folder itself, for the caller that needs the **place** rather than a name to show.
+ *
+ * `folder-workspaces.ts` alone: the single slot holds the one folder Workspace a pre-plural
+ * installation could have, and moving its durable records onto a minted reference means recognising
+ * that folder again by handle. A name would not do — two folders may share one, which is the whole
+ * reason a folder Workspace stopped being keyed by its name (ADR-0042).
+ */
+export async function rememberedWorkspaceFolder(): Promise<FileSystemDirectoryHandle | null> {
+	return recallFolder();
+}
+
+/**
  * Keep a **second, independent** hold on a folder grant, and answer with the reference to ask for it
  * back by (ADR-0037).
  *

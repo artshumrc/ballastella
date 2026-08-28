@@ -876,7 +876,7 @@ describe('what a Workspace key says about which directory it is', () => {
 	});
 
 	it('calls a picked folder a name anywhere, because two drives may both hold one', () => {
-		expect(workspaceIdentityOf(folderWorkspaceKey('maps'))).toBe('a-name-anywhere');
+		expect(workspaceIdentityOf(folderWorkspaceKey('workspace:d3a1'))).toBe('a-name-anywhere');
 	});
 
 	/**
@@ -891,6 +891,69 @@ describe('what a Workspace key says about which directory it is', () => {
 		expect(workspaceIdentityOf('mirror-of-opfs:Teaching')).toBe('a-name-anywhere');
 	});
 });
+
+/**
+ * Two folders called `maps`, on two drives, open in one installation (ADR-0042).
+ *
+ * ⚠ **The whole reason a folder Workspace stopped being keyed by its directory's name.** While there
+ * could be exactly one folder Workspace the collision needed two visits and destroyed nothing in
+ * between; plural, it is one afternoon — and what is keyed by the Workspace includes a Remote
+ * binding and a Synchronization Baseline, which is this installation's claim that a repository
+ * already holds these bytes. Two folders sharing one of those is a Publish aimed at somebody else's
+ * repository, judged against somebody else's tree.
+ *
+ * So the key is the reference `folder-workspaces.ts` minted for each, and the directory's name — the
+ * same string for both — reaches none of it.
+ */
+describe('two folder Workspaces whose directories share a name', () => {
+	// What two folders both called `maps` are given, and the only thing that tells them apart.
+	const ONE = folderWorkspaceKey('workspace:9a0f4c1e');
+	const OTHER = folderWorkspaceKey('workspace:41c7bd02');
+
+	it('keep separate journals', () => {
+		const storage = new FakeJournalStorage();
+		const path = 'amsterdam-1625/project.json' as StorePath;
+
+		new WriteAheadJournal(storage, ONE).record(path, new TextEncoder().encode('{"in":"one"}'));
+		new WriteAheadJournal(storage, OTHER).record(path, new TextEncoder().encode('{"in":"other"}'));
+
+		expect(readJournal(storage, ONE).entries.map((entry) => decoded(entry.bytes))).toEqual([
+			'{"in":"one"}'
+		]);
+		expect(readJournal(storage, OTHER).entries.map((entry) => decoded(entry.bytes))).toEqual([
+			'{"in":"other"}'
+		]);
+	});
+
+	it('keep separate unfinished deletions', () => {
+		const storage = new FakeJournalStorage();
+
+		new DeletedProjects(storage, ONE).record('rotterdam-1690', null);
+
+		// The one record whose standing instruction is destructive: left reachable from the other
+		// folder it would list a directory of that name and remove every byte in it.
+		expect(new DeletedProjects(storage, OTHER).has('rotterdam-1690')).toBe(false);
+		expect(new DeletedProjects(storage, ONE).has('rotterdam-1690')).toBe(true);
+	});
+
+	it('keep separate Remote bindings and Baselines', async () => {
+		const storage = new FakeMetadataStorage();
+		const atlas = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		const charts = { owner: 'grace', repository: 'charts', branch: 'main' };
+
+		const one = new SynchronizationMetadata(storage, ONE);
+		await one.bindRemote(atlas);
+		await one.writeBaseline({ remote: atlas, commit: 'c0ffee', files: new Map() });
+		const other = new SynchronizationMetadata(storage, OTHER);
+		await other.bindRemote(charts);
+
+		expect((await other.readRemote())?.repository).toBe('charts');
+		expect(await other.readBaseline(charts)).toBeNull();
+		expect((await one.readBaseline(atlas))?.commit).toBe('c0ffee');
+	});
+});
+
+const decoded = (bytes: Bytes): string => new TextDecoder().decode(bytes);
 
 /**
  * An Alignment somebody else changed while this session had it open (ADR-0023).
