@@ -21,7 +21,7 @@
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE LINK, TWO ANSWERS, AND THE VOCABULARY IS THE DIFFERENCE
 	 *
-	 * A Published *Project* carries one “Open in Ballastella” rather than competing Import and Review
+	 * A Published *Project* carries one “Open this Project in Ballastella” rather than competing Import and Review
 	 * links, because the choice between keeping somebody's work and looking at it is a decision to put
 	 * in front of a reader once they have arrived, not two links to tell them apart in a navbar. So the
 	 * Project invitation raises **both** offers here and names the Workspace an Import would go into,
