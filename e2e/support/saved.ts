@@ -24,7 +24,7 @@
 // `editor-workspace.e2e.ts`; the three-state shape this file used to quote was wrong, and `unsaved`
 // is the 400 ms debounce window the tool spends telling the user it has not written yet). So "Saved"
 // is *also* what it reads before the save starts, and a poll that arrives in that first frame passes
-// without waiting for anything. `SaveIndicator.svelte` additionally holds "Saving…" on screen for a
+// without waiting for anything. `WhereYourWorkIs.svelte` additionally holds "Saving…" on screen for a
 // minimum of 400 ms so it does not strobe, which means the text is a deliberately lagged rendering
 // of the state and never a statement about storage.
 //

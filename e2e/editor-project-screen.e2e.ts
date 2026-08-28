@@ -482,7 +482,7 @@ test.describe('what the app says when something is wrong', () => {
 		context
 	}) => {
 		// **This follows from where the indicator lives, and is not a general tidiness rule.**
-		// `SaveIndicator` owns `role="status"` and sits in the root layout, so it is on screen
+		// `WhereYourWorkIs` owns `role="status"` and sits in the root layout, so it is on screen
 		// everywhere — which makes every *other* `status` role in the app an ambiguity. The repo's
 		// answer is one `status` per page and `aria-live="polite"` for everything else; a screen reader
 		// user who has to disambiguate is the same user `getByRole('status')` cannot serve.
@@ -513,7 +513,7 @@ test.describe('what the app says when something is wrong', () => {
 	});
 
 	test('a save that failed says why, in a region a screen reader is given', async ({ page }) => {
-		// `SaveIndicator` says "Unsaved changes"; the *reason* — a full disk, a lapsed folder grant — is
+		// `WhereYourWorkIs` says "Unsaved changes"; the *reason* — a full disk, a lapsed folder grant — is
 		// a sentence beside it and outside its live region. Without a role of its own it is inserted
 		// silently, so a screen-reader user is told that something went wrong and never what.
 		await freshWorkspace(page);

@@ -2,31 +2,39 @@
 	// Whether GitHub agrees with this Workspace, in words, on every screen (ADR-0038).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// NOT THE SAVE INDICATOR, AND THAT SEPARATION IS THE WHOLE POINT
+	// ONE BADGE, TWO CLAUSES, AND EVERYTHING ELSE ONE PRESS AWAY (ADR-0041)
 	//
-	// `SaveIndicator` answers *is my edit kept on this machine* and owns this bar's one
-	// `role="status"`. This answers *does GitHub hold it too*, which is a different question with a
-	// different remedy — and conflating them is how a scholar comes to believe a saved edit is a
-	// published one. So this is its own region, with its own words, beside rather than inside that one:
-	// a live region without `role="status"`, for the reason the bar's other announcements are
-	// (`getByRole('status')` must stay unambiguous, which is a hint that a screen-reader user would
-	// otherwise have to disambiguate too).
+	// The bar answers *where is my work* once. `WhereYourWorkIs` is that badge and owns the bar's one
+	// `role="status"`; this supplies its GitHub clause, and holds the determination, the sentence, the
+	// time of the reading, the Baseline and the two gestures behind the disclosure beside it.
+	//
+	// ⚠ **The two clauses are always both present and never collapse into one word.** *Is my edit kept
+	// on this machine* and *does GitHub hold it too* are different questions with different remedies,
+	// and conflating them is how a scholar comes to believe a saved edit is a published one. The rule
+	// is kept in the text, where it does the work, rather than in two badges side by side, where it
+	// only cost height.
+	//
+	// ⚠ **The check and the Update are behind the disclosure and are not deleted.** An Update is the
+	// only way Remote work reaches a Workspace, and an explicit check is the only status a signed-out
+	// author can get — so they move rather than go.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE MEANING IS IN THE TEXT
 	//
 	// Never a colour, never an icon, never a disabled button. Every one of the six determinations is a
 	// sentence from `REMOTE_STATUS_LABELS`, the failure is a sentence, and the staleness notice is a
-	// sentence. `data-remote-status` exists for a spec to read and carries nothing a user needs.
+	// sentence. `data-remote-status` exists for a spec to read and carries nothing a user needs. The
+	// badge's tint and mark say nothing the two clauses do not, and follow the whole badge rather than
+	// either half of it — see `WhereYourWorkIs`.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// A PLAIN LEAD, AND SIX DETERMINATIONS BEHIND ONE PRESS
+	// A PLAIN CLAUSE, AND SIX DETERMINATIONS BEHIND ONE PRESS
 	//
 	// A newcomer's question is *is my work on GitHub?*, and `Changes on both sides` does not answer
-	// it at a glance. So the bar leads with one plain sentence per determination and puts the
+	// it at a glance. So the badge carries one plain sentence per determination and puts the
 	// determination's own name and its consequence behind a disclosure.
 	//
-	// ⚠ **The lead is a projection of the six and never a replacement for them.** Collapsing the
+	// ⚠ **The clause is a projection of the six and never a replacement for them.** Collapsing the
 	// determinations to a two-state indicator is refused: a boolean says "safe" during a Conflict and
 	// during `Cannot tell`, which is the class of misreading ADR-0032 designed out when it chose *not
 	// on the Front Page* over *unpublished*. The three leads that cannot promise agreement — Conflict,
@@ -48,13 +56,16 @@
 		REMOTE_STATUS_LABELS,
 		REMOTE_STATUS_UNCHECKED,
 		type RemoteStatusState,
+		type SaveState,
 		type SourceStatus,
+		type SynchronizationBaseline,
 		type UpdateDeletionPreview
 	} from '@ballastella/core';
 
 	import Toast from '$lib/toasts/Toast.svelte';
 
 	import ModalDialog from './ModalDialog.svelte';
+	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
 
 	/**
 	 * The Remote Status this bar renders, read under a local name.
@@ -64,7 +75,9 @@
 	 * so nothing in this component could hold reactive state of its own while the prop kept its name.
 	 */
 	let {
+		saveState,
 		state: remote,
+		baseline,
 		onCheck,
 		update,
 		notice,
@@ -73,7 +86,11 @@
 		deletionPreview,
 		onAnswerDeletions
 	}: {
+		/** The local clause of the one badge, passed straight through. */
+		saveState: SaveState;
 		state: RemoteStatusState;
+		/** What this Workspace and GitHub last agreed on, or `null` when nothing here knows. */
+		baseline: SynchronizationBaseline | null;
 		/** Check now, because the author asked. Never throttled — see `RemoteStatusChecker`. */
 		onCheck: () => void;
 		/** An Update in flight, as files done out of files planned, or `null` for none. */
@@ -127,12 +144,22 @@
 			'There is no trustworthy record of what this Workspace and GitHub last shared, so the differences cannot be attributed to either side.'
 	};
 
+	/**
+	 * The seventh clause, which is the absence of a determination rather than one of the six.
+	 *
+	 * ⚠ **It names GitHub like the other six, and the determination behind the press does not.** The
+	 * badge's GitHub clause is always about GitHub, so a reader scanning one line never has to work out
+	 * which half of it a bare "Not checked yet" belonged to; `REMOTE_STATUS_UNCHECKED` is the domain's
+	 * own seventh sentence and is what the disclosure states, unchanged.
+	 */
+	const UNCHECKED_LEAD = 'GitHub has not been checked yet';
+
 	/** What the seventh sentence means, for the reader who presses on it. */
 	const UNCHECKED_DETAIL =
 		'Nothing has been read from GitHub in this Workspace yet. Check Remote Status asks GitHub what it holds.';
 
 	/**
-	 * The lead, which is what the bar shows.
+	 * The lead, which is the GitHub half of the badge.
 	 *
 	 * ⚠ **`Not checked yet` is a seventh sentence and it is not one of the six.** A signed-out author
 	 * has taken no reading yet, and there is no honest way to project that onto the six: `Up to date`
@@ -142,10 +169,29 @@
 	 * have.
 	 */
 	const lead = $derived(
-		remote.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LEADS[remote.status]
+		remote.status === null ? UNCHECKED_LEAD : REMOTE_STATUS_LEADS[remote.status]
 	);
 
-	/** The determination, in the domain's own words, one press behind the lead. */
+	/**
+	 * The clause the badge carries, with what is happening to it now.
+	 *
+	 * ⚠ **A check in flight or a check that failed is said *beside* the determination, never instead
+	 * of it.** A network failure, an expired credential or a spent hourly budget is not agreement, and
+	 * reported as `Up to date` it is the one reading that licenses publishing over somebody else's
+	 * work. The sentence saying which of those it was is in the stack, where it can be put away.
+	 */
+	const clause = $derived(
+		remote.checking
+			? `${lead} · Checking…`
+			: remote.failure === ''
+				? lead
+				: `${lead} · Check failed`
+	);
+
+	/** Whether GitHub holds this Workspace's work, on the last reading that completed. */
+	const agreeing = $derived(remote.status === 'up-to-date' && remote.failure === '');
+
+	/** The determination, in the domain's own words, one press behind the badge. */
 	const label = $derived(
 		remote.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LABELS[remote.status]
 	);
@@ -163,12 +209,7 @@
 	 */
 	let detailShown = $state(false);
 
-	/**
-	 * When the determination on screen was reached, in the reader's own clock.
-	 *
-	 * Shown because a retained status has to be *dateable*: with the failure beside it, "Up to date"
-	 * and "as of nine minutes ago" are the two halves of one honest sentence.
-	 */
+	/** When the determination on screen was reached, in the reader's own clock. */
 	const checkedAt = $derived(
 		remote.at === null
 			? ''
@@ -181,43 +222,35 @@
 	/**
 	 * The Update button, so the dialog's focus goes back to the control that opened it (WCAG 2.4.3).
 	 *
-	 * A plain binding rather than `$state`: nothing renders from it, and `restoreFocusTo` reads it at
-	 * the moment the dialog closes.
+	 * `$state` because the button lives behind the disclosure and so comes and goes: a plain binding
+	 * that Svelte cannot track would leave `restoreFocusTo` reading whichever element was bound last.
 	 */
-	let updateButton: HTMLButtonElement | undefined;
+	let updateButton = $state<HTMLButtonElement | undefined>();
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
-	<!-- `min-h-8`, matching the save indicator's leading row: the eyebrow top-aligns the two slots,
-	     so the badge and its two buttons keep their centre line whatever this column grows below it. -->
+	<!-- `min-h-8`: the eyebrow top-aligns its clusters, so the badge and its disclosure keep their
+	     centre line whatever this column grows below them. -->
 	<div class="flex min-h-8 items-center gap-2">
 		<!--
-			The plain answer and the progress, in one polite region.
+			The one badge, and the bar's one `role="status"`.
 
-			Together rather than in two, because they are one sentence about one thing: a screen reader
-			hearing "Checking…" from one region and "Your work is on GitHub" from another has to work out
-			which of them is now true. `aria-atomic` so the whole line is re-read rather than only the
-			words that changed — "Checking…" on its own says nothing about what is being checked.
-
-			The lead names GitHub itself, so there is no eyebrow in front of it repeating the word.
+			Both clauses in one region and one element, so a screen reader hears them as one line rather
+			than working out which of two regions is now true — `WhereYourWorkIs` holds the reasoning and
+			`aria-atomic`.
 		-->
-		<p
-			aria-live="polite"
-			aria-atomic="true"
-			class="badge gap-1.5 badge-sm font-medium whitespace-nowrap shadow-sm"
-			class:badge-success={remote.status === 'up-to-date' && remote.failure === ''}
-			class:badge-warning={remote.status !== 'up-to-date' || remote.failure !== ''}
-			data-remote-status={remote.status ?? 'unchecked'}
-			data-testid="remote-status-state"
-		>
-			{lead}{#if remote.checking}&nbsp;· Checking…{:else if remote.failure}&nbsp;· Check failed{/if}
-		</p>
+		<WhereYourWorkIs
+			{saveState}
+			github={clause}
+			determination={remote.status ?? 'unchecked'}
+			{agreeing}
+		/>
 		<!--
-			The one press between the lead and the six.
+			The one press between the badge and everything behind it.
 
 			Not `title`, not a tooltip: daisyUI renders those through CSS `::before`, so they are neither
 			announced nor dismissable (ADR-0016). `aria-controls` binds the button to the panel below the
-			row rather than beside it, because a badge is not a container for two sentences.
+			row rather than beside it, because a badge is not a container for four lines and two buttons.
 		-->
 		<button
 			type="button"
@@ -229,81 +262,105 @@
 		>
 			{detailShown ? 'Hide what this means' : 'What this means'}
 		</button>
-		<!--
-			The explicit check.
-
-			**Always offered, not only while signed out.** Signed out it is the *only* way to a status —
-			automatic anonymous polling is ruled out by GitHub's sixty-an-hour anonymous budget, which a
-			shared campus address spends between everybody on it. Signed in it is still the answer to "has
-			anything changed *now*", and keeping it mounted in both states is also what keeps focus
-			predictable: a button that vanished on sign-in would drop a keyboard user to `<body>` (WCAG
-			2.4.3).
-
-			`aria-disabled` and never `disabled`, for the reason Publish uses the same: a `disabled`
-			button leaves the tab order the instant it is pressed.
-		-->
-		<button
-			type="button"
-			class="btn btn-xs"
-			class:btn-disabled={remote.checking}
-			aria-disabled={remote.checking}
-			data-testid="check-remote-status"
-			onclick={() => {
-				if (!remote.checking) onCheck();
-			}}
-		>
-			Check Remote Status
-		</button>
-		<!--
-			The inbound half, and the *only* way Remote work reaches a Workspace.
-
-			**Always offered, and never armed by a status.** An Update is refused with a sentence when
-			there is nothing to take and when a path changed on both sides, and it stops to ask when the
-			Remote has deleted something — so hiding or disabling it against the last determination would
-			replace legible refusals and one real question with a control that does nothing and says
-			nothing about why. It is also the reason a status check never applies anything: the two
-			gestures are separate because their consequences are.
-
-			`aria-disabled` and never `disabled`, for the reason the check beside it uses the same: a
-			`disabled` button leaves the tab order the instant it is pressed.
-		-->
-		<button
-			bind:this={updateButton}
-			type="button"
-			class="btn btn-xs"
-			class:btn-disabled={running}
-			aria-disabled={running}
-			data-testid="update-from-github"
-			onclick={() => {
-				if (!running) onUpdate();
-			}}
-		>
-			Update from GitHub
-		</button>
 	</div>
 
 	<!--
-		The determination and its consequence, which the lead above is a projection of.
+		The determination, what it means, when it was read, what the two sides last agreed on, and the
+		two gestures — in that order, because each line explains the one above it.
 
 		⚠ **Not in the live region.** It appears because the reader pressed for it, and a polite region
-		that grew two sentences on a press would re-read the whole status to say something the reader
+		that grew four sentences on a press would re-read the whole status to say something the reader
 		is already looking at.
+
+		⚠ **It opens into the corner the toast stack is fixed at**, which is why `AppBar`'s header sits
+		above that stack: a message drawn over these two buttons swallows the presses meant for them. A
+		message underneath the panel is still announced, since the refusals carry `role="alert"`.
 	-->
 	{#if detailShown}
 		<div
 			id="remote-status-detail"
-			class="max-w-72 rounded-box bg-base-200 px-3 py-2 text-right"
+			class="max-w-80 rounded-box bg-base-200 px-3 py-2 text-right shadow-lg"
 			data-testid="remote-status-detail"
 		>
 			<p class="text-sm font-medium" data-testid="remote-status-determination">{label}</p>
 			<p class="text-xs opacity-70">{detail}</p>
-		</div>
-	{/if}
+			<!--
+				When the determination on screen was reached, in the reader's own clock.
 
-	{#if checkedAt !== ''}
-		<p class="text-xs text-base-content opacity-70" data-testid="remote-status-checked">
-			Checked at {checkedAt}
-		</p>
+				Here rather than in the bar because a retained status has to be *dateable* without costing
+				the eyebrow a second line: with the failure beside it, "Up to date" and "as of nine minutes
+				ago" are the two halves of one honest sentence, and both are one press away together.
+			-->
+			{#if checkedAt !== ''}
+				<p class="mt-1 text-xs opacity-70" data-testid="remote-status-checked">
+					Checked at {checkedAt}
+				</p>
+			{/if}
+			<!--
+				What the two sides last agreed on, beside the determination it explains.
+
+				⚠ **Absent rather than hedged when there is no record**, because `Cannot tell` is the
+				determination above and stating it twice in two vocabularies is how a reader comes to think
+				they are two facts.
+			-->
+			{#if baseline !== null}
+				<p class="mt-1 text-xs opacity-70" data-testid="remote-status-baseline">
+					Last agreed with GitHub at commit <code>{baseline.commit}</code>, over
+					{baseline.files.size}
+					{baseline.files.size === 1 ? 'file' : 'files'}.
+				</p>
+			{/if}
+			<div class="mt-2 flex flex-wrap justify-end gap-2">
+				<!--
+					The explicit check.
+
+					**Always offered, not only while signed out.** Signed out it is the *only* way to a status
+					— automatic anonymous polling is ruled out by GitHub's sixty-an-hour anonymous budget,
+					which a shared campus address spends between everybody on it. Signed in it is still the
+					answer to "has anything changed *now*".
+
+					`aria-disabled` and never `disabled`, for the reason Publish uses the same: a `disabled`
+					button leaves the tab order the instant it is pressed.
+				-->
+				<button
+					type="button"
+					class="btn btn-xs"
+					class:btn-disabled={remote.checking}
+					aria-disabled={remote.checking}
+					data-testid="check-remote-status"
+					onclick={() => {
+						if (!remote.checking) onCheck();
+					}}
+				>
+					Check Remote Status
+				</button>
+				<!--
+					The inbound half, and the *only* way Remote work reaches a Workspace.
+
+					**Always offered, and never armed by a status.** An Update is refused with a sentence when
+					there is nothing to take and when a path changed on both sides, and it stops to ask when
+					the Remote has deleted something — so hiding or disabling it against the last
+					determination would replace legible refusals and one real question with a control that
+					does nothing and says nothing about why. It is also the reason a status check never
+					applies anything: the two gestures are separate because their consequences are.
+
+					`aria-disabled` and never `disabled`, for the reason the check beside it uses the same.
+				-->
+				<button
+					bind:this={updateButton}
+					type="button"
+					class="btn btn-xs"
+					class:btn-disabled={running}
+					aria-disabled={running}
+					data-testid="update-from-github"
+					onclick={() => {
+						if (!running) onUpdate();
+					}}
+				>
+					Update from GitHub
+				</button>
+			</div>
+		</div>
 	{/if}
 
 	<!--

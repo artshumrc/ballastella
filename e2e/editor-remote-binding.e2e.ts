@@ -11,6 +11,7 @@ import {
 	closeWorkspaceSettings,
 	expectCredential,
 	expectNoRemote,
+	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectRemoteStatus,
 	expectWorkspaceNamed,
@@ -465,7 +466,7 @@ test.describe('a Review Workspace', () => {
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 
 		// Unbound, so nothing on the bar names a Remote at all.
-		await expectNoRemote(page);
+		await expectNoRemoteInReview(page);
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('no-remote-in-review')).toContainText(
 			'cannot be bound to a repository'
