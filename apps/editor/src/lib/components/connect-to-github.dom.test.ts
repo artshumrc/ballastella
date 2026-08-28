@@ -22,6 +22,7 @@
 
 import {
 	authorizeUrl,
+	type GrantedInstallation,
 	type GrantedRepositoriesOutcome,
 	type GrantedRepository
 } from '@ballastella/core';
@@ -46,12 +47,30 @@ const ATLAS: GrantedRepository = {
 	owner: 'ada',
 	repository: 'atlas',
 	canPublish: true,
+	canGrantAccess: true,
 	isPrivate: false
 };
 
+/**
+ * The two reaches an Installation can have, on the account {@link signedIn} is signed in as.
+ *
+ * ⚠ **`NARROW` is the default here on purpose.** It is the state that has a grant step in it, so a
+ * test that says nothing about reach is asserting the longer path — and a wide grant skipping that
+ * step has to be asked for.
+ */
+const NARROW: GrantedInstallation = {
+	id: 42,
+	account: 'ada',
+	targetId: 5150,
+	isOrganization: false,
+	coversEverything: false
+};
+const WIDE: GrantedInstallation = { ...NARROW, coversEverything: true };
+
 const listed = (
-	repositories: readonly GrantedRepository[] = [ATLAS]
-): GrantedRepositoriesOutcome => ({ kind: 'listed', repositories });
+	repositories: readonly GrantedRepository[] = [ATLAS],
+	installations: readonly GrantedInstallation[] = [NARROW]
+): GrantedRepositoriesOutcome => ({ kind: 'listed', repositories, installations });
 
 /**
  * The two addresses a departing sign-in can go to, composed from the fake App.
@@ -430,7 +449,7 @@ describe('making a repository, without leaving the sequence', () => {
 
 	// The order is the claim rather than the presence: a student who grants access before making the
 	// repository grants access to a repository that does not exist yet.
-	test('names all three things to do, in the order that works', async () => {
+	test('names all three things to do, in the order that works, under a narrow grant', async () => {
 		await leaveToCreate(nothing());
 
 		expect(at('connect-creating')).toBeTruthy();
@@ -439,6 +458,58 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(steps[0]).toContain('has to be public');
 		expect(steps[1]).toContain('give Ballastella access to it');
 		expect(steps[2]).toContain('Come back to this tab');
+	});
+
+	/**
+	 * The smooth path, which is the common one.
+	 *
+	 * ⚠ **Absent rather than quiet.** An Installation GitHub reports as covering everything covers a
+	 * repository made a moment ago, so a step telling the author to go and grant access to it names
+	 * work that does not exist — and the link would take them to a screen with nothing to change on
+	 * it, which reads as the tool being wrong about what it can see.
+	 */
+	test('asks for nothing but the repository when the grant already covers everything', async () => {
+		await leaveToCreate(listed([], [WIDE]));
+
+		expect(at('connect-creating')).toBeTruthy();
+		const steps = [...document.querySelectorAll('[data-testid="creating-instruction"]')].map(text);
+		expect(steps).toHaveLength(2);
+		expect(steps[0]).toContain('has to be public');
+		expect(steps[1]).toContain('Come back to this tab');
+		expect(steps.join(' ')).not.toContain('access');
+		expect(absent('grant-access')).toBe(true);
+	});
+
+	// The step the wide grant skips must not come back through the door the unchanged listing opens.
+	test('offers no way to grant access after a re-read that changed nothing, under a wide grant', async () => {
+		await leaveToCreate(listed([], [WIDE]));
+
+		press('reread-repositories');
+		await settle();
+
+		expect(at('connect-creating')).toBeTruthy();
+		expect(absent('grant-access')).toBe(true);
+		expect(absent('created-not-granted')).toBe(true);
+		// Silence would read as the press having done nothing, so the re-read still reports itself —
+		// it just does not blame a grant that is not missing.
+		expect(text(at('created-not-listed'))).not.toContain('access');
+	});
+
+	/**
+	 * A wide Installation on somebody else's account says nothing about the author's own repositories.
+	 *
+	 * The repository is being made at `github.com/new`, which makes it under the account signed in —
+	 * so the reach that matters is that account's, and an organisation that granted everything is a
+	 * different question that this step must not answer with.
+	 */
+	test('keeps the grant step when only another account’s grant is the wide one', async () => {
+		await leaveToCreate(
+			listed([], [NARROW, { ...WIDE, id: 9, account: 'harvard', isOrganization: true }])
+		);
+
+		const steps = [...document.querySelectorAll('[data-testid="creating-instruction"]')].map(text);
+		expect(steps).toHaveLength(3);
+		expect(steps[1]).toContain('give Ballastella access to it');
 	});
 
 	// The return is observed. A window raised over another application fires `focus` and no

@@ -228,6 +228,27 @@
 	 * Empty whenever no repository is being made, so the marks are only ever about a trip the author
 	 * actually took.
 	 */
+	/**
+	 * Whether this author's Installation already reaches a repository they have not made yet.
+	 *
+	 * ⚠ **Read against the account signed in, never taken from whichever installation says yes.** The
+	 * repository is about to be made at `github.com/new`, which makes it under that account — so an
+	 * organisation that granted Ballastella everything answers a different question, and answering
+	 * with it would drop the grant step for the one author who still needs it.
+	 *
+	 * ⚠ **Asked of GitHub rather than assumed from the install screen.** *All repositories* promises
+	 * to cover future repositories in GitHub's product interface and not in their documented
+	 * contract (ADR-0040), which is why `repository_selection` is read back at all.
+	 */
+	const coversEverything = $derived(
+		storage.identity !== '' &&
+			listing?.kind === 'listed' &&
+			listing.installations.some(
+				(one) =>
+					one.coversEverything && one.account.toLowerCase() === storage.identity.toLowerCase()
+			)
+	);
+
 	const newlyGranted = $derived.by<ReadonlySet<string>>(() => {
 		const before = madeAgainst;
 		if (before === null) return new Set<string>();
@@ -940,22 +961,27 @@
 			<section data-testid="connect-creating">
 				<h3 class="font-semibold">Making a repository on GitHub</h3>
 				<!--
-					⚠ **Three things, in this order, and the order is the point**. A student who installed
-					Ballastella with *Only select repositories* before making this repository finds the new
-					one outside the grant, and the editor cannot add it — the endpoint that would is
-					documented for classic personal access tokens only. So: make it, then give access to it,
-					then come back. Step 2 is the one everybody misses.
+					⚠ **Three things, in this order, and the order is the point** — but only where the grant
+					is a narrow one. A student who installed Ballastella with *Only select repositories*
+					before making this repository finds the new one outside the grant, and the editor cannot
+					add it: the endpoint that would is documented for classic personal access tokens only.
+					So: make it, then give access to it, then come back. Step 2 is the one everybody misses.
+
+					Where GitHub reports the grant as covering everything on this account, that middle step
+					does not exist, and naming it would send the author to a screen with nothing to change.
 				-->
 				<ol class="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-6">
 					<li data-testid="creating-instruction">
 						In the other tab, make the repository. <strong>It has to be public</strong>, or the
 						published map will not answer for anybody you send the address to.
 					</li>
-					<li data-testid="creating-instruction">
-						On the same screen, <strong>give Ballastella access to it</strong>. A repository made
-						after Ballastella was installed is not covered by what you gave access to before, and
-						this tab cannot add it for you.
-					</li>
+					{#if !coversEverything}
+						<li data-testid="creating-instruction">
+							On the same screen, <strong>give Ballastella access to it</strong>. A repository made
+							after Ballastella was installed is not covered by what you gave access to before, and
+							this tab cannot add it for you.
+						</li>
+					{/if}
 					<li data-testid="creating-instruction">Come back to this tab.</li>
 				</ol>
 				<p class="mt-3 max-w-prose text-sm opacity-70">
@@ -976,7 +1002,20 @@
 						Look again
 					</button>
 				</div>
-				{#if rereads > 0}
+				{#if rereads > 0 && coversEverything}
+					<!--
+						⚠ **The same unchanged listing, with the one likely cause removed.** Ballastella
+						already reaches everything on this account, so naming a missing grant here would be a
+						confident wrong answer: what is left is a repository not made yet, or GitHub not
+						answering with it quite yet.
+					-->
+					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="created-not-listed">
+							GitHub still answers with the same repositories as before. If you have just made one,
+							give it a moment and press <strong>Look again</strong>.
+						</p>
+					</div>
+				{:else if rereads > 0}
 					<!--
 						⚠ **Created but not granted is a named state**. A screen identical to the one they left
 						says nothing about which of the three steps went wrong, and “no repositories found”

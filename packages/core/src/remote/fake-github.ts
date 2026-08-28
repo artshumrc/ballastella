@@ -104,6 +104,13 @@ export type FakeGrantedRepository = {
 	readonly repository: string;
 	/** `permissions.push`, which is what decides whether the author may publish to it. */
 	readonly push: boolean;
+	/**
+	 * `permissions.admin`, which is what decides whether the author can widen the grant themselves.
+	 *
+	 * Defaults to `false`, so a spec that means "and they administer it" has to say so — the case
+	 * where somebody must be asked instead is the one that goes wrong quietly.
+	 */
+	readonly admin?: boolean;
 	/** Defaults to public, which is the only kind that can serve a Published Site on the free tier. */
 	readonly private?: boolean;
 };
@@ -113,7 +120,26 @@ export type FakeGrants = {
 	readonly installationId: number;
 	readonly account: string;
 	readonly repositories: readonly FakeGrantedRepository[];
+	/**
+	 * The account's own identifier, which is what a preselect link's `suggested_target_id` carries.
+	 *
+	 * ⚠ **Never equal to {@link installationId} unless a spec says so.** The two are separate numbers
+	 * on GitHub and a fake that defaulted them the same would pass a reader that used the wrong one.
+	 */
+	readonly targetId?: number;
+	/** `repository_selection`. Defaults to `selected`, which is the state with a grant step in it. */
+	readonly repositorySelection?: 'all' | 'selected';
+	/** `account.type` and `target_type`, which GitHub reports as the same answer twice. */
+	readonly accountType?: 'User' | 'Organization';
 };
+
+/**
+ * An account identifier for an installation whose spec did not name one.
+ *
+ * Offset so that it can never collide with an installation id a spec wrote, which is what keeps a
+ * reader that confused the two from passing here.
+ */
+const defaultTargetId = (installationId: number): number => installationId + 1_000_000;
 
 /** The App and the broker a {@link FakeGitHub} answers as, when it answers as one at all. */
 export type FakeSignInOptions = {
@@ -403,6 +429,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	let grants: {
 		installationId: number;
 		account: string;
+		targetId: number;
+		repositorySelection: 'all' | 'selected';
+		accountType: 'User' | 'Organization';
 		repositories: FakeGrantedRepository[];
 	} | null =
 		options.grants === undefined
@@ -410,6 +439,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			: {
 					installationId: options.grants.installationId,
 					account: options.grants.account,
+					targetId: options.grants.targetId ?? defaultTargetId(options.grants.installationId),
+					repositorySelection: options.grants.repositorySelection ?? 'selected',
+					accountType: options.grants.accountType ?? 'User',
 					repositories: [...options.grants.repositories]
 				};
 
@@ -652,7 +684,15 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				const installations =
 					grants === null
 						? []
-						: [{ id: grants.installationId, account: { login: grants.account } }];
+						: [
+								{
+									id: grants.installationId,
+									account: { login: grants.account, type: grants.accountType },
+									target_id: grants.targetId,
+									target_type: grants.accountType,
+									repository_selection: grants.repositorySelection
+								}
+							];
 				const listed = paginated(installations, url);
 				return json({ total_count: listed.total_count, installations: listed.page });
 			}
@@ -667,7 +707,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 					name: one.repository,
 					full_name: `${one.owner}/${one.repository}`,
 					private: one.private === true,
-					permissions: { push: one.push }
+					permissions: { push: one.push, admin: one.admin === true }
 				}));
 				const listed = paginated(reported, url);
 				return json({ total_count: listed.total_count, repositories: listed.page });
@@ -1285,7 +1325,14 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			state.refuseRefresh = value;
 		},
 		grant(repository) {
-			grants ??= { installationId: 1, account: options.owner, repositories: [] };
+			grants ??= {
+				installationId: 1,
+				account: options.owner,
+				targetId: defaultTargetId(1),
+				repositorySelection: 'selected',
+				accountType: 'User',
+				repositories: []
+			};
 			grants.repositories.push(repository);
 		},
 		expireIssuedTokens() {
