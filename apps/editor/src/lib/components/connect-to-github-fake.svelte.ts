@@ -12,6 +12,7 @@
  */
 
 import {
+	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
@@ -88,6 +89,11 @@ export class FakeStorage {
 	 * reading of that plus the sentence.
 	 */
 	expiry: Error | null = null;
+
+	/** The App's own grant screen, composed from the fake App exactly as the real storage does. */
+	grantAccessUrl(options: { readonly targetId: number }): string {
+		return composeGrantAccessUrl({ app: FAKE_APP, targetId: options.targetId });
+	}
 
 	beginGitHubSignIn(options: { readonly installed?: boolean } = {}): string {
 		this.signInsBegun += 1;

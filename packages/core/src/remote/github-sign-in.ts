@@ -155,6 +155,42 @@ export function installUrl(options: { readonly app: GitHubApp; readonly state: s
 }
 
 /**
+ * Where an author widens a narrow Installation so that it reaches one more repository.
+ *
+ * ⚠ **The App's own grant screen, never GitHub's list of installed Apps.** That page holds every App
+ * the author has ever installed, and from it the grant is five moves away — spot
+ * Ballastella, press Configure, find *Repository access*, find the repository, save — and it is the
+ * hand-off this replaced. `suggested_target_id` is the *account's* identifier, so GitHub opens on the
+ * Installation that has to change rather than asking which one.
+ *
+ * ⚠ **The endpoint that would do this without leaving is documented not to work.**
+ * `PUT /user/installations/{id}/repositories/{id}` is for classic personal access tokens, and
+ * ADR-0040 refuses `Administration: write`, so GitHub's own screen is the whole of the mechanism.
+ */
+export function grantAccessUrl(options: {
+	readonly app: GitHubApp;
+	/** `target_id` of the account the Installation is on — not the installation's own id. */
+	readonly targetId: number;
+	/**
+	 * The repository to arrive preselected, where an id for it is in hand.
+	 *
+	 * ⚠ **Usually it is not, and that is not an oversight.** The repository this link is about is by
+	 * definition outside the grant, and GitHub reports nothing at all — id included — about a
+	 * repository an Installation does not reach. So the caller in the editor passes none and the
+	 * author picks the repository on GitHub's screen; the parameter is here for a caller that reads a
+	 * repository by some other route and can spare them that.
+	 */
+	readonly repositoryId?: number;
+}): string {
+	const slug = encodeURIComponent(options.app.appSlug);
+	const parameters = new URLSearchParams({ suggested_target_id: String(options.targetId) });
+	if (options.repositoryId !== undefined) {
+		parameters.append('repository_ids[]', String(options.repositoryId));
+	}
+	return `${GITHUB_APPS_URL}/${slug}/installations/new/permissions?${parameters}`;
+}
+
+/**
  * The one address a departing sign-in goes to, given what is already true.
  *
  * An author with no Installation gets {@link installUrl}, because an authorize-only trip leaves them

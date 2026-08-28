@@ -461,6 +461,34 @@ describe('making a repository, without leaving the sequence', () => {
 	});
 
 	/**
+	 * ⚠ **Two screens, and the copy says which is which.** `github.com/new` has no such control on it,
+	 * so an instruction to grant access "on the same screen" names a place the thing cannot be done —
+	 * which is the wall this epic was reported from.
+	 */
+	test('never says the grant happens on the screen the repository is made on', async () => {
+		await leaveToCreate(nothing());
+
+		const steps = [...document.querySelectorAll('[data-testid="creating-instruction"]')].map(text);
+		expect(steps.join(' ')).not.toContain('the same screen');
+		expect(steps[1]).toContain('second screen');
+	});
+
+	// Where the author has to ask somebody, the instruction says so rather than telling them to do a
+	// thing GitHub will not let them do.
+	test('tells a non-admin to ask, in the instructions as well as in the alert', async () => {
+		await leaveToCreate(
+			listed(
+				[{ ...ATLAS, owner: 'harvard', canGrantAccess: false }],
+				[{ ...NARROW, id: 9, account: 'harvard', targetId: 606, isOrganization: true }]
+			)
+		);
+
+		const steps = [...document.querySelectorAll('[data-testid="creating-instruction"]')].map(text);
+		expect(steps).toHaveLength(3);
+		expect(steps[1]).toContain('admin');
+	});
+
+	/**
 	 * The smooth path, which is the common one.
 	 *
 	 * ⚠ **Absent rather than quiet.** An Installation GitHub reports as covering everything covers a
@@ -562,9 +590,67 @@ describe('making a repository, without leaving the sequence', () => {
 
 		expect(text(at('created-not-granted'))).toContain('has not been given access to it');
 		expect(at('grant-access').getAttribute('href')).toBe(
-			'https://github.com/settings/installations'
+			`https://github.com/apps/${FAKE_APP.appSlug}/installations/new/permissions` +
+				`?suggested_target_id=${NARROW.targetId}`
 		);
 		expect(absent('repository-choice-empty')).toBe(true);
+	});
+
+	/**
+	 * ⚠ **The account's own identifier, so GitHub opens on the Installation that has to change.**
+	 * The address this replaced was the list of every App the author had ever installed, from which
+	 * the grant is five moves away — and the copy called it "your Ballastella settings", which it was
+	 * not.
+	 */
+	test('sends the grant to the App’s own screen and never to the list of installed Apps', async () => {
+		await leaveToCreate(nothing());
+
+		press('reread-repositories');
+		await settle();
+
+		const url = new URL(at('grant-access').getAttribute('href') ?? '');
+		expect(url.pathname).toBe(`/apps/${FAKE_APP.appSlug}/installations/new/permissions`);
+		expect(url.searchParams.get('suggested_target_id')).toBe(String(NARROW.targetId));
+	});
+
+	/**
+	 * ⚠ **Sending somebody to a screen they can accomplish nothing on is the failure this replaced.**
+	 * `permissions.admin` is what says whether widening a narrow grant is theirs to do: every write
+	 * collaborator and every organisation member who is not an admin has to ask instead, and a link
+	 * offered to them would be the old dead end wearing a better address.
+	 */
+	test('offers no link, and names the admin, where widening the grant is not the author’s', async () => {
+		await leaveToCreate(
+			listed(
+				[{ ...ATLAS, owner: 'harvard', canGrantAccess: false }],
+				[{ ...NARROW, id: 9, account: 'harvard', targetId: 606, isOrganization: true }]
+			)
+		);
+
+		press('reread-repositories');
+		await settle();
+
+		expect(absent('grant-access')).toBe(true);
+		expect(text(at('created-not-granted'))).toContain('admin');
+	});
+
+	// The same organisation, with the author administering something inside it: theirs to widen, so
+	// the link is offered rather than an instruction to ask themselves.
+	test('offers the link where the author administers the organisation’s repositories', async () => {
+		await leaveToCreate(
+			listed(
+				[{ ...ATLAS, owner: 'harvard', canGrantAccess: true }],
+				[{ ...NARROW, id: 9, account: 'harvard', targetId: 606, isOrganization: true }]
+			)
+		);
+
+		press('reread-repositories');
+		await settle();
+
+		expect(at('grant-access').getAttribute('href')).toBe(
+			`https://github.com/apps/${FAKE_APP.appSlug}/installations/new/permissions` +
+				`?suggested_target_id=606`
+		);
 	});
 
 	// The automatic path is a convenience and never the only way through, so the manual control is on

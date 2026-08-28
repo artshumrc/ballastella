@@ -16,6 +16,7 @@ import {
 	clearRememberedGrant,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	grantAccessUrl,
 	installUrl,
 	isGrantFresh,
 	newSignInState,
@@ -156,6 +157,33 @@ describe('the install URL', () => {
 		const url = new URL(installUrl({ app: { ...APP, appSlug: 'a/../evil' }, state: 's' }));
 
 		expect(url.pathname).toBe('/apps/a%2F..%2Fevil/installations/new');
+	});
+});
+
+describe('the grant-access URL', () => {
+	// ⚠ **The App's own grant screen and not the list of every App installed.** The list is where the
+	// grant is five moves away, and it is the hand-off this replaced.
+	it('is the App’s own grant screen, opened on the account that has to change', () => {
+		const url = grantAccessUrl({ app: APP, targetId: 5150 });
+
+		expect(url).toBe(
+			'https://github.com/apps/specimen-atlas/installations/new/permissions' +
+				'?suggested_target_id=5150'
+		);
+	});
+
+	// The preselect, for a caller that has read an id for the repository by some route of its own.
+	it('preselects a repository where an id for one is in hand', () => {
+		const url = new URL(grantAccessUrl({ app: APP, targetId: 5150, repositoryId: 987 }));
+
+		expect(url.searchParams.get('suggested_target_id')).toBe('5150');
+		expect(url.searchParams.get('repository_ids[]')).toBe('987');
+	});
+
+	it('escapes a slug, so a mis-typed one cannot reach outside its own path segment', () => {
+		const url = new URL(grantAccessUrl({ app: { ...APP, appSlug: 'a/../evil' }, targetId: 1 }));
+
+		expect(url.pathname).toBe('/apps/a%2F..%2Fevil/installations/new/permissions');
 	});
 });
 
