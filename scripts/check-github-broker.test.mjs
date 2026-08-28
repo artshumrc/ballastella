@@ -5,8 +5,9 @@
 // │ THE UNCONFIGURED CASE IS THE ONE THIS FILE EXISTS FOR.                                     │
 // └───────────────────────────────────────────────────────────────────────────────────────────┘
 //
-// A fork with no infrastructure empties both values, and a fence with nothing to scan for prints a
-// success line indistinguishable from a fence that scanned a clean tree. So the unconfigured case is
+// A fork with no infrastructure empties all three values, and a fence with nothing to scan for
+// prints a success line indistinguishable from a fence that scanned a clean tree. So the
+// unconfigured case is
 // asserted **in both directions**: the report says so in its own words, and a planted violation in
 // that same tree is *not* reported — which is what proves the ordinary success line means something.
 //
@@ -28,26 +29,28 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const APP_RELATIVE = 'packages/core/src/remote/github-app.ts';
 const SCRIPT = 'check-github-broker.mjs';
 
-/** A pair no deployment will ever hold. `.invalid` is reserved by RFC 2606 and resolves nowhere. */
+/** A set no deployment will ever hold. `.invalid` is reserved by RFC 2606 and resolves nowhere. */
 const HOST = 'broker.under-test.invalid';
 const CLIENT_ID = 'Iv1.undertestclientid';
+const APP_SLUG = 'under-test-app';
 
 /**
- * A configuration module holding `brokerOrigin` and `clientId`. Plain JS is valid TypeScript.
+ * A configuration module holding all three values. Plain JS is valid TypeScript.
  *
  * `isGitHubAppConfigured` is exported too, because the check prefers the module's own answer to
  * re-deriving one — a fork is free to make "configured" mean something narrower.
  */
-const appModule = (brokerOrigin, clientId) => `export const GITHUB_APP = {
+const appModule = (brokerOrigin, clientId, appSlug) => `export const GITHUB_APP = {
 	brokerOrigin: '${brokerOrigin}',
-	clientId: '${clientId}'
+	clientId: '${clientId}',
+	appSlug: '${appSlug}'
 };
 
 export const isGitHubAppConfigured = (app) =>
-	app.brokerOrigin.trim() !== '' && app.clientId.trim() !== '';
+	app.brokerOrigin.trim() !== '' && app.clientId.trim() !== '' && app.appSlug.trim() !== '';
 `;
 
-const configured = () => appModule(`https://${HOST}`, CLIENT_ID);
+const configured = () => appModule(`https://${HOST}`, CLIENT_ID, APP_SLUG);
 
 /**
  * Run the check inside a throwaway repository.
@@ -79,7 +82,7 @@ function runIn(options = {}) {
 
 // ── The containment scan ──────────────────────────────────────────────────────────────────────
 
-test('passes on a tree that names neither value anywhere else', () => {
+test('passes on a tree that names none of the three anywhere else', () => {
 	const run = runIn({
 		extraFiles: {
 			'packages/core/src/remote/github-sign-in.ts': 'export const signIn = () => {};\n'
@@ -104,7 +107,32 @@ test('fails when a module outside the configuration names the client ID', () => 
 	assert.match(run.output, /apps\/editor\/src\/lib\/sign-in\.ts/);
 });
 
-test('catches either value pasted into a comment', () => {
+test('fails when a module outside the configuration names the App’s own address', () => {
+	const run = runIn({
+		extraFiles: {
+			'apps/editor/src/lib/sign-in.ts': `const INSTALL = 'https://github.com/apps/${APP_SLUG}/installations/new';\n`
+		}
+	});
+	assert.notEqual(run.status, 0, `a planted install address was not caught:\n${run.output}`);
+	assert.match(run.output, /apps\/editor\/src\/lib\/sign-in\.ts/);
+});
+
+// ⚠ **The slug alone is not the value; the address is.** This deployment's App is named after this
+// deployment, so a fence on the bare word would refuse every import of this repository's own
+// packages and offer "rename the packages" as its remedy — the false positive the two neighbouring
+// checks both record having had.
+test('does not fire on the slug as a bare word, which is this project’s own name', () => {
+	const run = runIn({
+		extraFiles: {
+			'apps/editor/src/lib/sign-in.ts':
+				`import { publishToRemote } from '@${APP_SLUG}/core';\n` +
+				`const KEY = '${APP_SLUG}.github-credential';\n`
+		}
+	});
+	assert.equal(run.status, 0, `a package import named after the App was refused:\n${run.output}`);
+});
+
+test('catches any of the three pasted into a comment', () => {
 	// A comment naming the address is a claim the very next repoint makes untrue.
 	const host = runIn({
 		extraFiles: { 'e2e/support/github-hosts.ts': `// the exchange goes to ${HOST}\n` }
@@ -115,6 +143,13 @@ test('catches either value pasted into a comment', () => {
 		extraFiles: { 'e2e/support/github-hosts.ts': `// registered as ${CLIENT_ID}\n` }
 	});
 	assert.notEqual(id.status, 0, `a client ID in a comment was not caught:\n${id.output}`);
+
+	const slug = runIn({
+		extraFiles: {
+			'e2e/support/github-hosts.ts': `// the install screen is github.com/apps/${APP_SLUG}\n`
+		}
+	});
+	assert.notEqual(slug.status, 0, `an App address in a comment was not caught:\n${slug.output}`);
 });
 
 test('scans the browser suite, which is where an address most plausibly leaks', () => {
@@ -135,7 +170,9 @@ test('does not fire on prose explaining the broker, nor on GitHub’s own author
 				"// A GitHub App's callback URL is registered per app, so a fork needs its own app and\n" +
 				'// its own client ID until which the pasted token is the whole of that fork’s auth.\n' +
 				"export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';\n" +
-				'const url = `${app.brokerOrigin}/github/token`;\n'
+				"export const GITHUB_APPS_URL = 'https://github.com/apps';\n" +
+				'const url = `${app.brokerOrigin}/github/token`;\n' +
+				'const install = `${GITHUB_APPS_URL}/${app.appSlug}/installations/new`;\n'
 		}
 	});
 	assert.equal(run.status, 0, `prose explaining the broker was refused:\n${run.output}`);
@@ -144,7 +181,7 @@ test('does not fire on prose explaining the broker, nor on GitHub’s own author
 test('exempts unit specs, which are handed a fake App directly', () => {
 	const run = runIn({
 		extraFiles: {
-			'packages/core/src/remote/github-sign-in.test.ts': `const APP = { brokerOrigin: 'https://${HOST}', clientId: '${CLIENT_ID}' };\n`
+			'packages/core/src/remote/github-sign-in.test.ts': `const APP = { brokerOrigin: 'https://${HOST}', clientId: '${CLIENT_ID}', appSlug: '${APP_SLUG}' };\n`
 		}
 	});
 	assert.equal(run.status, 0, `a unit spec's own fake App was refused:\n${run.output}`);
@@ -153,7 +190,7 @@ test('exempts unit specs, which are handed a fake App directly', () => {
 // ── The unconfigured fork ─────────────────────────────────────────────────────────────────────
 
 test('reports “no App configured” in its own words, distinct from an ordinary pass', () => {
-	const unconfigured = runIn({ app: appModule('', '') });
+	const unconfigured = runIn({ app: appModule('', '', '') });
 	const ordinary = runIn();
 
 	assert.equal(unconfigured.status, 0, `an unconfigured fork was refused:\n${unconfigured.output}`);
@@ -173,18 +210,23 @@ test('scans nothing when nothing is configured, rather than scanning for the emp
 	// The other direction of the case above, and the one that would actually bite: a check that
 	// scanned for `''` would report every file in the tree as a violation.
 	const run = runIn({
-		app: appModule('', ''),
+		app: appModule('', '', ''),
 		extraFiles: { 'apps/editor/src/lib/sign-in.ts': `const BROKER = 'https://${HOST}';\n` }
 	});
 	assert.equal(run.status, 0, `an unconfigured tree was refused:\n${run.output}`);
 	assert.doesNotMatch(run.output, /sign-in\.ts/);
 });
 
-test('refuses a half-configured pair, which is a button that cannot complete', () => {
-	for (const app of [appModule(`https://${HOST}`, ''), appModule('', CLIENT_ID)]) {
+test('refuses a part-configured App, which is a button that cannot complete', () => {
+	const parts = [
+		appModule('', CLIENT_ID, APP_SLUG),
+		appModule(`https://${HOST}`, '', APP_SLUG),
+		appModule(`https://${HOST}`, CLIENT_ID, '')
+	];
+	for (const app of parts) {
 		const run = runIn({ app });
-		assert.notEqual(run.status, 0, `a half-configured App was accepted:\n${run.output}`);
-		assert.match(run.output, /Set both, or neither/);
+		assert.notEqual(run.status, 0, `a part-configured App was accepted:\n${run.output}`);
+		assert.match(run.output, /Set all three, or none/);
 	}
 });
 
@@ -193,7 +235,7 @@ test('refuses a half-configured pair, which is a button that cannot complete', (
 test('refuses to run when no host can be read out of `brokerOrigin`', () => {
 	// A `brokerOrigin` that yields no host would have it scan for the empty string and report every
 	// file as clean — a fence that passes because it stopped asking, which is worse than no fence.
-	const run = runIn({ app: appModule('not-a-url', CLIENT_ID) });
+	const run = runIn({ app: appModule('not-a-url', CLIENT_ID, APP_SLUG) });
 	assert.notEqual(run.status, 0, `an unreadable broker origin was accepted:\n${run.output}`);
 	assert.match(run.output, /not a URL this check\n?can read a host out of/);
 });

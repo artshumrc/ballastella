@@ -36,7 +36,7 @@
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
-import { GITHUB_AUTHORIZE_URL } from './github-sign-in.js';
+import { GITHUB_APPS_URL, GITHUB_AUTHORIZE_URL } from './github-sign-in.js';
 
 /** One entry of a tree listing, as `GET /git/trees/{ref}?recursive=1` reports it. */
 export type FakeTreeEntry = {
@@ -72,7 +72,8 @@ export type FakeGitHubOptions = {
 	 */
 	readonly submodules?: Readonly<Record<string, string>>;
 	/**
-	 * Turn on the GitHub App sign-in surface: the authorize redirect, and the broker's two endpoints.
+	 * Turn on the GitHub App sign-in surface: the two departure screens, and the broker's two
+	 * endpoints.
 	 *
 	 * ⚠ **The broker is faked *here*, in the one fake, and not in a second module.** It is not GitHub,
 	 * but ADR-0031 makes it a pass-through — it answers *GitHub's token JSON verbatim* — so what it
@@ -120,6 +121,18 @@ export type FakeSignInOptions = {
 	readonly brokerOrigin: string;
 	/** The client ID the authorize URL and both broker calls must carry, or they are refused. */
 	readonly clientId: string;
+	/** The slug the install screen hangs off, matching the `GitHubApp` the code was configured with. */
+	readonly appSlug: string;
+	/**
+	 * Where the install screen redirects back to — the callback registered on the App.
+	 *
+	 * ⚠ **The install screen carries no `redirect_uri`**, unlike the authorize screen: GitHub returns
+	 * to the App's registered callback and there is no parameter to override it with. So the fake has
+	 * to be told, and the exchange that follows must name the same address or GitHub answers
+	 * `redirect_uri_mismatch`. A thunk is allowed because a browser test installs its routes before
+	 * the page they will come back to has an address.
+	 */
+	readonly callbackUrl?: string | (() => string);
 	/** The account a completed sign-in is as, reported by `GET /user`. */
 	readonly login?: string;
 	/** How long an issued token lasts. GitHub's user-to-server token is eight hours. */
@@ -1005,12 +1018,38 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		}
 		if (redirectUri === '') return problem(400, 'redirect_uri is required');
 
+		return issueCode(redirectUri, url.searchParams.get('state') ?? '');
+	};
+
+	/**
+	 * The App's own install screen, which installs and authorises in one press.
+	 *
+	 * With **Request user authorization (OAuth) during installation** enabled on the App, GitHub
+	 * answers this the way the authorize screen does — except that the address it comes back to is
+	 * the callback registered on the App rather than one the request named.
+	 */
+	const answerInstall = (url: URL): Response => {
+		if (signIn === undefined) {
+			return new Response('404: Not Found', { status: 404, headers: headers() });
+		}
+		const registered = signIn.callbackUrl;
+		const redirectUri = (
+			typeof registered === 'function' ? registered() : (registered ?? '')
+		).trim();
+		if (redirectUri === '') {
+			return problem(400, 'This App has no callback URL registered, so nowhere to return to.');
+		}
+		return issueCode(redirectUri, url.searchParams.get('state') ?? '');
+	};
+
+	/** Mint a code against an address, and send the browser back to it. Both screens end here. */
+	const issueCode = (redirectUri: string, state: string): Response => {
 		const code = nextValue('code');
 		codes.set(code, { redirectUri, spent: false });
 		issuedCodes.push(code);
 		const back = new URL(redirectUri);
 		back.searchParams.set('code', code);
-		back.searchParams.set('state', url.searchParams.get('state') ?? '');
+		back.searchParams.set('state', state);
 		return new Response(null, {
 			status: 302,
 			headers: { ...headers(), location: back.toString() }
@@ -1082,6 +1121,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				});
 			}
 			if (url.href.split('?')[0] === GITHUB_AUTHORIZE_URL) return answerAuthorize(url);
+			if (url.href.split('?')[0] === `${GITHUB_APPS_URL}/${signIn.appSlug}/installations/new`) {
+				return answerInstall(url);
+			}
 		}
 
 		// The raw host spends none of the hourly budget and, unless this repository is private, does not

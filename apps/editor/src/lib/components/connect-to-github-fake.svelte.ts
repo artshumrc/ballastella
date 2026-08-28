@@ -11,16 +11,37 @@
  * and `bind-remote` then do with it is asserted at Seam 1 against the shared fake GitHub.
  */
 
-import type {
-	GrantedRepositoriesOutcome,
-	RemoteBindOutcome,
-	RemoteReference
+import {
+	signInDepartureUrl,
+	type GitHubApp,
+	type GrantedRepositoriesOutcome,
+	type RemoteBindOutcome,
+	type RemoteReference
 } from '@ballastella/core';
 
 import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 /** What `bindRemote` was called with, which is where "one act, existing code" is asserted. */
 export type BindCall = { readonly remote: RemoteReference; readonly token: string | null };
+
+/**
+ * An App that is nobody's, so a spec naming its addresses names no deployment's.
+ *
+ * The real storage reads `GITHUB_APP`; what a spec here is about is *which of the two addresses* the
+ * sequence departs to, and a fake App keeps that assertion readable — and keeps this module clear of
+ * `scripts/check-github-broker.mjs`, which is not exempt outside `.test.ts`.
+ */
+export const FAKE_APP: GitHubApp = {
+	brokerOrigin: 'https://broker.fake.invalid',
+	clientId: 'Iv1.fakeclientid',
+	appSlug: 'fake-app'
+};
+
+/** The callback the fake App is registered against, which the authorize URL carries. */
+export const FAKE_REDIRECT_URI = 'https://atlas.fake.invalid/editor/';
+
+/** The `state` this fake mints, fixed so a departure address is a string a spec can write down. */
+export const FAKE_STATE = 'fakestate';
 
 export class FakeStorage {
 	remote = $state<{ owner: string; repository: string; branch: string } | null>(null);
@@ -40,6 +61,15 @@ export class FakeStorage {
 	readonly bindCalls: BindCall[] = [];
 	/** How many times the sign-in was begun. */
 	signInsBegun = 0;
+	/**
+	 * Where each begun sign-in departed to, in order.
+	 *
+	 * ⚠ **The address, not the flag.** The claim the sequence has to carry is that a first-time author
+	 * leaves for the App's *install* screen and somebody who only wants a credential leaves for the
+	 * plain authorize screen, so the recorded navigation is the URL `packages/core` composes from what
+	 * the component asked for — the same function the real storage assigns to `location`.
+	 */
+	readonly signInDepartures: string[] = [];
 	/** What `beginGitHubSignIn` answers: `''` for a redirect under way, a sentence for a refusal. */
 	signInRefusal = '';
 	/** What `bindRemote` answers, or throws when it is an `Error`. */
@@ -54,8 +84,20 @@ export class FakeStorage {
 	 */
 	expiry: Error | null = null;
 
-	beginGitHubSignIn(): string {
+	beginGitHubSignIn(options: { readonly installed?: boolean } = {}): string {
 		this.signInsBegun += 1;
+		// A refusal is a trip that never started, so it records no departure — which is what makes
+		// "the browser would not keep the state" distinguishable from "it left".
+		if (this.signInRefusal === '') {
+			this.signInDepartures.push(
+				signInDepartureUrl({
+					app: FAKE_APP,
+					redirectUri: FAKE_REDIRECT_URI,
+					state: FAKE_STATE,
+					installed: options.installed ?? false
+				})
+			);
+		}
 		return this.signInRefusal;
 	}
 

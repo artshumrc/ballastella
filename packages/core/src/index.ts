@@ -723,6 +723,7 @@ export {
 export { GITHUB_APP, isGitHubAppConfigured, type GitHubApp } from './remote/github-app.js';
 export {
 	CREDENTIAL_FRESHNESS_MARGIN_MS,
+	GITHUB_APPS_URL,
 	GITHUB_APP_SESSION_KEY,
 	GITHUB_AUTHORIZE_URL,
 	GitHubCallbackRefusedError,
@@ -732,12 +733,14 @@ export {
 	clearGrantRecord,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	installUrl,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
 	readSignInCallback,
 	refreshGitHubToken,
 	signInAgainMessage,
+	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
 	type GitHubTokenGrant,
