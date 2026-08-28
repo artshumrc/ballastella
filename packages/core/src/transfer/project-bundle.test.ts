@@ -16,7 +16,7 @@ import { BundleRejectedError } from './project-bundle.js';
 import type { TransferProgress } from './transfer.js';
 import { createViewerFileFilter } from './viewer-files.js';
 
-// SPEC's Seam 1 for ticket 14: "the bundle holds exactly these entries" and "after opening it, the
+// CONTRIBUTING.md's Seam 1: "the bundle holds exactly these entries" and "after opening it, the
 // Review Workspace holds exactly these files" are not proxies for the behaviour, they *are* it. The
 // in-memory `ProjectStore` stands in for nothing.
 //
@@ -64,7 +64,7 @@ const projectJson = (overrides: Record<string, unknown> = {}): string =>
  * A Workspace with **two Projects and two Map Images**, only one of each pair belonging to the
  * Project that gets exported.
  *
- * This is the shape the first acceptance criterion is about: a bundle carries the Project it names
+ * This is the shape that matters: a bundle carries the Project it names
  * and the shared material *that Project's Layers reference*, and not the Workspace's other maps. A
  * fixture with one Project and one map could not tell a bundle from a backup.
  */
@@ -192,7 +192,7 @@ function destination(
 }
 
 describe('a Project exports to one self-contained bundle', () => {
-	// Acceptance criterion 1. The negative half is the point: two Projects and two maps are seeded, and
+	// The negative half is the point: two Projects and two maps are seeded, and
 	// what must **not** be in the archive is asserted by equality rather than by a `not.toContain`,
 	// which would pass for an archive that also carried the whole Workspace.
 	it('carries the Project and only the shared material its Layers reference', async () => {
@@ -306,7 +306,7 @@ describe('a Project exports to one self-contained bundle', () => {
 });
 
 describe('a bundle opens into a Review Workspace', () => {
-	// Acceptance criterion 2, and the round trip: everything the bundle carried lands, split the way
+	// The round trip: everything the bundle carried lands, split the way
 	// ADR-0023 splits it — the Project's own files inside its directory, the shared material at the
 	// Workspace root.
 	it('holds exactly that one Project, with the shared material hoisted', async () => {
@@ -364,13 +364,13 @@ describe('a bundle opens into a Review Workspace', () => {
 		});
 	});
 
-	// SPEC story 42, ADR-0032. **Structural rather than filtered**, and worth an assertion for exactly
+	// ADR-0032. **Structural rather than filtered**, and worth an assertion for exactly
 	// that reason: a bundle's entries all land under the Project's own directory or in the shared
 	// pool, so there is no route by which a colleague's `remote.json` could reach this Workspace's
 	// root — and a Review Workspace can never be bound afterwards either (`writeRemoteBinding`). A
 	// bundle that could point a Publish button at somebody else's repository from this machine is what
 	// nothing here does.
-	it('leaves the review copy bound to nothing (story 42)', async () => {
+	it('leaves the review copy bound to nothing', async () => {
 		const source = seed({
 			...twoProjectsTwoMaps(),
 			'remote.json': '{"formatVersion":1,"owner":"ada","repository":"atlas","branch":"main"}'
@@ -386,10 +386,10 @@ describe('a bundle opens into a Review Workspace', () => {
 
 	// ⚠ **Hand-built, because the round trip above can only prove that *our exporter* writes none.**
 	// A bundle is a file that has travelled: it comes out of somebody else's build, or out of a fork,
-	// and nothing in the format stops it carrying a `remote.json` at its root. Acceptance criterion 11
-	// is about what a Review Workspace *arrives* as, so it is the arrival that has to drop it — the
-	// same explicit drop `restoreWorkspaceTar` makes, in the same words.
-	it('drops a remote.json a hand-built bundle carries at its root (story 42)', async () => {
+	// and nothing in the format stops it carrying a `remote.json` at its root. The rule is about what a
+	// Review Workspace *arrives* as, so it is the arrival that has to drop it — the same explicit drop
+	// `restoreWorkspaceTar` makes, in the same words.
+	it('drops a remote.json a hand-built bundle carries at its root', async () => {
 		const into = destination();
 
 		const opened = await openProjectBundle(
@@ -494,8 +494,8 @@ describe('a bundle opens into a Review Workspace', () => {
 		);
 	});
 
-	// ⚠ **The declined path ticket 13 could not reach.** `writeRestored`'s decline was unreachable
-	// while every destination was new; a bundle reaches it, because a tar has no index and nothing
+	// ⚠ **The declined path a restore cannot reach.** `writeRestored`'s decline is unreachable
+	// while every destination is new; a bundle reaches it, because a tar has no index and nothing
 	// stops an archive from naming a path twice. The first entry wins and the second is *reported*
 	// rather than silently overwriting it — a transfer that quietly delivers something other than what
 	// it was handed is the failure this format change escaped.
@@ -523,7 +523,7 @@ describe('a bundle opens into a Review Workspace', () => {
 		expect(opened.notice).toContain('alignments/amsterdam-1625.json');
 	});
 
-	// ⚠ **The same rule for every other path, which is where it was missing.** Ticket 18's writer
+	// ⚠ **The same rule for every other path, which is where it was missing.** `alignment-file.ts`
 	// covered `alignments/<id>.json` and nothing covered anything else, so a repeated tile or a
 	// repeated `annotations/*.geojson` went through `store.write` — which overwrites — **and was
 	// counted twice**. `totalFiles` then reported more files than were on disk, which is the zip

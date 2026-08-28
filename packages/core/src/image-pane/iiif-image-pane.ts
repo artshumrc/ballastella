@@ -6,9 +6,8 @@
 // MapLibre is asking for — comes off one object built from one `info.json`.
 //
 // Tile geometry comes from `@allmaps/iiif-parser`'s `getTileImageRequest`, never from string
-// arithmetic here. That function is also what the tiler in ticket 05 uses to decide what to
-// *write*, and using it on both sides is what guarantees the reader and the writer cannot
-// disagree (ADR-0003).
+// arithmetic here. That function is also what the tiler uses to decide what to *write*, and using
+// it on both sides is what guarantees the reader and the writer cannot disagree (ADR-0003).
 
 import { Image } from '@allmaps/iiif-parser';
 import type { ImageRequest, Region, SizeObject, TileZoomLevel } from '@allmaps/types';
@@ -60,7 +59,7 @@ export type ImagePaneTile = {
 	 *
 	 * The committed fixture satisfies this (verified by decoding all 29 tiles: every ragged tile
 	 * sits at the JPEG noise floor against exact-resize semantics and 20–45× above it against
-	 * resize-and-pad). Ticket 05's tiler must assert it rather than inherit it.
+	 * resize-and-pad). The tiler must assert it rather than inherit it.
 	 */
 	placement: { width: number; height: number };
 };

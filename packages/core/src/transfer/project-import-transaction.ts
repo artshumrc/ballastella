@@ -1,5 +1,5 @@
 // The destination half of Project Import: one closure written once, under one recoverable marker
-// (ticket 04, ADR-0037).
+// (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS ONE-COPY STAGING AND NOT A STAGING TREE
@@ -14,10 +14,11 @@
 //
 // The other way is available only because every destination path is *fresh*. Import allocates a new
 // Project directory and a new identity for every incoming Map Image (ADR-0037, and the allocation is
-// tickets 06 and 07's), so no byte it writes can be a byte the user already has. Provisional bytes
-// can therefore go straight to their final paths, and what makes them provisional is not where they
-// are but that **one durable marker names them**. The marker is the transaction: while it is
-// unresolved the Workspace does not open, and the closure is either finished or swept.
+// `project-import-remapping.ts`'s and `project-import-allocation.ts`'s), so no byte it writes can be
+// a byte the user already has. Provisional bytes can therefore go straight to their final paths, and
+// what makes them provisional is not where they are but that **one durable marker names them**. The
+// marker is the transaction: while it is unresolved the Workspace does not open, and the closure is
+// either finished or swept.
 //
 // ⚠ **This is not Update's protocol and must not be generalised into one.** Update replaces paths
 // that already hold the user's work, so it cannot write provisionally at the destination and needs
@@ -34,10 +35,10 @@
 // than filtered.
 //
 // So there is one gate: an unresolved marker means the Workspace is **unavailable**, and nothing
-// enumerates anything until startup recovery resolves it (ticket 05). {@link readImportTransaction}
-// is the whole of the question a caller asks, and a marker that will not parse counts as one —
-// "unreadable is not absent", pointing the same way it points in `review-workspace.ts` and
-// `alignment-file.ts`.
+// enumerates anything until startup recovery resolves it (`project-import-recovery.ts`).
+// {@link readImportTransaction} is the whole of the question a caller asks, and a marker that will
+// not parse counts as one — "unreadable is not absent", pointing the same way it points in
+// `review-workspace.ts` and `alignment-file.ts`.
 
 import { alignmentPath } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
@@ -114,8 +115,8 @@ export interface ImportTransaction {
  *
  * A separate member rather than an {@link ImportTransaction} with an empty inventory, because those
  * are opposite instructions: an empty inventory says "nothing to sweep, open the Workspace", and this
- * says "something was in flight and what it wrote cannot be named". Ticket 05 keeps the Workspace
- * unavailable on this rather than guessing it is safe.
+ * says "something was in flight and what it wrote cannot be named". `project-import-recovery.ts`
+ * keeps the Workspace unavailable on this rather than guessing it is safe.
  */
 export interface UnreadableImportTransaction {
 	readonly state: 'unreadable';
@@ -133,16 +134,16 @@ export type ImportRefusal =
 	/**
 	 * A bound Workspace's Remote could not be inventoried, so nothing may be allocated against it.
 	 *
-	 * Refused before anything here runs (ticket 17): the directories a Project may not take include
-	 * those a Remote nobody has looked at is using, and a listing that failed is no evidence that
-	 * they are free.
+	 * Refused before anything here runs (`project-import-own-remote.ts`): the directories a Project may
+	 * not take include those a Remote nobody has looked at is using, and a listing that failed is no
+	 * evidence that they are free.
 	 */
 	| 'remote-unavailable'
 	/**
 	 * The Project is the one this Workspace already synchronizes with its own Remote.
 	 *
-	 * Not an Import at all but a second, detached copy of the author's own work (ticket 17, SPEC
-	 * stories 69–71). Also refused before anything here runs.
+	 * Not an Import at all but a second, detached copy of the author's own work
+	 * (`project-import-own-remote.ts`). Also refused before anything here runs.
 	 */
 	| 'own-remote'
 	/** A destination is taken, or would be taken on a filesystem that folds names. */
@@ -163,7 +164,7 @@ export type ImportRefusal =
 	 * **The other side of the commit boundary, and the reason it is a boundary.** Nothing may be
 	 * rolled back from here — the Project is on disk and complete — but the Workspace is still shut,
 	 * because the marker is what shuts it. So this is neither a success to announce nor a failure:
-	 * recovery finishes the bookkeeping on the next open (ticket 05) and the Project is there.
+	 * recovery finishes the bookkeeping on the next open and the Project is there.
 	 */
 	| 'unresolved-commit';
 
@@ -236,8 +237,8 @@ export function parseImportTransaction(bytes: Bytes): ImportTransaction | null {
  *
  * **A non-`null` answer means the Workspace is unavailable**, and that is the whole of the gate: no
  * Project list, no Map Image list, no size, no Backup, no Publish and no Project open until recovery
- * resolves it (ticket 05). Nothing filters provisional paths per reader — see the note at the top of
- * this file for why that is one gate rather than six filters.
+ * resolves it (`project-import-recovery.ts`). Nothing filters provisional paths per reader — see the
+ * note at the top of this file for why that is one gate rather than six filters.
  *
  * ⚠ **Unreadable is not absent.** A marker that will not parse, and a backing that will not answer,
  * both come back as {@link UnreadableImportTransaction} rather than as `null`. Only
@@ -287,8 +288,9 @@ export interface ImportedProject {
  *
  * `openProjectBundle` cannot validate before it writes, because a tar has no index and its
  * destination is a Review Workspace that gets discarded whole if anything is wrong. Neither excuse
- * is available here: the closure was validated from a listing before this was called (ticket 03),
- * and the destination is the user's own Workspace, where nothing may be discarded. So:
+ * is available here: the closure was validated from a listing before this was called
+ * (`project-import-source.ts`), and the destination is the user's own Workspace, where nothing may be
+ * discarded. So:
  *
  * 1. **A Workspace with an unresolved transaction is refused outright.** A second marker would
  *    overwrite the first's inventory, which is the one record of what the first wrote.
@@ -304,7 +306,7 @@ export interface ImportedProject {
  *    unavailable, so nothing the following steps write can be enumerated by anything.
  * 6. **Every closure file except the manifest is written to its final path**, one at a time, peak
  *    memory one file. An Alignment goes through `writeAlignmentBytes` like every other copier of a
- *    document somebody else's build wrote (ADR-0023, ticket 18).
+ *    document somebody else's build wrote (ADR-0023, `alignment-file.ts`).
  * 7. **`project.json` is written last**, from the bytes the source held back verbatim.
  * 8. **The marker is rewritten as committed, and only then removed.** Between those two the
  *    transaction is durably finished, so an interruption there is completed rather than swept.
@@ -422,9 +424,9 @@ interface DestinationPlan {
  * Prove the plan is one fresh destination per closure path, and nothing else.
  *
  * ⚠ **A refusal here is a defect in the caller, not something a user did.** Allocating the paths is
- * tickets 06 and 07's job and this consumes what they allocated; the checks exist because the
- * inventory this produces is the only record of what an interrupted Import wrote, and an inventory
- * that is missing a path or names one twice cannot be recovered from.
+ * `remapProjectImport` and `allocateProjectImport`'s job and this consumes what they allocated; the
+ * checks exist because the inventory this produces is the only record of what an interrupted Import
+ * wrote, and an inventory that is missing a path or names one twice cannot be recovered from.
  */
 function validatePlan(
 	source: ProjectImportSource,
@@ -598,13 +600,13 @@ async function writeClosure(
  *
  * The path is runtime data — the plan's, built from an identity allocated for this Import — so
  * neither `WritablePath` nor `check-alignment-writers.mjs` can see it, exactly as in the two tar
- * readers and `clone-from-remote.ts`. It is routed for the reason ticket 18's remediation gives:
- * "the Import engine writes Alignments with the generic writer" would be a true statement about the
+ * readers and `clone-from-remote.ts`. It is routed for the reason `alignment-file.ts` gives: "the
+ * Import engine writes Alignments with the generic writer" would be a true statement about the
  * codebase that the next person reads as permission.
  *
  * The bytes go through verbatim — `writeAlignmentBytes`, not `writeAlignmentFile` — because what is
- * being copied is a document another build wrote, and re-serialising it from this build's model is
- * the loss workspace-and-layers SPEC story 60 forbids.
+ * being copied is a document another build wrote, and re-serialising it from this build's model would
+ * silently drop every member this build cannot model.
  *
  * A decline cannot happen: the destination was proved absent in preflight and no two closure paths
  * share one. It is a failure rather than a shrug if it ever does, because the Alignment it kept would

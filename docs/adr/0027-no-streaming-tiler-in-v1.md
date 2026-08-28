@@ -2,7 +2,7 @@
 
 Supersedes the streaming clause of [ADR-0003](./0003-every-image-is-tiled-client-side.md). `wasm-vips` is removed from the repository. There is one tiler — decode-and-crop — and an image larger than a browser will decode is refused up front, by a message that names its size in megapixels and tells the user to prepare a IIIF pyramid outside the browser.
 
-Human decision, 2026-08-07. It is the third of the four options v1 ticket 05 listed and held open for a person: *drop the streaming tiler from v1, cap ingest at the decode ceiling, and lean on ADR-0003's already-documented `sharp` CLI as the escape hatch.*
+Human decision, 2026-08-07. It is the third of the four options that were listed and held open for a person: *drop the streaming tiler from v1, cap ingest at the decode ceiling, and lean on ADR-0003's already-documented `sharp` CLI as the escape hatch.*
 
 ## The path that was removed could not execute
 
@@ -34,10 +34,10 @@ The one place `wasm-vips` genuinely executed was `streaming-tiler.test.ts`, unde
 
 ## Why not fix it instead
 
-Three of ticket 05's four options were available and each was declined:
+Three of those four options were available and each was declined:
 
 - **Vendor a single-threaded build.** Upstream can produce one; it is not published. It means committing a multi-megabyte binary to this repository and sharpening the LGPLv3 obligation rather than discharging it.
-- **Inject COOP/COEP with a service worker** (the `coi-serviceworker` pattern), which does work on GitHub Pages. `require-corp` then breaks fetching remote IIIF tiles that carry no CORP header — which is the entire subject of referenced Map Images — and `credentialless` fixes that in Chromium and not in Safari. It is a site-wide restriction on how the page may load every other origin's files, and it would put the Base Map archive and every library's tiles at risk to enable a path used by a minority of images. It remains an open decision for a human, fenced out of the tickets that touch the service worker.
+- **Inject COOP/COEP with a service worker** (the `coi-serviceworker` pattern), which does work on GitHub Pages. `require-corp` then breaks fetching remote IIIF tiles that carry no CORP header — which is the entire subject of referenced Map Images — and `credentialless` fixes that in Chromium and not in Safari. It is a site-wide restriction on how the page may load every other origin's files, and it would put the Base Map archive and every library's tiles at risk to enable a path used by a minority of images. It remains an open decision for a human, fenced out of any change that touches the service worker.
 - **Raise the threshold and keep the tiler.** Meaningless while the tiler cannot start.
 
 ## What replaces it
@@ -58,7 +58,7 @@ The old message named `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Polic
 
 `ImageTooLargeError` names the image's size in megapixels and the one thing the user can do: convert it to a IIIF pyramid outside the browser and add that instead. No user-facing string anywhere in the product now names COOP, COEP, cross-origin isolation, or `SharedArrayBuffer`.
 
-The same correction reaches the offline-copy plan for a remote IIIF source. That plan used to *warn* that a copy this large "needs the streaming tiler", which was never true on this deployment; it now **refuses**, up front, before several thousand requests are made to somebody else's server. A copy has to exist as one full-resolution image before it can be re-cut — the `full-max` path downloads one and decodes it, the `assembled` path stitches pieces into one — so both inherit the same ceiling and neither had anywhere to escape to. This closes v1 ticket 15's `[~]` criterion, which routed an over-ceiling source "correctly" into a wall.
+The same correction reaches the offline-copy plan for a remote IIIF source. That plan used to *warn* that a copy this large "needs the streaming tiler", which was never true on this deployment; it now **refuses**, up front, before several thousand requests are made to somebody else's server. A copy has to exist as one full-resolution image before it can be re-cut — the `full-max` path downloads one and decodes it, the `assembled` path stitches pieces into one — so both inherit the same ceiling and neither had anywhere to escape to. That closes the last path on which an over-ceiling source was routed "correctly" into a wall.
 
 ## Consequences
 
@@ -66,7 +66,7 @@ The same correction reaches the offline-copy plan for a remote IIIF source. That
 - **`scripts/check-viewer-deps.mjs` stays** and still forbids `terra-draw` in `apps/viewer` and in every workspace package the viewer reaches. Only the `wasm-vips` name and core's devDependency allowance came out. Its rule that an allowance matching nothing is a *failure* is what forced the allowance to go rather than linger.
 - **[ADR-0019](./0019-minimal-pnpm-monorepo.md)'s three forbidden names become two.** The viewer fence is about `terra-draw` and the tiler. The tiler that remains is `createImageBitmap` and an `OffscreenCanvas`, injected by whichever app has one, and it draws in no dependency for a manifest to name — so what keeps it out of the viewer is that there is nothing to keep out.
 - **The LGPLv3 obligation is discharged by removal.** `wasm-vips` was the one dependency in this project where "MIT on npm" did not tell the whole story: the wrapper is MIT, the artefact is compiled libvips under LGPLv3, and twenty further bundled libraries travelled with it including `aom`'s patent grant. Its notice and the **outstanding open item** it carried — the LGPLv3 text was never fetched and committed — are removed from `THIRD-PARTY-NOTICES.md`. Verified rather than assumed: all 291 installed manifests were read on 2026-08-07 and none declares a GPL or LGPL licence. [ADR-0021](./0021-mit-licence-and-gpl-hygiene.md)'s `wasm-vips` section is superseded by this one.
-- **The editor's service worker no longer has a 5 MB module to decline.** Its shell filter stays written as a rule — "code and styles from `build`" — rather than as a list of things to dodge, so it needs no edit now that the thing it was dodging has left. v1 ticket 18's decision not to add a COOP/COEP service worker is untouched and is still a human's to make.
+- **The editor's service worker no longer has a 5 MB module to decline.** Its shell filter stays written as a rule — "code and styles from `build`" — rather than as a list of things to dodge, so it needs no edit now that the thing it was dodging has left. The decision not to add a COOP/COEP service worker is untouched and is still a human's to make.
 - **`IngestProgress.tiler`, `IngestResult.tiler` and `TilerKind` are gone.** A discriminator with one possible value is not information.
 - **The `TileSource` seam stays.** It is what lets everything above the tiler be tested in Node with no canvas, and it is where a `sharp`-based or worker-based implementation would attach if one is ever brought in-process.
 - **The widening is asserted on real pixels, in real browsers.** `decode-and-crop-tiler.browser.test.ts` decodes a 300-megapixel image — above the old threshold, below the new cap — and checks that tiles cut from it carry the pixels of the region they name, at both ragged margins and the far corner. The fixture is built rather than committed: the image is flat in 256×256 blocks, so 300 MB of pixels never exist at once and the PNG is 2.3 MB. Without it, "an image between the two limits ingests successfully" would rest on a stub tiler that decodes nothing.

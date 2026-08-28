@@ -4,7 +4,7 @@
  * The same shape as `PageChrome`: one generic slot a screen fills from an effect whose teardown
  * clears it, never a switch on the route. A screen that says nothing renders nothing, which is how
  * Workspace Home becomes undo-free without being named anywhere and how any screen added later is
- * undo-free until it says otherwise (SPEC stories 3 and 55).
+ * undo-free until it says otherwise.
  *
  * The history itself belongs to the session and outlives this: walking from the Project screen to
  * `/align` and back fills the slot again with the same one (ADR-0039).

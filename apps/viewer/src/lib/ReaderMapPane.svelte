@@ -1,12 +1,12 @@
 <script lang="ts">
-	// A Project's Layer stack over its Base Map, for a Reader (SPEC story 83).
+	// A Project's Layer stack over its Base Map, for a Reader.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHAT THIS IS AND IS NOT A COPY OF
 	//
 	// The editor's `BaseMapPane.svelte` is the same picture with authoring attached: overlay points for
 	// Control Points and Annotation vertices, click-to-place, Enter-to-draw, the distortion overlay, and
-	// the Alignment being edited. **None of that is here**, and its absence is the ticket: no drawing
+	// the Alignment being edited. **None of that is here**, and its absence is the point: no drawing
 	// tools, no Control Point manipulation, no writes of any kind.
 	//
 	// What the two panes genuinely share is in `@ballastella/core/render` rather than duplicated between
@@ -100,8 +100,8 @@
 		 */
 		catalog: BaseMapCatalog;
 		/**
-		 * Whether this site carries the Base Map's display assets — its glyphs and sprites (ADR-0020,
-		 * SPEC story 88). Tile availability is reported separately by {@link cachedBaseMap}.
+		 * Whether this site carries the Base Map's display assets — its glyphs and sprites (ADR-0020).
+		 * Tile availability is reported separately by {@link cachedBaseMap}.
 		 *
 		 * `false` remains an ordinary, supported state for legacy sites that were published without the
 		 * display assets. What must not happen is the site asking for them anyway — a bundled entry's
@@ -116,9 +116,8 @@
 		 * Independent of {@link bundledBaseMapAvailable}, which is about glyphs and sprites: a site can
 		 * carry tiles and no labels, or labels and no tiles, and the two failures read differently to a
 		 * Reader. `maxZoom` comes off the site record because a static host cannot be asked to list a
-		 * directory — see `PublishedSite.baseMapCaches`, which since ticket 12 also says *which
-		 * archive* each cache is for, because the directory is keyed by one and a key cannot be read
-		 * backwards.
+		 * directory — see `PublishedSite.baseMapCaches`, which also says *which archive* each cache is
+		 * for, because the directory is keyed by one and a key cannot be read backwards.
 		 */
 		cachedBaseMap?: { maxZoom: number; readTile: ReadCachedTile } | null;
 		/**
@@ -160,7 +159,7 @@
 		 *
 		 * **Where on the earth the click landed is not reported with it**, and no longer needs to be:
 		 * nothing is drawn over the map for an Annotation. The click opens that Annotation's row in the
-		 * Layer list, which is where a Reader reads one (ticket 07), and a row has no anchor.
+		 * Layer list, which is where a Reader reads one, and a row has no anchor.
 		 */
 		onclickannotation?: (hit: { layerId: string; annotationId: string }) => void;
 		/**
@@ -172,16 +171,16 @@
 		 */
 		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
 		/**
-		 * Whether the Base Map's own source is drawing, and that it is not when it is not (ticket 22).
+		 * Whether the Base Map's own source is drawing, and that it is not when it is not.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────
 		 * A PUBLISHED SITE HAS NO CONSOLE ANYONE IS WATCHING
 		 *
-		 * The editor's `BaseMapPane` grew this in ticket 20, after `demo-bucket.protomaps.com` began
-		 * refusing the archive every entry in this deployment's catalog reads and the application's
-		 * whole response was a pane with nothing in it. The viewer did not, and the viewer is the side
-		 * with no developer looking: a Reader cannot tell an outage from a broken tool, and cannot rule
-		 * out the third possibility either — that the scholar's own work failed to draw.
+		 * The editor's `BaseMapPane` reports the same status, for the same incident:
+		 * `demo-bucket.protomaps.com` began refusing the archive every entry in this deployment's catalog
+		 * reads, and the application's whole response was a pane with nothing in it. The viewer is the
+		 * side with no developer looking: a Reader cannot tell an outage from a broken tool, and cannot
+		 * rule out the third possibility either — that the scholar's own work failed to draw.
 		 *
 		 * **Reported, not rendered here**, for the same reason it is in the editor: what to say is the
 		 * page's question, and the page already owns the fallback notice and the published-without-files
@@ -194,7 +193,7 @@
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 		/**
-		 * Which Annotation is open, so the map draws that one more strongly (SPEC story 40).
+		 * Which Annotation is open, so the map draws that one more strongly.
 		 *
 		 * The same prop `BaseMapPane` takes, for the same reason: selection is the page's state, and
 		 * the row, the map and the leader all read the one value.
@@ -218,7 +217,7 @@
 	let map = $state<MapLibreMap | undefined>(undefined);
 
 	/**
-	 * Whoever wants to be told the camera has moved. The leader line (ticket 12), and nothing else.
+	 * Whoever wants to be told the camera has moved. The leader line, and nothing else.
 	 *
 	 * A set held here rather than the map handed out, because "the camera moved" is the whole of what
 	 * the caller needs. It is also the only shape that works before the map exists: `onMount` binds
@@ -281,11 +280,11 @@
 	 * `needsNetwork` case.
 	 *
 	 * **A bare style when the files are not here.** A site published without its Base Map (ADR-0020's
-	 * opt-in, SPEC stories 88 and 89) holds no `base-map/` directory at all, and a bundled entry's archive,
-	 * glyphs, and sprites are all site-relative paths — so building the ordinary style would fire a
-	 * pmtiles range request and two sprite requests at files that are not there. The Reader would get a
-	 * blank map, three 404s, and no account of either. So the reference map is simply absent, the Project's
-	 * own Layers still draw over the background, and the page says why (see `base-map-not-published`).
+	 * opt-in) holds no `base-map/` directory at all, and a bundled entry's archive, glyphs, and sprites
+	 * are all site-relative paths — so building the ordinary style would fire a pmtiles range request and
+	 * two sprite requests at files that are not there. The Reader would get a blank map, three 404s, and
+	 * no account of either. So the reference map is simply absent, the Project's own Layers still draw
+	 * over the background, and the page says why (see `base-map-not-published`).
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
@@ -494,10 +493,10 @@
 		});
 
 		// Enter opens the Annotation at the centre of the map, which is what makes an Annotation
-		// reachable without a pointer (SPEC story 95). MapLibre already pans the canvas with the arrow
-		// keys and zooms with `+` and `-`, so "move the map to it, then press Enter" is a whole route with
-		// nothing new to learn. Bound to MapLibre's own canvas rather than to the container, because the
-		// canvas already carries `tabindex="0"`, a role, and an accessible name.
+		// reachable without a pointer. MapLibre already pans the canvas with the arrow keys and zooms with
+		// `+` and `-`, so "move the map to it, then press Enter" is a whole route with nothing new to
+		// learn. Bound to MapLibre's own canvas rather than to the container, because the canvas already
+		// carries `tabindex="0"`, a role, and an accessible name.
 		created.getCanvas().addEventListener('keydown', (event) => {
 			if (event.key !== 'Enter') return;
 			event.preventDefault();
@@ -631,8 +630,8 @@
 	 * How long the stack waits for the Base Map's style before saying it cannot be drawn on.
 	 *
 	 * Long enough that a slow-but-working load is never called a failure, short enough that the wait is
-	 * accounted for rather than endured in silence — a Reader on a reading-room's wifi (SPEC story 8) is
-	 * exactly who meets this.
+	 * accounted for rather than endured in silence — a Reader on a reading-room's wifi is exactly who
+	 * meets this.
 	 */
 	const STYLE_WAIT_MS = 15_000;
 

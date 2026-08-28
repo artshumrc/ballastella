@@ -1,5 +1,5 @@
 // One Update from GitHub, run against a real backing, and asserted the same way for every backing
-// there is (ticket 15's adapter conformance).
+// there is.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A SUITE RATHER THAN A TEST IN EACH FILE

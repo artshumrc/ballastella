@@ -10,10 +10,10 @@
 // `remote.json` naming somebody else's repository, and lifting it silently would leave an author's
 // Publish button aimed at a repository they have never seen.
 //
-// So the two answers are different by construction. SPEC: *"A matching legacy binding plus matching
-// manifest is sufficient to lift the relationship automatically. A legacy binding without corroborating
+// So the two answers are different by construction. A matching legacy binding plus a matching manifest
+// is sufficient to lift the relationship automatically. A legacy binding without corroborating
 // installation-local evidence requires explicit confirmation; confirmation preserves the binding but
-// leaves the Baseline absent and Remote Status at Cannot tell."*
+// leaves the Baseline absent and Remote Status at Cannot tell.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // NOTHING PARTIAL SURVIVES A FAILURE

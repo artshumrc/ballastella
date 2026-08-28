@@ -21,20 +21,19 @@ import { showPaneDetails } from './support/alignment-workspace.js';
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2 for the injection layer: the user's own Map Image, deep-zoomed in the
- * running app, with every byte coming out of real OPFS (SPEC story 31, and story 8's mechanism).
+ * Seam 2 for the injection layer: the user's own Map Image, deep-zoomed in the running app, with
+ * every byte coming out of real OPFS.
  *
  * **This suite is the only place the no-network claim can be made.** The routing rule itself is
  * asserted numerically in `@ballastella/core`, against a pyramid the tiler wrote; what only a
  * browser can establish is the negative — that nothing leaks out to `unset.invalid` and nothing
- * falls back to ticket 03's static-asset fixture — and that MapLibre, whose tile loading is the
- * thing being injected into, is satisfied by what the shim hands it.
+ * falls back to the static-asset fixture — and that MapLibre, whose tile loading is the thing being
+ * injected into, is satisfied by what the shim hands it.
  *
- * It also has to reach inside the page for one thing. Up to ticket 05 "tiles at every scale
- * factor load, ragged edges included" was asserted on Playwright's `response` event, because the
- * fixture pyramid was served over HTTP. A pyramid read from OPFS issues **no request at all**, so
- * that criterion now has no network to be asserted on; `window.ballastellaServedTiles` is the
- * app's own log of what it drew, on the same terms as ticket 04's `ballastellaBaseMap`.
+ * It also has to reach inside the page for one thing. A pyramid read from OPFS issues **no request
+ * at all**, so "tiles at every scale factor load, ragged edges included" has no network to be
+ * asserted on; `window.ballastellaServedTiles` is the app's own log of what it drew, on the same
+ * terms as `ballastellaBaseMap`.
  */
 
 const crcTable = (() => {
@@ -108,8 +107,8 @@ declare global {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -179,8 +178,8 @@ async function openProject(page: Page, name: string): Promise<void> {
 /**
  * Every Map Image this Project draws, by image id.
  *
- * Read off the Layer rows since ticket 04: a Map Image arrives with its Layer (ADR-0023), and
- * the separate list of image ids on the Project page is gone.
+ * Read off the Layer rows: a Map Image arrives with its Layer (ADR-0023), and there is no separate
+ * list of image ids anywhere else.
  */
 const listedImageIds = async (page: Page): Promise<string[]> =>
 	(
@@ -200,17 +199,16 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  * entry passed roughly half the time, which is the worst possible kind of test.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
- * **THE LAYER ROW IS A TRANSIENT SIGNAL, NOT A SETTLED ONE** (ticket 17, and the fourth copy of
- * the same defect).
+ * **THE LAYER ROW IS A TRANSIENT SIGNAL, NOT A SETTLED ONE** (the fourth copy of the same defect).
  *
  * `EditorSession.ingestImage` publishes the Layer — and therefore this row — from `#addMapLayer`,
  * and then keeps running: it lists the Workspace's pyramids and only then clears `ingest`, which
  * is what re-enables the file input. Returning at the row left this helper's caller inside that
  * window, and the *second* call then picked a file on a still-disabled input.
  * `setInputFiles` performs no enabled check — it dispatches `change` on a disabled input
- * regardless (measured on @playwright/test 1.62.1) — so the app saw the pick, and before this
- * ticket dropped it in silence. `toHaveCount(2)` then waited its whole 30 s against a DOM that had
- * settled at one row and was never going to move.
+ * regardless (measured on @playwright/test 1.62.1) — so the app saw the pick and dropped it in
+ * silence. `toHaveCount(2)` then waited its whole 30 s against a DOM that had settled at one row
+ * and was never going to move.
  *
  * **Measured, 2026-08-08: 6 of 30 first attempts, 20%, in isolation on a quiet machine** — every
  * one of them on the *second* ingest, every one `Received: 1` after 30 s, while a healthy run of
@@ -218,8 +216,8 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  * never started. A probe correlated it 8 times out of 8 — input disabled at the second pick ⇒ one
  * row forever; input enabled ⇒ two rows.
  *
- * `editor-pwa.e2e.ts`'s `startProjectWithMap` was given exactly this fix by ticket 17 and says the
- * same thing at its own wait. This is the copy that did not get it.
+ * `editor-pwa.e2e.ts`'s `startProjectWithMap` says the same thing at its own wait, for the same
+ * reason.
  */
 async function ingest(page: Page, width: number, height: number, name: string): Promise<string> {
 	const before = await listedImageIds(page);
@@ -231,9 +229,8 @@ async function ingest(page: Page, width: number, height: number, name: string): 
 	await expect(page.getByTestId('layer-row')).toHaveCount(before.length + 1, { timeout: 30_000 });
 	// And then the settled state: the preparing card leaves the stack when `session.ingest` is
 	// cleared, which is the last thing the ingest does. Until then this Map Image is on screen
-	// but the gesture that adds the next one has nowhere to land — since ticket 06 it is refused in
-	// words rather than dropped, and this wait is what keeps the refusal off a test that means to add
-	// two maps.
+	// but the gesture that adds the next one has nowhere to land — it is refused in words rather than
+	// dropped, and this wait is what keeps the refusal off a test that means to add two maps.
 	await expectNothingPreparing(page, 30_000);
 	const added = (await listedImageIds(page)).filter((id) => !before.includes(id));
 	expect(added, `expected exactly one new Map Image after ingesting ${name}`).toHaveLength(1);
@@ -243,17 +240,17 @@ async function ingest(page: Page, width: number, height: number, name: string): 
 /**
  * Press Align **on a Layer** and land on the pane, which is `/align/?p=…&layer=…`.
  *
- * Ticket 04 moved Align onto the Layer that needs it and deleted the Project page's separate list of
- * image ids with its per-map selector buttons — there is one door per Map Image now, and it is
- * on the Map Image. Naming the image is therefore choosing a row rather than pressing a
- * selector and then a shared button; with no name given, the first Layer in the stack is taken.
+ * Align lives on the Layer that needs it, and there is no separate list of image ids with per-map
+ * selector buttons — one door per Map Image, and it is on the Map Image. Naming the image is
+ * therefore choosing a row rather than pressing a selector and then a shared button; with no name
+ * given, the first Layer in the stack is taken.
  */
 async function openPane(page: Page, imageId?: string): Promise<void> {
 	const row =
 		imageId === undefined
 			? page.getByTestId('layer-row').first()
 			: page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`);
-	// Opened first: since ticket 05 the Align link is inside the Layer's row rather than beside it.
+	// Opened first: the Align link is inside the Layer's row rather than beside it.
 	await alignFromLayer(page, row);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 }
@@ -394,15 +391,15 @@ test.describe('a Map Image read from the Project', () => {
 		// read from OPFS, and a forgotten override anywhere on this path would show up right here.
 		expect(requested.filter((url) => url.includes('unset.invalid'))).toEqual([]);
 
-		// And no static-asset fallback: ticket 03's fixture is still committed, and this pane must
-		// never be quietly showing it.
+		// And no static-asset fallback: the static fixture is still committed, and this pane must never
+		// be quietly showing it.
 		expect(requested.filter((url) => url.includes('/fixtures/'))).toEqual([]);
 	});
 
 	test('renders the correct pyramid for each of two Map Images in one Project', async ({
 		page
 	}) => {
-		// **A budget, not a race** (ticket 17). This is the only test in the suite that ingests two
+		// **A budget, not a race**. This is the only test in the suite that ingests two
 		// whole pyramids, and each ingest is a real tiling of a real PNG; on the 10 baseline runs of
 		// 2026-08-07 it exhausted the then-default 30 s in 1 of 10 and reported it as
 		// `toHaveCount(2) … Received: 1`, which reads exactly like a Layer that never arrived. It is
@@ -582,7 +579,7 @@ test.describe('a Map Image read from the Project', () => {
 		expect(y).toBeGreaterThanOrEqual(0);
 		expect(y).toBeLessThanOrEqual(500);
 
-		// The status region says whether the view is settled, and says it out loud (story 96).
+		// The status region says whether the view is settled, and says it out loud.
 		await expect(page.getByTestId('map-image-tiles')).toHaveAttribute('aria-live', 'polite');
 	});
 
@@ -599,8 +596,8 @@ test.describe('a Map Image read from the Project', () => {
 		// Overwrite the pyramid's `info.json` with one whose finest level is scale factor 2. It is
 		// legal IIIF and it renders *plausibly* — blank at the zoom the pane calls full resolution,
 		// with nothing anywhere to say why — which is why `createImagePane` refuses it. What this
-		// test defends is that the refusal reaches the screen: story 31 is worthless if the answer
-		// to a bad pyramid is an empty rectangle.
+		// test defends is that the refusal reaches the screen: deep zoom out of OPFS is worthless if the
+		// answer to a bad pyramid is an empty rectangle.
 		await page.evaluate(
 			async ([imageId]) => {
 				const root = await workspaceRoot();

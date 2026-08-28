@@ -265,11 +265,11 @@ describe('the fold check', () => {
 	});
 
 	// ADR-0013's "the fold check runs continuously and warns independently of the overlay" is not
-	// asserted here, on purpose. There was a test that did `expect(detectFold.length).toBe(1)`, and it
-	// was wrong twice over: SPEC's Testing Decisions and CONTRIBUTING both rule out assertions on
-	// module structure, and it could not fail anyway — a second parameter with a default value leaves
-	// the arity at 1. The property is observable only where an overlay exists to be off, so it is
-	// asserted where it is observable: `editor-alignment-refinement.e2e.ts`, "appears for a mirrored
-	// pair set under an affine transformation, with the overlay off", which reads the *renderer's*
-	// `distortionMeasure` as `undefined` in the same breath as the visible warning.
+	// asserted here, on purpose. A test doing `expect(detectFold.length).toBe(1)` would be wrong twice
+	// over: CONTRIBUTING rules out assertions on module structure, and it could not fail anyway — a
+	// second parameter with a default value leaves the arity at 1. The property is observable only
+	// where an overlay exists to be off, so it is asserted where it is observable:
+	// `editor-alignment-refinement.e2e.ts`, "appears for a mirrored pair set under an affine
+	// transformation, with the overlay off", which reads the *renderer's* `distortionMeasure` as
+	// `undefined` in the same breath as the visible warning.
 });

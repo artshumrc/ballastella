@@ -3,11 +3,11 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE PARITY CLAIM LIVES HERE AND NOT IN A BROWSER
 //
-// "The viewer offers none of this" is the epic's central promise, and it is provable in milliseconds
-// precisely because the Inspector lives in the shared package: the Reader's panel *is* this component
-// with a snippet withheld. `apps/viewer` has no unit tests at all, so a claim not made here could only
-// be made against a built browser — a browser test for what a `<div>` does not contain
-// (the-annotation-inspector stories 67, 71, 74).
+// "The viewer offers none of this" is the parity claim this file exists for, and it is provable in
+// milliseconds precisely because the Inspector lives in the shared package: the Reader's panel *is*
+// this component with a snippet withheld. `apps/viewer` has no unit tests at all, so a claim not made
+// here could only be made against a built browser — a browser test for what a `<div>` does not
+// contain.
 //
 // **Both halves of every absence, on purpose.** An absence asserted on its own is the vacuous green
 // this repository's testing decisions exist to prevent: rename one `data-testid` and every
@@ -18,21 +18,20 @@
 // answers "supported" against happy-dom and then returns its input essentially untouched, so a
 // sanitiser claim at this seam is green whatever the sanitiser does — this package's
 // `vitest.config.ts` records the measurement. That claim lives in `e2e/viewer-reader.e2e.ts`, in a
-// real browser, against a real published build (the-annotation-inspector story 72). What the Inspector does with the
-// description is in any case nothing: the Text face is the consumer's snippet, and
-// `AnnotationDescription` is asserted in `annotation-list.dom.test.ts`.
+// real browser, against a real published build. What the Inspector does with the description is in
+// any case nothing: the Text face is the consumer's snippet, and `AnnotationDescription` is asserted
+// in `annotation-list.dom.test.ts`.
 //
 // ⚠ **Nor can this file see the Annotation named twice.** The header is here and the words are a
 // snippet, and the snippet below is a marker — so a consumer whose face drew a title of its own would
 // pass everything in this file. That count is taken over the composition, in
 // `apps/editor/src/lib/annotations/annotation-text-face.dom.test.ts`, where the real face is mounted
-// inside this component (the-annotation-inspector story 4).
+// inside this component.
 //
 // ⚠ **No layout claim belongs here either.** This seam has no viewport, no paint and no geometry, so
 // "the map is visible below the panel", "the panel does not grow over the attribution", "a long
-// description scrolls inside it" and "the leader is drawn under it" are Seam 2's or nothing
-// (the-annotation-inspector story 73). Nor does this file assert where the Inspector sits: the
-// component does not position itself.
+// description scrolls inside it" and "the leader is drawn under it" are Seam 2's or nothing. Nor
+// does this file assert where the Inspector sits: the component does not position itself.
 
 import type { Annotation } from '@ballastella/core';
 import type { DetachedWindowAPI } from 'happy-dom';
@@ -110,7 +109,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 	await tick();
 };
 
-describe('the Inspector says which Annotation it is about (the-annotation-inspector stories 1, 2, 3, 4)', () => {
+describe('the Inspector says which Annotation it is about', () => {
 	test('the header draws the ordinal, the glyph and the shape word', () => {
 		inspect({ annotation: annotation({ id: 'a-3', type: 'Polygon' }), index: 2 });
 
@@ -139,9 +138,9 @@ describe('the Inspector says which Annotation it is about (the-annotation-inspec
 	});
 
 	test('there is no second “Untitled” anywhere in the header', () => {
-		// The epic's central fault, asserted as a count rather than as a lookup: the row said "Untitled
-		// shape 3" and the box six pixels below it said "Untitled", and a test that found the right
-		// string would have passed while the wrong one sat beside it.
+		// The fault this header exists to avoid, asserted as a count rather than as a lookup: the row said
+		// "Untitled shape 3" and the box six pixels below it said "Untitled", and a test that found the
+		// right string would have passed while the wrong one sat beside it.
 		inspect({ annotation: annotation({ id: 'a-3', type: 'Polygon' }), index: 2 });
 
 		const header = one('annotation-inspector-header')!;
@@ -159,7 +158,7 @@ describe('the Inspector says which Annotation it is about (the-annotation-inspec
 		expect(one('annotation-inspector-shape')).toHaveTextContent('pin');
 	});
 
-	test('the Inspector is named for assistive technology by its Annotation (the-annotation-inspector story 57)', () => {
+	test('the Inspector is named for assistive technology by its Annotation', () => {
 		// Arriving in the region has to say what it is *about*, which is the one thing a fixed name
 		// could not do. The word is the glossary's — `CONTEXT.md` bans "panel", "popup" and "drawer" —
 		// and the name is the shared rule's, so it is the same name the row carries.
@@ -171,7 +170,7 @@ describe('the Inspector says which Annotation it is about (the-annotation-inspec
 	});
 });
 
-describe('the tab strip is there if and only if a Style face was passed (the-annotation-inspector stories 45, 46, 65, 66)', () => {
+describe('the tab strip is there if and only if a Style face was passed', () => {
 	// ⚠ **This is the parity claim, and it is why this file exists.** A Reader has no tab strip because
 	// the viewer passes no `style` snippet — not because a case was written for a Reader. So both halves
 	// are mounted from the same component with the same Annotation, and the only difference between them
@@ -310,7 +309,7 @@ describe('the tab strip is there if and only if a Style face was passed (the-ann
 	});
 });
 
-describe('the strip has no memory (the-annotation-inspector story 26)', () => {
+describe('the strip has no memory', () => {
 	const style = (): HTMLInputElement =>
 		one('annotation-inspector-tab-style')!.querySelector('input')!;
 
@@ -358,7 +357,7 @@ describe('the strip has no memory (the-annotation-inspector story 26)', () => {
 	});
 });
 
-describe('dismissing reports rather than clears (the-annotation-inspector story 20)', () => {
+describe('dismissing reports rather than clears', () => {
 	test('the dismiss control calls onclose and the Inspector changes nothing of its own', async () => {
 		// The selection lives in the consumer's state, so an Inspector that took itself off the screen
 		// would be a second answer to "which Annotation is selected". The harness deliberately does not
@@ -383,7 +382,7 @@ describe('dismissing reports rather than clears (the-annotation-inspector story 
 	});
 });
 
-describe('less motion is respected here as everywhere else (the-annotation-inspector story 58)', () => {
+describe('less motion is respected here as everywhere else', () => {
 	// ⚠ **These assert the number the component computed, and not that the Inspector animated.** There
 	// is no paint at this seam and no Web Animations clock, so what an animation looks like has no
 	// answer here — see `vitest-setup/web-animations.ts`. `prefersReducedMotion` is a real media query

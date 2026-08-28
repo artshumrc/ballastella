@@ -51,7 +51,7 @@ import type { TransferProgressListener } from './transfer.js';
  * user nothing because the destination was made moments ago.
  */
 export interface ReviewDestination {
-	/** The name the Review Workspace really got. Ticket 12 suffixes rather than refusing. */
+	/** The name the Review Workspace really got. A taken name is suffixed rather than refused. */
 	readonly name: string;
 	readonly store: ProjectStore;
 	/**
@@ -103,7 +103,7 @@ export interface OpenProjectBundleOptions {
  * into memory so it can be parsed and written last, and the set of archive paths is kept so that
  * `assertReferencesPresent` has something to check against.
  *
- * Generous by a wide margin. SPEC's largest Project is a 2 GB pyramid, which is a few hundred
+ * Generous by a wide margin. The largest Project is a 2 GB pyramid, which is a few hundred
  * thousand files at most; a `project.json` of a megabyte is not a manifest.
  */
 export interface BundleLimits {
@@ -140,7 +140,7 @@ export interface OpenedBundle {
 	 * 70,000 with a different spelling — which is the failure this whole format change escaped.
 	 */
 	readonly declined: readonly string[];
-	/** What the user has to be told, in the words they should see (workspace-and-layers SPEC story 111). */
+	/** What the user has to be told, in the words they should see. */
 	readonly notice: string;
 }
 
@@ -358,9 +358,10 @@ interface BundleOutcome {
  * Write the archive's entries into the Review Workspace, the manifest held back.
  *
  * ⚠ **`files` and `bytes` count what was *written*, never what was *read*.** An Alignment goes
- * through ticket 18's one writer, which may decline it, and the first cut of the equivalent function
- * on the restore path incremented the counters regardless — so a transfer reported delivering a file
- * it had dropped. A declined entry is counted nowhere and named in {@link BundleOutcome.declined}.
+ * through `alignment-file.ts`, the one writer, which may decline it, and the first cut of the
+ * equivalent function on the restore path incremented the counters regardless — so a transfer
+ * reported delivering a file it had dropped. A declined entry is counted nowhere and named in
+ * {@link BundleOutcome.declined}.
  */
 async function drainInto(
 	store: ProjectStore,
@@ -408,7 +409,7 @@ async function drainInto(
 
 		assertSafeBundlePath(header.name);
 
-		// ⚠ **An opened bundle arrives unbound** (SPEC story 42, ADR-0032), and the drop is explicit
+		// ⚠ **An opened bundle arrives unbound** (ADR-0032), and the drop is explicit
 		// here as it is on the restore path rather than left to follow from where a bundle's entries
 		// happen to land. Structurally a root `remote.json` would go inside the Project's own directory
 		// and could never reach the Workspace root, so today this changes no behaviour — but "no route
@@ -450,7 +451,7 @@ async function drainInto(
 
 		// ⚠ **An archive path named twice is declined, whatever it names, and the first one wins.**
 		// A tar has no index and nothing stops a file from carrying the same entry more than once.
-		// Ticket 18's writer already refused a second `alignments/<id>.json`, so that one path was
+		// `alignment-file.ts` already refused a second `alignments/<id>.json`, so that one path was
 		// safe — but `images/…` and the Project's own files went straight through `store.write`,
 		// which overwrites, **and were counted again**: a bundle with a repeated tile silently
 		// delivered the later copy and reported more files than were on disk. A transfer that says it
@@ -494,18 +495,18 @@ async function drainInto(
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * **WHY THE ALIGNMENT IS ROUTED RATHER THAN WRITTEN, WHEN IT ALMOST NEVER COLLIDES**
  *
- * Ticket 18 made `alignment-file.ts` the only writer of `alignments/<image-id>.json`, behind two
- * layers: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write` refuses, and
+ * `alignment-file.ts` is the only writer of `alignments/<image-id>.json`, behind two layers:
+ * `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write` refuses, and
  * `scripts/check-alignment-writers.mjs` covers the spellings a type cannot see.
  *
  * **This code walks through both of them, and it is worth being exact about how**, because writing
  * the path directly here would have failed nothing. The path is an archive entry's own name with a
  * prefix computed at runtime — a value the compiler only ever sees as `string`, so the brand never
  * applies; and the fence looks for the `alignments/` spelling, which this module never writes,
- * because the path arrives as data out of somebody's file. That is the limit ticket 18 states about
- * itself rather than claims away, and `restore-workspace-tar.ts` says the same about the same gap.
+ * because the path arrives as data out of somebody's file. That is a limit of both layers rather than
+ * something either claims away, and `restore-workspace-tar.ts` says the same about the same gap.
  *
- * It is routed anyway, for the reason 18's own remediation gives: the danger is not this call site,
+ * It is routed anyway, for the reason the rule itself gives: the danger is not this call site,
  * it is that "the bundle reader writes Alignments with the generic writer" is a *true statement about
  * the codebase* that the next person reads as permission.
  *
@@ -513,13 +514,13 @@ async function drainInto(
  * be: an archive naming one Alignment twice got here twice, and `intent: 'create'` refused the
  * second. That left every *other* repeated path — a tile, an Annotation — silently overwriting and
  * double-counted, so {@link drainInto} now refuses a repeated entry before it arrives here, whatever
- * it names. The routing is kept as what it always was, ticket 18's rule about **who may write that
- * file**, not a duplicate check; its decline is the layer that would catch a destination which was
- * not empty, which a Review Workspace never is today.
+ * it names. The routing is kept for what it is, the rule about **who may write that file**, not a
+ * duplicate check; its decline is the layer that would catch a destination which was not empty,
+ * which a Review Workspace never is today.
  *
  * The bytes go through verbatim — `writeAlignmentBytes`, not `writeAlignmentFile` — because what is
  * being copied is a document another build wrote, and re-serialising it from this build's model is
- * the loss workspace-and-layers SPEC story 60 forbids.
+ * exactly the loss `Alignment.unmodelled` exists to prevent.
  */
 async function writeBundled(
 	store: ProjectStore,

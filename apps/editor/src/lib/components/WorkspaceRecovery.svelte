@@ -5,10 +5,10 @@
 	 * The two ways a Workspace can be not-here, and the gesture out of each.
 	 *
 	 * Both are **normal states with recoveries**, not exceptions (ADR-0008), and both are reachable on
-	 * every screen — the hub, the Project, and the align route. *Choosing* where a Workspace lives is
-	 * a setting now (ticket 12), reached from the bar; recovering a Workspace you are already using is
-	 * not a choice at all, it is the way back to the work you asked for, and burying it behind a
-	 * dialog would leave a scholar looking at an empty hub with nothing to explain it.
+	 * every screen — the hub, the Project, and the align route. *Choosing* where a Workspace lives is a
+	 * setting, reached from the bar; recovering a Workspace you are already using is not a choice at
+	 * all, it is the way back to the work you asked for, and burying it behind a dialog would leave a
+	 * scholar looking at an empty hub with nothing to explain it.
 	 *
 	 * - **Not reachable.** The folder was moved, renamed, or deleted. Only a folder Workspace can reach
 	 *   this state: an OPFS directory cannot vanish under the app. The Project page rendered
@@ -27,12 +27,11 @@
 </script>
 
 <!--
-	⚠ **First, and on its own** (tickets 05 and 15). An Import or an Update that did not finish leaves
-	its provisional files at ordinary Workspace paths under one durable marker, so a Workspace whose
-	marker cannot be resolved does not open at all — no Project list, no Map Image list, no size, no
-	Backup, no Publish and no Project. That is not one state among the two below but the absence of a
-	Workspace to have them about, so nothing else on this component renders beside it, and neither
-	does the hub's list.
+	⚠ **First, and on its own**. An Import or an Update that did not finish leaves its provisional
+	files at ordinary Workspace paths under one durable marker, so a Workspace whose marker cannot be
+	resolved does not open at all — no Project list, no Map Image list, no size, no Backup, no Publish
+	and no Project. That is not one state among the two below but the absence of a Workspace to have
+	them about, so nothing else on this component renders beside it, and neither does the hub's list.
 
 	No button. The recovery *is* a reload: the marker is untouched, so the next startup tries again
 	from the same inventory, and a control offering to do it now would be offering the thing that has

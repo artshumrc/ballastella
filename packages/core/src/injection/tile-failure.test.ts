@@ -122,8 +122,8 @@ describe('mapImageTilesUnavailableNotice', () => {
 	});
 
 	it('says it is not the reader’s doing and that the rest of the work is safe, in every row', () => {
-		// SPEC stories 14 and 15, which are the two questions a half-drawn map raises before any
-		// remedy is any use: is this me, and is the rest of it gone?
+		// The two questions a half-drawn map raises before any remedy is any use: is this me, and is
+		// the rest of it gone?
 		for (const failure of EVERY_ROW) {
 			const notice = mapImageTilesUnavailableNotice(failure, 'Blaeu’s plan');
 
@@ -162,8 +162,8 @@ describe('mapImageTilesUnavailableNotice', () => {
 	});
 
 	it('puts the three things in the order the questions arrive, and says all three', () => {
-		// SPEC: it is not you; your work is safe; here is what would fix it. Asserted as three indices
-		// in order rather than as three memberships, because the failure this shape prevents is a
+		// It is not you; your work is safe; here is what would fix it. Asserted as three indices in
+		// order rather than as three memberships, because the failure this shape prevents is a
 		// remedy read before the reassurance.
 		//
 		// ⚠ **The first version of this test could not detect a reorder**, which is what it existed

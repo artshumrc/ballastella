@@ -1,5 +1,5 @@
-// SPEC's Seam 1 for Annotations: the domain model and the file, in Node, with the bytes as the
-// assertion.
+// CONTRIBUTING.md's Seam 1 for Annotations: the domain model and the file, in Node, with the bytes
+// as the assertion.
 //
 // The sanitisation half of ADR-0009 is in `markdown.browser.test.ts`, which has to be a browser
 // project because DOMPurify sanitises by parsing into a real DOM — see the note at the top of it.
@@ -67,7 +67,7 @@ const pin = (id: string, lng = 4.9, lat = 52.37) =>
 const collectionOf = (...annotations: ReturnType<typeof pin>[]): AnnotationCollection =>
 	annotations.reduce(addAnnotation, emptyCollection());
 
-describe('drawing (SPEC stories 57, 58, 59)', () => {
+describe('drawing', () => {
 	test('a point, a line, and a polygon all round-trip through the file', () => {
 		const drawn = collectionOf(
 			pin('a1'),
@@ -137,7 +137,7 @@ describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(after.annotations[0]?.properties).toEqual({ title: 'The quay' });
 	});
 
-	test('deleting an Annotation removes it from the file (SPEC story 66)', () => {
+	test('deleting an Annotation removes it from the file', () => {
 		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
 
 		const after = removeAnnotation(before, 'a2');
@@ -198,10 +198,10 @@ describe('reordering the Annotations in one Layer', () => {
 });
 
 describe('an unchanged file serialises byte-identically', () => {
-	// Ticket 09 asserts that reordering, renaming, toggling, and setting opacity leave
-	// `annotations/*.geojson` byte-identical. That is a claim about the write path never being reached;
-	// this is the stronger claim that reaching it with nothing changed costs nothing either, which is
-	// what makes a Workspace in git produce readable diffs and what ADR-0010 asks for.
+	// `e2e/editor-layers.e2e.ts` asserts that reordering, renaming, toggling, and setting opacity
+	// leave `annotations/*.geojson` byte-identical. That is a claim about the write path never being
+	// reached; this is the stronger claim that reaching it with nothing changed costs nothing either,
+	// which is what makes a Workspace in git produce readable diffs and what ADR-0010 asks for.
 
 	test('a file this app wrote parses and writes back to the identical bytes', () => {
 		const original = serialiseAnnotations(
@@ -246,8 +246,8 @@ describe('an unchanged file serialises byte-identically', () => {
 	});
 
 	test('an empty Layer written at creation round-trips identically', () => {
-		// `emptyAnnotationCollection` in `layer.ts` is what ticket 09 writes when a Layer is added, and
-		// this module has to agree with it byte for byte or the first edit reformats the file.
+		// `emptyAnnotationCollection` in `layer.ts` is what a new Layer is written with, and this module
+		// has to agree with it byte for byte or the first edit reformats the file.
 		const asCreated = bytes(
 			`${JSON.stringify({ type: 'FeatureCollection', features: [] }, null, '\t')}\n`
 		);
@@ -547,7 +547,7 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 		expect(resolveStyle(annotation.properties).stroke).toBe('#ff0000');
 	});
 
-	// ── WHAT KIND OF THING IT IS DOES NOT INHERIT (write-on-the-map story 26) ─────────────
+	// ── WHAT KIND OF THING IT IS DOES NOT INHERIT ─────────────────────────────────────────
 	//
 	// `marker-symbol` is the one style property left out of the copy, because it is the discriminator
 	// that makes a Point a Label rather than anything about how a Point looks. Copied, it would mean
@@ -567,7 +567,7 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 		).toBe(false);
 
 		// And another tool's symbol is not propagated either. It stays on the Annotation that has it and
-		// is still written back untouched (story 51) — that claim is asserted where round-tripping is.
+		// is still written back untouched — that claim is asserted where round-tripping is.
 		expect(
 			styleForNewAnnotation({ annotations: [at('a', { 'marker-symbol': 'harbor' })] })
 		).not.toHaveProperty('marker-symbol');
@@ -648,7 +648,8 @@ describe('styleForNewLabel: the first Label in a Layer is not grey on grey', () 
 		).toEqual({ 'marker-color': '#1976d2', fill: '#1976d2', 'marker-symbol': LABEL_MARKER_SYMBOL });
 
 		// And a transparent chip keeps its words: nothing paints the background, so measuring it and
-		// flipping white words to black would invert story 25 from a colour nobody can see.
+		// flipping white words to black would turn white words on a dark Map Image into a colour nobody
+		// can see.
 		expect(
 			styleForNewLabel({
 				annotations: [at('a', { 'marker-color': '#ffffff', fill: '#555555', 'fill-opacity': 0 })]
@@ -675,8 +676,7 @@ describe('styleForNewLabel: the first Label in a Layer is not grey on grey', () 
 	});
 
 	test('inherited colours are left exactly as they are', () => {
-		// Only the untouched default moves, so a run of Labels styled once at its head stays styled
-		// (story 25).
+		// Only the untouched default moves, so a run of Labels styled once at its head stays styled.
 		expect(
 			styleForNewLabel({
 				annotations: [
@@ -757,7 +757,7 @@ describe('where a popup points', () => {
 	});
 });
 
-describe('solid, dashed, and dotted (SPEC story 61)', () => {
+describe('solid, dashed, and dotted', () => {
 	test('solid is the absence of stroke-dasharray, not a tuple that looks continuous', () => {
 		expect(dashArrayFor('solid')).toBeUndefined();
 
@@ -1115,7 +1115,7 @@ describe('a Point whose marker-symbol is label', () => {
 	test('is a label, and nothing else is', () => {
 		expect(isLabel(withSymbol(LABEL_MARKER_SYMBOL))).toBe(true);
 		// A Point with no symbol is a Pin, and a Point carrying somebody else's symbol stays a Pin and
-		// keeps it — this app never destroys a value it does not understand (SPEC story 51).
+		// keeps it — this app never destroys a value it does not understand.
 		expect(isLabel(withSymbol())).toBe(false);
 		expect(isLabel(withSymbol('harbor'))).toBe(false);
 		expect(isLabel(withSymbol('Label'))).toBe(false);
@@ -1152,8 +1152,8 @@ describe('a Point whose marker-symbol is label', () => {
 	});
 
 	test('adds no extension to the file: a Label serialises with only simplestyle properties', () => {
-		// The discriminator was chosen to make this checkable rather than argued in a document (SPEC, "A
-		// Label is a Point whose `marker-symbol` is `label`").
+		// The discriminator was chosen to make this checkable rather than argued in a document: a Label
+		// is a Point whose `marker-symbol` is `label`.
 		const written = JSON.parse(
 			utf8(
 				serialiseAnnotations(

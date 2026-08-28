@@ -1,13 +1,12 @@
-// What an imported Project says about itself afterwards (ticket 08, ADR-0037).
+// What an imported Project says about itself afterwards (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE MATRIX IS HERE BECAUSE IT IS METADATA, AND METADATA IS WHERE A SEAM 1 TEST IS AT ITS BEST
 //
 // Every claim in this file is about the bytes of one `project.json` after one transfer: which fields
-// were cleared, which entry was appended, what happened to the entries that were already there. The
-// SPEC's testing decisions rule that out of the browser explicitly — "do not add browser tests for
-// metadata permutations that the core model seam can prove" — so the permutations live here and the
-// running editor is asked only whether a reader can see the history at all.
+// were cleared, which entry was appended, what happened to the entries that were already there.
+// Permutations the core model seam can prove get no browser test of their own, so they live here and
+// the running editor is asked only whether a reader can see the history at all.
 //
 // The assertions go through `serialiseProjectFile` and back wherever the claim is about the *file*
 // rather than the model, because "no `canonicalUrl`" is a claim about absence from a document and a
@@ -121,9 +120,9 @@ describe('the observed entry each source appends', () => {
 		]);
 	});
 
-	// Stories 61 and 62, as the whole key set rather than as a list of absences: an author, an owner of
-	// the scholarship or a credential would arrive as a *new field*, and an absence assertion goes
-	// green for every field nobody has thought of yet.
+	// **No author, no owner of the scholarship, no credential** — asserted as the whole key set rather
+	// than as a list of absences, because any of the three would arrive as a *new field* and an
+	// absence assertion goes green for every field nobody has thought of yet.
 	it.each([
 		['a Project Bundle', BUNDLE, ['evidence', 'filename', 'kind', 'observedAt', 'projectName']],
 		[
@@ -146,7 +145,7 @@ describe('the publication reset', () => {
 		expect(detached.canonicalUrl).toBeNull();
 		expect(written(detached)).not.toHaveProperty('canonicalUrl');
 		// Retained where it is history rather than identity — and it is the *route* that keeps it, not
-		// a field of the Project (stories 55, 56).
+		// a field of the Project.
 		expect(JSON.stringify(written(detached))).toContain('ada');
 	});
 
@@ -181,7 +180,7 @@ describe('a Project handed on more than once', () => {
 	const twice = (): ProjectFile => {
 		const first = detachImportedProject(arrived(), GITHUB, AT);
 		// Through the file, because that is the only way the second Import sees the first: a Project
-		// Bundle carries `project.json` and nothing else about the transfer (SPEC story 67).
+		// Bundle carries `project.json` and nothing else about the transfer.
 		return detachImportedProject(parseProjectFile(serialiseProjectFile(first)), BUNDLE, LATER);
 	};
 

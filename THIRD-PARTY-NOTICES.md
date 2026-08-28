@@ -48,7 +48,7 @@ dependency at a time.
 | `tailwindcss`                    | MIT           | Styling                                         |
 | `svelte`, `@sveltejs/*`          | MIT           | Framework and static adapter                    |
 
-**`triiiceratops` is a dependency of `apps/viewer` alone since ticket 15**, and its three rows stay
+**`triiiceratops` is a dependency of `apps/viewer` alone**, and its three rows stay
 because that changes *where* it is redistributed and not *whether*. `apps/editor` dropped it with
 its unwarped view ([ADR-0018](docs/adr/0018-triiiceratops-embedded-as-a-svelte-component.md), see
 the amendment note), and the editor's own bundle now carries no OpenSeadragon. The published viewer
@@ -65,14 +65,13 @@ prevents anyway. `dompurify` is dual-licensed and either licence is acceptable h
 ships in the package.
 
 **`terra-draw` has been removed from this table, because it is not a dependency.** It was
-listed ahead of the ticket expected to add it, as the note above this table describes, and
-then three tickets in a row declined it: ticket 07 for Control Point pairing (ADR-0022 —
-pairing is linked markers across two panes, which no drawing library models), ticket 08 for
-the Resource Mask, and ticket 10 for Annotation drawing. All three now share one seam,
+listed ahead of the work expected to add it, as the note above this table describes, and
+then declined three times over: for Control Point pairing (ADR-0022 — pairing is linked
+markers across two panes, which no drawing library models), for the Resource Mask, and for
+Annotation drawing. All three now share one seam,
 `apps/editor/src/lib/overlay/overlay-points.ts`, whose handles are real focusable buttons.
 ADR-0005 still says all drawing goes through `terra-draw`, so **the ADR and the code
-disagree** — recorded as an open question for a human in the epic tracker. This file records
-what ships.
+disagree**, and that is an open question for a human. This file records what ships.
 
 Base map _tiles_ are not dependencies but are still third-party content with attribution
 requirements of their own — OpenStreetMap data is ODbL, and the rendered base maps must

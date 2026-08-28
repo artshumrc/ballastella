@@ -1,5 +1,4 @@
-// The map's running commentary, asserted against the component both apps render (SPEC stories 17,
-// 22, 70).
+// The map's running commentary, asserted against the component both apps render.
 //
 // It is announced and not drawn: a sighted user reads what is on the map off the map, so on screen
 // these lines were restatement eating the Base Map's vertical space. `sr-only` rather than deletion,
@@ -57,7 +56,7 @@ const text = (element: Element | null): string =>
 const EDITOR_EMPTY = 'Nothing is on the map yet.';
 const READER_EMPTY = 'This Project has nothing on the map.';
 
-describe('what is on the map, in words (SPEC story 22)', () => {
+describe('what is on the map, in words', () => {
 	test('counts what is drawn over the Base Map, and carries the count as an attribute', () => {
 		commentary({
 			layerCount: 3,
@@ -115,7 +114,7 @@ describe('what is on the map, in words (SPEC story 22)', () => {
 	});
 });
 
-describe('where the map is looking (SPEC story 22)', () => {
+describe('where the map is looking', () => {
 	// The sentence is core's — the editor and a Published Site answer one question the same way — so
 	// it is asserted against `openingViewSentence` rather than re-spelled here.
 	test('publishes core’s sentence and the outcome it came from', () => {
@@ -143,7 +142,7 @@ describe('where the map is looking (SPEC story 22)', () => {
 	});
 });
 
-describe('the commentary is announced by its text changing (SPEC story 17)', () => {
+describe('the commentary is announced by its text changing', () => {
 	// Always present, so a change is what is heard: an `aria-live` region is announced on a text
 	// change rather than on insertion. `role="status"` is unavailable — the save indicator owns it —
 	// and an `alert` would interrupt a Reader every time they hid a Layer.

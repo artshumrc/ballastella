@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The Project's ordered stack, as a user reads and edits it (SPEC stories 49–54).
+	// The Project's ordered stack, as a user reads and edits it.
 	//
 	// **Custom, and necessarily so.** No library provides drag-to-reorder, so this list is hand-built
 	// either way — and because Layer order is load-bearing in this application (ADR-0002), a drag-only
@@ -13,10 +13,10 @@
 	// The list is an `<ol>`, so its structure *and* its order reach assistive technology from the
 	// markup rather than from a label somebody has to remember to update.
 	//
-	// **One row opens at a time, in place** (ticket 05). A Project is a stack of Layers and a Layer
-	// opens to reveal its contents — a Map Image's alignment state and the button that aligns it,
-	// an Annotation Layer's tools and Annotations — which is one idea applied twice rather than two
-	// panels that have to be kept agreeing.
+	// **One row opens at a time, in place.** A Project is a stack of Layers and a Layer opens to reveal
+	// its contents — a Map Image's alignment state and the button that aligns it, an Annotation Layer's
+	// tools and Annotations — which is one idea applied twice rather than two panels that have to be
+	// kept agreeing.
 	//
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// EVERY WRITE IS AN OPTIONAL CALLBACK, AND THERE IS NO `readOnly` PROP
@@ -32,8 +32,8 @@
 	// opacity slider. So it is paired with `ontypename` behind the pencil, and it is also what the
 	// range's `onchange` calls — a consumer passing `ondragopacity` without it would get a slider that
 	// reports every position it is dragged through and never commits one. No consumer does that, so
-	// there is one prop rather than two; this is the note that says so, because the table in the
-	// ticket's Contract lists `oncommit` on the rename's row alone.
+	// there is one prop rather than two; this is the note that says so, because `oncommit` otherwise
+	// reads as the rename's alone.
 	//
 	// ⚠ **Do not add a `readOnly`, `mode` or `editable` boolean.** A flag and a set of callbacks are two
 	// descriptions of the same thing, and the failure is not hypothetical: the moment they can disagree,
@@ -104,10 +104,10 @@
 	// ICONS
 	//
 	// Lucide, imported one glyph at a time (ADR-0016's amendment, and the note in the catalog entry).
-	// **No glyph is ever alone with meaning** (SPEC story 111): the kind icon sits beside the words
-	// "Map Image", and every icon-only button carries its label in `sr-only` text. The two
-	// deliberate exceptions are the drag handle, which is `aria-hidden` because it is pointer-only and
-	// the move buttons are the contract, and the chevron, whose accessible name is the words "Open" and
+	// **No glyph is ever alone with meaning**: the kind icon sits beside the words "Map Image", and
+	// every icon-only button carries its label in `sr-only` text. The two deliberate exceptions are
+	// the drag handle, which is `aria-hidden` because it is pointer-only and the move buttons are the
+	// contract, and the chevron, whose accessible name is the words "Open" and
 	// "Close" — those words were visible before, and what replaced them is a glyph whose meaning
 	// `aria-expanded` already carries. A tooltip is not an information channel here and there is none.
 
@@ -216,10 +216,10 @@
 		 */
 		ondropannotation?: (annotationId: string, layerId: string) => void;
 		/**
-		 * Delete the Layer **and the file it draws** (SPEC story 49, ticket 11). Without it, no Delete.
+		 * Delete the Layer **and the file it draws**. Without it, no Delete.
 		 *
-		 * No confirmation dialog, and that is a decision rather than an omission: ticket 09 deliberately
-		 * shipped `removeLayer` with no button at all, on the reasoning that the affordance belongs with
+		 * No confirmation dialog, and that is a decision rather than an omission: `removeLayer`
+		 * deliberately shipped with no button at all, on the reasoning that the affordance belongs with
 		 * the undo that makes it safe. That safety is the screen's Edit History (ADR-0039), which holds
 		 * the deleted Layer's file and works after autosave has written the deletion — which a dialog
 		 * does not give you, since a user who means to delete confirms without reading and one who does
@@ -232,7 +232,7 @@
 		 * **Without it the empty state says only what is true of both apps** — that the Project has no
 		 * Layers on it. The editor's guidance names two buttons and the Workspace they draw from, and a
 		 * consumer whose user has neither cannot say it: a Reader told to press *Add a Map Image* is
-		 * being sent to look for a control that is not there (SPEC story 19).
+		 * being sent to look for a control that is not there.
 		 *
 		 * A snippet for the same reason as {@link mapContents}, and the sharpest case of it: the words name
 		 * the consumer's own controls, so they belong in the markup that renders them.
@@ -244,15 +244,15 @@
 		 * **The card says only that there is nothing to show and nothing drawn**, which is true wherever
 		 * the Layer is met. What becomes of it afterwards is not: the editor can promise that the Layer is
 		 * written back untouched and can still be renamed, hidden and moved, and a published site can
-		 * promise none of those — it writes nothing and offers two of the three controls not at all
-		 * (SPEC story 18, and the Contract's "no editing on it").
+		 * promise none of those — it writes nothing and offers two of the three controls not at all,
+		 * because a Published Site has no editing on it.
 		 *
 		 * A snippet for the same reason as {@link noLayersGuidance}: a sentence about a consumer's own
 		 * controls belongs in the markup that renders them.
 		 */
 		foreignLayerNote?: Snippet;
 		/**
-		 * The card of a Map Image being prepared right now, or `undefined` when none is (ticket 06).
+		 * The card of a Map Image being prepared right now, or `undefined` when none is.
 		 *
 		 * Rendered as the **top row of the stack**, which is where the Layer it is becoming will be, so
 		 * that "a Layer appears and reports its own preparation" is one row moving through two states
@@ -438,9 +438,9 @@
 	/**
 	 * Move a Layer by button, and leave the keyboard on the Layer that moved.
 	 *
-	 * **Without this, story 53 gets exactly one keypress.** The `{#each}` is keyed by Layer id, so
-	 * Svelte *moves* the card's DOM node — and a focused element that is removed and reinserted is
-	 * blurred to `document.body`, whether or not the move reached the end of the stack. So a keyboard
+	 * **Without this, a keyboard reorder gets exactly one keypress.** The `{#each}` is keyed by Layer
+	 * id, so Svelte *moves* the card's DOM node — and a focused element that is removed and reinserted
+	 * is blurred to `document.body`, whether or not the move reached the end of the stack. So a keyboard
 	 * user pressed "Move down" once and then had to Tab back in from the top of the document, past
 	 * MapLibre's own controls, for every further move. ADR-0016 makes the keyboard path the contract
 	 * and the drag the convenience, which is the reverse of that.
@@ -625,9 +625,9 @@
 		<ol class="mt-2 flex flex-col gap-2" aria-label="Layers, top first">
 			{#if preparing}
 				<!--
-					The Map Image being prepared, in the stack, above the Layers that are already in it
-					(ticket 06). A new map Layer is added at the top, so this is where the card it becomes will
-					be, and the card does not move when the preparation finishes.
+					The Map Image being prepared, in the stack, above the Layers that are already in it. A new map
+					Layer is added at the top, so this is where the card it becomes will be, and the card does not
+					move when the preparation finishes.
 
 					**It has no name field, no visibility toggle and no position controls**, because none of
 					them would have anything to act on: this Layer is not in `project.json` yet — see the
@@ -929,9 +929,9 @@
 
 					{#if open}
 						<!--
-							What is inside this Layer (ticket 05). One card is open at a time, so this markup
-							exists once on the screen however many Layers there are — which is why the ids and
-							the headings inside it can be fixed strings.
+							What is inside this Layer. One card is open at a time, so this markup exists once on
+							the screen however many Layers there are — which is why the ids and the headings
+							inside it can be fixed strings.
 
 							**Untinted, and that is the point of the tint above it**: the header says which Layer
 							this is, and everything below it is what can be done to that Layer.

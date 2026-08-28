@@ -7,8 +7,8 @@
 //
 //   1. **No test may reach the network** — a recorded decision by the repository owner, built into
 //      the `context` fixture by `network-fence.ts`.
-//   2. **A Workspace is a *named directory* in the OPFS root** (ticket 12, ADR-0024), so a
-//      `page.evaluate` that wants Workspace files can no longer treat `getDirectory()` as one.
+//   2. **A Workspace is a *named directory* in the OPFS root** (ADR-0024), so a `page.evaluate`
+//      that wants Workspace files can no longer treat `getDirectory()` as one.
 //
 // **They are composed here rather than chosen between.** Each was written as its own
 // `base.extend(…)` of `@playwright/test`, and two roots is a suite where a spec gets whichever its
@@ -53,8 +53,8 @@ const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
  * WHY THE PAGE GETS A FUNCTION AND NOT SEVENTY COPIES OF ONE FACT
  *
  * Some seventy `page.evaluate` bodies across this suite reached for
- * `navigator.storage.getDirectory()` and treated what came back as the Workspace. Since ticket 12
- * the root *holds* Workspaces and is not one, so each of those would otherwise have grown its own
+ * `navigator.storage.getDirectory()` and treated what came back as the Workspace. The root *holds*
+ * Workspaces and is not one, so each of those would otherwise have grown its own
  * `getDirectoryHandle(…)` — which is how a suite ends up half seeding the wrong place and staying
  * green. **The root itself is still reachable and still spelled
  * `navigator.storage.getDirectory()`**, which is what the "empty everything" helpers and the tests

@@ -50,7 +50,7 @@ const READ_RETRY_MS = 25;
  * `NotReadableError` mean different things here — the first is "no such file", which is usually the
  * test's answer, and the second is the atomic-replace window, which is usually the machine's. An
  * earlier version of this helper dropped the cause and made its own failures undiagnosable, which is
- * precisely the tax this ticket is about.
+ * precisely the tax this module exists to remove.
  */
 const attemptRead = (
 	page: Page,

@@ -11,7 +11,7 @@ import {
 	addMapImageIsOpen,
 	ensureAddMapImageOpen
 } from './support/map-images.js';
-// The fake IIIF services, shared by every spec that needs one (ticket 07). This file used to carry
+// The fake IIIF services, shared by every spec that needs one. This file used to carry
 // its own copy of the host table, the `info.json` builder and the tile matcher; see the module
 // header there for why three private copies of one fixture was a defect rather than a duplication.
 import {
@@ -24,16 +24,15 @@ import {
 import { deleteLayerRow, layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
-// did not need the routing until ticket 11, because nothing but MapLibre opened the archive and a
-// Base Map that failed to load was harmless here. The Project screen now opens it too — to read the
+// did not always need the routing, because nothing but MapLibre opened the archive and a Base Map
+// that failed to load was harmless here. The Project screen now opens it too — to read the
 // pyramid's depth before it can say what making the Project available offline would take — so an
 // unrouted archive is both a real request and a Layer stack that waits on a style that never loads.
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 /**
- * SPEC's Seam 2 for remote IIIF ingest: a URL pasted into the running app, in a real browser,
- * against real OPFS and a fixture host that behaves the way real ones do (SPEC stories 16–20, 24,
- * 25, 26, 29, 48).
+ * Seam 2 for remote IIIF ingest: a URL pasted into the running app, in a real browser, against real
+ * OPFS and a fixture host that behaves the way real ones do.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * THE FIXTURE HOSTS
@@ -43,18 +42,18 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  * everything about *hosts*: which requests the app makes, which it does not, and what happens when
  * a host refuses one.
  *
- * They live in `support/iiif-hosts.ts` now (ticket 07), shared with every other spec that needs a
+ * They live in `support/iiif-hosts.ts` now, shared with every other spec that needs a
  * IIIF service. The ones this file drives:
  *
  *   `library.test`  — Manifests and a Collection. CORS everywhere.
  *   `images.test`   — an image service that serves everything readably.
- *   `tiles-only.test` — **`info.json` with CORS and tiles without it.** The ticket says a naive
- *                     implementation that probes only `info.json` passes a naive test and then
- *                     ships the blank-map failure this slice exists to prevent, so the fixture host
- *                     is built to catch exactly that. `route.abort()` is what a browser does to a
+ *   `tiles-only.test` — **`info.json` with CORS and tiles without it.** An implementation that
+ *                     probes only `info.json` passes a naive test and then ships the blank-map
+ *                     failure this file exists to prevent, so the fixture host is built to catch
+ *                     exactly that. `route.abort()` is what a browser does to a
  *                     cross-origin request the host does not permit: the `fetch` rejects.
  *   `sizes-only.test` — level 0 publishing no `tiles` at all, which is the one shape this app must
- *                     refuse when the map is *added* (ticket 07).
+ *                     refuse when the map is *added*.
  *   `annotations.allmaps.org` — the community lookup, so "off means no request" is a claim about
  *                     the network rather than about a variable.
  *
@@ -65,8 +64,8 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -194,8 +193,8 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 /**
  * Wait until a referenced Map Image has landed on the Project screen, and leave its Layer open.
  *
- * Since ticket 05 the library a referenced map's tiles come from is *inside* the Layer that fetches
- * them, so seeing it is opening the row. That makes this the wait as well as the assertion: the row
+ * The library a referenced map's tiles come from is *inside* the Layer that fetches them, so seeing
+ * it is opening the row. That makes this the wait as well as the assertion: the row
  * appears when the map has been added, and the host appears when the Workspace's `remote.json` for it
  * has been read.
  *
@@ -232,7 +231,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await installIiifHosts(page);
 		await openNewProject(page);
 
-		// A Manifest (SPEC story 16) — three canvases, each pickable (story 19).
+		// A Manifest — three canvases, each pickable.
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
 		await expect(page.getByTestId('remote-label')).toHaveText(
 			'A Sea Atlas of the Western Approaches'
@@ -240,7 +239,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await expect(page.getByTestId('remote-canvas')).toHaveCount(3);
 		await expect(page.getByTestId('remote-canvas').nth(1)).toHaveText(/Chart of the Florida coast/);
 
-		// Metadata, rights, and attribution while choosing (SPEC story 20).
+		// Metadata, rights, and attribution while choosing.
 		await expect(page.getByTestId('remote-rights')).toContainText(
 			'creativecommons.org/licenses/by/4.0'
 		);
@@ -250,7 +249,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await page.getByText('Catalogue details (2)').click();
 		await expect(page.getByText('MS Atlas 44')).toBeVisible();
 
-		// A Collection (SPEC story 17): one URL from a library is enough.
+		// A Collection: one URL from a library is enough.
 		await page.getByTestId('remote-reset').click();
 		await lookUp(page, 'https://library.test/iiif/collection');
 		await expect(page.getByTestId('remote-label')).toHaveText('Sea atlases');
@@ -258,7 +257,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		await page.getByTestId('remote-item').click();
 		await expect(page.getByTestId('remote-canvas')).toHaveCount(3);
 
-		// A bare image service (SPEC story 18): nothing to choose, so it is selected outright.
+		// A bare image service: nothing to choose, so it is selected outright.
 		await page.getByTestId('remote-reset').click();
 		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
 		await expect(page.getByTestId('remote-add')).toBeVisible();
@@ -268,7 +267,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	test('names the host when its tiles are not readable cross-origin — and the tile probe is what catches it', async ({
 		page
 	}) => {
-		// SPEC story 24, and the failure ADR-0007 exists to prevent. `tiles-only.test` serves its
+		// The failure ADR-0007 exists to prevent. `tiles-only.test` serves its
 		// `info.json` with CORS and aborts its tiles, so an implementation that probed only the
 		// description would pass every other test in this file and ship a blank map.
 		await installIiifHosts(page);
@@ -327,8 +326,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		expect(record.label).toBe('Chart of the Florida coast');
 		expect(record.partOf).toBe('https://library.test/iiif/atlas/manifest.json');
 		expect(record.canvas).toBe('https://library.test/iiif/atlas/canvas/2');
-		// ADR-0007 wants rights and attribution again at the moment an offline copy is made (ticket
-		// 15), long after the Manifest has been navigated away from — so they are recorded now.
+		// ADR-0007 wants rights and attribution again at the moment an offline copy is made, long after
+		// the Manifest has been navigated away from — so they are recorded now.
 		expect(record.rights).toBe('http://creativecommons.org/licenses/by/4.0/');
 		expect(record.attribution).toBe('Provided by the Example Library');
 		// The service's declared square tile side, in hand only at this moment and previously discarded.
@@ -359,7 +358,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	});
 
 	/**
-	 * The defect ticket 01's review found, and the round trip that proves it is closed.
+	 * A defect review found, and the round trip that proves it is closed.
 	 *
 	 * A referenced map added **without** a community Alignment used to write `images/<id>/remote.json`
 	 * and the Layer, and nothing else — while `layerReferences` requires `alignments/<id>.json` for
@@ -411,8 +410,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		const bundle = await readFile(await saved.path());
 
 		// A Workspace with nothing in it, so opening the bundle cannot be satisfied by what is already
-		// there — and since ticket 14 the bundle lands in a Review Workspace of its own regardless
-		// (ADR-0024), which is why nothing is asserted about this one afterwards.
+		// there — and the bundle lands in a Review Workspace of its own regardless (ADR-0024), which is
+		// why nothing is asserted about this one afterwards.
 		await emptyWorkspace(page);
 		await page.reload();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
@@ -444,8 +443,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	});
 
 	/**
-	 * SPEC story 68, the second half: adding a Map Image the Project already draws is a no-op on
-	 * the stack — not a duplicate row, and not a refusal.
+	 * Adding a Map Image the Project already draws is a no-op on the stack — not a duplicate row, and
+	 * not a refusal.
 	 *
 	 * The referenced path is where this can be driven at all: `generateId(uri)` is deterministic, so
 	 * the second add lands on the same image id, where a local file's random id (ADR-0015) makes two
@@ -498,8 +497,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	/**
 	 * "Remove the Layer, add the same map again, and it comes back — which today it silently does not."
 	 *
-	 * The behaviour ticket 02 names as the demonstrable one, and it is the *other* side of the deleted
-	 * tombstone. `ProjectFile.removedMapLayers` recorded the image ids whose Layer the user had removed
+	 * The demonstrable half of the deleted tombstone, and the *other* side of it.
+	 * `ProjectFile.removedMapLayers` recorded the image ids whose Layer the user had removed
 	 * and was consulted on every Alignment write; a re-add had to remember to lift it, and anything
 	 * that forgot made a deletion permanent through the affordance built to reverse it. With the record
 	 * gone there is nothing to lift and nothing to forget.
@@ -555,7 +554,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	 * the Layer is still in the stack, so the add is a no-op on `project.json` and the question of
 	 * what happens to `alignments/<id>.json` is not asked.
 	 *
-	 * This is the scenario the ticket names. A Library map is aligned; its Layer is deleted; the same
+	 * This is the scenario that reaches it. A Library map is aligned; its Layer is deleted; the same
 	 * map is added again — which, because `generateId(uri)` is deterministic, lands on the same image
 	 * id and therefore on the same Alignment. Without the guard in `#writeInitialAlignment`, the add
 	 * writes a starter over three Control Points and the deletion of a *Layer* silently destroys an
@@ -808,8 +807,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	test('offers the community alignments it found, and importing one produces a working Alignment', async ({
 		page
 	}) => {
-		// SPEC story 25. The annotation the fixture API answers with has three Control Points, which is
-		// what `polynomial1` needs — so "working" means renderable, not merely parseable.
+		// The annotation the fixture API answers with has three Control Points, which is what
+		// `polynomial1` needs — so "working" means renderable, not merely parseable.
 		await installIiifHosts(page, {
 			communityAnnotations: [
 				communityAnnotation('images.test', 'florida'),
@@ -846,8 +845,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		expect(alignment.target.selector.value).toContain('10,10 690,10 690,490 10,490');
 
 		// **And it names the remote service, not the ADR-0004 placeholder.** For a referenced image
-		// that is what makes the file resolvable by Allmaps (ADR-0007, SPEC story 91) *and* what makes
-		// the warped Layer render at all — `@allmaps/maplibre` fetches tiles from this `id`.
+		// that is what makes the file resolvable by Allmaps (ADR-0007) *and* what makes the warped Layer
+		// render at all — `@allmaps/maplibre` fetches tiles from this `id`.
 		expect(alignment.target.source.id).toBe(service('images.test', 'florida'));
 		expect(JSON.stringify(alignment)).not.toContain('unset.invalid');
 	});
@@ -855,8 +854,8 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	test('discloses the lookup, and makes no request to the Allmaps API when it is off', async ({
 		page
 	}) => {
-		// SPEC story 26 and ADR-0015. Asserted three ways, because the interesting claim is an
-		// *absence* and an absence is the easiest thing in the world to assert vacuously.
+		// ADR-0015. Asserted three ways, because the interesting claim is an *absence* and an absence is
+		// the easiest thing in the world to assert vacuously.
 		await installIiifHosts(page, {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
@@ -867,9 +866,9 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 			if (request.url().includes('annotations.allmaps.org')) allmapsRequests.push(request.url());
 		});
 
-		// The setting is at the point of use, which since ticket 06 is inside the dialog the library
-		// source lives in — so reaching it is the same gesture as reaching the URL field, and this
-		// is the one test in this suite that asks about it before looking anything up.
+		// The setting is at the point of use, inside the dialog the library source lives in — so
+		// reaching it is the same gesture as reaching the URL field, and this is the one test in this
+		// suite that asks about it before looking anything up.
 		await ensureAddMapImageOpen(page);
 
 		// On by default, and it says so at the point of use.
@@ -970,10 +969,10 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	});
 
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
-		// SPEC story 95. Driven entirely from the keyboard, **including the step that reaches it**:
-		// ticket 06 put the library source inside a dialog, so "reachable" now starts one gesture
-		// earlier. Reaching it with `click()` while the test's name claimed otherwise made the first
-		// half of this criterion untrue and unasserted at the same time.
+		// Driven entirely from the keyboard, **including the step that reaches it**: the library source
+		// is inside a dialog, so "reachable" starts one gesture earlier. Reaching it with `click()`
+		// while the test's name claimed otherwise made the first half of this claim untrue and
+		// unasserted at the same time.
 		await installIiifHosts(page);
 		await openNewProject(page);
 
@@ -1004,17 +1003,15 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────────
- * THE EDITOR NO LONGER READS A MAP IMAGE AS A DOCUMENT — TICKET 15
+ * THE EDITOR DOES NOT READ A MAP IMAGE AS A DOCUMENT
  *
- * Two tests used to live at the top of this block: one that opened a referenced map unwarped in
- * triiiceratops and asserted tiles were requested from the library (SPEC story 48), and one that
- * asserted ADR-0018's Svelte-component import by the absence of `<triiiceratops-viewer>` from the
- * custom-element registry. Both went with the affordance.
+ * The editor has no unwarped reading affordance, so nothing here opens a referenced map in
+ * triiiceratops or asserts ADR-0018's Svelte-component import through the custom-element registry.
  *
- * **Story 101 is rescoped, not dropped**: the published viewer keeps the unwarped view, and
- * `viewer-reader.e2e.ts`'s "a Map Image read unwarped" block is where it is asserted now.
- * That block does **not** carry an equivalent of the custom-element assertion — see the amendment
- * note on ADR-0018, which records the gap rather than implying it was moved.
+ * **The unwarped view is not dropped, only moved**: the published viewer keeps it, and
+ * `viewer-reader.e2e.ts`'s "a Map Image read unwarped" block is where it is asserted. That block
+ * does **not** carry an equivalent of the custom-element assertion — see the amendment note on
+ * ADR-0018, which records the gap rather than implying it was moved.
  *
  * What this block still holds is the *warped* half: a referenced Layer drawn from the remote host's
  * tiles, by both routes in.
@@ -1049,14 +1046,14 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 			test.slow();
 			// The other half of "a referenced image produces a Layer with `imageMode: 'referenced'` **and
 			// renders from the remote host**". The Layer part is asserted above, on `project.json`; this is
-			// the rendering, and it is asserted the way ticket 09 asserts it — on the warped Layer's own
-			// tile cache — because the failure this path has is an error `@allmaps/render` logs and
-			// swallows, so a check for an absence of console errors goes green over a blank map.
+			// the rendering, asserted the way `editor-offline-copy.e2e.ts` asserts it — on the warped
+			// Layer's own tile cache — because the failure this path has is an error `@allmaps/render`
+			// logs and swallows, so a check for an absence of console errors goes green over a blank map.
 			//
-			// It is also the assertion that catches the specific mistake this ticket could make: handing the
-			// renderer an Alignment whose `resource.id` is the ADR-0004 placeholder. That document parses,
-			// solves, and reports a map id — and then asks the injection layer for a pyramid the Project
-			// does not contain, and draws nothing.
+			// It is also the assertion that catches the specific mistake this path is most able to make:
+			// handing the renderer an Alignment whose `resource.id` is the ADR-0004 placeholder. That
+			// document parses, solves, and reports a map id — and then asks the injection layer for a
+			// pyramid the Project does not contain, and draws nothing.
 			await installIiifHosts(page, {
 				communityAnnotations: [communityAnnotation('images.test', 'florida')]
 			});
@@ -1083,8 +1080,8 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 				if (request.url().includes('unset.invalid')) placeholderRequests.push(request.url());
 			});
 
-			// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
-			// that page: the Layer stack is the Project, so arriving is already being there and the two
+			// `via: 'link'` used to mean "follow the Project page's Layers link". There is no such page
+			// any more: the Layer stack is the Project, so arriving is already being there and the two
 			// paths differ only in whether the screen was loaded fresh.
 			if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 			else await page.goto('/?p=amsterdam-1625');
@@ -1138,7 +1135,7 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 		// Two maps, because one is not the same test: the reason is shown beside the Layer stack, so a
 		// Project whose *only* referenced record is unreadable currently says nothing at all. That gap
 		// is recorded against `apps/editor/src/lib/project/ProjectScreen.svelte` rather than asserted
-		// here — ticket 04 moved the markup, not the gap.
+		// here.
 		await installIiifHosts(page);
 		await openNewProject(page);
 
@@ -1170,8 +1167,8 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 
 		// The readable one still names its library, so one broken record has not taken the Project down
 		// with it — and the broken one's row opens to *nothing* about a library rather than to an error.
-		// Asked of each row in turn, because since ticket 05 only one Layer is open at a time: a count
-		// over the whole page would now be 1 whichever of the two was open, including neither.
+		// Asked of each row in turn, because only one Layer is open at a time: a count over the whole
+		// page would be 1 whichever of the two was open, including neither.
 		const readable = generateId(service('images.test', 'florida'));
 		const readableRow = await expectReferencedMap(
 			page,
@@ -1193,8 +1190,8 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 		page,
 		baseURL
 	}) => {
-		// Ticket 15, and it replaces the two tests named in this block's header rather than merely
-		// deleting them. A criterion of the form "X is gone" is the easiest kind to pass vacuously —
+		// This replaces the two tests named in this block's header rather than merely deleting them. A
+		// claim of the form "X is gone" is the easiest kind to pass vacuously —
 		// "no control named X" is true of a page that failed to render at all — so this asserts the
 		// *absence* only on a page where the affordance's own preconditions are met: a referenced
 		// Map Image, added from a library, with its Layer row open and naming its host. That row
@@ -1207,7 +1204,7 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 		// matched `/triiiceratops|openseadragon/` on them, which passes whatever the code does — these
 		// specs run against `vite preview` over a production build, where every chunk is named by a
 		// content hash and no package name survives into a URL. That is exactly the vacuous shape this
-		// epic keeps shipping, so what is asserted instead is the *content* of this route's assets.
+		// suite keeps shipping, so what is asserted instead is the *content* of this route's assets.
 		//
 		// **Where the list comes from matters, and response events alone were not good enough.** The
 		// second cut collected `page.on('response')` URLs. Measured against a probe that put
@@ -1224,11 +1221,11 @@ test.describe('a referenced Map Image, drawn from the library that holds it', ()
 		// and 12 modulepreload links respectively, overlapping but not identical. Measured with a probe
 		// that imported triiiceratops into `routes/align/+page.svelte` alone: the offending chunk is
 		// `nodes/3.*`, which `align.html` declares and `index.html` does not mention at all — so that
-		// version stayed green while the ticket's own `grep -rilE "openseadragon" apps/editor/build`
-		// caught it, narrower than the check it replaced. The documents are **discovered** from the
+		// version stayed green while a plain `grep -rilE "openseadragon" apps/editor/build` caught it,
+		// narrower than the check it replaced. The documents are **discovered** from the
 		// build rather than listed here, so a fourth route cannot join the app and quietly escape this.
 		//
-		// `openseadragon` is a **known-good positive**: before this ticket it matched
+		// `openseadragon` is a **known-good positive**: before the removal it matched
 		// `_app/immutable/chunks/BjdhZAMi.js`, which the Project route loaded, and it survives
 		// minification — it is in the viewer's chunk today. A marker absent from every build would make
 		// this check unfalsifiable; this one was present until the commit that removed it.

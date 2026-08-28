@@ -84,6 +84,6 @@ the scan begins.
   stylesheet; `@source '.'` is written in the shared stylesheet anyway, because the failure it
   forecloses is silent — the utilities would simply be absent from both built stylesheets and the
   components would render unstyled with nothing erroring.
-- **The viewer's bundle is measured across every move into this package**, and recorded in the
-  ticket that made it. Sharing components must not silently make every published site larger. The
-  Base Map switcher, the first component moved, cost 516 bytes of a 2.80 MB build.
+- **The viewer's bundle is measured across every move into this package.** Sharing components must
+  not silently make every published site larger. The Base Map switcher, the first component moved,
+  cost 516 bytes of a 2.80 MB build.

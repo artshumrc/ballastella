@@ -20,8 +20,8 @@
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // THE BUDGET IS PERMISSIVE, AND THAT IS A MEASURED DECISION RATHER THAN A RETREAT.
 //
-// It was 0.5% — one test in the whole 398, so a single retry anywhere failed the run. Held for the
-// length of the epic, that rule cost many hours of investigation and did not fix the underlying
+// It was 0.5% — one test in the whole 398, so a single retry anywhere failed the run. Held for months,
+// that rule cost many hours of investigation and did not fix the underlying
 // races: the suite drives ten workers, each running a real WebGL map against the same origin's OPFS,
 // and under that contention a first attempt occasionally loses to a timing margin that no code change
 // in the application removes. A gate that fires on something nobody can fix stops being a signal and

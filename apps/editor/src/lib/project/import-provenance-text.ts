@@ -7,7 +7,7 @@
 // ⚠ **Neither sentence may become attribution.** An entry names a route — a file that was picked, a
 // repository the bytes came from — and the section these lines appear in says so in as many words,
 // because a scholar reading a list of accounts beside somebody's maps will otherwise read it as
-// authorship (SPEC story 62).
+// authorship.
 
 import type { ImportProvenanceEntry } from '@ballastella/core';
 
@@ -48,7 +48,7 @@ export function describeImportProvenance(entry: ImportProvenanceEntry): string {
  * Whether Ballastella saw this, said to a reader.
  *
  * The inherited sentence says twice over that nothing here checked it, because the whole risk of
- * showing a carried claim is that it reads as a verified one (story 64).
+ * showing a carried claim is that it reads as a verified one.
  */
 export function describeImportEvidence(entry: ImportProvenanceEntry): string {
 	return entry.evidence === 'observed'

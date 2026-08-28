@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Aligning one Map Image: the sheet on one side and the world on the other (ticket 03).
+	// Aligning one Map Image: the sheet on one side and the world on the other.
 	//
 	// A route of its own rather than a section of the Project page. Aligning is a whole screen's worth
 	// of work — two live map contexts, a Control Point list, a Resource Mask, and a transformation
@@ -35,7 +35,7 @@
 	const session = $derived(storage?.session ?? null);
 
 	/**
-	 * ⚠ **Gated on `storage.recovered`, and this is the route where it matters most** (ticket 20).
+	 * ⚠ **Gated on `storage.recovered`, and this is the route where it matters most.**
 	 *
 	 * The write-ahead journal is replayed into the store as the Workspace is adopted, and this
 	 * effect runs at the same moment. `/align?p=…&layer=…` is bookmarkable, and it is the screen
@@ -120,17 +120,16 @@
 	});
 
 	/**
-	 * This screen's Edit History, declared for the navigation bar (ADR-0039, SPEC stories 1 and 55).
+	 * This screen's Edit History, declared for the navigation bar (ADR-0039).
 	 *
 	 * **Keyed by Map Image id and not by Project.** An Alignment belongs to the Workspace and is
 	 * shared by every Project that draws that map (ADR-0023), so the same Alignment reached from a
-	 * second Project is the same Edit History (SPEC story 5) — and a different map is a different one
-	 * (SPEC story 4).
+	 * second Project is the same Edit History — and a different map is a different one.
 	 *
 	 * Declared only once there is a Map Image to name, so this route's own recoveries — no Project, no
 	 * `?layer=`, a link from another Workspace — draw no controls rather than controls for nothing.
-	 * The teardown is what leaves the Project screen with its own history and none of this one's,
-	 * which is the defect this epic exists to close (SPEC story 2).
+	 * The teardown is what leaves the Project screen with its own history and none of this one's:
+	 * without it, walking back offers Undo for an Alignment that screen is no longer showing.
 	 */
 	$effect(() => {
 		const current = session;

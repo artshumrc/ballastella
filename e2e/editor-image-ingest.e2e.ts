@@ -25,8 +25,8 @@ import {
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2 for the tiler: a file picked in the running app, in a real browser, against real
- * OPFS (SPEC stories 21, 22, 23).
+ * Seam 2 for the tiler: a file picked in the running app, in a real browser, against real
+ * OPFS.
  *
  * The tile geometry is asserted in `@ballastella/core`, against the committed fixture pyramid. What
  * can only be asserted here is the rest of it: that a file picker reaches the tiler at all, that
@@ -113,8 +113,8 @@ function pngHeaderOnly(width: number, height: number): Buffer {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no
+		// test can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -237,7 +237,7 @@ test.describe('adding a Map Image from a file', () => {
 		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 		await expect(page.getByText('This Project has no Map Images yet.')).toBeHidden();
 
-		// SPEC story 23: the tool said what it was doing, in a live region, with real numbers.
+		// The tool said what it was doing, in a live region, with real numbers.
 		// (`announcements` sees every live region on the page, so the save indicator's own "Saved" is
 		// in here too — hence the assertions are on what was said, not on the last entry.)
 		const said = await announcements(page);
@@ -245,7 +245,7 @@ test.describe('adding a Map Image from a file', () => {
 		expect(said.filter((text) => /tile \d+ of 9/.test(text)).length).toBeGreaterThan(1);
 
 		// And it stopped saying it. A progress bar left on the page after the job is the other half
-		// of story 23: a scholar cannot tell a finished ingest from a stuck one.
+		// of announcing the work: a scholar cannot tell a finished ingest from a stuck one.
 		await expect(page.getByRole('progressbar')).toHaveCount(0);
 
 		const imageId = (await page.getByTestId('layer-row').first().getAttribute('data-image-id'))!;
@@ -426,7 +426,7 @@ test.describe('adding a Map Image from a file', () => {
 
 		// The card is the Layer *before* it is one: nothing is in the document until the pyramid is.
 		// A Layer written now would name a pyramid and an Alignment that do not exist — the dangling
-		// reference ticket 02 closed — and closing the tab here would make it permanent.
+		// reference this card exists to avoid — and closing the tab here would make it permanent.
 		expect(
 			(await readJson(page, 'amsterdam-1625', 'project.json')) as { layers: unknown[] }
 		).toMatchObject({
@@ -506,8 +506,8 @@ test.describe('adding a Map Image from a file', () => {
 		});
 
 		// Named for what it cancels rather than just "Cancel", which tells a screen-reader user
-		// nothing when it is one of several buttons on the page (ADR-0016, story 96). **On the Layer's
-		// own card** since ticket 06, which is where the thing being cancelled is.
+		// nothing when it is one of several buttons on the page (ADR-0016). **On the Layer's own
+		// card**, which is where the thing being cancelled is.
 		const cancel = preparingCard(page).getByRole('button', {
 			name: 'Cancel preparing la-floride.png'
 		});
@@ -520,8 +520,8 @@ test.describe('adding a Map Image from a file', () => {
 		await expect(page.getByRole('progressbar')).toHaveCount(0);
 		await expect(page.getByRole('alert')).toHaveCount(0);
 
-		// **The Layer goes with it**, which is ticket 06's half of this: a card that survived a
-		// cancellation would be a Layer pointing at a pyramid that was never written.
+		// **The Layer goes with it**: a card that survived a cancellation would be a Layer pointing
+		// at a pyramid that was never written.
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 
 		// And the Project is as it was — asserted on the files and on the document, not on the absence
@@ -543,7 +543,8 @@ test.describe('adding a Map Image from a file', () => {
 		// really in the way was a streaming tiler that could not start without COOP/COEP — accurate
 		// about the cause and actionable by nobody. Before that it was worse: it arrived as "This file
 		// could not be read as an image … a TIFF or JPEG 2000 archival master needs to be converted
-		// first", about a perfectly valid PNG. SPEC's *On the audience* makes both a defect.
+		// first", about a perfectly valid PNG. Both are defects: the reader is a scholar, and a message
+		// they cannot act on is not a message (ADR-0027).
 		const requested: string[] = [];
 		page.on('request', (request) => requested.push(request.url()));
 
@@ -565,8 +566,8 @@ test.describe('adding a Map Image from a file', () => {
 		await expect(alert, 'the refusal blames the file instead of its size').not.toContainText(
 			'could not be read as an image'
 		);
-		// SPEC's audience again: none of these words may reach a user. The deployment detail they
-		// described is not merely unhelpful now, it is false — nothing here needs those headers.
+		// The same rule again: none of these words may reach a user (ADR-0027). The deployment detail
+		// they described is not merely unhelpful now, it is false — nothing here needs those headers.
 		for (const word of ['COOP', 'COEP', 'Cross-Origin', 'cross-origin', 'SharedArrayBuffer']) {
 			await expect(alert, word).not.toContainText(word);
 		}
@@ -621,7 +622,7 @@ test.describe('adding a Map Image from a file', () => {
 			buffer: gradientPng(700, 500)
 		});
 		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
-		// **The row being on screen is not the thing this test reloads onto** (ticket 17). `project.json`
+		// **The row being on screen is not the thing this test reloads onto**. `project.json`
 		// is written on autosave's 400 ms debounce (ADR-0017 rule 2), and a reload takes the Workspace
 		// as it is on disk — so reloading here on the strength of the row alone was a race with the
 		// write, and it lost in 1 of the 10 runs measured on 2026-08-07 (`toHaveCount(1) … Received: 0`,

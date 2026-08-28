@@ -9,8 +9,8 @@
 // inconvenience:
 //
 //   * **`write`, and therefore `reclaimAbandonedWrites`.** A static host does not accept bytes.
-//     Ticket 17 is explicit that the viewer has no store `write`, and the way to make that true is
-//     for there to be no method — not a method that rejects. A rejecting `write` is reachable code
+//     The viewer has no store `write`, and the way to make that true is for there to be no method —
+//     not a method that rejects. A rejecting `write` is reachable code
 //     the compiler will not argue with, and the failure it produces is a Reader being shown an
 //     error at the end of a gesture that should never have been offered.
 //   * **`list`.** *There is no directory listing on a static host*, which is the fact the whole of
@@ -22,8 +22,8 @@
 //     therefore follows the references it is given — a map Layer's `imageId` and an Annotation Layer's
 //     `geojsonRef`, with `alignments/<id>.json` and `images/<id>/` derived from the image id — all of
 //     which are named in `project.json`.
-//   * **`size`.** Excused by the ticket in as many words: nothing a Reader does needs it, the
-//     hosting-limit warnings belong to the editor, and it would cost one `HEAD` per file.
+//   * **`size`.** Nothing a Reader does needs it, the hosting-limit warnings belong to the editor,
+//     and it would cost one `HEAD` per file.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // EVERY URL IS RELATIVE, AND THIS MODULE IS NOT WHERE THAT IS DECIDED
@@ -67,12 +67,12 @@ export type HttpProjectStoreOptions = {
  * A request for a Published Site's file failed in a way that is not "there is nothing there".
  *
  * Distinct from {@link PathNotFoundError} because the two mean opposite things to a Reader, and
- * conflating them is the defect recorded on ticket 09 in its other form: a Layer whose document is
+ * conflating them is a defect this codebase has met in another form: a Layer whose document is
  * *absent* is a Project that was published incomplete, and one whose host answered 500 or refused the
  * connection is a Project that is fine and a server that is not. Told apart, the page can say which;
  * folded together, a Reader on a train is told their scholar's work is missing.
  *
- * The host is named because that is the actionable part of the sentence — ticket 17's degradation
+ * The host is named because that is the actionable part of the sentence — the viewer's degradation
  * table asks for exactly that of an unreachable referenced image.
  */
 export class SiteFileUnreachableError extends Error {
@@ -109,8 +109,8 @@ const hostOf = (url: string): string => {
  * Read a Published Site's files over HTTP.
  *
  * `cache: 'no-cache'` — revalidate rather than serve blind from the browser cache. A Published Site
- * is re-published in place (SPEC story 81: one repository for a whole semester), so a Reader who
- * looked at it last week must not be shown last week's `project.json` beside this week's tiles. It is
+ * is re-published in place — one repository for a whole semester — so a Reader who looked at it last
+ * week must not be shown last week's `project.json` beside this week's tiles. It is
  * `no-cache` and not `no-store` deliberately: a conditional request that comes back 304 costs
  * nothing, and a pyramid is thousands of files.
  *

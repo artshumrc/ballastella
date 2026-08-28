@@ -28,7 +28,7 @@ export interface ControlPoint {
 	 *
 	 * **Derived from position, never stored.** A Georeference Annotation has nowhere to put an
 	 * ordinal, and inventing a place — a sidecar index, or a private `_allmaps` key — would put a
-	 * proprietary index in a file a librarian is meant to be able to preserve (SPEC story 94). So
+	 * proprietary index in a file a librarian is meant to be able to preserve. So
 	 * the order of the pairs in the file *is* the numbering, which is what makes ordinals stable
 	 * across a reload without anything being written to hold them. The cost is that deleting
 	 * point 3 of 5 renumbers the two after it; the benefit is that there is no second source of
@@ -249,7 +249,7 @@ export interface Alignment {
 	readonly transformationType: TransformationType;
 	/**
 	 * The top-level members of the file this Alignment was read from that this build does not model
-	 * — **carried rather than understood**, and written back verbatim (SPEC story 60, ticket 18).
+	 * — **carried rather than understood**, and written back verbatim.
 	 *
 	 * Absent for an Alignment this build made; present only for one parsed from a document somebody
 	 * else wrote. Nothing reads it but `serialiseAlignment`, which puts every member back exactly as
@@ -257,10 +257,10 @@ export interface Alignment {
 	 *
 	 * **Why it exists at all.** ADR-0023 made `alignments/<image-id>.json` the Workspace's, shared by
 	 * every Project, and `serialiseAlignment` regenerates the whole document from this type — so
-	 * before this field, any member of a third-party Georeference Annotation that `Alignment` does
-	 * not model was dropped the first time anybody nudged a Control Point. Silently, and in a file a
-	 * librarian is meant to be able to preserve. Story 60 asks that an Alignment made here stay
-	 * usable by other IIIF tools; that has to include the ones that put something in the file.
+	 * without this field, any member of a third-party Georeference Annotation that `Alignment` does
+	 * not model would be dropped the first time anybody nudged a Control Point. Silently, and in a
+	 * file a librarian is meant to be able to preserve. An Alignment made here has to stay usable by
+	 * other IIIF tools, and that includes the ones that put something in the file.
 	 *
 	 * It is deliberately the *whole* member and not a parsed shape: this build has no idea what the
 	 * member means, and the only safe thing to do with a value you do not understand is hand it back
@@ -270,8 +270,8 @@ export interface Alignment {
 	/**
 	 * The path of a member of the source document that **cannot** be carried, or absent.
 	 *
-	 * SPEC story 60's criterion is that an unmodelled field survives a read-and-write cycle **or**
-	 * that the write is refused with a message saying why. {@link unmodelled} is the first half.
+	 * The criterion is that an unmodelled field survives a read-and-write cycle **or** that the write
+	 * is refused with a message saying why. {@link unmodelled} is the first half.
 	 * This is the second, and it exists because there is exactly one shape the first half cannot
 	 * cover: a member inside an element of an array both documents have — in practice something a
 	 * colleague's tool wrote into `body.features[].properties`. The features are regenerated one per
@@ -281,7 +281,7 @@ export interface Alignment {
 	 * So the Alignment still **reads** — the user can open it, see it, and export it — and
 	 * `serialiseAlignment` refuses to write it, naming the member. Refusing to save is a bad day;
 	 * silently rewriting somebody's file with their annotations missing is a worse one, and is the
-	 * failure this whole ticket is about.
+	 * failure this field and {@link unmodelled} exist to prevent.
 	 */
 	readonly unpreservable?: string;
 }
@@ -304,7 +304,7 @@ export const ALIGNMENT_DIRECTORY = 'alignments';
  * `parseAlignment` takes the image id from the caller and never from the document's own
  * `resource.id`.
  *
- * **{@link AlignmentPath}, not `string`, and that is the fence** (ticket 18). The brand is a phantom
+ * **{@link AlignmentPath}, not `string`, and that is the fence.** The brand is a phantom
  * property — the value is the same string it always was — and its whole job is that `store.write`
  * and `Autosave.commit` take a `WritablePath`, which an `AlignmentPath` is not. Reading, listing,
  * sizing and deleting take it unchanged; writing does not compile. `alignment-file.ts` is the only
@@ -319,7 +319,7 @@ export const alignmentPath = (imageId: string): AlignmentPath =>
  *
  * The inverse of {@link alignmentPath}, and the way a caller holding an arbitrary store path asks
  * whether it names an Alignment — which decides whether the write has to go through
- * `alignment-file.ts` and name an intent (ticket 18) rather than through an ordinary save.
+ * `alignment-file.ts` and name an intent rather than through an ordinary save.
  *
  * Deliberately as narrow as `hoistedImageId`'s Alignment half: exactly two segments, a non-empty
  * stem, and a `.json` suffix. Anything looser routes a path this application never writes into the

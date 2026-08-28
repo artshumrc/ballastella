@@ -3,19 +3,19 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS HERE AND NOT BESIDE `baseMapUnavailableNotice`
 //
-// The ticket offered `base-map/resolve.ts` "or a sibling module if that file is the wrong home for a
-// Map Image's failure". It is the wrong home: everything in `base-map/` takes a `BaseMapEntry`
-// and answers questions about the modern reference map underneath the work, and this answers a
-// question about the work itself. What decides *this* wording is not a catalog entry but the
-// refusal the injection layer met — so it lives beside {@link createStoreImageFetch}, which is the
-// module that produces the facts and the one place that can classify them.
+// `base-map/resolve.ts` is the obvious home for a Map Image's failure and the wrong one:
+// everything in `base-map/` takes a `BaseMapEntry` and answers questions about the modern
+// reference map underneath the work, and this answers a question about the work itself. What
+// decides *this* wording is not a catalog entry but the refusal the injection layer met — so it
+// lives beside {@link createStoreImageFetch}, which is the module that produces the facts and the
+// one place that can classify them.
 //
 // It follows `baseMapUnavailableNotice` in every other respect, deliberately, because it is the same
 // promise made about a different failure:
 //
-//   - **One function, rendered by both deployments.** The published viewer renders it (ticket 04) and
-//     the editor renders it (ticket 05). Two templates would be two answers to one outage, and the
-//     scholar who publishes a site is the same person who reads it.
+//   - **One function, rendered by both deployments.** The published viewer renders it and the editor
+//     renders it. Two templates would be two answers to one outage, and the scholar who publishes a
+//     site is the same person who reads it.
 //   - **Three things, in the order the questions arrive**: it is not you; your work is safe; here is
 //     what would fix it.
 //   - **Visible text, never a tooltip** (ADR-0016: daisyUI renders tooltips through CSS `::before`,
@@ -47,9 +47,9 @@ export type TileSourceFailure =
 	 * The read failed for a reason none of the rows above describes — a storage backend refusing, a
 	 * permission withdrawn, something unforeseen.
 	 *
-	 * ⚠ **This row exists so that the other three cannot be made to lie.** The three remedies the
-	 * ticket asks for are the three above; this is the honest fourth answer for everything else, and
-	 * the alternative — folding an unknown failure into `no-answer` — would tell a scholar whose
+	 * ⚠ **This row exists so that the other three cannot be made to lie.** The three failures with a
+	 * remedy of their own are the three above; this is the honest fourth answer for everything else,
+	 * and the alternative — folding an unknown failure into `no-answer` — would tell a scholar whose
 	 * browser storage refused to check their connection. It says what happened and offers the only
 	 * remedy that is true of every case, which is to try again.
 	 */
@@ -164,8 +164,7 @@ function remedy(failure: TileSourceFailure): string {
  *
  * So a Reader who followed the old sentence — "worth checking your connection and waiting rather than
  * reloading" — waited in front of a warning that would never go, over a map that would never finish.
- * A sentence promising something the code cannot do is the failure mode this epic's own notes name as
- * the recurring one.
+ * A sentence promising something the code cannot do is the failure mode this module exists to stop.
  *
  * Hiding and showing the Layer is named as well as reloading because it is the cheaper of the two and
  * it is measured to work: the Reader keeps their place on the map, their Annotations, and every other

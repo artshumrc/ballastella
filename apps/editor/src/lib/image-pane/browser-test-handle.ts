@@ -19,17 +19,17 @@ declare global {
 		/**
 		 * Every tile the image pane has been served, in order, for the Playwright suite.
 		 *
-		 * This exists because ticket 06 makes the tiles **unobservable from outside the page**. Up
-		 * to ticket 05 the browser suite asserted "tiles at every scale factor load, ragged edges
-		 * included" through Playwright's `response` event, because the pyramid was served over HTTP
-		 * from static assets. A pyramid read out of OPFS issues no request at all, so the same
-		 * criterion has no network to be asserted on — and dropping it would quietly retire the one
-		 * check that catches the reader and the writer disagreeing about which tile is where.
+		 * This exists because a pyramid read out of OPFS makes the tiles **unobservable from outside
+		 * the page**. Asserting "tiles at every scale factor load, ragged edges included" through
+		 * Playwright's `response` event works only while the pyramid is served over HTTP from static
+		 * assets; OPFS issues no request at all, so the same criterion has no network to be asserted
+		 * on — and dropping it would quietly retire the one check that catches the reader and the
+		 * writer disagreeing about which tile is where.
 		 *
-		 * The alternative was a map-abstraction layer, which SPEC's Seam 2 rules out on purpose: it
-		 * would test a fake instead of the thing that ships. So this is the same bargain
-		 * `ballastellaBaseMap` struck in ticket 04 — one property, written only here, read only by
-		 * `e2e/`.
+		 * The alternative was a map-abstraction layer, which the two test seams `CONTRIBUTING.md`
+		 * names rule out on purpose: it would test a fake instead of the thing that ships. So this is
+		 * the same bargain `ballastellaBaseMap` strikes — one property, written only here, read only
+		 * by `e2e/`.
 		 *
 		 * It is not an API. Nothing in `src/` may read it.
 		 */

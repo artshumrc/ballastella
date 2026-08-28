@@ -4,7 +4,7 @@
 	// The shell is `AppBar`, in `@ballastella/ui`, and it is the editor's bar — the same landmark, the
 	// same layout, the same page-chrome slot, the same theme control in the same place, so that a
 	// scholar talking a colleague through a published site over the phone is looking at one interface
-	// rather than two dialects of one (SPEC stories 2, 3 and 7).
+	// rather than two dialects of one.
 	//
 	// What a Reader gets here is fewer items, not a restricted version of the editor's: there is no
 	// Workspace to switch, nothing to save and nothing to undo, so none of those are passed. That is

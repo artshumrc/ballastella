@@ -155,7 +155,7 @@ describe('baseMapStyle', () => {
 	});
 
 	it('takes glyphs from the catalog alone, so no entry or theme can be without them', () => {
-		// SPEC story 60. A Label's words are shaped from the Base Map's typefaces, and the stack omits the
+		// A Label's words are shaped from the Base Map's typefaces, and the stack omits the
 		// Label bucket where the style carries none (`styleHasGlyphs` in `render/stack-layers.ts`) — which
 		// is the state of a Published Site written before ADR-0025. **The editor never reaches that
 		// state**, and the reason is structural rather than statistical: `glyphs` is
@@ -192,7 +192,7 @@ describe('baseMapStyle', () => {
 describe('baseMapStyle over a forked catalog', () => {
 	// The forkability property: nothing about a style comes from anywhere but the entry and the
 	// catalog it was given, so replacing the catalog module is the whole of pointing a fork at
-	// its own tiles (SPEC story 100).
+	// its own tiles.
 	const options = { theme: 'light' as const, catalog: FORKED_CATALOG };
 
 	it('takes its archive, glyphs, sprite, and attribution from the catalog it was given', () => {

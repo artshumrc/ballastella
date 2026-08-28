@@ -115,7 +115,7 @@ export interface BaseMapCache extends BaseMapCacheSize {
 	/** The archive the cache's own record names, or `null` when it records none. */
 	readonly archive: string | null;
 	/**
-	 * Whether this is the **pre-ticket-12 unkeyed pile** at `base-map/tiles/{z}/…`.
+	 * Whether this is the **legacy unkeyed pile** at `base-map/tiles/{z}/…`.
 	 *
 	 * Distinct from `archive === null`, which a keyed cache reaches by losing its record. A legacy
 	 * pile is not missing its provenance so much as predating the idea: there was one directory and
@@ -142,7 +142,7 @@ export interface BaseMapCache extends BaseMapCacheSize {
  * the provenance record, which is the only place a key can be turned back into an archive.
  */
 export async function baseMapCaches(store: ProjectStore): Promise<BaseMapCache[]> {
-	/** `null` is the pre-ticket-12 unkeyed pile — see {@link parseAnyCachedTilePath}. */
+	/** `null` is the legacy unkeyed pile — see {@link parseAnyCachedTilePath}. */
 	const byKey = new Map<string | null, { paths: string[]; zooms: number[] }>();
 	for (const path of await store.list(BASE_MAP_TILE_ROOT)) {
 		const parsed = parseAnyCachedTilePath(path);
@@ -263,15 +263,15 @@ export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
 // and has to be told on the site record which archives it carries tiles for.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHY THIS IS NO LONGER ALSO A MISMATCH DETECTOR (ticket 12)
+// WHY THIS IS NOT ALSO A MISMATCH DETECTOR
 //
-// Ticket 11 left the cache as one directory shared by every catalog entry and covered the resulting
-// wrong-map risk with a comparison — `cachedTilesMatchArchive`, checked at each call site. Keying the
-// directory removes the state that check existed for: two archives can no longer meet in one
-// directory, so there is nothing left to compare and nothing left for a call site to forget. The one
-// residue is kept here rather than deleted — {@link readCachedTileSource} refuses a record whose
-// `archive` is not the one asked for, so a hand-edited or colliding record is "unknown" rather than
-// authoritative — and it is one function's business instead of every caller's.
+// An unkeyed cache — one directory shared by every catalog entry — has to cover the resulting
+// wrong-map risk with a comparison at every call site. Keying the directory removes the state such a
+// check exists for: two archives can no longer meet in one directory, so there is nothing left to
+// compare and nothing left for a call site to forget. The one residue is kept here rather than
+// dropped — {@link readCachedTileSource} refuses a record whose `archive` is not the one asked for,
+// so a hand-edited or colliding record is "unknown" rather than authoritative — and it is one
+// function's business instead of every caller's.
 
 /** Which archive filled the cache, and how deep that archive said it went. */
 export interface CachedTileSource {

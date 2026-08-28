@@ -2,8 +2,8 @@ import { PathNotFoundError, type Bytes, type StorePath } from './project-store.j
 import { TempFileWriteStore } from './temp-file-write-store.js';
 
 /**
- * A {@link ProjectStore} in a `Map`. SPEC's Seam 1 — the primary seam, because in this
- * project "after this sequence of actions the store holds these files with these contents"
+ * A {@link ProjectStore} in a `Map`. The primary test seam CONTRIBUTING.md names, because in
+ * this project "after this sequence of actions the store holds these files with these contents"
  * is not a proxy for the behaviour, it *is* the behaviour: the user's folder is the product.
  *
  * Not a test double for the real thing so much as a fourth backend that happens to be

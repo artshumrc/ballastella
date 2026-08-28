@@ -20,13 +20,11 @@
 // Interior tiles — the overwhelming majority — are passed through as bytes without being
 // decoded here at all.
 //
-// **Where the bytes come from is injected** (ADR-0011, ticket 06). Ticket 03 fetched them from
-// the app's static assets, which kept the projection isolated from the storage layer while the
-// projection was the risk; a pane over a Map Image the user ingested is handed
-// `createStoreImageFetch` instead, and the tile URLs it builds are on the `unset.invalid`
-// placeholder host that shim routes. This file cannot tell the two apart, which is the point:
-// one `fetch`-shaped seam, and the fixture pane and the user's own map take the same path
-// through it.
+// **Where the bytes come from is injected** (ADR-0011). A pane over a Map Image the user ingested
+// is handed `createStoreImageFetch`, and the tile URLs it builds are on the `unset.invalid`
+// placeholder host that shim routes; a pyramid genuinely served over HTTP is read by a plain
+// `fetch`. This file cannot tell the two apart, which is the point: one `fetch`-shaped seam, and
+// every pane takes the same path through it.
 
 import { recordServedTile } from './browser-test-handle';
 
@@ -54,7 +52,7 @@ export const imagePaneTileTemplate = (paneId: string) => `${PROTOCOL}://${paneId
  * `fetchTile` is where the pyramid actually lives. Pass `createStoreImageFetch(...)` for a
  * Map Image in the user's Project — it resolves the placeholder host out of the
  * `ProjectStore` and passes anything else through — and leave it out only for a pyramid that
- * really is served over HTTP, which in this app is ticket 03's committed fixture alone.
+ * really is served over HTTP.
  */
 export function registerImagePaneTiles(
 	paneId: string,

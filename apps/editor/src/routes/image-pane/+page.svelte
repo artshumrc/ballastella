@@ -4,7 +4,7 @@
 	// This is deliberately not a user-facing route: the pane here shows a fixture, not the
 	// user's own Map Image. It exists so the synthetic projection can be exercised — and
 	// asserted in a real browser — before the storage layer, the tiler, or Control Points
-	// exist. Ticket 06 puts the same pane over a Map Image read from the ProjectStore.
+	// exist. `MapImagePane.svelte` puts the same pane over a Map Image read from the ProjectStore.
 
 	import { asset } from '$app/paths';
 	import { createImagePane, type ImagePane, type ResourcePoint } from '@ballastella/core';

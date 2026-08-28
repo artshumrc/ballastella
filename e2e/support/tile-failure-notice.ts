@@ -6,11 +6,11 @@
  *
  * Exactly the arrangement `support/base-map-notice.ts` arrived at, and for the reason recorded
  * there. `mapImageTilesUnavailableNotice` in `@ballastella/core` composes one sentence and
- * **both applications render that same function's output** — the published viewer at ticket 04, the
- * editor at ticket 05 — so that one outage is not described two ways at the same person. A contract
- * between two applications is only real if something fails when it breaks, and the way that contract
- * broke last time was one side pinning the whole string and the other pinning four fragments of it,
- * which left an inlined copy on the second side entirely green.
+ * **both applications render that same function's output** — the published viewer and the editor
+ * alike — so that one outage is not described two ways at the same person. A contract between two
+ * applications is only real if something fails when it breaks, and the way that contract broke last
+ * time was one side pinning the whole string and the other pinning four fragments of it, which left
+ * an inlined copy on the second side entirely green.
  *
  * So: one expected string, built here, asserted with `toHaveText` — never `toContainText` — on both
  * sides.

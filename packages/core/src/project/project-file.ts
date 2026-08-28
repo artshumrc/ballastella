@@ -86,8 +86,7 @@ export interface ProjectFile {
 	 *
 	 * Set only by the opt-in publish step that rewrites each `info.json` `id`, and remembered here so
 	 * that a later publish can offer the same address rather than asking again — which is what makes
-	 * a stamped `id` a *citable* IIIF endpoint rather than a value nobody can reproduce (SPEC story
-	 * 92).
+	 * a stamped `id` a *citable* IIIF endpoint rather than a value nobody can reproduce.
 	 *
 	 * **An address, and the one field in this file that is one.** It is not read to fetch anything:
 	 * the editor assigns `Image#uri` from wherever the tiles really are, so moving a stamped Project
@@ -345,8 +344,7 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// Spread last so nothing carried shadows a field an edit changed — with the one key this
 			// build models under `importProvenance` taken out of it when there is a history to write.
 			// `parseProjectFile` keeps a non-array `importProvenance` here on purpose, and spread over a
-			// modelled history it would silently drop the entry a transfer had just appended (SPEC
-			// story 65).
+			// modelled history it would silently drop the entry a transfer had just appended.
 			...carried
 		},
 		null,

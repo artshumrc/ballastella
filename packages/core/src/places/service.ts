@@ -5,9 +5,9 @@ import type { PlaceService } from './place';
 // │                                                                                       │
 // │ Repointing the lookup must require **no change** anywhere else in the repository, and  │
 // │ the service's attribution moves with it — which is the whole reason the two sit in one │
-// │ value (SPEC stories 26 and 27). A fork that repointed the Base Map catalog at its own  │
-// │ tiles and kept the default lookup would otherwise show the wrong credit and leave the  │
-// │ candidate list's data uncredited.                                                      │
+// │ value. A fork that repointed the Base Map catalog at its own tiles and kept the        │
+// │ default lookup would otherwise show the wrong credit and leave the candidate list's    │
+// │ data uncredited.                                                                       │
 // │                                                                                       │
 // │ So: change this file, and nothing else. No other module may name the service host.     │
 // │                                                                                       │

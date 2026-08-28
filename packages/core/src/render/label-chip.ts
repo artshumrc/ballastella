@@ -6,10 +6,10 @@
 // scholar drags a colour input. Sized to the words by `icon-text-fit`, which is what makes a long name
 // grow its background instead of being clipped by a box drawn for a short one.
 //
-// The design was proved in a real browser before it was built on — see
-// `.tracker/write-on-the-map/tickets/01-prove-the-background-chip.md` and the two screenshots beside
-// it. **The numbers below are that proof's**, kept rather than re-chosen, and the paragraphs that
-// follow are the three facts they encode.
+// **The numbers below were measured in a real browser, not chosen**, and the paragraphs that follow
+// are the three facts they encode. Change one only against a fresh measurement: they encode how a
+// chip's background sits under text at the sizes a scholar actually uses, and a plausible-looking
+// round number here has been wrong before.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // 1. THE CORNERS SURVIVE STRETCHING BECAUSE OF WHERE THE STRETCH ZONES ARE
@@ -48,9 +48,10 @@
 //
 // A distance field clipped at the shape's own outline carries no outward distance along a flat edge,
 // and `icon-halo-width` then finds field to draw on only in the corners — four small arcs with nothing
-// between them, which is not the "aura around it" SPEC promises. {@link MARGIN} is the transparent
-// border that gives the falloff room: 12 image pixels, which at {@link SPREAD} 16 is the whole ramp
-// from the edge value down to zero, so a halo of any width the selection uses is drawn in full.
+// between them, which is not the aura the selected chip is meant to have. {@link MARGIN} is the
+// transparent border that gives the falloff room: 12 image pixels, which at {@link SPREAD} 16 is the
+// whole ramp from the edge value down to zero, so a halo of any width the selection uses is drawn in
+// full.
 //
 // The margin costs nothing in the fitted chip's size, because it is paid for in `content`.
 // Everything outside `content` hangs *outside* the box `icon-text-fit` fits, at its natural size —

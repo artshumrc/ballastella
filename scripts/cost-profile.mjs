@@ -11,9 +11,9 @@
 // test, summed over every attempt, retries included, because a retry is time the run really paid.
 //
 // So the profile ranks by worker-seconds, reports the per-test average that decides which file is
-// worth attacking next, and prints the suite total so a later ticket can state the fraction it
-// removed. Every estimate this epic got wrong came from generalising a partial measurement, which
-// is why the output records the test count and wall clock of the run it came from: a table written
+// worth attacking next, and prints the suite total so a later migration can state the fraction it
+// removed. Every estimate that has come out wrong here came from generalising a partial measurement,
+// which is why the output records the test count and wall clock of the run it came from: a table written
 // by one spec's run is visibly one spec's run rather than a suite profile.
 //
 // The reporter is additive — `playwright.config.ts` appends it to the reporter list rather than
@@ -24,7 +24,7 @@ import { dirname, relative, resolve } from 'node:path';
 import process from 'node:process';
 
 /** Where the committed table lands unless the caller names somewhere else. */
-export const DEFAULT_PROFILE_PATH = '.tracker/the-suite-runs-in-three-minutes/COST-PROFILE.md';
+export const DEFAULT_PROFILE_PATH = 'docs/e2e-cost-profile.md';
 
 /** Individual tests listed per spec in the committed table. */
 export const TESTS_LISTED_PER_SPEC = 5;
@@ -185,7 +185,7 @@ export default class CostProfileReporter {
 			wallMs: Date.now() - this.#startedAt
 		});
 
-		// The committed table is what every later ticket targets by, and a filtered run would replace
+		// The committed table is what every later migration targets by, and a filtered run would replace
 		// the whole suite's rows with its own handful. Such a run has to name its own file.
 		const refused = !this.#pathWasChosen && !isWholeSuite(command);
 		if (!refused) {

@@ -1,4 +1,4 @@
-// The two derives that stop a live alignment being rebuilt underneath the scholar (ticket 07).
+// The two derives that stop a live alignment being rebuilt underneath the scholar.
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 // │ WHAT IS COUNTED HERE IS **HOW MANY TIMES A DEPENDENT EFFECT RAN**, AND NOTHING ELSE.       │

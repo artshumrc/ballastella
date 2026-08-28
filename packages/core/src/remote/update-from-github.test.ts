@@ -259,7 +259,7 @@ describe('updateFromGitHub', () => {
 		const result = await update(store, fake, baseline);
 
 		// The inbound path is recorded at the Remote's SHA; the local-only path keeps the SHA the
-		// Baseline already had, which is what leaves it reporting as Changes to publish (story 130).
+		// Baseline already had, which is what leaves it reporting as Changes to publish.
 		expect(result.baseline.get('images/map-1/0/0/1.jpg')).toBe(await gitBlobSha(encode(theirs)));
 		expect(result.baseline.get('amsterdam-1625/annotations/l2.geojson')).toBe(
 			baseline.files.get('amsterdam-1625/annotations/l2.geojson')
@@ -380,7 +380,7 @@ describe('updateFromGitHub', () => {
 		expect(fake.rawGets).toBe(0);
 	});
 
-	// ── Confirmed deletions (SPEC stories 125–127) ────────────────────────────────────────────
+	// ── Confirmed deletions ───────────────────────────────────────────────────────────────────
 	//
 	// The confirmer is a function the caller passes, so what a test asserts is the whole of the
 	// contract: what it was shown, and what the Workspace holds afterwards for each of its two answers.

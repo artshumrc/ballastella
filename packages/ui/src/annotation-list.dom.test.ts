@@ -127,7 +127,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 	await tick();
 };
 
-describe('an Annotation’s own words reach the screen as text (one-shell-two-apps story 34, ADR-0009)', () => {
+describe('an Annotation’s own words reach the screen as text (ADR-0009)', () => {
 	test('a title that looks like markup is characters, not elements', () => {
 		list({ annotations: [annotation({ id: 'a-1', title: PAYLOAD })] });
 
@@ -147,7 +147,7 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 		// interpolation, so the DOM never parses it and no sanitiser is involved — which is why the
 		// claim sits beside the row's twin above rather than beside `AnnotationDescription`'s, and why
 		// it belongs at this seam: an interpolation cannot be made vacuously green by happy-dom the way
-		// DOMPurify can (the-annotation-inspector story 71).
+		// DOMPurify can.
 		inspect({ annotation: annotation({ id: 'a-1', title: PAYLOAD }), index: 0 });
 
 		const heading = one('annotation-inspector-name')!;
@@ -178,7 +178,7 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 
 		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
 			.toEqual(['Fort Amsterdam', 'Untitled pin 2']);
-		// The shape word is beside the name rather than instead of it (SPEC story 111), so the glyph
+		// The shape word is beside the name rather than instead of it, so the glyph
 		// is a second channel: a screen reader still hears which shape each row is.
 		expect(nth('annotation-row', 0)).toHaveTextContent('pin');
 	});
@@ -186,7 +186,7 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 	test('an untitled label is a label rather than a pin, in the word and in the number', () => {
 		// A Label and a Pin are both Points, so a row that named them from the geometry called both a
 		// pin. The word is `shapeWord`'s and the number `annotationOrdinal`'s, which is what makes
-		// "Untitled label 3" one fact rather than two counts (SPEC stories 40, 41, 64).
+		// "Untitled label 3" one fact rather than two counts.
 		list({
 			annotations: [
 				annotation({ id: 'a-1' }),
@@ -203,7 +203,7 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 
 	test('a label carrying an unknown symbol is not a label at all', () => {
 		// `marker-symbol` is simplestyle's own field and another tool's value for it — `"harbor"`, `"7"` —
-		// is a Pin that keeps its symbol (SPEC story 51), not a Label with a typo.
+		// is a Pin that keeps its symbol, not a Label with a typo.
 		list({ annotations: [annotation({ id: 'a-1', symbol: 'harbor' })] });
 
 		expect(one('annotation-row-name')).toHaveTextContent('Untitled pin 1');
@@ -218,7 +218,7 @@ describe('an Annotation’s own words reach the screen as text (one-shell-two-ap
 	});
 });
 
-describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
+describe('every Annotation is numbered on its row', () => {
 	// **The number is the same fact the map's mark draws**, and it is `annotationOrdinal`'s in both
 	// places — see `packages/core/src/annotation/ordinal.ts` for why the rule is one function rather
 	// than an `index + 1` written wherever a number is wanted. That the mark carries it too is asserted
@@ -241,9 +241,9 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 	});
 
 	test('the number is added to the row, not put in place of anything it already said', () => {
-		// The Contract's own words: the row keeps its name and its shape word, and the marker keeps
-		// whatever accessible name it has. A number that displaced the name would read as a tidier list
-		// and would have taken away the only thing that says what an Annotation *is*.
+		// The row keeps its name and its shape word, and the marker keeps whatever accessible name it
+		// has. A number that displaced the name would read as a tidier list and would have taken away the
+		// only thing that says what an Annotation *is*.
 		list({ annotations: three() });
 
 		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
@@ -252,8 +252,8 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 	});
 
 	test('the number is inside the row’s own button, so it is heard as well as seen', () => {
-		// Story 42: nothing about which Annotation is which may depend on seeing a line, so the ordinal
-		// is part of the button's accessible name rather than a decoration positioned beside it.
+		// Nothing about which Annotation is which may depend on seeing a line, so the ordinal is part of
+		// the button's accessible name rather than a decoration positioned beside it.
 		list({ annotations: three() });
 
 		const button = nth('annotation-row', 2);
@@ -287,7 +287,7 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 	});
 });
 
-describe('the row selects and opens nothing (the-annotation-inspector stories 10, 69)', () => {
+describe('the row selects and opens nothing', () => {
 	// **Openness and selection are one state, so there is one property for them.** The row carries no
 	// `aria-pressed`: an Annotation that was pressed but not open, or open but not pressed, were two
 	// answers to "which one is active" that could disagree, and now there is one. Which element wears
@@ -322,11 +322,11 @@ describe('the row selects and opens nothing (the-annotation-inspector stories 10
 	});
 
 	test('a selected row is its button and nothing else, whatever the consumer passes', async () => {
-		// Story 10, and the claim the disclosure machinery was deleted for (story 69): the list stays
-		// the same length however much any one Annotation has to say. **Asserted as the row's own
-		// children rather than as the absence of a `data-testid`**, because a renamed id is exactly how
-		// an absence assertion goes quietly green — there is no snippet left to pass, so the only
-		// honest form of "nothing opens" is to read what the `<li>` actually holds.
+		// The claim the disclosure machinery was deleted for: the list stays the same length however much
+		// any one Annotation has to say. **Asserted as the row's own children rather than as the absence
+		// of a `data-testid`**, because a renamed id is exactly how an absence assertion goes quietly
+		// green — there is no snippet left to pass, so the only honest form of "nothing opens" is to
+		// read what the `<li>` actually holds.
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
@@ -344,8 +344,8 @@ describe('the row selects and opens nothing (the-annotation-inspector stories 10
 	test('a reordering consumer adds the handle and still opens nothing', async () => {
 		// The drag handle is the one thing a row gains, it is on **every** row rather than on the
 		// selected one, and it is not a region: a control strip unfolding under the chosen Annotation is
-		// exactly the growth stories 10 and 69 exist to prevent, which is why the Move buttons are in
-		// the Inspector instead.
+		// exactly the growth this list is shaped to prevent, which is why the Move buttons are in the
+		// Inspector instead.
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
@@ -410,7 +410,7 @@ describe('the row selects and opens nothing (the-annotation-inspector stories 10
 	});
 });
 
-describe('the selected row is unmistakable (the-annotation-inspector stories 7, 8, 54)', () => {
+describe('the selected row is unmistakable', () => {
 	// **Class strings written out rather than read from `KIND_STYLE`**, for the reason
 	// `layer-list.dom.test.ts` gives where it asserts the header's tint: a class read off the table
 	// would agree with the table whatever either of them said. There is no paint at this seam, so what
@@ -449,8 +449,8 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 
 	test('the selected row’s name is semibold, and an unselected row’s is not', () => {
 		// Colour is not the only channel: a monochrome screen still says which row it is. This is the
-		// half of story 7 that survives a theme with no colour at all, so it is asserted apart from the
-		// wash and would otherwise be deleted as a duplicate of it.
+		// half of the selection mark that survives a theme with no colour at all, so it is asserted apart
+		// from the wash and would otherwise be deleted as a duplicate of it.
 		list({ annotations: two(), openId: 'a-1' });
 
 		expect(nth('annotation-row', 0)).toHaveClass('font-semibold');
@@ -458,11 +458,11 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 	});
 
 	test('one property carries the selection, on both states, and nothing else claims it', () => {
-		// Story 54, and the reason `AnnotationRow` refuses `aria-pressed`: a row that was pressed but not
-		// open, or open but not pressed, would be two answers to "which Annotation is active". Asserted
-		// across the whole `<li>` rather than on the button, so adding the property to any element in the
-		// row goes red — and on both rows, because a selection carried only by the absence of an
-		// attribute is not carried at all.
+		// The reason `AnnotationRow` refuses `aria-pressed`: a row that was pressed but not open, or open
+		// but not pressed, would be two answers to "which Annotation is active". Asserted across the
+		// whole `<li>` rather than on the button, so adding the property to any element in the row goes
+		// red — and on both rows, because a selection carried only by the absence of an attribute is not
+		// carried at all.
 		list({ annotations: two(), openId: 'a-1' });
 
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
@@ -473,11 +473,11 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 	});
 });
 
-describe('the list says what is in the Layer (the-annotation-inspector stories 12, 13)', () => {
+describe('the list says what is in the Layer', () => {
 	// **These claims are the list's own and not the disclosure's**, which is why they are in a describe
 	// of their own: the count above the rows, and the difference between a Layer nobody has read and a
-	// Layer with nothing in it, are true however an Annotation's content comes to be read. A ticket that
-	// changes what a row does must leave every test here green.
+	// Layer with nothing in it, are true however an Annotation's content comes to be read. A change to
+	// what a row does must leave every test here green.
 
 	test('a Layer with nothing in it says so instead of drawing an empty list', () => {
 		list({ annotations: [] });
@@ -538,7 +538,7 @@ describe('the list says what is in the Layer (the-annotation-inspector stories 1
 	});
 });
 
-describe('a surface the consumer does not ask for is not there (SPEC stories 58, 60)', () => {
+describe('a surface the consumer does not ask for is not there', () => {
 	// ⚠ **Both halves of every claim, on purpose.** An absence asserted on its own is the vacuous
 	// green this repository's testing decisions exist to prevent: rename one `data-testid` and every
 	// `not.toBeInTheDocument()` below goes on passing while the control it names sits on the screen.
@@ -554,7 +554,7 @@ describe('a surface the consumer does not ask for is not there (SPEC stories 58,
 	];
 
 	test('offers the drawing surface only with tools', () => {
-		// ⚠ **This is the absence that matters most in the epic.** The editor's `tools` snippet holds
+		// ⚠ **This is the absence that matters most.** The editor's `tools` snippet holds
 		// the drawing surface *and* the place search, and a place search issues a lookup to a
 		// third-party service. A Published Site quietly doing that for a Reader who asked for nothing
 		// is what ADR-0029 is written against, which is why the viewer passes no snippet at all rather
@@ -572,10 +572,10 @@ describe('a surface the consumer does not ask for is not there (SPEC stories 58,
 	});
 
 	test('the selected row names the Inspector, and an unselected row names nothing', () => {
-		// Story 53. The region an Annotation is read in is across the screen now (ADR-0035), and
-		// `aria-controls` does not require containment — so what a screen reader is told survives the
-		// move. **Both halves, because the value is the whole claim**: a row that named the Inspector
-		// whether or not it was the selected one would have two rows claiming the panel is theirs.
+		// The region an Annotation is read in is across the screen (ADR-0035), and `aria-controls` does
+		// not require containment — so what a screen reader is told survives the move. **Both halves,
+		// because the value is the whole claim**: a row that named the Inspector whether or not it was
+		// the selected one would have two rows claiming the panel is theirs.
 		list({ annotations: two(), openId: 'a-1' });
 
 		// The id itself rather than a literal, so a rename of the Inspector's own id moves both.

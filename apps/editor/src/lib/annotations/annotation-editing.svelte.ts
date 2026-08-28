@@ -1,15 +1,13 @@
 // The Project screen's annotation state layer: which Layer is open, what is selected, and every
-// function that writes an Annotation (ticket 06, carving out what ticket 05 measured).
+// function that writes an Annotation.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A CLASS BESIDE `AnnotationDrawing` RATHER THAN 369 LINES OF `ProjectScreen`
 //
 // `ProjectScreen.svelte` is four separate subjects sharing one `<script>`: the document-loading
-// chain, the opening view, offline availability, and this. Ticket 05 read the file, named this
-// block as the one with the fewest edges to the rest — `session`, the `documents` record, and
-// `layers` — and left the extraction to 06 rather than trimming prose to hit a line count. This is
-// that extraction, with the three edges made explicit as constructor arguments and nothing else
-// reachable from here.
+// chain, the opening view, offline availability, and this. This block has the fewest edges to the
+// rest — `session`, the `documents` record, and `layers` — which is why it is the one that came out,
+// with the three edges made explicit as constructor arguments and nothing else reachable from here.
 //
 // **The three edges are functions, not values.** Every one of them is a `$derived` or a `$state`
 // owned by the screen, and a value copied in at construction would be the value the screen had at
@@ -100,7 +98,7 @@ export interface AnnotationWriter {
 	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean;
 }
 
-/** The three edges ticket 05 named, and the one write back through the middle of them. */
+/** The three edges into the screen, and the one write back through the middle of them. */
 export interface AnnotationEdges {
 	session: () => AnnotationWriter;
 	layers: () => readonly Layer[];
@@ -110,7 +108,7 @@ export interface AnnotationEdges {
 }
 
 /**
- * The sentence an Edit History's controls say about a gesture on one Annotation (SPEC story 42).
+ * The sentence an Edit History's controls say about a gesture on one Annotation.
  *
  * Verb, then subject, in the scholar's own words where they typed them — the convention every Step
  * in this application follows, and `quotedName`'s rule for a Layer beside it: quotation marks around
@@ -166,9 +164,8 @@ export class AnnotationEditing {
 	 * This used to be `chosenLayerId`, and beside it the sidebar had no notion of a Layer being open at
 	 * all: the drawing surface was a panel below the stack with a `<select>` of its own. So "which
 	 * Layer am I looking at" and "which Layer am I drawing into" were two facts that could disagree,
-	 * and nothing in the interface said which one a click on the map would write to. Ticket 05 makes
-	 * opening a Layer *be* choosing it, so there is one value and no way to make it disagree with
-	 * itself.
+	 * and nothing in the interface said which one a click on the map would write to. Opening a Layer
+	 * *is* choosing it, so there is one value and no way to make it disagree with itself.
 	 *
 	 * A **working choice, not a property of the Project**, so it is component state and is not written
 	 * anywhere — not to `project.json` and not to `localStorage`. Which Layer somebody happened to have
@@ -185,10 +182,10 @@ export class AnnotationEditing {
 	/**
 	 * The Annotation drawn a moment ago, whose title is where the keyboard belongs.
 	 *
-	 * Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40), and
-	 * an id rather than a flag because the surface that opens has to be able to tell "this is the shape
-	 * that was just drawn" from "this is an Annotation somebody selected to read". `null` again the
-	 * moment anything else is selected, so a read gesture never produces a form.
+	 * Titling a shape straight after drawing it is one gesture, and an id rather than a flag because
+	 * the surface that opens has to be able to tell "this is the shape that was just drawn" from "this
+	 * is an Annotation somebody selected to read". `null` again the moment anything else is selected,
+	 * so a read gesture never produces a form.
 	 *
 	 * ⚠ **Spent when the title field takes the keyboard, and not only when the selection moves.** The
 	 * Inspector's Text face is unmounted while the Style face shows and mounted again on the way back, so
@@ -265,8 +262,7 @@ export class AnnotationEditing {
 	 * Where the selected Annotation sits in the open Layer's collection, or `-1` when none is.
 	 *
 	 * The *collection's* position rather than a number of its own, because it is what the row's ordinal,
-	 * the mark on the map and the Inspector's header are all drawn from: one Annotation, one number
-	 * (the-annotation-inspector story 2).
+	 * the mark on the map and the Inspector's header are all drawn from: one Annotation, one number.
 	 */
 	readonly #selectedIndex = $derived(
 		this.#activeCollection && this.selectedAnnotationId
@@ -282,8 +278,8 @@ export class AnnotationEditing {
 	 * Whether this build can draw the selected Annotation's shape.
 	 *
 	 * Read for one thing: an Annotation this build cannot draw is offered no Style face at all, rather
-	 * than a Style face that explains its own emptiness (the-annotation-inspector story 28). A foreign
-	 * document may carry a `GeometryCollection`, and its shape is written back untouched either way.
+	 * than a Style face that explains its own emptiness. A foreign document may carry a
+	 * `GeometryCollection`, and its shape is written back untouched either way.
 	 */
 	get selectedIsDrawable(): boolean {
 		const type = this.#selectedAnnotation?.geometry?.type;
@@ -299,8 +295,8 @@ export class AnnotationEditing {
 	 * drawing in. Closing does the same for the same reason: the tools go off the screen with the row.
 	 *
 	 * **Every Layer kind, not only an Annotation Layer.** The sidebar opens one row at a time whatever
-	 * is in it (ticket 05), and `openLayerId` is that one value — so this lives here, with the value,
-	 * rather than beside the stack.
+	 * is in it, and `openLayerId` is that one value — so this lives here, with the value, rather than
+	 * beside the stack.
 	 */
 	openLayer(id: string | null): void {
 		this.openLayerId = id;
@@ -313,7 +309,7 @@ export class AnnotationEditing {
 	}
 
 	/**
-	 * Select an Annotation, which is the same act as opening its row (ticket 07).
+	 * Select an Annotation, which is the same act as opening its row.
 	 *
 	 * One value rather than two: the selected Annotation is the open row, wherever the selection was
 	 * made. Nothing is drawn over the map for it — a click on a shape is answered in the sidebar,
@@ -333,7 +329,7 @@ export class AnnotationEditing {
 	}
 
 	/**
-	 * Let go of a selection the Layer's document no longer holds (SPEC stories 52, 53).
+	 * Let go of a selection the Layer's document no longer holds.
 	 *
 	 * Called where a Layer's collection has just been read again, which is how an Edit History's
 	 * write-back reaches this screen: a Step holds file images and writes one back, so the Annotation
@@ -464,10 +460,9 @@ export class AnnotationEditing {
 	 * `styleForNewAnnotation` is in `core` so the rule is stated once, beside the resolution it
 	 * replaced.
 	 *
-	 * **The `marker-symbol` that makes a Point a Label is written here and nowhere else** (SPEC, "
-	 * `marker-symbol` stops being inherited by a newly drawn Annotation"): it says what kind of thing
-	 * this is, so it belongs to the tool in hand rather than to whatever was drawn last.
-	 * `styleForNewAnnotation` no longer copies it, which is what makes drawing a Pin straight after a
+	 * **The `marker-symbol` that makes a Point a Label is written here and nowhere else**: it says what
+	 * kind of thing this is, so it belongs to the tool in hand rather than to whatever was drawn last.
+	 * `styleForNewAnnotation` does not copy it, which is what makes drawing a Pin straight after a
 	 * Label give a Pin.
 	 *
 	 * @param options.title what it is called, for a caller that already knows — without one no `title`

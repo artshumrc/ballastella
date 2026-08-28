@@ -7,7 +7,7 @@
 	// `BASE_MAP_CATALOG`.
 	//
 	// The switcher IS the catalog: no per-entry markup, no icon table, no special case. Adding or
-	// removing an entry changes the catalog and nothing here (SPEC story 100).
+	// removing an entry changes the catalog and nothing here.
 
 	import { baseMapOptions, type BaseMapCatalog } from '@ballastella/core';
 

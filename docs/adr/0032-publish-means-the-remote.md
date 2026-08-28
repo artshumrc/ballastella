@@ -40,7 +40,7 @@ true one.
 Absent means **on the Front Page**, which preserves today's behaviour — every Project appears on a
 Published Site. And the flag goes into `project.json` **without bumping `CURRENT_FORMAT_VERSION`**.
 [ADR-0010](./0010-integer-format-version-with-forward-only-migrations.md) refuses a `formatVersion`
-higher than the build understands, and names this epic's exact situation as the reason it exists:
+higher than the build understands, and names this exact situation as the reason it exists:
 *"the project explicitly invites people to fork and host their own instance, which guarantees old app
 versions stay alive in the wild."* A shared repository is a far busier version of that. An older build
 drops the flag into `unknownFields` and writes it back untouched, so a fork that has never heard of the

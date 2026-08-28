@@ -1,10 +1,10 @@
 // The arithmetic behind the Label chip's distance field.
 //
 // Worth its own tests for `pin-icon.test.ts`'s reason and one more: the failure mode is not a crash but
-// a chip whose corners are square, or one MapLibre's shader draws inset from what was authored, and
-// ticket 01 found both by eye in a browser after they had already been written. Everything here is
-// arithmetic, so it can be checked exactly — and it is the same arithmetic the browser draws, because
-// the chip is generated rather than rasterised.
+// a chip whose corners are square, or one MapLibre's shader draws inset from what was authored — both
+// of which were caught only by eye in a browser, after code that looked right had already been
+// written. Everything here is arithmetic, so it can be checked exactly — and it is the same arithmetic
+// the browser draws, because the chip is generated rather than rasterised.
 //
 // What still needs a real map is that the image *registers*, tints per feature, and grows to its words:
 // `e2e/editor-annotations.e2e.ts`.
@@ -68,7 +68,7 @@ describe('the chip’s field', () => {
 	test('puts its edge where the shader looks for it, and not at the halfway value', () => {
 		// Half a pixel inside the flat left edge, so half a pixel's worth of ramp above the edge value.
 		// Built around the halfway value instead, this texel would be 135 and MapLibre would draw the
-		// chip inset from the one authored, eating the corner arc: ticket 01's finding 1.
+		// chip inset from the one authored, eating the corner arc — fact 2 in `label-chip.ts`'s header.
 		// (192/256 + 0.5/16) × 255 = 199, and one texel further out, (192/256 − 0.5/16) × 255 = 183.
 		expect(alphaAt(alpha, shapeEdge, midRow)).toBe(199);
 		expect(alphaAt(alpha, shapeEdge, midRow)).toBeGreaterThan(SHADER_EDGE);
@@ -138,7 +138,8 @@ describe('the chip’s field', () => {
 	test('is flat wherever the icon stretches, which is what keeps the corners’ aspect', () => {
 		// ⚠ **The claim the stretch zones exist for.** MapLibre stretches an SDF by repeating this band,
 		// and a band with any curve in it is a corner smeared along the axis it grew. Both zones are in
-		// the image's own pixels — halving them for `pixelRatio` is ticket 01's finding 2.
+		// the image's own pixels; halving them for `pixelRatio` bites a notch out of the corner, which is
+		// fact 1 in `label-chip.ts`'s header.
 		const [from, to] = LABEL_CHIP_STRETCH[0] as [number, number];
 		const column = (x: number) => Array.from({ length: SIZE }, (_, y) => alphaAt(alpha, x, y));
 		const row = (y: number) => Array.from({ length: SIZE }, (_, x) => alphaAt(alpha, x, y));

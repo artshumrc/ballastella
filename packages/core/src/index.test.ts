@@ -83,9 +83,9 @@ it('exposes the tiler and its cap', () => {
 	expect(Object.keys(core)).not.toContain('STREAMING_TILER_THRESHOLD_PIXELS');
 });
 
-// Making an offline copy (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Making an offline copy
-// is a funnel into the tiler above rather than a second one, so the assertion that matters for
-// ADR-0019 is the one above: this adds no new dependency for `apps/viewer` to acquire.
+// Making an offline copy and the ADR-0008 hosting total, reachable through the same barrel. Making an
+// offline copy is a funnel into the tiler above rather than a second one, so the assertion that
+// matters for ADR-0019 is the one above: this adds no new dependency for `apps/viewer` to acquire.
 it('exposes making an offline copy and the hosting-limit total', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([
@@ -114,8 +114,8 @@ it('resolves and exposes the Base Map surface from the package entry point', () 
 
 // The blob SHA and the fake GitHub, reachable through the same barrel (ADR-0032). The fake is test
 // material in `src/` on the precedent of the store conformance suite and the directory-handle
-// fixture, and it is here rather than in each spec so that eleven tickets share one GitHub instead
-// of writing eleven that can disagree with each other.
+// fixture, and it is here rather than in each spec so that every suite shares one GitHub instead
+// of writing several that can disagree with each other.
 it('exposes the git blob SHA and the fake GitHub', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([

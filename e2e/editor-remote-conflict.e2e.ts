@@ -16,17 +16,17 @@ import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
 import { UPDATE_DOWNLOAD_CONCURRENCY } from '../packages/core/src/remote/update-from-github.js';
 
 /**
- * The two refusals that stop one machine deleting another's afternoon (ticket 05, ADR-0033).
+ * The two refusals that stop one machine deleting another's afternoon (ADR-0033).
  *
- * SPEC's Seam 2, driving Seam 1's fake through Playwright routes. The comparison itself — per file
+ * Seam 2, driving Seam 1's fake through Playwright routes. The comparison itself — per file
  * and never by commit SHA, the manifest read both ways round, the no-manifest fallback, and what
  * survives a replace — is asserted in `packages/core/src/remote/publish-to-remote.test.ts` and
  * `bind-remote.test.ts`, where the assertion is the resulting tree rather than a screen. What only a
  * browser can settle is here: that the refusal reaches a scholar as a sentence naming the files,
  * that both remedies are on the screen it arrives on, and that taking the second one publishes.
  *
- * ⚠ **Assertions are on what arrived at the Remote**, never on which calls were made — the division
- * SPEC's testing decisions draw, because every failure mode in this ticket is silent and plausible.
+ * ⚠ **Assertions are on what arrived at the Remote**, never on which calls were made, because every
+ * failure mode here is silent and plausible.
  */
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -175,7 +175,7 @@ const openPublishDialog = async (page: Page) => {
  * Reach the publish dialog of a bound Workspace that holds a credential.
  *
  * ⚠ **The credential is seeded rather than acquired.** On a deployment with a GitHub App the publish
- * dialog offers no token field — the door there is a redirect off the page (SPEC story 37) — and
+ * dialog offers no token field — the door there is a redirect off the page — and
  * every test in this spec is about which files a refusal protects, not about how the credential was
  * got. See {@link seedGitHubCredential}; the door itself is driven in `editor-github-signin.e2e.ts`.
  *
@@ -202,7 +202,7 @@ async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promi
 	});
 }
 
-test.describe('binding to a Remote that already carries somebody else’s Projects (story 23)', () => {
+test.describe('binding to a Remote that already carries somebody else’s Projects', () => {
 	async function bind(page: Page): Promise<void> {
 		await openRemoteSettings(page);
 		await page.getByTestId('remote-repository-field').fill(REMOTE);
@@ -282,7 +282,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		await expect(refusal).toHaveAttribute('data-conflict', 'unknown-history');
 		await expect(refusal).toContainText('nothing here can tell');
 		// Said as the ordinary state it is: every Workspace opened from a Remote is in it until it has
-		// published once, and a scholar meeting an alarm on the first press learns to force (story 24).
+		// published once, and a scholar meeting an alarm on the first press learns to force.
 		await expect(refusal).toContainText('not a sign that anything has gone wrong');
 		await expect(refusal).toContainText(`Open ${REMOTE} from GitHub`);
 
@@ -302,9 +302,9 @@ test.describe('a publish that would overwrite work this browser has never seen',
 	// which is equally true of a Remote holding this Workspace byte for byte. Rendered conflict-first,
 	// that Workspace met a refusal, a "publish anyway" that armed and changed nothing, and a Publish
 	// button `aria-disabled` with the sentence explaining it suppressed: a dead button with nothing on
-	// screen accounting for it, which is the failure this whole epic exists to remove. Reachable from a
-	// quota refusal that could not keep the manifest, a cleared browser — and the first publish from a
-	// complete Open, which is story 24 itself.
+	// screen accounting for it, which is the failure this whole suite exists to rule out. Reachable
+	// from a quota refusal that could not keep the manifest, a cleared browser — and the first publish
+	// from a complete Open.
 	test('says nothing needs changing when the Remote matches, even with no record of publishing it', async ({
 		page
 	}) => {
@@ -324,7 +324,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 
 		await expect(dialog.getByTestId('publish-nothing-to-do')).toContainText(REMOTE);
 		await expect(dialog.getByTestId('publish-conflict')).toBeHidden();
-		// Inert, and now with the reason for it on screen beside it (SPEC story 60).
+		// Inert, and now with the reason for it on screen beside it.
 		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
 			'aria-disabled',
 			'true'
@@ -353,13 +353,13 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		await expect(refusal).toContainText('amsterdam-1625/annotations/l2.geojson');
 		// Both remedies, on the one screen. The first is Update from GitHub rather than a second
 		// Workspace: with a Baseline this machine can tell whose the file is, so bringing it in is safe
-		// and keeps this Workspace's own unpublished work (SPEC story 133).
+		// and keeps this Workspace's own unpublished work.
 		await expect(refusal).toContainText('Update from GitHub first');
 		await expect(refusal).toContainText('is on the navigation bar');
 		await expect(dialog.getByTestId('publish-replace')).toBeVisible();
 		// ⚠ **And the three budgets beside it, not instead of it.** A conflict is where the replacement
 		// tree is largest and where the scholar is being asked to press through a warning, so it is the
-		// worst state in this dialog to be the one that hides story 9's two numbers.
+		// worst state in this dialog to be the one that hides the budget's two numbers.
 		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
 
 		// ⚠ **Dismissal first, and from the keyboard.** ADR-0016's `<dialog>` + `showModal()`: Escape
@@ -372,7 +372,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		await openPublishDialog(page);
 
 		// Taking the second remedy is two presses, the shape every irreversible action here has — and
-		// both of them are reachable and operable from the keyboard alone (story 148). The confirm
+		// both of them are reachable and operable from the keyboard alone. The confirm
 		// button then says what pressing it does rather than "Publish".
 		await dialog.getByTestId('publish-replace').focus();
 		await page.keyboard.press('Enter');
@@ -393,13 +393,13 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// ⚠ **And the status on the bar is recomputed by the publish, not by the next window focus.**
 		// The evidence this machine holds has just moved and the Remote with it, so a control still
 		// reading `Changes to publish` beside a finished publish is the one moment an author is most
-		// likely to press it again (SPEC story 131's counterpart on the outbound side).
+		// likely to press it again.
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 	});
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// REMOTE STATUS (ticket 12; SPEC stories 111–120, 147)
+// REMOTE STATUS
 //
 // **One workflow rather than a second planner matrix.** The six determinations and the table behind
 // them are exhausted at Seam 1 (`synchronization-planner.test.ts`, `local-change-index.test.ts`),
@@ -409,9 +409,9 @@ test.describe('a publish that would overwrite work this browser has never seen',
 // thing; that an authenticated session checks by itself and a signed-out one does not; and that a
 // failed check leaves the last answer on screen rather than reporting agreement.
 //
-// The Baseline is seeded rather than earned through a Publish. Advancing it from a Publish is ticket
-// 16's, and a spec that had to publish to reach each state would be testing publishing five times
-// over to arrive at the thing it wanted to assert.
+// The Baseline is seeded rather than earned through a Publish: a spec that had to publish to reach
+// each state would be testing publishing five times over to arrive at the thing it wanted to assert.
+// That a Publish advances the Baseline is asserted where publishing is.
 
 /** `path → blob SHA` for bytes seeded on the Remote, which is what a Baseline records. */
 async function sharedShas(files: Record<string, string>): Promise<Record<string, string>> {
@@ -486,7 +486,7 @@ test.describe('Remote Status on the navigation bar', () => {
 
 		// ⚠ **`Saved locally` is still the one `status` region on this bar**, and strict mode is the
 		// assertion: a control that had taken that role would make the two facts a scholar most needs
-		// kept apart indistinguishable to a screen reader (SPEC story 111).
+		// kept apart indistinguishable to a screen reader.
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect(
 			await remoteStatus(page).evaluate((element) => [
@@ -503,7 +503,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 
-		// ⚠ **Signed out, nothing is polled** (SPEC story 115). GitHub allows an anonymous reader sixty
+		// ⚠ **Signed out, nothing is polled**. GitHub allows an anonymous reader sixty
 		// requests an hour *per IP address*, so a seminar room on one campus address checking on every
 		// window focus would spend the room's whole budget on status.
 		await expect(remoteStatus(page)).toContainText('Not checked yet');
@@ -547,7 +547,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		const afterSignIn = await settledListings(page, github);
 
 		// ⚠ **Bounded.** Coming back to the tab three times inside the interval is three focus events
-		// and no further listings — the whole reason a focus trigger is affordable (SPEC story 114).
+		// and no further listings — the whole reason a focus trigger is affordable.
 		await refocus(page);
 		await refocus(page);
 		await refocus(page);
@@ -555,7 +555,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		expect(listings(github)).toBe(afterSignIn);
 
 		// Another editor version rebuilt the site: different chunk names, identical scholarship. It is
-		// said separately and the source status is untouched (SPEC story 120).
+		// said separately and the source status is untouched.
 		await github.commitFiles(OWNER, REPOSITORY, {
 			'index.html': '<!doctype html><title>Atlas, rebuilt</title>'
 		});
@@ -584,7 +584,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
 
 		// Persistent, and it follows the author onto the Project screen — drift stays visible while
-		// they work rather than only on the hub (SPEC story 112).
+		// they work rather than only on the hub.
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
@@ -598,7 +598,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub disagree');
 
-		// ⚠ **A failed check is not agreement** (SPEC story 118). The last determination stays, dated,
+		// ⚠ **A failed check is not agreement**. The last determination stays, dated,
 		// with an alert beside it saying it is no longer being confirmed — never relabelled `Up to
 		// date`, and never the successful determination `Cannot tell`.
 		const checkedBefore = await page.getByTestId('remote-status-checked').textContent();
@@ -662,7 +662,7 @@ test.describe('Remote Status on the navigation bar', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// UPDATE FROM GITHUB (ticket 14; SPEC stories 105, 121–124, 128–131)
+// UPDATE FROM GITHUB
 //
 // **One complete inbound workflow, and the matrix stays at Seam 1.** Every three-way decision, every
 // refusal, the SHA verification, the rollback and the Baseline arithmetic are exhausted in
@@ -723,9 +723,9 @@ test.describe('Update from GitHub', () => {
 	 *
 	 * They are unreferenced Layers beside the Project's own, which the graph check allows — only a
 	 * directory with no `project.json` and an Alignment with no Map Image are violations. A transfer
-	 * of two files cannot tell "six at a time" from "all at once", and the difference is the whole of
-	 * story 149: a Workspace of ten thousand pyramid tiles fetched with one `Promise.all` opens ten
-	 * thousand sockets.
+	 * of two files cannot tell "six at a time" from "all at once", and the difference is the whole
+	 * point: a Workspace of ten thousand pyramid tiles fetched with one `Promise.all` opens ten thousand
+	 * sockets.
 	 */
 	const INBOUND_LAYERS = Object.fromEntries(
 		Array.from({ length: 12 }, (_, index) => [
@@ -760,7 +760,7 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
 
 		// And somebody else's: a Project published from another machine, and a change to a file this
-		// Workspace has not touched. Two safe changes on different paths (SPEC story 129).
+		// Workspace has not touched. Two safe changes on different paths.
 		await github.commitFiles(OWNER, REPOSITORY, {
 			...syncProject('delft', 'Delft'),
 			...INBOUND_LAYERS,
@@ -769,8 +769,8 @@ test.describe('Update from GitHub', () => {
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
 
-		// ⚠ **Nothing has arrived, and that is the whole of story 121.** Coming back to the tab and
-		// asking for the status again are both observations: neither downloads a byte.
+		// ⚠ **Nothing has arrived, and that is the whole claim.** Coming back to the tab and asking for
+		// the status again are both observations: neither downloads a byte.
 		await refocus(page);
 		await checkNow(page);
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
@@ -791,7 +791,7 @@ test.describe('Update from GitHub', () => {
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
 
-		// ⚠ **Per file, and it settles at what has actually arrived** (story 149). One file is held
+		// ⚠ **Per file, and it settles at what has actually arrived**. One file is held
 		// open, so the count has one deterministic resting place short of the total rather than a
 		// number the test was lucky to catch mid-transfer — and a progress line that counted the plan
 		// rather than the transfer would sit at the total from the first moment.
@@ -828,19 +828,19 @@ test.describe('Update from GitHub', () => {
 		await page.unroute(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 
 		// ⚠ **Inbound only.** The branch has not moved and the file the other machine wrote is still
-		// the one on GitHub: receiving somebody's work cannot make this author's work public (story 122).
+		// the one on GitHub: receiving somebody's work cannot make this author's work public.
 		expect(github.head(OWNER, REPOSITORY)).toBe(head);
 		expect(github.fileText(OWNER, REPOSITORY, 'atlas-1625/annotations/l2.geojson')).toBe(THEIRS);
 		expect(github.fileText(OWNER, REPOSITORY, 'leiden/project.json')).toBe(null);
 
-		// The author's unpublished Project is still here (story 128), and the Remote's is here as
-		// ordinary work that opens (story 123).
+		// The author's unpublished Project is still here, and the Remote's is here as
+		// ordinary work that opens.
 		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
 		await page.getByRole('link', { name: 'Delft' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Delft');
 
 		// And the next required action is on screen already: the Baseline advanced only for what is now
-		// shared, so the Project GitHub has never seen is still Changes to publish (stories 130, 131).
+		// shared, so the Project GitHub has never seen is still Changes to publish.
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
@@ -864,7 +864,7 @@ test.describe('Update from GitHub', () => {
 		// on the navigation bar, so an Update lands while a Project is open — and `project.json` is the
 		// document every Layer edit spreads over before writing it back. Left unread, the next ordinary
 		// edit writes the pre-Update Layer stack back over the Remote's, silently taking the Layer the
-		// Update had just brought in (stories 124, 141).
+		// Update had just brought in.
 		await expect(page.getByRole('heading', { level: 1, name: 'Delft' })).toBeVisible();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 
@@ -881,10 +881,10 @@ test.describe('Update from GitHub', () => {
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
-		// ⚠ **And an Edit History does not survive an Update** (ADR-0039, story 35). A Step holds the
-		// bytes of the files its gesture wrote, so a Step taken before an Update describes files the
-		// Update may have replaced — and undoing one would write the pre-Update bytes back over what
-		// arrived, which is the same silent loss the re-read above prevents, performed by a button.
+		// ⚠ **And an Edit History does not survive an Update** (ADR-0039). A Step holds the bytes of the
+		// files its gesture wrote, so a Step taken before an Update describes files the Update may have
+		// replaced — and undoing one would write the pre-Update bytes back over what arrived, which is
+		// the same silent loss the re-read above prevents, performed by a button.
 		// Two Steps with one walked back, so both ends of the history are on the bar to lose.
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(4);
@@ -950,7 +950,7 @@ test.describe('Update from GitHub', () => {
 			'will remove them from this Workspace'
 		);
 
-		// ── Cancel: nothing here, nothing there, and focus back where it came from (story 127) ───
+		// ── Cancel: nothing here, nothing there, and focus back where it came from ───────────────
 		// Operated from the keyboard, like the control that opened it: a destructive question a scholar
 		// can only answer with a pointer is one they cannot decline.
 		await dialog.getByTestId('cancel-deletions').focus();
@@ -979,7 +979,7 @@ test.describe('Update from GitHub', () => {
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 
 		// ── An Update whose record cannot be read shuts the Workspace, rather than showing half of
-		// one (SPEC story 141). Folded in here rather than given its own test because it needs exactly
+		// one. Folded in here rather than given its own test because it needs exactly
 		// this Workspace: a marker over real Projects, which is what makes "the list is absent" mean
 		// something. The engine's own recovery is asserted per durable boundary at Seam 1.
 		await seed(page, { 'update.json': '{ not a marker' });
@@ -995,7 +995,7 @@ test.describe('Update from GitHub', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// IMPORT INTO A BOUND WORKSPACE (ticket 17; SPEC stories 49, 50, 161)
+// IMPORT INTO A BOUND WORKSPACE
 //
 // **One workflow, and it is the only place the three halves meet.** The allocation table, the
 // own-Remote refusal, the inventory refusal and what each of them leaves behind are exhausted at
@@ -1011,7 +1011,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 	 *
 	 * ⚠ **Its directory is the slug the incoming Project wants**, and its *name* is not: the display
 	 * name is allocated against what this Workspace shows and nothing here shows it, so a suffix on the
-	 * directory can only have come from the Remote's listing (SPEC story 161).
+	 * directory can only have come from the Remote's listing.
 	 */
 	const ONLY_ON_GITHUB = syncProject('amsterdam-1625', 'Amsterdam 1625, revised');
 
@@ -1043,9 +1043,9 @@ test.describe('Importing a Project into a bound Workspace', () => {
 		await expect(page.getByTestId('import-notice')).toContainText('Imported Amsterdam 1625 into');
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 
-		// ⚠ **The imported files are local work and nothing else** (SPEC story 49). Nothing was sent and
-		// no Baseline was advanced, so the status control — which reads ticket 10's write index — reports
-		// local drift over a Remote whose head has not moved. It is `Changes on both sides` rather than
+		// ⚠ **The imported files are local work and nothing else**. Nothing was sent and no Baseline was
+		// advanced, so the status control — which reads the local write index — reports local drift over
+		// a Remote whose head has not moved. It is `Changes on both sides` rather than
 		// `Changes to publish` because the Project this installation had never seen is still inbound
 		// work: the Import placed itself around it without adopting it.
 		const before = github.head(OWNER, REPOSITORY);
@@ -1059,9 +1059,9 @@ test.describe('Importing a Project into a bound Workspace', () => {
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
 
-		// ⚠ **And the ordinary Publish carries it, having been told nothing about Imports** (SPEC story
-		// 50). Publish owns the whole Workspace namespace, which is why an imported Project needs no
-		// outbound route of its own. The directory is the claim: `amsterdam-1625` was free everywhere
+		// ⚠ **And the ordinary Publish carries it, having been told nothing about Imports.** Publish owns
+		// the whole Workspace namespace, which is why an imported Project needs no outbound route of its
+		// own. The directory is the claim: `amsterdam-1625` was free everywhere
 		// this browser could see and taken on the Remote, so an Import allocated without that listing
 		// would have arrived here as two unrelated Projects at one path.
 		await confirm(page, await openPublishDialog(page));
@@ -1072,7 +1072,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 			'Amsterdam 1625, revised'
 		);
 		expect(github.fileText(OWNER, REPOSITORY, 'delft/project.json')).toContain('Delft');
-		// ⚠ **And there is still exactly one Remote relationship, at the Workspace** (SPEC story 51).
+		// ⚠ **And there is still exactly one Remote relationship, at the Workspace**.
 		// An imported Project gets no binding, no Baseline and no Publish action of its own, so the
 		// published tree carries one `remote.json` rather than one per Project.
 		expect(github.files(OWNER, REPOSITORY).filter((path) => path.endsWith('remote.json'))).toEqual([

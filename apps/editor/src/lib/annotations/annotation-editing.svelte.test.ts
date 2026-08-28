@@ -1,4 +1,4 @@
-// The editor's first unit test, and the reason the seam was worth adding (ticket 06).
+// The editor's first unit test, and the reason the seam was worth adding.
 //
 // Every one of these reaches a branch the browser suite either cannot reach or reaches only
 // expensively: a Layer deleted between a deletion and its undo, a *hidden* Layer's file being read
@@ -167,10 +167,10 @@ const titled = (id: string, title: string): Annotation =>
 
 describe('which Layer is drawn into', () => {
 	it('draws into nothing at all when no Layer is open', async () => {
-		// Ticket 05's defect, in one assertion rather than in a browser: `activeLayer` has **no**
-		// fallback to the topmost Annotation Layer. With the fallback restored, a click on the map
-		// with every row closed writes an Annotation into whichever Layer happened to be on top —
-		// into a file the user was not looking at.
+		// The defect this holds shut, in one assertion rather than in a browser: `activeLayer` has **no**
+		// fallback to the topmost Annotation Layer. With such a fallback, a click on the map with every
+		// row closed writes an Annotation into whichever Layer happened to be on top — into a file the
+		// user was not looking at.
 		const it_ = screen([layerNamed('one'), layerNamed('two')]);
 		it_.annotations.drawing.choose('point');
 
@@ -247,7 +247,7 @@ describe('which Layer is drawn into', () => {
 	});
 });
 
-describe('a drawn Annotation arrives selected and ready to be titled (the-annotation-inspector story 40)', () => {
+describe('a drawn Annotation arrives selected and ready to be titled', () => {
 	it('selects the shape just drawn and names it as the one to type into', async () => {
 		const it_ = screen([layerNamed('one')]);
 		it_.annotations.openLayer('one');
@@ -352,7 +352,7 @@ describe('the “shape added” announcement is withdrawn when it stops being tr
 	});
 });
 
-describe('whether the selected Annotation’s shape can be drawn (the-annotation-inspector story 28)', () => {
+describe('whether the selected Annotation’s shape can be drawn', () => {
 	// **The one thing `selectedIsDrawable` is read for is an absence**, which is why it is asserted
 	// here rather than left to the surface: the screen withholds the Inspector's `style` snippet when it
 	// is false, and the Inspector with no snippet renders no tab strip at all
@@ -485,8 +485,7 @@ describe('editing a shape', () => {
 });
 
 /**
- * Which Annotation gestures open a Step, and what the bar says about each (ADR-0039, SPEC stories
- * 20–23).
+ * Which Annotation gestures open a Step, and what the bar says about each (ADR-0039).
  *
  * The label is the whole of what this class knows about an Edit History, so it is the whole of what
  * there is to assert here: a labelled write is a Step and an unlabelled one is not, and the sentence
@@ -586,7 +585,7 @@ describe('the gestures that become Steps, and the ones that do not', () => {
 		expect(drags[2]!.key).not.toBe(drags[0]!.key);
 	});
 
-	/** Typed text is never a Step and is never reverted by one (SPEC stories 30, 33). */
+	/** Typed text is never a Step and is never reverted by one. */
 	it('opens no Step for a title or a description being typed', async () => {
 		const it_ = drawnInto([pin('a1')]);
 		it_.annotations.selectAnnotation('a1');
@@ -625,9 +624,9 @@ describe('the gestures that become Steps, and the ones that do not', () => {
 });
 
 /**
- * SPEC stories 52 and 53: undo writes bytes, so the Annotation the Inspector is describing can simply
- * cease to exist. One test clears the one value the Inspector and the row's highlight are both read
- * from, so the two ends of a selection cannot disagree.
+ * Undo writes bytes, so the Annotation the Inspector is describing can simply cease to exist. One
+ * test clears the one value the Inspector and the row's highlight are both read from, so the two
+ * ends of a selection cannot disagree.
  */
 describe('letting go of a selection an Edit History wrote away', () => {
 	it('clears the selection when the collection just read no longer holds it', () => {
@@ -716,7 +715,7 @@ describe('merely looking at a Project modifies nothing (ADR-0010)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// What ends up in the GeoJSON (ticket 06)
+// What ends up in the GeoJSON
 //
 // These claims were asserted through the running application, a real MapLibre and real OPFS, and
 // none of them needed any of it: what a style control writes is a fact about the document this
@@ -773,7 +772,7 @@ async function draw(it_: ReturnType<typeof screen>, points: [number, number][]):
 	it_.annotations.selectAnnotation(written(it_).annotations.at(-1)!.id);
 }
 
-describe('the style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
+describe('the style controls write simplestyle names exactly', () => {
 	it('writes a colour, a width, and an opacity under the spec’s own names', async () => {
 		const it_ = drawing('line');
 		await draw(it_, [
@@ -864,7 +863,7 @@ describe('the style controls write simplestyle names exactly (SPEC stories 63, 6
 	});
 });
 
-describe('solid, dashed, and dotted (SPEC story 61)', () => {
+describe('solid, dashed, and dotted', () => {
 	it('stores the tuples and writes solid as the absence of stroke-dasharray', async () => {
 		const it_ = drawing('line');
 		await draw(it_, [
@@ -893,7 +892,7 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 	});
 });
 
-describe('placing a Label writes what makes it one (write-on-the-map stories 10, 26, 47)', () => {
+describe('placing a Label writes what makes it one', () => {
 	it('writes a Point carrying the discriminator, untitled, for one write', async () => {
 		const it_ = drawing('text');
 
@@ -908,8 +907,8 @@ describe('placing a Label writes what makes it one (write-on-the-map stories 10,
 		// ADR-0017 rule 1: the placement is one write, and the title arrives through the coalesced text
 		// write below rather than through a second commit here.
 		expect(it_.session.writes).toHaveLength(1);
-		// And the keyboard is offered the field, which is what makes clicking and typing one gesture
-		// (story 4). The offer is by id, so a read gesture never produces a form.
+		// And the keyboard is offered the field, which is what makes clicking and typing one gesture. The
+		// offer is by id, so a read gesture never produces a form.
 		expect(it_.annotations.titlingId).toBe(written(it_).annotations[0]!.id);
 		for (const name of Object.keys(propertiesOf(it_))) expect(SIMPLESTYLE_NAMES).toContain(name);
 		expect(simpleStyleViolations(propertiesOf(it_))).toEqual([]);
@@ -972,7 +971,7 @@ describe('placing a Label writes what makes it one (write-on-the-map stories 10,
 		expect(it_.session.writes.map((write) => write.debounce)).toEqual([false, true]);
 	});
 
-	it('draws a Pin after a Label, because the discriminator is never inherited (story 26)', async () => {
+	it('draws a Pin after a Label, because the discriminator is never inherited', async () => {
 		const it_ = drawing('text');
 		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
 
@@ -990,7 +989,7 @@ describe('placing a Label writes what makes it one (write-on-the-map stories 10,
 		expect(pinProperties['fill']).toBe(propertiesOf(it_, 0)['fill']);
 	});
 
-	it('carries a Label’s size and colours onto the next Label drawn (story 25)', async () => {
+	it('carries a Label’s size and colours onto the next Label drawn', async () => {
 		const it_ = drawing('text');
 		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
 		it_.annotations.selectAnnotation(written(it_).annotations[0]!.id);
@@ -1148,7 +1147,7 @@ describe('moving an Annotation', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE FOUR GESTURES AGAINST A REAL SESSION AND A REAL STORE (ADR-0039, SPEC stories 20–23, 34)
+// THE FOUR GESTURES AGAINST A REAL SESSION AND A REAL STORE (ADR-0039)
 //
 // Everything above hands this class a fake writer, because what it asserts is what the class
 // *decides*. These assert what the application does: `MemoryProjectStore` under a real `Autosave`
@@ -1279,7 +1278,7 @@ describe('an Annotation gesture undone and redone against the store', () => {
 		});
 	}
 
-	// SPEC story 33, on the other format: words typed after a Step are the scholar's and are not part
+	// The same rule on the other format: words typed after a Step are the scholar's and are not part
 	// of the gesture that Step records, so undoing it must not take them back.
 	it('carries a description typed after a Step across the undo of that Step', async () => {
 		const it_ = await realSession();
@@ -1306,9 +1305,9 @@ describe('an Annotation gesture undone and redone against the store', () => {
 	});
 
 	/**
-	 * SPEC story 34, and the other face of the same rule: an Annotation absent from the `before` image
-	 * has nothing for its words to be carried onto, so undoing its creation takes them with it rather
-	 * than putting it back as a fragment of itself.
+	 * The other face of the same rule: an Annotation absent from the `before` image has nothing for its
+	 * words to be carried onto, so undoing its creation takes them with it rather than putting it back
+	 * as a fragment of itself.
 	 */
 	it('takes an Annotation’s typed words with it when its creation is undone', async () => {
 		const it_ = await realSession();
@@ -1334,7 +1333,7 @@ describe('an Annotation gesture undone and redone against the store', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// A STYLE DRAG AGAINST A REAL SESSION AND A REAL STORE (SPEC stories 23, 33; ticket 08)
+// A STYLE DRAG AGAINST A REAL SESSION AND A REAL STORE
 //
 // The three range inputs in the style panel report a position per pixel and commit on release. What
 // is asserted here is the `.geojson` either side of one gesture, because history internals cannot
@@ -1349,7 +1348,7 @@ const SLIDERS: [keyof AnnotationProperties & string, number[]][] = [
 	['stroke-opacity', [0.9, 0.6, 0.35]]
 ];
 
-describe('one style drag is one Step (SPEC story 23)', () => {
+describe('one style drag is one Step', () => {
 	/** A Project with one Annotation drawn and flushed, ready to be restyled. */
 	async function drawn(): Promise<Awaited<ReturnType<typeof realSession>>> {
 		const it_ = await realSession();
@@ -1402,9 +1401,9 @@ describe('one style drag is one Step (SPEC story 23)', () => {
 	}
 
 	/**
-	 * The defect this closes, and SPEC story 33's shape on style: a completed drag that lands outside
-	 * every Step is reverted by the undo of whatever Step stands above it, because that Step's `before`
-	 * image predates the drag and carry-across carries only title and description.
+	 * The defect this closes, which is the carry-across rule's shape on style: a completed drag that
+	 * lands outside every Step is reverted by the undo of whatever Step stands above it, because that
+	 * Step's `before` image predates the drag and carry-across carries only title and description.
 	 *
 	 * So the drag must be what one Undo reaches. The deletion below stays undone across it, and the
 	 * dragged width comes back on redo with the deletion still standing.

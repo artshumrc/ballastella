@@ -1,23 +1,21 @@
 <script lang="ts">
-	// One way into a Project for a Map Image, offering all three of its sources at once
-	// (ticket 06, SPEC stories 21–30, 33, 36).
+	// One way into a Project for a Map Image, offering all three of its sources at once.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THREE SOURCES, EQUALLY VISIBLE, IN ONE PLACE
 	//
 	// A scholar has a map on their laptop, a map at a library, and a map they prepared last week, and
-	// before this ticket the interface answered those three questions in three different registers: a
-	// file input at the top of a section, a URL form below it, and — for a map already in the
-	// Workspace — nothing at all. This dialog is the ticket's contract as markup: three `<section>`s,
-	// all rendered, none behind a disclosure, a link, or a tab.
+	// all three questions are answered here in the same register: three `<section>`s, all rendered,
+	// none behind a disclosure, a link, or a tab. Answering them in three different registers — a file
+	// input at the top of a section, a URL form below it, and nothing at all for a map already in the
+	// Workspace — is what this shape is against.
 	//
 	// **Why a dialog rather than three panels in the sidebar.** The sidebar is a fixed 24rem column
-	// beside the map (ticket 04), and the library flow alone is a URL form, a rights statement, a
-	// metadata table and a scrolling list of canvases. Stacked in that column the three sources would
-	// be equally *present* and nothing like equally *visible* — the third would be several screens
-	// below the fold, which is the "behind an extra step" this ticket rules out, wearing a scrollbar
-	// instead of a link. So the sidebar carries one button with words on it (SPEC story 111) and this
-	// is what the button opens.
+	// beside the map, and the library flow alone is a URL form, a rights statement, a metadata table
+	// and a scrolling list of canvases. Stacked in that column the three sources would be equally
+	// *present* and nothing like equally *visible* — the third would be several screens below the fold,
+	// which is the extra step this shape rules out, wearing a scrollbar instead of a link. So the
+	// sidebar carries one button with words on it and this is what the button opens.
 	//
 	// ADR-0016 mandates `<dialog>` + `showModal()`, and {@link ModalDialog} is where that decision was
 	// made once: Escape, the focus trap, and focus restoration come with it.
@@ -108,7 +106,7 @@
 	/**
 	 * What one Workspace map weighs, and how many files that is.
 	 *
-	 * The size is the ticket's requirement and the file count is what makes it legible: "3 files" and
+	 * The size is what a row has to state and the file count is what makes it legible: "3 files" and
 	 * "31 000 files" are different news about the same 40 MB. Both come from `WorkspaceMapImage`,
 	 * which is core's figure and the same one the hub's reclaim list states.
 	 */
@@ -153,7 +151,7 @@
 			if (!layer) return;
 			open = false;
 			// ─────────────────────────────────────────────────────────────────────────────────────
-			// SAID, BECAUSE THIS IS THE ONE SOURCE WITH NOTHING ELSE TO SAY IT (SPEC story 112)
+			// SAID, BECAUSE THIS IS THE ONE SOURCE WITH NOTHING ELSE TO SAY IT
 			//
 			// The file source answers with a preparing card and a running commentary; the library
 			// source answers with a card too, and with the community-Alignment notice. This one
@@ -200,7 +198,7 @@
 	</p>
 
 	<!--
-		Source one: a file on this computer (SPEC stories 21, 22, 25, 26).
+		Source one: a file on this computer.
 
 		Every image becomes a IIIF pyramid, including a small one, because an untiled level-0 image
 		cannot be parsed at all (ADR-0003). So this is a job with progress rather than a file input that
@@ -241,11 +239,11 @@
 	</section>
 
 	<!--
-		Source two: a map on a Library's server (SPEC stories 24–26, 28–30).
+		Source two: a map on a Library's server.
 
-		`AddRemoteMap` unchanged, machinery and all — the Manifest, Collection and bare-image-service
-		reading, the canvas picker, the CORS probe and the ADR-0015 community lookup. This ticket moves
-		where it is reached from and nothing about what it does.
+		`AddRemoteMap` carries the machinery — the Manifest, Collection and bare-image-service reading,
+		the canvas picker, the CORS probe and the ADR-0015 community lookup. This dialog decides where
+		it is reached from and nothing about what it does.
 	-->
 	<div class="mt-8 border-t border-base-300 pt-2">
 		<!-- Its own `<section>` and its own heading, "Add a Map Image from a library". A second
@@ -254,10 +252,10 @@
 	</div>
 
 	<!--
-		Source three: a Map Image this Workspace already holds (SPEC stories 27, 33).
+		Source three: a Map Image this Workspace already holds.
 
-		The one that did not exist before, and the one ADR-0023 is for: nothing is copied, the pyramid
-		is not read, and an Alignment made in another Project applies here the moment the Layer appears.
+		The one ADR-0023 is for: nothing is copied, the pyramid is not read, and an Alignment made in
+		another Project applies here the moment the Layer appears.
 	-->
 	<section class="mt-8 border-t border-base-300 pt-6" aria-labelledby="add-from-workspace-heading">
 		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">Already in this Workspace</h3>
@@ -313,8 +311,8 @@
 						<MapThumbnail {map} {fetchTile} size={48} />
 						<!--
 							A real `<button>` per map, so Tab reaches each and Enter and Space activate it — the
-							same shape the canvas picker uses, and for the same reason (SPEC story 95). The size
-							is inside the button rather than beside it, so it is part of the accessible name: a
+							same shape the canvas picker uses, and for the same reason. The size is inside the
+							button rather than beside it, so it is part of the accessible name: a
 							screen-reader user choosing between two maps needs the number the sighted user is
 							choosing on.
 						-->

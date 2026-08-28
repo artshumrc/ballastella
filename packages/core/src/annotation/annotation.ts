@@ -18,7 +18,7 @@
 import type { SimpleStyle } from '../project/layer.js';
 
 /**
- * The geometry kinds a user can draw (SPEC stories 57, 58, and 59).
+ * The geometry kinds a user can draw.
  *
  * `Point`, `LineString`, and `Polygon` only — a pin, a route, and a shape — which is the whole of
  * what the three drawing tools produce. The multi-part kinds are not offered, but a document that
@@ -68,7 +68,7 @@ export type AnnotationGeometry =
  * What an Annotation says and how it looks.
  *
  * `title` and `description` are simplestyle's own content fields; everything else is
- * {@link SimpleStyle}, which ticket 09 already defined and which this module deliberately does not
+ * {@link SimpleStyle}, which `layer.ts` defines and which this module deliberately does not
  * redeclare. **Every field is optional and an absent one means "fall through"** rather than "use
  * zero": precedence runs Annotation `properties` → Layer `defaultStyle` → simplestyle's defaults
  * (ADR-0009), and stamping defaults onto everything at creation time would produce much larger files
@@ -151,11 +151,13 @@ export const MARKER_SIZES: readonly string[] = ['small', 'medium', 'large'];
 /**
  * What a Point's `marker-symbol` says when the marker shows its own words.
  *
- * simplestyle's `marker-symbol` is *what this marker shows at its point*, and `"label"` is a reading
- * of that field rather than an overload of it: the value is already legal against
- * {@link simpleStyleViolations}, so a Layer of Labels is conformant with nothing relaxed and opens in
- * another tool as titled markers. See `.tracker/write-on-the-map/SPEC.md` for why this rather than an
- * extension of ours. This comparison is case-sensitive, as file-format string values are.
+ * simplestyle's `marker-symbol` is *what this marker shows at its point*, and `"label"` is a
+ * reading of that field rather than an overload of it: the value is already legal against {@link
+ * simpleStyleViolations}, so a Layer of Labels is conformant with nothing relaxed and opens in
+ * another tool as titled markers — which is why a Label rides an existing simplestyle field rather
+ * than an extension of ours: an extension would be legal only in Ballastella, and a Layer of Labels
+ * that opens as nothing anywhere else is a worse artefact than one that opens as marked points.
+ * This comparison is case-sensitive, as file-format string values are.
  */
 export const LABEL_MARKER_SYMBOL = 'label';
 
@@ -315,7 +317,7 @@ export function resolveStyle(properties: AnnotationProperties | undefined): Reso
 
 /**
  * The user-facing line-style choice: exactly three options, so a certain route and a conjectural one
- * can be told apart (SPEC story 61).
+ * can be told apart.
  *
  * **A presentation concept, never a stored one.** The file holds the `stroke-dasharray` tuple —
  * intelligible to anything SVG-aware — and a keyword like `"dashed"` would be legible only to us
@@ -472,7 +474,7 @@ const INHERITED_STYLE_NAMES = [
  *
  * The accepted consequence: a `marker-symbol` from another tool (`"harbor"`, `"7"`) is no longer copied
  * onto the next Annotation drawn. It stays on the Annotation that has it and is still written back
- * untouched (SPEC story 51).
+ * untouched.
  */
 export function styleForNewAnnotation(
 	collection: AnnotationCollection | null | undefined
@@ -525,7 +527,7 @@ const DEFAULT_LABEL_COLORS = {
  * inherited `marker-color` **and** `fill` are both exactly `DEFAULT_ANNOTATION_COLOR` starts on
  * {@link DEFAULT_LABEL_COLORS} instead. Everything else inherits untouched — a scholar who set one
  * colour for both on purpose keeps it, and a Label with `fill-opacity: 0` keeps the words it was given
- * (SPEC story 25: white words straight on a dark Map Image).
+ * (white words straight on a dark Map Image).
  *
  * **No colour arithmetic, deliberately.** The rejected alternative measured the background's perceived
  * brightness and substituted black or white whenever the two colours agreed, and every part of it was
@@ -596,7 +598,7 @@ export function addAnnotation(
 	return { ...collection, annotations: [...collection.annotations, annotation] };
 }
 
-/** Take an Annotation out (SPEC story 66). */
+/** Take an Annotation out. */
 export function removeAnnotation(
 	collection: AnnotationCollection,
 	id: string
@@ -655,7 +657,7 @@ function replace(
 }
 
 /**
- * Reshape an Annotation (SPEC story 60).
+ * Reshape an Annotation.
  *
  * Called **once per gesture**, on gesture end, which is ADR-0017 rule 1 — not once per vertex and
  * not once per pointer-move.
@@ -669,7 +671,7 @@ export function setGeometry(
 }
 
 /**
- * Set or clear `title` and `description` (SPEC stories 62 and 67).
+ * Set or clear `title` and `description`.
  *
  * An empty string **removes** the property rather than writing `""`. A title nobody typed should not
  * be a field in a portable document, and `{"title": ""}` in geojson.io is an empty label where no
@@ -713,7 +715,7 @@ function withProperty<Style extends SimpleStyle>(
 }
 
 /**
- * Set one Annotation's style properties, by their **exact simplestyle names** (SPEC stories 63–65).
+ * Set one Annotation's style properties, by their **exact simplestyle names**.
  *
  * A key whose value is `undefined` is **removed**, which is how "back to the Layer's default" is
  * expressed and how solid is stored: there is no sentinel meaning "no dash", there is the absence of

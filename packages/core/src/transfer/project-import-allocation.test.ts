@@ -1,5 +1,5 @@
 // Where an imported Project lands: its visible name, its directory, and every destination path
-// (ticket 07, ADR-0037).
+// (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS SUITE IS A TABLE AND THEN AN INTEGRATION
@@ -154,7 +154,7 @@ function identities(prefix = 'fresh'): () => string {
 	return () => `${prefix}-${(next += 1)}`;
 }
 
-/** The closure on identities the destination has never used — ticket 06's half, done for real. */
+/** The closure on identities the destination has never used — the remapping's half, done for real. */
 const remapped = (source = sourceOf(), prefix?: string): Promise<ProjectImportSource> =>
 	remapProjectImport(source, { imageId: identities(prefix) }).then((it) => it.closure);
 

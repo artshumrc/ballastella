@@ -5,9 +5,10 @@ Project, Layer, Map Image, Alignment, Control Point — and the near-synonyms to
 The code and the UI are required to use those words, so a pull request that calls an
 Alignment a "georeference" or a Control Point a "GCP" will be asked to change.
 
-Then read [`.tracker/ballastella-v1/SPEC.md`](.tracker/ballastella-v1/SPEC.md). The
-[ADRs](docs/adr) explain _why_ rather than _what_, and are best read on demand when the
-spec cites one.
+Then read the [ADRs](docs/adr). They explain _why_ rather than _what_, and they are the
+standing record of every decision that would otherwise be surprising — read them on demand
+when a module's comments cite one, and read the whole of `docs/adr` before changing anything
+about storage, publishing, or the alignment model.
 
 ## ⚠️ Do not copy code from the Allmaps applications
 
@@ -235,8 +236,7 @@ the end reliably becomes a graveyard.
 
 ## Tests
 
-[SPEC.md's Testing Decisions](.tracker/ballastella-v1/SPEC.md#testing-decisions) is binding.
-The short version: **the user's folder is the product**, so "after this sequence of actions
+**The user's folder is the product**, so "after this sequence of actions
 the store contains these files with this content" is not a proxy for behaviour — it _is_ the
 behaviour. Assert on file contents and on rendered UI, never on internal call sequences,
 private state, or module structure. A test that would still pass after `core` is reorganised

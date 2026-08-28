@@ -1,5 +1,5 @@
 // The planning half of Project Import: one validated incoming closure turned into a **detached**
-// destination closure (ticket 06, ADR-0037).
+// destination closure (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY EVERY INCOMING MAP IMAGE GETS A FRESH IDENTITY, WITHOUT LOOKING AT IT
@@ -14,9 +14,9 @@
 // label, not its provenance, not its Alignment. Two Imports of the same Project are two Map Images,
 // which is ADR-0015's own rule for two ingests of one file.
 //
-// ⚠ **Fresh is also what ticket 04's protocol is built on.** Provisional bytes go straight to their
-// final paths because no byte an Import writes can be a byte the user already has; that argument
-// rests on this allocation and on nothing else.
+// ⚠ **Fresh is also what `project-import-transaction.ts`'s protocol is built on.** Provisional bytes
+// go straight to their final paths because no byte an Import writes can be a byte the user already
+// has; that argument rests on this allocation and on nothing else.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT "REMAPPED" MEANS DOCUMENT BY DOCUMENT
@@ -34,7 +34,7 @@
 //   * the Alignment's path and its `resource.id` — `parseAlignment` with the **source** path's
 //     identity, then `serialiseAlignment` with the fresh one, so the Control Points, the Resource
 //     Mask, the transformation type and every unmodelled member come back through the one module
-//     that owns the format (CONTEXT.md, SPEC story 60).
+//     that owns the format (CONTEXT.md).
 //   * a referenced Map Image's `remote.json` — `parseReferencedImage` / `serialiseReferencedImage`.
 //     The record holds no identity of its own (the path is the identity), so what this pass is really
 //     for is the other direction: the canonical Library service, the rights, the attribution, the
@@ -126,12 +126,12 @@ export interface RemappedProjectImport {
  * Replan one validated closure onto fresh Map Image identities.
  *
  * Pure in the sense that matters: no store, no destination, nothing written. The identities are
- * allocated up front — the destination path set has to be known before ticket 04 can plan a
- * transaction over it — and the documents are rewritten as the source hands its files over.
+ * allocated up front — the destination path set has to be known before `commitProjectImport` can
+ * plan a transaction over it — and the documents are rewritten as the source hands its files over.
  *
  * @throws Error if the remapped graph does not resolve, which is a defect in this module rather than
- *   anything a user did. Checked because the path set it produces is what ticket 04's inventory and
- *   ticket 05's recovery are both built from.
+ *   anything a user did. Checked because the path set it produces is what the transaction's inventory
+ *   and `project-import-recovery.ts`'s sweep are both built from.
  */
 export async function remapProjectImport(
 	source: ProjectImportSource,
@@ -214,9 +214,9 @@ function remapClosurePath(path: ClosurePath, images: ReadonlyMap<string, string>
  * {@link Layer} whose `imageId` is `''` keeps it: there is no Map Image it could be pointing at, and
  * the source already refused the case where there should have been one.
  *
- * ⚠ **Nothing about publication or the Front Page is cleared here.** Ticket 08 owns the publication
- * reset and the provenance entry, in one place, and a second module doing half of it is how a Project
- * comes to be imported off its own front page for reasons nobody recorded.
+ * ⚠ **Nothing about publication or the Front Page is cleared here.** `project-import-provenance.ts`
+ * owns the publication reset and the provenance entry, in one place, and a second module doing half
+ * of it is how a Project comes to be imported off its own front page for reasons nobody recorded.
  */
 function remapProjectFile(project: ProjectFile, images: ReadonlyMap<string, string>): ProjectFile {
 	return { ...project, layers: project.layers.map((layer) => remapLayer(layer, images)) };
@@ -311,9 +311,9 @@ function addressOf(
  * has not been given yet would be read under a lie. The image identity is then set on the *model*,
  * and `serialiseAlignment` writes the whole document from it: `resource.id` is never patched.
  *
- * A document carrying something this build can neither model nor carry refuses here, by name, as
- * SPEC story 60 requires — the Import fails and ticket 04 takes back what it wrote, rather than
- * installing a Project whose Alignment lost a colleague's annotations.
+ * A document carrying something this build can neither model nor carry refuses here, by name, so
+ * that nothing is silently dropped — the Import fails and `commitProjectImport` takes back what it
+ * wrote, rather than installing a Project whose Alignment lost a colleague's annotations.
  */
 function readdressAlignment(
 	bytes: Bytes,
@@ -327,7 +327,7 @@ function readdressAlignment(
 
 /**
  * The pyramid's `info.json` with its service `id` reset to the placeholder for the fresh identity
- * (ADR-0004, story 32).
+ * (ADR-0004).
  *
  * One top-level field, and the rest of the document written back exactly as it was parsed — the same
  * rewrite `stampCanonicalUrl` makes on the same field of the same document, so a member a later build
@@ -347,7 +347,7 @@ function stampLocalPyramid(bytes: Bytes, fresh: string): Bytes {
 }
 
 /**
- * Prove the remapped graph resolves, before ticket 04 plans a transaction over it.
+ * Prove the remapped graph resolves, before `commitProjectImport` plans a transaction over it.
  *
  * The same validator the source ran, asked of the remapped Project against the remapped paths, which
  * is what makes a half-finished rewrite a failure here rather than an installed Project with a Layer

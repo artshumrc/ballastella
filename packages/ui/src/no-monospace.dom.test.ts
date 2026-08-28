@@ -1,5 +1,4 @@
-// There is no monospaced face in either app, including inside a `<code>` (ADR-0036, SPEC stories
-// 13–15).
+// There is no monospaced face in either app, including inside a `<code>` (ADR-0036).
 //
 // A folder path, a Control Point's coordinate readout, a Workspace's folder name and an image
 // pyramid's figures all reach for `<code>`, and `<code>`'s meaning — *this is a literal string* — is

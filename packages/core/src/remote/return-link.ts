@@ -1,4 +1,4 @@
-// The two links a Published Site carries back to the editor that made it (SPEC stories 49–51).
+// The two links a Published Site carries back to the editor that made it.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE MODULE FOR BOTH ENDS, BECAUSE THEY ARE THE SAME SENTENCE READ TWICE
@@ -49,8 +49,8 @@ export type ReturnLink =
 export function returnLinkUrl(instance: string, link: ReturnLink): string | null {
 	if (instance === '') return null;
 	// Built by hand rather than through `URLSearchParams`, which would percent-encode the slash in
-	// `owner/repo` — legal, and read back the same, but not the address SPEC writes or the one a
-	// scholar reads off their own status bar before following it.
+	// `owner/repo` — legal, and read back the same, but not the shipped address, nor the one a scholar
+	// reads off their own status bar before following it.
 	const reference = `${encodeURIComponent(link.owner)}/${encodeURIComponent(link.repository)}`;
 	const query =
 		link.kind === 'clone'

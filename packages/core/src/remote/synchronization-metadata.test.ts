@@ -59,8 +59,8 @@ describe('installation-local synchronization metadata', () => {
 			expect(await metadata.readRemote()).toBeNull();
 		});
 
-		// SPEC: "A Workspace has zero or one active Remote." Binding again replaces; there is no API
-		// through which a second one could exist.
+		// A Workspace has zero or one active Remote. Binding again replaces; there is no API through
+		// which a second one could exist.
 		it('replaces the relationship rather than holding two', async () => {
 			const storage = new FakeMetadataStorage();
 			const metadata = new SynchronizationMetadata(storage, WORKSPACE);
@@ -92,7 +92,7 @@ describe('installation-local synchronization metadata', () => {
 		});
 
 		// The key carries the backing, so a folder that happens to share a Workspace's display name is
-		// a different subject — the distinction SPEC calls "stable Workspace identity and backing".
+		// a different subject: identity and backing together are what a record is keyed by.
 		it('tells a browser-backed Workspace from a folder of the same name', async () => {
 			const storage = new FakeMetadataStorage();
 			await new SynchronizationMetadata(storage, WORKSPACE).bindRemote(ATLAS);
@@ -170,7 +170,7 @@ describe('installation-local synchronization metadata', () => {
 			expect(await metadata.readBaseline(ATLAS)).toEqual(baseline());
 		});
 
-		// SPEC sizes this store for "tens of thousands of paths" rather than the origin's 5 MB of
+		// This store is sized for tens of thousands of paths rather than for the origin's 5 MB of
 		// `localStorage`, which is the whole reason it is not the v1 manifest.
 		it('keeps a path map of tens of thousands of entries whole', async () => {
 			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
@@ -205,7 +205,7 @@ describe('installation-local synchronization metadata', () => {
 		// codebase says so — the Open that reuses a Workspace and the Import that refuses its own Remote
 		// both ask it. Compared byte for byte here, re-binding by pasting a differently-cased address
 		// would throw away a Baseline that describes this very Remote and report `Cannot tell` over
-		// evidence there is (SPEC story 151).
+		// evidence there is.
 		it('is evidence about the repository it names however that name is cased', async () => {
 			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
 			await metadata.writeBaseline(baseline());
@@ -236,7 +236,7 @@ describe('installation-local synchronization metadata', () => {
 			expect(await metadata.readBaseline(ATLAS)).toEqual(baseline());
 		});
 
-		// SPEC: "never report the Publish as failed and never retain stale evidence." A refused write
+		// Stale evidence is never retained, and the Publish is never reported as failed. A refused write
 		// leaves the previous transfer's map in place, which the reader cannot tell from a record of the
 		// transfer that has just happened.
 		it('answers false and clears stale evidence when the store refuses the write', async () => {
@@ -344,7 +344,7 @@ describe('installation-local synchronization metadata', () => {
 		});
 	});
 
-	// The hook under ticket 11's "reopening a repository returns to its existing Workspace".
+	// The hook under "reopening a repository returns to its existing Workspace".
 	describe('the repository-to-Workspace lookup', () => {
 		it('names every Workspace holding a relationship, and nothing else', async () => {
 			const storage = new FakeMetadataStorage();
@@ -382,8 +382,8 @@ describe('migrating a v1 Workspace', () => {
 	const manifestsFor = (journal: FakeJournalStorage, workspaceKey = WORKSPACE): PublishManifests =>
 		new PublishManifests(journal, workspaceKey);
 
-	// SPEC: "A matching legacy binding plus matching manifest is sufficient to lift the relationship
-	// automatically." The manifest is installation-local, so it is proof this machine published there.
+	// A matching legacy binding plus a matching manifest is sufficient to lift the relationship
+	// automatically. The manifest is installation-local, so it is proof this machine published there.
 	it('lifts a binding corroborated by this machine’s own publish evidence, with its Baseline', async () => {
 		const storage = new FakeMetadataStorage();
 		const metadata = new SynchronizationMetadata(storage, WORKSPACE);
@@ -404,8 +404,8 @@ describe('migrating a v1 Workspace', () => {
 		expect(manifests.read(ATLAS)).toBeNull();
 	});
 
-	// SPEC story 156: "a bound Workspace with no valid v1 manifest [remains] bound but report[s] Cannot
-	// tell, so that migration does not fabricate a Baseline."
+	// A bound Workspace with no valid v1 manifest stays bound and reports Cannot tell, so that
+	// migration does not fabricate a Baseline.
 	it('asks about a binding with no publish evidence, writing nothing', async () => {
 		const storage = new FakeMetadataStorage();
 		const metadata = new SynchronizationMetadata(storage, WORKSPACE);

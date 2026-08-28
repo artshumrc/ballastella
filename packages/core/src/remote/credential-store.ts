@@ -12,11 +12,11 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // `sessionStorage` IS THE FIRST IMPLEMENTATION, NOT THE CONTRACT
 //
-// It happens to give the two properties this epic asks for — forgotten when the tab closes (story
-// 34), kept across a reload (story 35) — and a durable "remember me" may replace it later. Nothing
-// above this interface may assume session scope: {@link CredentialStore} says only that a token can
-// be put in, taken out, and thrown away. Ticket 10's broker-exchanged token is the same string
-// through the same three methods, which is what keeps the auth flow out of the publish engine.
+// It happens to give the two properties asked for — forgotten when the tab closes, kept across a
+// reload — and a durable "remember me" may replace it later. Nothing above this interface may assume
+// session scope: {@link CredentialStore} says only that a token can be put in, taken out, and thrown
+// away. The broker-exchanged token of a GitHub App sign-in is the same string through the same three
+// methods, which is what keeps the auth flow out of the publish engine.
 
 /** Where the credential is kept in whatever web storage the implementation uses. */
 export const CREDENTIAL_KEY = 'ballastella.github-credential';
@@ -108,7 +108,7 @@ export function browserCredentialStore(): CredentialStore {
 }
 
 /**
- * A credential store that reads and writes nothing while a Review Workspace is open (story 40).
+ * A credential store that reads and writes nothing while a Review Workspace is open.
  *
  * ⚠ **A wrapper rather than a check at each call site.** A teacher opening a submission must not be
  * able to reach their own push credential from inside it — that is the second half of ADR-0024's
@@ -145,13 +145,14 @@ const MIN_CREDENTIAL_LENGTH = 20;
 
 /**
  * Why a pasted credential is not one, in the words the user should see, or `''` when it looks like
- * one (story 31).
+ * one.
  *
  * ⚠ **The prefix is deliberately not checked.** `github_pat_`, `ghp_`, `gho_` and `ghu_` are all
- * real, ticket 10 adds a fifth by another route, and a fence on a list of prefixes refuses tomorrow's
- * valid token with a message saying it is malformed — the one refusal a user cannot act on. What is
- * checked is the shape every one of them has: a run of token characters, long enough to be a secret.
- * Whether GitHub *accepts* it is a question only GitHub can answer, and binding asks it immediately.
+ * real, a broker-exchanged token arrives by another route, and a fence on a list of prefixes
+ * refuses tomorrow's valid token with a message saying it is malformed — the one refusal a user
+ * cannot act on. What is checked is the shape every one of them has: a run of token characters,
+ * long enough to be a secret. Whether GitHub *accepts* it is a question only GitHub can answer, and
+ * binding asks it immediately.
  */
 export function describeTokenProblem(pasted: string): string {
 	const token = pasted.trim();

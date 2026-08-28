@@ -51,7 +51,7 @@ declare global {
 }
 
 /**
- * SPEC's Seam 2 for ticket 16, and the assertion the whole ticket rests on.
+ * Seam 2 for publishing, and the assertion the whole of it rests on.
  *
  * The file-level behaviour — additive publishing, the recorded file set, and the warnings — is asserted
  * at Seam 1 in `@ballastella/core`, where the bytes are the assertion. What only
@@ -68,8 +68,8 @@ declare global {
 /** Empty the origin's OPFS, so no test can see another's Workspace. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -247,9 +247,9 @@ const projectFiles = (
  * Open the editor on an empty Workspace holding exactly `files`.
  *
  * A credential is seeded unless `signedIn: false`, because publishing is not offered without one and
- * on a deployment with a GitHub App there is no token field on this screen to type one into (SPEC
- * story 37). See {@link seedGitHubCredential}: the door is asserted in
- * `editor-github-signin.e2e.ts`, and every test here is about the files a publish writes.
+ * on a deployment with a GitHub App there is no token field on this screen to type one into. See
+ * {@link seedGitHubCredential}: the door is asserted in `editor-github-signin.e2e.ts`, and every
+ * test here is about the files a publish writes.
  */
 async function openWorkspace(
 	page: Page,
@@ -352,8 +352,7 @@ test.describe('publishing a Workspace', () => {
 	}
 
 	/**
-	 * **This suite's editor is on `localhost`, so nothing it publishes records an instance** (ticket
-	 * 09).
+	 * **This suite's editor is on `localhost`, so nothing it publishes records an instance.**
 	 *
 	 * The editor stamps its own origin so a site's Front Page can lead a Reader back to it, and an
 	 * address only the publishing machine can reach is refused rather than recorded — a Reader
@@ -395,23 +394,23 @@ test.describe('publishing a Workspace', () => {
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this
 			// test composed — so the link is relative in the way the base path needs.
 			await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-			// The Project's name is the site's bar saying where the Reader is (SPEC story 5).
+			// The Project's name is the site's bar saying where the Reader is.
 			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 			await expect(page).toHaveURL(`${site.url}?p=amsterdam-1625`);
 
 			// The Project's own data was read over HTTP, relative to the site: the Layer names come out
 			// of `amsterdam-1625/project.json`.
 			//
-			// The stack the Reader gets is the editor's own Layer card since ticket 05, so it is addressed
-			// by the label that component gives its `<ol>` rather than by a viewer-only test id. The claim
+			// The stack the Reader gets is the editor's own Layer card, so it is addressed by the label
+			// that component gives its `<ol>` rather than by a viewer-only test id. The claim
 			// this test makes is unchanged — those names could only have come from `project.json`, fetched
 			// relative to this document.
 			const stack = page.getByRole('list', { name: 'Layers, top first' });
 			await expect(stack).toContainText('The 1625 plan');
 			await expect(stack).toContainText('Warehouses');
 			// And the Base Map the author chose is the one shown first, resolved against the catalog that
-			// travelled with the site rather than against this build's (ADR-0020, SPEC story 69). The
-			// switcher's *selected* value, since ticket 17 made the choice a Reader's to change.
+			// travelled with the site rather than against this build's (ADR-0020). The switcher's
+			// *selected* value, because the choice is a Reader's to change.
 			await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
 			await expect(
 				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
@@ -623,7 +622,7 @@ test.describe('publishing a Workspace', () => {
 		const warning = dialog.locator('[data-warning="referenced-images"]');
 		await expect(warning).toContainText('Blaeu’s plan, from the library');
 		await expect(warning).toContainText('no network');
-		// And the Reader is told too, on the site itself (SPEC story 29).
+		// And the Reader is told too, on the site itself.
 		await publish(page, dialog);
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
 			timeout: 30_000
@@ -655,7 +654,7 @@ test.describe('publishing a Workspace', () => {
 	test('extends the hub page on a second publish and leaves the first Project untouched', async ({
 		page
 	}) => {
-		// The semester-long, one-repository workflow (SPEC story 81).
+		// The semester-long, one-repository workflow.
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 		await publish(page);
 		const firstProject = await takeWorkspace(page);
@@ -725,9 +724,9 @@ test.describe('publishing a Workspace', () => {
 	}) => {
 		// The display name comes out of a `project.json` and is untrusted content, and a Published Site
 		// runs on the author's own domain — so a name rendered as HTML there is stored XSS on
-		// `student.github.io` (ADR-0009). Ticket 10 established the discipline this inherits, including
-		// the part that matters most: **assert the real prose is on the page first**, because a blank
-		// surface passes every "nothing dangerous survived" check.
+		// `student.github.io` (ADR-0009). The discipline this inherits from the editor's own sanitisation
+		// tests matters most in one part: **assert the real prose is on the page first**, because a
+		// blank surface passes every "nothing dangerous survived" check.
 		const payload =
 			'Amsterdam <img src=x onerror="window.pwned=1"> 1625<script>window.pwned=1</script>';
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: payload }));
@@ -765,7 +764,7 @@ test.describe('publishing a Workspace', () => {
 	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
-		// Reached by tabbing rather than by clicking (SPEC story 95). From the wordmark, past the
+		// Reached by tabbing rather than by clicking. From the wordmark, past the
 		// Connect to GitHub control that sits between them — the Edit History slot is between them too
 		// and renders nothing at all when there is nothing to undo, which is the state a freshly seeded
 		// Workspace is in.
@@ -794,7 +793,7 @@ test.describe('publishing a Workspace', () => {
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).press('Enter');
 
-		// The outcome is announced rather than only drawn (SPEC story 96).
+		// The outcome is announced rather than only drawn.
 		const status = page.getByTestId('publish-status');
 		await expect(status).toContainText('Published:', { timeout: 30_000 });
 		await expect(status).toContainText('1 Project');
@@ -809,7 +808,7 @@ test.describe('publishing a Workspace', () => {
 	});
 
 	/**
-	 * SPEC story 2, and the reason the word changed at all.
+	 * The reason the word changed at all.
 	 *
 	 * Publish now means *send this Workspace to its Remote*, and the indicator sits beside that
 	 * button — so the bare word "Saved" conflated the two facts a scholar most needs kept apart. The
@@ -869,9 +868,9 @@ test.describe('publishing a Workspace', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// PUBLISHING TO A REMOTE (ticket 04; ADR-0031, ADR-0032, ADR-0033)
+// PUBLISHING TO A REMOTE (ADR-0031, ADR-0032, ADR-0033)
 //
-// SPEC's Seam 2, driving SPEC's Seam 1 fake through Playwright routes. The engine's own
+// Seam 2, driving the Seam 1 fake through Playwright routes. The engine's own
 // correctness — the incremental upload, the owned-namespace rules, the truncation refusal, the
 // three budgets — is asserted in `packages/core/src/remote/publish-to-remote.test.ts`, where the
 // assertion is the resulting tree and no browser is involved. What only a browser can settle is
@@ -879,7 +878,7 @@ test.describe('publishing a Workspace', () => {
 // every way it can go wrong reaches a scholar as a sentence they can act on.
 //
 // ⚠ **Assertions are on what arrived at the Remote, never on which calls were made.** Every failure
-// mode in this epic is silent and plausible, and a test counting requests passes over all of them.
+// mode a publish has is silent and plausible, and a test counting requests passes over all of them.
 // The one exception is `blobPosts`, which measures what was *sent* — "the second publish uploaded
 // nothing" and "the refusal stopped the uploads" are claims no assertion on a tree can make.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
@@ -926,7 +925,7 @@ test.describe('publishing to a Remote', () => {
 	 *
 	 * ⚠ **The credential is seeded rather than acquired, and that is a statement about what these
 	 * tests are for.** On a deployment with a GitHub App the publish dialog offers no token field —
-	 * the door there is a redirect off the page (SPEC story 37) — and every test in this describe is
+	 * the door there is a redirect off the page — and every test in this describe is
 	 * about the bytes that reach the Remote rather than about how the credential was got. Driving the
 	 * real door here would make ten tests of the Remote into ten tests of the sign-in; it is asserted
 	 * once, in `editor-github-signin.e2e.ts`, against the real `isGitHubAppConfigured`.
@@ -1015,7 +1014,7 @@ test.describe('publishing to a Remote', () => {
 		// files it never sent. And the generated site — `index.html`, `_app/**`, `.nojekyll`,
 		// `remote.json`, `ballastella-site.json`, the Base Map's fonts and sprites — is Publish-owned
 		// output: it is sent every time and it is never shared *source*, or two editor versions would
-		// read each other's chunk names as changed scholarship (SPEC stories 120, 145).
+		// read each other's chunk names as changed scholarship.
 		expect(manifest?.files.sort()).toEqual([
 			'alignments/aaa.json',
 			'amsterdam-1625/annotations/l2.geojson',
@@ -1048,7 +1047,7 @@ test.describe('publishing to a Remote', () => {
 		// ⚠ **Inert rather than gone.** A button removed from the DOM leaves the tab order exactly as a
 		// `disabled` one does, dropping a keyboard user's focus to `<body>` — the failure decision 4 in
 		// `PublishDialog`'s header rules out, and this is the same rule applied to the other way of
-		// taking a control away (SPEC story 60, WCAG 2.4.3).
+		// taking a control away (WCAG 2.4.3).
 		const confirm = again.getByRole('button', { name: 'Publish', exact: true });
 		await expect(confirm).toHaveAttribute('aria-disabled', 'true');
 		expect(github.blobPosts() - sent).toBe(0);
@@ -1056,7 +1055,7 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * SPEC stories 13, 14, 59 and 60 in one run, because they are one moment.
+	 * Four claims in one run, because they are one moment.
 	 *
 	 * Three numbers, because a publish can be slow for three different reasons and a scholar cannot
 	 * tell them apart otherwise; announced from inside the modal, because `showModal()` makes the rest
@@ -1107,7 +1106,7 @@ test.describe('publishing to a Remote', () => {
 		// ⚠ **And the count it was climbing towards is the transfer that happened**, not the plan it
 		// started from: every file the line promised was uploaded, one blob apiece. A progress line
 		// counting something else — the tree's entries, the Workspace's files — would leave a scholar
-		// watching a number that never arrives where it said it would (SPEC story 149).
+		// watching a number that never arrives where it said it would.
 		expect(github.blobPosts()).toBe(announced);
 	});
 
@@ -1166,7 +1165,7 @@ test.describe('publishing to a Remote', () => {
 		// move. What does not fit is the website — twenty-odd files of viewer bundle and a site record,
 		// none of them in the Workspace at the moment this warning is computed. A forecast made against
 		// the folder as it stands says this publish fits, and the scholar meets the 403 three hundred
-		// files in instead of making the decision story 11 exists to give them.
+		// files in instead of making the decision the forecast exists to give them.
 		await start(page, {
 			hosts: {
 				repositories: [
@@ -1181,7 +1180,7 @@ test.describe('publishing to a Remote', () => {
 		await expect(warning).toContainText('requests in all');
 		await expect(warning).toContainText(/\d{1,2}:\d{2}/);
 		// And the budget is stated whether or not it warns, because "how many files, how many bytes,
-		// how much of the hour" is what story 9 asks for before the button is pressed at all.
+		// how much of the hour" is what a scholar needs before the button is pressed at all.
 		await expect(dialog.locator('[data-budget="requests"]')).toContainText(/\d{1,2}:\d{2}/);
 		await expect(dialog.locator('[data-budget="files"]')).toContainText('need uploading');
 		// **Both numbers on the byte axis**: what the site will weigh, and the ceiling it is measured
@@ -1196,7 +1195,7 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * Story 9's two numbers, checked against what actually arrived.
+	 * The forecast's two numbers, checked against what actually arrived.
 	 *
 	 * ⚠ **The forecast is made before the local publish writes**, so a count taken off the Workspace as
 	 * it stands is short by the whole website: `index.html`, `_app/**` and `ballastella-site.json` are
@@ -1230,7 +1229,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		// Enough for the sign-in, both plans and a handful of blobs, and not enough for the bundle.
 		// Nothing is visible on a Remote until the ref moves, so an interrupted publish has to leave the
-		// site exactly as it was rather than half replaced (SPEC story 16).
+		// site exactly as it was rather than half replaced.
 		const github = await start(page, {
 			hosts: {
 				repositories: [
@@ -1273,9 +1272,8 @@ test.describe('publishing to a Remote', () => {
 		await expect(dialog.getByTestId('publish-unbound')).toContainText('Remote repository…');
 		// ⚠ **Neither door, and this is the claim that survived the gate rather than a copy of it.** A
 		// Workspace with nowhere to publish is asked for no credential at all — not the paste and not
-		// the sign-in — because a credential would answer a question nobody has yet put. Story 37's
-		// claim about the *signed-out bound* state is the test below and the one in
-		// `editor-github-signin.e2e.ts`.
+		// the sign-in — because a credential would answer a question nobody has yet put. The
+		// *signed-out bound* state is the test below and the one in `editor-github-signin.e2e.ts`.
 		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
 		await expect(dialog.getByTestId('publish-sign-in-with-github')).toHaveCount(0);
 		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
@@ -1285,7 +1283,7 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * A bound Workspace without a credential is offered the sign-in, and publishing is not offered.
 	 *
-	 * ⚠ **One door, and on this deployment it is not a token field** (SPEC story 37). The credential
+	 * ⚠ **One door, and on this deployment it is not a token field**. The credential
 	 * is this tab's and the binding is not, so this is where a bound Workspace reopened in a fresh tab
 	 * lands — an ordinary arrival, and the last place in the editor with a credential to ask a student
 	 * for at all. Which door is offered comes from
@@ -1305,7 +1303,7 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * Story 5: the credential that reaches a repository and cannot push to it.
+	 * The credential that reaches a repository and cannot push to it.
 	 *
 	 * Every request a forecast makes is a GET, so a `Contents: Read` credential plans cleanly and would
 	 * meet its 403 at the first blob — with the whole website already written into the Workspace.
@@ -1327,7 +1325,7 @@ test.describe('publishing to a Remote', () => {
 
 		const dialog = await signedIn(page);
 
-		// ⚠ **Refused before it begins, not merely warned about** (SPEC story 106).
+		// ⚠ **Refused before it begins, not merely warned about**.
 		// Publishing reads the account's permission before it lists a tree, so there is no forecast to
 		// show and no button to press through: pressing on would write the whole website into the
 		// Workspace and then meet the same refusal, which is minutes of work for a transfer that
@@ -1342,7 +1340,7 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * The result renders **outside** the dialog, on a bar that is on every screen (ticket 07's class).
+	 * The result renders **outside** the dialog, on a bar that is on every screen.
 	 *
 	 * So closing is not what makes it stale — switching Workspace is. "Published … Sent to ada/atlas"
 	 * left under the bar of the Workspace a scholar has just switched to is a statement about that
@@ -1363,13 +1361,13 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * The stale sign-in ticket 03 recorded and this ticket settled.
+	 * The stale sign-in, and where its refusal arrives.
 	 *
-	 * Rights are read at a bind and at a paste and at no other moment, so the Workspace menu's
-	 * "Signed in to GitHub" means *a credential is held*, never *a credential still works*. The answer taken is:
-	 * leave the label alone and let the **refusal** carry it. It arrives on opening the dialog,
-	 * because planning is the first credentialed request a publish makes and it sends nothing — so a
-	 * scholar meets it with the Remote untouched rather than after four thousand tiles have gone.
+	 * Rights are read at a bind and at a paste and at no other moment, so the Workspace menu's "Signed
+	 * in to GitHub" means *a credential is held*, never *a credential still works*. The label is left
+	 * alone and the **refusal** carries it instead. It arrives on opening the dialog, because planning
+	 * is the first credentialed request a publish makes and it sends nothing — so a scholar meets it
+	 * with the Remote untouched rather than after four thousand tiles have gone.
 	 */
 	test('says the sign-in has expired, offers the way back in, and forgets the credential', async ({
 		page

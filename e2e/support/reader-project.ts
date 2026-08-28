@@ -12,8 +12,8 @@
 // what makes "this Layer is drawn" a fact about the renderer and not about a shortfall message.
 //
 // The pyramid is one 256 px tile at each scale factor the `info.json` declares, with real JPEG bytes:
-// a tile that will not decode is the failure ticket 06 spent a patch on, and `@allmaps/render` logs and
-// swallows it — so a string standing in for a tile leaves a blank map and a green test.
+// a tile that will not decode is the failure the `@allmaps/render` patch covers, and upstream logs
+// and swallows it — so a string standing in for a tile leaves a blank map and a green test.
 
 import { asJson, tileJpeg, type SiteFiles } from './published-site.js';
 
@@ -86,8 +86,8 @@ const gcp = (resourceCoords: [number, number], coordinates: [number, number]) =>
  * `serviceId` is what the document declares its own `id` to be, and it is the **only** thing that decides
  * where a tiling viewer fetches this pyramid's tiles from — see
  * `apps/viewer/src/lib/unwarped-manifest.ts`. Unstamped it is the ADR-0004 placeholder; a Project the
- * author published with an address has it rewritten by `stampCanonicalUrl` (SPEC story 92), which is the
- * case story 85 needs and the reason this is a parameter.
+ * author published with an address has it rewritten by `stampCanonicalUrl`, which is the case
+ * reading a Map Image as a document needs and the reason this is a parameter.
  */
 export const infoJson = (serviceId = `https://unset.invalid/${IMAGE_ID}`): string =>
 	asJson({
@@ -167,7 +167,7 @@ export type ProjectFixture = {
 	 * The address the pyramid's `info.json` declares as its own image service `id`.
 	 *
 	 * Absent leaves the ADR-0004 placeholder, which is an unstamped Project. Supplying the site's own
-	 * address is what `stampCanonicalUrl` writes when an author publishes with one (SPEC story 92), and it
+	 * address is what `stampCanonicalUrl` writes when an author publishes with one, and it
 	 * is the only shape in which a tiling viewer can read the sheet — so a test that wants the unwarped
 	 * view to *work* has to say where the site is.
 	 */
@@ -235,9 +235,9 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 		// **Every** tile the pyramid declares, and the paths are not hand-derived: they are what
 		// `planPyramid` produces for a 700 × 500 image at a 256 px tile size, which is what
 		// `@allmaps/iiif-parser` will ask for. A partial set would leave the renderer's cache empty and
-		// make "the Map Image carried bytes" unassertable — the exact blank-map failure ticket 06
-		// spent a patch on. Regenerate by printing `planPyramid(buildImageInfo(…), 'x')` if the tile size
-		// or the fixture dimensions ever change.
+		// make "the Map Image carried bytes" unassertable — the exact blank-map failure the
+		// `@allmaps/render` patch covers. Regenerate by printing `planPyramid(buildImageInfo(…), 'x')` if
+		// the tile size or the fixture dimensions ever change.
 		const jpeg = tileJpeg();
 		for (const cell of PYRAMID_TILES) {
 			files[`images/${IMAGE_ID}/${cell}`] = jpeg;

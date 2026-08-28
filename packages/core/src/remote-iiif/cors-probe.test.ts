@@ -166,10 +166,10 @@ describe('a host that serves everything readably', () => {
 describe('the exact-resize assumption, which cannot be asserted of a stranger', () => {
 	it('refuses a tile whose served size is not the size that was asked for', async () => {
 		// `ImagePaneTile.placement` is `region ÷ scaleFactor`, and that is the right number only if
-		// `size=w,h` really returns w×h. Ticket 05 asserts our own tiler honours it; here the server
-		// belongs to somebody else, and a server that rounds a ragged tile up to a whole tile draws
-		// this map stretched by up to 0.6% at the right and bottom margins — sub-pixel, systematic,
-		// and indistinguishable from an imprecise alignment.
+		// `size=w,h` really returns w×h. `decode-and-crop-tiler.browser.test.ts` asserts our own tiler
+		// honours it; here the server belongs to somebody else, and a server that rounds a ragged tile
+		// up to a whole tile draws this map stretched by up to 0.6% at the right and bottom margins —
+		// sub-pixel, systematic, and indistinguishable from an imprecise alignment.
 		const remote = await service();
 		const asked = remote.probeTiles[0]!.request.size;
 		expect(asked.width).toBeLessThan(remote.tileSize);

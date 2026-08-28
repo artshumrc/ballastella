@@ -1,12 +1,12 @@
-// What a Workspace backup *is*, shared by the writer and the reader (ticket 13, ADR-0024).
+// What a Workspace backup *is*, shared by the writer and the reader (ADR-0024).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY TAR, AND WHY THE MEASUREMENT IS A TEST RATHER THAN A SENTENCE
 //
 // ADR-0024 moves whole-Workspace transfer off zip for two reasons, and both were, when it was
-// written, quoted from `modern-tar`'s README. The epic's standing constraints forbade building on
-// either unverified, so `tar-format.test.ts` measures them and this module is downstream of that
-// file rather than of the README. What it measured, at `modern-tar` 0.8.2:
+// written, quoted from `modern-tar`'s README. Neither may be built on unverified, so
+// `tar-format.test.ts` measures them and this module is downstream of that file rather than of the
+// README. What it measured, at `modern-tar` 0.8.2:
 //
 //   - **It streams, in both directions, with backpressure**, and that is asserted in bytes moved
 //     through a stream rather than in bytes a garbage collector has got round to freeing. Holding one
@@ -25,9 +25,9 @@
 //   - **Paths past tar's 100-byte `name` field survive exactly**, by USTAR `prefix` up to 256 bytes
 //     and by a PAX `path` record beyond it, including Devanagari, CJK, Arabic and emoji. That is
 //     load-bearing twice over here: `<project-dir-up-to-64>/annotations/<uuid>.geojson` is already
-//     121 bytes before the Workspace name is prepended, and since ticket 12 the Workspace name is
-//     **user data** — 12 found and fixed a normaliser mangling Devanagari, and a backup that
-//     mangled it again would undo that fix at the one moment the user is trusting the tool with
+//     121 bytes before the Workspace name is prepended, and the Workspace name is **user data** —
+//     `toWorkspaceName` keeps Devanagari, Thai and Arabic combining marks intact, and a backup that
+//     mangled one would undo that care at the one moment the user is trusting the tool with
 //     everything they have.
 //
 // A third thing fell out of the measurement that ADR-0024 does not claim and that is worth having:
@@ -48,8 +48,8 @@
 //     so the importer chooses the name and a collision is a question for the user. A Workspace
 //     backup is the opposite case: restore creates a **new** Workspace, so there is nothing to
 //     collide with, and the name is the one piece of the user's work that has nowhere else to live.
-//     It is not in any file — ticket 12 made the directory name *be* the name precisely so there
-//     would be no second record to disagree with the disk.
+//     It is not in any file: the directory name *is* the name (ADR-0008), precisely so there would
+//     be no second record to disagree with the disk.
 //   - **`tar xf backup.tar` produces a folder named after the Workspace**, on a computer with no
 //     browser involved. For the Firefox, Safari and iPad users this whole path exists for, the
 //     archive is the only copy of their work that is not inside a browser they cannot see into
@@ -70,7 +70,7 @@ import { isTempPath } from '../store/project-store.js';
 /**
  * Every entry's modification time, and a constant rather than the clock.
  *
- * The same two reasons `ZIP_ENTRY_MTIME` gives, carried over because the ticket asks for them.
+ * The same two reasons `ZIP_ENTRY_MTIME` gives, and both apply here.
  * It makes a backup **byte-reproducible** — the same Workspace twice, and a Workspace that has been
  * through a restore, produce identical archives — which is what lets the round-trip test assert
  * *lossless* rather than merely *plausible*. And it refuses to imply that an archive carries useful
@@ -202,7 +202,7 @@ export class BackupRejectedError extends Error {
  * **The stakes are higher on this path than on the zip's**, which is why it is not merely copied but
  * stated. A Project bundle is rooted inside one Project directory, so an escaping entry lands elsewhere
  * in the Workspace. A Workspace backup is rooted at the Workspace, so an escaping entry lands
- * elsewhere in the **OPFS root** — which since ticket 12 holds *every other Workspace the user has*,
+ * elsewhere in the **OPFS root** — which holds *every other Workspace the user has* (ADR-0008),
  * including the one they are restoring in order to recover from damage to. On a folder-backed
  * Workspace it lands somewhere in a folder the user granted for one purpose.
  *
@@ -247,10 +247,10 @@ export function assertSafeBackupPath(name: string): void {
  *
  * **Normalised through {@link toWorkspaceName} on the way out**, and the round trip through it has to
  * be a no-op or the archive is refused. That check is the point rather than a formality: the
- * normaliser is idempotent by contract (ticket 12 asserts it), so a name that changes under it is a
- * name our own exporter could not have written — someone has hand-built the archive, or a filesystem
- * has folded the name — and restoring under a *different* name than the archive says is precisely the
- * silent mangling ticket 12 fixed.
+ * normaliser is idempotent by contract (`opfs-workspaces.test.ts` asserts it), so a name that changes
+ * under it is a name our own exporter could not have written — someone has hand-built the archive, or
+ * a filesystem has folded the name — and restoring under a *different* name than the archive says is
+ * precisely the silent mangling {@link toWorkspaceName} exists to prevent.
  */
 export function backupWorkspaceName(entryName: string): string | null {
 	if (!entryName.endsWith('/')) return null;

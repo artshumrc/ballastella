@@ -24,7 +24,7 @@ const ONE_SEARCH =
  * through a browser. It is also what stops **the two empty-handed rows drifting together**. `none`
  * and `unanswered` are the same shape to a careless consumer — neither has candidates — and the
  * failure that matters is one sentence covering both: "no results for Boston Common" when the
- * request never left the building is the inversion `nothing-fails-silently` story 10 forbids.
+ * request never left the building is an inversion this module exists to prevent.
  *
  * ⚠ **`none` says nothing about what the service did.** A blank query is answered `none` without a
  * request being issued at all (`lookup.ts`), so a sentence reporting that the service answered would

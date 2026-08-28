@@ -9,8 +9,8 @@
 // then answerable in a table-driven test with no browser, no network, and no transfer, which is the
 // only way the six states below can be exhaustively covered at all.
 //
-// The callers supply the I/O: ticket 11 opens, ticket 12 checks, tickets 14 and 15 fetch and commit,
-// ticket 16 publishes. They all ask the same three functions the same question.
+// The callers supply the I/O: an Open, a status check, an Update and a Publish. They all ask the
+// same three functions the same question.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE TABLE, AND ADDITIONS AND DELETIONS ARE ROWS OF IT
@@ -21,7 +21,7 @@
 // and deleted — is three tables that have to agree, and the row they disagreed on was "deleted here,
 // edited there", which is a Conflict under the table and was an ordinary deletion under the rules.
 //
-// SPEC's table, per path, against Baseline `B`, local `L` and Remote `R`:
+// The table, per path, against Baseline `B`, local `L` and Remote `R`:
 //
 //   no valid B                          cannot-tell
 //   L = B and R = B                     shared
@@ -38,8 +38,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE COMBINATION CAN BE BROKEN WHEN NO SINGLE PATH IS
 //
-// SPEC: *"a combination of individually separate changes reported as Conflict when it would violate
-// a Workspace invariant."* A map Layer added here while its pyramid is deleted there is two
+// A combination of individually separate changes is reported as a Conflict when it would violate a
+// Workspace invariant. A map Layer added here while its pyramid is deleted there is two
 // perfectly attributable changes at two different paths, and the Workspace they add up to cannot
 // draw. So the plan's chosen bytes are assembled into a prospective path set and the Workspace's own
 // invariants are asked of it, through `gatherProjectClosure` — the same closure check Import uses, so
@@ -53,15 +53,15 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // NO BASELINE: WHICH SIDE'S EMPTINESS LICENSES WHICH OPERATION
 //
-// SPEC: *"A deliberate Update or Publish planning pass may establish a Baseline when both source
-// namespaces are byte-for-byte equal or one side is empty."* Read with stories 152 and 153, "one
-// side" is **the side the operation would destroy**, and the two operations therefore differ:
+// A deliberate Update or Publish planning pass may establish a Baseline when both source namespaces
+// are byte-for-byte equal or one side is empty. "One side" is **the side the operation would
+// destroy**, and the two operations therefore differ:
 //
-//   Update  refuses when local and Remote source are both non-empty and differ (story 153). An empty
-//           Workspace takes everything; an empty Remote leaves the local work as Changes to publish.
-//   Publish refuses whenever the Remote's source namespace is non-empty and differs (story 152's
-//           "safe refusal for a non-empty Remote"), which is exactly `detectConflict`'s existing
-//           `unknown` refusal — and it keeps its existing remedy, Publish anyway.
+//   Update  refuses when local and Remote source are both non-empty and differ. An empty Workspace
+//           takes everything; an empty Remote leaves the local work as Changes to publish.
+//   Publish refuses whenever the Remote's source namespace is non-empty and differs — a safe refusal
+//           for a non-empty Remote, which is exactly `detectConflict`'s existing `unknown` refusal,
+//           and it keeps its existing remedy, Publish anyway.
 //
 // Both establish the Baseline only for what the two sides genuinely share, which is empty when
 // nothing is shared. An empty Baseline is honest evidence; a fabricated one is not.
@@ -99,8 +99,9 @@ export type PathComparison =
 /**
  * The Workspace's Remote Status, as a stable value.
  *
- * ⚠ **These are not labels.** Ticket 12 owns the words a user reads — "Up to date", "Cannot tell" —
- * and projects them from exactly these six. Nothing here should grow a sentence about a status.
+ * ⚠ **These are not labels.** `remote-status.ts` owns the words a user reads — "Up to date", "Cannot
+ * tell" — and projects them from exactly these six. Nothing here should grow a sentence about a
+ * status.
  */
 export type SourceStatus =
 	| 'up-to-date'
@@ -164,10 +165,10 @@ export type GraphVerdict =
 /**
  * The three inventories, and the material to validate the result with.
  *
- * ⚠ **`local` must be a *complete* hashing of the Workspace for a deliberate Update or Publish**
- * (SPEC story 160). A chosen folder can be edited by anything on the machine, so the write index
- * ticket 10 maintains is evidence about Ballastella's own writes and nothing else; a plan built from
- * it would take an inbound change over an out-of-band local edit and call it safe. The requirement is
+ * ⚠ **`local` must be a *complete* hashing of the Workspace for a deliberate Update or Publish.** A
+ * chosen folder can be edited by anything on the machine, so the write index `local-change-index.ts`
+ * maintains is evidence about Ballastella's own writes and nothing else; a plan built from it would
+ * take an inbound change over an out-of-band local edit and call it safe. The requirement is
  * on the caller because the planner has no I/O to make the pass itself — and it holds regardless of
  * the status already displayed, which the complete pass is entitled to revise.
  */
@@ -188,7 +189,7 @@ export interface WorkspaceComparison {
 	/**
 	 * Where the two sides' generated Published Site output differs, sorted.
 	 *
-	 * SPEC story 120, and it never touches {@link status}: a site built by another editor version has
+	 * It never touches {@link status}: a site built by another editor version has
 	 * different chunk names, which means "republish when you like" and never "somebody changed your
 	 * scholarship".
 	 */
@@ -266,7 +267,7 @@ export type PlanResult<P> =
 /**
  * One path's three pieces of evidence, compared. `null` is absent on any of the three sides.
  *
- * **The one implementation of SPEC's table**, called by the Workspace comparison here and by
+ * **The one implementation of the table**, called by the Workspace comparison here and by
  * publishing's own refusal — which asks the same question of the same three values and must not
  * answer it differently. See this module's header for the rows.
  */
@@ -395,7 +396,7 @@ function aggregate(comparison: SourceComparison): SourceStatus {
  * differs.
  *
  * The status is the aggregated table, **escalated to Conflict when the prospective result would
- * break the Workspace** (SPEC story 136). It is deliberately *not* escalated for a
+ * break the Workspace**. It is deliberately *not* escalated for a
  * {@link GraphVerdict} `'failed'`: that is a transfer that cannot be judged, and calling it Conflict
  * would describe unreadable Remote bytes as changed scholarship.
  */
@@ -618,7 +619,7 @@ export function planWorkspaceUpdate(input: SynchronizationInput): PlanResult<Wor
 	};
 }
 
-/** The refusal an Update gives for a result that would not be a Workspace (SPEC story 136). */
+/** The refusal an Update gives for a result that would not be a Workspace. */
 const brokenWorkspace = (
 	violations: readonly GraphViolation[]
 ): PlanResult<WorkspaceUpdatePlan> => ({
@@ -634,15 +635,15 @@ const brokenWorkspace = (
 /**
  * An Update with no Baseline at all.
  *
- * Refuses only what cannot be attributed — both sides non-empty and different (SPEC story 153) — and
- * otherwise establishes the Baseline for what the two sides genuinely share, which is nothing at all
+ * Refuses only what cannot be attributed — both sides non-empty and different — and otherwise
+ * establishes the Baseline for what the two sides genuinely share, which is nothing at all
  * when the Remote's source namespace is empty.
  *
  * ⚠ **Its own graph check, because `prospectiveSource` cannot describe this plan.** Every row is
  * `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which for
  * the ordinary case here, an empty Workspace taking a whole Remote, is nothing at all. Judged by
  * that, a Remote whose `project.json` names a Map Image nobody ever pushed would be refused once
- * there is a Baseline and adopted whole on the one Update that establishes one (SPEC story 136).
+ * there is a Baseline and adopted whole on the one Update that establishes one.
  */
 function establishForUpdate(
 	comparison: SourceComparison,
@@ -706,7 +707,7 @@ export interface WorkspacePublishOptions {
  *
  * ⚠ **This is the *decision*, not the transfer.** `planRemotePublish` still works out blobs, budgets
  * and the tree; what is answered here is whether the Remote holds source work this Workspace has not
- * taken yet, and which of its files are ours to replace. Ticket 16 joins the two.
+ * taken yet, and which of its files are ours to replace. `synchronization-publish.ts` joins the two.
  *
  * An ordinary Publish refuses inbound source change — alone, alongside local work, or as a Conflict —
  * because a mirror of this Workspace would overwrite it. `replace` is the confirmed Publish anyway,

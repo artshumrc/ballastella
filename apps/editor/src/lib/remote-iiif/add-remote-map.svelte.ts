@@ -6,7 +6,7 @@
 // one of them can be abandoned with nothing written. `EditorSession` stays the app's only writer of
 // the document (and it is the one that does the writing at the end of this) — see `addSelected`.
 //
-// The order of operations is the ticket's, and it is the order that matters:
+// The order of operations is fixed, and it is the order that matters:
 //
 //   1. parse the URL, refusing what cannot be fetched at all;
 //   2. read the resource, bounded, and describe it for the user;
@@ -17,7 +17,7 @@
 //   7. and only then write.
 //
 // Nothing before step 7 touches the Project. A refusal at any earlier step leaves the Workspace
-// exactly as it was, which is the same property ticket 13's import has and for the same reason.
+// exactly as it was, which is the same property Project import has and for the same reason.
 
 import {
 	COMMUNITY_ALIGNMENT_DISCLOSURE,
@@ -43,7 +43,7 @@ import type { EditorSession } from '../editor-session.svelte.js';
 import { communityLookup } from './lookup-setting.svelte.js';
 import { recordRemoteRequest } from './browser-test-handle.js';
 
-/** Which step the job is on, for the region that announces it (SPEC story 96). */
+/** Which step the job is on, for the region that announces it. */
 export type AddRemoteStep =
 	| 'idle'
 	/** Fetching and parsing what the pasted URL names. */
@@ -92,7 +92,7 @@ export class AddRemoteMap {
 
 	/** The resource that was read, or `null`. Held so choosing costs no further request. */
 	resource = $state<RemoteIiifResource | null>(null);
-	/** Its label, rights, attribution and metadata as text (SPEC story 20). */
+	/** Its label, rights, attribution and metadata as text. */
 	described = $state<DescribedResource | null>(null);
 	/** The canvas the user has picked, by its URI. `''` for a bare image service. */
 	selectedCanvas = $state('');
@@ -136,7 +136,7 @@ export class AddRemoteMap {
 	 * Deliberately the **ADR-0011 shim** rather than the bare `fetch`, even though nothing here is
 	 * stored: the shim passes every non-placeholder host straight through unmodified, and routing
 	 * remote reads through it is what keeps one answer to "how does this app fetch an image service".
-	 * A copied copy (ticket 15) then needs no second code path — the same call reaches the store.
+	 * An offline copy then needs no second code path — the same call reaches the store.
 	 *
 	 * Wrapped so the Playwright suite can count what was requested, which is how "the lookup is off,
 	 * so nothing is sent to annotations.allmaps.org" becomes a claim about the network.
@@ -168,7 +168,7 @@ export class AddRemoteMap {
 
 	/**
 	 * Read whatever the pasted URL names — a Manifest, a Collection, or a bare `info.json` — and
-	 * describe it (SPEC stories 16, 17, 18, 20).
+	 * describe it.
 	 *
 	 * One `@allmaps/iiif-parser` call for all three shapes (ADR-0015). A Collection is not a special
 	 * case here: it arrives as a list of items to open, and opening one is another call to this same
@@ -193,7 +193,7 @@ export class AddRemoteMap {
 			this.step = 'choosing';
 			// A Manifest with exactly one canvas has nothing to choose, and a bare image service has
 			// nothing to choose either. Selecting for the user in those two cases is not a shortcut: it
-			// is what makes story 18 ("paste a bare image service URL") one action rather than two.
+			// is what makes pasting a bare image service URL one action rather than two.
 			if (resource.kind === 'image') {
 				await this.select(resource.parsed.uri);
 			} else if (this.canvases.length === 1 && this.canvases[0]?.imageService) {
@@ -267,10 +267,9 @@ export class AddRemoteMap {
 	 * edits the Manifest, a canvas paints a Choice, a service is behind a redirect. Nothing is wrong
 	 * anywhere and the map is misplaced.
 	 *
-	 * **Not "manifesto.js versus `@allmaps/iiif-parser`", which this said until ticket 15.** Both
-	 * sides of this boundary are `@allmaps/iiif-parser` now — the editor dropped triiiceratops, and
-	 * `manifesto.js` with it, when the unwarped view went (ADR-0018's amendment note). The rule
-	 * outlived the two-parser reason for it; `parser-boundary.ts` carries the full statement.
+	 * **Not a rule about two parsers.** Both sides of this boundary are `@allmaps/iiif-parser`; there
+	 * is no `manifesto.js` in the editor at all (ADR-0018's amendment note). The rule outlives the
+	 * two-parser reason for it; `parser-boundary.ts` carries the full statement.
 	 */
 	async select(selected: unknown): Promise<void> {
 		this.error = '';
@@ -321,12 +320,11 @@ export class AddRemoteMap {
 	}
 
 	/**
-	 * Write the Layer (SPEC story 29's other half, and the `imageMode: 'referenced'` half of ticket
-	 * 09's union).
+	 * Write the Layer for a Map Image that stays on the library's server.
 	 *
-	 * Through `EditorSession`, because it is the app's only writer of `project.json` — the rule this
-	 * epic has broken more often than any other, and the one whose breach destroyed `name`,
-	 * `updatedAt`, and `layers` while the indicator said "Saved".
+	 * Through `EditorSession`, because it is the app's only writer of `project.json` — the easiest
+	 * rule in this application to break, and a breach of it destroys `name`, `updatedAt`, and
+	 * `layers` while the indicator says "Saved".
 	 *
 	 * **A chosen community Alignment is a request, not a guarantee.** ADR-0023 gives a Map Image
 	 * one Alignment, held in the Workspace and shared by every Project that draws it, so importing

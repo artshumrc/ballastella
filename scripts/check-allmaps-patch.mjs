@@ -4,12 +4,12 @@
 // them fail silently, which is why they are guarded here rather than trusted.
 //
 //   1. Warped rendering goes blank: `fetchFn` is passed into a Comlink worker unproxied, every tile
-//      fails with DataCloneError, and upstream logs and swallows it. Ticket 06 recorded the
-//      diagnosis; the patch header records the fix.
+//      fails with DataCloneError, and upstream logs and swallows it. The patch header records both
+//      the diagnosis and the fix.
 //   2. A refused `info.json` becomes an uncaught page error: `WebGL2Renderer.render` called
 //      `loadMissingImagesInViewport()` and dropped the returned promises, while upstream's three
-//      other renderers all wrap the same call in `Promise.allSettled`. Ticket 04 of the
-//      `nothing-fails-silently` epic; measured at three failures in eight runs before the fix.
+//      other renderers all wrap the same call in `Promise.allSettled`. Measured at three failures in
+//      eight runs before the fix.
 //
 // This check exists because of HOW that fails if it stops applying. `@allmaps/render` is not a
 // direct dependency — it arrives through `@allmaps/maplibre` — so bumping *maplibre* can move
@@ -114,7 +114,8 @@ if (!source.includes('this.fetchFn')) {
 //
 // The lesson is not "scan more carefully". It is that **"is the fix here?" is decidable by string
 // match and "is there no defect anywhere in this file?" is not.** Line 83 has asked the presence
-// question about the other hunk since ticket 06 and has never been wrong. This now does the same.
+// question about the other hunk since that hunk was written and has never been wrong. This now does
+// the same.
 //
 // What this cannot catch: someone hand-editing `node_modules` to delete the patched line while
 // leaving its marker comment. That is not the threat model — the threat is a version move making
@@ -150,6 +151,6 @@ if (!renderer.includes('loadMissingImagesInViewport')) {
 }
 
 console.log(
-	`@allmaps/render ${resolvedVersion}: patched for the unproxied fetchFn (ticket 06, warped ` +
-		'rendering) and for the dropped loadMissingImagesInViewport promises (ticket 04).'
+	`@allmaps/render ${resolvedVersion}: patched for the unproxied fetchFn (warped rendering) ` +
+		'and for the dropped loadMissingImagesInViewport promises.'
 );

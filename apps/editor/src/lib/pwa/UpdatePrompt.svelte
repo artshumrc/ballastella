@@ -2,13 +2,13 @@
 	import { useInstalledApp } from './installed-app.svelte.js';
 
 	/**
-	 * "A new version is available" — and nothing else happens until the user says so (SPEC story 9).
+	 * "A new version is available" — and nothing else happens until the user says so.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * EVERY CHOICE HERE IS ABOUT NOT INTERRUPTING AN ALIGNMENT
 	 *
-	 * Story 9's clause is "so that an update never interrupts me mid-alignment", and the ways a
-	 * notice can interrupt are more numerous than the ways it can inform:
+	 * An update must never interrupt a scholar mid-alignment, and the ways a notice can interrupt are
+	 * more numerous than the ways it can inform:
 	 *
 	 *   * **It does not reload.** The service worker never ends its own wait and never claims a client,
 	 *     so the running page keeps the worker it started with. This component reloads only from a

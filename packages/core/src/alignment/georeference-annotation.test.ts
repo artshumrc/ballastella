@@ -1,4 +1,4 @@
-// The `@allmaps/*` fixture round-trips: one of the epic's four named risk items (SPEC, ADR-0010).
+// The `@allmaps/*` fixture round-trips (ADR-0010).
 //
 // Every `@allmaps/*` package is pre-1.0, so the Georeference Annotation shape and the parser API
 // can still move under us. **A bump that changed either would not show as an error.** It would
@@ -55,7 +55,7 @@ const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
  *
  * **`allmaps-shaped` is in this list, and that is the point of the list.** It exists precisely
  * because it is a document *we did not write* — `id`, `created`, `modified`, `partOf`, `provider`,
- * `_allmaps`, and a polygon that repeats its closing vertex (SPEC story 91) — so it is the only
+ * `_allmaps`, and a polygon that repeats its closing vertex — so it is the only
  * fixture that can answer "does a document from another producer, read and re-written by us, come
  * back out something upstream still accepts?" That is the migration event ADR-0010 names, arriving
  * from the direction this fixture was built for, and leaving it out of the guarantees meant nothing
@@ -66,12 +66,11 @@ const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
  * Everything else — upstream's validator, exact Control Points and Resource Mask, exactly-zero
  * coordinate movement, and idempotence over five passes — applies to every fixture.
  *
- * **Ticket 18 narrowed what "a different document" is allowed to mean.** Those members are no longer
- * dropped: `id`, `created`, `modified`, `partOf`, `provider` and `_allmaps` are members this build
- * does not model, and they are now carried through a read-and-write cycle verbatim, because
- * `alignments/<image-id>.json` is shared by every Project and regenerating a colleague's document
- * from our own model is a silent loss (SPEC story 60). What still differs is only their *position*
- * in the file. The direct assertions are at the bottom of this file.
+ * **What "a different document" is allowed to mean is narrow.** `id`, `created`, `modified`,
+ * `partOf`, `provider` and `_allmaps` are members this build does not model, and they are carried
+ * through a read-and-write cycle verbatim, because `alignments/<image-id>.json` is shared by every
+ * Project and regenerating a colleague's document from our own model is a silent loss. What differs
+ * is only their *position* in the file. The direct assertions are at the bottom of this file.
  */
 const FIXTURES = [
 	{
@@ -96,14 +95,14 @@ const FIXTURES = [
 		byteIdentical: false
 	},
 	{
-		// Ticket 18's fixture: `floride-1657` with five members this build does not model — a
+		// The preservation fixture: `floride-1657` with five members this build does not model — a
 		// timestamp, a `creator` object and a term from somebody else's vocabulary at the top level,
 		// and `target.source.partOf` and `body._allmaps` nested inside. It is registered here so it
 		// has to pass every guarantee above as well as the preservation tests below.
 		//
 		// Not `byteIdentical`, for the same reason `allmaps-shaped` is not: the members come back, but
 		// `created` comes back in the slot `generateAnnotation` reserves for it rather than at the end
-		// of the document where its author put it. Ordering is not what story 60 is about, and the
+		// of the document where its author put it. Ordering is not what preservation is about, and the
 		// tests below assert the members and their values exactly, which is.
 		name: 'third-party-with-unknown-fields',
 		imageId: 'floride-1657',
@@ -146,13 +145,13 @@ describe('the committed fixture Alignments round-trip', () => {
 			// upstream bump changes how the document is written, the committed bytes stop matching and
 			// this fails — which is precisely the alarm ADR-0010 asks for on an Allmaps upgrade.
 			//
-			// Not asked of a document another producer wrote, and only there. Since ticket 18 those
-			// members do come back — what does not come back is their *position*: `created` returns to
-			// the slot `generateAnnotation` reserves for it rather than wherever its author put it. So
+			// Not asked of a document another producer wrote, and only there. Those members do come
+			// back — what does not come back is their *position*: `created` returns to the slot
+			// `generateAnnotation` reserves for it rather than wherever its author put it. So
 			// byte-identity against a foreign document would be asserting key order, which is not a
-			// property of the format and not what story 60 asks for. The members and their values are
-			// asserted exactly at the bottom of this file instead. Not registered at all rather than
-			// skipped, so the suite carries no permanently pending test.
+			// property of the format and not what preservation asks for. The members and their values
+			// are asserted exactly at the bottom of this file instead. Not registered at all rather
+			// than skipped, so the suite carries no permanently pending test.
 			if (byteIdentical) {
 				it('re-serialises to the committed bytes exactly', () => {
 					const alignment = parseAlignment(fixture(name), { imageId });
@@ -235,8 +234,8 @@ describe('persistence spends none of the coordinate pipeline’s precision headr
 	// imprecision rather than as a bug), so the number worth knowing is the error of the whole
 	// composite — pane → file → pane — and not of the file alone.
 	//
-	// Ticket 06 measured the projection's own contribution at 2.32e-10 px on a 700 × 500 pyramid
-	// and 1.49e-8 px on a 60000 × 24000 one. Since the file is exact to the bit (asserted above),
+	// The projection's own contribution measures 2.32e-10 px on a 700 × 500 pyramid and 1.49e-8 px
+	// on a 60000 × 24000 one. Since the file is exact to the bit (asserted above),
 	// the composite must land on those same figures; if it ever exceeds them, serialisation has
 	// started quantising something.
 	//
@@ -249,9 +248,8 @@ describe('persistence spends none of the coordinate pipeline’s precision headr
 	// elsewhere — `createSyntheticProjection` refuses a pyramid it cannot hold — not here.
 	//
 	// `toBeGreaterThan(0)` is the other half, and it is not ceremony: sampling on the binary grid
-	// makes this measurement read exactly 0 for a reason that has nothing to do with correctness,
-	// which is the pitfall ticket 03's review recorded. A 0 here means the samples stopped being
-	// off-grid, not that the pipeline became exact.
+	// makes this measurement read exactly 0 for a reason that has nothing to do with correctness. A 0
+	// here means the samples stopped being off-grid, not that the pipeline became exact.
 	it.each([
 		{
 			label: 'a small pyramid',
@@ -279,8 +277,7 @@ describe('persistence spends none of the coordinate pipeline’s precision headr
 		});
 
 		// Sampled off the binary grid on purpose. Integers on a power-of-two window come out exact,
-		// and a measurement that reads 0 for that reason asserts nothing — the pitfall ticket 03's
-		// review recorded and ticket 06 repeated.
+		// and a measurement that reads 0 for that reason asserts nothing.
 		const samples: DraftControlPoint[] = [];
 		const steps = 37;
 		for (let index = 0; index < steps; index += 1) {
@@ -342,11 +339,11 @@ describe('the Resource Mask’s SVG round-trip, which is the one lossy-looking p
 		expect(written).not.toMatch(/points="[^"]*e-/);
 	});
 
-	// **The path that makes the defect reachable in the field.** Ticket 07 fixed it while the mask
-	// was still the full image rectangle and its vertices were therefore integers; editing the mask
-	// is what lets a user put a vertex under 1e-6 — by dragging one towards the image origin, or by
-	// inserting one at the midpoint of an edge that already has a tiny coordinate. So the assertion
-	// is made through the editing operations, not by hand-building a mask.
+	// **The path that makes the defect reachable in the field.** A mask left as the full image
+	// rectangle has integer vertices; editing the mask is what lets a user put a vertex under 1e-6 —
+	// by dragging one towards the image origin, or by inserting one at the midpoint of an edge that
+	// already has a tiny coordinate. So the assertion is made through the editing operations, not by
+	// hand-building a mask.
 	it('survives an edited vertex below 1e-6, dragged there and inserted there', () => {
 		const dragged = moveMaskVertex(newAlignment('sheet', { width: 1200, height: 851 }), 0, {
 			x: 1.5e-7,
@@ -534,7 +531,7 @@ describe('every offered transformation type round-trips through @allmaps/annotat
 			expect(parseAnnotation(JSON.parse(text(written)))).toHaveLength(1);
 			// And the Control Points came through unchanged, not merely the type. Compared by coordinate
 			// and ordinal rather than wholesale, because the id is *derived from position* on read —
-			// the file carries none, and inventing one would be the proprietary index story 94 rules out.
+			// the file carries none, and inventing one would be a proprietary index a Project has none of.
 			expect(
 				back.controlPoints.map(({ ordinal, resource, geo }) => ({ ordinal, resource, geo }))
 			).toStrictEqual(
@@ -706,7 +703,7 @@ describe('a half-pair never reaches the file (ADR-0022)', () => {
 	});
 });
 
-describe('reading an Alignment written by Allmaps itself (SPEC story 91)', () => {
+describe('reading an Alignment written by Allmaps itself', () => {
 	const imageId = 'allmaps-shaped';
 
 	it('reads the Control Points and Resource Mask out of a document full of fields we never write', () => {
@@ -862,11 +859,11 @@ describe('an Alignment that cannot be read is refused, not half-read', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// A DOCUMENT SOMEBODY ELSE WROTE SURVIVES BEING WRITTEN BACK (SPEC story 60, ticket 18)
+// A DOCUMENT SOMEBODY ELSE WROTE SURVIVES BEING WRITTEN BACK
 //
-// `serialiseAlignment` regenerates the whole document from `Alignment`, so before ticket 18 every
-// member of a third-party Georeference Annotation that this build does not model was dropped the
-// first time anybody nudged a Control Point. ADR-0023 makes that worse than it sounds: the file
+// `serialiseAlignment` regenerates the whole document from `Alignment`, so without
+// `restoreUnmodelledMembers` every member of a third-party Georeference Annotation that this build
+// does not model is dropped the first time anybody nudges a Control Point. ADR-0023 makes that worse than it sounds: the file
 // belongs to the **Workspace** and is shared by every Project, so the nudge that discards a
 // colleague's `creator` block need not even be in the Project the colleague was working in.
 //
@@ -892,9 +889,8 @@ describe('the members of a third party’s document that this build does not mod
 	});
 
 	// The first cut diffed only the top level, and this is what that missed. Every one of these is
-	// nested, and `_allmaps` is what Allmaps itself writes — so a top-level-only diff did not hold
-	// for the documents story 60 exists for. `allmaps-shaped.json`, already in this repository
-	// before ticket 18, carries all three shapes and was silently losing them.
+	// nested, and `_allmaps` is what Allmaps itself writes — so a top-level-only diff does not hold
+	// for the documents this restoration exists for. `allmaps-shaped.json` carries all three shapes.
 	it('come back from inside target and body, not only from the top level', () => {
 		const out = written();
 
@@ -922,7 +918,7 @@ describe('the members of a third party’s document that this build does not mod
 		const out = written();
 
 		// Deep equality on each, not a truthiness check: a `creator` block flattened to its `id` would
-		// pass "the field survived" and still be the loss story 60 is written against.
+		// pass "the field survived" and still be the loss this is written against.
 		expect(out['created']).toBe(source['created']);
 		expect(out['creator']).toEqual(source['creator']);
 		expect(out['http://example.org/vocab#sheetNumber']).toBe(7);

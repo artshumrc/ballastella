@@ -1,4 +1,4 @@
-// The GitHub every spec in the publish epic talks to, installed as Playwright routes.
+// The GitHub every publishing spec talks to, installed as Playwright routes.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE NETWORK FENCE, AND WHY THESE ROUTES COME FIRST
@@ -16,20 +16,20 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // IT IS `createFakeGitHub` — THE SAME FAKE THE DOMAIN PACKAGE DRIVES — AND NOT A SECOND ONE
 //
-// SPEC's Seam 2: *the end-to-end suite, against the same fake through Playwright routes.* Ticket 01
-// wrote that fake before its first consumer for one reason — `iiif-hosts`'s lesson, where three
-// specs grew their own IIIF hosts and two of them could disagree about what a service does while
-// both stayed green. So everything below the `route.fulfill` is `packages/core`'s fake, reached by
-// a relative import; only the request and the response are translated.
+// Seam 2 is the end-to-end suite against the same fake, through Playwright routes. One fake, for one
+// reason — `iiif-hosts`'s lesson, where three specs grew their own IIIF hosts and two of them could
+// disagree about what a service does while both stayed green. So everything below the
+// `route.fulfill` is `packages/core`'s fake, reached by a relative import; only the request and the
+// response are translated.
 //
 // ⚠ **A second hand-written GitHub stood here, and it had already drifted in the one place that
 // matters.** On an unauthenticated `GET /repos/{owner}/{repo}` it omitted `permissions` while the
 // shared fake sent it, and a missing `permissions` is what `bind-remote.ts` maps to `canPush:
 // false` — so the two fakes gave *opposite* answers on the field deciding whether the scholar is
-// told their token cannot push. That is exactly the failure ticket 01 exists to prevent, arriving
-// within one ticket of the fake being written. Where the two disagreed, real GitHub won: the
-// omission was right and now lives in the shared fake, along with `refusePages`, `rejectCredential`
-// and the 422 a Pages request meets when the repository has no branches yet.
+// told their token cannot push. That is exactly the failure a single shared fake exists to prevent.
+// Where the two disagreed, real GitHub won: the omission was right and lives in the shared fake,
+// along with `refusePages`, `rejectCredential` and the 422 a Pages request meets when the repository
+// has no branches yet.
 //
 // **The import works, and the claim that it could not was measured to be false.** The workspace
 // `tsconfig.json`'s `include` governs which files are compilation *roots*, not what they may
@@ -136,10 +136,9 @@ export type GitHubHostsOptions = {
 /**
  * What the fake was asked, and — the half that matters — what it now holds.
  *
- * ⚠ **SPEC's testing decision in as many words: *a good test here asserts what arrived at the
- * Remote, not which calls were made.*** Every failure mode in this epic is silent and plausible: a
- * truncated tree yields a commit missing most of a pyramid, an off-by-one in the owned namespace
- * deletes a `CNAME`. A spec counting requests passes over both, so {@link GitHubHosts.files} is what
+ * ⚠ **A good test here asserts what arrived at the Remote, not which calls were made.** Every
+ * failure mode in this area is silent and plausible: a truncated tree yields a commit missing most of
+ * a pyramid, an off-by-one in the owned namespace deletes a `CNAME`. A spec counting requests passes over both, so {@link GitHubHosts.files} is what
  * a publish is asserted on and {@link GitHubHosts.requests} is for the one claim of the opposite
  * shape — that a Review Workspace asked GitHub nothing at all.
  */
@@ -357,7 +356,7 @@ export async function routeGitHubHosts(
 	// could serve content whose SHA the tree never named, and every assertion would still pass.
 	//
 	// It carries no credential and none is demanded: reading a public repository is anonymous, which
-	// is what a Clone depends on (ADR-0031, SPEC "Import: two operations, both unauthenticated").
+	// is what a Clone depends on (ADR-0031): Import's two operations are both unauthenticated.
 	await target.route(`${GITHUB_RAW_ORIGIN}/**`, async (route) => {
 		const url = new URL(route.request().url());
 		rawRequests.push(url.pathname);

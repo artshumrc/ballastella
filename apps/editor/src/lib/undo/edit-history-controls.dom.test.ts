@@ -92,7 +92,7 @@ const settled = async (): Promise<void> => {
 	flushSync();
 };
 
-// SPEC story 45. Absent rather than greyed out, so what is on the bar is what can actually be done.
+// Absent rather than greyed out, so what is on the bar is what can actually be done.
 test('draws nothing at all for a history with no Steps in it', () => {
 	render();
 
@@ -100,8 +100,8 @@ test('draws nothing at all for a history with no Steps in it', () => {
 	expect(at('edit-history-redo')).toBeNull();
 });
 
-// SPEC story 42: the sentence answers "have I just lost the thing I think I have lost?" before the
-// control is pressed, which a bare "Undo" cannot.
+// The sentence answers "have I just lost the thing I think I have lost?" before the control is
+// pressed, which a bare "Undo" cannot.
 test('says what it will reverse, and offers no redo until something has been undone', async () => {
 	const { history, files } = render();
 
@@ -113,8 +113,7 @@ test('says what it will reverse, and offers no redo until something has been und
 	expect(at('edit-history-redo')).toBeNull();
 });
 
-// SPEC stories 43 and 44: compact for a scholar reading the bar, and named in full for one who
-// cannot see it.
+// Compact for a scholar reading the bar, and named in full for one who cannot see it.
 test('shows redo as a word, named by the same sentence with one word swapped', async () => {
 	const { history, files } = render();
 	await gesture(history, files, 'Undo delete of the Layer “Rhineland 1580”', 'gone');
@@ -130,8 +129,8 @@ test('shows redo as a word, named by the same sentence with one word swapped', a
 	expect(at('edit-history-undo')).toBeNull();
 });
 
-// SPEC stories 48 and 49. The control disappears when it is pressed, so the confirmation is the
-// only thing left that says what happened — and it is in the stack's own live region.
+// The control disappears when it is pressed, so the confirmation is the only thing left that says
+// what happened — and it is in the stack's own live region.
 test('says in words what was undone, in the toast stack', async () => {
 	const { history, files } = render();
 	await gesture(history, files, 'Undo delete of the Layer “Rhineland 1580”', 'gone');
@@ -144,8 +143,8 @@ test('says in words what was undone, in the toast stack', async () => {
 	);
 });
 
-// SPEC story 50. A failed write keeps its place in the history: the control is still there to press
-// again, and nothing claims the undo happened.
+// A failed write keeps its place in the history: the control is still there to press again, and
+// nothing claims the undo happened.
 test('leaves both controls where they are when the write does not land', async () => {
 	const { history, files } = render();
 	await gesture(history, files, 'Undo delete of the Layer “Rhineland 1580”', 'gone');
@@ -159,7 +158,7 @@ test('leaves both controls where they are when the write does not land', async (
 	expect(at('edit-history-outcome')).toBeNull();
 });
 
-// SPEC story 46: the shortcuts a scholar's other software taught them.
+// The shortcuts a scholar's other software taught them.
 test('undoes on Ctrl+Z and redoes on both Ctrl+Shift+Z and Ctrl+Y', async () => {
 	const { history, files } = render();
 	await gesture(history, files, 'Undo delete of the Layer “Rhineland 1580”', 'gone');
@@ -180,8 +179,7 @@ test('undoes on Ctrl+Z and redoes on both Ctrl+Shift+Z and Ctrl+Y', async () => 
 	expect(at('edit-history-redo')).toBeNull();
 });
 
-// SPEC story 47. Typed text is not a Step and is never reverted by one, so a field keeps the only
-// undo it has.
+// Typed text is not a Step and is never reverted by one, so a field keeps the only undo it has.
 test('leaves a text field its own Ctrl+Z', async () => {
 	const { history, files } = render();
 	await gesture(history, files, 'Undo delete of the Layer “Rhineland 1580”', 'gone');

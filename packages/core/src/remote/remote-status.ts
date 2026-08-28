@@ -1,14 +1,13 @@
-// The Remote Status a scholar reads, and the bounded checking that keeps it true (ADR-0038, SPEC
-// stories 111–118).
+// The Remote Status a scholar reads, and the bounded checking that keeps it true (ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // OBSERVATIONAL, AND THAT IS THE WHOLE CONTRACT
 //
 // A check lists what the Remote holds. It downloads no file bytes, writes nothing to the Workspace,
 // writes nothing to the Remote, and — the one that matters most — never advances a Synchronization
-// Baseline. SPEC: *"a status check never advances the Synchronization Baseline, so that checking
-// cannot hide drift."* A check that recorded what it saw would turn somebody else's afternoon into
-// this machine's own evidence, and the next Publish would delete it as an ordinary removal.
+// Baseline: a status check never advances it, so that checking cannot hide drift. A check that
+// recorded what it saw would turn somebody else's afternoon into this machine's own evidence, and the
+// next Publish would delete it as an ordinary removal.
 //
 // The local half is `local-change-index.ts`, which answers what changed here without reading a
 // gigabyte; the comparison is `synchronization-planner.ts`, which is pure. What is left for this
@@ -19,14 +18,14 @@
 //
 // `SourceStatus` is six stable values and deliberately carries no sentence. {@link
 // REMOTE_STATUS_LABELS} is the projection into the six a user reads, and it lives beside the checker
-// rather than in a component so that a second surface cannot spell one of them differently — SPEC
-// story 147: the meaning is in the text, never in a colour, an icon or a disabled button.
+// rather than in a component so that a second surface cannot spell one of them differently. The
+// meaning is in the text, never in a colour, an icon or a disabled button.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // SIGNED OUT MEANS ASKED FOR, NEVER POLLED
 //
-// SPEC: *"signed-out users may check a public Remote explicitly."* Automatic anonymous polling is
-// ruled out for a reason with a number on it — GitHub allows an anonymous reader sixty requests an
+// A signed-out user may check a public Remote explicitly. Automatic anonymous polling is ruled out
+// for a reason with a number on it — GitHub allows an anonymous reader sixty requests an
 // hour *per IP address*, so a lecture theatre on one campus address polling on every window focus
 // spends the room's whole budget on status checks and then cannot open a Workspace at all. So the
 // trigger decides: `'explicit'` may read a public Remote anonymously, and an automatic check that
@@ -82,10 +81,9 @@ export type RemoteStatusRefusal =
 /**
  * A check that could not be completed, with the sentence its reader is shown.
  *
- * ⚠ **A refusal is never a status.** The whole of SPEC story 118 is that a failed check must not be
- * reported as `Up to date` — nor as `Cannot tell`, which is a *successful* determination about
- * missing evidence. {@link RemoteStatusChecker} keeps the last determination visible and puts this
- * beside it.
+ * ⚠ **A refusal is never a status.** A failed check must not be reported as `Up to date` — nor as
+ * `Cannot tell`, which is a *successful* determination about missing evidence. {@link
+ * RemoteStatusChecker} keeps the last determination visible and puts this beside it.
  */
 export class RemoteStatusUnavailableError extends Error {
 	readonly refusal: RemoteStatusRefusal;
@@ -103,9 +101,9 @@ export interface RemoteInventoryOptions {
 	 * The credential to list with, or `null` to list anonymously.
 	 *
 	 * ⚠ **`null` takes the anonymous reader in `remote-tree.ts`, which cannot send a header even by
-	 * accident.** That is what makes the signed-out check honest: SPEC's explicit check must read a
-	 * public Remote *"without asking for or sending credentials"*, and a shared code path with an
-	 * optional `Authorization` is one refactor away from sending one.
+	 * accident.** That is what makes the signed-out check honest: an explicit check must read a public
+	 * Remote without asking for or sending credentials, and a shared code path with an optional
+	 * `Authorization` is one refactor away from sending one.
 	 */
 	readonly token: string | null;
 	readonly fetch?: FetchFn;
@@ -114,9 +112,9 @@ export interface RemoteInventoryOptions {
 /**
  * Every path the Remote's branch holds, with the blob SHA that makes it comparable.
  *
- * **Metadata only.** One tree listing, no `raw.githubusercontent.com` request, no blob read: SPEC
- * story 116 is that observing must not be able to change either side, and the cheapest way to
- * guarantee that is to have nothing to write with.
+ * **Metadata only.** One tree listing, no `raw.githubusercontent.com` request, no blob read:
+ * observing must not be able to change either side, and the cheapest way to guarantee that is to
+ * have nothing to write with.
  *
  * A repository with no commits answers an empty inventory rather than a refusal — that is a Remote
  * this Workspace can genuinely say something about, and it is the state a repository opened from
@@ -149,7 +147,7 @@ async function anonymousInventory(
 }
 
 /**
- * Ticket 02's refusals as this module's, which are the same set minus `'empty'`.
+ * `remote-tree.ts`'s refusals as this module's, which are the same set minus `'empty'`.
  *
  * Spelled out rather than cast, so a refusal added to `remote-tree.ts` later is a compile error here
  * rather than a check that silently reports it as "GitHub refused".
@@ -349,7 +347,7 @@ export interface RemoteStatusState {
 	/**
 	 * Why the most recent check could not be completed, or `''`.
 	 *
-	 * Shown *beside* {@link status} rather than instead of it (SPEC story 118). Cleared by the next
+	 * Shown *beside* {@link status} rather than instead of it. Cleared by the next
 	 * check that succeeds, and never by one that does not.
 	 */
 	readonly failure: string;
@@ -431,7 +429,7 @@ export class RemoteStatusChecker {
 	 * Check, share the check already running, or do nothing at all.
 	 *
 	 * `'explicit'` is a user's gesture: it is never throttled, and it is the only trigger that may
-	 * read a public Remote with no credential (SPEC story 115). `'open'` and `'focus'` are automatic
+	 * read a public Remote with no credential. `'open'` and `'focus'` are automatic
 	 * and are both coalesced — a burst of focus events shares one listing — and throttled to
 	 * {@link RemoteStatusCheckerOptions.interval}.
 	 *
@@ -493,9 +491,9 @@ export class RemoteStatusChecker {
 
 	#refuse(cause: unknown): void {
 		if (this.#closed) return;
-		// ⚠ **`status` and `at` are carried through untouched.** SPEC story 118: a network failure is
-		// not agreement, and the last thing this browser actually worked out is still the best answer
-		// there is — so it stays on screen, with the failure beside it saying it is no longer current.
+		// ⚠ **`status` and `at` are carried through untouched.** A network failure is not agreement, and
+		// the last thing this browser actually worked out is still the best answer there is — so it stays
+		// on screen, with the failure beside it saying it is no longer current.
 		this.#lastAttempt = this.#now();
 		this.#publish({
 			...this.#state,

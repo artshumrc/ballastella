@@ -5,25 +5,23 @@
 // ============================================================================================
 //
 // ADR-0005 says all drawing and editing — Control Points, Resource Masks, and Annotations — goes
-// through `terra-draw`. It has never been in this repository, and this is the **third** slice to
-// decline it: ticket 07 for the Control Point pairing, ticket 08 for the Resource Mask, and this one
-// for Annotations. The ADR and the code therefore disagree, which is recorded as an open question for
-// a human in the tracker rather than settled here. Ticket 10's own "Where to start" said the package
-// had already arrived in ticket 07; it had not, and that line is corrected in the ticket.
+// through `terra-draw`. It has never been in this repository, and this is the **third** place to
+// decline it: the Control Point pairing, the Resource Mask, and Annotations. The ADR and the code
+// therefore disagree, and that disagreement is open rather than settled here.
 //
-// Ticket 08 gave four reasons. Free-form lines and polygons over real geography are the case
+// The Resource Mask gave four reasons. Free-form lines and polygons over real geography are the case
 // `terra-draw` is genuinely *for*, far more than a four-corner mask is, so they were re-weighed here
 // rather than inherited. Three of the four still hold, and a fifth has appeared:
 //
 // 1. **Keyboard reach, which is the decisive one.** `terra-draw` edits inside a WebGL layer, and a
 //    WebGL layer is not focusable. Whatever it drew would be the first mouse-only editable object in
 //    the application, and "every drawing tool and style control is reachable and operable by
-//    keyboard" is an acceptance criterion of *this* ticket, not a later pass. The `overlayPoints`
+//    keyboard" is a requirement of *this* drawing surface, not of a later pass. The `overlayPoints`
 //    seam gives a named `<button>` per vertex with arrow-key movement and Delete already built and
 //    already asserted.
 //
-// 2. **ADR-0017 rule 1.** This ticket's criterion is that a vertex edit produces *exactly one* store
-//    write, on gesture end — a number, asserted by counting. `terra-draw`'s change events fire per
+// 2. **ADR-0017 rule 1.** A vertex edit must produce *exactly one* store write, on gesture end — a
+//    number, asserted by counting. `terra-draw`'s change events fire per
 //    coordinate, so meeting the criterion would mean debouncing its stream back into the gesture it
 //    came from. The seam's `onmoveend` already fires once per pointer-drag and once per arrow-key
 //    hold.
@@ -31,7 +29,7 @@
 // 3. **ADR-0019's cost.** Two runtime dependencies, two catalog pins, two third-party notices, and a
 //    standing fence keeping both out of `apps/viewer` for ever.
 //
-// 4. ~~ADR-0005's projection rule~~ — this one **does not apply here**. Ticket 08's mask is in image
+// 4. ~~ADR-0005's projection rule~~ — this one **does not apply here**. The Resource Mask is in image
 //    pixel space, so `terra-draw`'s store would have held synthetic lng/lat. Annotations are on real
 //    geography, and this objection is void for them.
 //
@@ -40,10 +38,10 @@
 //    vertices are the same object to a user and to a keyboard: something you focus, nudge, and
 //    delete. Adding `terra-draw` for only the third would mean two keyboard stories, two write-count
 //    stories, and two sets of bugs — and the seam already carries the vertex editing that is most of
-//    the work, including ticket 08's midpoint handles for inserting one.
+//    the work, including the Resource Mask's midpoint handles for inserting one.
 //
 // What is genuinely lost is a rubber-band preview that follows the pointer between clicks, and
-// `terra-draw`'s Pro-style operations, which this ticket puts out of scope anyway. The preview is
+// `terra-draw`'s Pro-style operations, which are out of scope here anyway. The preview is
 // replaced by drawing the vertices placed so far, plus a live count and a status line — which is
 // also what makes the gesture legible to a screen reader, where a rubber band is not.
 //
@@ -90,8 +88,8 @@ export const toolName = (tool: AnnotationTool): string => TOOL_NAMES[tool];
  *
  * Holds **no store and no session**: it is the geometry a user is in the middle of describing, and
  * nothing here can write. The page turns a finished shape into an Annotation and commits it, which
- * keeps `EditorSession` the only writer (the rule ticket 04 broke) and keeps this testable as
- * ordinary state.
+ * keeps `EditorSession` the only writer (a rule this application has broken before) and keeps this
+ * testable as ordinary state.
  */
 export class AnnotationDrawing {
 	tool = $state<AnnotationTool>('select');
@@ -201,10 +199,10 @@ export class AnnotationDrawing {
 	 * ⚠ **An armed tool that has drawn nothing counts as a gesture in hand, for all four tools.** For a
 	 * one-click tool "mid-gesture" *is* "armed and not yet placed": there is no intermediate state, so a
 	 * `cancel()` that only abandoned part-drawn shapes left the Label tool armed, the status line still
-	 * saying what to do with it, and the next map click placing a Label the scholar had just abandoned
-	 * (write-on-the-map story 6). The armed-nothing-drawn state is common to the Pin, the Line and the
-	 * Shape too, so this is one rule for the four rather than a Label special case — the Line and the
-	 * Shape are put down by an Escape before their first click as well.
+	 * saying what to do with it, and the next map click placing a Label the scholar had just abandoned.
+	 * The armed-nothing-drawn state is common to the Pin, the Line and the Shape too, so this is one
+	 * rule for the four rather than a Label special case — the Line and the Shape are put down by an
+	 * Escape before their first click as well.
 	 *
 	 * "New Annotation pressed, no tool chosen yet" is deliberately *not* in hand: nothing is armed, so
 	 * there is nothing to put down, and {@link returnToRest} is what closes the offer.
@@ -241,10 +239,9 @@ export class AnnotationDrawing {
 	 * abandoned, which is over too. The rule belongs to the state machine rather than to a page
 	 * handler so that there is exactly one place that says a gesture is over.
 	 *
-	 * A tool never stays in hand between shapes (the-annotation-inspector stories 37, 38, 39): the
-	 * price is a press of "New Annotation" per shape, and it is accepted. If a drawing run proves
-	 * painful the repair is a visible "Draw another" control on the Annotation just finished, never a
-	 * tool that stays armed silently.
+	 * A tool never stays in hand between shapes: the price is a press of "New Annotation" per shape,
+	 * and it is accepted. If a drawing run proves painful the repair is a visible "Draw another"
+	 * control on the Annotation just finished, never a tool that stays armed silently.
 	 */
 	#rest(): void {
 		this.vertices = [];

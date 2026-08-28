@@ -53,7 +53,7 @@ export type RemoteTreeRefusal =
 	 * when they are gone — the same status a repository needing a credential answers. On a shared
 	 * campus address, a class all reading their instructor's repository spends that between them, so
 	 * reporting it as a private repository tells a room full of people to change a setting on somebody
-	 * else's repository (SPEC story 48). Waiting is the remedy, and only this refusal can say so.
+	 * else's repository. Waiting is the remedy, and only this refusal can say so.
 	 */
 	| 'rate-limited'
 	/** The repository holds no commits, so there is nothing in it to read. */
@@ -147,7 +147,7 @@ async function anonymousGet(fetchFn: FetchFn | undefined, url: string): Promise<
 /**
  * The commit a public branch stands at, from one unauthenticated ref read.
  *
- * **The evidence an Import's provenance records** (SPEC story 59): a repository, a Project directory
+ * **The evidence an Import's provenance records**: a repository, a Project directory
  * and a branch say which Project was copied, and only the commit says which *state* of it. The tree
  * listing cannot answer this — `/git/trees/{ref}` reports the tree object's own hash, which is not a
  * commit and names no history — so it is a second request, and it is why an Import spends one more of
@@ -188,9 +188,9 @@ export async function readRemoteHeadCommit(
  *
  * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,
  * which is what lets a student with no GitHub account seed a Workspace from their instructor's
- * Remote (ADR-0031, SPEC "Import: two operations, both unauthenticated"). Sending a credential here
- * would make an account a prerequisite for the operations in this epic that need none, and it would
- * do it silently — the flow would go on working for everybody who had already signed in.
+ * Remote (ADR-0031): Clone and Review are both unauthenticated. Sending a credential here would make
+ * an account a prerequisite for the operations that need none, and it would do it silently — the flow
+ * would go on working for everybody who had already signed in.
  *
  * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a truncated listing
  */
@@ -236,11 +236,11 @@ export async function readRemoteTree(
 		});
 	}
 
-	// ⚠ **A truncated listing answers 200**, so nothing throws and nothing logs. Ticket 02's reason
-	// pointing the other way: proceeding would take the part GitHub happened to mention and hand the
-	// user a Workspace with most of a pyramid silently missing — a Project that opens, draws a map
-	// with holes in it, and says nothing at all about why. Counted after the blobs are extracted, so
-	// the number a caller quotes is files rather than tree rows.
+	// ⚠ **A truncated listing answers 200**, so nothing throws and nothing logs. Refused for the reason
+	// a short listing is refused everywhere here: proceeding would take the part GitHub happened to
+	// mention and hand the user a Workspace with most of a pyramid silently missing — a Project that
+	// opens, draws a map with holes in it, and says nothing at all about why. Counted after the blobs
+	// are extracted, so the number a caller quotes is files rather than tree rows.
 	if (body.truncated === true) throw new RemoteTreeRefusedError('truncated', '', blobs.length);
 
 	return blobs;

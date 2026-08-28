@@ -1,4 +1,4 @@
-// The shared source contract for Project Import (ticket 03, ADR-0037).
+// The shared source contract for Project Import (ADR-0037).
 //
 // **One suite for three adapters, because the claim under test is that they agree.** A Project
 // offered as a Project Bundle, as a Project on a Published Site, and as the Project in a Review
@@ -6,10 +6,10 @@
 // derived from it, and the membership assertion is a single expected list compared against all three.
 // A suite per adapter could not make that claim at all; it would only prove each one self-consistent.
 //
-// The refusals are asserted once each, at whichever adapter can provoke them most directly, per the
-// SPEC's "test each source adapter only for source-specific closure gathering" — an unsafe path and a
-// repeated entry are things a tar can hold and a `list` cannot, and a file that disappears between
-// being listed and being read is easiest to stage against a store.
+// The refusals are asserted once each, at whichever adapter can provoke them most directly, because
+// an adapter is worth testing only for the closure gathering that is specific to its source — an
+// unsafe path and a repeated entry are things a tar can hold and a `list` cannot, and a file that
+// disappears between being listed and being read is easiest to stage against a store.
 
 import { packTar, type TarEntry } from 'modern-tar';
 import { describe, expect, it } from 'vitest';
@@ -262,8 +262,8 @@ describe('one closure, whichever of the three sources it comes from', () => {
 		);
 	});
 
-	// Acceptance criterion 3, asserted by equality above and named here so a regression says which
-	// class of file leaked rather than only that a list changed.
+	// Asserted by equality above, and spelled out again here so a regression says which class of file
+	// leaked rather than only that a list changed.
 	it.each(adapters)('leaves everything that is not this Project out of %s', async (_name, open) => {
 		const source = await open();
 
@@ -372,7 +372,7 @@ describe('what a source observed about where it came from', () => {
 	// branch moves; a long pyramid copy is minutes of raw reads. Read against the branch, a push
 	// landing mid-copy hands over bytes the tree never named — the SHA check calls that tampering and
 	// refuses the whole Import — and the recorded commit would name a tree nothing was verified
-	// against (SPEC stories 59, 61).
+	// against.
 	it('copies one commit, and keeps copying it when the branch moves underneath', async () => {
 		const fake = await createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree: WORKSPACE });
 		const at = fake.head();
@@ -432,8 +432,8 @@ describe('what a source observed about where it came from', () => {
 });
 
 describe('the source capability cannot write anywhere', () => {
-	// Acceptance criterion 5, held by the compiler: this line fails to typecheck the moment a `write`,
-	// a `delete`, a destination store or a credential appears on the source's public type.
+	// Held by the compiler: this line fails to typecheck the moment a `write`, a `delete`, a
+	// destination store or a credential appears on the source's public type.
 	it('has no write, delete, destination or credential on its public type', async () => {
 		type Forbidden = Extract<
 			keyof ProjectImportSource,

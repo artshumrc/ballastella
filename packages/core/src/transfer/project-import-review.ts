@@ -1,5 +1,5 @@
 // Importing the Project a reviewer is looking at, into the Workspace they were looking at it *from*
-// (ticket 19, ADR-0037).
+// (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE DESTINATION IS A THING THAT WAS WRITTEN DOWN RATHER THAN A THING THAT IS LOOKED UP

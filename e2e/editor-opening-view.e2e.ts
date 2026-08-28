@@ -24,7 +24,7 @@ import { openLayerRow } from './support/layers.js';
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2 for ticket 09: a Project opens framed on what it has placed on the earth (ADR-0026).
+ * Seam 2: a Project opens framed on what it has placed on the earth (ADR-0026).
  *
  * **What is asserted here and what is asserted in Node.** The *arithmetic* — which box, out of which
  * documents, with which fallback — is `packages/core/src/project/opening-view.test.ts`, numerically and
@@ -254,8 +254,8 @@ function workspaceFiles(options: {
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -433,7 +433,7 @@ test.describe('a Project opens on its own content', () => {
 		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
 		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
 		await expect(page.getByTestId('opening-view')).toHaveAttribute('data-opening-view', 'default');
-		// And says so, in an announced live region rather than by silence (SPEC story 112).
+		// And says so, in an announced live region rather than by silence.
 		await expect(page.getByTestId('opening-view')).toContainText('default view');
 	});
 
@@ -541,8 +541,8 @@ test.describe('the fit happens once, on open', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await stillParked(page, 'after a Layer was renamed');
 
-		// 4. Opening a Layer, which since ticket 05 is what reveals the drawing tools — and is itself a
-		//    change to the sidebar that must not move the map.
+		// 4. Opening a Layer, which is what reveals the drawing tools — and is itself a change to the
+		//    sidebar that must not move the map.
 		await openLayerRow(page, 0);
 		await stillParked(page, 'after a Layer was opened');
 
@@ -560,7 +560,7 @@ test.describe('the fit happens once, on open', () => {
 		await open(page, workspaceFiles({ layers: [{ kind: 'annotation', id: 'l-pins' }] }));
 		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
 
-		// Visible text, not an icon with a tooltip (SPEC story 111).
+		// Visible text, not an icon with a tooltip.
 		await page.getByRole('button', { name: 'Fit project' }).click();
 
 		// Polled, because reframing re-reads every Layer's documents — the button answers for the whole
@@ -600,7 +600,7 @@ test.describe('the alignment view', () => {
 		const before = await viewport(page);
 
 		// Announced before a pair exists, because this pane moves the Base Map on open exactly as the
-		// Project screen and the viewer do, and a WebGL canvas says nothing (SPEC story 112). The Project
+		// Project screen and the viewer do, and a WebGL canvas says nothing. The Project
 		// this fixture opens has no other content either, so the sentence is the "nothing to frame on"
 		// one — which is the one nobody would guess from an unmoved map.
 		const announced = page.getByTestId('alignment-opening-view');

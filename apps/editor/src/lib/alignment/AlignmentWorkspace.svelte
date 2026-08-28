@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The Map Image beside the Base Map, and the pairing between them (SPEC stories 30 and 32–37).
+	// The Map Image beside the Base Map, and the pairing between them.
 	//
 	// This is the core act of the application: click a feature on the map, click the same place on
 	// the earth, and a numbered Control Point pair appears. Both panes are on one page, which is why
@@ -57,7 +57,7 @@
 		session: EditorSession;
 		/** Which Map Image of the open Project is being aligned. */
 		imageId: string;
-		/** What the author called it, for the sentence saying what this screen is (SPEC story 112). */
+		/** What the author called it, for the sentence saying what this screen is. */
 		mapName: string;
 		/** The ADR-0011 shim for the open Project, for both panes' tiles. */
 		fetchTile: FetchFn;
@@ -68,7 +68,7 @@
 	} = $props();
 
 	/**
-	 * Where the Map Image being aligned is served from (ticket 07).
+	 * Where the Map Image being aligned is served from.
 	 *
 	 * **Resolved here and handed down**, because this is the component that also writes the
 	 * Alignment, and the two answers have to be the same one: `session.mapImageSource` is what
@@ -96,7 +96,7 @@
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
 	/**
-	 * What the user's answer to a concurrent edit did, or `''` (ticket 07, ADR-0023).
+	 * What the user's answer to a concurrent edit did, or `''` (ADR-0023).
 	 *
 	 * **Both buttons in that alert remove the alert**, so pressing either dropped focus to `<body>` and
 	 * left a keyboard user tabbing in from the top of the page to find out what they had just done —
@@ -142,7 +142,7 @@
 	let readout = $state.raw<ImageReadout | null>(null);
 
 	/**
-	 * Whether "Check this alignment" is open (ticket 03).
+	 * Whether "Check this alignment" is open.
 	 *
 	 * **Closed by default, and not persisted anywhere** — not in `project.json`, not in `localStorage`,
 	 * and not in the URL. Everything behind it is a working view rather than a property of the work
@@ -161,7 +161,7 @@
 	let checking = $state(false);
 
 	/**
-	 * Whether "How this works" is open (SPEC story 112).
+	 * Whether "How this works" is open.
 	 *
 	 * Closed by default and persisted nowhere, the same contract {@link checking} has and for ADR-0002's
 	 * reason: which explanations are open is a working view.
@@ -260,7 +260,7 @@
 	let openingFit = $state.raw<OpeningViewFit | null>(null);
 
 	/**
-	 * What the pane was framed on, for the sentence beside it (SPEC story 112).
+	 * What the pane was framed on, for the sentence beside it.
 	 *
 	 * The Project screen and the viewer both publish one, and this pane moves the Base Map on open
 	 * exactly as they do — so a user who cannot see the canvas was the only one not told that it had
@@ -353,9 +353,9 @@
 				// The Alignment **as it was read**, before the user has touched it. Framing on the pairing
 				// instead would be framing on a value that changes with every placed pair.
 				//
-				// This supersedes ticket 03's `fitTo`, which framed on the Control Points alone. ADR-0026's
-				// rule is the Resource Mask, it caps the zoom, and it announces where the map went — none of
-				// which a bare list of pair positions can do.
+				// Framing on the Control Points alone would not do: ADR-0026's rule is the Resource Mask, it
+				// caps the zoom, and it announces where the map went — none of which a bare list of pair
+				// positions can do.
 				frameOn(wanted, stored, mine);
 			} catch (cause) {
 				if (destroyed || mine !== generation) return;
@@ -393,15 +393,15 @@
 	 * **Keyed by the Map Image and not by the Project**, because that is what an Alignment is keyed by
 	 * (ADR-0023): the file belongs to the Workspace and is shared by every Project that draws the map,
 	 * so reaching it from a second Project must reach the same history rather than a second one
-	 * offering to reverse the same edits twice (SPEC story 5).
+	 * offering to reverse the same edits twice.
 	 */
 	const history = $derived(session.historyFor(imageId));
 
 	/**
 	 * One completed gesture, written, as one Step of that history.
 	 *
-	 * **One gesture is one Step and nothing is merged** — four Crop corners moved are four Steps
-	 * (SPEC story 27), which is what lets a scholar back out of the one corner they got wrong.
+	 * **One gesture is one Step and nothing is merged** — four Crop corners moved are four Steps,
+	 * which is what lets a scholar back out of the one corner they got wrong.
 	 *
 	 * **The pairing is mutated here and the write is what the Step wraps**, which is not a shortcut:
 	 * a Step's images are the *file's*, either side of the write, and the pairing is in memory — so
@@ -412,8 +412,8 @@
 	 * end return without waiting on a store write: the `after` image is read the moment the Step's
 	 * gesture resolves, so a write fired and forgotten in there would be read before it landed.
 	 *
-	 * The label is the sentence the control will say — verb, then subject, in the scholar's own words
-	 * (SPEC story 42).
+	 * The label is the sentence the control will say — verb, then subject, in the scholar's own
+	 * words.
 	 */
 	const asStep = (label: string, current: AlignmentPairing, gesture: () => void): void => {
 		gesture();
@@ -434,14 +434,14 @@
 	const selectedId = $derived(pairing?.selectedId ?? null);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// The leader (ticket 12, SPEC story 45)
+	// The leader
 	//
-	// **One line, from the Base Map half only**, and the two rules that decide that are both already
-	// written down. ADR-0022 contract 4 says a selected Control Point highlights *both* halves, which
-	// is what joins the two panes — so a line between the panes would be a second answer to a question
-	// already answered, eleven times over on a dense Alignment. And SPEC story 49 says nothing may be
-	// drawn over a pane a scholar is clicking to sub-pixel accuracy: a line from the *sheet's* half to
-	// the docked column on the right would cross the Base Map pane to get there.
+	// **One line, from the Base Map half only**, and two rules decide that. ADR-0022 contract 4 says a
+	// selected Control Point highlights *both* halves, which is what joins the two panes — so a line
+	// between the panes would be a second answer to a question already answered, eleven times over on
+	// a dense Alignment. And nothing may be drawn over a pane a scholar is clicking to sub-pixel
+	// accuracy: a line from the *sheet's* half to the docked column on the right would cross the Base
+	// Map pane to get there.
 	//
 	// So the mark the leader leaves from is the one in the pane adjacent to the column, and that is
 	// the Base Map's.
@@ -494,7 +494,10 @@
 		pairing && canSolve(pairing.alignment) ? pairing.alignment : null
 	);
 
-	/** How many pairs the *chosen* type needs — not the default's, which is what ticket 07 could assume. */
+	/**
+	 * How many pairs the *chosen* type needs — not the default's, which is no answer once the
+	 * transformation type is the scholar's to pick.
+	 */
 	const needed = $derived(MINIMUM_CONTROL_POINTS[pairing?.transformationType ?? 'polynomial1']);
 
 	/**
@@ -551,7 +554,7 @@
 		}
 
 		// The Resource Mask's handles, on this pane only — the mask is in image pixel space, and
-		// editing it on the Base Map has no meaning (ticket 08's out-of-scope note).
+		// editing it on the Base Map has no meaning.
 		if (editingMask) points.push(...maskPoints(current));
 
 		return points;
@@ -567,9 +570,9 @@
 	 * WebGL layer, which is not focusable and has no keyboard story at all.
 	 *
 	 * Keyed by index rather than by identity, because a mask vertex has no identity: the ring's order
-	 * *is* the polygon, and there is nowhere in the file to put an id (SPEC story 94). Consequence:
-	 * inserting a vertex renumbers the handles after it, exactly as deleting a Control Point
-	 * renumbers the ordinals after it.
+	 * *is* the polygon, and there is nowhere in the file to put an id. Consequence: inserting a vertex
+	 * renumbers the handles after it, exactly as deleting a Control Point renumbers the ordinals after
+	 * it.
 	 */
 	const maskPoints = (current: AlignmentPairing): PaneOverlayPoint[] => {
 		const vertices: PaneOverlayPoint[] = current.resourceMask.map((vertex, index) => ({
@@ -785,13 +788,13 @@
 		-->
 		<div class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row">
 			<!--
-				⚠ **`lg:flex-1` and never `lg:grow`, and that is what makes the panes exactly equal**
-				(SPEC story 48). `flex-1` is `flex: 1 1 0%`: both panes start from nothing and split the
-				row, so neither can be widened by what is written above it. `grow` leaves the basis `auto`,
-				which measures each pane's own content first and hands out only the *remainder* equally —
-				and on this screen the two panes' contents differ, because the Base Map's heading carries a
-				Base Map switcher and an opacity slider and the Map Image's carries a checkbox. Drawn
-				that way on this repository's own mockups the pair measured 308 px and 378 px.
+				⚠ **`lg:flex-1` and never `lg:grow`, and that is what makes the panes exactly equal**.
+				`flex-1` is `flex: 1 1 0%`: both panes start from nothing and split the row, so neither can
+				be widened by what is written above it. `grow` leaves the basis `auto`, which measures each
+				pane's own content first and hands out only the *remainder* equally — and on this screen the
+				two panes' contents differ, because the Base Map's heading carries a Base Map switcher and
+				an opacity slider and the Map Image's carries a checkbox. Drawn that way on this
+				repository's own mockups the pair measured 308 px and 378 px.
 
 				That is not a preference. Neither the sheet nor the earth may be privileged by the layout:
 				a scholar comparing a feature across the two panes is comparing two views of one place, and
@@ -803,10 +806,10 @@
 				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
 			>
 				<!--
-					The same pane story 31 already delivers, now carrying Control Points. It loads the
-					pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
-					coordinate space are built from — reading the same `info.json` a second time here would
-					be a second answer that can disagree with what is being drawn.
+					The same `MapImagePane` the `/image-pane` route shows, here carrying Control Points. It loads
+					the pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
+					coordinate space are built from — reading the same `info.json` a second time here would be a
+					second answer that can disagree with what is being drawn.
 
 					`frameClass` is where this screen's answer to "how tall is a pane" is stated: it grows into
 					the column on a desktop, and takes a fixed share of the viewport below `lg`. The `min-h`
@@ -881,7 +884,7 @@
 
 				{#if pairing}
 					<!--
-						The Resource Mask (SPEC stories 46 and 47): which part of this sheet is actually the map.
+						The Resource Mask: which part of this sheet is actually the map.
 
 						The outline is always drawn — dimming what it leaves out, so the user can see what the
 						Alignment excludes whether or not they are changing it — and the handles are asked for,
@@ -907,11 +910,11 @@
 
 								**These are instructions for a gesture in progress, which is a different thing, and the
 								two handles do two different things.** A corner is dragged; a dashed handle is
-								*activated* and adds a corner where it sits. Ticket 08's own note is why — "a handle
-								that both inserted and moved would make 'I nudged it' and 'I added one' the same
-								gesture" — and an earlier version of this said "drag a dashed handle to add one", which
-								is a gesture the code deliberately refuses. On a teaching tool a promised gesture that
-								does nothing reads as a broken handle.
+								*activated* and adds a corner where it sits. A handle that both inserted and moved would
+								make "I nudged it" and "I added one" the same gesture — and an earlier version of this
+								said "drag a dashed handle to add one", which is a gesture the code deliberately
+								refuses. On a teaching tool a promised gesture that does nothing reads as a broken
+								handle.
 							-->
 							<p class="text-sm opacity-70" data-testid="mask-summary">
 								{pairing.resourceMask.length} corners. Drag a corner to move it. Click a dashed handle
@@ -1034,9 +1037,9 @@
 					/>
 				</div>
 				<!--
-					Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Map
-					Image moves this pane, and a WebGL canvas announces nothing — so without this the one person
-					who cannot see it happen is the one person not told it happened.
+					Where the Base Map pane is looking and why (ADR-0026). Opening a Map Image moves this pane,
+					and a WebGL canvas announces nothing — so without this the one person who cannot see it
+					happen is the one person not told it happened.
 
 					`sr-only`, because that person is the only one it tells anything: a sighted author watched the
 					pane move, and the sentence was three lines of prose charged to the map's height. Still in the
@@ -1070,7 +1073,7 @@
 			remove. Below `lg` it is a footer under the panes and the page scrolls as one.
 
 			┌───────────────────────────────────────────────────────────────────────────────────────────┐
-			│ SOLID AND DOCKED, AND ON THIS SCREEN THAT RULE IS ABSOLUTE (SPEC story 49).                │
+			│ SOLID AND DOCKED, AND ON THIS SCREEN THAT RULE IS ABSOLUTE.                                │
 			└───────────────────────────────────────────────────────────────────────────────────────────┘
 			`bg-base-300` rather than the page's own background showing through: a scholar is placing
 			Control Points to sub-pixel accuracy on the two canvases to the left, so this column must be
@@ -1121,7 +1124,7 @@
 			</div>
 
 			<!--
-				What this screen is, in words, behind a disclosure (SPEC story 112).
+				What this screen is, in words, behind a disclosure.
 
 				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
 				*for*, and "Map Image" beside "Base Map" does not tell a screen-reader user that clicking
@@ -1131,10 +1134,10 @@
 				says what to click next, and a scholar who has placed a Control Point before does not need
 				to be told what the two panes are again.
 
-				**Everything this screen explains without being asked is in here** (SPEC stories 62, 67):
-				one sentence about the gesture, the limit of Simple, and what the advanced transformations
-				cost. Text, never a tooltip and never CSS-generated content (ADR-0016) — the align spec
-				asserts the absence of both.
+				**Everything this screen explains without being asked is in here**: one sentence about the
+				gesture, the limit of Simple, and what the advanced transformations cost. Text, never a
+				tooltip and never CSS-generated content (ADR-0016) — the align spec asserts the absence of
+				both.
 			-->
 			<div>
 				<button
@@ -1186,7 +1189,7 @@
 			</div>
 
 			<!--
-		An Alignment that changed somewhere else while it was open here (ticket 07, ADR-0023).
+		An Alignment that changed somewhere else while it was open here (ADR-0023).
 
 		ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
 		accepts that a Workspace kept in git or Dropbox can therefore receive a colleague's edit between
@@ -1352,8 +1355,8 @@
 									onclick={() => pairing?.toggleSelected(point.id)}
 								>
 									<!--
-										**The number the marker already wears, on the row** (SPEC story 44). Both halves
-										of this pair draw `point.ordinal` inside themselves as text — see
+										**The number the marker already wears, on the row**. Both halves of this pair draw
+										`point.ordinal` inside themselves as text — see
 										`.pane-overlay-point-control-point` — and this is that number's third
 										appearance, so that "point 7" identifies one pair across a desk whether the
 										listener is looking at a canvas or at the list.
@@ -1368,8 +1371,8 @@
 										⚠ **Nothing writes it.** `ControlPoint.ordinal` is the pair's position in the
 										Alignment's list, derived on read and on collect and stored nowhere — a
 										Georeference Annotation has no place to put an index, and inventing one would be
-										the proprietary field ADR-0002 and SPEC story 94 both rule out. Deleting point 3
-										of 5 renumbers the two after it because this list renders again.
+										the proprietary field ADR-0002 rules out. Deleting point 3 of 5 renumbers the two
+										after it because this list renders again.
 									-->
 									Point
 									<span
@@ -1383,14 +1386,13 @@
 									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
 								</code>
 								<!--
-								**A glyph that looks like a button and looks destructive** (SPEC story 65,
-								ADR-0016's icon amendment). This is the one place on this screen where a mis-click
-								destroys work. `btn-outline btn-error` draws the glyph and a border in `error`
-								without a fill, which is what this repository gives an in-row destructive action;
-								the solid `btn-error` is reserved for the confirm button inside a destructive
-								dialog. `btn-sm` rather than `btn-xs`, because `btn-xs` is a 24×24 target sitting
-								exactly on WCAG 2.2 AA 2.5.8's floor for the only unconfirmed destructive control
-								here.
+								**A glyph that looks like a button and looks destructive** (ADR-0016's icon
+								amendment). This is the one place on this screen where a mis-click destroys work.
+								`btn-outline btn-error` draws the glyph and a border in `error` without a fill, which
+								is what this repository gives an in-row destructive action; the solid `btn-error` is
+								reserved for the confirm button inside a destructive dialog. `btn-sm` rather than
+								`btn-xs`, because `btn-xs` is a 24×24 target sitting exactly on WCAG 2.2 AA 2.5.8's
+								floor for the only unconfirmed destructive control here.
 
 								**The name is text and it names which point.** `sr-only` beside an
 								`aria-hidden` glyph, never a `title`: a `title` is not announced reliably and
@@ -1440,8 +1442,8 @@
 					</div>
 
 					<!--
-				"Check this alignment" (ticket 03): the distortion overlay, which measure it shows, and the
-				bent grid, behind one disclosure.
+				"Check this alignment": the distortion overlay, which measure it shows, and the bent grid,
+				behind one disclosure.
 
 				**Labelled for what it is for and not for what it is.** "Distortion" names a quantity a
 				cartographer knows and a historian does not; "check this alignment" names the question a
@@ -1524,11 +1526,11 @@
 		</div>
 
 		<!--
-			The leader, last so that it paints over the panes and the column (SPEC story 45).
+			The leader, last so that it paints over the panes and the column.
 
 			**One line, and it leaves from the Base Map half** — the reasoning is in the script, and its
-			two halves are ADR-0022 contract 4 (the pairing highlight already joins the two panes) and
-			SPEC story 49 (nothing is drawn over a pane being clicked to sub-pixel accuracy).
+			two halves are ADR-0022 contract 4 (the pairing highlight already joins the two panes) and the
+			rule that nothing is drawn over a pane being clicked to sub-pixel accuracy.
 
 			Below `lg` this is a stack, the column sits under the maps, and `LeaderLine` measures that and
 			draws nothing.

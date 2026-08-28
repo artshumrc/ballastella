@@ -1,12 +1,12 @@
 <script lang="ts">
-	// Whether GitHub agrees with this Workspace, in words, on every screen (ticket 12, ADR-0038).
+	// Whether GitHub agrees with this Workspace, in words, on every screen (ADR-0038).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// NOT THE SAVE INDICATOR, AND THAT SEPARATION IS THE WHOLE POINT
 	//
-	// `SaveIndicator` answers *is my edit kept on this machine* and owns this bar's one `role="status"`.
-	// This answers *does GitHub hold it too*, which is a different question with a different remedy —
-	// and SPEC story 111 is that conflating them is how a scholar comes to believe a saved edit is a
+	// `SaveIndicator` answers *is my edit kept on this machine* and owns this bar's one
+	// `role="status"`. This answers *does GitHub hold it too*, which is a different question with a
+	// different remedy — and conflating them is how a scholar comes to believe a saved edit is a
 	// published one. So this is its own region, with its own words, beside rather than inside that one:
 	// a live region without `role="status"`, for the reason the bar's other announcements are
 	// (`getByRole('status')` must stay unambiguous, which is a hint that a screen-reader user would
@@ -15,10 +15,9 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE MEANING IS IN THE TEXT
 	//
-	// SPEC story 147: never a colour, never an icon, never a disabled button. Every one of the six
-	// determinations is a sentence from `REMOTE_STATUS_LABELS`, the failure is a sentence, and the
-	// staleness notice is a sentence. `data-remote-status` exists for a spec to read and carries
-	// nothing a user needs.
+	// Never a colour, never an icon, never a disabled button. Every one of the six determinations is a
+	// sentence from `REMOTE_STATUS_LABELS`, the failure is a sentence, and the staleness notice is a
+	// sentence. `data-remote-status` exists for a spec to read and carries nothing a user needs.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// A PLAIN LEAD, AND SIX DETERMINATIONS BEHIND ONE PRESS
@@ -83,11 +82,11 @@
 		notice: string;
 		/** Why the last Update did not happen, or `''`. */
 		failure: string;
-		/** Bring the Remote's changes in, because the author asked (SPEC story 121). */
+		/** Bring the Remote's changes in, because the author asked. */
 		onUpdate: () => void;
-		/** What the Update in flight would remove, while it waits to be told (SPEC story 126). */
+		/** What the Update in flight would remove, while it waits to be told. */
 		deletionPreview: UpdateDeletionPreview | null;
-		/** Answer that question. `false` for every way of not saying yes (SPEC story 127). */
+		/** Answer that question. `false` for every way of not saying yes. */
 		onAnswerDeletions: (confirmed: boolean) => void;
 	} = $props();
 
@@ -168,7 +167,7 @@
 	 * When the determination on screen was reached, in the reader's own clock.
 	 *
 	 * Shown because a retained status has to be *dateable*: with the failure beside it, "Up to date"
-	 * and "as of nine minutes ago" are the two halves of one honest sentence (SPEC story 118).
+	 * and "as of nine minutes ago" are the two halves of one honest sentence.
 	 */
 	const checkedAt = $derived(
 		remote.at === null
@@ -214,7 +213,7 @@
 			{lead}{#if remote.checking}&nbsp;· Checking…{:else if remote.failure}&nbsp;· Check failed{/if}
 		</p>
 		<!--
-			The one press between the lead and the six (SPEC story 42).
+			The one press between the lead and the six.
 
 			Not `title`, not a tooltip: daisyUI renders those through CSS `::before`, so they are neither
 			announced nor dismissable (ADR-0016). `aria-controls` binds the button to the panel below the
@@ -231,7 +230,7 @@
 			{detailShown ? 'Hide what this means' : 'What this means'}
 		</button>
 		<!--
-			The explicit check (SPEC story 115).
+			The explicit check.
 
 			**Always offered, not only while signed out.** Signed out it is the *only* way to a status —
 			automatic anonymous polling is ruled out by GitHub's sixty-an-hour anonymous budget, which a
@@ -256,7 +255,7 @@
 			Check Remote Status
 		</button>
 		<!--
-			The inbound half, and the *only* way Remote work reaches a Workspace (SPEC story 121).
+			The inbound half, and the *only* way Remote work reaches a Workspace.
 
 			**Always offered, and never armed by a status.** An Update is refused with a sentence when
 			there is nothing to take and when a path changed on both sides, and it stops to ask when the
@@ -308,7 +307,7 @@
 	{/if}
 
 	<!--
-		What an Update is doing (SPEC stories 121–124).
+		What an Update is doing.
 
 		Polite and `aria-atomic`, for the reason the determination above is: "412 of 900 files" on its
 		own says nothing about what is being counted, and a screen reader hearing the count change
@@ -345,12 +344,12 @@
 	nobody hears is an author who believes the Remote's changes are now in their Workspace. The
 	`remote-status-failure` alert also leaves the determination beside it exactly as it was: a network
 	failure, an expired credential or a spent hourly budget is not agreement, and reported as `Up to
-	date` it is the one reading that licenses publishing over somebody else's work (SPEC story 118).
+	date` it is the one reading that licenses publishing over somebody else's work.
 
-	⚠ **Published Site staleness is never one of the six** (SPEC story 120, ADR-0033). A site built by
-	another editor version has different chunk names, so this is routinely true of a Workspace whose
-	scholarship agrees with its Remote exactly. What it means is "republish when you like", which is
-	why it is its own sentence with its own remedy and why it is a note rather than a warning.
+	⚠ **Published Site staleness is never one of the six** (ADR-0033). A site built by another editor
+	version has different chunk names, so this is routinely true of a Workspace whose scholarship agrees
+	with its Remote exactly. What it means is "republish when you like", which is why it is its own
+	sentence with its own remedy and why it is a note rather than a warning.
 -->
 <Toast text={notice} testid="update-outcome" tone="info" />
 <Toast text={failure} testid="update-failure" refusal />
@@ -365,7 +364,7 @@
 />
 
 <!--
-	What the Update would remove, before it removes any of it (SPEC stories 126, 127).
+	What the Update would remove, before it removes any of it.
 
 	⚠ **A modal, and it has to be.** This is the last point at which the answer is still no, and the
 	rest of the application — the Project links behind it, the Publish button, the Workspace switcher —

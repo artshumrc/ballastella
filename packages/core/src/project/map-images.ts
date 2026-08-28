@@ -212,7 +212,7 @@ async function mapImageFiles(
 /**
  * The Map Images whose tiles are on somebody else's server, by image id.
  *
- * What publishing warns from (ADR-0007, SPEC stories 29 and 90) and what the editor's Layers pane
+ * What publishing warns from (ADR-0007) and what the editor's Layers pane
  * hands the renderer an address for. Both used to work it out for themselves.
  */
 export async function referencedMapImages(
@@ -254,7 +254,7 @@ export interface MapImageUsage {
  * because of a file nothing can read.
  *
  * **A Project from a newer build is not corrupt and is not skipped.** ADR-0010 refuses to open it
- * *because it is intact* — SPEC story 114 wants refusal rather than partial loading — and the same
+ * *because it is intact*, refusal being wanted rather than partial loading — and the same
  * hub that lists it as "made with a newer version" must not, two sections below, offer to delete a map
  * it may well draw. Its Layers cannot be read, so what is known is only "this Project might use any
  * map", and that is what {@link MapImageUsage.fromANewerVersion} carries. It takes the directory
@@ -367,8 +367,7 @@ export function unusedMapImages<T extends Reclaimable>(
 }
 
 /**
- * The byte weight of the Map Images no Project uses, for ADR-0008's publish warning (SPEC story
- * 98).
+ * The byte weight of the Map Images no Project uses, for ADR-0008's publish warning.
  *
  * **Weighs only the unused maps**, which is what keeps this cheap enough to run on every publish plan:
  * the classification and the usage cost one walk of `images/` and one read per Project, and the `size`
@@ -548,7 +547,7 @@ export async function deleteMapImage(
 	}
 
 	const directory = `${imageDirectory(imageId)}/`;
-	// ⚠ **Before the deletions, not after** (ticket 21, review 3). The half-finished writes `list`
+	// ⚠ **Before the deletions, not after.** The half-finished writes `list`
 	// cannot report and `delete` cannot be handed: without this sweep a "deleted" map's directory
 	// survives on disk holding bytes that are also missing from the totals the size list exists to
 	// explain. Scoped to this map's own directory, so it cannot reach the temporary file of an ingest

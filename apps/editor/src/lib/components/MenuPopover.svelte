@@ -6,8 +6,8 @@
 	 *
 	 * ⚠ **This file has moved to `@ballastella/ui` and both copies are the same component.** The bar
 	 * and the published site render the shared one; `ProjectScreen.svelte` is the last consumer here,
-	 * and it is being rewritten by another ticket of this epic — so its one import moves with that
-	 * rewrite and this file goes with it. Until then, change both or neither.
+	 * and moving that one import belongs with the rewrite of that screen — this file goes with it.
+	 * Until then, change both or neither.
 	 *
 	 * The Popover API — `popover` plus `popovertarget` — is **mandated, not merely available**
 	 * (ADR-0016), and for the same reason `<dialog>` is: daisyUI documents a `<details>` dropdown and
@@ -17,8 +17,8 @@
 	 * the decision is made once and every later slice inherits it — {@link ModalDialog} beside it is
 	 * the same argument for modals, and its comment says so.
 	 *
-	 * The second call site is already scheduled: ticket 12 puts Workspace switching on this menu and
-	 * the transfer tickets add theirs, so the alternative to this file is three hand-rolled popovers.
+	 * The second call site is the bar's Workspace switcher and the third is the transfer actions'
+	 * menu, so the alternative to this file is three hand-rolled popovers.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHAT IT OWNS THAT A HAND-ROLLED ONE FORGETS
@@ -50,7 +50,7 @@
 		testid,
 		children
 	}: {
-		/** The button's visible text. Visible words, never an icon with a tooltip (SPEC story 111). */
+		/** The button's visible text. Visible words, never an icon with a tooltip. */
 		label: string;
 		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
 		open?: boolean;

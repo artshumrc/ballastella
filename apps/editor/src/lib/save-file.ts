@@ -10,8 +10,9 @@
  * and it is exactly the case where the user has no folder access to fall back on (ADR-0001).
  *
  * `showSaveFilePicker` would stream straight to a file the user picked and is better still, but it
- * is Chromium-only — the browsers this path exists *for* do not have it — so it belongs with ticket
- * 12's File System Access work rather than here, where it would be the untested branch.
+ * is Chromium-only — the browsers this path exists *for* do not have it — so it belongs with the
+ * File System Access store in `packages/core` rather than here, where it would be the untested
+ * branch.
  */
 export async function saveFile(fileName: string, body: ReadableStream<Uint8Array>): Promise<void> {
 	const blob = await new Response(body).blob();

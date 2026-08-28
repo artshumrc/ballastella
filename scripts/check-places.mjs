@@ -18,7 +18,7 @@
 // vanished, and nothing in the suite could have said so.
 //
 // And it gives a forker something they would otherwise lack — a way to find out they configured the
-// service wrongly before their students do (SPEC story 28).
+// service wrongly before their students do.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

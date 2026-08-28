@@ -222,7 +222,7 @@
 }
 
 /* The Resource Mask's handles, on the image pane only — the mask is in image pixel space, so it
-   has no meaning on the Base Map (ticket 08).
+   has no meaning on the Base Map.
 
    Square rather than round, and a different colour from a Control Point, because the two are
    editable at the same time on the same pane and confusing them means dragging the outline when you
@@ -257,9 +257,9 @@
 
    **`cursor: pointer`, not `grab`.** This handle is deliberately not draggable — `paint` calls
    `setDraggable(false)` for it, because a handle that both inserted and moved would make "I nudged
-   it" and "I added one" the same gesture (ticket 08). It carried `grab` and `grabbing`, which
-   advertised the one gesture it refuses: the user presses, pulls, nothing happens, and the handle
-   reads as broken rather than as a button. */
+   it" and "I added one" the same gesture. It carried `grab` and `grabbing`, which advertised the
+   one gesture it refuses: the user presses, pulls, nothing happens, and the handle reads as broken
+   rather than as a button. */
 .pane-overlay-point-mask-edge {
 	width: 14px;
 	height: 14px;
@@ -283,7 +283,7 @@
 	outline-offset: 2px;
 }
 
-/* ─── An Annotation's vertices (ticket 10) ────────────────────────────────────────────────
+/* ─── An Annotation's vertices ────────────────────────────────────────────────────────────
    The Resource Mask's corner affordance, on the Base Map, and diamond rather than square or round
    so that a third editable kind on a map is still tellable apart at a glance. A vertex is focusable
    and arrow-key movable for the reason the other two are: it is the same object to a keyboard,
@@ -300,11 +300,10 @@
    drawn from the vertex it names. Measured at 334 px when it should have been 668: over the
    sidebar, on top of the Annotation list.
 
-   It survived a whole ticket's browser suite because **a drag begins wherever the handle is**: the
-   specs took the element's own bounding box, dragged that, and the coordinate the app wrote was
-   correct. So a containment check is not enough either — `editor-annotations.e2e.ts` compares the
-   handle's box against `map.project()` of the coordinate on disk, which is the claim that was
-   false. */
+   It survived the browser suite because **a drag begins wherever the handle is**: the specs took
+   the element's own bounding box, dragged that, and the coordinate the app wrote was correct. So a
+   containment check is not enough either — `editor-annotations.e2e.ts` compares the handle's box
+   against `map.project()` of the coordinate on disk, which is the claim that was false. */
 .pane-overlay-point-annotation-vertex {
 	pointer-events: auto;
 	position: relative;

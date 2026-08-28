@@ -6,7 +6,7 @@
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
-	 * What a link from a Published Site would do, and the press that does it (SPEC stories 72–77).
+	 * What a link from a Published Site would do, and the press that does it.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * IT OFFERS; IT DOES NOT ACT
@@ -22,11 +22,11 @@
 	 * ONE LINK, TWO ANSWERS, AND THE VOCABULARY IS THE DIFFERENCE
 	 *
 	 * A Published *Project* carries one “Open in Ballastella” rather than competing Import and Review
-	 * links, because the choice between keeping somebody's work and looking at it is a decision to
-	 * put in front of a reader once they have arrived, not two links to tell them apart in a navbar
-	 * (stories 72–75). So the Project invitation raises **both** offers here and names the Workspace
-	 * an Import would go into, in words. The whole-repository invitation keeps its single answer:
-	 * opening a Workspace from GitHub is one operation, and there is nothing to choose between.
+	 * links, because the choice between keeping somebody's work and looking at it is a decision to put
+	 * in front of a reader once they have arrived, not two links to tell them apart in a navbar. So the
+	 * Project invitation raises **both** offers here and names the Workspace an Import would go into,
+	 * in words. The whole-repository invitation keeps its single answer: opening a Workspace from
+	 * GitHub is one operation, and there is nothing to choose between.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * NOT A DIALOG, AND NOT A CREDENTIAL
@@ -37,9 +37,9 @@
 	 * so that its outcome survives the Workspace switch underneath it — the route does not remount,
 	 * and the sentence is about the Workspace the visitor has just been moved into.
 	 *
-	 * ⚠ **Every operation here is unauthenticated and nothing asks for a sign-in** (SPEC stories 5
-	 * and 6). A student with no GitHub account is the person this link is most likely to reach, and a
-	 * credential prompt in front of it would be the one thing that stops them.
+	 * ⚠ **Every operation here is unauthenticated and nothing asks for a sign-in.** A student with no
+	 * GitHub account is the person this link is most likely to reach, and a credential prompt in front
+	 * of it would be the one thing that stops them.
 	 */
 	let {
 		storage,
@@ -80,7 +80,7 @@
 	/** Where an Import put the Project, once one has, so the route can go to it. */
 	let importedInto = $state('');
 	/**
-	 * The line saying what the press did, focused once it does (SPEC story 95).
+	 * The line saying what the press did, focused once it does.
 	 *
 	 * ⚠ **Every choice here unmounts the button that was pressed.** The outcome replaces the whole
 	 * offer, so on success focus would land on `<body>` — after minutes of downloading, at the top of
@@ -235,9 +235,9 @@
 			-->
 			{#if link.kind === 'review' && importTarget !== null}
 				<!--
-					⚠ **The destination in words, and it is the primary choice** (SPEC story 74). A reader
-					who followed a link is being asked to keep somebody's work; "this Workspace" would not
-					tell them which one, and the switcher is two clicks away.
+					⚠ **The destination in words, and it is the primary choice.** A reader who followed a link
+					is being asked to keep somebody's work; "this Workspace" would not tell them which one,
+					and the switcher is two clicks away.
 
 					**Absent when there is nothing to Import into** — inside a review copy, or over a
 					Workspace whose interrupted Import has not been resolved. Reviewing still works, so the

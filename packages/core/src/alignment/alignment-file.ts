@@ -1,11 +1,11 @@
-// The one writer of `alignments/<image-id>.json` (ticket 18).
+// The one writer of `alignments/<image-id>.json`.
 //
 // **This module is the only place in the codebase where an `AlignmentPath` becomes a
 // `WritablePath`.** Everything in the application that writes one — every pane, every route, both
 // tar readers — comes through {@link writeAlignmentFile}, {@link writeAlignmentFileReporting} or
 // {@link writeAlignmentBytes} and has to say which of three things it means.
 //
-// Since ticket 07 it is also the only place that can *notice* a concurrent edit, for the same reason:
+// It is also the only place that can *notice* a concurrent edit, for the same reason:
 // the re-read has to happen immediately before the commit, and the commit is here. See
 // {@link AlignmentWrite}'s `update`, which states both what that delivers and what it does not.
 //
@@ -24,16 +24,16 @@
 // work in front of you. Afterwards it can cost somebody else's afternoon, in a Project you are not
 // looking at and have possibly never opened.
 //
-// Nothing in the code was changed to reflect what that means for a write, and **two blind
-// overwrites of the file were then written independently** — ticket 02's community-Alignment import
-// and ticket 03's Align route — neither author noticing, each caught only by review. Ticket 02's
+// Nothing in the code reflected what that means for a write, and **two blind overwrites of the file
+// were written independently** — the community-Alignment import in `remote-iiif/community-alignments.ts`
+// and the editor's Align route — neither author noticing, each caught only by review. The import's
 // starter path guards correctly two lines from its own unguarded write, so the same author wrote
 // the check and missed the hole beside it. That is a missing invariant, not two lapses.
 //
-// A **third** existence check, spelled differently again, was found in the Project-zip importer
-// during this ticket's own review — a module ticket 14 has since deleted with the whole zip path. It was not a live overwrite — see `project/workspace.ts` for
-// exactly why — but it was a third answer to one question, in a place nobody had thought to look.
-// Three independent spellings is the argument for this module existing, more than any one of them.
+// A **third** existence check, spelled differently again, was in the Project-zip importer. It was
+// not a live overwrite — see `project/workspace.ts` for exactly why — but it was a third answer to
+// one question, in a place nobody had thought to look. Three independent spellings is the argument
+// for this module existing, more than any one of them.
 //
 // So the invariant is made structural in two layers that fail at different moments:
 //
@@ -115,13 +115,12 @@ export type AlignmentWrite =
 	 * to say. Both callers in the editor now do, explicitly.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ⚠ **A CONCURRENT EDIT IS NOW SEEN AND SAID, NOT PREVENTED** (ticket 07).
+	 * ⚠ **A CONCURRENT EDIT IS SEEN AND SAID, NOT PREVENTED.**
 	 *
 	 * `update` writes what the user has, over whatever is there — so if a colleague changed the same
 	 * Alignment through a synced Workspace since this one was read, their change is gone. ADR-0023
 	 * accepts that and is precise about the terms: the mitigation is **visibility, not prevention**.
-	 * Ticket 14 wrote the mitigation down and deferred it; the align route is the path that reaches
-	 * this, so it is built here.
+	 * The align route is the path that reaches this, so the mitigation is built here.
 	 *
 	 * {@link basedOn} is what makes it possible: the bytes the caller believes are on disk. When it
 	 * is supplied, the file is re-read immediately before the commit and compared. If it has changed,
@@ -161,9 +160,8 @@ export type AlignmentWrite =
 	 * silence.
 	 *
 	 * **`basedOn: null` is a caller that knows the file was absent**; `undefined` — the field omitted —
-	 * is a caller that is not making the claim at all, and gets ticket 18's behaviour unchanged. The
-	 * two are different on purpose: a required field would have forced every existing `update` to
-	 * invent an answer.
+	 * is a caller that is not making the claim at all, and gets the write without the check. The two
+	 * are different on purpose: a required field would force every `update` to invent an answer.
 	 */
 	| { readonly intent: 'update'; readonly basedOn?: Bytes | null }
 	/**
@@ -196,7 +194,7 @@ export type AlignmentWriteOutcome =
 	/** There was work in the file and the caller's offer was refused to protect it. Say so. */
 	| 'kept over the offer'
 	/**
-	 * The bytes are on disk, **and they replaced a version this caller had never seen** (ticket 07).
+	 * The bytes are on disk, **and they replaced a version this caller had never seen**.
 	 *
 	 * Somebody else changed this Alignment through a synced Workspace while the user had it open. The
 	 * user's edit was written — see {@link AlignmentWrite}'s `update` for why that direction — so this
@@ -374,11 +372,10 @@ const report = (
  * The same three intents, for a caller holding **bytes it must not re-serialise**.
  *
  * This is the two tar readers — `restore-workspace-tar.ts` and `open-project-bundle.ts` — and they
- * are the callers that cannot go through
- * {@link writeAlignmentFile}. What they are copying is a document somebody else's build wrote, and
- * routing it through `Alignment` and back would regenerate it from this build's model — which is
- * exactly the loss SPEC story 60 forbids and `Alignment.unmodelled` exists to prevent. So the bytes
- * travel verbatim, and only the *decision* is shared.
+ * are the callers that cannot go through {@link writeAlignmentFile}. What they are copying is a
+ * document somebody else's build wrote, and routing it through `Alignment` and back would regenerate
+ * it from this build's model — which is exactly the loss `Alignment.unmodelled` exists to prevent.
+ * So the bytes travel verbatim, and only the *decision* is shared.
  *
  * **`create` here is narrower than `create` above, and it has to be.** Deciding that a stored
  * Alignment is an untouched starter means comparing it against the starter this build would write

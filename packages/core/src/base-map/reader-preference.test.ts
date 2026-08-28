@@ -35,8 +35,7 @@ describe('a Reader’s Base Map preference', () => {
 			// The rule this module exists for. `localStorage` is per *origin*, and a department's domain
 			// with a folder per student — or one `username.github.io` with a repository per semester — is
 			// the normal case, not an edge one. One key would mean a Reader's choice on one scholar's site
-			// silently reframing another scholar's work (SPEC story 69 is that the framing is the
-			// author's).
+			// silently reframing another scholar's work, and the framing is the author's.
 			expect(baseMapPreferenceKey('https://dept.example/tracy/atlas/')).not.toBe(
 				baseMapPreferenceKey('https://dept.example/sam/atlas/')
 			);
@@ -147,7 +146,7 @@ describe('a Reader’s Base Map preference', () => {
 
 	describe('what it is not', () => {
 		it('reaches no store, and its whole surface is the two calls plus the key', async () => {
-			// Ticket 17: the Base Map choice is **never** written to Project data. Asserted on the module's
+			// The Base Map choice is **never** written to Project data. Asserted on the module's
 			// own surface rather than as an intention: the preference is stored and read by exactly these
 			// two functions, both of which take a `PreferenceStorage` — two methods over strings — so
 			// there is no call site anywhere that could be handed a `ProjectStore` by mistake.

@@ -1,23 +1,23 @@
-// The guided sequence that puts a Workspace on GitHub, at Seam 1c (SPEC stories 1, 7–9, 16–32, 36,
-// 43, 61, 65–67).
+// The guided sequence that puts a Workspace on GitHub, at Seam 1c.
 //
-// ⚠ **The subject is the derivation, and that is why nearly the whole ticket is here.** Which step
-// shows for which combination of facts, what each step says, what a press hands to `bindRemote`, and
-// what the three outcomes that come back are rendered as — none of it needs a browser, and every one
-// of them would otherwise have been a four-second Playwright test.
+// ⚠ **The subject is the derivation, and that is why nearly all of this component's behaviour is
+// here.** Which step shows for which combination of facts, what each step says, what a press hands
+// to `bindRemote`, and what the three outcomes that come back are rendered as — none of it needs a
+// browser, and every one of them would otherwise have been a four-second Playwright test.
 //
 // ⚠ **The fake storage is reactive on purpose.** The sequence's contract is that it holds no position
 // counter, so "it moves on its own when the facts change" is the claim; a fake whose `remote` and
 // `signedIn` were plain fields could not falsify it. See `connect-to-github-fake.svelte.ts`.
 //
-// ⚠ **What is deliberately not here.** That the listing really reads GitHub's installation endpoints,
-// and that a rejected sign-in is a refusal rather than an empty list, are `github-installations.ts`'s
-// at Seam 1 against the shared fake GitHub. That the rights check happens before any bytes move, that
-// Pages degrades to a sentence, and that the subset comparison is by Project directory are
-// `bind-remote.ts`'s, there too. That the application actually wires this component to the real
-// sign-in, the real bind and the real Publish is one test in `e2e/editor-github-signin.e2e.ts`, which
-// is what keeps this file from asserting against a fake in isolation. Story 68 — the action visible
-// without scrolling — is layout and is not asserted at any seam this file can reach.
+// ⚠ **What is deliberately not here.** That the listing really reads GitHub's installation
+// endpoints, and that a rejected sign-in is a refusal rather than an empty list, are
+// `github-installations.ts`'s at Seam 1 against the shared fake GitHub. That the rights check
+// happens before any bytes move, that Pages degrades to a sentence, and that the subset comparison
+// is by Project directory are `bind-remote.ts`'s, there too. That the application actually wires
+// this component to the real sign-in, the real bind and the real Publish is one test in
+// `e2e/editor-github-signin.e2e.ts`, which is what keeps this file from asserting against a fake in
+// isolation. The action being visible without scrolling is layout and is not asserted at any seam
+// this file can reach.
 
 import type { GrantedRepositoriesOutcome, GrantedRepository } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -178,7 +178,7 @@ const submit = (): void => {
 };
 
 describe('which step the sequence shows', () => {
-	// Story 7, and the derivation's first reading: no credential is the only fact that decides this.
+	// The derivation's first reading: no credential is the only fact that decides this.
 	test('asks for the sign-in when no credential is held, and asks GitHub nothing', () => {
 		const { list } = openPastAccount(new FakeStorage());
 
@@ -197,10 +197,10 @@ describe('which step the sequence shows', () => {
 		expect(storage.signInsBegun).toBe(1);
 	});
 
-	// ⚠ **Story 8's other half, which is what the mark is for.** The sign-in replaces the document, so
-	// nothing the sequence holds in memory survives it — the mark is how the return leg knows to come
-	// back here. That it really does come back is Seam 2's, since only a browser can perform the
-	// redirect; that the mark is laid down at all is this seam's, and it is cheap.
+	// ⚠ **The other half of the return trip, which is what the mark is for.** The sign-in replaces
+	// the document, so nothing the sequence holds in memory survives it — the mark is how the return
+	// leg knows to come back here. That it really does come back is Seam 2's, since only a browser
+	// can perform the redirect; that the mark is laid down at all is this seam's, and it is cheap.
 	test('marks the tab before leaving, so the return comes back to the sequence', () => {
 		openPastAccount(new FakeStorage());
 
@@ -224,9 +224,10 @@ describe('which step the sequence shows', () => {
 		expect(sessionStorage.getItem('ballastella.connect-sequence-resuming')).toBeNull();
 	});
 
-	// ⚠ **Story 8, and the whole reason there is no position counter.** Returning from GitHub is not a
-	// press on this screen: the page has been reloaded and a credential is simply *there*. A sequence
-	// with a remembered position would come back at the beginning; this one comes back at the choice.
+	// ⚠ **The return from GitHub, and the whole reason there is no position counter.** Returning from
+	// GitHub is not a press on this screen: the page has been reloaded and a credential is simply
+	// *there*. A sequence with a remembered position would come back at the beginning; this one comes
+	// back at the choice.
 	test('lands on the choice when a credential is already held, not at the beginning', async () => {
 		open(signedIn());
 		await settle();
@@ -235,8 +236,8 @@ describe('which step the sequence shows', () => {
 		expect(at('connect-choosing')).toBeTruthy();
 	});
 
-	// Story 9: a shared or a classmate's machine is the case, and the name is the only thing that tells
-	// them apart.
+	// A shared or a classmate's machine is the case, and the name is the only thing that tells them
+	// apart.
 	test('names the account the sign-in is as', async () => {
 		open(signedIn());
 		await settle();
@@ -244,8 +245,8 @@ describe('which step the sequence shows', () => {
 		expect(text(at('connect-account'))).toBe('Signed in to GitHub as ada.');
 	});
 
-	// Story 61: a Workspace that is already on GitHub is not asked to connect again, and nothing is
-	// read from GitHub to find that out.
+	// A Workspace that is already on GitHub is not asked to connect again, and nothing is read from
+	// GitHub to find that out.
 	test('opens on the connected step for a Workspace that already has a Remote', () => {
 		const storage = signedIn();
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
@@ -353,7 +354,7 @@ describe('making a repository, without leaving the sequence', () => {
 		return { storage, list, onpublish, props };
 	}
 
-	// Story 16: having nothing granted is an ordinary case with an action in it, not a dead end.
+	// Having nothing granted is an ordinary case with an action in it, not a dead end.
 	test('offers the action with an empty list and with a full one alike', async () => {
 		open(signedIn(), nothing());
 		await settle();
@@ -370,7 +371,7 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(at('create-repository')).toBeTruthy();
 	});
 
-	// Stories 17 and 18: the name arrives filled in, and the editor is not the tab that goes anywhere.
+	// The name arrives filled in, and the editor is not the tab that goes anywhere.
 	test('opens GitHub’s new-repository screen in a second tab, with the name filled in', async () => {
 		const storage = signedIn();
 		storage.name = 'Amsterdam 1625';
@@ -383,8 +384,8 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(text(at('create-repository-note'))).toContain('amsterdam-1625');
 	});
 
-	// Stories 19–21, and the order is the claim rather than the presence: a student who grants access
-	// before making the repository grants access to a repository that does not exist yet.
+	// The order is the claim rather than the presence: a student who grants access before making the
+	// repository grants access to a repository that does not exist yet.
 	test('names all three things to do, in the order that works', async () => {
 		await leaveToCreate(nothing());
 
@@ -396,7 +397,7 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(steps[2]).toContain('Come back to this tab');
 	});
 
-	// Story 22: the return is observed. A window raised over another application fires `focus` and no
+	// The return is observed. A window raised over another application fires `focus` and no
 	// `visibilitychange`, so both are listened for and either is enough.
 	test('re-reads the listing when the window regains focus, with nothing pressed', async () => {
 		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
@@ -419,9 +420,9 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(at('connect-choosing')).toBeTruthy();
 	});
 
-	// ⚠ **Story 23, and it is the point of comparing against a set rather than counting.** The
-	// repository absent before and present after is the one they just made, and it is the row they
-	// are looking for — so it is first and it is marked, whatever order GitHub answered in.
+	// ⚠ **Comparing against a set rather than counting is the point.** The repository absent before
+	// and present after is the one they just made, and it is the row they are looking for — so it is
+	// first and it is marked, whatever order GitHub answered in.
 	test('puts a repository that was not there before at the top, marked as new', async () => {
 		await leaveToCreate(listed([ATLAS]), listed([ATLAS, HARBOUR]));
 
@@ -435,9 +436,9 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(rows[1]).not.toContain('New');
 	});
 
-	// ⚠ **Story 24: the cause is named rather than guessed at.** A screen identical to the one they
-	// left says nothing, and "no repositories found" names the wrong cause — the repository exists,
-	// and access to it is what is missing.
+	// ⚠ **The cause is named rather than guessed at.** A screen identical to the one they left says
+	// nothing, and "no repositories found" names the wrong cause — the repository exists, and access
+	// to it is what is missing.
 	test('names the missing grant when the listing comes back unchanged, and offers the way back', async () => {
 		await leaveToCreate(nothing());
 
@@ -451,8 +452,8 @@ describe('making a repository, without leaving the sequence', () => {
 		expect(absent('repository-choice-empty')).toBe(true);
 	});
 
-	// Story 25: the automatic path is a convenience and never the only way through, so the manual
-	// control is on screen from the moment the step is.
+	// The automatic path is a convenience and never the only way through, so the manual control is on
+	// screen from the moment the step is.
 	test('offers a control that re-reads the listing at any point in the step', async () => {
 		const opened = await leaveToCreate(nothing(), listed([HARBOUR]));
 
@@ -520,9 +521,9 @@ describe('connecting, which is one act', () => {
 		await settle();
 	}
 
-	// ⚠ **Story 26, and the claim is about what was handed over.** One call, naming the repository the
-	// author chose and no credential of its own — so the rights check and Pages are the existing
-	// code's, performed inside it, and there is no second path to either.
+	// ⚠ **The claim is about what was handed over.** One call, naming the repository the author chose
+	// and no credential of its own — so the rights check and Pages are the existing code's, performed
+	// inside it, and there is no second path to either.
 	test('hands the chosen repository to the existing bind, once, with no credential of its own', async () => {
 		const opened = open(signedIn());
 		await choose();
@@ -540,8 +541,8 @@ describe('connecting, which is one act', () => {
 		expect(text(at('connect-outcome'))).toContain('Setting up is over');
 	});
 
-	// Stories 30 and 31 together: the one thing that may have to be done by hand is fully specified,
-	// and the connection it happened to stands.
+	// The one thing that may have to be done by hand is fully specified, and the connection it
+	// happened to stands.
 	test('reports a Pages failure with the setting, where it is and what to choose, and stays connected', async () => {
 		const storage = signedIn();
 		storage.bindAnswer = outcome({
@@ -580,9 +581,9 @@ describe('connecting, which is one act', () => {
 		expect(at('connect-connected')).toBeTruthy();
 	});
 
-	// ⚠ **Story 65: this one is a refusal and must never soften into a warning.** Publishing over a
-	// Remote carrying Projects this Workspace has not got would delete them, so the Projects are named
-	// and the connection does not happen — which means the sequence is back at the choice.
+	// ⚠ **This one is a refusal and must never soften into a warning.** Publishing over a Remote
+	// carrying Projects this Workspace has not got would delete them, so the Projects are named and
+	// the connection does not happen — which means the sequence is back at the choice.
 	test('refuses a repository whose work publishing would destroy, and names it', async () => {
 		const storage = signedIn();
 		storage.bindAnswer = new Error(
@@ -607,7 +608,7 @@ describe('the address, and the handoff', () => {
 		return storage;
 	}
 
-	// Story 32: the thing the assignment actually asked for.
+	// The address is the thing the assignment actually asked for.
 	test('names the address the Published Site will answer at', () => {
 		open(connected('ada', 'atlas'));
 
@@ -622,8 +623,8 @@ describe('the address, and the handoff', () => {
 		expect(text(at('published-site-address'))).toBe('https://ada.github.io/');
 	});
 
-	// Story 43: pasting it into a submission form is the use, and the visible text is what a browser
-	// that refuses the clipboard leaves behind.
+	// Pasting it into a submission form is the use, and the visible text is what a browser that
+	// refuses the clipboard leaves behind.
 	test('puts the address on the clipboard', async () => {
 		const writeText = vi.fn(async () => {});
 		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -636,7 +637,7 @@ describe('the address, and the handoff', () => {
 		expect(text(at('copied-address'))).toContain('clipboard');
 	});
 
-	// Story 28: the sequence ends at the button that was always there rather than at a second one.
+	// The sequence ends at the button that was always there rather than at a second one.
 	test('hands off to Publish and closes', () => {
 		const opened = open(connected('ada', 'atlas'));
 
@@ -647,9 +648,9 @@ describe('the address, and the handoff', () => {
 });
 
 describe('the student who has never heard of GitHub', () => {
-	// ⚠ **Stories 3, 5 and 45, and the reason this step exists at all.** A student with no account
-	// pressing "Sign in with GitHub" arrives at a screen they cannot complete, and the editor never
-	// mentioned that an account was the prerequisite. So the prerequisite is the first thing said.
+	// ⚠ **The reason this step exists at all.** A student with no account pressing "Sign in with
+	// GitHub" arrives at a screen they cannot complete, and the editor never mentioned that an
+	// account was the prerequisite. So the prerequisite is the first thing said.
 	test('says an account is needed, what it is for, and that it costs nothing', () => {
 		open(new FakeStorage());
 
@@ -659,8 +660,8 @@ describe('the student who has never heard of GitHub', () => {
 		expect(words).toContain('free');
 	});
 
-	// Story 4: not having to go and find GitHub's sign-up is the whole of it. A second tab, so the
-	// editor and the sequence are still there to come back to.
+	// Not having to go and find GitHub's sign-up is the whole of it. A second tab, so the editor and
+	// the sequence are still there to come back to.
 	test('links to GitHub’s own sign-up, in a second tab', () => {
 		open(new FakeStorage());
 
@@ -680,9 +681,9 @@ describe('the student who has never heard of GitHub', () => {
 		expect(absent('connect-needs-account')).toBe(true);
 	});
 
-	// ⚠ **Story 6: making an account must not cost the author their place.** They leave for GitHub's
-	// sign-up in a second tab, make an account, and come back — often to a reloaded editor — and the
-	// step they land on is the sign-in rather than the sentence they have already read.
+	// ⚠ **Making an account must not cost the author their place.** They leave for GitHub's sign-up
+	// in a second tab, make an account, and come back — often to a reloaded editor — and the step
+	// they land on is the sign-in rather than the sentence they have already read.
 	test('lands at the sign-in on the way back from making an account', () => {
 		open(new FakeStorage());
 
@@ -706,7 +707,7 @@ describe('the student who has never heard of GitHub', () => {
 });
 
 describe('leaving the sequence, and coming back to it', () => {
-	// Story 33: every step offers the way out, including the ones in the middle of something.
+	// Every step offers the way out, including the ones in the middle of something.
 	test.each([
 		['the account step', async () => open(new FakeStorage())],
 		['the sign-in step', async () => openPastAccount(new FakeStorage())],
@@ -746,10 +747,11 @@ describe('leaving the sequence, and coming back to it', () => {
 		expect(at('close-connect-sequence')).toBeTruthy();
 	});
 
-	// ⚠ **Story 34, and it is the derivation that pays for it.** Nothing is remembered across a close,
-	// so reopening reads the same facts — and the listing is asked for again, which is what makes a
-	// repository granted while the sequence was shut visible on return. Reading the same facts lands
-	// in the same place everywhere but `creating`, whose landing is the test below.
+	// ⚠ **Reopening reads the facts again, and it is the derivation that pays for it.** Nothing is
+	// remembered across a close, so reopening reads the same facts — and the listing is asked for
+	// again, which is what makes a repository granted while the sequence was shut visible on return.
+	// Reading the same facts lands in the same place everywhere but `creating`, whose landing is the
+	// test below.
 	test('reopens on the step the author was on', async () => {
 		const opened = open(signedIn());
 		await settle();
@@ -806,9 +808,9 @@ describe('leaving the sequence, and coming back to it', () => {
 	});
 });
 
-// SPEC story 63. A GitHub App's user token lasts eight hours, and one that has run out makes every
-// later request fail — as a listing with nothing in it, or as a repository that refused the author.
-// So the expiry is asked about the moment the sequence opens, before any of that can be misread.
+// A GitHub App's user token lasts eight hours, and one that has run out makes every later request
+// fail — as a listing with nothing in it, or as a repository that refused the author. So the expiry
+// is asked about the moment the sequence opens, before any of that can be misread.
 describe('a sign-in that ran out', () => {
 	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been published.';
 
@@ -853,9 +855,9 @@ describe('a sign-in that ran out', () => {
 	});
 });
 
-// SPEC story 35, and the ticket's real work: **no state of this sequence is a full stop.** Each of
-// these is a branch that can be reached, and each one has to name what to do and render the control
-// that does it. A refusal whose only sequel is the Close button is the failure being tested for.
+// **No state of this sequence is a full stop**, and that is what this block is for. Each of these
+// is a branch that can be reached, and each one has to name what to do and render the control that
+// does it. A refusal whose only sequel is the Close button is the failure being tested for.
 describe('every refusal names what to do next', () => {
 	test('a sign-in GitHub will not act on offers the sign-in again', async () => {
 		const opened = open(signedIn(), {
@@ -939,8 +941,8 @@ describe('every refusal names what to do next', () => {
 });
 
 describe('signing out, and changing where the work goes', () => {
-	// Story 10, and the reason it is beside Close rather than in Workspace settings: somebody handing
-	// a lab machine over is leaving, and leaving is the gesture they are already making.
+	// The reason it is beside Close rather than in Workspace settings: somebody handing a lab machine
+	// over is leaving, and leaving is the gesture they are already making.
 	test('signs out from the sequence, and the account goes with the sign-in', async () => {
 		const opened = open(signedIn());
 		await settle();
@@ -961,8 +963,8 @@ describe('signing out, and changing where the work goes', () => {
 		expect(absent('connect-sign-out')).toBe(true);
 	});
 
-	// ⚠ **Story 62: connecting once is not permanent.** A Workspace with a Remote derives the connected
-	// step from having one, so the way back to the choice has to be a press — and it lands on the same
+	// ⚠ **Connecting once is not permanent.** A Workspace with a Remote derives the connected step
+	// from having one, so the way back to the choice has to be a press — and it lands on the same
 	// listing, read again, rather than on a remembered one.
 	test('a connected Workspace can choose a different repository', async () => {
 		const storage = signedIn();
@@ -998,8 +1000,8 @@ describe('signing out, and changing where the work goes', () => {
 });
 
 describe('reaching every step without sight and without a pointer', () => {
-	// Story 66. One region, in the document from the first frame, whose words change with the step —
-	// a region inserted at the moment its text first exists is not reliably announced (ADR-0016).
+	// One region, in the document from the first frame, whose words change with the step — a region
+	// inserted at the moment its text first exists is not reliably announced (ADR-0016).
 	test('announces each step as it changes', async () => {
 		const storage = signedIn();
 		const opened = open(storage);
@@ -1014,8 +1016,8 @@ describe('reaching every step without sight and without a pointer', () => {
 		expect(opened.storage.bindCalls).toHaveLength(1);
 	});
 
-	// Story 67. `disabled` takes a control out of the tab order, so a keyboard user reaching the
-	// sequence mid-flight would find the thing they were about to press simply gone (WCAG 2.4.3).
+	// `disabled` takes a control out of the tab order, so a keyboard user reaching the sequence
+	// mid-flight would find the thing they were about to press simply gone (WCAG 2.4.3).
 	test('leaves no control out of the tab order', async () => {
 		open(signedIn());
 		await settle();
@@ -1028,7 +1030,7 @@ describe('reaching every step without sight and without a pointer', () => {
 // every bind refusal are rendered exactly as `bind-remote` composes them, and those name a GitHub
 // permission and a token because that is what the author has to go and change — rewriting them here
 // would be a second account of GitHub's own settings screens to keep in step. What this asserts is
-// that nothing the sequence writes for itself asks a student to learn any of it (story 38).
+// that nothing the sequence writes for itself asks a student to learn any of it.
 describe('the words the sequence uses', () => {
 	const FORBIDDEN = [
 		'bind',
@@ -1087,8 +1089,8 @@ describe('the words the sequence uses', () => {
 	});
 });
 
-// ⚠ **The fork with no App of its own, which is the other half of "one door"** (SPEC stories 50–52,
-// and the Brief's *where there is an App, one door; where there is not, the door that works*).
+// ⚠ **The fork with no App of its own, which is the other half of "one door": where there is an
+// App, one door; where there is not, the door that works.**
 //
 // `signInWithGitHubOffered` is `isGitHubAppConfigured(GITHUB_APP)` and nothing else — the same value
 // that already decides whether the sign-in button exists — so this is the derivation reading one more
@@ -1107,8 +1109,8 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(list).not.toHaveBeenCalled();
 	});
 
-	// The deployment with an App is the other reading of the same fact, and it is the one a student is
-	// on: the word never appears, so there are not two credentials to choose between (stories 37, 46).
+	// The deployment with an App is the other reading of the same fact, and it is the one a student
+	// is on: the word never appears, so there are not two credentials to choose between.
 	test('shows no token field at all where an App is configured', async () => {
 		open(signedIn());
 		await settle();
@@ -1117,7 +1119,7 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(absent('connect-token-field')).toBe(true);
 	});
 
-	// Story 50: the pasted path is the fork's whole door, so it has to reach the same bind the chosen
+	// The pasted path is the fork's whole door, so it has to reach the same bind the chosen
 	// repository does — one call, with the credential the author gave.
 	test('connects the typed repository with the pasted token', async () => {
 		const opened = open(noApp());
@@ -1160,8 +1162,8 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(opened.storage.bindCalls).toEqual([]);
 	});
 
-	// Story 17's fork-shaped half: the one step the tool does not take arrives with the name filled in,
-	// and the sentence beside it says the repository has to be public.
+	// The fork-shaped half of the same offer: the one step the tool does not take arrives with the
+	// name filled in, and the sentence beside it says the repository has to be public.
 	test('offers to create the repository with its name already filled in, and says it must be public', () => {
 		const storage = noApp();
 		storage.name = 'Amsterdam 1625';
@@ -1185,7 +1187,7 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(absent('connect-no-app')).toBe(true);
 	});
 
-	// Story 66, in a sequence that has one step fewer: the announcement counts the steps this door has
+	// The announcement, in a sequence that has one step fewer: it counts the steps this door has
 	// rather than the ones the other one has.
 	test('announces the fork’s own steps', async () => {
 		open(noApp());

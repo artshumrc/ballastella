@@ -504,9 +504,9 @@ is inert everywhere else — harmless, and worth keeping in case the folder late
   resumes. Publishing in stages is the remedy where the work divides into stages that each fit inside
   5 000 requests; a single freshly tiled Map Image is roughly 11 000 tiles at the largest size
   the editor accepts, does not divide, and has no path to a GitHub Remote today. That is an open
-  question awaiting a human decision in this epic's tracker, not an oversight — and the alternative,
-  moving the branch to a half-uploaded commit, would break the promise that a Published Site never
-  changes until a publish has wholly arrived.
+  question awaiting a human decision, not an oversight — and the alternative, moving the branch to a
+  half-uploaded commit, would break the promise that a Published Site never changes until a publish
+  has wholly arrived.
 - **Publishing a single Project standalone** is not implemented. The Workspace is the site; a
   per-Project output is a deferred second mode (ADR-0008).
 - **Pretty per-Project URLs** (`/amsterdam-1625/` rather than `?p=amsterdam-1625`) are deferred, and

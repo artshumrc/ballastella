@@ -22,7 +22,7 @@
 	 * navigation between `/` and `/align/` then carries the live session — a resumed folder
 	 * included — instead of each route resolving the backing store for itself. The deleted
 	 * `/base-map/` used to call `EditorSession.opfs()` directly, so a folder-Workspace user's Base
-	 * Map choice was written into the wrong Workspace (ticket 12).
+	 * Map choice was written into the wrong Workspace.
 	 *
 	 * `setContext` has to run during initialisation; the storage inside it is created in the effect,
 	 * because it reaches for browser storage that does not exist while prerendering.
@@ -34,11 +34,11 @@
 	/**
 	 * Make a forgotten `Image#uri` override say so, everywhere in the app (ADR-0004, ADR-0011).
 	 *
-	 * SPEC calls "every code path constructing an `Image` sets `uri` before requesting a tile" the
-	 * most fragile invariant in the project, because `Image#uri` is a plain public field and a
-	 * single assignment is exactly what a new code path forgets. What the browser gives that path
-	 * for free is a blank map and `TypeError: Failed to fetch` from a DNS failure against
-	 * `.invalid` — loud, as ADR-0004 intended, but naming nothing.
+	 * "Every code path constructing an `Image` sets `uri` before requesting a tile" is the most
+	 * fragile invariant in the project, because `Image#uri` is a plain public field and a single
+	 * assignment is exactly what a new code path forgets. What the browser gives that path for free
+	 * is a blank map and `TypeError: Failed to fetch` from a DNS failure against `.invalid` — loud,
+	 * as ADR-0004 intended, but naming nothing.
 	 *
 	 * So the placeholder host is refused at the global `fetch` before a request is made, with a
 	 * message that names the missing override and the two injection points that supply it. Every
@@ -65,7 +65,7 @@
 	$effect(() => installedApp.start());
 
 	/**
-	 * The theme, applied once for the whole app (ticket 04, SPEC stories 109 and 110).
+	 * The theme, applied once for the whole app.
 	 *
 	 * Here rather than in each route, which is where it was: three routes called `startTheme()` and
 	 * the hub did not, so a stored preference was applied only after navigating to one of the three.
@@ -115,7 +115,7 @@
 		Beside `ReviewBanner` and for its reason: on every route, including the two panes a scholar is
 		mid-alignment in, and in the flow rather than over it. A startup recovery has no timer, so a
 		floating card covers whatever it lands on for as long as the author takes to read it — which on
-		the Project screen was the Layer rail's only add affordance (ticket 22, SPEC stories 111 and 112).
+		the Project screen was the Layer rail's only add affordance.
 	-->
 	<RecoveredEdits />
 	<div class="min-h-0 grow overflow-y-auto">{@render children()}</div>

@@ -16,8 +16,7 @@
 	 * about this machine. This one answers *where your work goes when you publish it*, which is a
 	 * question about the web, and it is the one a scholar comes looking for by name. Keeping the two
 	 * apart is also what keeps a first visit clear of any of it: nothing here renders anywhere until
-	 * the user opens this dialog, so somebody who never publishes is never shown a sign-in prompt
-	 * (SPEC story 38).
+	 * the user opens this dialog, so somebody who never publishes is never shown a sign-in prompt.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE TOKEN IS CHECKED TWICE, CHEAPLY THEN PROPERLY
@@ -29,7 +28,7 @@
 	 * writes it only after GitHub has answered.
 	 *
 	 * Every explanation is visible text rather than a tooltip: daisyUI renders tooltips through CSS
-	 * `::before`, so they are neither announced nor dismissable (ADR-0016, SPEC story 111).
+	 * `::before`, so they are neither announced nor dismissable (ADR-0016).
 	 */
 	let { open = $bindable(false), storage }: { open?: boolean; storage: WorkspaceStorage } =
 		$props();
@@ -55,9 +54,9 @@
 	 *
 	 * ⚠ **Closed by default, and the field is not in the document until it is opened.** Where this
 	 * deployment has a GitHub App, a personal access token is not a choice a scholar is asked to make —
-	 * one door, and it is the button (SPEC stories 37, 46). This exists for the instructor whose class
-	 * meets a broken App installation on a Tuesday morning, so it is worded for somebody who already
-	 * knows what they are asking for and it is never a peer of the sign-in.
+	 * one door, and it is the button. This exists for the instructor whose class meets a broken App
+	 * installation on a Tuesday morning, so it is worded for somebody who already knows what they are
+	 * asking for and it is never a peer of the sign-in.
 	 *
 	 * Two states rather than one because both sections can be on screen at once, and a single one
 	 * would open a form the author was not looking at. Where **no** App is configured neither is read:
@@ -125,14 +124,14 @@
 	/**
 	 * Check the held sign-in has life left in it, the moment this dialog is opened.
 	 *
-	 * ⚠ **Expiry is answered *before* work starts, never during it** (SPEC story 33). A GitHub App's
-	 * user token lasts eight hours, and a publish that met the end of one partway through would leave
-	 * blobs in no tree and a ref that never moved. `ensureCredentialFresh` renews it through the
-	 * broker where it can and clears it where it cannot, so every screen then renders the
-	 * not-signed-in state and the remedy is the button already on this one.
+	 * ⚠ **Expiry is answered *before* work starts, never during it.** A GitHub App's user token lasts
+	 * eight hours, and a publish that met the end of one partway through would leave blobs in no tree
+	 * and a ref that never moved. `ensureCredentialFresh` renews it through the broker where it can and
+	 * clears it where it cannot, so every screen then renders the not-signed-in state and the remedy is
+	 * the button already on this one.
 	 *
-	 * This is the same call ticket 04's Publish makes before it starts, and it is here as well
-	 * because this is the screen a scholar comes to when they suspect their sign-in has gone.
+	 * This is the same call Publish makes before it starts, and it is here as well because this is the
+	 * screen a scholar comes to when they suspect their sign-in has gone.
 	 *
 	 * An `$effect` rather than a `$derived`: it is a request, not a value.
 	 */
@@ -236,7 +235,7 @@
 	}
 
 	/**
-	 * Open a Workspace from GitHub (SPEC stories 96–104).
+	 * Open a Workspace from GitHub.
 	 *
 	 * ⚠ **Offered whether or not anybody is signed in, and it asks for no token.** This reads a
 	 * public repository, which needs no credential at all — that is the whole point of it, and gating
@@ -315,9 +314,9 @@
 
 			{#if storage.review !== null}
 				<!--
-					ADR-0024, SPEC story 39: somebody else's work is never published to your own address.
-					Said in visible text rather than left as an absent control with no explanation — and
-					refused in `packages/core` as well, so a guard that lives in markup is not the only one.
+					ADR-0024: somebody else's work is never published to your own address. Said in visible text
+					rather than left as an absent control with no explanation — and refused in `packages/core`
+					as well, so a guard that lives in markup is not the only one.
 				-->
 				<p class="mt-3 text-sm text-warning" data-testid="no-remote-in-review">
 					This is a review copy of somebody else's Project, so it cannot be bound to a repository
@@ -451,12 +450,12 @@
 						</p>
 					</div>
 					<!--
-						⚠ **The token field is gated on the same predicate the sign-in button is, inverted.**
-						Where this deployment has an App there is one credential and the scholar never chooses
-						between two, so the field is not on the screen at all — not disabled, not annotated
-						“(not needed)”, not present and empty (stories 37, 46). Where there is no App the paste
-						is this fork's whole authentication and it is the plain content of the form, which is
-						the promise `docs/hosting.md` Part 1 opens with and does not get to break.
+						⚠ **The token field is gated on the same predicate the sign-in button is, inverted.** Where
+						this deployment has an App there is one credential and the scholar never chooses between
+						two, so the field is not on the screen at all — not disabled, not annotated “(not needed)”,
+						not present and empty. Where there is no App the paste is this fork's whole authentication
+						and it is the plain content of the form, which is the promise `docs/hosting.md` Part 1
+						opens with and does not get to break.
 					-->
 					{#if storage.signInWithGitHubOffered}
 						<div>
@@ -515,17 +514,17 @@
 		</section>
 
 		<!--
-			⚠ **Signed in *or* bound, and the first half is what makes story 37 performable.** Gated on
-			the binding alone, unbinding took the only Sign out button off the screen while
-			`unbindRemote` deliberately left the credential alive — so "forget the credential, so this
-			machine can be handed to somebody" became unreachable, and the token stayed in the tab for
-			the rest of the session.
+			⚠ **Signed in *or* bound, and the first half is what keeps Sign out reachable.** Gated on the
+			binding alone, unbinding took the only Sign out button off the screen while `unbindRemote`
+			deliberately left the credential alive — so "forget the credential, so this machine can be
+			handed to somebody" became unreachable, and the token stayed in the tab for the rest of the
+			session.
 
 			`signedIn` reads the seal without asking about a review copy: the credential store answers
-			`null` while one is open (ADR-0033, story 40), so a section gated on it alone would be absent
-			from a review copy *because* the seal holds rather than because a condition remembered to
-			say so. That stops being enough the moment a condition that does not read the seal is added
-			beside it — see the next note.
+			`null` while one is open (ADR-0033), so a section gated on it alone would be absent from a
+			review copy *because* the seal holds rather than because a condition remembered to say so.
+			That stops being enough the moment a condition that does not read the seal is added beside
+			it — see the next note.
 		-->
 		<!--
 			⚠ **`signInWithGitHubOffered` is the third condition, and it is what makes the front door
@@ -558,10 +557,10 @@
 					<p class="mt-1 text-sm opacity-70">Not signed in, so nothing can be published yet.</p>
 					{#if storage.signInWithGitHubOffered}
 						<!--
-							The front door, and where an App is configured it is the only one on the screen (SPEC
-							stories 32, 37, 46, 56): press, authorise on GitHub's own screen, come back. The paste
-							is kept rather than replaced — a fork with no App of its own has nothing else
-							(ADR-0031) — but it is behind the disclosure below rather than beside this.
+							The front door, and where an App is configured it is the only one on the screen: press,
+							authorise on GitHub's own screen, come back. The paste is kept rather than replaced — a
+							fork with no App of its own has nothing else (ADR-0031) — but it is behind the
+							disclosure below rather than beside this.
 
 							⚠ **Absent entirely when no App is configured**, which is what
 							`signInWithGitHubOffered` answers. A button that redirects to an authorize URL with
@@ -682,10 +681,10 @@
 				</div>
 			</form>
 			<!--
-				Per-file progress, announced. A Map Image's pyramid is thousands of files over real
-				minutes, and this is one of the places a scholar is waiting on something they cannot see
-				(workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
-				without interrupting, which is CONTRIBUTING's mandated method for exactly this.
+				Per-file progress, announced. A Map Image's pyramid is thousands of files over real minutes,
+				and this is one of the places a scholar is waiting on something they cannot see.
+				`role="status"` so it reaches assistive technology without interrupting, which is
+				CONTRIBUTING's mandated method for exactly this.
 			-->
 			{#if storage.transfer && opening}
 				<p role="status" class="mt-3 text-sm" data-testid="open-progress">
@@ -698,7 +697,7 @@
 		<!--
 			What happened, announced. `aria-live="polite"` rather than `role="alert"` for the outcome,
 			which is CONTRIBUTING's mandated method for a status; the refusal below is inserted at the
-			moment its text first exists, which a polite region does not reliably announce (story 112).
+			moment its text first exists, which a polite region does not reliably announce.
 		-->
 		<p aria-live="polite" class="text-sm" data-testid="remote-outcome">{outcome}</p>
 		{#each notices as notice (notice)}

@@ -44,9 +44,9 @@
 // │ GitHub will redirect back to, so a fork living at a different address cannot borrow another │
 // │ deployment's App — it needs its **own** App, its **own** client ID, and a broker holding    │
 // │ that App's secret. Until a fork replaces both values below, **the pasted token is the       │
-// │ whole of that fork's auth**, and everything except the nicer front door works unchanged     │
-// │ (SPEC stories 56, 57, 58). Replacing them is one edit to this file and no infrastructure    │
-// │ knowledge; `docs/hosting.md` Part 1 §6 is the longer version of this paragraph.             │
+// │ whole of that fork's auth**, and everything except the nicer front door works unchanged.    │
+// │ Replacing them is one edit to this file and no infrastructure knowledge; `docs/hosting.md`  │
+// │ Part 1 §6 is the longer version of this paragraph.                                          │
 // └───────────────────────────────────────────────────────────────────────────────────────────┘
 
 /** Where the code-for-token exchange happens, and the App the code is issued against. */

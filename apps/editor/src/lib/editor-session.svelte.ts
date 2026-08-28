@@ -156,7 +156,7 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  *
  * **The backing is in the key**, because a folder called `Marking 2026` and an OPFS Workspace
  * called `Marking 2026` are two different places holding two different people's afternoons, and one
- * replaying into the other is exactly the failure ticket 12 made easy to reach.
+ * replaying into the other is exactly the failure this key prevents.
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
 export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
@@ -219,8 +219,8 @@ export function workspaceKeyLabel(key: string): string {
  * A transfer in flight, for the status region that announces it.
  *
  * A bundle of an offline copy's pyramid takes real seconds to tens of seconds, and it is announced
- * rather than merely drawn: workspace-and-layers SPEC story 96 asks for status to reach assistive technology, and this is
- * one of the two places in the app where the user is waiting on something they cannot see.
+ * rather than merely drawn: status must reach assistive technology, and this is one of the two
+ * places in the app where the user is waiting on something they cannot see.
  */
 export interface TransferState {
 	/**
@@ -262,9 +262,9 @@ export type ProjectProblem =
  * that draws it (ADR-0023), so importing over it would have discarded work that may belong to a
  * Project the user is not even looking at.
  *
- * **The union itself is `AlignmentWriteOutcome`, imported rather than restated** (ticket 18). It was
- * spelled out here as well, which is two spellings of one vocabulary in the ticket that exists
- * because two spellings of one rule drifted apart.
+ * **The union itself is `AlignmentWriteOutcome`, imported rather than restated.** Spelling it out
+ * here as well would be two spellings of one vocabulary, which is how one rule comes to have two
+ * readings that drift apart.
  */
 type InitialAlignment = AlignmentWriteOutcome;
 
@@ -335,17 +335,17 @@ export type ReferencedMapAdded = {
  * The store is injected rather than reached for, so the browser tests can hand in a backend
  * that fails and the app has no idea it is being lied to.
  *
- * **It is also the app's only writer of `project.json`, and holds the only in-memory copy of
- * it.** Every pane that records something — the Project name here, the Base Map default in
- * ticket 04, the Layer stack in ticket 09 — mutates {@link openProject} and writes through
- * {@link Workspace}. A pane that kept its own snapshot and serialised the whole document back
- * would clobber whatever another pane had just written, and ticket 07 puts both panes on one
- * page, which makes that a race inside a single component rather than between tabs.
+ * **It is also the app's only writer of `project.json`, and holds the only in-memory copy of it.**
+ * Every pane that records something — the Project name, the Base Map default, the Layer stack —
+ * mutates {@link openProject} and writes through {@link Workspace}. A pane that kept its own
+ * snapshot and serialised the whole document back would clobber whatever another pane had just
+ * written, and both panes are on one page, which makes that a race inside a single component rather
+ * than between tabs.
  */
 /** How a session is told which Workspace it is, which is what the journal is keyed by. */
 export interface EditorSessionOptions {
 	/**
-	 * Where an edit is written ahead of the store (ticket 20).
+	 * Where an edit is written ahead of the store.
 	 *
 	 * Optional, and its absence is a real state rather than a default: a browser with no usable
 	 * `localStorage` — a locked-down private window — cannot offer this protection at all, and a
@@ -380,17 +380,17 @@ export interface EditorSessionOptions {
 /**
  * The most a single Edit History may hold, across every Step's `before` and `after` image.
  *
- * A backstop and not the rule: depth is what actually bounds a history at five Steps (SPEC stories
- * 10, 11), and this only fires when those five are unusually heavy. Ordinary work never reaches it,
- * because a Step's images are the documents a gesture wrote — `project.json`, an Annotation
- * `FeatureCollection`, an Alignment — and never a Map Image's pixels, which no Step names.
+ * A backstop and not the rule: depth is what actually bounds a history at five Steps, and this only
+ * fires when those five are unusually heavy. Ordinary work never reaches it, because a Step's images
+ * are the documents a gesture wrote — `project.json`, an Annotation `FeatureCollection`, an
+ * Alignment — and never a Map Image's pixels, which no Step names.
  *
  * Sized for the case that can reach it anyway: one history per subject (ADR-0039), so a session that
  * has aligned several sheets holds several of these at once, and a scholar's own GeoJSON collection
  * has no small upper bound. 32 MB leaves the five Steps of a large collection intact while keeping
  * the total a session can hold bounded by the number of subjects rather than by the size of the work.
- * The most recent Step survives it regardless (SPEC story 12), so undo always covers the last thing
- * done however large the file it touched.
+ * The most recent Step survives it regardless, so undo always covers the last thing done however
+ * large the file it touched.
  */
 const HISTORY_BYTE_CEILING = 32 * 1024 * 1024;
 
@@ -403,7 +403,7 @@ export class EditorSession {
 	readonly #journal: WriteAheadJournal | undefined;
 	readonly #journalStorage: JournalStorage | undefined;
 	/**
-	 * Which Projects the user deleted from **this** Workspace (ticket 21).
+	 * Which Projects the user deleted from **this** Workspace.
 	 *
 	 * `undefined` on a browser that will not give the page `localStorage`, exactly as {@link #journal}
 	 * is, and for the same reason: the protection is genuinely unavailable there and a stand-in would
@@ -443,8 +443,8 @@ export class EditorSession {
 	 *
 	 * Held here rather than by a screen because a history outlives the screen that draws it: walking
 	 * from the Project screen to `/align` and back must find the same one. Created on first use and
-	 * dropped with the session, which is what makes switching Workspace leave none behind (SPEC story
-	 * 41) — a new Workspace is a new `EditorSession`.
+	 * dropped with the session, which is what makes switching Workspace leave none behind — a new
+	 * Workspace is a new `EditorSession`.
 	 *
 	 * A `SvelteMap` because `svelte/prefer-svelte-reactivity` requires one. Unlike
 	 * {@link #alignmentOnDisk}, this one *is* reached from reactive contexts — a screen asks
@@ -482,8 +482,8 @@ export class EditorSession {
 	 *
 	 * A drag reports every position it passes through, and each one is an ordinary debounced write —
 	 * but the Step spans the whole gesture, so undo goes back to where the drag started rather than to
-	 * a value inside it (SPEC story 17). Opened by {@link #openOpacityStep} and closed by
-	 * {@link commitLayerEdit}, which is what the range's `change` event reaches.
+	 * a value inside it. Opened by {@link #openOpacityStep} and closed by {@link commitLayerEdit},
+	 * which is what the range's `change` event reaches.
 	 */
 	#opacityDrag: OpacityDrag | null = null;
 
@@ -492,9 +492,9 @@ export class EditorSession {
 	 *
 	 * The Annotation half of what {@link #opacityDrag} is for the Layer stack: every position a range
 	 * reports is an ordinary debounced write, and the Step spans the whole gesture so undo goes back
-	 * to the style the Annotation had before the drag rather than to a value inside it (SPEC story 23).
-	 * Opened by {@link dragAnnotations} and closed by the unlabelled {@link writeAnnotations} the
-	 * range's `change` event reaches.
+	 * to the style the Annotation had before the drag rather than to a value inside it. Opened by
+	 * {@link dragAnnotations} and closed by the unlabelled {@link writeAnnotations} the range's
+	 * `change` event reaches.
 	 */
 	#annotationDrag: AnnotationDrag | null = null;
 
@@ -532,7 +532,7 @@ export class EditorSession {
 				// only on a write that landed, so a failed undo leaves the bar reading exactly as it did
 				// before the press — which is what a *successful* undo of a no-op would look like too.
 				// The forward gestures each set this in their own catch; a write-back has no such caller,
-				// so without this the failure reaches the user as nothing at all (SPEC story 50).
+				// so without this the failure reaches the user as nothing at all.
 				this.saveError = cause instanceof Error ? cause.message : String(cause);
 				// Rethrown: the history counts this file as not landed, which is what keeps the Step and
 				// the cursor where they are.
@@ -547,7 +547,7 @@ export class EditorSession {
 			// The same problem for an Annotation Layer's collection, which is the Project screen's rather
 			// than this class's: it holds the map Layers' Alignments in the same record. So this says a
 			// fresh read is due and the screen does it, which is also where a selection the write-back
-			// took away is let go of (SPEC stories 52, 53).
+			// took away is let go of.
 			if (
 				this.openDirectory !== null &&
 				path.startsWith(`${this.openDirectory}/${ANNOTATION_DIRECTORY}/`)
@@ -572,19 +572,19 @@ export class EditorSession {
 	 *
 	 * Distinct from {@link saveError}, which is why an edit did not reach storage. This one says the
 	 * edit is on its way and the safety net under it is missing — a different sentence with a
-	 * different remedy, and one the user can act on only while the page still exists (ticket 20).
+	 * different remedy, and one the user can act on only while the page still exists.
 	 */
 	protectionWarning = $state('');
 	/**
 	 * What the last startup replay put back, if anything, for the user to be told about.
 	 *
-	 * `null` until a replay has run, and left `null` when it had nothing to say. SPEC story 111 wants
-	 * this as visible text and story 112 wants it announced, and a recovery the user cannot tell
-	 * happened is one they cannot check.
+	 * `null` until a replay has run, and left `null` when it had nothing to say. This must be visible
+	 * text and it must be announced, and a recovery the user cannot tell happened is one they cannot
+	 * check.
 	 */
 	replayReport = $state<JournalReplayReport | null>(null);
 	/**
-	 * What the last startup's *deletions* did, if anything (ticket 21, review 2).
+	 * What the last startup's *deletions* did, if anything.
 	 *
 	 * ⚠ **The destructive half of the same recovery chain, and it reported nothing in either
 	 * direction.** `Workspace.finishInterruptedDeletions` answered with three lists and
@@ -592,9 +592,9 @@ export class EditorSession {
 	 * repeated — *"every replay is named to the user, so an older state coming back is visible rather
 	 * than silent"*, *"Nothing is reported as restored that was not written"* — and the replay half
 	 * honoured it while the half that **removes files from a scholar's folder during startup** said
-	 * nothing at all. SPEC stories 111 and 112 apply to it exactly as they apply to a replay, and the
-	 * silence is also what made a wrong-folder deletion undetectable before the manifest precondition
-	 * existed to refuse one.
+	 * nothing at all. Being visible text and being announced apply to it exactly as they apply to a
+	 * replay, and the silence is also what made a wrong-folder deletion undetectable before the
+	 * manifest precondition existed to refuse one.
 	 *
 	 * `null` when a startup found nothing to do, which is the ordinary case.
 	 */
@@ -602,12 +602,12 @@ export class EditorSession {
 	/**
 	 * Why this deletion is **not** protected against the tab closing before it finishes, or `''`.
 	 *
-	 * The sibling {@link protectionWarning} is not (ticket 21, review 2). That one is about an edit
-	 * on its way to storage and its remedy is "wait for the indicator to read Saved"; a deletion has
-	 * no indicator and no such wait, and the browsers that reach this are ones where reads answer and
-	 * writes reject — a full `localStorage` (ADR-0017 documents a single Annotation collection
-	 * filling the 5 MB the deletion record shares), and Safari with cookies blocked, where the
-	 * read-only probe accepts the storage and every write throws.
+	 * The sibling {@link protectionWarning} is not. That one is about an edit on its way to storage
+	 * and its remedy is "wait for the indicator to read Saved"; a deletion has no indicator and no
+	 * such wait, and the browsers that reach this are ones where reads answer and writes reject — a
+	 * full `localStorage` (ADR-0017 documents a single Annotation collection filling the 5 MB the
+	 * deletion record shares), and Safari with cookies blocked, where the read-only probe accepts the
+	 * storage and every write throws.
 	 */
 	deletionWarning = $state('');
 	/**
@@ -670,9 +670,9 @@ export class EditorSession {
 	/**
 	 * Every Map Image in the Workspace, with its size, where its tiles are, and who draws it.
 	 *
-	 * The hub's reclaim list — the one place a scholar can answer "why is my Workspace two gigabytes?"
-	 * (SPEC stories 63–65). Loaded by {@link refreshMapImages} rather than on every render, because
-	 * it weighs every file under `images/` and that is a walk a keystroke must not trigger.
+	 * The hub's reclaim list — the one place a scholar can answer "why is my Workspace two
+	 * gigabytes?" Loaded by {@link refreshMapImages} rather than on every render, because it weighs
+	 * every file under `images/` and that is a walk a keystroke must not trigger.
 	 *
 	 * A **separate** list from {@link images} and {@link referencedImages}, which are what an open
 	 * Project's panes read: those two are the raw halves of the observation, and this is the answer with
@@ -686,7 +686,7 @@ export class EditorSession {
 	 * Why the last attempt to delete a Map Image did not happen, or `''`.
 	 *
 	 * A refusal rather than an error boundary: a map two Projects draw cannot be deleted, and the
-	 * sentence naming them is the whole of the interaction (SPEC story 64).
+	 * sentence naming them is the whole of the interaction.
 	 */
 	mapImageError = $state('');
 
@@ -696,12 +696,12 @@ export class EditorSession {
 	 * Its own field rather than {@link ingestError}, which is the file source's, and rather than
 	 * {@link mapImageError}, which is the hub's refusal to delete. Three different gestures fail
 	 * for three different reasons, and a shared field is how one of them ends up wearing another's
-	 * sentence — which this epic has already shipped once, in `layer-not-aligned`.
+	 * sentence — which has already happened once here, in `layer-not-aligned`.
 	 */
 	addMapError = $state('');
 
 	ingest = $state<IngestProgress | null>(null);
-	/** The name of the file being ingested, for the progress message (SPEC story 23). */
+	/** The name of the file being ingested, for the progress message. */
 	ingestLabel = $state('');
 	ingestError = $state('');
 	/** Not `$state`: nothing renders it, and `cancelIngest` is the only reader. */
@@ -717,7 +717,7 @@ export class EditorSession {
 	alignmentError = $state('');
 
 	/**
-	 * An Alignment somebody else changed while this session had it open, and what they had (ticket 07).
+	 * An Alignment somebody else changed while this session had it open, and what they had.
 	 *
 	 * `null` until it happens, and it is **not cleared by the next write** — see
 	 * {@link dismissAlignmentChangedElsewhere}. A notice about work the user cannot see, that
@@ -751,10 +751,10 @@ export class EditorSession {
 	 * handlers, so there is no `$derived` for a write to invalidate. What *is* rendered is
 	 * {@link alignmentChangedElsewhere}, which is set from the write's result.
 	 *
-	 * That field is `$state.raw`, and since this ticket's second round that is load-bearing rather
-	 * than a performance choice: {@link restoreAlignmentChangedElsewhere} clears it only when it is
-	 * **identically** the record it was answering, so that an answer to one warning cannot blank a
-	 * newer one that arrived while it waited. A deeply reactive proxy would not compare that way.
+	 * That field is `$state.raw`, and that is load-bearing rather than a performance choice:
+	 * {@link restoreAlignmentChangedElsewhere} clears it only when it is **identically** the record it
+	 * was answering, so that an answer to one warning cannot blank a newer one that arrived while it
+	 * waited. A deeply reactive proxy would not compare that way.
 	 */
 	readonly #alignmentOnDisk = new SvelteMap<string, Bytes | null>();
 
@@ -804,8 +804,8 @@ export class EditorSession {
 		this.#autosave = new Autosave(store, {
 			...(this.#journal ? { journal: this.#journal } : {}),
 			// The whole reason the journal is written at the edit rather than at `pagehide`: there is
-			// still a screen to put this on and a person to read it (SPEC stories 111 and 112). At
-			// `pagehide` there would be neither.
+			// still a screen to put this on and a person to read it. At `pagehide` there would be
+			// neither.
 			onJournalRefused: (problem) => {
 				this.protectionWarning =
 					problem === null ? '' : problem instanceof Error ? problem.message : String(problem);
@@ -831,7 +831,7 @@ export class EditorSession {
 			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
 			// the safe answer to a ternary a reader has to check.
 			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
-			// What a `project.json` held when it was read, told to the journal (ticket 07). See
+			// What a `project.json` held when it was read, told to the journal. See
 			// {@link #readObserved} for why the read path is where this has to come from, and why the
 			// port has two calls rather than one.
 			...(this.#journal ? { observer: this.#journal } : {}),
@@ -891,8 +891,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Carry out any deletion the user asked for that the page did not live long enough to finish
-	 * (ticket 21).
+	 * Carry out any deletion the user asked for that the page did not live long enough to finish.
 	 *
 	 * **Before {@link replayJournalledEdits}, not after**, and the order is load-bearing in one
 	 * direction only: with the record still in place, a replay that ran first would refuse the
@@ -917,15 +916,15 @@ export class EditorSession {
 	}
 
 	/**
-	 * Throw away the note behind one refused deletion, because the user said to (ticket 21, round 4).
+	 * Throw away the note behind one refused deletion, because the user said to.
 	 *
-	 * ⚠ **The only exit a refusal had was the destructive one.** Since round 3 a folder Workspace
-	 * finishes no deletion unattended, so a refusal is the *whole* of what a startup there ever
-	 * reports — and nothing ended one. No record expires; `Workspace.#claim` drops one only when a
+	 * ⚠ **The only other exit a refusal has is the destructive one.** A folder Workspace finishes no
+	 * deletion unattended, so a refusal is the *whole* of what a startup there ever reports — and
+	 * nothing else ends one. No record expires; `Workspace.#claim` drops one only when a
 	 * Project is created or duplicated under that name; and Workspace settings' discard is by
 	 * construction unable to reach the Workspace that is open, which is always the one showing the
 	 * refusal. The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
-	 * byte-identical report and shows it again. What the user was left with was a warning at every
+	 * byte-identical report and shows it again. Without this the user is left with a warning at every
 	 * visit, for ever, whose one offered remedy — "delete it again" — destroys a Project that may
 	 * belong to the colleague whose folder they opened.
 	 *
@@ -947,7 +946,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Put back whatever the journal is still holding for this Workspace (ticket 20).
+	 * Put back whatever the journal is still holding for this Workspace.
 	 *
 	 * Called once, as the Workspace is adopted, and never twice for the same session: replay drops
 	 * every entry it wrote, so a second call finds nothing — but the *report* is what the user reads,
@@ -965,13 +964,13 @@ export class EditorSession {
 			const report = await replayJournal(storage, this.#store, journal.workspace, {
 				...(this.#deleted ? { deleted: this.#deleted } : {}),
 				// This session's own journal rather than one the replay builds and throws away, so that
-				// what it read off the store outlives the call (ticket 07). A `'superseded'` skip keeps
-				// an entry whose baseline is provably stale, and this is what stops that one refusal
-				// becoming a standing refusal for every later edit to the same path.
+				// what it read off the store outlives the call. A `'superseded'` skip keeps an entry
+				// whose baseline is provably stale, and this is what stops that one refusal becoming a
+				// standing refusal for every later edit to the same path.
 				//
 				// ⚠ **Reachability is not claimed, and the measurement is why** — the same standard
-				// `Autosave.#forget` sets for its own guard. Round 4 added the read-path seam
-				// ({@link #observeStoreContent}), and this replay runs at startup, *before* any Project
+				// `Autosave.#forget` sets for its own guard. The read-path seam is
+				// {@link #observeStoreContent}, and this replay runs at startup, *before* any Project
 				// can be opened; every write path in this class reads before it writes. So in this
 				// application the later read always overwrites what the replay observed, and deleting
 				// this word turns no test in this file red. It stays because `replayJournal` is not
@@ -1032,7 +1031,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Throw away a journal entry a replay refused, because the user said to (ticket 07).
+	 * Throw away a journal entry a replay refused, because the user said to.
 	 *
 	 * ⚠ **`'superseded'` is the first skip that keeps its entry, and a kept entry has no other
 	 * exit.** The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
@@ -1057,11 +1056,11 @@ export class EditorSession {
 
 		const storage = this.#journalStorage;
 		if (!storage || !this.#journal) return;
-		// ⚠ **By fingerprint, never by path alone** (round 5, finding A). This notice is built at
-		// startup and never expires, so it can be pressed after arbitrary later work — and keyed on the
-		// path it destroyed whatever was at that path *then*, which could be a stranded edit made an
-		// hour later, while the sentence beside the button described a different, older version and
-		// said the copy had been kept.
+		// ⚠ **By fingerprint, never by path alone.** This notice is built at startup and never expires,
+		// so it can be pressed after arbitrary later work — and keyed on the path it would destroy
+		// whatever was at that path *then*, which could be a stranded edit made an hour later, while
+		// the sentence beside the button described a different, older version and said the copy had
+		// been kept.
 		forgetHeldCopy(storage, this.#journal.workspace, path, copy);
 		const report = this.replayReport;
 		if (report === null) return;
@@ -1093,11 +1092,10 @@ export class EditorSession {
 	 * The store this session is bound to.
 	 *
 	 * For the whole-Workspace operations that are about the Workspace rather than about a Project, and
-	 * therefore live on `WorkspaceStorage` rather than here — a backup is the one of those so far
-	 * (ticket 13). Read-only and deliberately narrow: it does not license a second writer. Every write
-	 * still goes through this session's `Workspace` and its `Autosave` (ADR-0017 rule 4), and the one
-	 * caller of this only ever reads. `Workspace` exposes its own store the same way and for the same
-	 * reason.
+	 * therefore live on `WorkspaceStorage` rather than here — a backup is the one of those so far.
+	 * Read-only and deliberately narrow: it does not license a second writer. Every write still goes
+	 * through this session's `Workspace` and its `Autosave` (ADR-0017 rule 4), and the one caller of
+	 * this only ever reads. `Workspace` exposes its own store the same way and for the same reason.
 	 */
 	get store(): ProjectStore {
 		return this.#store;
@@ -1151,23 +1149,23 @@ export class EditorSession {
 	/**
 	 * Remove a Project and everything in it.
 	 *
-	 * **The journal is emptied of it first** (ticket 20). `ProjectStore.delete` does not go through
-	 * `Autosave`, so a rename still inside its debounce window would otherwise sit in the journal and
-	 * be replayed at the next startup — putting `project.json` back into a directory the user had
-	 * just watched disappear. Replay has its own precondition for this, and it cannot see the case
-	 * that matters here: a *new* Project made afterwards under the same directory name, which from
-	 * replay's side is indistinguishable from the old one still being there.
+	 * **The journal is emptied of it first.** `ProjectStore.delete` does not go through `Autosave`, so
+	 * a rename still inside its debounce window would otherwise sit in the journal and be replayed at
+	 * the next startup — putting `project.json` back into a directory the user had just watched
+	 * disappear. Replay has its own precondition for this, and it cannot see the case that matters
+	 * here: a *new* Project made afterwards under the same directory name, which from replay's side is
+	 * indistinguishable from the old one still being there.
 	 *
 	 * Before the deletion rather than after, so a deletion that fails part way through does not leave
 	 * journalled bytes for files that have gone.
 	 *
-	 * ⚠ **`Autosave` is swept too, and it is swept by `Workspace.deleteProject`** (ticket 21, reviews
-	 * 2 and 3). The journal is written *from* Autosave's pending bytes, so a sweep that left those in
-	 * place was undone within milliseconds by rule 3's own two halves: `capture()` re-journals
-	 * `<project>/project.json` at `pagehide`, after the sweep, and `flush()` writes it into the store
-	 * outright. That call lives in core now, beside the record it has to be ordered against — it has
-	 * to run before the removal *and* be waited on after the record, which only the method holding
-	 * both can do. See {@link Autosave.abandon}.
+	 * ⚠ **`Autosave` is swept too, and it is swept by `Workspace.deleteProject`.** The journal is
+	 * written *from* Autosave's pending bytes, so a sweep that left those in place would be undone
+	 * within milliseconds by rule 3's own two halves: `capture()` re-journals `<project>/project.json`
+	 * at `pagehide`, after the sweep, and `flush()` writes it into the store outright. That call lives
+	 * in core, beside the record it has to be ordered against — it has to run before the removal *and*
+	 * be waited on after the record, which only the method holding both can do. See
+	 * {@link Autosave.abandon}.
 	 *
 	 * **The Project's summary goes into the record**, out of the list the hub was rendering, so that a
 	 * startup which finishes this deletion can see whether the Project has been changed since. It is
@@ -1190,7 +1188,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Hand one Project to somebody else as a self-contained bundle (workspace-and-layers SPEC story 89, ADR-0024).
+	 * Hand one Project to somebody else as a self-contained bundle (ADR-0024).
 	 *
 	 * The bundle carries `project.json`, the Project's `annotations/`, and the `images/<id>/` and
 	 * `alignments/<id>.json` its Layers reference — and **not** the Workspace's other maps, which is
@@ -1347,7 +1345,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Add a Map Image from a file on the user's computer (SPEC stories 21, 22, 23).
+	 * Add a Map Image from a file on the user's computer.
 	 *
 	 * **The pyramid lands in the Workspace, not in the Project** (ADR-0023), so the map this adds is
 	 * available to every Project from the moment it is prepared. The open Project is required, because
@@ -1371,7 +1369,7 @@ export class EditorSession {
 		if (!directory) return;
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
-		// **ONE INGEST AT A TIME, AND SAYING SO IS THE POINT** (ticket 17's rule, found again).
+		// **ONE INGEST AT A TIME, AND SAYING SO IS THE POINT.**
 		//
 		// This used to be `if (!directory || this.ingest) return;` — a second file discarded in
 		// silence, with no error, no announcement and nothing on screen that changed. The comment
@@ -1462,11 +1460,11 @@ export class EditorSession {
 	 * `TileSource`. Requests to any other host pass straight through to the network, so a remote
 	 * referenced image keeps working unchanged.
 	 *
-	 * **No longer nullable, because it no longer depends on a Project being open** (ADR-0023). The
-	 * pyramids are the Workspace's, so one shim serves every Project — which is exactly what makes two
-	 * Projects referencing the same `imageId` draw the same bytes. The version that took a
-	 * `projectDirectory` is the change SPEC calls the riskiest in the epic: rooted at a Project, this
-	 * function answers a request for one map with *another map's* tiles, and nothing raises.
+	 * **Not nullable, because it does not depend on a Project being open** (ADR-0023). The pyramids
+	 * are the Workspace's, so one shim serves every Project — which is exactly what makes two Projects
+	 * referencing the same `imageId` draw the same bytes. A version that took a `projectDirectory`
+	 * would be the most dangerous shape this function can have: rooted at a Project, it answers a
+	 * request for one map with *another map's* tiles, and nothing raises.
 	 */
 	imageServiceFetch(): FetchFn {
 		return createStoreImageFetch({ store: this.#store });
@@ -1501,10 +1499,10 @@ export class EditorSession {
 		this.alignmentError = '';
 		try {
 			// The bytes, not the model: this is the baseline a later write compares against, and
-			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held
-			// here because this is the moment the user's view of the file is fixed (ticket 07). The
-			// journal is told the same fact by the read itself, for a different question — a revert at
-			// startup rather than a concurrent edit — off the one read.
+			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held here
+			// because this is the moment the user's view of the file is fixed. The journal is told the
+			// same fact by the read itself, for a different question — a revert at startup rather than a
+			// concurrent edit — off the one read.
 			const bytes = await this.#readObserved(alignmentPath(imageId));
 			this.#alignmentOnDisk.set(imageId, bytes);
 			return parseAlignment(bytes, { imageId });
@@ -1597,7 +1595,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Write an Alignment (SPEC stories 91 and 94).
+	 * Write an Alignment.
 	 *
 	 * **Now, not on a timer.** Every edit that reaches here is a discrete act or the end of a
 	 * gesture — a pair completed, a dragged half released on pointer-up, a pair deleted — which is
@@ -1614,12 +1612,13 @@ export class EditorSession {
 	 * back on the next nudge; with the Layer made by the gesture alone there is nothing to resurrect it,
 	 * and that field went with it.
 	 *
-	 * **An `update`, said out loud** (ticket 18). This is the one write in the application that is a
-	 * user editing the Alignment in front of them, so it is the one write that does not have to ask
-	 * what is already on disk. Saying so is what distinguishes it from the two blind overwrites this
-	 * epic wrote by accident, and it is checked: `writeAlignmentFile` is the only thing that can turn
-	 * an `AlignmentPath` into a path the store will accept, and it does not take a caller that has
-	 * not named its intent.
+	 * **An `update`, said out loud.** This is the one write in the application that is a user editing
+	 * the Alignment in front of them, so it is the one write that does not have to ask what is already
+	 * on disk. Saying so is what distinguishes it from the two blind overwrites this file records —
+	 * the unconditional community-Alignment commit {@link addReferencedMap} describes, and the
+	 * Layer-creating write {@link mapLayerFor} describes — and it is checked: `writeAlignmentFile` is
+	 * the only thing that can turn an `AlignmentPath` into a path the store will accept, and it does
+	 * not take a caller that has not named its intent.
 	 */
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		// The Alignment is the Workspace's (ADR-0023), but the surface that writes one is inside a
@@ -1673,8 +1672,8 @@ export class EditorSession {
 		try {
 			const report = await writeAlignmentFileReporting(this.#alignmentFile, {
 				alignment,
-				// **The bytes this session believes are on disk** (ticket 07). Omitted entirely when it
-				// has never looked, which is a caller making no claim rather than one claiming absence.
+				// **The bytes this session believes are on disk.** Omitted entirely when it has never
+				// looked, which is a caller making no claim rather than one claiming absence.
 				write:
 					baseline === undefined ? { intent: 'update' } : { intent: 'update', basedOn: baseline },
 				// **The address has to be supplied on every write, including this one** (ADR-0007). It is
@@ -1739,7 +1738,7 @@ export class EditorSession {
 	 * so — because the user did ask for something, and a silent no-op is its own kind of wrong.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * THE DECISION ITSELF IS NOT HERE, AND THAT IS TICKET 18
+	 * WHY THE DECISION ITSELF IS NOT HERE
 	 *
 	 * Everything above describes `writeAlignmentFile`'s `create` intent, which is where the rule now
 	 * lives — in `@ballastella/core`, beside the type that makes a blind write fail to compile, so
@@ -1748,9 +1747,9 @@ export class EditorSession {
 	 * from.
 	 *
 	 * @param options.address where the tiles are. A referenced image's Alignment names the Library's
-	 *   service as its `resource.id` rather than the ADR-0004 placeholder (ADR-0007, SPEC story 91),
-	 *   so the caller that knows the service supplies it. A value rather than a `serialise` callback,
-	 *   because a callback is a second serialiser at the call site and the two spellings drift.
+	 *   service as its `resource.id` rather than the ADR-0004 placeholder (ADR-0007), so the caller
+	 *   that knows the service supplies it. A value rather than a `serialise` callback, because a
+	 *   callback is a second serialiser at the call site and the two spellings drift.
 	 * @param options.offered an Alignment the user chose to import, or `null` for the starter.
 	 */
 	async #writeInitialAlignment(
@@ -1776,7 +1775,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Record what is on disk for a Map Image after a write this session made (ticket 07).
+	 * Record what is on disk for a Map Image after a write this session made.
 	 *
 	 * **Every write of an Alignment must come through here, and the reason is a false alarm rather
 	 * than a lost edit.** `writeAlignment` compares against this baseline to decide whether somebody
@@ -1793,13 +1792,13 @@ export class EditorSession {
 	}
 
 	/**
-	 * Put one side of an Alignment Step's images back on disk (ADR-0039, SPEC stories 24–29).
+	 * Put one side of an Alignment Step's images back on disk (ADR-0039).
 	 *
 	 * **Through `writeAlignmentBytes`, verbatim.** One module owns `alignments/<image-id>.json` and
-	 * every caller of it names its intent (ticket 18), so an Edit History cannot reach `Autosave` the
-	 * way it does for every other path. Verbatim rather than re-serialised for the reason a Step holds
-	 * bytes at all: `Alignment.unmodelled` means a round trip through this build's model can differ
-	 * from the document the scholar's colleague wrote.
+	 * every caller of it names its intent, so an Edit History cannot reach `Autosave` the way it does
+	 * for every other path. Verbatim rather than re-serialised for the reason a Step holds bytes at
+	 * all: `Alignment.unmodelled` means a round trip through this build's model can differ from the
+	 * document the scholar's colleague wrote.
 	 *
 	 * A `replace`, said in the words the scholar read: the Step's own label is on the control they
 	 * pressed, which is what {@link AlignmentWrite}'s `discarding` field asks for.
@@ -1844,12 +1843,12 @@ export class EditorSession {
 	/**
 	 * Where one Map Image's tiles are, as the union `tileBaseFor` and `imagePaneSourceFor` take.
 	 *
-	 * **The one lookup behind two answers that must never disagree** (ticket 07). The pane's tile base
-	 * and the Alignment's `resource.id` are both "where is this image served from", and the pairing
-	 * that matters is the wrong one: a pane drawing a Library's sheet while the Alignment says
+	 * **The one lookup behind two answers that must never disagree.** The pane's tile base and the
+	 * Alignment's `resource.id` are both "where is this image served from", and the pairing that
+	 * matters is the wrong one: a pane drawing a Library's sheet while the Alignment says
 	 * `unset.invalid` writes a file Allmaps cannot resolve and a warped Layer that renders nothing —
 	 * and the reverse writes a Library's address over Control Points placed on our own pyramid. Both
-	 * now read this, so there is one fact rather than two lookups that happen to be spelled the same.
+	 * read this, so there is one fact rather than two lookups that happen to be spelled the same.
 	 *
 	 * Derived from whether a `remote.json` is on disk (ADR-0023: `imageMode` is observable, never
 	 * stored), through `remoteOrigins`, which is `partitionByOfflineCopy` and therefore answers
@@ -1901,8 +1900,7 @@ export class EditorSession {
 	 * *created* the Layer when there was none, by routing `readAlignment` into `writeAlignment`; for a
 	 * map already aligned in another Project that rewrote a Workspace-shared `alignments/<id>.json`
 	 * through `serialiseAlignment`, dropping every field of a third-party Alignment document that
-	 * `Alignment` does not model (SPEC story 60). Merely opening a view is not a write, and this cannot
-	 * become one.
+	 * `Alignment` does not model. Merely opening a view is not a write, and this cannot become one.
 	 *
 	 * **`undefined` is a real answer, not a gap to fill.** `images` lists the *Workspace's* Map
 	 * Images (ADR-0023), so a Project can be shown a map it does not draw — and putting a map into a
@@ -1927,7 +1925,7 @@ export class EditorSession {
 	 *
 	 * The name starts as the image's own label, read from its `manifest.json`, which for a file the
 	 * user picked is the file's name — an image id is a random identifier (ADR-0015), so naming the
-	 * Layer from it would name it after a hash. SPEC story 54 is that they can then rename it.
+	 * Layer from it would name it after a hash. They can then rename it.
 	 *
 	 * **Adding a map this Project already draws is a no-op on the stack**, not an error and not a
 	 * duplicate. The existing Layer keeps its id, its position, and the name the user gave it, and
@@ -1983,7 +1981,7 @@ export class EditorSession {
 
 		let alignment: InitialAlignment;
 		try {
-			// **Before `project.json`**, and the same discipline `addAnnotationLayer` and ticket 13's
+			// **Before `project.json`**, and the same discipline `addAnnotationLayer` and the zip
 			// importer keep: a Layer whose reference names a file that is not there is a Project this
 			// build's own import refuses. Written this way, the worst a failure leaves is an Alignment
 			// nothing draws — bytes, not breakage.
@@ -2037,7 +2035,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Add a Map Image that stays on somebody else's server (SPEC stories 16–20, 25, 29).
+	 * Add a Map Image that stays on somebody else's server.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER OF THE THREE WRITES, WHICH IS NOT ARBITRARY
@@ -2048,8 +2046,8 @@ export class EditorSession {
 	 *   3. `project.json`, gaining the Layer that references both.
 	 *
 	 * `project.json` is **last**, and it is the same discipline `addAnnotationLayer` follows and the
-	 * same one ticket 13's importer follows: a Layer whose references name files that do not exist is
-	 * a Project that `assertReferencesPresent` refuses. Written the other way round, a failure between
+	 * same one the zip importer follows: a Layer whose references name files that do not exist is a
+	 * Project that `assertReferencesPresent` refuses. Written the other way round, a failure between
 	 * the writes would leave a Layer in the stack that nothing can draw and that no later action would
 	 * repair. Written this way, a failure leaves an orphaned `remote.json` — a file nothing reads,
 	 * which the next add overwrites.
@@ -2072,8 +2070,8 @@ export class EditorSession {
 	 *
 	 * The Alignment, either one, is serialised with the **remote service** as its `resource.id`, not
 	 * the ADR-0004 placeholder. For a referenced image that is both what makes the file resolvable by
-	 * Allmaps (ADR-0007, SPEC story 91) and what makes the warped Layer render at all —
-	 * `@allmaps/maplibre` fetches tiles from that `id`.
+	 * Allmaps (ADR-0007) and what makes the warped Layer render at all — `@allmaps/maplibre` fetches
+	 * tiles from that `id`.
 	 *
 	 * @returns the Layer — the new one, or the one this Project already had for this map — with what
 	 *   became of the Alignment beside it; or `null` when nothing could be written
@@ -2126,8 +2124,8 @@ export class EditorSession {
 			alignment: fields.alignment,
 			name: record.label || record.imageId,
 			// The Library's service rather than the ADR-0004 placeholder, which for a referenced image is
-			// both what makes the file resolvable by Allmaps (SPEC story 91) and what makes the warped
-			// Layer render at all — `@allmaps/maplibre` fetches its tiles from that `id`.
+			// both what makes the file resolvable by Allmaps and what makes the warped Layer render at
+			// all — `@allmaps/maplibre` fetches its tiles from that `id`.
 			address: referencedAlignmentAddress(record.service)
 		});
 		if (!added) return null;
@@ -2141,7 +2139,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Draw a Map Image this Workspace already holds in **this** Project too (SPEC stories 27, 33).
+	 * Draw a Map Image this Workspace already holds in **this** Project too.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * NOTHING IS COPIED, AND THAT IS THE WHOLE FEATURE
@@ -2250,7 +2248,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Walk the Workspace's Map Images for the hub's reclaim list (SPEC story 63).
+	 * Walk the Workspace's Map Images for the hub's reclaim list.
 	 *
 	 * Called by the hub when it appears, again whenever the **Project list** changes — a Project
 	 * deleted here can be the last one that drew a map, and a stale list would say "no Project uses
@@ -2280,7 +2278,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Re-read everything the "already in this Workspace" picker is built from (ticket 06).
+	 * Re-read everything the "already in this Workspace" picker is built from.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE WALK, THREE RECORDS, BECAUSE TWO OF THEM DECIDED DIFFERENT HALVES OF ONE ANSWER
@@ -2321,11 +2319,10 @@ export class EditorSession {
 	}
 
 	/**
-	 * Delete one Map Image from the Workspace — its pyramid, its `remote.json`, and its Alignment
-	 * (SPEC story 65).
+	 * Delete one Map Image from the Workspace — its pyramid, its `remote.json`, and its Alignment.
 	 *
-	 * **Refused, not cascaded, when a Project draws it** (SPEC story 64). The refusal names the Projects
-	 * and is rendered beside the list; core decides it, so the sentence a user reads is written once.
+	 * **Refused, not cascaded, when a Project draws it.** The refusal names the Projects and is
+	 * rendered beside the list; core decides it, so the sentence a user reads is written once.
 	 *
 	 * The open Project's own two lists are refreshed as well, because a map can be deleted from the hub
 	 * while a Project is open in another route and a stale `images` there is a pane drawing from a
@@ -2340,14 +2337,13 @@ export class EditorSession {
 		try {
 			await deleteMapImage(this.#store, imageId, { label });
 		} catch (cause) {
-			// ⚠ **The sweep is here and below, and never before the `await`** (ticket 21, review 2).
-			// Sweeping first would make this the one remaining "destroy synchronously, justify
-			// asynchronously" pair in the application — the inversion `Workspace.deleteProject` had
-			// and ticket 21 fixed. The synchronous half throws away the user's unsaved Alignment edit;
-			// the asynchronous half is the one a reload cuts. A reload in between would therefore lose
-			// the edit **and** leave the map in place: data loss with no deletion to justify it,
-			// through a window wider than `deleteProject`'s, because two awaits open it —
-			// `#quietBeforeDeleting` and then `deleteMapImage` itself.
+			// ⚠ **The sweep is here and below, and never before the `await`.** Sweeping first would make
+			// this the one remaining "destroy synchronously, justify asynchronously" pair in the
+			// application — the inversion `Workspace.deleteProject` avoids. The synchronous half throws
+			// away the user's unsaved Alignment edit; the asynchronous half is the one a reload cuts. A
+			// reload in between would therefore lose the edit **and** leave the map in place: data loss
+			// with no deletion to justify it, through a window wider than `deleteProject`'s, because two
+			// awaits open it — `#quietBeforeDeleting` and then `deleteMapImage` itself.
 			//
 			// Swept only when something was actually removed, which `MapImagePartlyDeletedError`
 			// is the only failure that says. `MapImageInUseError` is a refusal taken *before*
@@ -2372,9 +2368,9 @@ export class EditorSession {
 			await this.refreshMapImages();
 			return false;
 		}
-		// The files are gone, so now the journalled copies of them may go (ticket 20's reason, in
-		// ticket 21's order): anything still journalled for the pyramid or the Alignment would be put
-		// back at the next startup, describing a Map Image that is no longer in the Workspace.
+		// The files are gone, so now the journalled copies of them may go: anything still journalled for
+		// the pyramid or the Alignment would be put back at the next startup, describing a Map Image
+		// that is no longer in the Workspace.
 		this.#forgetJournalled(imageId);
 		// The subject of this Alignment's Edit History is gone, so the history goes too (ADR-0039):
 		// nothing may offer to reverse an edit to a map that is no longer in the Workspace, and undoing
@@ -2390,20 +2386,19 @@ export class EditorSession {
 	 * Drop every pending and journalled byte belonging to one Map Image: its pyramid **and its
 	 * Alignment**.
 	 *
-	 * ⚠ **The Alignment is not under `images/<id>/`, and `abandon` was only given that prefix**
-	 * (ticket 21, review 3). `alignmentPath(id)` is `alignments/<id>.json` — a sibling, which is why
-	 * the journal below needs a second call and why one `abandon` was not enough. So on the very path
-	 * this method exists for, the unsaved specimen *is* the Alignment: its journal entry was
-	 * forgotten and the pending bytes it is written from were not, leaving `capture()` to re-journal
-	 * it at `pagehide` and `flush()` to write it outright — recreating `alignments/<id>.json` for a
-	 * Map Image that is gone, which is the orphan `deleteMapImage` exists to prevent.
+	 * ⚠ **The Alignment is not under `images/<id>/`, so one `abandon` of that prefix cannot reach
+	 * it.** `alignmentPath(id)` is `alignments/<id>.json` — a sibling, which is why the journal below
+	 * needs a second call too. On the very path this method exists for, the unsaved specimen *is* the
+	 * Alignment: a journal entry forgotten while the pending bytes it is written from are left in
+	 * place leaves `capture()` to re-journal it at `pagehide` and `flush()` to write it outright —
+	 * recreating `alignments/<id>.json` for a Map Image that is gone, which is the orphan
+	 * `deleteMapImage` exists to prevent.
 	 *
-	 * ⚠ **The promise `abandon` answers with is dropped here, and that is now merely true rather than
-	 * load-bearing** (round 4). This runs *after* `deleteMapImage` has removed the files, so a
-	 * write still in flight has already either landed or not and waiting on it would re-delete
-	 * nothing. The window it used to leave open is closed by {@link #quietBeforeDeleting}, at the top
-	 * of {@link deleteMapImage} and **before** the deletion, where waiting can still change the
-	 * outcome.
+	 * ⚠ **The promise `abandon` answers with is dropped here, and that is merely true rather than
+	 * load-bearing.** This runs *after* `deleteMapImage` has removed the files, so a write still in
+	 * flight has already either landed or not and waiting on it would re-delete nothing. The window
+	 * that would otherwise be left open is closed by {@link #quietBeforeDeleting}, at the top of
+	 * {@link deleteMapImage} and **before** the deletion, where waiting can still change the outcome.
 	 */
 	#forgetJournalled(imageId: string): void {
 		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
@@ -2419,36 +2414,34 @@ export class EditorSession {
 	}
 
 	/**
-	 * Let the store finish with a Map Image's files before asking for them to be deleted
-	 * (ticket 21, rounds 4 and 5).
+	 * Let the store finish with a Map Image's files before asking for them to be deleted.
 	 *
 	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
 	 * *after* the deletion, so a write still in flight when Delete is pressed lands on top of a map
 	 * that has gone — an orphaned `alignments/<id>.json` that a later import would deduplicate a
 	 * colleague's copy against, or an `images/<id>/image-info.json` for a pyramid that is not there.
 	 *
-	 * ⚠ **Both prefixes, exactly as {@link #forgetJournalled} sweeps both** (round 5). The first cut
-	 * waited on the Alignment alone, which left the pyramid's own files — `image-info.json`,
-	 * `remote.json`, the tiles — with the identical window and no sentence saying why they were
-	 * different. They are not different; the argument covers both or neither. Each is pinned by its
-	 * own test holding one write open, because written as one test the two waits sit in the same
-	 * `Promise.all` and either alone parks the deletion until both are released — so a pair would
-	 * have asserted nothing about either.
+	 * ⚠ **Both prefixes, exactly as {@link #forgetJournalled} sweeps both.** Waiting on the Alignment
+	 * alone would leave the pyramid's own files — `image-info.json`, `remote.json`, the tiles — with
+	 * the identical window and no sentence saying why they were different. They are not different; the
+	 * argument covers both or neither. Each is pinned by its own test holding one write open, because
+	 * written as one test the two waits sit in the same `Promise.all` and either alone parks the
+	 * deletion until both are released — so a pair would have asserted nothing about either.
 	 *
-	 * ⚠ **What this closes is the *in-flight* case, and saying more than that is what round 4 got
-	 * wrong.** `Autosave.settled` also brings a merely-pending file to rest, but on these two
-	 * prefixes nothing debounced is ever queued and a pending file is swept by
-	 * {@link #forgetJournalled} before anything restarts it. The wait earns its place on writes the
-	 * store already has, which are the ones nothing downstream can call back.
+	 * ⚠ **What this closes is the *in-flight* case, and claiming more than that would be wrong.**
+	 * `Autosave.settled` also brings a merely-pending file to rest, but on these two prefixes nothing
+	 * debounced is ever queued and a pending file is swept by {@link #forgetJournalled} before
+	 * anything restarts it. The wait earns its place on writes the store already has, which are the
+	 * ones nothing downstream can call back.
 	 *
-	 * ⚠ **This is not the inversion review 2 removed from this method.** What made the old ordering
-	 * an inversion was not that something happened before the deletion but that it *destroyed the
-	 * user's only copy* — the journal entry holding an unsaved Alignment — before anything justified
-	 * destroying it, so a reload in between lost the edit **and** left the map in place.
-	 * `Autosave.settled` discards nothing: it starts the writes that were already queued and waits
-	 * for the store to take them. An edit that survives this is on disk, so the refusal below can
-	 * still refuse and the user still has their work. `Workspace.deleteProject` does the same thing
-	 * with `abandon`, two files away, for the same reason.
+	 * ⚠ **This is not the inversion {@link deleteMapImage}'s own sweep is placed to avoid.** What
+	 * makes an ordering an inversion is not that something happens before the deletion but that it
+	 * *destroys the user's only copy* — the journal entry holding an unsaved Alignment — before
+	 * anything justifies destroying it, so a reload in between would lose the edit **and** leave the
+	 * map in place. `Autosave.settled` discards nothing: it starts the writes that were already queued
+	 * and waits for the store to take them. An edit that survives this is on disk, so the refusal
+	 * below can still refuse and the user still has their work. `Workspace.deleteProject` does the
+	 * same thing with `abandon`, two files away, for the same reason.
 	 *
 	 * Bounded, so a write that never settles costs a pause and not the gesture; if the wait expires
 	 * the deletion goes ahead anyway, and `deleteMapImage`'s partial-failure design leaves a map
@@ -2462,7 +2455,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * How many bytes the whole Workspace holds, for the ADR-0008 hosting warning (ticket 15, 16).
+	 * How many bytes the whole Workspace holds, for the ADR-0008 hosting warning.
 	 *
 	 * Through `workspaceSize`, which uses `ProjectStore#size` and never `read`: a Workspace with a
 	 * offline copy's pyramid in it is tens of thousands of files, and opening every one of them to add up
@@ -2484,8 +2477,8 @@ export class EditorSession {
 	 * How much of what `bounds` needs is already cached for one archive, and what filling it takes.
 	 *
 	 * `archive` is the catalog entry's own `archive` string, which is what the cache directory is keyed
-	 * on (ticket 12). Asked per archive because a Workspace may hold a cache for each of several, and
-	 * one archive's tiles do not make a Project drawn on another available offline.
+	 * on. Asked per archive because a Workspace may hold a cache for each of several, and one
+	 * archive's tiles do not make a Project drawn on another available offline.
 	 */
 	async offlineBaseMapCoverage(
 		archive: string,
@@ -2556,7 +2549,7 @@ export class EditorSession {
 	/**
 	 * The reader for the archive last asked about, kept — see the warning above.
 	 *
-	 * One slot rather than a cache per archive, and keyed since ticket 12 keyed the cache directory: a
+	 * One slot rather than a cache per archive, and keyed by archive because the cache directory is: a
 	 * pane draws one Base Map at a time, so the reader only has to be stable *while* an entry is
 	 * selected. Picking another entry deliberately produces a new function, which is exactly what the
 	 * registering `$effect` should see — the tiles being served really have changed, and a reader that
@@ -2590,7 +2583,7 @@ export class EditorSession {
 
 	/**
 	 * What publishing would write into this Workspace, and everything the user must read first
-	 * (ticket 16; ADR-0006, ADR-0008).
+	 * (ADR-0006, ADR-0008).
 	 *
 	 * **Writes nothing.** Two of the three required warnings are questions rather than reports — the
 	 * Base Map's size has to be stated *before* it is added (ADR-0020) and the ~1 GB hosting cliff is
@@ -2600,8 +2593,7 @@ export class EditorSession {
 	async planPublish(options: {
 		bundle: ViewerBundle;
 		/**
-		 * This deployment's own address, which the site records so its Front Page can lead back here
-		 * (SPEC story 55).
+		 * This deployment's own address, which the site records so its Front Page can lead back here.
 		 *
 		 * Required rather than optional, and supplied by the app for `readAsset`'s reason: where this
 		 * deployment lives is `$lib/base-map/deployment-assets`'s business, and a caller that could
@@ -2609,8 +2601,8 @@ export class EditorSession {
 		 */
 		editorUrl: string;
 		/**
-		 * The repository this Workspace publishes to, so the site can point back at it (SPEC story
-		 * 146) — or `null` for a publish into a folder.
+		 * The repository this Workspace publishes to, so the site can point back at it — or `null` for
+		 * a publish into a folder.
 		 *
 		 * Supplied by the app because the relationship is installation-local metadata held by
 		 * `WorkspaceStorage`, and generated *into* the site rather than synchronized: nothing a
@@ -2627,7 +2619,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Write the Published Site (SPEC stories 78–81).
+	 * Write the Published Site.
 	 *
 	 * Everything pending is flushed first, for the same reason exporting a zip flushes: publishing a
 	 * Project whose last edit is still inside the autosave debounce would put a site on the web that
@@ -2663,12 +2655,12 @@ export class EditorSession {
 
 	/**
 	 * What sending this Workspace to its Remote would cost, and everything the user must read first
-	 * (ticket 04; ADR-0031, ADR-0033).
+	 * (ADR-0031, ADR-0033).
 	 *
 	 * **Sends nothing**, so both of its refusals — a truncated tree, a Workspace of more files than a
 	 * publish can list — reach the user with the Remote untouched. It is the forecast the dialog shows
-	 * before the button does anything: the two numbers of story 9, the three budgets, and whether
-	 * there is anything to do at all.
+	 * before the button does anything: how many blobs need uploading and what they weigh, the three
+	 * budgets, and whether there is anything to do at all.
 	 *
 	 * @throws RemotePublishRefusedError, RemotePublishCredentialError, RemotePublishFailedError
 	 */
@@ -2705,18 +2697,18 @@ export class EditorSession {
 	}
 
 	/**
-	 * What this Workspace's Remote Status is now, observed and nothing more (ticket 12, ADR-0038).
+	 * What this Workspace's Remote Status is now, observed and nothing more (ADR-0038).
 	 *
 	 * ⚠ **Observational, and every clause of that is load-bearing.** It lists Remote metadata; it
-	 * downloads no file bytes, writes no Workspace path, writes no Remote path, and — SPEC story 117 —
-	 * never advances a Baseline. A check that recorded what it saw would adopt another machine's
-	 * afternoon as this one's evidence, and the next Publish would remove it as an ordinary deletion.
+	 * downloads no file bytes, writes no Workspace path, writes no Remote path, and never advances a
+	 * Baseline. A check that recorded what it saw would adopt another machine's afternoon as this
+	 * one's evidence, and the next Publish would remove it as an ordinary deletion.
 	 *
-	 * ⚠ **No local read, list or hash either** (SPEC story 114). The local half comes from ticket 10's
-	 * durable write index, so the answer costs one GitHub request rather than a walk of tens of
-	 * thousands of pyramid tiles. That is what makes checking on every window focus affordable at all —
-	 * and it is why a *deliberate* Update or Publish still takes the complete read-and-hash pass, which
-	 * is entitled to revise what this displayed.
+	 * ⚠ **No local read, list or hash either.** The local half comes from the durable write index, so
+	 * the answer costs one GitHub request rather than a walk of tens of thousands of pyramid tiles.
+	 * That is what makes checking on every window focus affordable at all — and it is why a
+	 * *deliberate* Update or Publish still takes the complete read-and-hash pass, which is entitled to
+	 * revise what this displayed.
 	 *
 	 * ⚠ **`mayRequest: false` is what keeps a signed-out session from polling GitHub.** An anonymous
 	 * reader gets sixty requests an hour per IP address (ADR-0031), so automatic anonymous checking
@@ -2761,7 +2753,7 @@ export class EditorSession {
 
 	/**
 	 * Bring the Remote's own additions, replacements and confirmed deletions into this Workspace
-	 * (tickets 14 and 15, ADR-0038).
+	 * (ADR-0038).
 	 *
 	 * ⚠ **Everything pending is written down first, and both flushes are load-bearing.** The engine
 	 * reads and hashes every file in the Workspace to build its plan, so an Annotation still inside
@@ -2770,15 +2762,15 @@ export class EditorSession {
 	 * The write index is flushed for the other direction: `clearShared` below narrows the record on
 	 * disk, and marks still only in memory would survive it.
 	 *
-	 * ⚠ **No credential is passed and none is taken** (SPEC story 105). Inbound synchronization reads
-	 * a public repository anonymously; an author who cannot push to their instructor's Remote can
-	 * still receive from it, and consulting the credential store here would make the flow behave
-	 * differently for whoever happened to be signed in.
+	 * ⚠ **No credential is passed and none is taken.** Inbound synchronization reads a public
+	 * repository anonymously; an author who cannot push to their instructor's Remote can still receive
+	 * from it, and consulting the credential store here would make the flow behave differently for
+	 * whoever happened to be signed in.
 	 *
-	 * The evidence is recorded in the order SPEC gives: the Baseline first, and the index narrowed
-	 * only if it was kept. A refused Baseline write leaves `Cannot tell` beside a *successful* Update
-	 * — never an Update reported as failed after the bytes have arrived — and `writeBaseline` has
-	 * already discarded the stale record rather than leaving one that describes the state before.
+	 * The evidence is recorded in this order: the Baseline first, and the index narrowed only if it
+	 * was kept. A refused Baseline write leaves `Cannot tell` beside a *successful* Update — never an
+	 * Update reported as failed after the bytes have arrived — and `writeBaseline` has already
+	 * discarded the stale record rather than leaving one that describes the state before.
 	 *
 	 * @returns what arrived, and whether the Baseline advance was kept
 	 * @throws UpdateRefusedError for every refusal there is, with the Workspace as it was
@@ -2786,7 +2778,7 @@ export class EditorSession {
 	async updateFromRemote(options: {
 		remote: RemoteRepository;
 		onProgress?: (progress: { files: number; totalFiles: number }) => void;
-		/** Show what would be removed and answer whether to go ahead (SPEC stories 126, 127). */
+		/** Show what would be removed and answer whether to go ahead. */
 		confirmDeletion?: (preview: UpdateDeletionPreview) => Promise<boolean>;
 	}): Promise<{ update: WorkspaceUpdate; baselineKept: boolean }> {
 		await this.flush();
@@ -2823,19 +2815,19 @@ export class EditorSession {
 			}));
 		// ⚠ **Only the paths the Update made shared, and only once the Baseline is durable.** Clearing
 		// the whole index would report the author's untouched local-only work as shared with a Remote
-		// that has never seen it (SPEC story 130); clearing anything at all under a refused Baseline
-		// write would drop the record of local changes there is now no evidence to compare against.
+		// that has never seen it; clearing anything at all under a refused Baseline write would drop the
+		// record of local changes there is now no evidence to compare against.
 		if (baselineKept) await this.localChanges?.changes.clearShared(update.shared);
 
 		// The hub's list is what an inbound Project appears in, and the Update wrote its `project.json`
-		// underneath every reader (SPEC story 123).
+		// underneath every reader.
 		this.projects = await this.#workspace.listProjects();
 		// ⚠ **And the Project on screen is read again, because the Update may have replaced it.** Update
 		// is reachable from the navigation bar with a Project open, and `openProject` is the model every
 		// Layer edit spreads over before writing it back — so an inbound `project.json` left unread would
-		// be silently undone by the next `addLayer`, taking the Layer the Update had just brought in
-		// (SPEC story 124). `openProject` is blanked first because `open` returns early for the Project it
-		// is already showing.
+		// be silently undone by the next `addLayer`, taking the Layer the Update had just brought in.
+		// `openProject` is blanked first because `open` returns early for the Project it is already
+		// showing.
 		const showing = this.openDirectory;
 		if (showing !== null) {
 			this.openProject = null;
@@ -2903,7 +2895,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Copy a referenced Map Image into the Workspace as local tiles (SPEC stories 27, 28).
+	 * Copy a referenced Map Image into the Workspace as local tiles.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * TWO WRITES NOW, WHERE THERE WERE THREE
@@ -2973,13 +2965,13 @@ export class EditorSession {
 	 * Idempotent: re-serialising an Alignment that already names the ADR-0004 placeholder produces the
 	 * same bytes, so a copy repeated over a map already copied changes nothing.
 	 *
-	 * **An `update`, and it has to be** (ticket 18). It is not a `create` — there is certainly an
-	 * Alignment there and the whole point is to change it — and it is not a `replace`, because nothing
-	 * of the user's is discarded: every Control Point, the Resource Mask and the transformation type
-	 * are read out of the existing file and written straight back, and since ticket 18 so is every
-	 * member of the document this build does not model. The one thing that changes is the address,
-	 * which is not the user's work but a statement of where the tiles now are — and the user asked for
-	 * exactly that by asking for the copy.
+	 * **An `update`, and it has to be.** It is not a `create` — there is certainly an Alignment there
+	 * and the whole point is to change it — and it is not a `replace`, because nothing of the user's
+	 * is discarded: every Control Point, the Resource Mask and the transformation type are read out of
+	 * the existing file and written straight back, and so is every member of the document this build
+	 * does not model. The one thing that changes is the address, which is not the user's work but a
+	 * statement of where the tiles now are — and the user asked for exactly that by asking for the
+	 * copy.
 	 *
 	 * @returns `true` when the Alignment names the placeholder and the pyramid is on disk
 	 */
@@ -3047,19 +3039,18 @@ export class EditorSession {
 			return readImageLabel(JSON.parse(new TextDecoder().decode(bytes)));
 		} catch {
 			// Swallowed, because a name is not worth failing an add over. The caller falls back to the
-			// image id — a poor name the user can change (SPEC story 54) — where throwing would leave a
-			// Map Image prepared, an Alignment written, and no Layer drawing either of them.
+			// image id — a poor name the user can change — where throwing would leave a Map Image
+			// prepared, an Alignment written, and no Layer drawing either of them.
 			return '';
 		}
 	}
 
 	/**
-	 * Add an empty Annotation Layer to the stack (SPEC stories 55 and 56).
+	 * Add an empty Annotation Layer to the stack.
 	 *
 	 * Its `FeatureCollection` is written **before** the Layer that references it, and with the same
 	 * discipline as `orderForWriting` in the zip importer: a Layer whose `geojsonRef` names nothing is
-	 * a Project that ticket 13's import refuses, so the reference must never exist without its file.
-	 * Drawing into it is ticket 10.
+	 * a Project the importer refuses, so the reference must never exist without its file.
 	 *
 	 * **And `project.json` is read after that write rather than before it**, for the same reason as
 	 * {@link #addMapLayer}: a snapshot taken before an `await` and written back after it discards
@@ -3099,8 +3090,8 @@ export class EditorSession {
 	}
 
 	/**
-	 * Rename a Layer (SPEC story 54). Coalesced per file, so a name typed one character at a time is
-	 * one write and not twelve (ADR-0017 rule 2).
+	 * Rename a Layer. Coalesced per file, so a name typed one character at a time is one write and not
+	 * twelve (ADR-0017 rule 2).
 	 *
 	 * **Only `project.json` changes.** The name is display state and has no business in the Alignment
 	 * or the GeoJSON, which are portability documents that stand on their own (ADR-0002).
@@ -3109,7 +3100,7 @@ export class EditorSession {
 		await this.#changeLayers((layers) => renameLayer(layers, id, name), { debounce: true });
 	}
 
-	/** SPEC story 50. A discrete act, so it is written now rather than debounced. */
+	/** Show or hide a Layer. A discrete act, so it is written now rather than debounced. */
 	async showLayer(id: string, visible: boolean): Promise<void> {
 		await this.#changeLayers((layers) => setLayerVisible(layers, id, visible), {
 			// Which way the toggle went, because that is what undoing it will reverse.
@@ -3118,12 +3109,12 @@ export class EditorSession {
 	}
 
 	/**
-	 * SPEC story 51. Debounced, because dragging a range input is a continuous gesture and
+	 * Set a map Layer's opacity. Debounced, because dragging a range input is a continuous gesture and
 	 * {@link commitLayerEdit} is what commits it on release (ADR-0017 rule 1).
 	 *
-	 * **One drag is one Step** (SPEC story 17), so the Step is opened by the first position reported
-	 * and closed by {@link commitLayerEdit}, rather than one per `input` event: undo returns the Layer
-	 * to the opacity it had before the gesture and never to some value inside it.
+	 * **One drag is one Step**, so the Step is opened by the first position reported and closed by
+	 * {@link commitLayerEdit}, rather than one per `input` event: undo returns the Layer to the
+	 * opacity it had before the gesture and never to some value inside it.
 	 */
 	async dragLayerOpacity(id: string, opacity: number): Promise<void> {
 		const standing = this.#opacityDrag;
@@ -3151,7 +3142,7 @@ export class EditorSession {
 		await applied;
 	}
 
-	/** Move a Layer to a position in the stack, 0 being the top (SPEC stories 52 and 53). */
+	/** Move a Layer to a position in the stack, 0 being the top. */
 	async moveLayerTo(id: string, toIndex: number): Promise<void> {
 		await this.#changeLayers((layers) => moveLayer(layers, id, toIndex), {
 			label: `Undo moving the Layer ${this.#quotedLayerName(id)}`
@@ -3211,11 +3202,11 @@ export class EditorSession {
 	 *
 	 * A screen asks for its own and declares it to the navigation bar; the bar draws the controls for
 	 * whatever is declared and nothing when nothing is, which is how a screen added later is undo-free
-	 * until it says otherwise (SPEC story 55).
+	 * until it says otherwise.
 	 *
 	 * **A Map Image and not a Project on the Alignment side**, because that is what an Alignment is
 	 * keyed by: the file belongs to the Workspace and is shared by every Project that draws the map,
-	 * so reaching it from a second Project reaches the same history (ADR-0023, SPEC story 5).
+	 * so reaching it from a second Project reaches the same history (ADR-0023).
 	 */
 	historyFor(subject: string): EditHistory {
 		const standing = this.#histories.get(subject);
@@ -3242,7 +3233,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Delete a Layer, and the file it draws, as one Step of the Project's Edit History (SPEC story 19).
+	 * Delete a Layer, and the file it draws, as one Step of the Project's Edit History.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER, WHICH IS THE CREATION ORDER IN REVERSE
@@ -3254,14 +3245,14 @@ export class EditorSession {
 	 *   4. the referenced file.
 	 *
 	 * **`project.json` before the file, because every other path here writes the file first.** A Layer
-	 * whose reference names nothing is a Project ticket 13's import refuses by name; written the other
-	 * way round, a failure between the two steps would leave exactly that. This way the worst
-	 * intermediate state is a file nothing references — bytes, not breakage.
+	 * whose reference names nothing is a Project the importer refuses by name; written the other way
+	 * round, a failure between the two steps would leave exactly that. This way the worst intermediate
+	 * state is a file nothing references — bytes, not breakage.
 	 *
-	 * **Steps 2 and 4 do nothing for a map Layer, and that is ADR-0023** (SPEC story 67). Its Map
-	 * Image and its Alignment belong to the Workspace and may be drawn by other Projects, so removing the
-	 * Layer must leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where
-	 * that decision lives. Only an Annotation Layer has a file of this Project's to take with it.
+	 * **Steps 2 and 4 do nothing for a map Layer, and that is ADR-0023.** Its Map Image and its
+	 * Alignment belong to the Workspace and may be drawn by other Projects, so removing the Layer must
+	 * leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where that
+	 * decision lives. Only an Annotation Layer has a file of this Project's to take with it.
 	 *
 	 * **The images are the Edit History's, taken either side of the whole gesture** (ADR-0039).
 	 * Nothing here reads the file to keep a copy of it: `step()` does that for every declared path,
@@ -3389,8 +3380,8 @@ export class EditorSession {
 		if (write === null) return;
 
 		const { label } = options;
-		// **No label, no Step**, which is how renaming stays the browser's to undo (SPEC stories 30, 31)
-		// without a name for what it is not: a gesture is recorded because its caller said so.
+		// **No label, no Step**, which is how renaming stays the browser's to undo without a name for
+		// what it is not: a gesture is recorded because its caller said so.
 		if (label === undefined) {
 			await write(options);
 			return;
@@ -3459,8 +3450,8 @@ export class EditorSession {
 	 * One Annotation Layer's `FeatureCollection` as stored, or `null` when there is no file.
 	 *
 	 * Parsed as JSON and no further: what the features mean, how they are styled, and how a
-	 * description's Markdown is sanitised are ticket 10's, and this slice draws them without
-	 * interpreting them.
+	 * description's Markdown is sanitised are the Annotation model's, and the Layer stack draws them
+	 * without interpreting them.
 	 */
 	async readLayerFeatures(layer: AnnotationLayer): Promise<unknown> {
 		const directory = this.openDirectory;
@@ -3475,7 +3466,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * One Annotation Layer's Annotations, as the model (ticket 10).
+	 * One Annotation Layer's Annotations, as the model.
 	 *
 	 * Beside {@link readLayerFeatures} rather than replacing it, and the difference is the point: that
 	 * one parses as JSON and no further, because the Layer stack draws a `FeatureCollection` without
@@ -3501,13 +3492,12 @@ export class EditorSession {
 	}
 
 	/**
-	 * Write one Annotation Layer's Annotations (SPEC stories 57–66).
+	 * Write one Annotation Layer's Annotations.
 	 *
 	 * **Through the same {@link Autosave} as everything else**, so ADR-0017's per-file debounce, its
 	 * flush-on-hide, and its save state are one mechanism rather than one per file kind. There is no
-	 * bespoke save path here, and in particular no `onblur`-rewrites-on-focus-and-leave shape — the
-	 * one ticket 02 shipped and had to remove, because ADR-0010 is explicit that merely looking at an
-	 * old Project must not modify files.
+	 * bespoke save path here, and in particular no `onblur`-rewrites-on-focus-and-leave shape, because
+	 * ADR-0010 is explicit that merely looking at an old Project must not modify files.
 	 *
 	 * `debounce` is for text being typed into the title and description fields (rule 2). A drawn
 	 * shape, a moved vertex, a colour chosen, and a deletion are all discrete acts or the end of a
@@ -3538,7 +3528,7 @@ export class EditorSession {
 		const bytes = serialiseAnnotations(collection);
 		// **No label, no Step**, the same convention `#changeLayers` follows: a gesture is recorded
 		// because its caller said so, which is what keeps a typed title out of the history without
-		// anything here having to name what a title is not (SPEC stories 30, 33).
+		// anything here having to name what a title is not.
 		//
 		// **The Layer's own document and nothing else**, which is ADR-0039's disjointness invariant on
 		// this side: an Annotation is content, `project.json` is untouched by it, and a Step that named
@@ -3593,7 +3583,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * One position of a style drag over an Annotation Layer's file (SPEC story 23).
+	 * One position of a style drag over an Annotation Layer's file.
 	 *
 	 * **One drag is one Step**, so the Step is opened by the first position reported and closed by the
 	 * unlabelled {@link writeAnnotations} the release reaches, rather than one Step per `input` event:
@@ -3765,7 +3755,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Record the author's default Base Map (ADR-0020, ticket 04).
+	 * Record the author's default Base Map (ADR-0020).
 	 *
 	 * A discrete choice, so it is written now rather than debounced, and through the same
 	 * `Workspace` and the same in-memory document as every other mutation — the id is one field
@@ -3784,7 +3774,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Put everything pending in the write-ahead journal, synchronously (ticket 20).
+	 * Put everything pending in the write-ahead journal, synchronously.
 	 *
 	 * The half of {@link flush} that survives the page going away. Called by `installFlushOnHide` and
 	 * by `WorkspaceStorage` before it discards a session, where the flush may reject and leave bytes

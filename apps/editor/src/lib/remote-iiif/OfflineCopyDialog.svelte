@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "Make an offline copy" for one referenced Map Image (SPEC stories 27 and 28, ADR-0007).
+	// "Make an offline copy" for one referenced Map Image (ADR-0007).
 	//
 	// The dialog exists because of one sentence in ADR-0007: the decision must not be made implicitly by
 	// a button labelled only "Download". So the button opens a modal that says three things before
@@ -11,8 +11,8 @@
 	// and focus restoration, and that decision is made once in that component rather than per slice.
 	//
 	// **Everything from the remote document is interpolated as text, never `{@html}`, and the rights URI
-	// is not a link.** A `rights` value is a stranger's string, and ticket 14 found that a Manifest
-	// declaring `"rights": "javascript:…"` would have become a clickable link — Svelte escapes
+	// is not a link.** A `rights` value is a stranger's string, and a Manifest declaring
+	// `"rights": "javascript:…"` would otherwise become a clickable link — Svelte escapes
 	// interpolation but does not sanitise `href`. Shown as text, that whole class of thing is inert.
 
 	import { tick } from 'svelte';
@@ -84,7 +84,7 @@
 
 		<!--
 			ADR-0007: the library's own rights statement, at the moment the user chooses to copy — long
-			after the Manifest was navigated away from, which is why ticket 14 wrote both fields into
+			after the Manifest was navigated away from, which is why both fields are written into
 			`remote.json` at add time. Absent is said rather than left blank, because "this library
 			published nothing about rights" is a different fact from "nobody has looked", and only one of
 			them means the scholar has to go and find out.
@@ -116,7 +116,7 @@
 
 				<!--
 					The politeness obligation, and anything else that has to be said before the copy starts.
-					`alert-info`: neither is a fault, and the ticket is explicit that none of this is a gate.
+					`alert-info`: neither is a fault, and none of this is a gate.
 				-->
 				{#each plan.notes as note (note)}
 					<div class="mt-4 alert max-w-prose alert-info" data-testid="offline-copy-note">

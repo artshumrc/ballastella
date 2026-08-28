@@ -158,17 +158,16 @@ export interface WorkspaceOptions {
 	/** The clock, injectable so `updatedAt` is assertable. */
 	readonly now?: () => Date;
 	/**
-	 * Where "the user deleted this Project" is written down synchronously (ticket 21).
+	 * Where "the user deleted this Project" is written down synchronously.
 	 *
 	 * Optional, and its absence is a real state rather than a default — the same shape, and the same
 	 * reason, as {@link EditorSessionOptions.journalStorage}: a browser with no usable `localStorage`
 	 * cannot offer this, and a silent stand-in would make the application claim a guarantee it has
-	 * not got. Without one, a deletion is exactly as durable as the page it was asked for on, which
-	 * is what it was before ticket 21.
+	 * not got. Without one, a deletion is exactly as durable as the page it was asked for on.
 	 */
 	readonly deleted?: DeletedProjects;
 	/**
-	 * Called when the browser refused to write a deletion down (ticket 21).
+	 * Called when the browser refused to write a deletion down.
 	 *
 	 * `DeletedProjects.record` answers "is this durable", and the first cut of this class dropped the
 	 * answer on the floor. Two real browsers reach it — a `localStorage` full of one enormous
@@ -179,7 +178,7 @@ export interface WorkspaceOptions {
 	 */
 	readonly onDeletionNotRecorded?: (directory: string) => void;
 	/**
-	 * Told what the store held for a path, at the moment this Workspace read it (ticket 07).
+	 * Told what the store held for a path, at the moment this Workspace read it.
 	 *
 	 * ⚠ **This is what makes a stranded write recoverable rather than merely reported.** The
 	 * write-ahead journal has to record, synchronously, what an edit was made *against*, and it
@@ -211,7 +210,7 @@ export interface FinishedDeletions {
 	/** Deletions that had not finished and now have. */
 	readonly finished: readonly string[];
 	/**
-	 * Deletions this startup **refused to carry out**, whose record is kept (ticket 21, review 2).
+	 * Deletions this startup **refused to carry out**, whose record is kept.
 	 *
 	 * The list that exists because this is the one step of the recovery chain that *destroys* files
 	 * rather than restoring them, and it had no precondition at all. A folder Workspace's key is its
@@ -339,7 +338,7 @@ export class Workspace {
 		// {@link StoreContentObserver}.
 		const at = this.#observer?.mark() ?? 0;
 		const bytes = await this.#store.read(path);
-		// ⚠ **Before the parse, and of the bytes rather than the model** (ticket 07). This is the
+		// ⚠ **Before the parse, and of the bytes rather than the model.** This is the
 		// moment the user's view of the file is fixed, and what a later edit will have been made
 		// against is these bytes exactly — a re-serialisation of the parsed model is merely
 		// equivalent, and `serialiseProjectFile` stamps `updatedAt`, so a round trip would report
@@ -482,7 +481,7 @@ export class Workspace {
 			// the page still exists — the same argument `Autosave.onJournalRefused` makes for an edit.
 			this.#onDeletionNotRecorded(directory);
 		}
-		// ⚠ **Here rather than in `EditorSession`, and the `await` is the point** (ticket 21, review 3).
+		// ⚠ **Here rather than in `EditorSession`, and the `await` is the point.**
 		//
 		// The synchronous half is the sweep this class's caller used to do for it: the pending bytes,
 		// the timers and the journal entries of everything under this directory, dropped so that rule
@@ -740,20 +739,20 @@ export class Workspace {
 		}
 		// Everything in it includes the half-finished writes `list` cannot report and `delete`
 		// cannot be handed. Without this a "deleted" Project's directory survives on disk
-		// permanently, holding bytes that are also missing from the totals tickets 15 and 16 warn
-		// from — and in ticket 12's real folder, a stray dotfile the user commits to git.
+		// permanently, holding bytes that are also missing from the totals the hosting warning is judged
+		// against — and in a real folder, a stray dotfile the user commits to git.
 		await this.#store.reclaimAbandonedWrites(`${directory}/`);
 		return removed;
 	}
 
 	/**
-	 * A new Project is taking `directory`, so no unfinished deletion names it any more (ticket 21).
+	 * A new Project is taking `directory`, so no unfinished deletion names it any more.
 	 *
 	 * ⚠ **Synchronously, and with no `await` between here and the write that creates the Project.**
 	 * That is the whole point of calling it *here* rather than after the creation resolves: an await
 	 * in between is a window in which the page can go away leaving a record that says "the user
 	 * deleted this folder" over a Project they have just made, and the next startup would delete it.
-	 * That is precisely the shape of fresh data-loss path ticket 20's first cut opened twice, and it
+	 * That is precisely the shape of fresh data-loss path this recovery chain has opened before, and it
 	 * is not being reintroduced.
 	 *
 	 * Safe against the opposite mistake — forgetting a deletion that has not happened — because
@@ -830,9 +829,8 @@ export class Workspace {
  * none of those directories yet, so a listing alone would say they were free.
  *
  * Exported for Project Import, which asks the same question of a wider union: the Workspace's own
- * paths plus the Project directories a Remote or a Synchronization Baseline recognises (SPEC story
- * 143). A second folding rule is how the two come to disagree about what a filesystem will treat as
- * one folder.
+ * paths plus the Project directories a Remote or a Synchronization Baseline recognises. A second
+ * folding rule is how the two come to disagree about what a filesystem will treat as one folder.
  */
 export function takenDirectoryNames(paths: Iterable<string>): Set<string> {
 	const taken = new Set(RESERVED_DIRECTORY_NAMES.map(foldName));
@@ -892,11 +890,11 @@ export function hoistedImageId(archivePath: string): string | null {
  * The collision check used to be an exact string comparison, and that is only correct on a
  * case-sensitive, composition-sensitive filesystem — which the two most common ones are not. macOS's
  * APFS and Windows' NTFS are both case-insensitive, and APFS folds Unicode composition as well, so
- * on ticket 12's File System Access backend `getDirectoryHandle('Amsterdam-1625', { create: true })`
+ * on the File System Access backend `getDirectoryHandle('Amsterdam-1625', { create: true })`
  * hands back the **existing** `amsterdam-1625`. A user correctly shown a collision, typing a
  * different case into the rename field, was told there was no collision and then had their own
- * `project.json`, GeoJSON, and every same-named tile overwritten with their colleague's — SPEC story
- * 14's forbidden outcome, reached through the affordance built to prevent it.
+ * `project.json`, GeoJSON, and every same-named tile overwritten with their colleague's — the exact
+ * outcome the collision check exists to forbid, reached through the affordance built to prevent it.
  *
  * Folded rather than rejected, and folded on *both* sides, because the answer has to be the same
  * whichever spelling arrives first. NFC before case folding: `toLocaleLowerCase` on a decomposed

@@ -271,9 +271,9 @@ describe('reviewFromRemote', () => {
 	});
 
 	it('writes no remote.json, and binding what it made is refused', async () => {
-		// ⚠ Ticket 03's two hard refusals, asserted at the route that *creates* the Workspace they
-		// protect against (SPEC stories 39 and 40). The refusal is called directly rather than
-		// inferred from an absent button: a guard that lives in markup is one route away from gone.
+		// ⚠ The two hard refusals a Review Workspace carries, asserted at the route that *creates* the
+		// Workspace they protect against. The refusal is called directly rather than inferred from an
+		// absent button: a guard that lives in markup is one route away from gone.
 		const fake = await github();
 		const destination = destinationFor();
 
@@ -296,7 +296,7 @@ describe('reviewFromRemote', () => {
 	});
 
 	it('seals the credential store for as long as the Workspace it made is open', async () => {
-		// Story 40, at the route that makes the Workspace. The seal is `closedWhileReviewing`'s and the
+		// The seal, at the route that makes the Workspace. It is `closedWhileReviewing`'s and the
 		// mark it reads is this Review's, so what is asserted is the pair rather than either alone.
 		const fake = await github();
 		const destination = destinationFor();
@@ -650,7 +650,7 @@ describe('what a Review refuses', () => {
 	it('the anonymous hourly limit, told apart from a repository that is not public', async () => {
 		// ⚠ **A spent budget and a private repository are both 403**, and this is the path where the
 		// difference bites: reviewing signs in to nothing, so the budget is GitHub's 60 requests an hour
-		// *per IP address* — and SPEC story 48's scenario is a class of students reviewing one
+		// *per IP address* — and the scenario is a class of students reviewing one
 		// instructor's Project from one campus connection, where the 61st reader meets this having made
 		// no requests at all. "Ask whoever published it to make it public" is then an instruction about
 		// a repository none of them own, and following it would not help.

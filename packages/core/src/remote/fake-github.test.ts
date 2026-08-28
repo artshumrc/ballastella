@@ -357,7 +357,7 @@ describe('the fake GitHub', () => {
 		// ⚠ **409, not 404**, and the status is the whole point of the test. A repository made at
 		// `github.com/new` with no README has no commits, which is exactly what the "create it
 		// yourself" link hands a scholar back from — and a publish that read this as an ordinary
-		// failure would die at plan time on the one flow this epic walks a beginner through.
+		// failure would die at plan time on the one flow that walks a beginner through it.
 		it('answers 409 “Git Repository is empty.” for a repository with no commits', async () => {
 			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
@@ -415,7 +415,7 @@ describe('the fake GitHub', () => {
 		});
 
 		// A revoked token in the tab does not close a public repository to a reader who sends none,
-		// which is the flow a student with no GitHub account is promised (SPEC, Import).
+		// which is the flow a student with no GitHub account is promised.
 		it('still answers an unauthenticated read while a credential is being rejected', async () => {
 			github.rejectCredential = true;
 
@@ -486,10 +486,10 @@ describe('the fake GitHub', () => {
 			expect(response.status).toBe(401);
 		});
 
-		// A public repository's file list is readable with no credential, and this epic depends on it:
-		// Clone and Review are unauthenticated (SPEC, "Import: two operations, both unauthenticated"),
-		// so a student with no GitHub account can open an instructor's Workspace. Pinned here rather
-		// than in the ticket that needs it, because a gate that crept back would be found there.
+		// A public repository's file list is readable with no credential, and Import depends on it: Clone
+		// and Review are both unauthenticated, so a student with no GitHub account can open an
+		// instructor's Workspace. Pinned here rather than beside the operation that needs it, because a
+		// gate that crept back would be found here first.
 		it('lists a public repository’s tree with no token at all', async () => {
 			const response = await github.fetch(`${repository}/git/trees/main?recursive=1`);
 			const { tree } = (await response.json()) as { tree: FakeTreeEntry[] };

@@ -22,7 +22,7 @@ const project = (fields: {
 
 const floride = newMapLayer({ id: 'l-map', name: 'La Floride', imageId: 'floride-1657' });
 
-describe('a Project’s typed names carried across a Step (SPEC stories 33, 54)', () => {
+describe('a Project’s typed names carried across a Step', () => {
 	// The Step is a byte image taken before the gesture; the name was typed after it. Writing the
 	// image verbatim would take back words the scholar never asked undo to touch.
 	it('keeps a Project name typed after the image was taken', () => {
@@ -91,7 +91,7 @@ describe('a Project’s typed names carried across a Step (SPEC stories 33, 54)'
 	});
 });
 
-describe('an Annotation’s typed words carried across a Step (SPEC stories 33, 34, 54)', () => {
+describe('an Annotation’s typed words carried across a Step', () => {
 	const collection = (annotations: readonly Annotation[]): Bytes =>
 		serialiseAnnotations({ annotations });
 
@@ -116,7 +116,7 @@ describe('an Annotation’s typed words carried across a Step (SPEC stories 33, 
 	});
 
 	// Undoing the creation of an Annotation takes its words with it, because the image it goes back
-	// to has no such Annotation to carry them onto (SPEC story 34).
+	// to has no such Annotation to carry them onto.
 	it('carries nothing for an Annotation absent from the image', () => {
 		const drawn = newAnnotation({
 			id: 'a2',

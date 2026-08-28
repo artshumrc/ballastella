@@ -85,7 +85,7 @@ jobs:
       # suite runs against real OPFS in Vitest browser mode, so the unit tests need a browser
       # too. `--with-deps` is what brings the system libraries headless browsers need here.
       #
-      # Firefox as well as Chromium, because SPEC story 4 is that OPFS is the universal backend and
+      # Firefox as well as Chromium, because OPFS is the universal backend and
       # the tool works fully where folder access is impossible. Firefox has its own OPFS
       # implementation, so asserting the adapter suite only in Chromium asserts nothing about it.
       - name: Install Playwright browsers

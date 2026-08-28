@@ -1,5 +1,5 @@
 // Ingesting a local image file: the job that turns a file the user picked into a level-0
-// pyramid in their Project (SPEC stories 21, 22, 23).
+// pyramid in their Project.
 //
 // **A job, not a function call** (ADR-0003). Even a 2 megapixel phone photo becomes a pyramid —
 // there is no shortcut for small images, because `@allmaps/iiif-parser` cannot construct an
@@ -55,7 +55,7 @@ export interface TileSource {
 /** Opens a source image. Rejects if this implementation cannot read the file at all. */
 export type OpenTileSource = (file: Blob) => Promise<TileSource>;
 
-/** What the UI needs in order to say something true while an ingest runs (SPEC story 23). */
+/** What the UI needs in order to say something true while an ingest runs. */
 export type IngestProgress = {
 	readonly phase: 'inspecting' | 'opening' | 'tiling' | 'finishing' | 'done';
 	readonly tilesWritten: number;
@@ -137,9 +137,9 @@ export async function listIngestedImages(store: ProjectStore): Promise<IngestedI
  * **The message says the size and the remedy, and nothing about the deployment.** It used to name
  * `Cross-Origin-Embedder-Policy` and cross-origin isolation, because the refusal was really about
  * a streaming tiler that could not start; with that tiler gone the refusal is about the image, and
- * the only thing the user can do about it is prepare the pyramid outside the browser. SPEC's *On
- * the audience* makes "errors must name what is wrong and what to do" binding, and a scholar who
- * has never heard of COEP could act on neither half of the old sentence.
+ * the only thing the user can do about it is prepare the pyramid outside the browser. An error must
+ * name what is wrong and what to do, and a scholar who has never heard of COEP could act on neither
+ * half of the old sentence.
  *
  * What must also not happen is what used to happen before that: this arriving as
  * {@link UnreadableImageError}, whose first sentence says the file could not be read and tells the
@@ -217,7 +217,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 			tileCount,
 			// Tiling is all of the work, so the fraction is the tile count and the two ends are
 			// reserved: never 1 until the pyramid is complete, because a progress bar that sits at
-			// 100% while the job is still running is the failure story 23 is written against.
+			// 100% while the job is still running is the failure the reserved ends guard against.
 			fraction:
 				phase === 'done' ? 1 : tileCount === 0 ? 0 : Math.min(0.99, tilesWritten / tileCount)
 		});
@@ -306,9 +306,9 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		};
 	} catch (cause) {
 		// Leave nothing behind. An abandoned pyramid is unreachable — nothing finds tiles except
-		// through an `info.json`, which is written last — but it still occupies the bytes ticket 15
-		// and 16 have to count for ADR-0008's hosting warning, and in ticket 12's real folder it is
-		// litter in the user's own directory.
+		// through an `info.json`, which is written last — but it still occupies the bytes ADR-0008's
+		// hosting warning has to count, and in a real folder it is litter in the user's own
+		// directory.
 		await Promise.all(written.map((path) => store.delete(path).catch(() => undefined)));
 		throw cause;
 	} finally {

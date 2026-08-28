@@ -2,7 +2,7 @@
 // ADR-0020: the Base Map catalog is deployment configuration, and adding, removing, or
 // repointing an entry must require no change anywhere else.
 //
-// That property is what a forker pointing at their own tiles depends on (SPEC story 100), and
+// That property is what a forker pointing at their own tiles depends on, and
 // unlike most design intentions it can be checked mechanically: if no module outside the catalog
 // names an entry id or an archive, then no module outside the catalog can need editing when one
 // changes. So this check greps for exactly that. It is the same shape as
@@ -157,9 +157,7 @@ if (violations.length > 0) {
 
 if (failed) process.exit(1);
 
-console.log(
-	`${catalogModule}: ${entryIds.length} entries named nowhere else (ADR-0020, SPEC story 100).`
-);
+console.log(`${catalogModule}: ${entryIds.length} entries named nowhere else (ADR-0020).`);
 
 /** @param {string} directory @returns {string[]} */
 function walk(directory) {

@@ -1,6 +1,6 @@
 {
 	"what": "Live info.json documents from real IIIF image services, captured verbatim.",
-	"why": "Ticket 03 refuses two pyramid shapes that render plausibly and wrongly, and ticket 14 is where the info.json stops being ours. A corpus of real documents is the only way to know what real services actually declare — and, when one of them trips a guard, to keep that fact in the tree rather than in a report nobody reads again.",
+	"why": "Two pyramid shapes are refused because they render plausibly and wrongly, and for a referenced image the info.json stops being ours. A corpus of real documents is the only way to know what real services actually declare — and, when one of them trips a guard, to keep that fact in the tree rather than in a report nobody reads again.",
 	"capturedOn": "2026-08-06",
 	"howToRefresh": "Each entry records the URL it came from. Re-fetching is a network test, not a unit test — see the `describe` that only runs with BALLASTELLA_NETWORK_TESTS=1.",
 	"doNotEdit": "These are other people’s documents. Fix a failing test by changing our code or by recording a finding, never by editing a captured document into passing.",

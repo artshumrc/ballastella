@@ -1,5 +1,5 @@
 // What a Review Workspace's own metadata licenses, and what a review copy hands over when it does
-// (ticket 19, ADR-0037).
+// (ADR-0037).
 //
 // Two claims, and they are the pair the operation stands on. The **metadata** claim is that a review
 // copy names exactly one ordinary Workspace, that the name survives everything the reviewer does

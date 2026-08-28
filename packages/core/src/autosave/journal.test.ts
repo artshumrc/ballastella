@@ -82,7 +82,7 @@ describe('WriteAheadJournal', () => {
 				bytes: utf8.encode('one'),
 				at: expect.any(String),
 				// No baseline: nothing has told this journal what the store holds for the path, which is
-				// what the first edit to it in a session looks like (ticket 07).
+				// what the first edit to it in a session looks like.
 				held: null
 			}
 		]);
@@ -126,7 +126,7 @@ describe('WriteAheadJournal', () => {
 	});
 
 	/**
-	 * The baseline an entry is recorded against (ticket 07).
+	 * The baseline an entry is recorded against.
 	 *
 	 * It is what lets `replayJournal` tell a stranded write from a revert, and it is derived here
 	 * rather than read from the store, because `record` is synchronous by contract. These pin what the
@@ -554,7 +554,7 @@ describe('readJournal', () => {
 		storage = new FakeStorage();
 	});
 
-	it('refuses an entry from a newer version and leaves it exactly where it is (story 114)', () => {
+	it('refuses an entry from a newer version and leaves it exactly where it is', () => {
 		storage.items.set(
 			'ballastella.journal.W/a%2Fproject.json',
 			JSON.stringify({ formatVersion: JOURNAL_FORMAT_VERSION + 1, at: '', bytes: 'AAA=' })
@@ -618,7 +618,7 @@ describe('readJournal', () => {
 	});
 });
 
-describe('Autosave with a journal (ADR-0017 rule 3, as amended by ticket 20)', () => {
+describe('Autosave with a journal (ADR-0017 rule 3)', () => {
 	let storage: FakeStorage;
 	let store: MemoryProjectStore;
 	let autosave: Autosave;
@@ -753,7 +753,7 @@ describe('Autosave with a journal (ADR-0017 rule 3, as amended by ticket 20)', (
  * capture-time one succeed. It is red with that call removed.
  */
 /**
- * An Edit History's undo, against the journal (ADR-0039, ticket 20 constraint 5).
+ * An Edit History's undo, against the journal (ADR-0039).
  *
  * ⚠ **The claim lives here rather than at Seam 2.** `editor-workspace.e2e.ts`'s "replays the last
  * edit to a file, not an earlier one" types a name and types it back, which is a re-edit and not a
@@ -816,7 +816,7 @@ describe('undoing a Step across a save (ADR-0039)', () => {
 	});
 });
 
-describe('installFlushOnHide captures synchronously (ticket 20)', () => {
+describe('installFlushOnHide captures synchronously', () => {
 	class FakeTarget {
 		readonly listeners = new Map<string, EventListener>();
 		addEventListener(type: string, listener: EventListener) {

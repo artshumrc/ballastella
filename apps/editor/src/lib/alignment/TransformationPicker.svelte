@@ -1,5 +1,5 @@
 <script lang="ts">
-	// How the Map Image is stretched: ADR-0013's picker (SPEC stories 39–42).
+	// How the Map Image is stretched: ADR-0013's picker.
 	//
 	// A native `<select>`, because ADR-0016's binding contract names one for the transformation type —
 	// few options, nothing custom needed, and native arrow-key and type-ahead behaviour that no
@@ -24,8 +24,8 @@
 	// **What this group does not carry is the two notes about consequences** — that Simple cannot
 	// mirror, and that the higher orders distort at the edges. They are prose about the choice rather
 	// than help for making it, and they stand behind "How this works" in `AlignmentWorkspace`, where
-	// the rest of this screen's explanation is (SPEC stories 62, 67). What stays here is the guidance
-	// the control is described by and the shortfall a count cannot support.
+	// the rest of this screen's explanation is. What stays here is the guidance the control is
+	// described by and the shortfall a count cannot support.
 
 	import {
 		TRANSFORMATION_CHOICES,
@@ -182,10 +182,9 @@
 
 			The hazard it avoids is still live even though the page that produced it is gone. `ProjectView`
 			listed Map Images as a `<ul>` and several browser tests counted them with a bare
-			`getByRole('listitem')`; a third list here made two of them fail. Ticket 04 deleted that page
-			and the list with it, so those tests read the Layer stack now — but the Layer stack is also a
-			list, and the Annotation list beside it is a third, so a bare `listitem` count on the Project
-			screen is as ambiguous as it ever was.
+			`getByRole('listitem')`; a third list here made two of them fail. Those tests read the Layer
+			stack instead — but the Layer stack is also a list, and the Annotation list beside it is a
+			third, so a bare `listitem` count on the Project screen is as ambiguous as it ever was.
 		-->
 		<div class="max-w-prose text-sm opacity-70" data-testid="transformation-shortfalls">
 			{#each shortfalls as one (one.type)}

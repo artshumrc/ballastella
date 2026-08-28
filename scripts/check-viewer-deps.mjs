@@ -8,7 +8,7 @@
 // reading the manifests is enough, because adding a dependency is a deliberate act that
 // shows up in a diff.
 //
-// **Manifests, plural, and that is the correction ticket 17 forced.** Reading only the viewer's
+// **Manifests, plural, and that is a correction rather than the first design.** Reading only the viewer's
 // own manifest left a hole the size of the next feature. The viewer now reaches `maplibre-gl`,
 // `@allmaps/maplibre` and `pmtiles` *through* `@ballastella/core`, and `packages/core/src/render/`
 // is the sanctioned home for browser-render code both apps share — so the next module of that
@@ -34,7 +34,7 @@
 // own — it is `createImageBitmap` and an `OffscreenCanvas`, injected by whichever app supplies one.
 //
 // There is deliberately **no** built-output grep for terra-draw. No package in this repository uses
-// it — `pnpm-workspace.yaml` declines it, several tickets running — so it has no string literal that
+// it — `pnpm-workspace.yaml` has long declined it — so it has no string literal that
 // is a known-good positive in any build, and a grep for markers absent from every build is exactly
 // the check that reports success unconditionally. The walk below is what closes that door instead:
 // terra-draw cannot arrive without a manifest naming it.

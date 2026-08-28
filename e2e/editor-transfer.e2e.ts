@@ -22,8 +22,8 @@ import {
 } from './support/workspace.js';
 
 /**
- * SPEC's Seam 2 for ticket 14: handing a Project over and reviewing one, driven through the UI
- * against real OPFS.
+ * Seam 2 for transfer: handing a Project over and reviewing one, driven through the UI against real
+ * OPFS.
  *
  * The bundle format itself, the round trip's fidelity, and every rejection are asserted at Seam 1 in
  * `@ballastella/core`. What only a browser can show is here — that a real download arrives with the
@@ -86,10 +86,10 @@ async function emptyEverything(page: Page): Promise<void> {
 /**
  * Every path and every byte of one named Workspace.
  *
- * ⚠ **This is the "byte-identical before and after" criterion, and it is the easiest in this ticket
- * to fake.** Asserting that the Project list is unchanged would pass while an Alignment had been
- * overwritten, so this lists every path and reads every byte — the contents, not a count, not a
- * listing, and not a size.
+ * ⚠ **This is the "byte-identical before and after" claim, and it is the easiest one here to fake.**
+ * Asserting that the Project list is unchanged would pass while an Alignment had been overwritten, so
+ * this lists every path and reads every byte — the contents, not a count, not a listing, and not a
+ * size.
  */
 async function everyByteOf(page: Page, workspace: string): Promise<Record<string, string>> {
 	return page.evaluate(async (workspace) => {
@@ -151,10 +151,10 @@ const IMAGE_HEIGHT = 3072;
 /**
  * The Annotation Layer's `FeatureCollection`, with something actually in it.
  *
- * ⚠ **It was `{"features":[]}`, and that made story 91 unassertable.** "Explore it as though it were
- * your own — pan the map, toggle Layers, read Annotations" cannot be checked against a Layer with
- * nothing in it: every assertion about reading a colleague's Annotation would have passed over an
- * empty collection. The coordinates are where the Project's own Alignment puts the sheet, so the
+ * ⚠ **An empty `{"features":[]}` makes the reading claim unassertable.** "Explore it as though it
+ * were your own — pan the map, toggle Layers, read Annotations" cannot be checked against a Layer
+ * with nothing in it: every assertion about reading a colleague's Annotation would pass over an empty
+ * collection. The coordinates are where the Project's own Alignment puts the sheet, so the
  * Annotation is on screen when the Project opens on its own content (ADR-0026).
  */
 const WAREHOUSES_GEOJSON = JSON.stringify({
@@ -429,9 +429,9 @@ async function expectOpenedOn(page: Page, at: SheetBox, other: SheetBox): Promis
 /**
  * The transfer announcement.
  *
- * `[data-transfer]` rather than `getByRole('status')`: since ticket 04 the save indicator is on the
- * navigation bar and therefore on the hub too, so the hub has one `status` role of its own and this
- * region is an `aria-live="polite"` one — this repo's settled convention wherever the two meet.
+ * `[data-transfer]` rather than `getByRole('status')`: the save indicator is on the navigation bar
+ * and therefore on the hub too, so the hub has one `status` role of its own and this region is an
+ * `aria-live="polite"` one — this repo's settled convention wherever the two meet.
  */
 const transferStatus = (page: Page) => page.locator('[data-transfer]');
 
@@ -442,7 +442,7 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 });
 
-test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 89)', () => {
+test.describe('exporting a Project as a bundle', () => {
 	test('downloads a tar named for the folder, rooted at the Project, and announces it', async ({
 		page
 	}) => {
@@ -466,7 +466,7 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 			new TextDecoder().decode(entries.find((entry) => entry.header.name === 'project.json')!.data!)
 		).toBe(projectJson());
 
-		// Progress is announced, not merely drawn (SPEC story 96).
+		// Progress is announced, not merely drawn.
 		await expect(transferStatus(page)).toHaveText(/Exported Amsterdam 1625: 5 files\./);
 	});
 
@@ -496,9 +496,7 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 		expect(names).not.toContain('alignments/blaeu-1649.json');
 	});
 
-	test('keeps the Export button focusable while an export runs (SPEC story 95)', async ({
-		page
-	}) => {
+	test('keeps the Export button focusable while an export runs', async ({ page }) => {
 		// `disabled` takes a pressed button out of the tab order, so focus fell to `<body>` for the
 		// length of the export and was never restored — leaving a keyboard user to tab in from the top
 		// of the page after every one.
@@ -554,19 +552,19 @@ test.describe('exporting a Project as a bundle (workspace-and-layers SPEC story 
 	});
 });
 
-test.describe('merely opening a Project leaves its files unchanged (write-on-the-map SPEC story 50)', () => {
+test.describe('merely opening a Project leaves its files unchanged', () => {
 	/**
 	 * ⚠ **The Import Provenance assertions are folded in here, and the fold is the argument.**
 	 *
 	 * "Read-only" is two claims: that a reader can see the history, and that seeing it writes nothing.
 	 * The second is exactly what this test already measures over every file in the Workspace, so the
 	 * history is seeded into the same Project rather than into a spec of its own — and the metadata
-	 * permutations behind it are proved at Seam 1 in `project-import-provenance.test.ts`, which is what
-	 * the SPEC's testing decisions ask for.
+	 * permutations behind it are proved at Seam 1 in `project-import-provenance.test.ts`, which is where
+	 * that kind of claim belongs.
 	 *
 	 * The Project is seeded with a history rather than imported through the UI because Import has no UI
-	 * yet: tickets 13, 18 and 19 add the three offers. What is asserted here is the surface this
-	 * ticket owns — the Project screen showing a transfer history it will not let anyone edit.
+	 * yet. What is asserted here is the surface that does exist — the Project screen showing a transfer
+	 * history it will not let anyone edit.
 	 */
 	test('merely opening a Project with a Label leaves every Project file hash-identical', async ({
 		page
@@ -591,7 +589,7 @@ test.describe('merely opening a Project leaves its files unchanged (write-on-the
 		const settings = await openProjectSettings(page);
 		const history = settings.getByTestId('import-provenance');
 		await expect(history).toContainText('read-only record of the transfers');
-		// Not attribution, said in the words the section itself uses (SPEC story 62).
+		// Not attribution, said in the words the section itself uses.
 		await expect(history).toContainText('does not say who made the work');
 
 		const entries = history.getByTestId('provenance-entry');
@@ -617,7 +615,7 @@ test.describe('merely opening a Project leaves its files unchanged (write-on-the
 	});
 });
 
-test.describe('opening a bundle lands in a review copy (workspace-and-layers SPEC stories 90–92)', () => {
+test.describe('opening a bundle lands in a review copy', () => {
 	test('creates a separate Workspace holding exactly that one Project', async ({ page }) => {
 		await openBundle(page, await bundleFixture(projectFiles()));
 
@@ -667,9 +665,8 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		);
 	});
 
-	// ⚠ **The most important criterion in this ticket, and the easiest to fake.** Every path and every
-	// byte, before and after — asserting on the Project list would pass while an Alignment had been
-	// overwritten.
+	// ⚠ **The most important claim here, and the easiest to fake.** Every path and every byte, before
+	// and after — asserting on the Project list would pass while an Alignment had been overwritten.
 	test('leaves the user’s own Workspace byte-identical, through opening and discarding', async ({
 		page
 	}) => {
@@ -717,11 +714,11 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		await expect(page.getByTestId('bundle-notice')).toContainText('assignment 3');
 	});
 
-	// ⚠ **The declined-write path ticket 13 left unreachable, reached.** `writeRestored`'s decline was
-	// unreachable while every destination was a brand-new Workspace; a bundle reaches it, because a tar
-	// has no index and nothing stops an archive from naming a path twice. The **first** entry wins, and
-	// the second is reported rather than silently overwriting it — a transfer that quietly delivers
-	// something other than what it was handed is the failure this format change escaped.
+	// ⚠ **The declined-write path, reached.** `writeRestored`'s decline is unreachable while every
+	// destination is a brand-new Workspace; a bundle reaches it, because a tar has no index and nothing
+	// stops an archive from naming a path twice. The **first** entry wins, and the second is reported
+	// rather than silently overwriting it — a transfer that quietly delivers something other than what
+	// it was handed is the failure this format escaped.
 	test('says so when a bundle names one Alignment twice, and keeps the first', async ({ page }) => {
 		const encode = (text: string) => new TextEncoder().encode(text);
 		const files = projectFiles();
@@ -843,9 +840,8 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		await expect(dialog).toContainText('1 Project');
 	});
 
-	// ⚠ **Criterion 7, and the collision this whole design exists to prevent.** The same image id in
-	// both bundles with *different* Control Points, and **each Review Workspace shows its own** —
-	// which the ticket asks for in those words.
+	// ⚠ **The collision this whole design exists to prevent.** The same image id in both bundles with
+	// *different* Control Points, and **each Review Workspace shows its own**.
 	//
 	// The first cut of this asserted disk bytes, which is what `project-bundle.test.ts` already proves
 	// in Node with no browser: two files with different contents stayed different. That is not the
@@ -937,10 +933,10 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		await expect(page.getByTestId('open-bundle')).toHaveCount(0);
 	});
 
-	// ⚠ **Story 91 — "explore it as though it were your own" — and it had no assertion at all.** The
-	// ticket names three things by name: pan the map, toggle Layers, read Annotations. Nothing in this
-	// file did any of them, and the fixture's `FeatureCollection` was empty, so an assertion about
-	// reading a colleague's Annotation could not have been written against it even in principle.
+	// ⚠ **"Explore it as though it were your own", named as three things: pan the map, toggle Layers,
+	// read Annotations.** All three are driven here, against a fixture whose `FeatureCollection` has
+	// something in it — an empty one cannot carry an assertion about reading a colleague's Annotation
+	// even in principle.
 	test('is explored as though it were the reader’s own: panned, toggled, and read', async ({
 		page
 	}) => {
@@ -1029,7 +1025,7 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 	});
 });
 
-test.describe('the review banner is on every screen (workspace-and-layers SPEC story 92)', () => {
+test.describe('the review banner is on every screen', () => {
 	test.beforeEach(async ({ page }) => {
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
@@ -1078,9 +1074,7 @@ test.describe('the review banner is on every screen (workspace-and-layers SPEC s
 		await expect(region.getByRole('button', { name: 'Discard this review copy' })).toBeVisible();
 	});
 
-	test('both exits work from the keyboard alone (workspace-and-layers SPEC story 95)', async ({
-		page
-	}) => {
+	test('both exits work from the keyboard alone', async ({ page }) => {
 		const back = page.getByTestId('leave-review');
 		await back.focus();
 		await expect(back).toBeFocused();
@@ -1274,7 +1268,7 @@ test.describe('bundled content is untrusted (ADR-0009)', () => {
 	});
 });
 
-test.describe('the keyboard alone (SPEC story 95)', () => {
+test.describe('the keyboard alone', () => {
 	test('opens a bundle and exports a Project with no pointer', async ({ page }) => {
 		const openButton = page.getByTestId('open-bundle');
 		await openButton.focus();
@@ -1309,9 +1303,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 	// written again three hundred lines later. And on success the dialog closes onto a trigger that
 	// `{#if review === null}` has already unmounted, so `ModalDialog`'s focus restoration called
 	// `focus()` on a detached node, which is a silent no-op.
-	test('keeps focus somewhere real while a bundle opens, and after it has (workspace-and-layers SPEC story 95)', async ({
-		page
-	}) => {
+	test('keeps focus somewhere real while a bundle opens, and after it has', async ({ page }) => {
 		const confirm = page.getByTestId('confirm-open-bundle');
 		await chooseBundle(page, await bundleFixture(projectFiles()));
 		await confirm.focus();
@@ -1350,9 +1342,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 	// Opening is the path ADR-0001 makes the only way in on Firefox, Safari and iPad, and it takes real
 	// seconds over a pyramid. It said nothing at all: `openBundle` was called with no progress
 	// listener, so the whole read-path apparatus reached no screen.
-	test('announces what opening a bundle did (workspace-and-layers SPEC story 96)', async ({
-		page
-	}) => {
+	test('announces what opening a bundle did', async ({ page }) => {
 		await openBundle(page, await bundleFixture(projectFiles()));
 
 		await expect(banner(page)).toBeVisible();
@@ -1407,7 +1397,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// IMPORT: THE INVERSE OF EXPORT (ticket 13, ADR-0037)
+// IMPORT: THE INVERSE OF EXPORT (ADR-0037)
 //
 // The engine is exhausted at Seam 1 and without a browser: fresh Map Image identities, repeated
 // references, Alignment rewrites, name and directory allocation against every namespace, the
@@ -1421,7 +1411,7 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 // arrives under an allocated name is reachable and ordinary afterwards; and that a refusal leaves
 // every byte of real OPFS as it was. Four tests, folded as far as they go.
 
-test.describe('Importing a Project into the Workspace that is open (SPEC stories 1–14)', () => {
+test.describe('Importing a Project into the Workspace that is open', () => {
 	/**
 	 * A Project already called what the bundle is called, so the allocated name has to differ.
 	 *
@@ -1486,9 +1476,9 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
 	});
 
-	// ⚠ **The claim is the destination, and every part of it is about this one Workspace.** Ticket 14's
-	// bundle path answers the same file with a *second* Workspace, so "no other Workspace was created"
-	// is not a formality here: it is the one assertion that tells the two operations apart on disk.
+	// ⚠ **The claim is the destination, and every part of it is about this one Workspace.** The bundle
+	// path answers the same file with a *second* Workspace, so "no other Workspace was created" is not
+	// a formality here: it is the one assertion that tells the two operations apart on disk.
 	test('copies the Project into the Workspace that stays open, under a name of its own', async ({
 		page
 	}) => {
@@ -1629,7 +1619,7 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
 
 		// ⚠ **The third action, from the keyboard, because it is the one that creates rather than
-		// copies** (SPEC story 92). It sits in the same row as the two above and is the control an
+		// copies**. It sits in the same row as the two above and is the control an
 		// author reaches for by mistake, so "these three are told apart" is only true if all three can
 		// be operated the same way.
 		const fresh = page.getByRole('button', { name: 'New Project' });
@@ -1659,7 +1649,7 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 	// Every way a source can be refused is asserted against real archive bytes at Seam 1. What only a
 	// browser can show is the wiring: that a file picked through the real input reaches that reader,
 	// that the refusal arrives as an alert instead of a console line, that the dialog stays open so the
-	// sentence is not a flash, and — the claim this ticket turns on — that a Workspace which was
+	// sentence is not a flash, and — the claim the whole refusal turns on — that a Workspace which was
 	// *going to be written to* is byte-identical afterwards.
 	test('a refused bundle leaves every path in the Workspace exactly as it was', async ({
 		page
@@ -1757,7 +1747,7 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// AN IMPORT THAT DID NOT FINISH (ticket 05)
+// AN IMPORT THAT DID NOT FINISH
 //
 // An Import writes its provisional files straight to their final Workspace paths and makes them
 // provisional by naming them in one durable marker: while that marker is unresolved the Workspace is
@@ -1771,7 +1761,7 @@ test.describe('Importing a Project into the Workspace that is open (SPEC stories
 // restarts in it rather than three tests — the subject is a single workflow, "what the next visit
 // does with an outstanding marker", and the three markers are the three answers it can have.
 
-test.describe('Importing the review copy back into the Workspace review began from (ticket 19)', () => {
+test.describe('Importing the review copy back into the Workspace review began from', () => {
 	/**
 	 * The author's own work, seeded with an Alignment a reused Map Image identity would overwrite.
 	 *
@@ -1849,10 +1839,10 @@ test.describe('Importing the review copy back into the Workspace review began fr
 			'amsterdam-1625'
 		]);
 
-		// ⚠ **From the keyboard alone from here, and the button is watched while it runs** (SPEC story
-		// 95). The confirmation closes onto this button *before* the copy begins, so a `disabled` one
-		// would be removed from the tab order at the moment focus was handed back to it — dropping a
-		// keyboard user onto `<body>` for the length of a copy that runs in minutes over a pyramid.
+		// ⚠ **From the keyboard alone from here, and the button is watched while it runs.** The
+		// confirmation closes onto this button *before* the copy begins, so a `disabled` one would be
+		// removed from the tab order at the moment focus was handed back to it — dropping a keyboard
+		// user onto `<body>` for the length of a copy that runs in minutes over a pyramid.
 		// Watched with a `MutationObserver` rather than polled, because the flip is permanent damage
 		// however briefly the attribute lasts on this fixture.
 		await offer.focus();
@@ -1870,7 +1860,7 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		const confirm = page.getByTestId('confirm-import-review');
 		await confirm.focus();
 		// Collected from the region itself: the confirmation is closed by the time the transfer starts,
-		// so the banner's own line is the only thing saying the wait is going somewhere (story 93), and
+		// so the banner's own line is the only thing saying the wait is going somewhere, and
 		// a run too fast to poll still proves the counts a screen reader would have read out.
 		await page.getByTestId('review-import-progress').evaluate((region) => {
 			const seen: string[] = [];
@@ -1906,7 +1896,7 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		).filter((text) => /^Copying .* of 5 files\.$/.test(text));
 		expect(copying.length).toBeGreaterThan(1);
 		expect(new Set(copying).size).toBeGreaterThan(1);
-		// Opened rather than merely listed (story 87): the address names the Project that arrived and
+		// Opened rather than merely listed: the address names the Project that arrived and
 		// the Project screen is what is on it.
 		await expect.poll(() => new URL(page.url()).searchParams.get('p')).not.toBeNull();
 		await expect(page.getByTestId('edit-project-name')).toBeVisible();
@@ -1946,9 +1936,9 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		expect(after[`alignments/${drawn}.json`]).toContain('georeferencing');
 	});
 
-	// Story 163, and the half that matters most: a refusal must not be the thing that loses the
-	// afternoon. The recorded Workspace is deleted behind the app's back — a second tab, or the user
-	// in another window — so the destination is gone by the time the button is pressed.
+	// The half of a refusal that matters most: it must not be the thing that loses the afternoon. The
+	// recorded Workspace is deleted behind the app's back — a second tab, or the user in another
+	// window — so the destination is gone by the time the button is pressed.
 	test('refuses a destination that is gone, leaving the review copy open and byte-identical', async ({
 		page
 	}) => {
@@ -1964,7 +1954,7 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		await offer.click();
 		await page.getByTestId('confirm-import-review').click();
 
-		// ⚠ **An alert, and not the polite line the successful outcomes use** (SPEC story 94). It is
+		// ⚠ **An alert, and not the polite line the successful outcomes use**. It is
 		// text that first exists at the moment it is needed, which a polite region does not reliably
 		// announce — and it names the Workspace it could not reach and says the review copy is whole,
 		// which is the domain language a reviewer can act on.
@@ -1984,9 +1974,9 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		expect(await workspaceNames(page)).toEqual(['amsterdam-1625']);
 	});
 
-	// Story 162's other side. Every review copy made before ADR-0037 records no origin, and there is
-	// nothing to infer one from — the Workspace that is open is this throwaway one. So the offer is
-	// absent, a sentence says why, and the copy is otherwise an ordinary review copy.
+	// The other side of the same offer. Every review copy made before ADR-0037 records no origin, and
+	// there is nothing to infer one from — the Workspace that is open is this throwaway one. So the
+	// offer is absent, a sentence says why, and the copy is otherwise an ordinary review copy.
 	test('offers no Import over a review copy that records no Workspace, and says why', async ({
 		page
 	}) => {
@@ -2019,7 +2009,7 @@ test.describe('Importing the review copy back into the Workspace review began fr
 	});
 });
 
-test.describe('an Import that did not finish (ticket 05)', () => {
+test.describe('an Import that did not finish', () => {
 	/** The Workspace the author already had, which a swept Import must leave exactly as it is. */
 	const OWN = {
 		'project.json': projectJson({ name: 'My own Amsterdam', layers: [] }),

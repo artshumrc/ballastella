@@ -36,7 +36,7 @@
 // would produce, so it is served as it stands; anything else rebuilds.
 //
 // The inputs are an explicit allowlist ({@link INPUT_ROOTS} and {@link INPUT_FILES}) rather than
-// "the whole repository", so that editing a ticket or an ADR does not cost a two-minute rebuild.
+// "the whole repository", so that editing documentation does not cost a two-minute rebuild.
 // **Adding a new source directory to either app means adding it here.** Erring on the side of
 // including something costs a rebuild; erring on the side of leaving something out is the stale
 // build this whole file exists to prevent, so when in doubt, include it.

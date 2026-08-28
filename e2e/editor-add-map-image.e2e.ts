@@ -32,10 +32,9 @@ import { deleteLayerRow, openLayerRow } from './support/layers.js';
 import { waitForStoredLayers } from './support/saved.js';
 
 /**
- * Ticket 06: a Map Image comes into a Project from any of three sources, through one
- * affordance, and the third of them is new (SPEC stories 21–30, 33, 36, 106).
+ * A Map Image comes into a Project from any of three sources, through one affordance.
  *
- * SPEC Seam 2 — the running app in a real browser against real OPFS. What can only be asserted here
+ * Seam 2 — the running app in a real browser against real OPFS. What can only be asserted here
  * is what the file and library sources already had suites of their own for
  * (`editor-image-ingest.e2e.ts`, `editor-remote-iiif.e2e.ts`) and what neither of them could:
  * that all three are offered together, and that adding a map the Workspace already holds writes a
@@ -109,13 +108,13 @@ test.describe('adding a Map Image', () => {
 	test('offers all three sources at once, with none of them behind a further step', async ({
 		page
 	}) => {
-		// The ticket's contract: "A user who has a map on their laptop, a map at a library, and a map
-		// they prepared last week should see all three answers at once." Asserted as three *operable*
-		// controls in one open dialog — not three headings, since a heading over a collapsed section
-		// would satisfy a weaker version of this and is exactly what was ruled out.
+		// A user who has a map on their laptop, a map at a library, and a map they prepared last week
+		// sees all three answers at once. Asserted as three *operable* controls in one open dialog —
+		// not three headings, since a heading over a collapsed section would satisfy a weaker version
+		// of this and is exactly what is ruled out.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
-		// One affordance in the sidebar, with words on it and not an icon alone (SPEC story 111). The
+		// One affordance in the sidebar, with words on it and not an icon alone. The
 		// plus supplies the verb, so the noun is what is written; the whole sentence is the accessible
 		// name, and it contains the visible words (WCAG 2.5.3).
 		const button = addMapImageButton(page);
@@ -134,9 +133,8 @@ test.describe('adding a Map Image', () => {
 	});
 
 	test('the empty Project names the button that fills it', async ({ page }) => {
-		// SPEC story 106, and the ticket's rule about it: the thing the sentence names has to be the
-		// thing that is there. Asserted against the button's own text, so renaming one and not the
-		// other is a failure rather than a drift nobody notices.
+		// The thing the sentence names has to be the thing that is there. Asserted against the button's
+		// own text, so renaming one and not the other is a failure rather than a drift nobody notices.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 
 		const label = await addMapImageButton(page).textContent();
@@ -290,7 +288,7 @@ const remoteRecord = (service: string, label: string) =>
 		height: 600
 	});
 
-test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
+test.describe('the dialog itself (ADR-0016)', () => {
 	test('opens as a modal dialog, closes on Escape, and gives focus back', async ({ page }) => {
 		// The repo's pattern, from `editor-project-screen.e2e.ts`'s settings-dialog test, and it is
 		// here because the helper this suite uses cannot stand in for it: `addMapImageIsOpen`
@@ -371,14 +369,14 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 
 	test('every control in it is reachable by keyboard', async ({ page }) => {
 		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
-		// │ THE WALK THIS TICKET TOOK AWAY AND OWED BACK.                                         │
+		// │ THE WALK THAT WOULD OTHERWISE HAVE BEEN LOST.                                         │
 		// └───────────────────────────────────────────────────────────────────────────────────────┘
 		//
 		// `editor-project-screen.e2e.ts` walks every focusable control inside `project-screen` and
-		// carves out dialogs "because they have keyboard tests of their own". Ticket 06 moved the
-		// file input and the whole `AddRemoteMap` form out of that subtree and into a dialog that
-		// had no such test — about five controls left the walk, and its `toBeGreaterThan(10)` guard
-		// does not notice. This is the replacement, and the carve-out's justification now holds.
+		// carves out dialogs "because they have keyboard tests of their own". The file input and the
+		// whole `AddRemoteMap` form live in this dialog rather than in that subtree — about five
+		// controls the walk therefore never reaches, and its `toBeGreaterThan(10)` guard would not
+		// notice their loss. This is the test that makes the carve-out's justification true.
 		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
 		await addMapImageFromFile(page, {
 			name: 'la-floride.png',
@@ -496,9 +494,7 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 });
 
 test.describe('adding a map this Workspace already holds', () => {
-	test('says so afterwards, because the dialog it happened in is gone (SPEC story 112)', async ({
-		page
-	}) => {
+	test('says so afterwards, because the dialog it happened in is gone', async ({ page }) => {
 		// The file source has a preparing card and a running commentary; the library source has a
 		// card and the community-Alignment notice. This one finishes in milliseconds and closes the
 		// dialog, so without a sentence a screen-reader user cannot tell a successful add from a
@@ -674,7 +670,7 @@ test.describe('adding a map this Workspace already holds', () => {
 	});
 });
 
-test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
+test.describe('the picker’s pictures (ADR-0030)', () => {
 	/** One candidate row — the `<li>`, so the picture beside the button is inside it. */
 	const candidate = (within: Page | Locator, label: string) =>
 		within.getByTestId('workspace-map-row').filter({ hasText: label });
@@ -768,7 +764,7 @@ test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
 
 		// ⚠ **A sibling of the candidate's button, not a child of it**, which is the claim `tabIndex`
 		// above cannot make: a plain `<img>` reports -1 wherever it sits, nested inside a `<button>`
-		// included, so that half of the assertion is true of the design this ticket rejected as well.
+		// included, so that half of the assertion is true of the rejected design as well.
 		await expect(candidate(page, 'la-floride.png').locator('button img')).toHaveCount(0);
 
 		// And the row still does what it did before the picture joined it: one press, one Layer, and the

@@ -6,8 +6,8 @@
 // `review.json`'s precedent, for a related reason: a fact *about this Workspace* belongs inside the
 // Workspace, so it travels with the directory wherever the directory goes — to a second browser
 // profile, into a folder on disk, and, uniquely here, back out of the Remote. A binding kept in
-// `localStorage` would be a fact about this browser, and a Clone (ticket 07) would have to be told
-// its own Remote by whoever cloned it.
+// `localStorage` would be a fact about this browser, and a Clone would have to be told its own Remote
+// by whoever cloned it.
 //
 // It is *inside* the published tree deliberately, which is the one thing that separates it from the
 // review mark. The binding never changes, so it causes no churn on the Remote; and because it is
@@ -49,7 +49,7 @@ export const REMOTE_BINDING_PATH = 'remote.json' as StorePath;
  */
 export const REMOTE_BINDING_FORMAT_VERSION = 1;
 
-/** The one branch this epic publishes to. SPEC: one branch, one commit per publish. */
+/** The one branch Ballastella publishes to. One branch, one commit per publish. */
 export const DEFAULT_REMOTE_BRANCH = 'main';
 
 /**
@@ -89,7 +89,7 @@ const isRepositoryName = (value: string): boolean =>
  *
  * An absent or empty branch normalises to {@link DEFAULT_REMOTE_BRANCH}, for the reason
  * {@link parseRemoteBinding} gives — a record written before anybody thought about branches names
- * the branch this epic publishes to.
+ * the branch Ballastella publishes to.
  */
 export function normaliseRemoteIdentity(record: {
 	readonly owner?: unknown;
@@ -125,8 +125,8 @@ export function serialiseRemoteBinding(binding: RemoteBinding): Bytes {
  *
  * ⚠ **The owner and the repository are checked against GitHub's own character sets, exactly as
  * {@link parseRemoteReference} checks what a user typed, and this is the *less* trusted of the two
- * inputs.** It is a file on disk — one a restored Backup, a colleague's folder, or (ticket 07) a
- * `remote.json` downloaded out of somebody else's published tree can put there — and both fields are
+ * inputs.** It is a file on disk — one a restored Backup, a colleague's folder, or a `remote.json`
+ * downloaded out of somebody else's published tree can put there — and both fields are
  * interpolated straight into an API path by the publish engine. An owner of `ada/../../orgs` or a
  * repository of `atlas?x=1` would retarget every request the engine makes. `encodeURIComponent` at
  * the interpolation is **not** the fix and must not be mistaken for one: it leaves `.` alone, so
@@ -171,7 +171,7 @@ export async function readRemoteBinding(
 /**
  * Bind a Workspace to a repository, refusing a Review Workspace.
  *
- * ⚠ **The refusal is here rather than only in the menu that offers it** (ADR-0024, story 39).
+ * ⚠ **The refusal is here rather than only in the menu that offers it** (ADR-0024).
  * Publishing somebody else's Project to your own address is promotion by another route and a worse
  * one, and a guard that lives in markup is one route away from being absent — a Clone, a restored
  * Backup, and a future URL parameter all reach a store without passing a menu.

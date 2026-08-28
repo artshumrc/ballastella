@@ -1,12 +1,12 @@
-// Where the editor's push credential is kept, in a document that has both web storages (SPEC story
-// 64, ADR-0024).
+// Where the editor's push credential is kept, in a document that has both web storages (ADR-0024).
 //
 // ⚠ **The claim is about which storage, so it needs a DOM that has the wrong one available.** A lab
 // or library machine is the case: the next person to sit down must not be signed in as the last one,
 // and the property that makes that true is that the credential lives as long as the tab and no
 // longer. `credential-store.test.ts` asserts what `webCredentialStore` does with a storage it is
 // handed; nothing there can see which storage the browser build picks, because in Node there is only
-// one. Asserted here rather than assumed, which is what the epic asked for.
+// one. Which storage a browser build reaches for is a claim only a browser can settle, so it is
+// asserted here rather than assumed.
 //
 // ⚠ **This is not a component test and it is here for the environment alone.** `browserCredentialStore`
 // is `packages/core`'s; what this seam contributes is a `sessionStorage` and a `localStorage` side by

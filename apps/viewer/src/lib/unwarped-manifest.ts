@@ -1,5 +1,5 @@
 // A one-canvas IIIF Presentation Manifest over a Map Image **as this site serves it**, so a
-// Reader can read the sheet unwarped (SPEC story 85).
+// Reader can read the sheet unwarped.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT DECIDES WHERE THE TILES COME FROM, AND WHY IT IS NOT THIS MODULE
@@ -23,16 +23,15 @@
 //
 // {@link servedImageServiceId} is therefore the whole of this module's honesty: it reports where the
 // tiles will *really* come from, and the page refuses to open a viewer that could only draw nothing.
-// ADR-0004's own remedy is the opt-in canonical stamp (SPEC story 92), which rewrites that `id` to the
-// address the Workspace is published at — a stamped Project reads unwarped here, and an unstamped one
-// says why it cannot. That limitation is upstream's and is recorded on ticket 17 rather than improvised
-// around: it is the missing prop — a `TileSource` a host can pass in — and the object that would be
-// passed is `storedPyramidTileSource` in `@ballastella/core`, whose header states the gap in full.
+// ADR-0004's own remedy is the opt-in canonical stamp, which rewrites that `id` to the address the
+// Workspace is published at — a stamped Project reads unwarped here, and an unstamped one says why it
+// cannot. That limitation is upstream's and is recorded rather than improvised around: what is missing
+// is a prop — a `TileSource` a host can pass in — and the object that would be passed is
+// `storedPyramidTileSource` in `@ballastella/core`, whose header states the gap in full.
 //
-// **The editor used to be the second caller waiting on that prop, and is not any more.** Ticket 15
-// deleted its `UnwarpedView` and took triiiceratops out of `apps/editor` altogether; this file and
-// `apps/viewer/src/lib/UnwarpedView.svelte` are now the only consumers, and both are unchanged by
-// that ticket. The upstream change still buys the same thing here.
+// **The editor is not a second caller waiting on that prop.** `apps/editor` has no unwarped view and
+// does not depend on triiiceratops at all, so this file and `apps/viewer/src/lib/UnwarpedView.svelte`
+// are its only consumers. The upstream change still buys the same thing here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS IS BUILT FROM
@@ -142,8 +141,8 @@ const positive = (value: unknown): number =>
  * Where a tiling viewer will actually fetch this pyramid's tiles from, or `null` when nowhere.
  *
  * `null` for the ADR-0004 placeholder host, which is what a locally ingested pyramid's `info.json`
- * carries unless the author opted into the canonical stamp (SPEC story 92). It is `null` rather than "the
- * site's own address" because **the site's own address is not an answer OpenSeadragon would accept** —
+ * carries unless the author opted into the canonical stamp. It is `null` rather than "the site's own
+ * address" because **the site's own address is not an answer OpenSeadragon would accept** —
  * see the note at the top of this file. A page that opened a viewer anyway would show a Reader an empty
  * rectangle and eight DNS failures they have no way to interpret, which is the unactionable outcome this
  * whole path exists to avoid.
@@ -199,7 +198,7 @@ function wholeImage(info: ServedImageInfo): { path: string; width: number; heigh
  *   that *looks* right and a viewer that fetches from somewhere else entirely, which is the trap the note
  *   at the top of this file exists to describe.
  * @param label what the Reader sees this Map Image called. The Layer's name, which is the author's
- *   own words for it (SPEC story 54) — never the image id, which is a random identifier (ADR-0015).
+ *   own words for it — never the image id, which is a random identifier (ADR-0015).
  */
 export function servedImageManifest(options: {
 	serviceId: string;

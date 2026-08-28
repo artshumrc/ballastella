@@ -1,6 +1,6 @@
 <script lang="ts">
 	// The distortion view: the colour overlay, which measure it shows, and the warped graticule
-	// (ADR-0013, SPEC stories 43–45).
+	// (ADR-0013).
 	//
 	// **None of this is persisted.** It is a working view, not a property of the work: persisted, it
 	// would become layer display state under ADR-0002 and a Published Site could load colourised, with

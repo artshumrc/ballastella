@@ -12,9 +12,9 @@ import {
 } from './support/workspace.js';
 
 /**
- * Reviewing one Project out of a public repository (ticket 08, ADR-0024, ADR-0031).
+ * Reviewing one Project out of a public repository (ADR-0024, ADR-0031).
  *
- * SPEC's Seam 2. The engine — the closure a Project's Layers make, the blob-SHA check, the refusals
+ * Seam 2. The engine — the closure a Project's Layers make, the blob-SHA check, the refusals
  * and their sentences — is asserted at Seam 1 in `review-from-remote.test.ts`, where the assertion
  * is the bytes that arrived and the fake's own counters rather than a screen. What only a browser
  * can show is here:
@@ -25,8 +25,7 @@ import {
  *     its Annotations all really landed, read back through the app's own code;
  *   - the Workspace-shared maps the *other* Project draws never arrive (ADR-0023);
  *   - the result is **unbound and unpublishable**, and the credential is **sealed** while it is open
- *     — the two refusals ticket 03 wrote, asserted at the route that creates the Workspace they
- *     protect against (SPEC stories 39 and 40);
+ *     — both refusals asserted at the route that creates the Workspace they protect against;
  *   - there is no affordance anywhere that moves the reviewed Project into the user's own Workspace,
  *     which ADR-0024 names as the fence making the rest coherent;
  *   - none of it needs a credential, and none is sent — asserted against a GitHub answering 401 to
@@ -283,7 +282,7 @@ test.describe('reviewing one Project from a Remote', () => {
 	test('makes a review copy holding that one Project, and switches to it', async ({ page }) => {
 		await start(page);
 
-		// ⚠ **Every control on this path from the keyboard alone** (SPEC story 92). The trigger, both
+		// ⚠ **Every control on this path from the keyboard alone**. The trigger, both
 		// fields and the confirmation, reached and pressed without a pointer: one taken out of the tab
 		// order passes a `click()` while being unreachable in the app.
 		const trigger = page.getByTestId('review-remote');
@@ -376,8 +375,8 @@ test.describe('reviewing one Project from a Remote', () => {
 	});
 
 	test('arrives unbound and unpublishable, and says why', async ({ page }) => {
-		// SPEC story 39, at the route that creates the Workspace it is about. The domain refusal itself
-		// is called directly in `review-from-remote.test.ts`; what is asserted here is that the screens
+		// Asserted at the route that creates the Workspace it is about. The domain refusal itself is
+		// called directly in `review-from-remote.test.ts`; what is asserted here is that the screens
 		// agree with it rather than offering a control the domain would then refuse.
 		await start(page);
 
@@ -397,9 +396,9 @@ test.describe('reviewing one Project from a Remote', () => {
 	});
 
 	test('seals the GitHub sign-in for as long as it is open', async ({ page }) => {
-		// ⚠ SPEC story 40. A teacher signs in to publish their own work, then opens a submission: the
-		// credential must be unreadable from inside it — and still there when they come back out,
-		// because sealing is containment rather than a sign-out (`closedWhileReviewing`).
+		// ⚠ A teacher signs in to publish their own work, then opens a submission: the credential must
+		// be unreadable from inside it — and still there when they come back out, because sealing is
+		// containment rather than a sign-out (`closedWhileReviewing`).
 		await start(page);
 
 		// Bound with a pasted token, which is how this deployment signs in (ADR-0031) and the state a
@@ -561,8 +560,7 @@ test.describe('reviewing one Project from a Remote', () => {
 });
 
 /**
- * A Reader who followed "Review this Project in Ballastella" off a Published Site (ticket 09; SPEC
- * stories 50 and 51).
+ * A Reader who followed "Review this Project in Ballastella" off a Published Site.
  *
  * ⚠ **The offer is the behaviour under test, not the Review.** A link that silently made a Workspace
  * and switched to it would rearrange a stranger's editor, so landing must change nothing until a
@@ -620,8 +618,7 @@ test.describe('arriving on a link from a Published Site', () => {
 	});
 
 	/**
-	 * The other half of what one link now offers: keeping the Project rather than looking at it
-	 * (SPEC stories 4, 5, 74 and 80).
+	 * The other half of what one link offers: keeping the Project rather than looking at it.
 	 *
 	 * ⚠ **One test, because the claims are one workflow and none of them survives on its own.** That
 	 * the Import writes into the Workspace the offer *named* is only observable against the Workspace
@@ -644,12 +641,12 @@ test.describe('arriving on a link from a Published Site', () => {
 
 		await page.goto(LINK);
 
-		// The destination in words, beside the other answer and the way out (stories 74–76).
+		// The destination in words, beside the other answer and the way out.
 		await expect(page.getByTestId('import-return-link')).toContainText(DEFAULT_WORKSPACE);
 		await expect(accept(page)).toContainText('review copy');
 		await expect(page.getByTestId('dismiss-return-link')).toBeVisible();
 
-		// ⚠ **Reached and pressed from the keyboard alone, and watched while it runs** (SPEC story 95).
+		// ⚠ **Reached and pressed from the keyboard alone, and watched while it runs**.
 		// A control taken out of the tab order passes a pointer test while being unreachable in the app,
 		// and the button that was pressed is the one focus has to survive on: this download is minutes
 		// long over a pyramid, and `disabled` would drop a keyboard user onto `<body>` for all of it.
@@ -706,10 +703,10 @@ test.describe('arriving on a link from a Published Site', () => {
 		);
 		for (const path of NOT_THIS_PROJECT) expect(paths).not.toContain(path);
 
-		// ⚠ **Story 80: the published tree names `someone-else/fork`, and this Workspace is still
-		// unbound.** A copied or forked repository choosing a stranger's Remote is the failure the
-		// separation between published metadata and local binding exists to prevent, so the bind form
-		// is what the Remote screen shows.
+		// ⚠ **The published tree names `someone-else/fork`, and this Workspace is still unbound.** A
+		// copied or forked repository choosing a stranger's Remote is the failure the separation between
+		// published metadata and local binding exists to prevent, so the bind form is what the Remote
+		// screen shows.
 		await openRemoteSettings(page);
 		await expect(page.getByTestId('remote-repository-field')).toBeVisible();
 		await expect(page.getByTestId('bound-remote')).toHaveCount(0);
@@ -737,7 +734,7 @@ test.describe('arriving on a link from a Published Site', () => {
 		await page.goto(LINK);
 
 		// The other answer to the same link, from the keyboard, for the reason the Import beside it is:
-		// a reader who followed a link is the person likeliest to be using one (SPEC story 92).
+		// a reader who followed a link is the person likeliest to be using one.
 		await accept(page).focus();
 		await expect(accept(page)).toBeFocused();
 		await page.keyboard.press('Enter');
@@ -797,7 +794,7 @@ test.describe('arriving on a link from a Published Site', () => {
 		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 		// ⚠ **The button that was pressed went with the offer**, so without somewhere to send focus a
 		// visitor who declined a link would be left on `<body>`, tabbing in from the top of a page they
-		// had already read (SPEC story 95). `<main>` is where the editor's own work is.
+		// had already read. `<main>` is where the editor's own work is.
 		await expect(page.locator('main')).toBeFocused();
 		await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0);
 		await expect.poll(() => new URL(page.url()).searchParams.get('p')).toBeNull();

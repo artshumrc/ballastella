@@ -9,7 +9,7 @@ import { DirectoryHandleStore } from './directory-handle-store.js';
  *
  * A workspace is a **named directory in the OPFS root** and Projects are directories inside it —
  * the same layout a real folder gets, so a Project copied between backends by hand still opens.
- * The root itself was the workspace until ticket 12; ADR-0024 needs it to hold several, so that a
+ * The root is not itself a Workspace: ADR-0024 needs it to hold several, so that a
  * Review Workspace is not a subdirectory of the user's own. See `opfs-workspaces.ts`.
  *
  * Everything about bytes on disk is in {@link DirectoryHandleStore}, shared with the folder

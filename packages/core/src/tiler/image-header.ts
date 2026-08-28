@@ -10,7 +10,7 @@
 // the first few dozen bytes, and reading them costs nothing.
 //
 // TIFF is included even though most browsers cannot decode one, because an uncompressed or LZW
-// TIFF is what a library hands a scholar when they ask for the archival master (SPEC story 22).
+// TIFF is what a library hands a scholar when they ask for the archival master.
 // Reading its header is what lets ingest give a straight answer about it: a TIFF over the cap is
 // refused for its size, and one under the cap reaches `createImageBitmap` and is refused as a
 // format the browser does not read, with the advice to convert it. Without the header both cases

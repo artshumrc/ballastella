@@ -1,5 +1,5 @@
 // The list of Project cards the Hub and the Front Page share, asserted against the component rather
-// than against either app (SPEC stories 8, 52–54, 59, 60).
+// than against either app.
 //
 // The same markup used to be written twice — `card bg-base-100 card-border` in
 // `apps/editor/src/lib/components/ProjectHub.svelte` and again in `apps/viewer/src/routes/+page.svelte`
@@ -153,7 +153,7 @@ describe('the card both apps render', () => {
 	});
 });
 
-describe('the leading media slot, and the row with nowhere to go (SPEC stories 34, 37)', () => {
+describe('the leading media slot, and the row with nowhere to go', () => {
 	// The editor's Map Image list is this component with a thumbnail handed to it, which is what
 	// retired the second copy of this markup. Both halves in one test for the reason the paired test
 	// below gives: an absence asserted alone would go on passing with the slot deleted.
@@ -210,7 +210,7 @@ describe('the leading media slot, and the row with nowhere to go (SPEC stories 3
 	});
 });
 
-describe('a control the consumer does not ask for is not there (SPEC stories 53, 54, 60)', () => {
+describe('a control the consumer does not ask for is not there', () => {
 	// ⚠ **Both halves of the claim, in one test, on purpose.** An absence asserted on its own is the
 	// vacuous green this repository's testing decisions exist to prevent: rename one `data-testid` and
 	// every `not.toBeInTheDocument()` below goes on passing while the control it names sits on the

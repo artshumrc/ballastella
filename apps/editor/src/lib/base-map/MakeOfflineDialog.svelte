@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "Make this Project available offline" (SPEC stories 70–73, ADR-0025).
+	// "Make this Project available offline" (ADR-0025).
 	//
 	// The Base Map's counterpart to `OfflineCopyJob`, and deliberately the same two-step shape: ADR-0007's
 	// rule is that fetching from somebody else's server is a decision the user takes knowingly, and it
@@ -10,9 +10,9 @@
 	// `<dialog>` through {@link ModalDialog}, per ADR-0016: `showModal()` brings Escape, the focus trap,
 	// and focus restoration, decided once in that component.
 	//
-	// **Everything here is visible text** (SPEC story 111). The count, the estimate, the refusal, and
-	// the progress are all sentences in the flow of the dialog — no tooltip, no badge colour, and
-	// nothing conveyed by an icon alone.
+	// **Everything here is visible text.** The count, the estimate, the refusal, and the progress are
+	// all sentences in the flow of the dialog — no tooltip, no badge colour, and nothing conveyed by
+	// an icon alone.
 
 	import { tick } from 'svelte';
 
@@ -67,7 +67,7 @@
 
 	<!--
 		The count and the estimate, before a single tile is fetched. This is the sentence the whole
-		two-step shape exists for: the user agrees to a known cost (SPEC story 71).
+		two-step shape exists for: the user agrees to a known cost.
 	-->
 	{#if job.budgetSummary}
 		<dl class="mt-4 text-sm" data-testid="offline-budget">
@@ -81,7 +81,7 @@
 	{/if}
 
 	{#if job.refusal}
-		<!-- SPEC story 72: refused with the numbers and an explanation, and nothing written. -->
+		<!-- A refusal carries the numbers and an explanation, and nothing is written. -->
 		<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
 			<p data-testid="offline-refusal">{job.refusal}</p>
 		</div>

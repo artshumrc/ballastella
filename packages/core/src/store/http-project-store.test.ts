@@ -6,8 +6,8 @@ import { InvalidPathError, PathNotFoundError, type StorePath } from './project-s
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS NOT `describeProjectStore`
 //
-// Ticket 12's File System Access adapter passed ticket 02's shared suite with **zero changes to the
-// suite**, which is the outcome ADR-0001 was aiming for. This adapter cannot, and the reason is worth
+// The File System Access adapter passed the shared suite with **zero changes to the suite**, which is
+// the outcome ADR-0001 was aiming for. This adapter cannot, and the reason is worth
 // recording rather than worked around, because the tempting fixes are all worse than the honest
 // answer.
 //
@@ -17,18 +17,18 @@ import { InvalidPathError, PathNotFoundError, type StorePath } from './project-s
 // or use `store.write` to arrange their fixture — including all four `listing` tests and both `size`
 // tests, which have no other way to put a file where they can find it.
 //
-// This backend has no `write`, by type (see `ReadOnlyProjectStore`), because ticket 17 requires that
-// the viewer have none and a static host would refuse one anyway. Three routes to a green suite were
-// considered and all three are worse:
+// This backend has no `write`, by type (see `ReadOnlyProjectStore`), because the viewer must have
+// none and a static host would refuse one anyway. Three routes to a green suite were considered and
+// all three are worse:
 //
 //   1. **Give the adapter a `write` that rejects.** Then the suite still fails — every fixture would
-//      reject — and the viewer would have a reachable `write`, which is exactly what the ticket says
-//      it must not have.
+//      reject — and the viewer would have a reachable `write`, which is exactly what it must not
+//      have.
 //   2. **Let the fixture seed files behind the adapter's back** (a `seed()` hook, or a fake server the
 //      fixture writes into). The suite would then be exercising the fixture's write path and this
 //      adapter's read path, so the ~20 assertions about atomicity, litter, and `size` would be
-//      assertions about the *test double*. That is a suite passing vacuously, which the tracker
-//      records as having happened three times already on ticket 02.
+//      assertions about the *test double*. That is a suite passing vacuously, which this storage
+//      layer has already been through more than once.
 //   3. **Widen the suite** — split it into read-only and read-write halves. That is the one that
 //      might be right eventually, but the shared suite is the load-bearing artefact of the storage
 //      layer, and quietly restructuring it so a fourth backend fits is the failure ADR-0001's rule is
@@ -125,8 +125,8 @@ describe('the HTTP ProjectStore adapter', () => {
 		});
 
 		it('revalidates rather than serving a stale Project from the browser cache', async () => {
-			// SPEC story 81: one repository for a whole semester, re-published in place. A Reader who
-			// looked last week must not be shown last week's `project.json` beside this week's tiles.
+			// One repository for a whole semester, re-published in place. A Reader who looked last week must
+			// not be shown last week's `project.json` beside this week's tiles.
 			const { fetch, init } = serving({ 'https://scholar.example/p/project.json': '{}' });
 			await createHttpProjectStore({
 				resolve: relativeTo('https://scholar.example/'),
@@ -172,7 +172,7 @@ describe('the HTTP ProjectStore adapter', () => {
 	});
 
 	describe('a host that is not answering', () => {
-		// Told apart from "not there" on purpose, and this is the distinction ticket 17's degradation
+		// Told apart from "not there" on purpose, and this is the distinction the viewer's degradation
 		// table needs: a Layer whose document is absent is a Project published incomplete, and one whose
 		// host refused the connection is a Project that is fine and a server that is not.
 
@@ -241,8 +241,8 @@ describe('the HTTP ProjectStore adapter', () => {
 
 	describe('what it deliberately cannot do', () => {
 		it('has no write, and therefore nothing a Reader does can attempt one', () => {
-			// Ticket 17: "The viewer has no store `write`." Asserted on the object rather than only in the
-			// type, because a type is not what a Reader's browser runs — and because the tempting shape,
+			// The viewer has no store `write`. Asserted on the object rather than only in the type, because
+			// a type is not what a Reader's browser runs — and because the tempting shape,
 			// a `write` that rejects, would pass a type check and put a reachable write in a Published
 			// Site.
 			const store = createHttpProjectStore({ resolve: relativeTo('https://x.example/') });

@@ -19,8 +19,8 @@ import { describeProjectStore } from './project-store-suite.js';
  * other's files. The app uses `OpfsProjectStore.open(name)`, whose root is a **named directory in**
  * the OPFS root — asserted below, because that is the layout ADR-0024 amended ADR-0001 to.
  *
- * ⚠ **The shared suite below runs unmodified, and that is the load-bearing claim of ticket 12.**
- * A named-subdirectory OPFS store is still one `DirectoryHandleStore` over one
+ * ⚠ **The shared suite below runs unmodified, and that is the load-bearing claim.** A
+ * named-subdirectory OPFS store is still one `DirectoryHandleStore` over one
  * `FileSystemDirectoryHandle`, so nothing about the interface had to widen and no assertion had to
  * relax. Had the suite needed an edit, the abstraction would have been broken rather than extended —
  * which is exactly what the File System Access adapter's own suite says about itself.
@@ -42,8 +42,9 @@ describeProjectStore('OpfsProjectStore', async () => {
  * The same suite again, through the seam the **app** actually uses.
  *
  * The fixture above hands the store a directory handle directly, which exercises everything below
- * the resolver and nothing of the resolver itself — and the resolver is the entire change ticket 12
- * made to this class. So it runs a second time against `OpfsProjectStore.open(name)`, where the root
+ * the resolver and nothing of the resolver itself — and the resolver is the whole of what a named
+ * Workspace adds to this class. So it runs a second time against `OpfsProjectStore.open(name)`,
+ * where the root
  * is reached by descending into a named subdirectory of the OPFS root, the way every Workspace in the
  * running app is.
  */
@@ -80,9 +81,9 @@ it('puts a Project inside its named Workspace, never in the OPFS root (ADR-0024)
 });
 
 it('keeps two named Workspaces’ Projects apart, each invisible to the other', async () => {
-	// SPEC story 105 and the demonstration the ticket asks for: a second Workspace opens empty, and
-	// switching back finds the first one's Projects. Asserted on the stores rather than through the
-	// app, because "which files exist" is the behaviour and not a proxy for it.
+	// A second Workspace opens empty, and switching back finds the first one's Projects. Asserted on
+	// the stores rather than through the app, because "which files exist" is the behaviour and not a
+	// proxy for it.
 	const suffix = crypto.randomUUID();
 	const mine = OpfsProjectStore.open(`Mine ${suffix}`);
 	const theirs = OpfsProjectStore.open(`Theirs ${suffix}`);
@@ -102,7 +103,7 @@ it('keeps two named Workspaces’ Projects apart, each invisible to the other', 
 });
 
 /**
- * Update from GitHub over real browser storage (ticket 15).
+ * Update from GitHub over real browser storage.
  *
  * The engine and its fault matrix are exhausted at Seam 1 over the memory store. What this adds is
  * the backing an author's own Workspace actually uses underneath the transaction: real two-step
@@ -117,10 +118,10 @@ it('reports OPFS as supported in a browser', () => {
 	expect(OpfsProjectStore.isSupported()).toBe(true);
 });
 
-it('writes atomically in a browser with no FileSystemFileHandle.move (SPEC story 4)', async () => {
-	// The adapter prefers `move` and copies when a browser has none. That fallback was dead code
-	// that no test executed — and story 4's promise is a *fully* functional tool wherever folder
-	// access is impossible, which is precisely the browsers that lack `move`.
+it('writes atomically in a browser with no FileSystemFileHandle.move', async () => {
+	// The adapter prefers `move` and copies when a browser has none. That fallback is otherwise dead
+	// code no test executes — and the promise is a *fully* functional tool wherever folder access is
+	// impossible, which is precisely the browsers that lack `move`.
 	//
 	// Running the suite in a second engine does not reach it: Firefox 153 has `move` too, so the
 	// branch has to be entered deliberately, by hiding `move` the way Safari does.
@@ -277,8 +278,8 @@ it('re-reads a directory that changed mid-listing rather than returning a short 
 	// **The failure mode that the obvious fix introduces.** Keeping the entries collected before a
 	// mid-drain `NotFoundError` and carrying on gives a listing that is short by an unknown number of
 	// files and reports success — quieter and worse than the throw it replaces, because `list('')`
-	// feeds the hub, publishing, and ticket 13's backup, where a short listing is an archive silently
-	// missing somebody's work.
+	// feeds the hub, publishing, and backup, where a short listing is an archive silently missing
+	// somebody's work.
 	//
 	// So the drain is restarted instead. The first read of `p/` throws after one of its three files;
 	// a "keep what we have" implementation answers `['p/a.json']` and this asserts all three.

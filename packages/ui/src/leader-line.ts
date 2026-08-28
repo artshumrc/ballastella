@@ -1,4 +1,4 @@
-// Where the dashed leader goes: a pure function of five boxes (SPEC stories 39, 41, 46).
+// Where the dashed leader goes: a pure function of five boxes.
 //
 // **All of the "not drawn at all" rules live here rather than in the component**, because every one
 // of them is a comparison of two rectangles and none of them needs a browser to decide. That is the

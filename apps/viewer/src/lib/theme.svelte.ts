@@ -15,18 +15,18 @@ import { otherTheme, type Theme } from '@ballastella/core';
  * that matters — that one signal drives both surfaces — is a rule about there being exactly one of
  * these per app, which a shared module would not make any truer.
  *
- * **This one is four lines of state over a `data-theme` attribute; the editor's is not.** Since the
- * workspace-and-layers epic the editor's carries three states, a `localStorage` preference and a live
- * `prefers-color-scheme` listener, because an author works in that window for hours and a desktop
- * that switches to dark at sunset has to move it. This module reads the media query **once, at
- * construction**, and that is a deliberate difference rather than the bug the editor fixed: a Reader
- * has no stored preference to respect and no long session to be interrupted in, so the only state is
- * "what the machine asked for when the page loaded" plus whatever they toggle while reading. If a
- * Reader is ever given a remembered theme, this is where the live listener has to arrive with it.
+ * **This one is four lines of state over a `data-theme` attribute; the editor's is not.** The
+ * editor's carries three states, a `localStorage` preference and a live `prefers-color-scheme`
+ * listener, because an author works in that window for hours and a desktop that switches to dark at
+ * sunset has to move it. This module reads the media query **once, at construction**, and that is a
+ * deliberate difference rather than the bug the editor fixed: a Reader has no stored preference to
+ * respect and no long session to be interrupted in, so the only state is "what the machine asked for
+ * when the page loaded" plus whatever they toggle while reading. If a Reader is ever given a
+ * remembered theme, this is where the live listener has to arrive with it.
  *
- * A Reader's theme is **not** persisted. Ticket 17 scoped persistence to the Base Map choice and
- * nothing else, and the starting point below costs nothing and is already the reader's own: the
- * operating system's setting.
+ * A Reader's theme is **not** persisted. The Base Map choice is the one thing a Published Site
+ * remembers — see the `localStorage` note in `routes/+page.svelte` — and the starting point below
+ * costs nothing and is already the reader's own: the operating system's setting.
  */
 class ThemeSignal {
 	#current = $state<Theme>(preferredTheme());

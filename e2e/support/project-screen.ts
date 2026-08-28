@@ -3,7 +3,7 @@ import { expect, type Locator, type Page } from './test.js';
 import { PROJECT_DIRECTORY } from './annotations';
 
 /**
- * Reaching the Project's own settings (ticket 04).
+ * Reaching the Project's own settings.
  *
  * The Project name, its folder and its last-saved time live in a `<dialog>` opened from the edit
  * button beside the breadcrumb (ADR-0016). Every suite that types into the name field goes through
@@ -25,8 +25,8 @@ export async function projectNameField(page: Page): Promise<Locator> {
 /**
  * Put a Map Image Layer for `imageId` into a Project's `project.json`, behind the app's back.
  *
- * Fixtures that write a Workspace `remote.json` directly are writing what a *Workspace* holds; since
- * ticket 04 the Project screen shows a Map Image only where a Layer of this Project draws it
+ * Fixtures that write a Workspace `remote.json` directly are writing what a *Workspace* holds; the
+ * Project screen shows a Map Image only where a Layer of this Project draws it
  * (ADR-0023: the Workspace owns the map, the Project owns how it is presented). So a fixture that
  * wants the map on the Project screen has to say which Project draws it, which is what this does —
  * the same thing `addReferencedMap` writes, minus the network.

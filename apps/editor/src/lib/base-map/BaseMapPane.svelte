@@ -115,16 +115,15 @@
 		/**
 		 * The Alignment to draw warped over the geography, or `null` for none.
 		 *
-		 * Ticket 06 exercised `@allmaps/maplibre` on a bare dev route because no Alignment existed
-		 * yet; this is where a warped Map Image actually belongs — over the earth it has been
-		 * aligned onto — and that route is gone.
+		 * A warped Map Image belongs over the earth it has been aligned onto, which is what this pane
+		 * draws. No route in this app puts `@allmaps/maplibre` on screen outside an Alignment.
 		 */
 		alignment?: Alignment | null;
 		/**
 		 * Where {@link alignment}'s Map Image is served from, or `null` when the caller cannot say.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────────
-		 * ⚠ **WITHOUT THIS, A REFERENCED MAP DRAWS NOTHING AND NOTHING SAYS SO** (ticket 07).
+		 * ⚠ **WITHOUT THIS, A REFERENCED MAP DRAWS NOTHING AND NOTHING SAYS SO.**
 		 *
 		 * `showAlignment` builds the renderer's document from either the ADR-0004 placeholder or the
 		 * Library's own service, and `@allmaps/maplibre` fetches every warped tile from whichever id it
@@ -137,8 +136,8 @@
 		 * alignment route can — `EditorSession.mapImageSource` — and it is the same value that
 		 * decides the pane's tile base and the Alignment's `resource.id`, so the three cannot disagree.
 		 *
-		 * `null` keeps ticket 08's behaviour exactly: `referenced: false`, which is right for any caller
-		 * that genuinely cannot observe it, since refusing on a guess would refuse every local copy.
+		 * `null` means `referenced: false`, which is right for any caller that genuinely cannot observe
+		 * it, since refusing on a guess would refuse every local copy.
 		 */
 		alignmentSource?: MapImageSource | null;
 		/**
@@ -152,7 +151,7 @@
 		 */
 		alignmentOpacity?: number;
 		/**
-		 * The Project's Layer stack, top first, with each Layer's documents already read (ticket 09).
+		 * The Project's Layer stack, top first, with each Layer's documents already read.
 		 *
 		 * Only visible Layers belong here: hiding one is its absence from this list, so there is no
 		 * second place where a Layer can be on the map but not drawn. The stack decides what draws over
@@ -194,12 +193,12 @@
 		 * Enter reports the **centre of the map**, which is what makes drawing an Annotation reachable
 		 * without a pointer: MapLibre already pans the canvas with the arrow keys and zooms with `+` and
 		 * `-`, so "move the map to the place, then press Enter" is a complete path with nothing new to
-		 * learn. Ticket 10's criterion is that every drawing tool is operable by keyboard, and a tool
-		 * that can be *selected* but not *used* by keyboard would satisfy the letter of it only.
+		 * learn. Every drawing tool must be operable by keyboard, and a tool that can be *selected* but
+		 * not *used* by keyboard would satisfy the letter of that only.
 		 */
 		onclickpoint?: (point: GeoPoint) => void;
 		/**
-		 * An Annotation the user clicked, by its Layer and its own id (ticket 10).
+		 * An Annotation the user clicked, by its Layer and its own id.
 		 *
 		 * Reported **in addition to** {@link onclickpoint} rather than instead of it, because which one
 		 * matters depends on the tool the page is holding: with a drawing tool active the click places a
@@ -209,7 +208,7 @@
 		 *
 		 * **Where on the earth the click landed is not reported with it**, and no longer needs to be:
 		 * nothing is drawn over the map for an Annotation. The click opens that Annotation's row in the
-		 * sidebar, which is where an Annotation is read (ticket 07), and a row has no anchor.
+		 * sidebar, which is where an Annotation is read, and a row has no anchor.
 		 */
 		onclickannotation?: (hit: { layerId: string; annotationId: string }) => void;
 		/**
@@ -241,7 +240,7 @@
 		 */
 		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
 		/**
-		 * Whether the Base Map's own source is drawing, and why not when it is not (ticket 20).
+		 * Whether the Base Map's own source is drawing, and why not when it is not.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────
 		 * NOBODY LISTENED TO `map.on('error')`, AND THAT IS HOW AN OUTAGE READS AS A BROKEN TOOL
@@ -262,7 +261,7 @@
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 		/**
-		 * Which Annotation is selected, so the map draws that one more strongly (SPEC story 40).
+		 * Which Annotation is selected, so the map draws that one more strongly.
 		 *
 		 * A prop rather than something the pane works out, because selection is the page's state: the
 		 * sidebar, the map and the leader all read the same one value. Applied in place like opacity —
@@ -371,7 +370,7 @@
 			// ODbL makes the attribution a licence condition, so it is not folded behind an "i".
 			attributionControl: { compact: false },
 			// MapLibre puts this on the canvas as its accessible name. A WebGL canvas announces
-			// nothing on its own, and there will be a second pane (ticket 03) to tell apart.
+			// nothing on its own, and there is a second map pane to tell apart from this one.
 			locale: { 'Map.Title': 'Base Map' }
 		});
 		// Zoom sits at the bottom-left in every map pane in this application. Bottom-left is the corner
@@ -593,7 +592,7 @@
 
 	/**
 	 * Bring `annotation`'s mark into the part of the pane nothing is covering, and only if it is not
-	 * there already (the-annotation-inspector stories 17, 19).
+	 * there already.
 	 *
 	 * `occluder` is the box of whatever is docked over this pane — the Annotation Inspector — in the
 	 * viewport's own coordinates, or `null` when nothing is. The page measures it because the page is
@@ -658,9 +657,8 @@
 		//
 		// The docked panel is a column inset from the pane's right edge, so the region left for the mark is
 		// *beside* it and the reservation is on x. A phone's sheet spans the pane's width, so there is no
-		// strip beside it to put anything in and the region left is *above* it: the reservation is on y
-		// instead (the-annotation-inspector ticket 09's contract, "a sheet at the bottom is a reservation
-		// on the y axis instead of the x").
+		// strip beside it to put anything in and the region left is *above* it: a sheet at the bottom is
+		// a reservation on the y axis instead of the x.
 		//
 		// ⚠ **Reading the geometry rather than a media query is what keeps this one rule.** This component
 		// is not told which layout rendered the panel — the consumer positions it, which is the whole
@@ -721,7 +719,7 @@
 	}
 
 	/**
-	 * Whoever wants to be told the camera has moved. The leader line (ticket 12), and nothing else.
+	 * Whoever wants to be told the camera has moved. The leader line, and nothing else.
 	 *
 	 * A set held here rather than the map handed out, because "the camera moved" is the whole of what
 	 * the caller needs and a MapLibre instance is every gesture on this pane. It is also the only
@@ -775,10 +773,10 @@
 		overlayLayer?.update(overlayPoints);
 	});
 
-	// Ticket 03's `fitTo` stood here — a list of Control Points fitted on array identity. Ticket 09
-	// replaced it with `openingFit` below, which frames on the Resource Mask rather than the pairs,
-	// caps the zoom by ADR-0026's rule rather than this pane's own, and announces where the map went.
-	// The identity-guarded "once, and never under the user's drag" contract survives in `applyOpeningFit`.
+	// Framing the map is `openingFit`'s job, below: it frames on the Resource Mask rather than on the
+	// Control Point pairs, caps the zoom by ADR-0026's rule rather than by this pane's own, and
+	// announces where the map went. The identity-guarded "once, and never under the user's drag"
+	// contract lives in `applyOpeningFit`.
 
 	/**
 	 * The drawn warped Map Image, for the in-place updates below.
@@ -963,11 +961,11 @@
 	 * because a theme change repaints a map that loaded minutes ago.
 	 *
 	 * **And a style that never completes is reported rather than waited on for ever.** The gate cannot
-	 * deadlock, but it can wait indefinitely — an unreachable PMTiles archive on a reading room's wifi
-	 * (SPEC story 8) — and then `attach` never runs, `onstack` is never called, and the page's own
-	 * fallback has nothing to say about a Layer whose document it read perfectly well. The region read
-	 * "0 of 1 Layers are drawn" with no problem text, which tells a user their work is missing and not
-	 * why. `giveUp` is that account.
+	 * deadlock, but it can wait indefinitely — an unreachable PMTiles archive on a reading room's wifi —
+	 * and then `attach` never runs, `onstack` is never called, and the page's own fallback has nothing
+	 * to say about a Layer whose document it read perfectly well. The region read "0 of 1 Layers are
+	 * drawn" with no problem text, which tells a user their work is missing and not why. `giveUp` is
+	 * that account.
 	 *
 	 * ⚠ **And it is an account of the wait, not the end of it.** The budget is a guess about how long a
 	 * working load takes, and a loaded machine beats that guess routinely — so the listeners stay on
@@ -1010,7 +1008,7 @@
 		return stop;
 	};
 
-	/** The Project's Layer stack (ticket 09), on the same `fetchFn` injection point (ADR-0011). */
+	/** The Project's Layer stack, on the same `fetchFn` injection point (ADR-0011). */
 	$effect(() => {
 		// The only tracked dependencies, so that an opacity change cannot reach this effect.
 		void stackStructure;

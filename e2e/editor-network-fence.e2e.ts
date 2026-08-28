@@ -129,8 +129,8 @@ test.describe('the network fence', () => {
 		// the answer `pmtiles`' `FetchSource` rejects outright, and the reason `byteRange` exists.
 		expect(served.status).toBe(206);
 		expect(served.length).toBe(7);
-		// PMTiles v3's magic number. Zeros of the right length would satisfy a length assertion, and
-		// ticket 17 measured that an all-zero archive passes several of this suite's Base Map tests.
+		// PMTiles v3's magic number. Zeros of the right length would satisfy a length assertion, and an
+		// all-zero archive was measured to pass several of this suite's Base Map tests.
 		//
 		// `content-range` is deliberately not asserted: it is not a CORS-safelisted response header,
 		// so JavaScript in the page cannot read it off a cross-origin `fulfill` without an

@@ -1,5 +1,5 @@
 // The destination half of Project Import: one closure, written once, under one recoverable marker
-// (ticket 04, ADR-0037).
+// (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE ASSERTIONS ARE WHOLE STORE SNAPSHOTS AND NOT CALL ORDER
@@ -7,8 +7,8 @@
 // The claim under test is that a Workspace shows either its old complete state or its new complete
 // imported Project and never a mixture. That is a claim about the *files*, so every fault case
 // compares the entire store against a complete expected snapshot rather than asserting which methods
-// were called in which order — the SPEC's rule for a good test at this seam, and the only form of the
-// assertion that a different implementation of the same protocol would still have to satisfy.
+// were called in which order — CONTRIBUTING.md's rule for a good test at this seam, and the only form
+// of the assertion that a different implementation of the same protocol would still have to satisfy.
 //
 // **`project.json` last is proved the same way.** No spy: the fault matrix walks every durable
 // boundary, and at each one the snapshot is compared whole. A snapshot holding the imported manifest
@@ -539,7 +539,7 @@ describe('committing a Project Import', () => {
 			const refusal = await refusalOf(() => importInto(store));
 
 			expect(refusal.refusal).toBe('unresolved-commit');
-			// The Project is complete and the Workspace is shut, which is what ticket 05 finishes.
+			// The Project is complete and the Workspace is shut, which is what recovery finishes.
 			expect(snapshot(store)).toEqual({
 				...AFTER,
 				[IMPORT_TRANSACTION_PATH]: decode(serialiseImportTransaction(COMMITTED))

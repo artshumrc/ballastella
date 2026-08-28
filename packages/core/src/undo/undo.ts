@@ -11,9 +11,9 @@ import type { Layer } from '../project/layer.js';
  *
  * **A map Layer answers `''`, and that is ADR-0023 rather than an omission.** Its Alignment and its
  * pyramid belong to the Workspace and are shared by every Project that references the image, so
- * deleting the Layer must leave both alone — SPEC story 67: removing a Layer leaves the Map Image
- * available. Returning `alignments/<id>.json` here would make one Project's delete button destroy
- * another Project's map.
+ * deleting the Layer must leave both alone — removing a Layer leaves the Map Image available.
+ * Returning `alignments/<id>.json` here would make one Project's delete button destroy another
+ * Project's map.
  *
  * A {@link import('../project/layer.js').ForeignLayer} answers `''` too, for a different reason: its
  * reference is a field in `unknownFields` whose name this build has never heard of, and guessing would

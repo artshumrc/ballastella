@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The two controls of one screen's Edit History (ADR-0039, SPEC stories 42–49).
+	// The two controls of one screen's Edit History (ADR-0039).
 	//
 	// **Undo carries the Step's whole sentence, and that is the requirement rather than a nicety.** A
 	// bare "Undo" after an accidental delete does not answer the question a scholar actually has —

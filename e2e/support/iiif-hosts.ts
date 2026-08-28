@@ -1,4 +1,4 @@
-// The fake IIIF services every spec that needs one shares (ticket 07).
+// The fake IIIF services every spec that needs one shares.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS ONE MODULE
@@ -72,7 +72,7 @@ export type HostShape = {
 	 * a list of whole-image derivatives, which is not a pyramid.
 	 */
 	readonly tiles?: boolean;
-	/** A declared limit on one request, as two of ticket 14's fourteen real services carry. */
+	/** A declared limit on one request, as two of fourteen surveyed real services carry. */
 	readonly maxWidth?: number;
 	/** Milliseconds to hold each tile response, so a copy can be cancelled in the middle. */
 	readonly tileDelayMs?: number;
@@ -94,7 +94,7 @@ export type HostShape = {
  * ```
  *   images.test       level 2, 700×500 — the ordinary case nearly every spec uses.
  *   static.test       level 0 with tiles, whose `full/max` is a 404. What a pre-cut pyramid on a
- *                     web server really is, and — per ticket 07 — alignable exactly like level 2.
+ *                     web server really is, and alignable exactly like level 2.
  *   sizes-only.test   level 0 with NO `tiles`, only `sizes`. Refused when added. See `tiles`.
  *   tiles-only.test   level 2 whose info.json is readable cross-origin and whose tiles are not.
  *   capped.test       level 2 declaring a `maxWidth` smaller than the tiles it declares.

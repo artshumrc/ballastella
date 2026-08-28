@@ -24,9 +24,9 @@ import type { TransferProgress } from './transfer.js';
 import { archivePathFor, BackupRejectedError, TAR_ENTRY_MTIME } from './workspace-tar.js';
 import { createViewerFileFilter } from './viewer-files.js';
 
-// SPEC's Seam 1, for the same reason `project-zip.test.ts` is: "the archive holds exactly these
-// entries" and "after restoring, the Workspace holds exactly these files" are not proxies for the
-// behaviour, they *are* it. The in-memory ProjectStore stands in for nothing.
+// CONTRIBUTING.md's Seam 1, for the same reason `project-zip.test.ts` is: "the archive holds exactly
+// these entries" and "after restoring, the Workspace holds exactly these files" are not proxies for
+// the behaviour, they *are* it. The in-memory ProjectStore stands in for nothing.
 //
 // The premise this suite is built on — that `modern-tar` really streams and really carries long and
 // non-ASCII paths — is measured separately in `tar-format.test.ts`, which imports nothing from this
@@ -60,9 +60,8 @@ const projectJson = (overrides: Record<string, unknown> = {}): string =>
 	)}\n`;
 
 /**
- * A Workspace with **two Projects sharing one Map Image**, which is the shape the first
- * acceptance criterion names and the shape ADR-0023 made possible: one map prepared and aligned
- * once, used by any number of Projects.
+ * A Workspace with **two Projects sharing one Map Image**, which is the shape ADR-0023 made
+ * possible: one map prepared and aligned once, used by any number of Projects.
  */
 const twoProjectsOneMap = (): Record<string, string> => ({
 	'amsterdam-1625/project.json': projectJson({ name: 'Amsterdam 1625' }),
@@ -180,8 +179,8 @@ describe('a Workspace backs up to one tar', () => {
 	});
 
 	it('leaves out the published viewer files', async () => {
-		// The third acceptance criterion, and ADR-0006's staleness warning: a restored viewer bundle
-		// may be older than the app it lands beside.
+		// ADR-0006's staleness warning: a restored viewer bundle may be older than the app it lands
+		// beside.
 		const store = seed({
 			...twoProjectsOneMap(),
 			'index.html': '<!doctype html>',
@@ -378,12 +377,12 @@ describe('restoring never overwrites and never merges', () => {
 
 describe('a backup past the zip’s ceiling', () => {
 	it('round-trips more than 65,535 files with the count intact', async () => {
-		// The reason this ticket exists. The zip exporter refused above 65,535 entries because
+		// The reason the format moved off zip. The zip exporter refused above 65,535 entries because
 		// the zip writer counted entries in sixteen bits — 70,000 produced an index claiming 4,464, and
 		// `unzipSync` read back 4,464 files with no error at all. The assertion is on the **restored
 		// file count**, which is exactly the assertion that caught it.
 		//
-		// Generated rather than committed as a fixture, per the ticket.
+		// Generated rather than committed as a fixture: 70,000 files do not belong in the repository.
 		const count = 70_000;
 		const store = new MemoryProjectStore();
 		store.plant('a-project/project.json' as StorePath, encode(projectJson()));
@@ -441,8 +440,9 @@ describe('a long Project directory survives the round trip', () => {
 	});
 
 	it('round-trips a Workspace name in a non-Latin script', async () => {
-		// Ticket 12 found and fixed a normaliser mangling Devanagari. A backup that mangles it again
-		// would undo that at the one moment the user is trusting the tool with everything they have.
+		// `toWorkspaceName` keeps a non-Latin script's combining marks intact. A backup that mangled
+		// them would undo that at the one moment the user is trusting the tool with everything they
+		// have.
 		for (const name of ['अंकन २०२६', '標記二〇二六', 'ترميز ٢٠٢٦', 'Markierung Grün']) {
 			const store = seed({ [`${'p'.repeat(64)}/annotations/${uuids[0]}.geojson`]: '{}' });
 			const there = destination();
@@ -604,8 +604,8 @@ describe('a backup that is not one is refused', () => {
 	});
 
 	it('refuses an entry outside the folder the archive names', async () => {
-		// Not a traversal — a perfectly ordinary path, in a different Workspace. On ticket 12's OPFS
-		// root that is somebody else's Workspace, including the damaged one being recovered from.
+		// Not a traversal — a perfectly ordinary path, in a different Workspace. In the OPFS root that
+		// is another Workspace of the user's, including the damaged one being recovered from.
 		const archive = await packTar([
 			{ header: { name: 'W/', size: 0, type: 'directory', mtime: TAR_ENTRY_MTIME } },
 			{
@@ -703,7 +703,7 @@ describe('a backup that is not one is refused', () => {
 		// is simpler and does not rest on the exporter's good behaviour: **the archive's root directory
 		// must be a legal Workspace directory name**, because restore has to create a Workspace by that
 		// name and a name that changes under an idempotent normaliser would create one the archive does
-		// not describe — the silent mangling ticket 12 fixed.
+		// not describe — the silent mangling `toWorkspaceName` exists to prevent.
 		//
 		// The second specimen is how this really arrives: APFS stores filenames decomposed, so a folder
 		// called “Café Notes” comes back as NFD and is spelled differently by this build.
@@ -1003,14 +1003,14 @@ describe('a folder Workspace’s name is not a Workspace name, and a backup surv
 
 describe('a restore never reports more than it wrote', () => {
 	it('does not count an Alignment it declined, and says so', async () => {
-		// ⚠ **The defect this covers is the exact class this ticket exists to prevent.** `writeRestored`
-		// ignored `writeAlignmentBytes`' outcome and counted the file regardless, so a restore that
-		// dropped the archive's Alignment still reported it as delivered. A transfer that says it
-		// delivered more than it did is the zip writer claiming 4,464 of 70,000 with a different spelling.
+		// ⚠ **The defect this covers is the exact class the tar format was chosen to prevent.**
+		// `writeRestored` ignored `writeAlignmentBytes`' outcome and counted the file regardless, so a
+		// restore that dropped the archive's Alignment still reported it as delivered. A transfer that
+		// says it delivered more than it did is the zip writer claiming 4,464 of 70,000 with a
+		// different spelling.
 		//
 		// Unreachable while every destination is new — but `RestoreDestination` is an interface the
-		// caller implements, and ticket 14's Review Workspaces are the caller that will hand over a
-		// store with something already in it.
+		// caller implements, and nothing in its contract says the store it hands over must be empty.
 		const store = seed({
 			// alignment-write-is-the-fixture: the Alignment inside the backup, offered to a destination that already has one
 			'alignments/m.json': '{"from":"the backup"}',
@@ -1092,8 +1092,8 @@ describe('the archive is a tar anyone can open', () => {
 
 describe('restore is not a merge, and does not pretend to detect a concurrent edit', () => {
 	it('takes the archive’s Alignment without comparing it to anything', async () => {
-		// Ticket 18 deliberately left concurrent-edit detection open and ADR-0023 accepts it: nothing
-		// detects a colleague's change arriving through a synced Workspace between a read and a write.
+		// Concurrent-edit detection is deliberately left open and ADR-0023 accepts it: nothing detects
+		// a colleague's change arriving through a synced Workspace between a read and a write.
 		// A backup and restore is exactly where somebody would assume that gap is covered, so this
 		// asserts the honest behaviour rather than implying a guarantee.
 		//
@@ -1112,19 +1112,18 @@ describe('restore is not a merge, and does not pretend to detect a concurrent ed
 
 	it('will not overwrite an Alignment already in the destination', async () => {
 		// ⚠ **This test exists because the mutation check called the bluff of a doc comment.** Restore
-		// routes its Alignment writes through ticket 18's `writeAlignmentBytes` with `intent: 'create'`
-		// rather than through the generic `store.write`. Replacing that routing with a plain write left
-		// the whole suite green — as it had to, since the destination `restoreWorkspaceTar` is given is
-		// normally a Workspace created moments earlier and therefore empty, where the two are
-		// indistinguishable.
+		// routes its Alignment writes through `alignment-file.ts`'s `writeAlignmentBytes` with
+		// `intent: 'create'` rather than through the generic `store.write`. Replacing that routing with
+		// a plain write left the whole suite green — as it had to, since the destination
+		// `restoreWorkspaceTar` is given is normally a Workspace created moments earlier and therefore
+		// empty, where the two are indistinguishable.
 		//
 		// A guarantee nothing can observe is not a guarantee, so here is the case that observes it.
 		// `RestoreDestination` is an *interface the caller implements*, and nothing in its contract
-		// says the store must be empty — a future caller (ticket 14's Review Workspaces are the
-		// obvious one) could hand over a store with something already in it. When that happens, the
-		// Alignment already there wins, which is the direction ADR-0023 requires: an Alignment is
-		// shared by every Project that draws the map, so overwriting one can destroy Control Points
-		// somebody placed in a Project nobody has opened.
+		// says the store must be empty — a future caller could hand over a store with something
+		// already in it. When that happens, the Alignment already there wins, which is the direction
+		// ADR-0023 requires: an Alignment is shared by every Project that draws the map, so
+		// overwriting one can destroy Control Points somebody placed in a Project nobody has opened.
 		// alignment-write-is-the-fixture: the Alignment inside the backup, offered to a destination that already has one
 		const store = seed({ 'alignments/m.json': '{"from":"the backup"}' });
 		const there = destination();
@@ -1158,7 +1157,7 @@ describe('WorkspaceRestore describes what happened', () => {
 	});
 });
 
-// ⚠ **The refusal lives in the writer, not only in the button** (ADR-0024, ticket 14).
+// ⚠ **The refusal lives in the writer, not only in the button** (ADR-0024).
 //
 // An archive of somebody else's work sitting in the user's Downloads folder is indistinguishable
 // from a backup of their own, which is how a review copy comes to be restored months later as though
@@ -1226,7 +1225,7 @@ describe('a Review Workspace is never backed up', () => {
 	});
 });
 
-// SPEC story 41, ADR-0032. `remote.json` is *inside* the published tree deliberately, so a Backup
+// ADR-0032. `remote.json` is *inside* the published tree deliberately, so a Backup
 // taken from a bound Workspace carries it — and a scholar restoring one is somebody recovering from
 // something having gone wrong. Handing them a Publish button aimed at their live, cited address at
 // that exact moment is the failure this drops the binding to avoid.

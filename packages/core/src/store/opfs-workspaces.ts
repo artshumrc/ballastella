@@ -35,9 +35,9 @@ import { OpfsProjectStore } from './opfs-project-store.js';
  * The Workspace a first visit lands in.
  *
  * Named rather than blank because the navigation bar says which Workspace you are in on every screen
- * (SPEC story 88), and it has to say something true from the first frame. "Browser storage" was what
- * the bar said before this, which describes the *backing* and not the Workspace — and from ticket 14
- * onward a user can be inside a throwaway Review Workspace that is also browser-backed.
+ * and it has to say something true from the first frame. "Browser storage" describes the *backing*
+ * and not the Workspace, and a user can be inside a throwaway Review Workspace that is also
+ * browser-backed.
  */
 export const DEFAULT_WORKSPACE_NAME = 'My Workspace';
 

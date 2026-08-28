@@ -12,7 +12,7 @@ export {
 	type SaveState
 } from './autosave/autosave.js';
 export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
-// The write-ahead journal that makes ADR-0017 rule 3 true for a real navigation (ticket 20).
+// The write-ahead journal that makes ADR-0017 rule 3 true for a real navigation.
 export {
 	JOURNAL_FORMAT_VERSION,
 	JournalFullError,
@@ -111,7 +111,7 @@ export {
 } from './project/map-images.js';
 // The opening view (ADR-0026). Both apps, and that is the whole point of it being here: a Published
 // Site that opened on the deployment's default while the editor opened on the work would be two
-// answers to one question, and ticket 17 is already merged and would not remind anyone.
+// answers to one question.
 export {
 	OPENING_VIEW_MAX_ZOOM,
 	OPENING_VIEW_PADDING,
@@ -172,7 +172,7 @@ export {
 	type WorkspaceIdentity,
 	type WorkspaceOptions
 } from './project/workspace.js';
-// What makes a Workspace a throwaway Review Workspace (ticket 14, ADR-0024).
+// What makes a Workspace a throwaway Review Workspace (ADR-0024).
 export {
 	REVIEW_MARK_FORMAT_VERSION,
 	REVIEW_MARK_PATH,
@@ -187,9 +187,9 @@ export {
 	type ReviewOrigin,
 	type ReviewOriginBacking
 } from './project/review-workspace.js';
-// ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: ticket 15 warns before a
-// Workspace grows and ticket 16 warns again at publish, from the same two functions rather than two
-// answers to one question.
+// ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: a warning before a
+// Workspace grows and again at publish, from the same two functions rather than two answers to one
+// question.
 export {
 	STATIC_HOSTING_LIMIT_BYTES,
 	crossesHostingLimit,
@@ -201,8 +201,8 @@ export {
 export { DirectoryHandleStore, type DirectoryResolver } from './store/directory-handle-store.js';
 export { FileSystemAccessProjectStore } from './store/file-system-access-project-store.js';
 // ADR-0006's third backend: a Published Site read over HTTP. Read-only by *type* rather than by
-// promise — see `ReadOnlyProjectStore` — because ticket 17 requires that the viewer have no store
-// `write` at all.
+// promise — see `ReadOnlyProjectStore` — because the published viewer must have no store `write` at
+// all.
 export {
 	SiteFileUnreachableError,
 	createHttpProjectStore,
@@ -250,7 +250,7 @@ export {
 	retainWorkspaceFolder
 } from './store/workspace-folder.js';
 
-// Handing one Project to somebody else, and reviewing one you were handed (ticket 14, ADR-0024).
+// Handing one Project to somebody else, and reviewing one you were handed (ADR-0024).
 // Importing one into the Workspace already open is a different operation over the same file format —
 // see `project-import-source.ts` below, and ADR-0037.
 //
@@ -328,7 +328,7 @@ export {
 	type ImportedProject,
 	type UnreadableImportTransaction
 } from './transfer/project-import-transaction.js';
-// The other half of that gate (ticket 05): what closes it. An outstanding marker is resolved — swept
+// The other half of that gate: what closes it. An outstanding marker is resolved — swept
 // or finished — before the Workspace answers a single question about itself, and a Workspace whose
 // marker cannot be resolved stays unavailable rather than opening over half a Project.
 export {
@@ -337,7 +337,7 @@ export {
 	type ImportRecovery,
 	type ImportRecoveryFailure
 } from './transfer/project-import-recovery.js';
-// Turning one validated closure into a detached one (ticket 06, ADR-0037): a fresh identity for every
+// Turning one validated closure into a detached one (ADR-0037): a fresh identity for every
 // incoming Map Image, and every path, Layer, Alignment and pyramid stamp rewritten onto it, so nothing
 // the Import writes can be something the user already has.
 export {
@@ -346,12 +346,11 @@ export {
 	type RemapProjectImportOptions,
 	type RemappedProjectImport
 } from './transfer/project-import-remapping.js';
-// Where the detached closure lands (ticket 07, ADR-0037): a display name allocated against the names
-// the Workspace shows, a directory allocated against the folded union of local, Remote and Baseline
-// evidence (SPEC story 143), and one destination path per closure path — reserved before a transaction
-// can write.
-// The publication reset and the provenance entry that make an imported Project a detached local copy
-// (ticket 08): applied to a source's manifest before the remapping plans the closure's bytes.
+// Where the detached closure lands (ADR-0037): a display name allocated against the names the
+// Workspace shows, a directory allocated against the folded union of local, Remote and Baseline
+// evidence, and one destination path per closure path — reserved before a transaction can write.
+// The publication reset and the provenance entry that make an imported Project a detached local copy:
+// applied to a source's manifest before the remapping plans the closure's bytes.
 export {
 	detachImportedProject,
 	observedImportProvenance
@@ -361,7 +360,7 @@ export {
 	type ImportDestination,
 	type ProjectImportAllocation
 } from './transfer/project-import-allocation.js';
-// What a bound Workspace's one Remote adds to an Import (ticket 17, ADR-0038): the current Remote
+// What a bound Workspace's one Remote adds to an Import (ADR-0038): the current Remote
 // inventory that allocation reserves directories from — refused rather than guessed at when GitHub
 // will not answer — and the refusal of an Import of the Project this Workspace already synchronizes.
 export {
@@ -379,7 +378,7 @@ export {
 	readReviewWorkspaceSource,
 	type ReviewWorkspaceSourceOptions
 } from './transfer/review-workspace-source.js';
-// Whole-Workspace backup and restore, as a tar (ticket 13, ADR-0024). Editor-only — a Published
+// Whole-Workspace backup and restore, as a tar (ADR-0024). Editor-only — a Published
 // Site never backs anything up — but exported from the barrel rather than a subpath, because the
 // modules are plain Web Streams over `ProjectStore` and drag nothing browser-only in with them.
 export {
@@ -413,7 +412,7 @@ export {
 	isViewerFile
 } from './transfer/viewer-files.js';
 
-// Publishing (ticket 16; ADR-0006, ADR-0008). Both apps, for different halves of it: the editor
+// Publishing (ADR-0006, ADR-0008). Both apps, for different halves of it: the editor
 // plans and writes a Published Site, and the viewer reads the site record to know which Projects
 // exist and which Base Maps it may offer (ADR-0020) — a static host has no directory listing, so
 // that record is the only way the hub page can list anything.
@@ -455,8 +454,8 @@ export {
 // is what makes an incremental publish, a conflict refusal, and a resumed Clone possible at all.
 export { gitBlobSha } from './remote/blob-sha.js';
 export { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './remote/github-api.js';
-// The fake GitHub every test in that epic drives: one fake eleven tickets share cannot disagree
-// with itself, and eleven private ones can.
+// The fake GitHub every Remote test drives: one fake shared by every suite cannot disagree with
+// itself, and a private copy per suite can.
 export {
 	createFakeGitHub,
 	type FakeGitHub,
@@ -470,7 +469,7 @@ export {
 } from './remote/fake-github.js';
 // The publish engine: the Workspace becomes one tree, one commit, and one ref move (ADR-0033).
 // Editor-only — a Published Site publishes nothing — but here rather than in the app because the
-// owned-namespace rules, the incremental upload, and the three budgets are where this epic's silent
+// owned-namespace rules, the incremental upload, and the three budgets are where publishing's silent
 // failures live, and all of them are assertable with no browser.
 export {
 	MAX_PUBLISHED_FILES,
@@ -592,9 +591,9 @@ export {
 	migrateSynchronizationMetadata,
 	type SynchronizationMigration
 } from './remote/migrate-synchronization.js';
-// Downloading a published Workspace back out of a public repository (ADR-0031, ADR-0032). The one
-// operation in this epic that needs no credential at all, which is what lets a student with no
-// GitHub account seed a Workspace from their instructor's Remote.
+// Downloading a published Workspace back out of a public repository (ADR-0031, ADR-0032). It needs
+// no credential at all, which is what lets a student with no GitHub account seed a Workspace from
+// their instructor's Remote.
 export {
 	CloneRefusedError,
 	cloneFromRemote,
@@ -674,7 +673,7 @@ export {
 	type RemoteReference,
 	type RemoteRights
 } from './remote/bind-remote.js';
-// Which repositories the signed-in author has granted this App access to (SPEC stories 11 and 55).
+// Which repositories the signed-in author has granted this App access to.
 // A read of GitHub's own installation endpoints and nothing else: nothing is remembered here, so
 // there is no second answer to keep in step with GitHub's. A rejected sign-in is a refusal rather
 // than an empty list, which is the whole point of the outcome being a discriminated union.
@@ -697,7 +696,7 @@ export {
 	writeRemoteBinding,
 	type RemoteBinding
 } from './remote/remote-binding.js';
-// The Front Page's two return links (SPEC stories 49–51). Exported for **both** apps: the viewer
+// The Front Page's two return links. Exported for **both** apps: the viewer
 // builds the address and the editor reads it back, and they share no code but this package.
 export {
 	readReturnLink,
@@ -708,7 +707,7 @@ export {
 // The credential lives behind this interface, outside `ProjectStore`, and is never reachable through
 // it: a token in the Workspace would be backed up, journalled, and published (ADR-0033). The two
 // implementations behind `browserCredentialStore` and the storage shape they take are deliberately
-// not here — the app composes the sealed store and asks it three questions, and ticket 10's
+// not here — the app composes the sealed store and asks it three questions, and the
 // broker-exchanged token has to be a swap underneath rather than a second surface above.
 export {
 	browserCredentialStore,
@@ -717,7 +716,7 @@ export {
 	type CredentialStorage,
 	type CredentialStore
 } from './remote/credential-store.js';
-// The second acquisition path behind that same interface (ticket 10, ADR-0031): a GitHub App token
+// The second acquisition path behind that same interface (ADR-0031): a GitHub App token
 // obtained by redirect and exchanged through the broker. **The engine never learns which door a
 // token came through** — what is exported here is used by the UI layer alone, and everything below
 // it still receives an opaque bearer string.
@@ -818,8 +817,8 @@ export {
 // that "look at 3" means one Annotation in both apps and on both surfaces.
 export { annotationOrdinal } from './annotation/ordinal.js';
 // The `description` pipeline: `marked` → DOMPurify → insert, in one function so the order cannot be
-// reversed by a later edit (ADR-0009). **The one place in this epic where a bug is a security
-// vulnerability rather than a defect.**
+// reversed by a later edit (ADR-0009). **A bug in this pipeline is a security vulnerability rather
+// than a defect.**
 export {
 	DescriptionRendererUnavailableError,
 	isDescriptionRendererSupported,
@@ -869,7 +868,7 @@ export {
 	type TransformationTier,
 	type TransformationType
 } from './alignment/alignment.js';
-// The one writer of `alignments/<image-id>.json` (ticket 18). Nothing else in the codebase can turn
+// The one writer of `alignments/<image-id>.json`. Nothing else in the codebase can turn
 // an `AlignmentPath` into a path the store will write, so every Alignment write in the application
 // arrives here and has to name which of create / update / replace it is.
 export {
@@ -931,8 +930,8 @@ export {
 	type TileFetchOutcome
 } from './injection/store-image-fetch.js';
 // The sentence a person is shown when a Map Image's tiles stop arriving. One function, rendered
-// by the published viewer (ticket 04) and by the editor (ticket 05), so that one outage cannot be
-// described two ways at the same scholar.
+// by the published viewer and by the editor, so that one outage cannot be described two ways at the
+// same scholar.
 // `keepAskingForMissingTiles` is what makes that sentence's self-healing clause true: MapLibre paints
 // no frames when nothing changes, and the renderer only re-asks for a refused record while it is
 // painting.
@@ -948,7 +947,7 @@ export {
 	type StoredPyramidTileSourceOptions
 } from './injection/openseadragon-tile-source.js';
 
-// Remote IIIF ingest (ticket 14; ADR-0007, ADR-0015, ADR-0018). Free of triiiceratops and of
+// Remote IIIF ingest (ADR-0007, ADR-0015, ADR-0018). Free of triiiceratops and of
 // OpenSeadragon: the parser boundary is a string, and the OpenSeadragon tile source above is
 // duck-typed, so `apps/viewer` gains neither by depending on this package (ADR-0019).
 export {
@@ -984,7 +983,7 @@ export {
 	readRemoteImageService,
 	type RemoteImageService
 } from './remote-iiif/image-service.js';
-// Making an offline copy (ticket 15; ADR-0007). Adds no dependency: it is a funnel into the tiler this barrel
+// Making an offline copy (ADR-0007). Adds no dependency: it is a funnel into the tiler this barrel
 // already exports, with `assemble` and the tilers themselves injected, so `apps/viewer` gains nothing
 // it did not already have by depending on this package (ADR-0019).
 export {

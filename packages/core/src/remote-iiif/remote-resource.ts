@@ -2,23 +2,22 @@
 // parsed Manifest, Collection, or Image (ADR-0015).
 //
 // **Everything this module reads is a stranger's document fetched over the network**, and it is
-// treated the way ticket 13 learned to treat an uploaded zip: nothing is trusted because it
-// declares itself, every bound is stated as a number, and a refusal names what was wrong and
-// which host said it. The failure this exists to prevent is the one a scholar cannot act on —
-// a blank pane, or a stack trace about `undefined`, when the real answer is "that URL is an
-// HTML error page" or "that manifest has forty thousand canvases".
+// treated the way an uploaded zip is: nothing is trusted because it declares itself, every bound
+// is stated as a number, and a refusal names what was wrong and which host said it. The failure
+// this exists to prevent is the one a scholar cannot act on — a blank pane, or a stack trace about
+// `undefined`, when the real answer is "that URL is an HTML error page" or "that manifest has forty
+// thousand canvases".
 //
 // One `@allmaps/iiif-parser` call handles all three shapes, which is what ADR-0015 asks for and
 // what makes a Collection cost nothing extra: a library hands a scholar one URL for an atlas,
 // and without Collection support they have to go hunting for individual manifest URLs, which is
 // the friction that makes people give up before aligning anything.
 //
-// **This is the editor's only IIIF parser as of ticket 15.** ADR-0018 described a second one —
-// `manifesto.js`, inside triiiceratops — meeting this one at a URI boundary, and that is now the
-// published viewer's arrangement alone: the editor's unwarped view is deleted and triiiceratops is
-// out of its manifest. The URI boundary itself is unchanged and still enforced, in
-// `parser-boundary.ts`, for the reason given there: alignment re-parses the image service rather
-// than inheriting browsing's reading of the document.
+// **This is the editor's only IIIF parser.** ADR-0018 described a second one — `manifesto.js`,
+// inside triiiceratops — meeting this one at a URI boundary, and that is the published viewer's
+// arrangement alone: the editor has no unwarped view and triiiceratops is not in its manifest. The
+// URI boundary itself is still enforced, in `parser-boundary.ts`, for the reason given there:
+// alignment re-parses the image service rather than inheriting browsing's reading of the document.
 
 import { IIIF, type Collection, type Image, type Manifest } from '@allmaps/iiif-parser';
 
@@ -31,10 +30,10 @@ export type RemoteIiifKind = 'image' | 'manifest' | 'collection';
 /**
  * The bounds this module applies to a document nobody vouches for.
  *
- * Every one of these is a number rather than a judgement, because ticket 13's review found the
- * opposite: a declared size that was trusted, and nothing bounding it. They are generous — the
- * point is that a hostile or broken response cannot exhaust the tab, not that a real library's
- * atlas is refused.
+ * Every one of these is a number rather than a judgement, because the alternative is what the
+ * other untrusted path got wrong: a declared size trusted, with nothing bounding it. They are
+ * generous — the point is that a hostile or broken response cannot exhaust the tab, not that a
+ * real library's atlas is refused.
  */
 export type RemoteIiifLimits = {
 	/**
@@ -72,9 +71,9 @@ export const REMOTE_IIIF_LIMITS: RemoteIiifLimits = {
 /**
  * A remote IIIF resource will not be used, and why — in words a scholar can act on.
  *
- * **The host is a field, not only prose in the message.** SPEC story 24 asks for the host to be
- * named, and a caller that wants to say "ask your librarian whether `tile.loc.gov` allows this"
- * should not have to parse it back out of a sentence.
+ * **The host is a field, not only prose in the message.** A refusal has to name the host, and a
+ * caller that wants to say "ask your librarian whether `tile.loc.gov` allows this" should not have
+ * to parse it back out of a sentence.
  */
 export class RemoteIiifRejectedError extends Error {
 	/** The URL that was refused, as it was asked for. */
@@ -212,10 +211,8 @@ export type RemoteIiifResource = {
  * image service can actually be used is `image-service.ts` and `cors-probe.ts`; which canvas is
  * the map is the user's, in `AddRemoteMap.svelte`.
  *
- * **Not through triiiceratops**, which this line used to say and which was already untrue before
- * ticket 15 removed triiiceratops from the editor: canvas selection is the editor's own list, built
- * from the `parsed` value below. Corrected here rather than left, because the sentence named the one
- * dependency the editor no longer has.
+ * **Not through triiiceratops**, which the editor does not carry: canvas selection is the editor's
+ * own list, built from the `parsed` value below.
  */
 export async function readRemoteIiifResource(
 	input: string | URL,
@@ -230,7 +227,7 @@ export async function readRemoteIiifResource(
 		parsed = IIIF.parse(document);
 	} catch (cause) {
 		// **Two very different faults arrive here, and telling a scholar the wrong one wastes their
-		// afternoon** (ticket 07). `@allmaps/iiif-parser` builds an `Image`'s tile zoom levels while
+		// afternoon.** `@allmaps/iiif-parser` builds an `Image`'s tile zoom levels while
 		// parsing, so a document that is a perfectly good IIIF image description — but publishes no
 		// `tiles` and does not offer arbitrary regions — throws from the same call as a document that
 		// is an HTML error page. Reported as "what it sent is not a IIIF image description", that
@@ -296,8 +293,7 @@ function assertWithinLimits(
  * **The bytes are counted as they arrive.** `content-length` is advisory — plenty of real IIIF
  * services omit it, and a response that lies about it is exactly the case a bound exists for —
  * so the limit is enforced against the stream and the read is abandoned the moment it is passed.
- * That is the same lesson as ticket 13's truncated archive: a declared size is a claim, not a
- * fact.
+ * That is the same lesson as a truncated archive: a declared size is a claim, not a fact.
  *
  * An HTML response is named as such rather than reported as a JSON syntax error. It is the most
  * common single failure on this path — a 404 page, an institutional login wall, a viewer URL

@@ -6,10 +6,10 @@ import { expect, test } from './support/test.js';
 // │ A FENCE WITH NO POSITIVE CONTROL IS A FENCE NOBODY HAS SEEN WORK.                          │
 // └───────────────────────────────────────────────────────────────────────────────────────────┘
 //
-// This repository has shipped a fence that printed its success message unconditionally, and this
-// epic has repeatedly shipped criteria that passed vacuously. `scripts/retry-budget.mjs` is exactly
-// the kind that could: it only ever *fails* a run, so a run that never retries proves nothing about
-// it, and every healthy run is a run that never retries.
+// This repository has shipped a fence that printed its success message unconditionally, and criteria
+// that passed vacuously. `scripts/retry-budget.mjs` is exactly the kind that could: it only ever
+// *fails* a run, so a run that never retries proves nothing about it, and every healthy run is a run
+// that never retries.
 //
 // So the escape is written out and checked in. This test fails its first attempt and passes its
 // retry — the "green after a retry" the budget exists to notice — and the two commands below are the

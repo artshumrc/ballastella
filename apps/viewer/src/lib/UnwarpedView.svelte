@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A Map Image read as a document rather than as geography (SPEC story 85).
+	// A Map Image read as a document rather than as geography.
 	//
 	// triiiceratops, imported from its **`./svelte` export as an ordinary Svelte component** and never as
 	// the web component (ADR-0018): Svelte 5 is a declared peer, the integration hands in objects rather
@@ -16,8 +16,8 @@
 	//
 	// On a Published Site that limitation simply does not apply: the pyramid **is** a set of static files
 	// beside `index.html`, so it has a real URL and OpenSeadragon can fetch it with nothing injected. This
-	// is the one place in the epic where publishing makes a feature possible rather than merely visible,
-	// and it is why story 85 is a Reader's story.
+	// is the one place where publishing makes a feature possible rather than merely visible, and it is why
+	// reading a Map Image unwarped is a Reader's feature rather than an author's.
 	//
 	// What crosses into triiiceratops is a Manifest built by `$lib/unwarped-manifest` over this site's own
 	// address. It is not the published `manifest.json`: every `id` in that document is the ADR-0004
@@ -34,7 +34,7 @@
 		manifest,
 		onclose
 	}: {
-		/** What the Reader sees this Map Image called: the Layer's name (SPEC story 54). */
+		/** What the Reader sees this Map Image called: the Layer's name. */
 		label: string;
 		/**
 		 * The key the Manifest is cached under.

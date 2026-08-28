@@ -11,8 +11,8 @@
 //
 // **A refusal does not refuse the binding.** The binding is provenance — *this Workspace came from
 // there* — and a reader who cloned somebody's published Workspace has a legitimate bound-but-
-// unable-to-push state (ticket 07). So a `permissions.push` of `false` is a sentence, and the
-// document is written anyway.
+// unable-to-push state (see `clone-from-remote.ts`). So a `permissions.push` of `false` is a
+// sentence, and the document is written anyway.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // PAGES ENABLEMENT FAILS INTO A SENTENCE, NEVER INTO AN ERROR
@@ -182,15 +182,15 @@ export async function readRemoteRights(options: BindRemoteOptions): Promise<Remo
 /**
  * The Projects the Remote's own site record lists, or `[]` when it has nothing to say.
  *
- * ⚠ **Read from `raw.githubusercontent.com`, which is where SPEC puts a repository's *bytes*** — the
+ * ⚠ **Read from `raw.githubusercontent.com`, which is where a repository's *bytes* live** — the
  * API answers file lists, and this is one file. One request and none of the hourly budget.
  *
  * ⚠ **Credentialed, and the reason is that the check below is otherwise inert.** The raw host
  * answers 404 for a private repository read without one, so an unauthenticated read makes
  * `published` empty and the subset refusal silently never fires — a second machine binds to a
  * private Remote carrying Projects it has not got, and the one thing standing between it and
- * deleting them is skipped without a word. SPEC puts private repositories out of scope, but nothing
- * here refuses one, so this must not quietly drop its own protection on them. The token costs
+ * deleting them is skipped without a word. Private repositories are out of scope, but nothing here
+ * refuses one, so this must not quietly drop its own protection on them. The token costs
  * nothing extra: {@link readRemoteRights} has already established with it that this repository
  * exists and is pushable, so it has been sent to GitHub for this repository a moment ago, and the
  * raw host takes `Authorization: Bearer`.
@@ -246,8 +246,8 @@ export async function enableRemotePages(options: BindRemoteOptions): Promise<Rem
 	if (response.status === 409 || response.ok) return { enabled: true, instruction: '' };
 	// ⚠ **422 is a repository with no branches, not a token without `Pages: write`.** GitHub cannot
 	// point Pages at a branch that does not exist, and a repository created at `github.com/new` with
-	// no README has none at all — which is exactly the sequence stories 6 to 8 walk the scholar
-	// through, and exactly what this ticket's own prefilled link produces. Collapsed into
+	// no README has none at all — which is exactly the sequence the guided flow walks the scholar
+	// through, and exactly what its own prefilled link produces. Collapsed into
 	// {@link pagesInstruction} it tells them to fix a permission that is fine and then to choose a
 	// branch their repository does not have.
 	if (response.status === 422) return { enabled: false, instruction: noBranchYet(remote, branch) };
@@ -258,7 +258,7 @@ export async function enableRemotePages(options: BindRemoteOptions): Promise<Rem
  * Bind a Workspace to a repository: check the rights, write the document, offer Pages.
  *
  * The order is the design. The review refusal is first because a Review Workspace must not so much
- * as *ask* GitHub a question with somebody's credential attached (ADR-0024, story 40); the rights
+ * as *ask* GitHub a question with somebody's credential attached (ADR-0024); the rights
  * check next, because it is the one remaining step that can refuse and a refusal has to leave the
  * Workspace exactly as it was — no `remote.json`, and a caller that keeps no credential. Pages is
  * last because its failure is a sentence rather than a refusal, and a binding that stood or fell by
@@ -274,9 +274,9 @@ export async function enableRemotePages(options: BindRemoteOptions): Promise<Rem
  * Second rather than first because a credential GitHub will not look at is the cheaper answer and
  * the one that makes every later question meaningless.
  *
- * @throws ReviewWorkspaceError when the Workspace is a review copy (ADR-0024, story 39)
+ * @throws ReviewWorkspaceError when the Workspace is a review copy (ADR-0024)
  * @throws RemoteBindRefusedError when GitHub refuses the credential, has no such repository, or
- *   carries Projects this Workspace has not got (ADR-0033, story 23)
+ *   carries Projects this Workspace has not got (ADR-0033)
  */
 export async function bindWorkspaceToRemote(
 	store: ProjectStore,
@@ -412,7 +412,7 @@ function noBranchYet(remote: RemoteReference, branch: string): string {
  * What to click when Pages could not be turned on — which setting, where, and what to choose.
  *
  * The wording `docs/hosting.md` Part 2 step 3 carries, said where a scholar meets the problem rather
- * than in a document they would have to be told to open (story 7).
+ * than in a document they would have to be told to open.
  */
 function pagesInstruction(remote: RemoteReference, branch: string): string {
 	return (

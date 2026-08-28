@@ -3,7 +3,7 @@
 	generics="Item extends { readonly name: string; readonly directory: string; readonly href?: string }"
 >
 	// The ruled list of rows both apps draw the Workspace Home from: the editor's Projects, the
-	// editor's Map Images, and a Published Site's Front Page (sidereal-ruled SPEC stories 30–37).
+	// editor's Map Images, and a Published Site's Front Page.
 	//
 	// **Rows ruled from each other, not cards floating on the page** (ADR-0036). One hairline between
 	// rows and one above and below the list is the whole of the structure; the rule is `--color-rule`,

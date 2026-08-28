@@ -101,7 +101,7 @@ export interface WorkspaceBackup {
  * user most needs to get out of a browser they cannot see into (ADR-0010).
  *
  * ⚠ **A Review Workspace is refused here, in the writer, and not only where the button is**
- * (ADR-0024, ticket 14). An archive of somebody else's work sitting in the user's Downloads folder is
+ * (ADR-0024). An archive of somebody else's work sitting in the user's Downloads folder is
  * indistinguishable from a backup of their own, which is how a review copy comes to be restored
  * months later as though it were theirs. The editor hides the button as well and refuses before the
  * walk starts, so the message arrives without reading a Workspace first — but a guard that lives only
@@ -199,10 +199,10 @@ function tarStream(
 		// **And, when normalising changed the name, a PAX record carrying the original**, so nothing
 		// the user typed is thrown away by the rule above. A custom PAX key rather than a file in the
 		// archive: `tar` ignores keys it does not know, so this costs a reader nothing and adds no
-		// document format for ticket 14 to inherit. Measured to round-trip exactly — through both the
-		// buffered and the streaming reader, for an NFD name and for Devanagari — in
-		// `tar-format.test.ts`, because a claim about PAX is exactly the kind this ticket is not
-		// allowed to take from documentation.
+		// document format for the bundle path to inherit. Measured to round-trip exactly — through
+		// both the buffered and the streaming reader, for an NFD name and for Devanagari — in
+		// `tar-format.test.ts`, because a claim about PAX is exactly the kind that may not be taken
+		// from documentation.
 		//
 		// **Omitted when the name is already normalised**, which is every browser-storage Workspace.
 		// That keeps the ordinary archive byte-for-byte what it was before this record existed, so
@@ -220,10 +220,11 @@ function tarStream(
 
 		for (const path of paths) {
 			// One file in the heap at a time. `ProjectStore` has no streaming read, so a single very
-			// large file — ticket 15's copied `full/max` image is the only one in ADR-0006's layout
-			// that can be — is held whole for as long as it takes to write its entry. That is the same
-			// bound the Project bundle exporter has and it is a property of the store rather than of tar; the
-			// archive around it is still streamed, which is what the ADR's claim is about.
+			// large file — a referenced image's copied `full/max` derivative (ADR-0007) is the only one
+			// in ADR-0006's layout that can be — is held whole for as long as it takes to write its
+			// entry. That is the same bound the Project bundle exporter has and it is a property of the
+			// store rather than of tar; the archive around it is still streamed, which is what the ADR's
+			// claim is about.
 			const content = await store.read(path);
 			const entry = controller.add({
 				// The **normalised** name on every entry, matching the root directory. An entry prefixed

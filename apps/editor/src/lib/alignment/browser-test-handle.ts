@@ -11,16 +11,16 @@ declare global {
 		/**
 		 * Every Alignment write the app has made, in order, for the Playwright suite.
 		 *
-		 * This exists because ticket 07's drag criterion is about a **count**: dragging a Control
-		 * Point must produce exactly one store write, on pointer-up (ADR-0017 rule 1). A
+		 * This exists because the drag criterion is about a **count**: dragging a Control Point must
+		 * produce exactly one store write, on pointer-up (ADR-0017 rule 1). A
 		 * per-pointer-move implementation passes any "did it save?" assertion and fails this one, so
 		 * the number is the whole point — and a write into OPFS issues no request, so there is nothing
 		 * outside the page to count.
 		 *
-		 * The alternative was a map- or store-abstraction layer, which SPEC's Seam 2 rules out on
-		 * purpose: it would test a fake instead of the thing that ships. So this is the same bargain
-		 * `ballastellaServedTiles` struck in ticket 06 and `ballastellaBaseMap` in ticket 04 — one
-		 * property, written only here, read only by `e2e/`.
+		 * The alternative was a map- or store-abstraction layer, which `CONTRIBUTING.md`'s two-seam
+		 * rule rules out on purpose: it would test a fake instead of the thing that ships. So this is
+		 * the same bargain `ballastellaServedTiles` and `ballastellaBaseMap` struck — one property,
+		 * written only here, read only by `e2e/`.
 		 *
 		 * It is not an API. Nothing in `src/` may read it.
 		 */

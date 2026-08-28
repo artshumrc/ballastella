@@ -169,11 +169,10 @@ describe('the title and description are text until somebody asks to change them'
 	});
 
 	test('a freshly drawn Annotation opens with its title as a field, and nothing else does', () => {
-		// Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40),
-		// and the face is handed *whether this is the shape that was just drawn* rather than a flag of
-		// its own — so selecting an Annotation to read it cannot put the same form in front of a reader.
-		// Both halves, because either alone would pass a face that always opened its fields, or never
-		// did.
+		// Titling a shape straight after drawing it is one gesture, and the face is handed *whether this
+		// is the shape that was just drawn* rather than a flag of its own — so selecting an Annotation to
+		// read it cannot put the same form in front of a reader. Both halves, because either alone would
+		// pass a face that always opened its fields, or never did.
 		face({ geometry: POINT, titling: true });
 
 		expect(one('annotation-title')).toBeInTheDocument();
@@ -215,7 +214,7 @@ describe('the title and description are text until somebody asks to change them'
 	});
 });
 
-describe('one Annotation, one name (the-annotation-inspector stories 3, 4)', () => {
+describe('one Annotation, one name', () => {
 	// ⚠ **These are counted over the whole composed Inspector, and that is the point.** The fault they
 	// hold shut is a title drawn by the identity header *and again* by the words a few pixels below it,
 	// in the same weight, so that an author cannot tell whether the second one is another field. Either
@@ -281,7 +280,7 @@ describe('an Annotation this build cannot draw', () => {
 	});
 });
 
-describe('deleting the Annotation being read (the-annotation-inspector story 31)', () => {
+describe('deleting the Annotation being read', () => {
 	test('the delete is here, beside the words, and reports rather than acting', async () => {
 		// **Reports**: what a delete costs and how it is undone is `AnnotationEditing.deleteSelected`'s,
 		// and that it is undoable without a confirmation dialog (ADR-0039) is asserted over real storage
@@ -304,10 +303,10 @@ describe('deleting the Annotation being read (the-annotation-inspector story 31)
 describe('where the Annotation sits, and which Layer it is in (ADR-0016)', () => {
 	// ⚠ **These controls are the *contract*, and the drag handle on the row is the convenience.**
 	// ADR-0016 will not have a drag be the only way to change something whose order is load-bearing
-	// (ADR-0002), and the row could not carry the buttons: it holds one button and nothing opens in it
-	// (the-annotation-inspector stories 10, 69), so a control strip unfolding under the selected row is
-	// exactly the growth that claim exists to prevent. That they are *here* is what this asserts; what
-	// a move does to the two files is `annotation-editing.svelte.test.ts`'s.
+	// (ADR-0002), and the row could not carry the buttons: it holds one button and nothing opens in it,
+	// so a control strip unfolding under the selected row is exactly the growth that claim exists to
+	// prevent. That they are *here* is what this asserts; what a move does to the two files is
+	// `annotation-editing.svelte.test.ts`'s.
 
 	test('the two Move buttons ask for the neighbouring position and report nothing else', async () => {
 		const moved = vi.fn();
@@ -385,9 +384,9 @@ describe('where the Annotation sits, and which Layer it is in (ADR-0016)', () =>
 
 describe('a Label’s text face is one field, and the words in it are what draws', () => {
 	// ⚠ **The Label is spelled as a properties bag, not as a flag on the harness.** `marker-symbol` is
-	// the discriminator a file carries and `isLabel` is the one reading of it (write-on-the-map story
-	// 47), so a face driven by anything else here would go green against a component that had stopped
-	// asking the Annotation what it is.
+	// the discriminator a file carries and `isLabel` is the one reading of it, so a face driven by
+	// anything else here would go green against a component that had stopped asking the Annotation what
+	// it is.
 	//
 	// **The absences have their Pin control in the same test.** "No description control" and "no *Edit
 	// text*" are absences, and an absence asserted alone goes quietly green the day the face stops
@@ -401,7 +400,7 @@ describe('a Label’s text face is one field, and the words in it are what draws
 		face({ geometry: POINT, properties: { ...LABEL, title: 'Zuiderzee' } });
 
 		// A field on arrival, with the words in it — nothing to press to get there, which is what makes
-		// placing a Label and typing one gesture rather than three (story 11).
+		// placing a Label and typing one gesture rather than three.
 		expect(field()).toHaveValue('Zuiderzee');
 		// Captioned as the Label's text rather than as a title, so that what is being typed and what
 		// appears on the map are plainly the same thing.
@@ -410,7 +409,7 @@ describe('a Label’s text face is one field, and the words in it are what draws
 		expect(all('annotation-text-done')).toHaveLength(0);
 		// Neither the textarea nor the rendered prose: a Label with no description has nothing below its
 		// field at all, and `AnnotationDescription` answers "No description." when asked — which here
-		// would be an answer to a question this face does not offer (story 12).
+		// would be an answer to a question this face does not offer.
 		expect(all('annotation-description')).toHaveLength(0);
 		expect(all('annotation-description-text')).toHaveLength(0);
 
@@ -444,8 +443,8 @@ describe('a Label’s text face is one field, and the words in it are what draws
 	});
 
 	test('a description a stranger’s file carries is still rendered, below the field and read-only', () => {
-		// Nothing in a file is hidden because this app offers no control for it (story 13). Writing it
-		// back untouched is `setText`'s and `geojson.ts`'s; what is this face's is that it is on screen.
+		// Nothing in a file is hidden because this app offers no control for it. Writing it back untouched
+		// is `setText`'s and `geojson.ts`'s; what is this face's is that it is on screen.
 		face({
 			geometry: POINT,
 			properties: { ...LABEL, title: 'Zuiderzee', description: 'Drained in 1932.' }
@@ -464,7 +463,7 @@ describe('a Label’s text face is one field, and the words in it are what draws
 	test('an empty Label says it draws nothing, and says it to a screen reader', async () => {
 		// An Annotation placed and not finished is invisible on the map and indistinguishable from one
 		// that was never placed, so the face says so in ordinary text — not a tooltip and not a toast
-		// (story 15, CONTRIBUTING).
+		// (CONTRIBUTING).
 		face({ geometry: POINT, properties: LABEL });
 
 		const sentence = one('annotation-label-empty');
@@ -511,7 +510,7 @@ describe('a Label’s text face is one field, and the words in it are what draws
 
 	test('a Label just placed arrives with the keyboard in the field, and the offer is spent', async () => {
 		// Placing a Label is placing a Pin — one click, and the Inspector opens with the keyboard where
-		// the words go (story 4). The offer is taken up once and then withdrawn, because this face is
+		// the words go. The offer is taken up once and then withdrawn, because this face is
 		// unmounted and mounted again whenever the Style face shows, and a `titling` still standing
 		// would drag the keyboard back out of whatever an author had moved on to.
 		const titled = vi.fn();
@@ -523,7 +522,7 @@ describe('a Label’s text face is one field, and the words in it are what draws
 	});
 
 	test('clearing the words reports an empty string, which is what removes the property', async () => {
-		// The report is this face's whole part in story 17: `setText` removes a property it is handed
+		// The report is this face's whole part in the chain: `setText` removes a property it is handed
 		// `''` for, and that a cleared Label leaves no `"title": ""` in the file is asserted over the
 		// bytes in `packages/core/src/annotation/annotation.test.ts`. What would break the chain here is
 		// a face that reported nothing on a clear, or reported `undefined` — which `setText` reads as
@@ -546,8 +545,8 @@ describe('a Label’s text face is one field, and the words in it are what draws
 		// Annotation, so these two cannot catch a `transition:` added to the Label branch; the reveal
 		// itself is `packages/ui/src/annotation-inspector.dom.test.ts`'s and is not re-proved here. What
 		// they do say is the thing worth saying: a Label gets that reveal rather than one of its own, so
-		// the setting means one thing everywhere (story 65). There is no paint and no Web Animations clock
-		// at this seam either — see `vitest-setup/web-animations.ts`.
+		// the setting means one thing everywhere. There is no paint and no Web Animations clock at this
+		// seam either — see `vitest-setup/web-animations.ts`.
 		device().prefersReducedMotion = 'reduce';
 		face({ geometry: POINT, properties: LABEL });
 

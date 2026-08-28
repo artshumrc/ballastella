@@ -17,7 +17,7 @@ const DEBOUNCE = 400;
  * the process's handlers are borrowed for the length of the test. If the class ever starts
  * swallowing instead, the returned list is empty and every test that uses this goes red.
  *
- * The same pattern as `store-image-fetch.test.ts`'s, which is where ticket 04 established it.
+ * The same pattern as `store-image-fetch.test.ts`'s.
  */
 const escapesOutOfBand = (): unknown[] => {
 	const saved = process.listeners('uncaughtException');
@@ -108,9 +108,9 @@ describe('Autosave', () => {
 			expect(writes).toEqual(['alignments/one.json']);
 			// ⚠ **Cancelled, not merely overtaken.** Counting the timers is what says so: the debounce
 			// callback checks the file's state before it drains, so a timer left armed here fires
-			// *harmlessly* and every assertion about bytes stays green. That is precisely the shape this
-			// epic twice caught a refactor sliding into — a stray timer that used to strand bytes going
-			// quiet rather than going away — and the count is the only thing that can see it.
+			// *harmlessly* and every assertion about bytes stays green. That is precisely the shape a
+			// refactor slides into — a stray timer that strands bytes going quiet rather than going
+			// away — and the count is the only thing that can see it.
 			expect(vi.getTimerCount()).toBe(0);
 			await vi.advanceTimersByTimeAsync(DEBOUNCE * 2);
 			expect(writes).toEqual(['alignments/one.json']);
@@ -204,19 +204,18 @@ describe('Autosave', () => {
 	 *
 	 * The invariant these assert, rather than the mechanism that keeps it: **if a file has pending
 	 * bytes, a drain is scheduled or running for it.** The exception is a drain that stopped by
-	 * throwing, and since ticket 09 there is exactly **one** way it can — the store refused the
-	 * bytes. It holds them rather than rescheduling them, and `leaves the path alive when a drain
-	 * stops because …` drives that ending and the ordinary one through each of the three routes to
-	 * the store.
+	 * throwing, and there is exactly **one** way it can — the store refused the bytes. It holds them
+	 * rather than rescheduling them, and `leaves the path alive when a drain stops because …` drives
+	 * that ending and the ordinary one through each of the three routes to the store.
 	 *
 	 * ⚠ **That enumeration has been wrong twice, and re-checking it is the whole discipline.** A
 	 * journal whose `forget` threw was once an ending, and the worst of them: `commit` rejected for a
 	 * write the store had taken, with the indicator reading Saved (see `does not fail a write the
 	 * store took because the journal would not forget it`). A subscriber that threw while the
-	 * indicator was published was once an ending too — **that is the one ticket 09 removed**, by not
-	 * letting a listener throw into this class at all rather than by guarding the three places it
-	 * could land. See `a subscriber that throws cannot touch the write path`, which is where those
-	 * assertions went.
+	 * indicator was published was once an ending too — **that one is removed**, by not letting a
+	 * listener throw into this class at all rather than by guarding the three places it could land.
+	 * See `a subscriber that throws cannot touch the write path`, which is where those assertions
+	 * went.
 	 */
 	describe('a write that reports success has been written', () => {
 		/**
@@ -335,8 +334,7 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **A `commit` TAKING BACK A PATH THAT WAS ABANDONED MID-WRITE** (ticket 09, review 2 —
-		 * a surviving mutation, found green and closed here).
+		 * ⚠ **A `commit` TAKING BACK A PATH THAT WAS ABANDONED MID-WRITE.**
 		 *
 		 * `abandoning` keeps the in-flight drain in the state precisely so a caller who wants the path
 		 * back is handed that same drain rather than starting a second one. `queue` reaches that
@@ -381,17 +379,16 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **`vi.getTimerCount()` IS THE DISCRIMINATOR, AND THESE FOUR ARE WHY** (ticket 09).
+		 * ⚠ **`vi.getTimerCount()` IS THE DISCRIMINATOR, AND THESE FOUR ARE WHY.**
 		 *
-		 * Three assertions in this epic were found unable to tell "nothing is scheduled" from
-		 * "scheduled for ever", because they only read the end state — and a state a timer is about to
-		 * arrive in looks exactly like one nothing is coming for. The count is the only thing that
-		 * separates them, so the states this class can rest in are pinned by it here rather than by an
-		 * indicator that reads the same either way.
+		 * An assertion that reads only the end state cannot tell "nothing is scheduled" from
+		 * "scheduled for ever": a state a timer is about to arrive in looks exactly like one nothing is
+		 * coming for. The count is the only thing that separates them, so the states this class can
+		 * rest in are pinned by it here rather than by an indicator that reads the same either way.
 		 *
 		 * They are also what says the union did what it was for. `debouncing` is the only variant that
-		 * carries a timer, so a timer outliving the state that armed it — the stray this epic twice
-		 * caught firing against bytes that were no longer there — has nowhere to be recorded.
+		 * carries a timer, so a timer outliving the state that armed it — a stray firing against bytes
+		 * that are no longer there — has nowhere to be recorded.
 		 */
 		describe('what is scheduled, counted rather than inferred', () => {
 			it('arms exactly one debounce for a queued edit, and none once it has landed', async () => {
@@ -411,19 +408,19 @@ describe('Autosave', () => {
 				autosave.queue('p/project.json', utf8.encode('b'));
 
 				// One window, not two. A second timer here is the stray that fires against bytes that
-				// have gone, which is the shape a refactor in this epic twice made harmless-looking.
+				// have gone, which is the shape a refactor makes harmless-looking.
 				expect(vi.getTimerCount()).toBe(1);
 			});
 
 			/**
-			 * ⚠ **A BEHAVIOUR CHANGE, AND THE SPECIFICATION CHANGE THAT JUSTIFIES IT** (ticket 09).
+			 * ⚠ **A BEHAVIOUR CHANGE, AND THE SPECIFICATION CHANGE THAT JUSTIFIES IT.**
 			 *
 			 * `queue` used to record the bytes *and* arm a timer even when a drain already owned the
 			 * path, so one file could be debouncing and writing at the same time. Two consequences, both
 			 * bad and neither asserted anywhere:
 			 *
 			 * 1. the timer usually fired against bytes the running drain had already written — the
-			 *    "stray timer firing harmlessly" this epic caught twice, harmless only by luck;
+			 *    "stray timer firing harmlessly", harmless only by luck;
 			 * 2. when that drain *failed*, the timer turned the documented "bytes the store refused are
 			 *    **held**, not retried" into "retried, if the edit that failed happened to have a
 			 *    sibling behind it". Two answers to one question, decided by timing.
@@ -476,8 +473,7 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **A SUBSCRIBER RE-ENTERING DURING A SWEEP COULD REVERT A PATH TO OLDER BYTES** (ticket 09,
-		 * review 1 — a regression the first cut of this ticket introduced).
+		 * ⚠ **A SUBSCRIBER RE-ENTERING DURING A SWEEP COULD REVERT A PATH TO OLDER BYTES.**
 		 *
 		 * `flush` and `settled` walk a snapshot of the paths and then drain each one. Draining the
 		 * *first* path publishes `'saving'`, and `#publish` runs subscribers synchronously — a seam this
@@ -493,9 +489,9 @@ describe('Autosave', () => {
 		 * ```
 		 *
 		 * A write that reported success and did not happen, with the indicator reading Saved and
-		 * nothing scheduled — story 23 inverted, by the refactor written to make it unspellable.
+		 * nothing scheduled — ADR-0017 rule 5 inverted, by the refactor written to make it unspellable.
 		 *
-		 * ⚠ **The root cause is the ticket's own thesis, one level down.** The union constrains which
+		 * ⚠ **The root cause is the union's own thesis, one level down.** The union constrains which
 		 * *fields* can coexist; it says nothing about which *bytes* go in them. Before the refactor
 		 * `#drainLoop` read the pending bytes live on every pass and `#drain` took none, so there was no
 		 * value to go stale. Making bytes a parameter of `#drain` reintroduced exactly the value-versus-
@@ -577,15 +573,14 @@ describe('Autosave', () => {
 			});
 
 			/**
-			 * ⚠ **The same root cause arriving as ticket 21's resurrection class.** A subscriber that
-			 * deletes a Project mid-sweep has `abandon` drop the path and forget its journal entry — and
-			 * the sweep, still carrying the bytes it read beforehand, writes the Project straight back
-			 * into the store. The deletion then drops its own record, so nothing at the next startup
-			 * catches it: exactly the defect ticket 21 closed, by a route it could not have known about.
+			 * ⚠ **The same root cause arriving as a resurrection.** A subscriber that deletes a Project
+			 * mid-sweep has `abandon` drop the path and forget its journal entry — and the sweep, still
+			 * carrying the bytes it read beforehand, writes the Project straight back into the store.
+			 * The deletion then drops its own record, so nothing at the next startup catches it: exactly
+			 * the defect `deleted-projects.ts` exists to close, by a route it cannot see.
 			 */
 			/**
-			 * ⚠ **THE THIRD PLACE, AND THE ONE THAT SAYS THE PER-ROUTE FIX WAS NOT CONVERGING**
-			 * (ticket 09, review 2).
+			 * ⚠ **THE THIRD PLACE, AND THE ONE THAT SAYS THE PER-ROUTE FIX WAS NOT CONVERGING.**
 			 *
 			 * Round 1 fixed the sweep and the debounce, and stated the rule as *only a caller who was
 			 * handed bytes may install bytes*. `commit` **is** such a caller and still reverted a newer
@@ -790,17 +785,15 @@ describe('Autosave', () => {
 		 *
 		 * That is strictly worse than the defect this whole change closes: the parent's `.finally` on
 		 * the returned promise ran on rejection too, so the bytes stayed recoverable and the indicator
-		 * read "Unsaved". A recoverable stranding was traded for an unrecoverable one — stories 6 and
-		 * 30 inverted on the exact path this ticket owns.
+		 * read "Unsaved". A recoverable stranding was traded for an unrecoverable one, on the exact
+		 * path this class owns.
 		 *
-		 * ⚠ **Ticket 09 changed what this asserts, and the change is a specification change.** It used
-		 * to assert that a subscriber's throw stopped the drain *survivably* — `commit` rejected, the
-		 * bytes held, the path usable afterwards. It now asserts that a subscriber's throw does not
-		 * reach the write path **at all**: the write completes and `commit` resolves. Defending the
-		 * three places a listener could land was the shape that let this defect in twice; a listener
-		 * that cannot throw into this class has no places to land. The subscriber's own failure is not
-		 * swallowed for it — see `a subscriber that throws cannot touch the write path`, which asserts
-		 * it escapes.
+		 * ⚠ **What this asserts is a specification claim, not an implementation detail.** A
+		 * subscriber's throw does not reach the write path **at all**: the write completes and `commit`
+		 * resolves. Defending the three places a listener could land was the shape that let this defect
+		 * in twice; a listener that cannot throw into this class has no places to land. The
+		 * subscriber's own failure is not swallowed for it — see `a subscriber that throws cannot touch
+		 * the write path`, which asserts it escapes.
 		 */
 		it('is not killed by a subscriber that throws while the indicator is published', async () => {
 			escapesOutOfBand();
@@ -840,12 +833,11 @@ describe('Autosave', () => {
 		 * reports `'saving'` for a drain that has already stopped and then never republishes — the
 		 * indicator sits on "Saving" for ever with nothing in flight.
 		 *
-		 * ⚠ **Driven by a store that rejects rather than by a subscriber that throws** (ticket 09).
-		 * The old version armed a listener to throw on every transition, which since ticket 09 does
-		 * not stop a drain at all — so it would have gone on passing while measuring nothing, which is
-		 * exactly the "a refactor silently disarmed a mutation" failure this epic keeps finding. A
-		 * refused write is the ending that reaches this line with a state still to be replaced, and
-		 * swapping the two lines turns this red.
+		 * ⚠ **Driven by a store that rejects rather than by a subscriber that throws.** A listener
+		 * armed to throw on every transition does not stop a drain at all, so it would go on passing
+		 * while measuring nothing — a refactor silently disarming a mutation. A refused write is the
+		 * ending that reaches this line with a state still to be replaced, and swapping the two lines
+		 * turns this red.
 		 */
 		it('releases the drain before it publishes, so the indicator does not stick on Saving', async () => {
 			vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
@@ -867,7 +859,7 @@ describe('Autosave', () => {
 		 * had actually taken: measured on the commit before this one, `commit` rejected, the store had
 		 * the bytes, `pending` was already false so nothing was held, `lastError` was `undefined`, and
 		 * the indicator read **`saved`**. A failed save reported to its caller with the indicator
-		 * saying Saved and no sentence anywhere is the exact inversion this epic exists to remove.
+		 * saying Saved and no sentence anywhere is the exact inversion this class exists to remove.
 		 *
 		 * The behaviour is pre-existing; what was new was the *claim* — an explicit two-item
 		 * enumeration of how a drain can stop, and a ranged test whose docblock said it drove every
@@ -972,13 +964,13 @@ describe('Autosave', () => {
 		 * last write covered for the two before it, and both a no-op `flush` and a deleted debounce
 		 * drain left all three rows green. A route that is written down but not read is decoration.
 		 *
-		 * ⚠ **This table lost a row in ticket 09, and losing a row is exactly the move that needs
-		 * justifying.** `a subscriber threw while the indicator was being published` is no longer a
-		 * way a drain can stop — a listener cannot throw into this class any more — so keeping the row
-		 * would have meant asserting `holdsTheBytes: true` for a write that now completes. The
-		 * property it was here to check has not been dropped: it moved to
-		 * `a subscriber that throws cannot touch the write path`, which drives a throwing listener
-		 * through **every** publish point rather than only the one at the top of the drain loop.
+		 * ⚠ **`a subscriber threw while the indicator was being published` is deliberately not a row
+		 * here, and dropping a row is exactly the move that needs justifying.** It is not a way a drain
+		 * can stop — a listener cannot throw into this class at all — so the row would assert
+		 * `holdsTheBytes: true` for a write that completes. The property it would check is not dropped:
+		 * it lives in `a subscriber that throws cannot touch the write path`, which drives a throwing
+		 * listener through **every** publish point rather than only the one at the top of the drain
+		 * loop.
 		 */
 		const waysADrainCanStop = [
 			{
@@ -1031,8 +1023,7 @@ describe('Autosave', () => {
 	});
 
 	/**
-	 * ⚠ **A SUBSCRIBER THAT THREW CORRUPTED THIS CLASS TWICE, FROM TWO DIFFERENT PUBLISH POINTS**
-	 * (ticket 09, and reviews 1 and 2 of ticket 01).
+	 * ⚠ **A SUBSCRIBER THAT THREW CORRUPTED THIS CLASS TWICE, FROM TWO DIFFERENT PUBLISH POINTS.**
 	 *
 	 * Once it left a rejected promise memoised against the path for ever, so every later write to
 	 * that file was handed the rejection and the indicator sat on "Saving" — `commit`, the debounce
@@ -1041,8 +1032,8 @@ describe('Autosave', () => {
 	 *
 	 * So the class stopped defending the places. **A listener is never allowed to throw into
 	 * `Autosave` at all**: every call into application code is wrapped, and the failure is rethrown
-	 * from a `queueMicrotask` — not swallowed, which would be the silence this epic exists to
-	 * remove. Ticket 04 established the pattern at the tile-fetch seam and this copies it.
+	 * from a `queueMicrotask` — not swallowed, which would be the silence this class exists to
+	 * remove. `injection/store-image-fetch.ts` uses the same pattern at the tile-fetch seam.
 	 *
 	 * ⚠ **Driven at every seam rather than at the one that hurt.** The two defects above were both at
 	 * `#drainLoop`'s first publish, so a test that drove only that seam would have gone green against
@@ -1229,8 +1220,8 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **A write the store already has cannot be called back, and the sweep read as though it
-		 * could** (ticket 21, review 3). `#drainLoop` captures its `bytes` and then awaits
+		 * ⚠ **A write the store already has cannot be called back, and the sweep must not read as
+		 * though it could.** `#drainLoop` captures its `bytes` and then awaits
 		 * `store.write`; clearing `pending` does not reach into that await. So the bytes of an edit
 		 * whose debounce had just fired land *after* the deletion that abandoned them has listed the
 		 * directory — recreating the file behind it, and `Workspace.deleteProject` then drops the
@@ -1306,21 +1297,21 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **THE RESURRECTION DEFECT AT THE SEAM `abandon` CANNOT SWEEP** (ticket 09).
+		 * ⚠ **THE RESURRECTION DEFECT AT THE SEAM `abandon` CANNOT SWEEP.**
 		 *
-		 * ⚠ **Narrower than an earlier version of this comment claimed, and the correction matters.**
-		 * Abandoning mid-write was *not* untested: `answers with a promise for the write it could not
-		 * stop`, `answers even when the write it could not stop rejected` and `leaves a path being
-		 * written to one writer, even after abandoning it` all drive it, and all three predate ticket
-		 * 09. What none of them read is the **resurrection** half — the one the sibling test above
-		 * reads for a file inside its debounce — and that half is the more dangerous one, because a
-		 * write already handed to the store leaves the bytes *still in this object*, held by a drain
-		 * that cannot be called back. `capture()` at `pagehide` would re-journal them and the next
-		 * startup would replay a Project the user watched disappear: ticket 21's defect, by the one
-		 * route its own tests could not build. That, and the indicator, are what is new here.
+		 * ⚠ **Narrower than it looks, and the distinction matters.** Abandoning mid-write is driven
+		 * elsewhere: `answers with a promise for the write it could not stop`, `answers even when the
+		 * write it could not stop rejected` and `leaves a path being written to one writer, even after
+		 * abandoning it` all reach it. What none of them reads is the **resurrection** half — the one
+		 * the sibling test above reads for a file inside its debounce — and that half is the more
+		 * dangerous one, because a write already handed to the store leaves the bytes *still in this
+		 * object*, held by a drain that cannot be called back. `capture()` at `pagehide` would
+		 * re-journal them and the next startup would replay a Project the user watched disappear —
+		 * the resurrection `deleted-projects.ts` exists to close, by the one route its own tests
+		 * cannot build. That, and the indicator, are what this reads.
 		 *
 		 * ⚠ **And the indicator must still read "Saving" while that write is out there**, because it
-		 * is: saying "Saved" for bytes the store has not answered about is the inversion this epic
+		 * is: saying "Saved" for bytes the store has not answered about is the inversion this class
 		 * exists to remove, and it does not stop being one because the file is on its way out.
 		 */
 		it('gives up the bytes of a write it could not stop, without pretending it is over', async () => {
@@ -1367,8 +1358,7 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **A REFUSAL OUTLIVING THE PROJECT IT WAS ABOUT** (ticket 09, review 1 — a surviving
-		 * mutation, found green and closed here).
+		 * ⚠ **A REFUSAL OUTLIVING THE PROJECT IT WAS ABOUT.**
 		 *
 		 * `abandon` drops each swept path's journal refusal, and nothing said so: deleting that line
 		 * left the whole core suite green. Without it the scholar keeps being told that a file is
@@ -1402,8 +1392,7 @@ describe('Autosave', () => {
 
 		/**
 		 * ⚠ **THE SWEEP'S OWN SNAPSHOT, ON THE METHOD THAT ANSWERS A PROMISE FOR WHAT IT COULD NOT
-		 * STOP** (ticket 09, review 2 — pre-existing, and fixed here because the rule this ticket
-		 * writes down forbids it).
+		 * STOP.**
 		 *
 		 * `abandon` walked keys *and values*, and calls `#forget(path)` in the loop — an injected
 		 * `AutosaveJournal.forget`, which is application code by the same standard as `onJournalRefused`
@@ -1412,12 +1401,12 @@ describe('Autosave', () => {
 		 * deletes it outright, and the drain it was actually in **never reaches `inFlight`**.
 		 *
 		 * `abandon` then answers `true` — everything is quiet — with a write outstanding, straight past
-		 * the `#quietUnder` promise that whole ticket-21 round exists to provide. The write lands
+		 * the `#quietUnder` promise `abandon` exists to provide. The write lands
 		 * afterwards and recreates the Project, and `Workspace.deleteProject`, told it was quiet, drops
 		 * the record that would have caught it at the next startup.
 		 *
-		 * Identical on the commit before ticket 09, so this is not a regression — it is a rule being
-		 * applied to the sibling of the method it was written for.
+		 * The rule in `FileState`'s banner is what forbids that, and it holds for `abandon` exactly as
+		 * it does for the sweep.
 		 */
 		it('re-reads each path as it sweeps, so a journal that writes back cannot orphan a drain', async () => {
 			let land = (): void => undefined;
@@ -1473,7 +1462,7 @@ describe('Autosave', () => {
 
 		/**
 		 * ⚠ **A store write is not guaranteed to settle, and this one is on a gesture the user is
-		 * watching** (ticket 21, round 4). A folder whose grant was revoked mid-write, or an OPFS
+		 * watching**. A folder whose grant was revoked mid-write, or an OPFS
 		 * handle a second tab tore down, leaves `store.write` pending with nothing to reject it. Round
 		 * 3 made `Workspace.deleteProject` await this — where before it was synchronous and the
 		 * removal ran regardless — so an unbounded wait here is a Delete button that does nothing, for
@@ -1717,7 +1706,7 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **A SUBSCRIBER WAS TOLD `saved` WHILE `#states` HELD UNWRITTEN BYTES** (ticket 09, review
+		 * ⚠ **A SUBSCRIBER WAS TOLD `saved` WHILE `#states` HELD UNWRITTEN BYTES** (review
 		 * 3 — the sixth way out, and the one a "where does control leave this class" sweep could not
 		 * find).
 		 *
@@ -1729,7 +1718,7 @@ describe('Autosave', () => {
 		 * answering `true`.
 		 *
 		 * ⚠ **It is the same defect as the three rounds before it, and the rule as written did not
-		 * cover it.** Ticket 09's rule was about *byte* values; this is a derived `SaveState`. For
+		 * cover it.** The older rule was about *byte* values; this is a derived `SaveState`. For
 		 * ADR-0017 rule 5 there is no difference — the indicator is the user's only signal, and an
 		 * indicator *told* a stale state is as wrong as one holding stale bytes. The rule in
 		 * `FileState`'s banner is now about any value read from `#states`, not only about bytes.

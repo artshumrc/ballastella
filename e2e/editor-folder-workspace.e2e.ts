@@ -26,8 +26,8 @@ import { routeGitHubHosts } from './support/github-hosts.js';
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2 for the File System Access Workspace: the running app, a real browser, real
- * IndexedDB, real user gestures, and a real `FileSystemDirectoryHandle`.
+ * Seam 2 for the File System Access Workspace: the running app, a real browser, real IndexedDB,
+ * real user gestures, and a real `FileSystemDirectoryHandle`.
  *
  * **What is real and what is not, stated plainly, because it matters here more than anywhere
  * else.** `showDirectoryPicker()` opens an operating-system dialog and waits for a person; no
@@ -51,7 +51,7 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  *
  * The byte-level behaviour of the adapter is asserted in `@ballastella/core` against the shared
  * adapter suite, in both Chromium and Firefox. This file is about the grant and the screens around
- * it — which is what SPEC's Seam 2 says can only be exercised in a real browser.
+ * it — the part that can only be exercised in a real browser.
  */
 
 /** The folder the stubbed picker hands back, as a directory in OPFS. */
@@ -148,8 +148,8 @@ async function hideDirectoryPicker(page: Page): Promise<void> {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyBrowserStorage(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -229,9 +229,9 @@ async function readInFolder(page: Page, path: string): Promise<string> {
  * Every top-level name in the **named** Workspace browser storage opens on, or `null` when there is
  * no such Workspace.
  *
- * Since ticket 12 the OPFS root holds several named Workspaces, so "what is in browser storage" is a
- * question about one of them — and the picked folder, which this file's stubbed picker also creates
- * in the root, is deliberately not one of them.
+ * The OPFS root holds several named Workspaces, so "what is in browser storage" is a question about
+ * one of them — and the picked folder, which this file's stubbed picker also creates in the root, is
+ * deliberately not one of them.
  *
  * ⚠ **`workspaceRootIfAny`, never `workspaceRoot`.** The creating one made this helper answer `[]`
  * for a Workspace that was not there by *making* it, which turns "browser storage holds nothing of
@@ -258,7 +258,7 @@ const createProject = async (page: Page, name: string) => {
 };
 
 /**
- * Choose a folder, from where the choice now lives (ticket 12).
+ * Choose a folder, from where the choice now lives.
  *
  * The offer moved out of first contact and into Workspace settings — ADR-0001's own principle is
  * that a folder Workspace is a capability upgrade and never a gate, and the hub asked the question
@@ -281,7 +281,7 @@ const useBrowserStorage = async (page: Page) => {
 /**
  * Which Workspace is open, read off the **navigation bar**.
  *
- * The bar names it on every screen (SPEC story 88), which is a better place to ask than the settings
+ * The bar names it on every screen, which is a better place to ask than the settings
  * dialog: it is what a scholar actually sees, and it does not need opening. In both backings the
  * directory *is* the Workspace, so a folder Workspace is named by its folder and a browser-managed
  * one by its own name.
@@ -388,16 +388,16 @@ test.describe('choosing a folder as the Workspace', () => {
 	});
 
 	/**
-	 * ⚠ **THE WHOLE OF ROUND 3's DESIGN DECISION, IN THE PLACE IT APPLIES.**
+	 * ⚠ **THE WHOLE OF THE DESIGN DECISION, IN THE PLACE IT APPLIES.**
 	 *
 	 * A folder Workspace's key is `folder:<folder name>` — a name the user can put on any folder on
 	 * any drive — because the browser offers a page no stable identifier for a picked directory
 	 * (ADR-0017), and ADR-0023 explicitly invites synced folders, colleagues' copies and second
-	 * checkouts. Two rounds of this ticket tried to make an unattended recursive delete safe *there*
-	 * by comparing what is inside the directory against what the record captured, and it cannot be
-	 * done: Dropbox, Drive, rsync and `cp -a` reproduce `project.json` byte for byte, and ADR-0010
-	 * guarantees that opening a Project writes nothing, so a **backup of the very Project the user
-	 * deleted** matches every field of the record perfectly. Every comparison says "remove".
+	 * checkouts. An unattended recursive delete cannot be made safe *there* by comparing what is
+	 * inside the directory against what the record captured: Dropbox, Drive, rsync and `cp -a`
+	 * reproduce `project.json` byte for byte, and ADR-0010 guarantees that opening a Project writes
+	 * nothing, so a **backup of the very Project the user deleted** matches every field of the record
+	 * perfectly. Every comparison says "remove".
 	 *
 	 * So the folder case does not delete unattended at all. The Project is listed, the user is told
 	 * plainly that its deletion did not finish, and deleting it again is one gesture — visible and
@@ -543,13 +543,13 @@ test.describe('choosing a folder as the Workspace', () => {
 		// and nothing removed it unless the whole Project was deleted. Choosing or reopening a folder is
 		// the one moment a full sweep is cheap and expected.
 		//
-		// **And it is the moment an unfinished Import is swept, which is the same claim about a folder**
-		// (ticket 05). An Import writes its provisional files at ordinary paths under one durable
-		// marker, so a tab that died half way through leaves a `project.json` in a real directory on
-		// somebody's disk — and in a folder Workspace that directory is *visible to the user in
-		// Finder*. Both kinds of residue are what adoption exists to resolve, and the engine that
-		// resolves them is asserted per boundary in `project-import-recovery.test.ts`; what only a
-		// browser can show is that a folder Workspace really goes through it.
+		// **And it is the moment an unfinished Import is swept, which is the same claim about a folder.**
+		// An Import writes its provisional files at ordinary paths under one durable marker, so a tab
+		// that died half way through leaves a `project.json` in a real directory on somebody's disk —
+		// and in a folder Workspace that directory is *visible to the user in Finder*. Both kinds of
+		// residue are what adoption exists to resolve, and the engine that resolves them is asserted per
+		// boundary in `project-import-recovery.test.ts`; what only a browser can show is that a folder
+		// Workspace really goes through it.
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
@@ -688,8 +688,8 @@ test.describe('choosing a folder as the Workspace', () => {
 			const source = await (
 				await root.getDirectoryHandle(folder)
 			).getDirectoryHandle('amsterdam-1625');
-			// Into the **named** Workspace browser storage opens on, not into the OPFS root: since
-			// ticket 12 the root holds several Workspaces and is not one itself.
+			// Into the **named** Workspace browser storage opens on, not into the OPFS root: the root
+			// holds several Workspaces and is not one itself.
 			const workspace = await workspaceRoot();
 			await copy(source, await workspace.getDirectoryHandle('amsterdam-1625', { create: true }));
 		}, PICKED_FOLDER);
@@ -787,9 +787,9 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await expect(alert).toContainText('Workspace not reachable');
 		await expect(page.getByRole('heading', { level: 1, name: 'Ballastella Editor' })).toBeVisible();
 
-		// ⚠ SPEC story 43. The roster marks the folder as unreachable on its own row, in words, and
-		// names where the recovery is — the menu no longer carries a folder control, so a scholar who
-		// opens it to ask which Workspace they are in has to be able to read that this one has gone.
+		// ⚠ The roster marks the folder as unreachable on its own row, in words, and names where the
+		// recovery is — the menu carries no folder control, so a scholar who opens it to ask which
+		// Workspace they are in has to be able to read that this one has gone.
 		await openWorkspaceMenu(page);
 		await expect(page.getByTestId('workspace-unreachable')).toContainText(
 			'Unreachable. Workspace settings can locate it again.'
@@ -823,10 +823,10 @@ test.describe('the Workspace is the same one on every route', () => {
 		// directory name in browser storage *and* in the folder. The deleted `/base-map/` reached for
 		// OPFS directly while `/` went through the backing the user had chosen, and there was no shared
 		// context, so the choice did not cross the route boundary — the OPFS namesake was written with
-		// a fresh `updatedAt`, the indicator said "Saved", and the folder file was untouched. Ticket 04
-		// leaves one route for both screens, so the switcher is on the Project itself and the class of
-		// defect is structurally gone; the assertion stays, because the Workspace it writes into is
-		// still the thing that has to be right.
+		// a fresh `updatedAt`, the indicator said "Saved", and the folder file was untouched. One route
+		// serves both screens, so the switcher is on the Project itself and the class of defect is
+		// structurally gone; the assertion stays, because the Workspace it writes into is still the
+		// thing that has to be right.
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
@@ -894,9 +894,9 @@ test.describe('the Workspace is the same one on every route', () => {
 	test('a Project page reports an unreachable Workspace with a locate-again action', async ({
 		page
 	}) => {
-		// Ticket 12's acceptance criterion 7 on the Project page rather than only on the hub. The
-		// implementing agent read this as ticket 02's; it is not — in OPFS the root cannot vanish, and
-		// making a deletable folder the store is precisely what this ticket did.
+		// An unreachable Workspace is reported on the Project page and not only on the hub. It is a
+		// folder Workspace's failure specifically: in OPFS the root cannot vanish, and only a folder
+		// the user can delete makes the store disappear underneath a running app.
 		//
 		// What the page said before the fix was worse than the reported "Opening…": "There is no
 		// Project called amsterdam-1625 in this Workspace." A deleted Workspace folder makes
@@ -926,7 +926,7 @@ test.describe('the Workspace is the same one on every route', () => {
 	});
 });
 
-test.describe('a browser with no File System Access API (SPEC story 4)', () => {
+test.describe('a browser with no File System Access API', () => {
 	test.beforeEach(async ({ page }) => {
 		await hideDirectoryPicker(page);
 		await page.goto('./');
@@ -1005,21 +1005,21 @@ test.describe('an interrupted write to a real folder (ADR-0017 rule 4)', () => {
 });
 
 // ⚠ **A folder Workspace is one of the user's own, and the review copy's first exit has to lead back
-// to it** (ticket 14, ADR-0024, workspace-and-layers SPEC story 93).
+// to it** (ADR-0024).
 //
-// This is the case the first cut of ticket 14 got wrong, and it got it wrong in the most expensive
-// direction. "Which Workspace do I go back to" was recorded only for *browser-backed* Workspaces, so
-// a scholar whose Workspace is a folder on their own disk — ADR-0001's capability upgrade, and the
-// only backing where the files are theirs to see — was never recorded as being in one of their own at
-// all. Pressing "Back to my Workspace" then ran `openWorkspace('My Workspace')`, which **creates**,
-// and dropped them into an empty OPFS Workspace while the banner announced they were back in their
-// own. Their real work was in the folder, untouched, off screen, with nothing saying so. The hub's
-// open-bundle button is not gated on backing, so the whole path was reachable.
+// The failure this rules out runs in the most expensive direction. Record "which Workspace do I go
+// back to" for *browser-backed* Workspaces alone, and a scholar whose Workspace is a folder on their
+// own disk — ADR-0001's capability upgrade, and the only backing where the files are theirs to see —
+// is never recorded as being in one of their own at all. Pressing "Back to my Workspace" then runs
+// `openWorkspace('My Workspace')`, which **creates**, and drops them into an empty OPFS Workspace
+// while the banner announces they are back in their own. Their real work is in the folder,
+// untouched, off screen, with nothing saying so. The hub's open-bundle button is not gated on
+// backing, so the whole path is reachable.
 //
 // It lives in this file rather than in `editor-transfer.e2e.ts` because a real
 // `FileSystemDirectoryHandle` is what makes it a test at all, and the picker that hands one back is
 // here.
-test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
+test.describe('a bundle opened from a folder Workspace', () => {
 	test.beforeEach(async ({ page }) => {
 		await installDirectoryPicker(page);
 		await page.goto('./');
@@ -1174,9 +1174,10 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 		expect(await opfsWorkspaces(page)).not.toContain('assignment 7');
 	});
 
-	// Story 163 at the backing where it is likeliest: a folder grant is a thing a browser restart, a
-	// revoked permission or a second thought can take away. The refusal must not be what loses the
-	// afternoon's reading, so the review copy stays open and is still an ordinary review copy after it.
+	// A refused grant, at the backing where it is likeliest: a folder grant is a thing a browser
+	// restart, a revoked permission or a second thought can take away. The refusal must not be what
+	// loses the afternoon's reading, so the review copy stays open and is still an ordinary review copy
+	// after it.
 	//
 	// ⚠ **The sibling case — a folder deleted and another put in its place under the same name — is
 	// not assertable in this harness, and saying so is better than a test that looks like it covers
@@ -1284,7 +1285,7 @@ test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE BACKING IS NOT A SYNCHRONIZATION SEMANTIC (ticket 21; SPEC story 150)
+// THE BACKING IS NOT A SYNCHRONIZATION SEMANTIC
 //
 // **One lifecycle, run on a chosen folder, against what browser storage sends for the same bytes.**
 // Every domain claim underneath it is exhausted at Seam 1 over both real backings: the shared
@@ -1406,7 +1407,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		);
 	}
 
-	/** The bar's plain answer, which each determination has exactly one of (SPEC story 39). */
+	/** The bar's plain answer, which each determination has exactly one of. */
 	const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
 
 	/** Ask for a check the way an author does, and wait for it to finish. */

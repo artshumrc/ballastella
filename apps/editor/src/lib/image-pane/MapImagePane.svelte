@@ -2,13 +2,12 @@
 	// One Map Image of the Workspace, deep-zoomable — whether its tiles are in the Workspace or
 	// on a Library's server.
 	//
-	// SPEC story 31. Ticket 03 built this pane over a committed fixture served by HTTP, which is
-	// what let the synthetic projection be attacked before any storage existed; ticket 06 added the
-	// other half of ADR-0011, so a Workspace-held pyramid's `info.json` and every tile come from the
-	// `ProjectStore` through the injection shim and the pane works with no network at all (story 8).
+	// Both halves of ADR-0011 meet here: a Workspace-held pyramid's `info.json` and every tile come
+	// from the `ProjectStore` through the injection shim, so the pane works with no network at all,
+	// while a Library's pyramid is fetched over HTTP unchanged.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// WHERE THE TILES COME FROM IS PASSED IN, NEVER DECIDED HERE (ticket 07)
+	// WHERE THE TILES COME FROM IS PASSED IN, NEVER DECIDED HERE
 	//
 	// This component used to build `{ storedImageId: imageId }` and
 	// `` `${imageServiceId(imageId)}/info.json` `` for itself, which made it the one place in the
@@ -22,9 +21,9 @@
 	// under our own pyramid's geometry, and every coordinate in the Alignment the scholar then places
 	// would be wrong with nothing raising anywhere.
 	//
-	// **Aligning looks identical either way** (ticket 07's contract). Nothing below branches on which
-	// arm `source.tiles` is — the offline notice reads `remoteHost`, which is *derived* from the value
-	// rather than passed beside it, so there is no "remote mode" to get out of step with the tiles.
+	// **Aligning looks identical either way.** Nothing below branches on which arm `source.tiles` is —
+	// the offline notice reads `remoteHost`, which is *derived* from the value rather than passed
+	// beside it, so there is no "remote mode" to get out of step with the tiles.
 	//
 	// The pyramid is loaded here rather than by the page, because which pyramid is on screen is a
 	// question with a *load* behind it: switching Map Images replaces the pane, and a read that
@@ -71,10 +70,10 @@
 		fetchTile: FetchFn;
 		/** Accessible name for the map region, from the page. */
 		label: string;
-		/** Control Points' image halves, and the pending half when it is on this pane (ticket 07). */
+		/** Control Points' image halves, and the pending half when it is on this pane. */
 		overlayPoints?: PaneOverlayPoint[];
 		/** The Alignment's Resource Mask, in image pixels. This pane only: the mask has no meaning on
-		 * the Base Map, which speaks lng/lat (ticket 08's out-of-scope note). */
+		 * the Base Map, which speaks lng/lat. */
 		maskRing?: readonly ResourcePoint[];
 		/** An image pixel the user clicked, which is how a Control Point is started (ADR-0022). */
 		onclickpoint?: (point: ResourcePoint) => void;
@@ -141,9 +140,9 @@
 	onDestroy(() => onreadout?.(null));
 
 	/**
-	 * The app's one online signal (ADR's "do not add a second online/offline listener"; ticket 07's
-	 * out-of-scope list says so outright). `InstalledApp` owns the single pair of listeners and is
-	 * provided by the root layout, which this route is under.
+	 * The app's one online signal (ADR's "do not add a second online/offline listener").
+	 * `InstalledApp` owns the single pair of listeners and is provided by the root layout, which this
+	 * route is under.
 	 */
 	const installedApp = useInstalledApp();
 
@@ -175,11 +174,10 @@
 	 * Bumped to ask for the pyramid again. See {@link reopenWhenTheConnectionReturns}.
 	 *
 	 * A separate signal rather than making the load effect depend on `installedApp.online` directly,
-	 * and the difference is the whole of ticket 07's "offline, after the pane exists: keep working".
-	 * An effect that read `online` would re-run the moment the connection dropped — tearing down a
-	 * pane a scholar was mid-alignment on and replacing it with a refusal, which is exactly the
-	 * "blocking would discard an alignment legitimately in progress" the contract forbids. Measured:
-	 * the first cut of this did that, and the e2e caught it.
+	 * and the difference is the whole of "offline, after the pane exists: keep working". An effect that
+	 * read `online` would re-run the moment the connection dropped — tearing down a pane a scholar was
+	 * mid-alignment on and replacing it with a refusal, which discards an alignment legitimately in
+	 * progress. Measured: the first cut of this did that, and the e2e caught it.
 	 */
 	let reopenAttempt = $state(0);
 
@@ -201,11 +199,11 @@
 
 		void (async () => {
 			try {
-				// **Refused before the request, and only for a referenced map** (ticket 07). The
-				// `info.json` is on the Library's server, so with no connection the pane cannot be
-				// built at all — and `remote.json` carries width and height but *not* the tileset, so
-				// synthesising a pane from it would be guesswork drawn as fact. A Workspace-held
-				// pyramid is unaffected: it is read out of the store and has never needed the network.
+				// **Refused before the request, and only for a referenced map.** The `info.json` is on
+				// the Library's server, so with no connection the pane cannot be built at all — and
+				// `remote.json` carries width and height but *not* the tileset, so synthesising a pane
+				// from it would be guesswork drawn as fact. A Workspace-held pyramid is unaffected: it
+				// is read out of the store and has never needed the network.
 				if (!connected && typeof tiles === 'string') {
 					throw new Error(
 						`this Map Image's sheet is served by ${remoteHost || 'another server'}, and ` +
@@ -275,11 +273,11 @@
 	/**
 	 * Whether the sheet on screen has stopped arriving because the connection went.
 	 *
-	 * **Only once the pane exists, and it blocks nothing** (ticket 07's contract). The pane's
-	 * coordinate space is the `info.json`'s, not the tiles', so it stays valid whether or not any
-	 * bytes arrive — a click at a given place is the same image pixel either way. Refusing to place
-	 * Control Points here would discard an alignment legitimately in progress to protect the user
-	 * from something they can see perfectly well.
+	 * **Only once the pane exists, and it blocks nothing.** The pane's coordinate space is the
+	 * `info.json`'s, not the tiles', so it stays valid whether or not any bytes arrive — a click at a
+	 * given place is the same image pixel either way. Refusing to place Control Points here would
+	 * discard an alignment legitimately in progress to protect the user from something they can see
+	 * perfectly well.
 	 */
 	const offlineAfterOpening = $derived(
 		pane !== undefined && remoteHost !== '' && !installedApp.online
@@ -292,9 +290,9 @@
 	</div>
 {:else if pane}
 	<!--
-		The sheet has gone but the work has not (ticket 07). Visible text rather than a colour or a
-		tooltip (SPEC story 111, ADR-0016), and it names the host — "offline" alone does not tell a
-		scholar *whose* server stopped answering, which is the only part of this they can act on.
+		The sheet has gone but the work has not. Visible text rather than a colour or a tooltip
+		(ADR-0016), and it names the host — "offline" alone does not tell a scholar *whose* server
+		stopped answering, which is the only part of this they can act on.
 
 		`aria-live="polite"` and not `role="alert"`: losing the connection is a change of circumstance
 		rather than a mistake the user is making, and the fold warning above already owns `alert` on
@@ -334,8 +332,8 @@
 		{@render controls?.()}
 
 		<!--
-			Whether the view has settled (SPEC story 96) — **a spinner while it has not, and nothing at all
-			once it has**, plus the sentence for a screen reader.
+			Whether the view has settled — **a spinner while it has not, and nothing at all once it has**,
+			plus the sentence for a screen reader.
 
 			The visible half only says the interesting thing. A mark that stayed on the row at rest read as a
 			stray dot beside the buttons: a permanent glyph for a state that is true almost always carries no

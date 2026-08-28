@@ -1,6 +1,5 @@
 <script lang="ts">
-	// "You are inside a review copy", on every screen, with every exit out of it
-	// (ticket 14, ADR-0024, ADR-0037, workspace-and-layers SPEC stories 92–94).
+	// "You are inside a review copy", on every screen, with every exit out of it (ADR-0024, ADR-0037).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHY THIS IS IN THE LAYOUT AND NOT ON THE HUB
@@ -16,10 +15,10 @@
 	// `NavigationBar` and `RecoveredEdits`, which is what makes "every screen" a structural fact
 	// rather than three components that were each remembered.
 	//
-	// **Visible text rather than a badge, a tint, or an icon** (workspace-and-layers SPEC story 111). "Review copy" in a
-	// coloured stripe is unreadable to a screen reader and ambiguous to everybody else; the sentence
-	// says whose work this is, that nothing here reaches the user's own Workspace unless they ask for
-	// it, and what the buttons do.
+	// **Visible text rather than a badge, a tint, or an icon.** "Review copy" in a coloured stripe is
+	// unreadable to a screen reader and ambiguous to everybody else; the sentence says whose work this
+	// is, that nothing here reaches the user's own Workspace unless they ask for it, and what the
+	// buttons do.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THREE EXITS, AND WHY THE THIRD IS NOT A "PROMOTE"
@@ -61,7 +60,7 @@
 	/** What the last exit did or would not do, announced. `''` when nothing has happened. */
 	let announcement = $state('');
 	/**
-	 * Why an Import did not happen, or `''`. Its own state so a refusal is an alert (SPEC story 94).
+	 * Why an Import did not happen, or `''`. Its own state so a refusal is an alert.
 	 *
 	 * ⚠ **Not {@link announcement}.** A refused Import is text inserted at the moment it first exists,
 	 * which a polite region does not reliably announce — and it is the one outcome here that leaves the
@@ -73,12 +72,12 @@
 	/**
 	 * The line naming the imported Project, focused once the recorded Workspace has been adopted.
 	 *
-	 * ⚠ **The banner is gone by then and so is every control in it** (SPEC story 95). A successful
-	 * Import switches to the recorded Workspace, which makes `review` null, which unmounts the button
-	 * that was pressed and the dialog's own restoration target with it — so focus would land on
-	 * `<body>` at the top of a screen the reviewer has never seen. This line is outside that block for
-	 * the same reason the announcement is, and it names the Project and the Workspace it arrived in,
-	 * which is what the reviewer needs to read next.
+	 * ⚠ **The banner is gone by then and so is every control in it.** A successful Import switches to
+	 * the recorded Workspace, which makes `review` null, which unmounts the button that was pressed and
+	 * the dialog's own restoration target with it — so focus would land on `<body>` at the top of a
+	 * screen the reviewer has never seen. This line is outside that block for the same reason the
+	 * announcement is, and it names the Project and the Workspace it arrived in, which is what the
+	 * reviewer needs to read next.
 	 */
 	let announcementLine: HTMLElement | null = $state(null);
 	/**
@@ -96,7 +95,7 @@
 	 * The transfer is the shared engine's, so it is the same count the hub's own Import announces; what
 	 * is different here is that there is no dialog left to carry it — the confirmation closes before
 	 * the copy begins — so the banner's own region says it. A pyramid is thousands of files over real
-	 * minutes, and story 93 is that the wait is not silent.
+	 * minutes, and the wait must not be silent.
 	 */
 	const importProgress = $derived.by(() => {
 		const transfer = storage?.transfer;
@@ -245,7 +244,7 @@
 				`aria-disabled` for the running state and never `disabled`: the confirmation closes onto
 				this button before the copy begins, and a `disabled` button leaves the tab order the moment
 				it is given focus back — dropping a keyboard user onto `<body>` for the length of a copy
-				that runs in minutes (WCAG 2.4.3, SPEC story 95).
+				that runs in minutes (WCAG 2.4.3).
 			-->
 			<button
 				bind:this={importButton}
@@ -284,12 +283,12 @@
 	same node throughout: one inserted at the same moment as its first text is not reliably announced,
 	and an empty `<p>` has no line box, so it costs no space either way. `aria-live="polite"` rather
 	than `role="status"`, this app's settled convention wherever the save indicator is also on screen
-	— which since ticket 04 is every screen.
+	— which is every screen.
 
-	⚠ **Visible and focusable when it says anything, because it is where a successful Import lands**
-	(SPEC story 95). An Import's result is a Project in *another* Workspace, and every control that
-	could have held focus went with the review copy — so focus has to go somewhere the reviewer can
-	see, and this sentence names what arrived and where.
+	⚠ **Visible and focusable when it says anything, because it is where a successful Import lands.** An
+	Import's result is a Project in *another* Workspace, and every control that could have held focus
+	went with the review copy — so focus has to go somewhere the reviewer can see, and this sentence
+	names what arrived and where.
 -->
 <p
 	bind:this={announcementLine}
@@ -305,8 +304,8 @@
 
 <!--
 	How far the copy has got, in the same persistent-region shape. The confirmation is closed by the
-	time the transfer starts, so without this the wait is silent (SPEC story 93). Not a second
-	`role="status"`: the save indicator on the bar owns that role on every screen.
+	time the transfer starts, so without this the wait is silent. Not a second `role="status"`: the save
+	indicator on the bar owns that role on every screen.
 -->
 <p
 	aria-live="polite"

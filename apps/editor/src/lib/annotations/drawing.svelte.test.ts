@@ -1,4 +1,4 @@
-// The drawing state machine, asserted directly (the-annotation-inspector stories 37, 38, 39, 41, 42).
+// The drawing state machine, asserted directly.
 //
 // **Node, no DOM, no application**: `AnnotationDrawing` is a class holding a tool, the vertices placed
 // so far, and whether the shapes are on offer. Every claim below is about what one of its own
@@ -41,18 +41,17 @@ describe('one press of New Annotation makes one Annotation', () => {
 		const geometry = drawing.place({ lng: 4.9, lat: 52.37 });
 
 		expect(geometry).toEqual({ type: 'Point', coordinates: [4.9, 52.37] });
-		// **The next click on the map selects rather than draws** (the-annotation-inspector story 38).
-		// Nothing on the page decides this: one press of the button made one Annotation and the surface
-		// is back where it started.
+		// **The next click on the map selects rather than draws.** Nothing on the page decides this: one
+		// press of the button made one Annotation and the surface is back where it started.
 		expect(drawing.tool).toBe('select');
 		expect(drawing.picking).toBe(false);
 		expect(drawing.vertices).toEqual([]);
 	});
 
 	it('puts the tool down when a Label lands, whose gesture is the pin’s exactly', () => {
-		// Story 3 and story 5 together: one click costs what placing a Pin costs, and the tool is down
-		// afterwards, so one press of "New Annotation" made one Label. `'text'` is the tool's name in code
-		// only — every word a scholar reads for it is "Label".
+		// One click costs what placing a Pin costs, and the tool is down afterwards, so one press of "New
+		// Annotation" made one Label. `'text'` is the tool's name in code only — every word a scholar
+		// reads for it is "Label".
 		const drawing = armed('text');
 
 		const geometry = drawing.place({ lng: 4.9, lat: 52.37 });
@@ -69,10 +68,10 @@ describe('one press of New Annotation makes one Annotation', () => {
 	it.each(['point', 'line', 'polygon', 'text'] as const)(
 		'is put down by Escape with the %s tool armed and nothing drawn',
 		(tool) => {
-			// Story 6, whose "mid-gesture" for a one-click tool means exactly "armed and not yet placed":
-			// there is no part-drawn Label, so an Escape that only abandoned part-drawn shapes left the tool
-			// armed and the next map click placed the Label the scholar had just abandoned. The
-			// armed-nothing-drawn state belongs to all four tools, so the rule is one rule for the four.
+			// "Mid-gesture" for a one-click tool means exactly "armed and not yet placed": there is no
+			// part-drawn Label, so an Escape that only abandoned part-drawn shapes left the tool armed and
+			// the next map click placed the Label the scholar had just abandoned. The armed-nothing-drawn
+			// state belongs to all four tools, so the rule is one rule for the four.
 			const drawing = armed(tool);
 
 			expect(drawing.cancel()).toBe(true);
@@ -164,7 +163,7 @@ describe('one press of New Annotation makes one Annotation', () => {
 	});
 });
 
-describe('the tool and the gesture are said in words (the-annotation-inspector story 42)', () => {
+describe('the tool and the gesture are said in words', () => {
 	it('says what was added rather than falling silent when the tool disarms itself', () => {
 		const drawing = armed('point');
 
@@ -177,9 +176,9 @@ describe('the tool and the gesture are said in words (the-annotation-inspector s
 	});
 
 	it('calls the Label a Label, in the tool’s own words and in what was added', () => {
-		// Stories 7 and 8, and the reason `TOOL_NAMES` exists: the union spells the tool `'text'` and no
-		// announcement ever does. The toolbar puts `toolName(tool)` in front of the gesture, so the region
-		// reads "Label tool. Click the map to place."
+		// The reason `TOOL_NAMES` exists: the union spells the tool `'text'` and no announcement ever
+		// does. The toolbar puts `toolName(tool)` in front of the gesture, so the region reads "Label
+		// tool. Click the map to place."
 		const drawing = armed('text');
 		expect(toolName(drawing.tool)).toBe('Label');
 		expect(drawing.status).toBe('Click the map to place.');

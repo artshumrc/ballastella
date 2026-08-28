@@ -1,5 +1,5 @@
 // What a bound Workspace's synchronization does to an Import: the current Remote inventory it must
-// have, and the Import of its own Remote Project it must refuse (ticket 17, ADR-0037, ADR-0038).
+// have, and the Import of its own Remote Project it must refuse (ADR-0037, ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // TWO CLAIMS, AND THE SECOND ONE CANNOT BE MADE ABOUT A FUNCTION
@@ -276,7 +276,7 @@ describe('Importing the Workspace’s own Remote Project', () => {
 		expect(refused.message).toContain(PROJECT.name);
 		expect(refused.message).toContain('already in this Workspace');
 		expect(refused.message).toContain('Nothing has been added to your Workspace.');
-		// The one remedy this refusal may never offer (SPEC story 71).
+		// The one remedy this refusal may never offer.
 		expect(refused.message).not.toMatch(/anyway|second copy of your own|Import it as/i);
 	});
 

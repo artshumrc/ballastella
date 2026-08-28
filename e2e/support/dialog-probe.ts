@@ -10,8 +10,8 @@
 // It happens in roughly one full-suite run in three and never in isolation, so the expensive
 // failure mode is a red run that explains nothing. This probe makes one failing run enough.
 //
-// **Everything it records is a distinct cause, not a hint.** The four candidates the ticket lists
-// are told apart by which line appears:
+// **Everything it records is a distinct cause, not a hint.** The four candidates are told apart by
+// which line appears:
 //
 //   `close()`               — application code called `close()`. The stack names the caller, which
 //                             is `ModalDialog`'s effect (its `open` prop went false) or nothing

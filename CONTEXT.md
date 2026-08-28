@@ -82,6 +82,10 @@ _Avoid_: repository, host, provider, source
 The modern reference map of the world that map images are aligned onto and annotations are placed over. One of several the user can switch between.
 _Avoid_: map, background, tiles
 
+**Map Snapshot**:
+A clean illustration of a Project's current geographic view: the Base Map and the Map Images and Annotations in visible Layers as they are presently configured and framed, without the application's controls, authoring aids, or embedded attribution. The scholar supplies attribution where the illustration is used. Authors and Readers can download one as an ordinary PNG once everything needed to draw that frame is available; it carries no coordinates or other GIS data.
+_Avoid_: screenshot, Map Image, export
+
 **Align / Alignment**:
 To establish the correspondence between a map image and locations on the earth, and the artifact that records it — its control points, resource mask, and transformation type. One word, used as both verb and noun, in the UI and in the code. There is exactly one alignment per map image, belonging to the workspace and shared by every project that uses that map (ADR-0023).
 _Avoid_: georeference, warp, pin, register, rectify, GeoreferencedMap
@@ -148,4 +152,3 @@ _Avoid_: undo stack, history stack, command stack, timeline, journal
 **Step**:
 One entry in an Edit History: a single edit as the scholar meant it, whatever number of writes it took — a drag is one Step, however many positions it reported. Typed text is no Step at all: naming things stays the browser’s to undo, and a name typed after a Step survives that Step being taken back. A Step is named after the act and its subject and never after the values involved, because the same Step is read forwards and backwards.
 _Avoid_: command, operation, transaction, revision, change
-

@@ -1,40 +1,40 @@
 // Update from GitHub: bringing a Remote's own additions, replacements and confirmed deletions into a
-// Workspace that is already synchronized with it (ADR-0038, SPEC stories 105, 121–131, 141).
+// Workspace that is already synchronized with it (ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EXPLICIT, INBOUND, AND NEITHER HALF OF THAT IS NEGOTIABLE
 //
 // A Remote Status check lists metadata and stops. This is the operation that acts on what the check
 // found, and it happens because somebody pressed a control that says so. Nothing here is reachable
-// from a status check, a window focus, an open or a publish — SPEC story 121: *"Update from GitHub
-// remains an explicit inbound action, so that Remote work never changes my Workspace silently."*
+// from a status check, a window focus, an open or a publish. An Update from GitHub remains an
+// explicit inbound action, so that Remote work never changes a Workspace silently.
 //
 // And it is inbound only. Nothing in this module posts a blob, writes a tree, moves a ref, generates
 // a Published Site, or touches a repository file outside Ballastella's namespace. Receiving somebody
-// else's work must not be able to make this author's own work public (SPEC story 122), so there is
-// deliberately no code path from here to the publish engine at all.
+// else's work must not be able to make this author's own work public, so there is deliberately no
+// code path from here to the publish engine at all.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// IT NEEDS NO ACCOUNT, WHICH IS THE STORY THIS EPIC IS MOST LIKELY TO BE USED FOR
+// IT NEEDS NO ACCOUNT, WHICH IS THE CASE IT IS MOST LIKELY TO BE USED FOR
 //
 // The reads are `clone-from-remote.ts`'s reads: an anonymous tree listing and anonymous
-// `raw.githubusercontent.com` bytes. Nothing here takes a token, and none may be added. SPEC story
-// 105 is a student whose instructor publishes to a repository they cannot push to — inbound
+// `raw.githubusercontent.com` bytes. Nothing here takes a token, and none may be added. The case to
+// keep in view is a student whose instructor publishes to a repository they cannot push to — inbound
 // synchronization is not publishing authority, and a refusal for want of write permission would be
 // this app inventing a rule GitHub does not have.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE PLAN IS TICKET 09'S, AND IT IS REPLANNED HERE RATHER THAN INHERITED
+// THE PLAN IS THE PLANNER'S, AND IT IS REPLANNED HERE RATHER THAN INHERITED
 //
 // {@link planWorkspaceUpdate} owns every three-way decision, and this module reimplements none of
 // them. What it does own is the two inventories that plan is made from, and both are gathered again
 // at the moment of transfer:
 //
 //   * **The local side is read and hashed completely**, however recently a status check ran. The write
-//     index (ticket 10) is evidence about Ballastella's own writes and nothing else — a chosen folder
-//     can be edited by any program on the machine — so a plan built from it would take an inbound
-//     change over an out-of-band local edit and call it safe. SPEC licenses this pass and licenses it
-//     revising the status already on screen.
+//     index (`local-change-index.ts`) is evidence about Ballastella's own writes and nothing else — a
+//     chosen folder can be edited by any program on the machine — so a plan built from it would take
+//     an inbound change over an out-of-band local edit and call it safe. A deliberate transfer is
+//     entitled to this pass, and to revising the status already on screen.
 //   * **The Remote side is read at one commit.** The head commit is read first and the tree and every
 //     blob are then read *at that SHA* rather than at the branch, so a branch that moves mid-transfer
 //     cannot hand this a file from one commit and a file from another. Every byte is still checked
@@ -47,7 +47,7 @@
 // {@link UpdateDeletionPreview}, which names the Projects by the name their author gave them and the
 // Map Images by their identity — and handed to {@link UpdateFromGitHubOptions.confirmDeletion}
 // before a byte is written or a before-image taken. Declining is a no-op on all three states: this
-// Workspace, the Remote, and the Baseline (SPEC story 127).
+// Workspace, the Remote, and the Baseline.
 //
 // ⚠ **A caller that passes no confirmer cannot delete.** The plan is refused `'deletion'` instead,
 // which is the same direction the confirmation itself points: applying the additions and dropping
@@ -57,7 +57,7 @@
 // A path the Remote deleted whose local bytes have *changed* is not a deletion at all. It is
 // `comparePath`'s Conflict row — baseline, local and remote all differ — so the whole Update is
 // refused and neither side is touched, and no confirmation is asked for something that is not on
-// offer (SPEC story 126).
+// offer.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE TRANSACTION, AND WHY IT IS NOT IMPORT'S
@@ -87,7 +87,7 @@
 // before this plans anything *and* before the application enumerates the Workspace at all:
 // `'writing'` is rolled back and `'committed'` is finished, exactly as an Import's two states are
 // opposite instructions. So a reader of this Workspace sees the complete old state or the complete
-// new one, never a Project list assembled out of both (SPEC story 141).
+// new one, never a Project list assembled out of both.
 
 import { ALIGNMENT_DIRECTORY, alignmentImageId } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
@@ -154,8 +154,8 @@ export const UPDATE_BEFORE_DIRECTORY = 'update.before/';
 /**
  * The format version of the marker itself, separate from a Project's.
  *
- * `2` since ticket 15 added the deletions, which a build that only knows `1` would leave out of a
- * rollback — so the number is what tells a reader of a stray marker which of the two wrote it.
+ * `2` carries the deletions, which a build that only knows `1` would leave out of a rollback — so
+ * the number is what tells a reader of a stray marker which of the two wrote it.
  */
 export const UPDATE_TRANSACTION_FORMAT_VERSION = 2;
 
@@ -407,9 +407,9 @@ export type UpdateRefusal =
 	| 'truncated'
 	/** Anything else GitHub said, or a request that never got an answer. */
 	| 'refused'
-	/** A path changed differently on both sides. Neither side is changed (SPEC story 126). */
+	/** A path changed differently on both sides. Neither side is changed. */
 	| 'conflict'
-	/** No Baseline, and two non-empty sides that cannot be attributed (SPEC story 153). */
+	/** No Baseline, and two non-empty sides that cannot be attributed. */
 	| 'unknown-history'
 	/**
 	 * The plan removes something and the caller offered no way to confirm it.
@@ -422,7 +422,7 @@ export type UpdateRefusal =
 	 */
 	| 'deletion'
 	/**
-	 * The deletions were shown and declined. Nothing was written, and nothing is wrong (story 127).
+	 * The deletions were shown and declined. Nothing was written, and nothing is wrong.
 	 *
 	 * Its own member rather than one of the failures above, because it is the one refusal whose remedy
 	 * is nothing at all: an author who looked at what would go and decided against it has been served
@@ -491,7 +491,7 @@ export interface UpdateFromGitHubOptions {
 	/** Which Workspace this is, recorded in the marker. See {@link UpdateTransaction.workspace}. */
 	readonly workspace?: string;
 	/**
-	 * Show what the Update would remove and answer whether to go ahead (SPEC stories 126, 127).
+	 * Show what the Update would remove and answer whether to go ahead.
 	 *
 	 * ⚠ **Called before the marker exists, before a before-image is taken, and before a byte is
 	 * fetched.** `false` is not a failure: nothing has been written, nothing on GitHub has been
@@ -568,9 +568,9 @@ export interface WorkspaceUpdate {
 	/**
 	 * The complete Baseline a successful Update may now record.
 	 *
-	 * ⚠ **The previous Baseline, advanced only where the two sides now share bytes.** SPEC story 130:
-	 * a local-only change keeps whatever the Baseline said about it, so it still reports as Changes to
-	 * publish; a path neither side holds any more is dropped. Recording the whole prospective
+	 * ⚠ **The previous Baseline, advanced only where the two sides now share bytes.** A local-only
+	 * change keeps whatever the Baseline said about it, so it still reports as Changes to publish; a
+	 * path neither side holds any more is dropped. Recording the whole prospective
 	 * inventory instead would claim the author's unpublished work had been shared.
 	 */
 	readonly baseline: ReadonlyMap<string, string>;
@@ -600,19 +600,18 @@ type PlannedFile = {
 export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
 
 /**
- * Bring a Remote's own additions, replacements and confirmed deletions into this Workspace
- * (SPEC stories 123–127, 141).
+ * Bring a Remote's own additions, replacements and confirmed deletions into this Workspace.
  *
  * The order is the design, and it is what makes every refusal before step 7 free:
  *
  * 1. **Any outstanding transaction is resolved**, so nothing is planned over a half-finished Update.
  * 2. **The Remote's commit, then its tree at that commit** — two anonymous requests.
- * 3. **The Workspace is listed, read and hashed completely.** SPEC story 160: the write index cannot
- *    see an out-of-band edit to a chosen folder, and this pass is entitled to revise the status the
- *    author was shown.
- * 4. **The plan** — ticket 09's, which owns every three-way decision. A Conflict, a graph-invalid
- *    combination and an unattributable pair of sides are refused here. A path the Remote deleted and
- *    this Workspace changed is one of those Conflicts and never reaches step 6.
+ * 3. **The Workspace is listed, read and hashed completely.** The write index cannot see an
+ *    out-of-band edit to a chosen folder, and this pass is entitled to revise the status the author
+ *    was shown.
+ * 4. **The plan** — `synchronization-planner.ts`'s, which owns every three-way decision. A Conflict,
+ *    a graph-invalid combination and an unattributable pair of sides are refused here. A path the
+ *    Remote deleted and this Workspace changed is one of those Conflicts and never reaches step 6.
  * 5. **Every prospective `project.json` is gathered and the whole graph validated**, so a combination
  *    that would not open is refused before a byte of it is visible.
  * 6. **The deletions, if any, are described and confirmed** — and a decline stops here, having
@@ -724,8 +723,7 @@ export async function updateFromGitHub(
  *
  * ⚠ **Not the prospective inventory.** `plan.advances` is exactly the paths the two sides now share
  * and `plan.retires` exactly those neither holds; every other path keeps whatever the Baseline said,
- * which is what leaves a local-only change reporting as Changes to publish afterwards (SPEC story
- * 130).
+ * which is what leaves a local-only change reporting as Changes to publish afterwards.
  */
 function advancedBaseline(
 	previous: SynchronizationBaseline | null,
@@ -755,7 +753,7 @@ async function readRemoteInventoryAt(
 /**
  * Every path in this Workspace with the blob SHA of its current bytes.
  *
- * ⚠ **A complete read and hash, and the cost is the point** (SPEC story 160). A passive status check
+ * ⚠ **A complete read and hash, and the cost is the point.** A passive status check
  * must not do this — it runs on every window focus — but a transfer must: an author who edited a file
  * in their chosen folder with another program never crossed the write index's seam, and a plan that
  * did not notice would replace their edit with the Remote's and call it a safe inbound change.
@@ -856,7 +854,7 @@ async function confirmRemovals(
 }
 
 /**
- * What the deletions come to, in Projects and Map Images (SPEC story 126).
+ * What the deletions come to, in Projects and Map Images.
  *
  * ⚠ **Grouped from the Workspace as it is now, not from the Remote's tree.** A Project is removed
  * *completely* when every file this Workspace holds under its directory is going, and that is a claim
@@ -1112,7 +1110,7 @@ async function fetchVerified(
 }
 
 /**
- * Write one inbound file, sending an Alignment through the one writer (ADR-0023, ticket 18).
+ * Write one inbound file, sending an Alignment through the one writer (ADR-0023).
  *
  * Routed for `restore-workspace-tar.ts`'s reason, and it is the same situation: the path arrives as
  * *data* — an entry in somebody else's tree — so neither the `AlignmentPath` brand nor
@@ -1308,7 +1306,7 @@ function cancelledMessage(remote: RemoteRelationship): string {
 }
 
 /**
- * The question the author is asked before anything goes (SPEC story 126).
+ * The question the author is asked before anything goes.
  *
  * ⚠ **It says what Update will do, not what it might do.** The confirmation is the last point at
  * which the answer is still no, so the sentence has to be the whole of the consequence: which

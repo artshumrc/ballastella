@@ -1,11 +1,11 @@
 <script lang="ts">
-	// Everything inside one Annotation Layer: the toolbar and the Annotations in it (SPEC stories 57–67).
+	// Everything inside one Annotation Layer: the toolbar and the Annotations in it.
 	//
-	// **Rendered inside that Layer's own open row** (ticket 05), which is what removed the thing this
-	// file used to begin with: a `<select>` labelled "Drawing into". Which Layer is open and which
-	// Layer is drawn into were two values that could disagree — a user could open one Layer's row and
-	// then draw into another — and they are now one. The open Layer *is* the chosen Layer, so there is
-	// nothing left to pick, and this component is handed the Layer rather than a list to choose from.
+	// **Rendered inside that Layer's own open row**, which is what removed the thing this file used to
+	// begin with: a `<select>` labelled "Drawing into". Which Layer is open and which Layer is drawn
+	// into were two values that could disagree — a user could open one Layer's row and then draw into
+	// another — and they are now one. The open Layer *is* the chosen Layer, so there is nothing left to
+	// pick, and this component is handed the Layer rather than a list to choose from.
 	//
 	// Only one row is open at a time, so exactly one of these exists on the screen. That is what lets
 	// the heading and the list carry fixed ids and fixed accessible names.
@@ -153,10 +153,10 @@
 {/snippet}
 
 <!--
-	**One list, on screen throughout** (the-annotation-inspector stories 11, 36) — while the shapes are
-	on offer, while a shape is being drawn, and at rest. Hiding the answer to "what is already in this
-	Layer" is no service to somebody who is adding to it, and there is no drawing mode for the list to
-	step aside for: a gesture ends by itself, so nothing can hold the screen.
+	**One list, on screen throughout** — while the shapes are on offer, while a shape is being drawn,
+	and at rest. Hiding the answer to "what is already in this Layer" is no service to somebody who is
+	adding to it, and there is no drawing mode for the list to step aside for: a gesture ends by
+	itself, so nothing can hold the screen.
 
 	This is also why the freshly drawn Annotation needs nothing of its own here. It is a row in this
 	list, selected — captioned and counted alongside the rest, because that is where it is — and its

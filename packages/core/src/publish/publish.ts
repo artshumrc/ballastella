@@ -23,7 +23,7 @@
 //
 // It is not an index *of the Workspace*: it holds no file paths and nothing a Project needs. Delete
 // it and every Project directory is still complete, standard-format, and readable with no
-// proprietary index (SPEC story 94). It is part of the viewer file set, not part of the data.
+// proprietary index. It is part of the viewer file set, not part of the data.
 //
 // Publishing still copies no Project data and no pyramid. ADR-0023 moved the pyramids to the Workspace
 // root, which changes nothing here: they were never copied, and now they are not copied from one place
@@ -63,7 +63,8 @@ import {
 import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-bundle.js';
 
 /**
- * The site record's format, versioned for the same reason `project.json` is (ADR-0010). **2 since ticket 12 keyed the Base Map tile cache by archive.**
+ * The site record's format, versioned for the same reason `project.json` is (ADR-0010). **2 marks
+ * the Base Map tile cache being keyed by archive.**
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * BUMPED *AND* GIVEN A FALLBACK, AND THE FALLBACK IS THE PART THAT MATTERS
@@ -125,9 +126,9 @@ export type PublishedSite = {
 	readonly publishedAt: string;
 	/**
 	 * The editor instance that published this site, with a trailing slash — or `''` when the record
-	 * does not say (SPEC story 55).
+	 * does not say.
 	 *
-	 * **This is what makes the Front Page's return links possible** (story 51): a Reader who was given
+	 * **This is what makes the Front Page's return links possible**: a Reader who was given
 	 * nothing but a URL is sent back to the instance that made the site rather than asked which copy
 	 * of the tool to use. It is provenance independent of the link, which is why it is recorded rather
 	 * than derived at read time — a site can say where it came from.
@@ -140,10 +141,10 @@ export type PublishedSite = {
 	/**
 	 * The repository this site was published to, or `null` when it was published into a folder.
 	 *
-	 * **Here so the Front Page can offer the way back, and here for nothing else** (SPEC story 146).
-	 * A static host cannot be asked what repository serves it, and the record already says which
-	 * editor published the site but not where the files came from — so the coordinates travel on the
-	 * record, normalised, and the two return links are built from them.
+	 * **Here so the Front Page can offer the way back, and here for nothing else.** A static host
+	 * cannot be asked what repository serves it, and the record already says which editor published
+	 * the site but not where the files came from — so the coordinates travel on the record,
+	 * normalised, and the two return links are built from them.
 	 *
 	 * ⚠ **A published field, and published fields cannot bind anything.** The Remote relationship is
 	 * installation-local metadata keyed by Workspace identity; this is evidence about a *site*, in a
@@ -162,8 +163,7 @@ export type PublishedSite = {
 	/**
 	 * Whether this Workspace carries cached Base Map **tiles** (ADR-0025).
 	 *
-	 * **This field changed meaning in ticket 11**, from "the deployment's extract was copied" to what
-	 * ADR-0025 says: the site draws its geography from `base-map/tiles/…` and needs no network for it.
+	 * True means the site draws its geography from `base-map/tiles/…` and needs no network for it.
 	 * Publishing copies nothing extra to make it true — the tiles are already in the Workspace, which
 	 * *is* the published root — so this is an observation of the folder at publish time and never a
 	 * choice on the dialog.
@@ -187,7 +187,7 @@ export type PublishedSite = {
 	 * (ADR-0006): the editor reads both facts off the folder, and a static host gives the viewer no
 	 * way to.
 	 *
-	 * **`archive` is what makes a keyed cache usable by a Reader** (ticket 12). The tiles are at
+	 * **`archive` is what makes a keyed cache usable by a Reader.** The tiles are at
 	 * `base-map/tiles/<key>/…` where the key is a one-way function of the catalog entry's own
 	 * `archive` string, and ADR-0020 lets a Reader switch between entries — so the viewer has to be
 	 * able to ask "do I have tiles for *this* entry", and the only way to answer that from a static
@@ -205,7 +205,7 @@ export type PublishedBaseMapCache = {
 	/**
 	 * The catalog entry's own `archive` string, unresolved — see `baseMapArchiveKey`.
 	 *
-	 * **`null` means the pre-ticket-12 unkeyed cache**, which belonged to no particular entry
+	 * **`null` means the legacy unkeyed cache**, which belonged to no particular entry
 	 * because there was only one directory. A viewer matches it against whichever entry is showing
 	 * and reads `legacyCachedTilePath`; see {@link parseBaseMapCaches}.
 	 */
@@ -297,11 +297,11 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 		}),
 		baseMap: isCatalog(record.baseMap) ? record.baseMap : BASE_MAP_CATALOG,
 		baseMapBundled: record.baseMapBundled === true,
-		// ⚠ **A record written before ticket 11 has no `baseMapAssetsBundled`, and its `baseMapBundled`
-		// meant exactly what this field means now** — the deployment's Base Map files were copied. The
-		// meaning moved; the sites did not. Reading the new field strictly made every already-published
-		// site reopen with `glyphs`, `sprite`, and every symbol layer dropped and a notice saying the
-		// labels were not copied, while `base-map/fonts/` sat on the host untouched. Nothing errored.
+		// ⚠ **An older record has no `baseMapAssetsBundled`, and its `baseMapBundled` meant exactly
+		// what this field means now** — the deployment's Base Map files were copied. The meaning moved;
+		// the sites did not. Reading the new field strictly made every already-published site reopen
+		// with `glyphs`, `sprite`, and every symbol layer dropped and a notice saying the labels were
+		// not copied, while `base-map/fonts/` sat on the host untouched. Nothing errored.
 		//
 		// So an absent field falls back to the old field's old meaning. Not a migration and not a
 		// `formatVersion` bump: the record is read-only to this build, no byte is rewritten, and the
@@ -357,8 +357,8 @@ function parseEditorUrl(value: unknown): string {
  * to a persisted repository identity.** Both halves are interpolated into a GitHub API path by the
  * Open and Review engines, and an owner of `ada/../../orgs` retargets every request they make — so a
  * record served by whoever controls the host is checked here rather than trusted, exactly as
- * `parseRemoteBinding` checks the file it reads. A record that names no repository is the ordinary
- * pre-ticket-02 state, not a failure.
+ * `parseRemoteBinding` checks the file it reads. A record that names no repository is ordinary — a
+ * site published into a folder — and not a failure.
  */
 function parsePublishedRepository(value: unknown): PublishedRepository | null {
 	if (typeof value !== 'object' || value === null) return null;
@@ -392,20 +392,20 @@ function reachableByAReader(hostname: string): boolean {
 }
 
 /**
- * The cached-archive list, read defensively — **and the pre-ticket-12 field it replaced**.
+ * The cached-archive list, read defensively — **and the older field it replaced**.
  *
  * An entry missing either half is dropped rather than defaulted: a cache whose archive is unknown
  * cannot be matched to an entry, and one whose depth is unknown would make MapLibre ask past the
  * pyramid — so "no cache for that entry" is the only honest reading of a half-written entry, and it
  * costs a Reader the network rather than a blank map.
  *
- * ⚠ **A record written before ticket 12 has `baseMapMaxZoom` and no `baseMapCaches`, and its tiles
- * are at the unkeyed `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every
- * already-published offline site drawing no geography at all, with `baseMapBundled: true` beside it
- * — silent, and indistinguishable from the archive being down. So the old field is read as one
- * cache with **no archive**, which is exactly what it meant: there was one directory and it served
- * whichever catalog entry the Reader had selected. `ReaderMapPane` matches a `null` archive against
- * any entry and reads `legacyCachedTilePath`.
+ * ⚠ **An older record has `baseMapMaxZoom` and no `baseMapCaches`, and its tiles are at the unkeyed
+ * `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every already-published
+ * offline site drawing no geography at all, with `baseMapBundled: true` beside it — silent, and
+ * indistinguishable from the archive being down. So the old field is read as one cache with **no
+ * archive**, which is exactly what it meant: there was one directory and it served whichever
+ * catalog entry the Reader had selected. `ReaderMapPane` matches a `null` archive against any entry
+ * and reads `legacyCachedTilePath`.
  *
  * This is the same shape of fallback, for the same reason, as `baseMapAssetsBundled` above.
  */
@@ -473,7 +473,7 @@ export type PublishPlan = {
 	/** How much the tiled Map Images already in the Workspace contribute to the published site. */
 	readonly mapImages: WorkspaceSize;
 	/**
-	 * How much of {@link workspace} is Map Images no Project's Layers draw (SPEC story 98).
+	 * How much of {@link workspace} is Map Images no Project's Layers draw.
 	 *
 	 * **Publishing is additive and cannot leave them out** — they are already in the directory the site
 	 * is written into — so the honest thing is to say what they weigh. That sentence is what gives the
@@ -486,7 +486,7 @@ export type PublishPlan = {
 	 *
 	 * Observed rather than chosen: publishing copies nothing to make it true, because the tiles are
 	 * already in the directory being published. It is on the plan so the dialog can say whether the
-	 * site will need a network connection (SPEC story 99) before the user pushes it.
+	 * site will need a network connection before the user pushes it.
 	 */
 	readonly baseMapBundled: boolean;
 	/** Whether this deployment has Base Map glyphs and sprites to write. */
@@ -702,7 +702,7 @@ export async function planPublish(
 const publishableCaches = (caches: readonly BaseMapCache[]): readonly PublishedBaseMapCache[] =>
 	caches.flatMap<PublishedBaseMapCache>((cache) => {
 		if (cache.tiles === 0) return [];
-		// A pre-ticket-12 pile is published as what it is: no archive, and the depth read off its own
+		// A legacy unkeyed pile is published as what it is: no archive, and the depth read off its own
 		// files, which is exactly what the old `baseMapMaxZoom` was. Dropping it would take a working
 		// offline site away from a scholar the first time they re-published.
 		if (cache.legacy) {
@@ -726,7 +726,7 @@ const collisionMessage = (collisions: readonly string[]): string =>
  * **The referenced Map Images** are each Project's map Layers intersected with what the Workspace
  * observably fetches from elsewhere, because the warning is about what the *site* draws: a `remote.json`
  * for an image nothing references costs a Reader nothing, and a Layer over a referenced image renders
- * blank without a network (ADR-0007, SPEC stories 29 and 90).
+ * blank without a network (ADR-0007).
  *
  * **The canonical address** is whatever the Projects already agree on, so a re-publish can offer it
  * back. The first one found wins: they are stamped together by one action, and a Workspace whose
@@ -787,16 +787,16 @@ function referencedWarning(referenced: { project: PublishedProject; layers: stri
  * The ADR-0008 cliff, said in publishing's own words.
  *
  * The arithmetic is `crossesHostingLimit`'s and the byte total is `workspaceSize`'s — the same two
- * functions ticket 15 warns from, so the two moments cannot give a user two different answers about
- * one Workspace. Only the sentence differs, because ticket 15's is about a copy that is about to be
- * made and this one is about a site that is about to be pushed.
+ * functions `hostingLimitWarning` reads, so the two moments cannot give a user two different answers
+ * about one Workspace. Only the sentence differs, because that one is about a copy that is about to
+ * be made and this one is about a site that is about to be pushed.
  *
- * **And it names what is reclaimable** (SPEC story 98). Publishing is additive: the Map Images no
- * Project draws are already in the directory being published and cannot be left out, so a warning
- * about a cliff that did not say how much of the drop is dead weight would be telling the user they
- * are stuck when they are one deletion from not being. The clause is omitted rather than written with
- * a zero, because "including 0 bytes of Map Images no Project uses" is noise in the one message
- * that has to be read.
+ * **And it names what is reclaimable.** Publishing is additive: the Map Images no Project draws are
+ * already in the directory being published and cannot be left out, so a warning about a cliff that
+ * did not say how much of the drop is dead weight would be telling the user they are stuck when
+ * they are one deletion from not being. The clause is omitted rather than written with a zero,
+ * because "including 0 bytes of Map Images no Project uses" is noise in the one message that has to
+ * be read.
  */
 function hostingWarning(
 	current: number,
@@ -1023,7 +1023,7 @@ export async function readPublishedSite(store: ProjectStore): Promise<PublishedS
  * Two ways to be behind, and both matter (ADR-0006). The viewer's files can be older than this
  * build of the editor, which is the one the ADR names. And the *Project list* can be older than the
  * Workspace, which is the case a student meets: they add a Project in week four and the hub page
- * from week three does not list it (SPEC story 81).
+ * from week three does not list it.
  */
 export function publishedSiteStaleness(
 	site: PublishedSite | null,
@@ -1135,7 +1135,7 @@ export type CanonicalStamp = {
 };
 
 /**
- * Rewrite every named Map Image's `info.json` `id` to the canonical address (SPEC story 92).
+ * Rewrite every named Map Image's `info.json` `id` to the canonical address.
  *
  * This is what turns a scholar's tiles into a real, citable IIIF endpoint that Allmaps, Theseus,
  * and OpenSeadragon can consume directly — the interoperability promise actually paying out rather

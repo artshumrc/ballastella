@@ -5,7 +5,7 @@
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	/**
-	 * What the write-ahead journal put back at startup, and everything it could not (ticket 20).
+	 * What the write-ahead journal put back at startup, and everything it could not.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * A RECOVERY THE USER CANNOT TELL HAPPENED IS ONE THEY CANNOT CHECK
@@ -17,34 +17,34 @@
 	 *
 	 * So, following the same reasoning as `UpdatePrompt`:
 	 *
-	 *   * **Visible text, never a tooltip** (SPEC story 111). A daisyUI tooltip is a CSS `::before`
-	 *     and is never announced (ADR-0016).
-	 *   * **`aria-live="polite"` on a wrapper that is always mounted** (SPEC story 112). A live region
-	 *     inserted with its text already in it is often not announced at all, which would leave this
-	 *     news sighted-only — and a startup recovery is exactly the thing a screen-reader user would
-	 *     otherwise be told less about than anybody else.
-	 *   * **Polite and not `role="alert"`**, for story 113's reason: nothing here may pull focus away
-	 *     from what the author is doing to tell them something that was already true when they arrived.
-	 *   * **In the page's flow, under the bar, and never a floating card** (ticket 22). This notice has
-	 *     no timer: it stays until "Got it" is pressed, so anything it covers it covers indefinitely.
-	 *     A fixed corner card would sit over the Project screen's pinned "Map Image" and "Annotation
-	 *     Layer" pair — the one way of adding to a Project — and no corner is free at every width,
-	 *     because below `lg` the Layer rail is a full-width block at the end of the document. So it
-	 *     takes room of its own, for `ReviewBanner`'s reason: news that persists must not be laid
-	 *     over the work it is about. Only a startup or a Workspace switch produces a report, so the
-	 *     space it takes is never claimed out from under a gesture in progress.
+	 *   * **Visible text, never a tooltip.** A daisyUI tooltip is a CSS `::before` and is never
+	 *     announced (ADR-0016).
+	 *   * **`aria-live="polite"` on a wrapper that is always mounted**. A live region inserted with its
+	 *     text already in it is often not announced at all, which would leave this news sighted-only —
+	 *     and a startup recovery is exactly the thing a screen-reader user would otherwise be told less
+	 *     about than anybody else.
+	 *   * **Polite and not `role="alert"`**: nothing here may pull focus away from what the author is
+	 *     doing to tell them something that was already true when they arrived.
+	 *   * **In the page's flow, under the bar, and never a floating card.** This notice has no timer:
+	 *     it stays until "Got it" is pressed, so anything it covers it covers indefinitely. A fixed
+	 *     corner card would sit over the Project screen's pinned "Map Image" and "Annotation Layer"
+	 *     pair — the one way of adding to a Project — and no corner is free at every width, because
+	 *     below `lg` the Layer rail is a full-width block at the end of the document. So it takes room
+	 *     of its own, for `ReviewBanner`'s reason: news that persists must not be laid over the work it
+	 *     is about. Only a startup or a Workspace switch produces a report, so the space it takes is
+	 *     never claimed out from under a gesture in progress.
 	 *   * **Dismissed by the user and by nothing else.** It does not time out. Four separate lists
 	 *     are shown rather than a count, because "put back", "deliberately not put back", "could not
 	 *     be put back yet" and "this version will not read it" are four different things to do next.
-	 *   * **A row whose entry is *kept* carries its own exit** (ticket 07). Dismissal is keyed on the
-	 *     report's contents, so news about something still in the journal comes back at every startup
-	 *     until the thing itself goes.
+	 *   * **A row whose entry is *kept* carries its own exit.** Dismissal is keyed on the report's
+	 *     contents, so news about something still in the journal comes back at every startup until the
+	 *     thing itself goes.
 	 */
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const report = $derived(storage?.session.replayReport ?? null);
 	/**
-	 * And what the startup's **deletions** did (ticket 21, review 2).
+	 * And what the startup's **deletions** did.
 	 *
 	 * ⚠ **The only step of the recovery chain that removes files, and it was the only one that said
 	 * nothing.** `finishInterruptedDeletions` runs before the replay, against the same Workspace,
@@ -84,13 +84,13 @@
 	let dismissButton = $state<HTMLButtonElement | null>(null);
 
 	/**
-	 * ⚠ **Dismissing this dropped focus on the floor** (ticket 21, round 4; the defect is ticket 20's).
+	 * ⚠ **Dismissing this must not drop focus on the floor.**
 	 *
 	 * "Got it" removes the `<section>` that contains it, so a keyboard or screen-reader user who
 	 * activates it has the focused element deleted from under them and lands on `<body>` — at the top
 	 * of the document, with no announcement, and with the next Tab starting from the beginning of the
-	 * page. It was always wrong; round 3 made it load-bearing, because this panel is now the *only*
-	 * user-facing surface for every deletion a folder Workspace reports.
+	 * page. It is load-bearing here because this panel is the *only* user-facing surface for every
+	 * deletion a folder Workspace reports.
 	 *
 	 * Focus goes to `<main>`, which is where the user's attention should be once the news is
 	 * dismissed — the Project list they came here for. `tabIndex = -1` is what makes a landmark
@@ -180,16 +180,16 @@
 					</p>
 				{/if}
 				<!--
-					⚠ **A refusal needs an exit that costs nobody a file** (ticket 21, round 4).
+					⚠ **A refusal needs an exit that costs nobody a file.**
 
-					Since round 3 a folder Workspace finishes no deletion unattended, so a refusal is the
-					whole of what a startup there ever reports — and nothing ended one. No record expires,
-					`Workspace.#claim` drops one only when a Project is created or duplicated under that
-					name, Workspace settings' discard cannot by construction reach the Workspace that is
-					open, and "Got it" below is keyed on the report's *contents*, so the next startup
-					builds a byte-identical report and shows it again. The one remedy the sentence used to
-					offer was "delete it again", which — in the case the sentence exists for, a
-					colleague's folder holding their own Project of that name — destroys their work.
+					A folder Workspace finishes no deletion unattended, so a refusal is the whole of what a
+					startup there ever reports — and nothing else ends one. No record expires,
+					`Workspace.#claim` drops one only when a Project is created or duplicated under that name,
+					Workspace settings' discard cannot by construction reach the Workspace that is open, and
+					"Got it" below is keyed on the report's *contents*, so the next startup builds a
+					byte-identical report and shows it again. The one remedy the sentence used to offer was
+					"delete it again", which — in the case the sentence exists for, a colleague's folder
+					holding their own Project of that name — destroys their work.
 
 					So: forget the note. It removes a note about a deletion and never a file, which makes
 					it the one gesture here that is safe to offer for a state the user cannot otherwise
@@ -200,12 +200,12 @@
 					<p class="text-sm text-warning" data-testid="deletion-refused">
 						{entry.detail}
 						<!--
-							⚠ **The accessible name carries the folder, and the visible label cannot** (round 5).
-							Two refusals render two buttons reading "Forget this note", and the only thing telling
-							them apart is the prose beside them in a `<p>` that is not programmatically associated
-							with either. A screen-reader user tabbing the panel would meet two identical buttons
-							and have to guess which note each one throws away — for a control whose whole purpose
-							is to be the safe choice. It also makes `getByTestId('forget-deletion')` a strict-mode
+							⚠ **The accessible name carries the folder, and the visible label cannot.** Two
+							refusals render two buttons reading "Forget this note", and the only thing telling them
+							apart is the prose beside them in a `<p>` that is not programmatically associated with
+							either. A screen-reader user tabbing the panel would meet two identical buttons and
+							have to guess which note each one throws away — for a control whose whole purpose is to
+							be the safe choice. It also makes `getByTestId('forget-deletion')` a strict-mode
 							violation the moment a test constructs two, which is the test that had to exist.
 						-->
 						<button
@@ -245,7 +245,7 @@
 					</ul>
 				{/if}
 				<!--
-					⚠ **A kept entry needs an exit, for the reason an unfinished deletion does** (ticket 07).
+					⚠ **A kept entry needs an exit, for the reason an unfinished deletion does.**
 
 					Every skip used to drop its entry, so every skip was news that could only be told once. Two
 					reasons now keep one — a refusal that would otherwise destroy an edit, and an entry
@@ -262,9 +262,9 @@
 					whatever was at that path *then* — including a stranded edit made an hour later.
 
 					⚠ **This is the only action offered, and it is the discarding one.** Applying a held copy
-					is a chooser that does not exist yet — ticket 03's — so a scholar meeting
-					`cannot-tell-which-is-newer` can read both versions' sizes and keep waiting, or throw the
-					copy away. Everything a chooser needs is already reachable; what is missing is the UI.
+					is a chooser that does not exist yet, so a scholar meeting `cannot-tell-which-is-newer` can
+					read both versions' sizes and keep waiting, or throw the copy away. Everything a chooser
+					needs is already reachable; what is missing is the UI.
 				-->
 				{#each report?.skipped ?? [] as entry (`${entry.path}:${entry.copy ?? ''}`)}
 					{@const copy = entry.copy}

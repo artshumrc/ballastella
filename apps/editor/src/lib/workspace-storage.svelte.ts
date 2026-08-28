@@ -123,7 +123,7 @@ import {
 } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
 
-// ── The GitHub App sign-in's browser-side pieces (ticket 10, ADR-0031) ────────────────────────
+// ── The GitHub App sign-in's browser-side pieces (ADR-0031) ───────────────────────────────────
 
 /**
  * Where the `state` and the grant record are kept: `sessionStorage`, or nothing at all.
@@ -166,7 +166,7 @@ const nowhere: CredentialStorage = {
 };
 
 /**
- * The sign-in's grant record, behind the same seal as the credential itself (story 40, ADR-0024).
+ * The sign-in's grant record, behind the same seal as the credential itself (ADR-0024).
  *
  * ⚠ **The record holds the refresh token, which outlives the eight-hour access token and can mint
  * more of them.** So it falls under the rule the credential does, and under it harder: while a
@@ -332,8 +332,7 @@ export interface ImportedFromReview extends ImportedIntoWorkspace {
  *
  * `localStorage` rather than anything in OPFS, and deliberately outside the Workspaces themselves:
  * "which one was I in" is a fact about this browser, not about anybody's work, and writing it into a
- * Workspace would put it in the folder that gets published, backed up (ticket 13), and handed to a
- * colleague (ticket 14).
+ * Workspace would put it in the folder that gets published, backed up, and handed to a colleague.
  */
 const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 
@@ -404,8 +403,8 @@ function write(key: string, value: string): void {
 }
 
 /**
- * Which Workspace is open and the whole of moving between them — across backends, and since
- * ticket 12 across the several named Workspaces browser storage now holds (ADR-0024).
+ * Which Workspace is open and the whole of moving between them — across backends, and across the
+ * several named Workspaces browser storage holds (ADR-0024).
  *
  * Owns the {@link EditorSession} rather than living beside it, because switching means *replacing*
  * the session: an `EditorSession` holds one `Autosave` bound to one store, and repointing that store
@@ -479,11 +478,11 @@ export class WorkspaceStorage {
 	baseline = $state<SynchronizationBaseline | null>(null);
 	/**
 	 * What the Remote Status control shows: the last determination, when it was reached, whether a
-	 * check is running, and any failure since (ticket 12).
+	 * check is running, and any failure since.
 	 *
 	 * ⚠ **Separate from {@link EditorSession.saveState}, which is the whole point of it.** "Saved
 	 * locally" is a fact about this machine and says nothing about whether GitHub agrees; a scholar
-	 * who reads the one as the other publishes over a colleague's afternoon (SPEC story 111).
+	 * who reads the one as the other publishes over a colleague's afternoon.
 	 */
 	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
 	/**
@@ -508,8 +507,8 @@ export class WorkspaceStorage {
 	/**
 	 * A v1 `remote.json` this installation cannot corroborate, waiting to be confirmed or declined.
 	 *
-	 * ⚠ **Not a Remote.** SPEC: *"A legacy binding without corroborating installation-local evidence
-	 * requires explicit confirmation."* The binding is a file inside the published tree, so a fork, a
+	 * ⚠ **Not a Remote.** A legacy binding without corroborating installation-local evidence requires
+	 * explicit confirmation. The binding is a file inside the published tree, so a fork, a
 	 * colleague's copied folder and a restored Backup all carry one naming somebody else's repository
 	 * — and lifting it silently would aim a Publish button at a repository the author has never seen.
 	 *
@@ -521,8 +520,8 @@ export class WorkspaceStorage {
 	 * Whether a push credential is held right now.
 	 *
 	 * Mirrored into reactive state rather than read from {@link #credentials} in the markup, because
-	 * the store is deliberately not reactive — it is an interface over web storage, and ticket 10
-	 * puts a second implementation behind it. Refreshed wherever either half of the answer can
+	 * the store is deliberately not reactive — it is an interface over web storage, and the App
+	 * sign-in puts a second implementation behind it. Refreshed wherever either half of the answer can
 	 * change: a sign-in, a sign-out, and **every switch**, since the store is sealed inside a Review
 	 * Workspace and unsealed on the way out of one.
 	 */
@@ -581,7 +580,7 @@ export class WorkspaceStorage {
 	 */
 	problem = $state('');
 	/**
-	 * Journalled edits naming a Workspace that is not in browser storage any more (ticket 20).
+	 * Journalled edits naming a Workspace that is not in browser storage any more.
 	 *
 	 * Reported rather than swept up, and reported *here* rather than left to replay, which only ever
 	 * looks at the Workspace being opened and so would never meet one. The user is offered the
@@ -592,8 +591,7 @@ export class WorkspaceStorage {
 	/** `''` when this browser can protect an edit against the tab closing, otherwise why it cannot. */
 	unprotected = $state('');
 	/**
-	 * Why this Workspace is not available, because an interrupted Import could not be resolved
-	 * (ticket 05).
+	 * Why this Workspace is not available, because an interrupted Import could not be resolved.
 	 *
 	 * ⚠ **Not a notice beside a Workspace that opened anyway.** An Import writes its provisional files
 	 * at ordinary Workspace paths under one durable marker, so while that marker is unresolved *every*
@@ -608,15 +606,14 @@ export class WorkspaceStorage {
 	 */
 	unrecoveredImport = $state('');
 	/**
-	 * Why this Workspace is not available, because an interrupted Update could not be resolved
-	 * (ticket 15).
+	 * Why this Workspace is not available, because an interrupted Update could not be resolved.
 	 *
 	 * {@link unrecoveredImport}'s twin, and for the identical reason: an Update writes the Remote's
 	 * bytes at ordinary Workspace paths and removes others, all under one durable marker, so while
 	 * that marker is unresolved every reader would see a Project list assembled out of two states —
-	 * the Project the Update was removing still listed, the one it was adding half there. SPEC story
-	 * 141 is that either the complete inbound change set is visible or the old Workspace is, and the
-	 * way that is kept true for a reader is that nothing enumerates until the marker is gone.
+	 * the Project the Update was removing still listed, the one it was adding half there. Either the
+	 * complete inbound change set is visible or the old Workspace is, and the way that is kept true
+	 * for a reader is that nothing enumerates until the marker is gone.
 	 *
 	 * Read through {@link unavailable}, which is what every guard and every route consults: the two
 	 * unresolved transactions differ in which engine left them and in nothing a caller cares about.
@@ -626,17 +623,17 @@ export class WorkspaceStorage {
 	/**
 	 * Why this Workspace may not be enumerated, opened, backed up or published at all, or `''`.
 	 *
-	 * ⚠ **One question with two answers, deliberately asked once.** An Import (ticket 05) and an
-	 * Update (ticket 15) both leave provisional state at ordinary Workspace paths under a durable
-	 * marker, and a guard that consulted one of them was a guard that let the other through — which is
-	 * a Project list, a Backup or a Publish over half a transfer.
+	 * ⚠ **One question with two answers, deliberately asked once.** An Import and an Update both
+	 * leave provisional state at ordinary Workspace paths under a durable marker, and a guard that
+	 * consulted one of them was a guard that let the other through — which is a Project list, a
+	 * Backup or a Publish over half a transfer.
 	 */
 	get unavailable(): string {
 		return this.unrecoveredImport || this.unrecoveredUpdate;
 	}
 
 	/**
-	 * The deletions an Update is waiting to be told about, or `null` when it is not (story 126).
+	 * The deletions an Update is waiting to be told about, or `null` when it is not.
 	 *
 	 * ⚠ **State rather than a callback into a component**, because the transfer outlives the screen it
 	 * was started from: the Update control is on the navigation bar, and an author who starts one and
@@ -675,7 +672,7 @@ export class WorkspaceStorage {
 	 * `null` on a browser that will not give the page `localStorage` — a private window with storage
 	 * blocked. Said out loud in {@link unprotected} rather than treated as normal: on such a browser
 	 * an edit inside its debounce window still does not survive leaving the page, which is the whole
-	 * of what ticket 20 fixed everywhere else.
+	 * of what the write-ahead journal gives everywhere else.
 	 */
 	readonly #journalStorage: JournalStorage | null = browserJournalStorage();
 	/**
@@ -688,12 +685,12 @@ export class WorkspaceStorage {
 	 */
 	readonly #metadataStorage: MetadataStorage | null = browserMetadataStorage();
 	/**
-	 * The push credential, sealed while a Review Workspace is open (ADR-0033, story 40).
+	 * The push credential, sealed while a Review Workspace is open (ADR-0033).
 	 *
 	 * ⚠ **Not on the `EditorSession` and not in the `ProjectStore`.** A token inside the Workspace
 	 * would be walked by `exportWorkspaceTar` into a Backup the user mails to a colleague, copied
 	 * into the write-ahead journal, and uploaded by the first Publish. It is here, behind an
-	 * interface, so that ticket 10's broker-exchanged token is a swap rather than a second path.
+	 * interface, so that the App sign-in's broker-exchanged token is a swap rather than a second path.
 	 *
 	 * The seal is a wrapper rather than a check at each caller, because it has to hold for code
 	 * written later that never saw the rule: while a review copy is open this answers `null` to every
@@ -707,7 +704,7 @@ export class WorkspaceStorage {
 	/** The grant record's storage, sealed by the same question — see {@link sealedSignInStorage}. */
 	readonly #grants: CredentialStorage = sealedSignInStorage(() => this.review !== null);
 	/**
-	 * Resolves once the arriving Workspace's journalled edits have been put back (ticket 20).
+	 * Resolves once the arriving Workspace's journalled edits have been put back.
 	 *
 	 * ⚠ **Every read of a Project waits on this, and that is a correctness requirement rather than
 	 * politeness.** Opening a Project is driven by an effect over the `?p=` URL, which runs the
@@ -746,7 +743,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Resolve an outstanding Project Import, or leave this Workspace unavailable (ticket 05).
+	 * Resolve an outstanding Project Import, or leave this Workspace unavailable.
 	 *
 	 * `false` is not "it failed" so much as "nothing may read this Workspace": the marker is left
 	 * exactly where it is, which is the durable evidence the next visit retries from, and
@@ -785,7 +782,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Resolve an outstanding Update, or leave this Workspace unavailable (ticket 15).
+	 * Resolve an outstanding Update, or leave this Workspace unavailable.
 	 *
 	 * {@link WorkspaceStorage.#recoverImport}'s twin, and the two are always run as a pair: either
 	 * marker unresolved means nothing may read the Workspace, and there is no order in which one of
@@ -851,16 +848,16 @@ export class WorkspaceStorage {
 		// the first write, so without this a Workspace nobody has typed into yet is missing from its own
 		// switcher. Then the list, so the switcher has something to switch between.
 		//
-		// The journal replay is chained onto it (ticket 20) rather than run beside it: putting an
-		// unfinished edit back is a *write*, and it belongs after the directory it writes into exists.
-		// It also refreshes the Project list when it changed anything, so the hub shows the restored
-		// name rather than the one the interrupted write was replacing.
+		// The journal replay is chained onto it rather than run beside it: putting an unfinished edit
+		// back is a *write*, and it belongs after the directory it writes into exists. It also
+		// refreshes the Project list when it changed anything, so the hub shows the restored name
+		// rather than the one the interrupted write was replacing.
 		void ensureOpfsWorkspace(this.workspaceName)
-			// ⚠ **First, before anything at all asks this Workspace a question** (ticket 05). An Import
-			// that did not finish left its provisional files at ordinary Workspace paths under one
-			// durable marker, and until that marker is resolved every reader would see them — the review
-			// mark, the Remote, the journal replay, the interrupted deletions and the route's own Project
-			// read all included. `false` means it could not be resolved, and then none of them run.
+			// ⚠ **First, before anything at all asks this Workspace a question.** An Import that did not
+			// finish left its provisional files at ordinary Workspace paths under one durable marker, and
+			// until that marker is resolved every reader would see them — the review mark, the Remote, the
+			// journal replay, the interrupted deletions and the route's own Project read all included.
+			// `false` means it could not be resolved, and then none of them run.
 			.then(() => this.#recoverTransfers(this.session.store))
 			// ⚠ **The first load never goes through `#adopt`** — the session is built in the field
 			// initialiser from the remembered name — so without this the one case the mark exists for is
@@ -972,12 +969,12 @@ export class WorkspaceStorage {
 	 *
 	 * **Whether the handle is dropped depends on which of two buttons this is.** Beside "Choose
 	 * Workspace folder…" it is a deliberate switch, and dropping it is right: continuing to offer a
-	 * folder the user has just moved away from is the nagging ticket 12 rules out, and choosing it
-	 * again brings it back in one gesture. Beside "Locate Workspace folder again", when the Workspace
-	 * cannot be reached, it is the escape hatch — a user whose external drive is unplugged clicking it
-	 * to keep working — and dropping the grant there costs them a trip back through the operating
-	 * system's dialog for a folder they never gave up. Same button, two meanings, told apart by
-	 * whether the Workspace they are leaving was reachable.
+	 * folder the user has just moved away from is nagging, and choosing it again brings it back in one
+	 * gesture. Beside "Locate Workspace folder again", when the Workspace cannot be reached, it is the
+	 * escape hatch — a user whose external drive is unplugged clicking it to keep working — and
+	 * dropping the grant there costs them a trip back through the operating system's dialog for a
+	 * folder they never gave up. Same button, two meanings, told apart by whether the Workspace they
+	 * are leaving was reachable.
 	 */
 	async useBrowserStorage(): Promise<void> {
 		this.problem = '';
@@ -1010,9 +1007,9 @@ export class WorkspaceStorage {
 		// `catch` returns rather than what it used to: `.catch(() => null)` said the opposite of the
 		// sentence above it, and answered "one of your own" for a Workspace nothing could be read from
 		// at all. `readReviewMark` already takes this direction for an unreadable *file*; this is the
-		// same rule for an unreadable store, and it is ticket 20's "unreadable is not absent". The
-		// failure it avoids is the one ADR-0024 exists to rule out: an afternoon's real work done
-		// inside a Workspace built to be thrown away, because the switcher said it was the user's own.
+		// same rule for an unreadable store: unreadable is not absent. The failure it avoids is the one
+		// ADR-0024 exists to rule out: an afternoon's real work done inside a Workspace built to be
+		// thrown away, because the switcher said it was the user's own.
 		const isReviewCopy = async (name: string): Promise<boolean> => {
 			try {
 				return (await readReviewMark(openOpfsWorkspace(name))) !== null;
@@ -1072,9 +1069,9 @@ export class WorkspaceStorage {
 	 * Try the Workspace that is open again, from scratch. The "locate again" affordance (ADR-0008).
 	 *
 	 * ⚠ **A new store, not a re-listing, and that is the whole point.** `DirectoryHandleStore` caches
-	 * its root handle once it resolves, and since ticket 12 that handle is a *named subdirectory* of
-	 * the OPFS root rather than the root itself — which can now be deleted, by a second tab or by the
-	 * user in another window. The cached handle is then permanently dead: every operation on it raises
+	 * its root handle once it resolves, and that handle is a *named subdirectory* of the OPFS root
+	 * rather than the root itself — which can be deleted, by a second tab or by the user in another
+	 * window. The cached handle is then permanently dead: every operation on it raises
 	 * `NotFoundError`, and `session.refresh()` re-lists through the same dead handle, so the recovery
 	 * button was one that could not recover. Replacing the session re-resolves it.
 	 *
@@ -1153,22 +1150,21 @@ export class WorkspaceStorage {
 			);
 		}
 		await deleteOpfsWorkspace(name);
-		// Its journalled edits go with it (ticket 20). Without this they survive the Workspace, become
-		// orphans nothing will ever replay, and — if a Workspace of the same name is made later — are
-		// put back into somebody else's work under a name they happened to reuse.
+		// Its journalled edits go with it. Without this they survive the Workspace, become orphans
+		// nothing will ever replay, and — if a Workspace of the same name is made later — are put back
+		// into somebody else's work under a name they happened to reuse.
 		//
-		// **And its unfinished deletions, for the same reason and with more force** (ticket 21, review
-		// 2). The records have the same key shape and the same reuse hazard, and their effect is
-		// *destructive* rather than additive: a record left behind by a Workspace called "Marking
-		// 2026" is a standing instruction to delete a folder name inside whatever "Marking 2026" is
-		// made next. They were swept by nothing.
+		// **And its unfinished deletions, for the same reason and with more force.** The records have
+		// the same key shape and the same reuse hazard, and their effect is *destructive* rather than
+		// additive: a record left behind by a Workspace called "Marking 2026" is a standing instruction
+		// to delete a folder name inside whatever "Marking 2026" is made next. Nothing else sweeps them.
 		if (this.#journalStorage) {
 			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
 			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
-			// **And what this machine last saw on that Workspace's Remote** (ticket 04, ADR-0033). The
-			// same key shape and the same reuse hazard: left behind, it is this browser's claim about a
-			// repository, standing ready for whichever repository a Workspace made under that name next
-			// is bound to — and ticket 05 judges a publish by it.
+			// **And what this machine last saw on that Workspace's Remote** (ADR-0033). The same key shape
+			// and the same reuse hazard: left behind, it is this browser's claim about a repository,
+			// standing ready for whichever repository a Workspace made under that name next is bound to —
+			// and a publish is judged by it.
 			discardPublishManifest(this.#journalStorage, opfsWorkspaceKey(name));
 		}
 		// **And its Remote relationship and Baseline** (ADR-0038), which carry the same reuse hazard in
@@ -1189,7 +1185,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Write the open Workspace to one tar and hand it to the user (ticket 13, SPEC stories 82–83).
+	 * Write the open Workspace to one tar and hand it to the user.
 	 *
 	 * **Flushed first**, for the same reason `exportProject` flushes: a debounced rename or an
 	 * annotation edit still sitting in the `Autosave` queue is work the user has done, and a backup
@@ -1207,9 +1203,9 @@ export class WorkspaceStorage {
 		// months later as though it were theirs. Refused here rather than only hidden in the markup: a
 		// guard that lives in a component is one route away from being absent.
 		this.assertNotReviewing('backed up');
-		// And a Workspace whose Import has not been resolved is not walked at all (ticket 05): a Backup
-		// is one of the five readers the marker's gate exists to keep out, and an archive holding half a
-		// Project is one the user restores months later believing it whole.
+		// And a Workspace whose Import has not been resolved is not walked at all: a Backup is one of
+		// the five readers the marker's gate exists to keep out, and an archive holding half a Project is
+		// one the user restores months later believing it whole.
 		this.assertRecovered('backed up');
 		await this.session.flush().catch(() => undefined);
 		const backup = await exportWorkspaceTar(this.session.store, this.name, { onProgress });
@@ -1218,16 +1214,16 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Read a backup into a **new** named Workspace, and switch to it (SPEC stories 84–87).
+	 * Read a backup into a **new** named Workspace, and switch to it.
 	 *
 	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, and that is a
 	 * decision rather than a limitation. ADR-0024 requires that restore never overwrite and never
 	 * merge, which means it needs somewhere new to put things; browser storage can make that by
 	 * itself, and a folder cannot — a second folder needs a second picker gesture, and a
-	 * subdirectory of the *current* folder would be a Workspace inside a Workspace, which is
-	 * precisely the containment failure ticket 12 removed. So a folder-Workspace user restoring a
-	 * backup lands in a browser Workspace beside it, with their folder untouched, and can copy it
-	 * out from there.
+	 * subdirectory of the *current* folder would be a Workspace inside a Workspace, which the layout
+	 * does not allow: a Workspace is a directory at the root of its store, never inside another one. So
+	 * a folder-Workspace user restoring a backup lands in a browser Workspace beside it, with their
+	 * folder untouched, and can copy it out from there.
 	 *
 	 * The quota check happens inside `restoreWorkspaceTar`, before the Workspace is created, against
 	 * the file's own size — which is an honest number because nothing in a tar is compressed.
@@ -1249,7 +1245,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Open a Project somebody sent, into a **new Review Workspace**, and switch to it (SPEC 90–92).
+	 * Open a Project somebody sent, into a **new Review Workspace**, and switch to it.
 	 *
 	 * ⚠ **A Review's destination is always a Workspace of its own, and that is the operation rather
 	 * than a limitation.** Under ADR-0023 there is exactly one Alignment per Map Image in a Workspace,
@@ -1321,10 +1317,10 @@ export class WorkspaceStorage {
 	 * writes the mark, `#adopt` reads it back, and the banner, the sealed credential and the refused
 	 * binding all follow from the mark rather than from this method remembering to arrange them.
 	 *
-	 * ⚠ **No credential is sent, and none is read** (SPEC, "Import: two operations, both
-	 * unauthenticated"). A reviewer is often the person with no GitHub account at all — a colleague
-	 * sent a link — and consulting the store would make the flow behave differently for somebody who
-	 * happened to be signed in, in a way no test that signs in first would ever show.
+	 * ⚠ **No credential is sent, and none is read.** A reviewer is often the person with no GitHub
+	 * account at all — a colleague sent a link — and consulting the store would make the flow behave
+	 * differently for somebody who happened to be signed in, in a way no test that signs in first
+	 * would ever show.
 	 *
 	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, for the reason
 	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
@@ -1418,7 +1414,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Leave the review copy for the Workspace of the user's own they came from (workspace-and-layers SPEC story 93).
+	 * Leave the review copy for the Workspace of the user's own they came from.
 	 *
 	 * The review copy is left exactly as it is: this is "put it down", not "finish with it". A teacher
 	 * moving between thirty submissions uses this one constantly and must not have to reopen a file
@@ -1489,7 +1485,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Throw the open review copy away, and go back to the user's own Workspace (workspace-and-layers SPEC story 94).
+	 * Throw the open review copy away, and go back to the user's own Workspace.
 	 *
 	 * **Refuses anything that is not a Review Workspace**, here rather than only in the dialog that
 	 * asks. This deletes a Workspace and everything in it, and the only thing standing between that and
@@ -1548,7 +1544,7 @@ export class WorkspaceStorage {
 	 * Which Workspace an Import would copy into, or `null` when none may be.
 	 *
 	 * Read when the offer opens, shown in it, and handed back to {@link importBundle}. `null` inside a
-	 * Review Workspace — a reviewed Project is copied by ticket 19's own operation, from the ordinary
+	 * Review Workspace — a reviewed Project is copied by {@link importReview}, from the ordinary
 	 * Workspace review began in — and `null` over a Workspace whose interrupted Import has not been
 	 * resolved, which cannot be enumerated and so cannot be allocated against.
 	 */
@@ -1579,16 +1575,16 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **The same operation as {@link importBundle}, with the bytes coming off GitHub instead of a
 	 * file** (ADR-0037). Everything that makes an Import an Import — the detachment, the remapping,
-	 * ticket 17's Remote evidence, the allocation and the atomic transaction — is below, shared, so
-	 * the two sources cannot come to disagree about what arriving work is.
+	 * the Remote evidence, the allocation and the atomic transaction — is below, shared, so the two
+	 * sources cannot come to disagree about what arriving work is.
 	 *
-	 * ⚠ **Anonymous, and no credential is read** (SPEC story 6). A reader of a public Published Site
-	 * is very often somebody with no GitHub account, and the source reads the repository the same way
+	 * ⚠ **Anonymous, and no credential is read.** A reader of a public Published Site is very often
+	 * somebody with no GitHub account, and the source reads the repository the same way
 	 * {@link reviewFrom} does: unauthenticated, or not at all.
 	 *
-	 * ⚠ **Nothing about the published tree binds this Workspace** (story 80). The source offers a
-	 * Project's closure and an observed origin; a Workspace `remote.json` sitting in the published
-	 * root is not part of either, and the origin travels as provenance rather than as a relationship.
+	 * ⚠ **Nothing about the published tree binds this Workspace.** The source offers a Project's
+	 * closure and an observed origin; a Workspace `remote.json` sitting in the published root is not
+	 * part of either, and the origin travels as provenance rather than as a relationship.
 	 *
 	 * @throws ReviewRefusedError, ImportSourceRefusedError, ImportRefusedError,
 	 *   ProjectFormatTooNewError — each with nothing added to the Workspace
@@ -1618,7 +1614,7 @@ export class WorkspaceStorage {
 
 	/**
 	 * Copy the Project as the reviewer has it now into the Workspace review began from, and only then
-	 * throw the review copy away (SPEC stories 83–91, 162, 163).
+	 * throw the review copy away.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE ORDER IS THE SAFETY, AND IT IS THE ONLY THING HERE THAT IS NOT SHARED
@@ -1653,10 +1649,10 @@ export class WorkspaceStorage {
 		const origin = reviewImportOrigin(mark);
 		const reviewWorkspace = this.workspaceName;
 		// ⚠ **Everything the reviewer typed is written down before the copy reads a byte.** This action
-		// says it imports the *current* reviewed state (SPEC story 84) and the review copy is deleted at
-		// the end of it, so an Annotation still inside the autosave debounce would be copied as the bytes
-		// before the edit and then destroyed with the Workspace that held it — the one unrecoverable
-		// outcome on this path.
+		// says it imports the *current* reviewed state and the review copy is deleted at the end of it,
+		// so an Annotation still inside the autosave debounce would be copied as the bytes before the edit
+		// and then destroyed with the Workspace that held it — the one unrecoverable outcome on this
+		// path.
 		await this.session.flush().catch(() => undefined);
 		const reopened = await this.#reopenReviewOrigin(origin);
 
@@ -1676,7 +1672,7 @@ export class WorkspaceStorage {
 		// debounce; the session that follows opens the same Workspace key and loads the record off disk,
 		// so marks still in memory would be read as absent and then overwritten. The imported Project
 		// would be missing from the index entirely and a bound Workspace would report `Up to date` over
-		// a Project GitHub has never seen (SPEC story 49).
+		// a Project GitHub has never seen.
 		if (reopened.into.store instanceof ManagedProjectStore) {
 			await reopened.into.store.flushChanges();
 		}
@@ -1688,7 +1684,7 @@ export class WorkspaceStorage {
 				this.#folderStore = reopened.folder;
 				await this.#adopt(reopened.folder, 'folder', reopened.folder.folderName);
 			}
-			// "Open or identify the imported Project" (story 87), before the copy it came from goes.
+			// Open or identify the imported Project, before the copy it came from goes.
 			await this.session.open(imported.directory);
 			this.workspaces = this.workspaces.filter((name) => name !== reviewWorkspace);
 			this.reviewWorkspaces = this.reviewWorkspaces.filter((name) => name !== reviewWorkspace);
@@ -1729,7 +1725,8 @@ export class WorkspaceStorage {
 		}
 		const raw: ProjectStore = folder ?? openOpfsWorkspace(origin.name);
 		// The folder's *current* name, because a folder that has been renamed is still the folder the
-		// grant names — and ticket 01's key is built from the name, so it has to be built from this one.
+		// grant names — and `folderWorkspaceKey` is built from the name, so it has to be built from this
+		// one.
 		const key = folder === null ? origin.workspaceKey : folderWorkspaceKey(folder.folderName);
 		const store = trackLocalChanges(raw, key, this.#metadataStorage);
 
@@ -1841,11 +1838,11 @@ export class WorkspaceStorage {
 			const into = await openInto();
 			const store = into.store;
 			// ⚠ **The Remote is asked before anything is allocated, and one that will not answer refuses
-			// the Import** (ticket 17). A bound Workspace's Remote may hold a Project this installation
-			// has never seen, and a directory allocated as free because a failed listing did not mention
-			// it is a Conflict the author meets at some later Publish. It is also where an Import of the
-			// Project this Workspace already synchronizes is refused, which is why the observed origin is
-			// handed over rather than only the closure.
+			// the Import.** A bound Workspace's Remote may hold a Project this installation has never seen,
+			// and a directory allocated as free because a failed listing did not mention it is a Conflict
+			// the author meets at some later Publish. It is also where an Import of the Project this
+			// Workspace already synchronizes is refused, which is why the observed origin is handed over
+			// rather than only the closure.
 			const evidence = await readImportEvidence(source.origin, {
 				remote: into.remote,
 				baseline: into.baseline,
@@ -1951,18 +1948,18 @@ export class WorkspaceStorage {
 	/**
 	 * Refuse an action a Review Workspace does not get, in the words the user should see.
 	 *
-	 * ⚠ **The sentence is core's** (workspace-and-layers SPEC story 111). It was spelled out here, and
-	 * a message with no test seam under it is a message that drifts: publishing and backing up are
-	 * refused for the same reason and the user is owed the same explanation. `assertNotReviewing` also
-	 * guards `exportWorkspaceTar` itself, so deleting the call below changes when the message arrives
-	 * rather than whether the rule holds — which is what a guard with two layers is supposed to mean.
+	 * ⚠ **The sentence is core's.** A message with no test seam under it is a message that drifts:
+	 * publishing and backing up are refused for the same reason and the user is owed the same
+	 * explanation. `assertNotReviewing` also guards `exportWorkspaceTar` itself, so deleting the call
+	 * below changes when the message arrives rather than whether the rule holds — which is what a guard
+	 * with two layers is supposed to mean.
 	 */
 	assertNotReviewing(verb: string): void {
 		refuseInsideReview(this.name, this.review, verb);
 	}
 
 	/**
-	 * Refuse an action over a Workspace whose interrupted Import could not be resolved (ticket 05).
+	 * Refuse an action over a Workspace whose interrupted Import could not be resolved.
 	 *
 	 * The second layer under a control that is already absent, for {@link assertNotReviewing}'s
 	 * reason: a guard that lives in a component is one route away from being absent. The sentence
@@ -1975,11 +1972,11 @@ export class WorkspaceStorage {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ticket 03, ADR-0032, ADR-0033)
+	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ADR-0032, ADR-0033)
 	//
-	// Nothing here publishes; that is ticket 04. What this half delivers is that the app knows which
-	// repository this Workspace belongs to, knows whether it may write there, and holds a credential
-	// for the length of the tab.
+	// Nothing here publishes. What this half delivers is that the app knows which repository this
+	// Workspace belongs to, knows whether it may write there, and holds a credential for the length of
+	// the tab.
 
 	/**
 	 * Settle the arriving Workspace's Remote, and re-answer whether a credential is readable.
@@ -1997,10 +1994,10 @@ export class WorkspaceStorage {
 		this.legacyRemote = null;
 		this.remote = null;
 		this.baseline = null;
-		// ⚠ **Cleared and then nothing, over a Workspace whose Import could not be recovered** (ticket
-		// 05). Reading a Remote is a read of this Workspace, and the clears above are why the guard is
-		// here rather than at the call: leaving the *previous* Workspace's Remote on screen beside an
-		// unavailable one is how a Publish gets offered over work that is not there.
+		// ⚠ **Cleared and then nothing, over a Workspace whose Import could not be recovered.** Reading
+		// a Remote is a read of this Workspace, and the clears above are why the guard is here rather
+		// than at the call: leaving the *previous* Workspace's Remote on screen beside an unavailable one
+		// is how a Publish gets offered over work that is not there.
 		if (this.unavailable !== '') return;
 		if (metadata !== null) {
 			const migration = await migrateSynchronizationMetadata({
@@ -2025,11 +2022,11 @@ export class WorkspaceStorage {
 	/**
 	 * Give the arriving Workspace its own Remote Status checker, and take the first reading.
 	 *
-	 * ⚠ **An automatic check needs a credential, or an answer that needs no request** (SPEC story
-	 * 115). A signed-out session must not poll: GitHub allows an anonymous reader sixty requests an
-	 * hour *per IP address*, so a seminar room on one campus address checking on every window focus
-	 * spends the room's whole budget on status and then cannot open a Workspace at all. What is left
-	 * for a signed-out author is {@link checkRemoteStatus}, which they press.
+	 * ⚠ **An automatic check needs a credential, or an answer that needs no request.** A signed-out
+	 * session must not poll: GitHub allows an anonymous reader sixty requests an hour *per IP
+	 * address*, so a seminar room on one campus address checking on every window focus spends the
+	 * room's whole budget on status and then cannot open a Workspace at all. What is left for a
+	 * signed-out author is {@link checkRemoteStatus}, which they press.
 	 *
 	 * The determination that needs no request is still made: a Workspace with no Baseline is
 	 * `Cannot tell` whatever the Remote holds, and `EditorSession.checkRemoteStatus` reaches that
@@ -2048,7 +2045,7 @@ export class WorkspaceStorage {
 		// ⚠ **And a deletion preview least of all.** It names Projects in the Workspace the author has
 		// just left, and its Remove button would delete them out from under a screen showing another
 		// Workspace's Projects. Answered `false` rather than merely hidden: the transfer that raised it
-		// is waiting on it (SPEC story 127 — declining changes nothing).
+		// is waiting on it, and declining changes nothing.
 		this.#closeDeletionPreview(false);
 		const remote = this.remote;
 		if (remote === null) return;
@@ -2070,7 +2067,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Check the Remote's status now, because the author asked (SPEC story 115).
+	 * Check the Remote's status now, because the author asked.
 	 *
 	 * Never throttled, and the only check that may list a public Remote anonymously — which is what
 	 * makes status available at all to somebody who has not signed in. It sends no credential it does
@@ -2081,11 +2078,11 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Bring the Remote's changes into this Workspace, because the author asked (ticket 14).
+	 * Bring the Remote's changes into this Workspace, because the author asked.
 	 *
 	 * ⚠ **Explicit, and reachable from nowhere but a control that says so.** No status check, no
-	 * window focus, no open and no publish reaches this. SPEC story 121 is that Remote work never
-	 * changes a Workspace silently, and the way that is kept true is that there is exactly one caller.
+	 * window focus, no open and no publish reaches this. Remote work never changes a Workspace
+	 * silently, and the way that is kept true is that there is exactly one caller.
 	 *
 	 * ⚠ **Every phase is guarded by which Workspace this is.** An Update is minutes of downloading and
 	 * one click switches Workspaces inside it: the transfer itself is aimed at the session it started
@@ -2123,13 +2120,13 @@ export class WorkspaceStorage {
 			this.baseline = (await session.synchronization?.readBaseline(remote)) ?? null;
 			this.updateNotice = baselineKept
 				? update.notice
-				: // SPEC: a durable store that refused *after* the transfer succeeded is never reported as
-					// a failed Update. The files are here; what this browser cannot say is what has changed.
+				: // A durable store that refused *after* the transfer succeeded is never reported as a
+					// failed Update. The files are here; what this browser cannot say is what has changed.
 					`${update.notice} This browser would not keep a record of what the two of them now ` +
 					`hold in common, so Ballastella cannot tell what has changed on either side until the ` +
 					`next Publish.`;
-			// SPEC story 131: the next required action has to be clear the moment the Update finishes,
-			// and the status on screen was worked out against the Workspace as it was before it.
+			// The next required action has to be clear the moment the Update finishes, and the status on
+			// screen was worked out against the Workspace as it was before it.
 			this.updateProgress = null;
 			await this.checkRemoteStatus();
 		} catch (cause) {
@@ -2154,7 +2151,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Put the deletions on screen and wait for the author's answer (SPEC stories 126, 127).
+	 * Put the deletions on screen and wait for the author's answer.
 	 *
 	 * Resolves `false` for every way of not saying yes — the Cancel button, Escape, the dialog being
 	 * closed, the Workspace being switched underneath it — because "no" is the answer that changes
@@ -2189,8 +2186,9 @@ export class WorkspaceStorage {
 	/**
 	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared.
 	 *
-	 * `'unbound'`, `'cannot-tell'`, or `'known'`. The three-way comparison itself is not this
-	 * ticket's: what this answers is whether there is anything to compare against.
+	 * `'unbound'`, `'cannot-tell'`, or `'known'`. The three-way comparison itself is
+	 * `synchronization-planner.ts`'s: what this answers is whether there is anything to compare
+	 * against.
 	 */
 	get remoteStatus(): 'unbound' | 'cannot-tell' | 'known' {
 		if (this.remote === null) return 'unbound';
@@ -2301,7 +2299,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Supply a credential for the Remote this Workspace is already bound to (stories 30, 31).
+	 * Supply a credential for the Remote this Workspace is already bound to.
 	 *
 	 * Validated against that repository rather than merely kept, so a mistyped paste is caught here
 	 * and not at the first Publish. Answers what it found out about the rights, which the screen says
@@ -2335,7 +2333,7 @@ export class WorkspaceStorage {
 		this.#refreshCredential();
 	}
 
-	/** Forget the credential, so this machine can be handed to somebody (story 37). */
+	/** Forget the credential, so this machine can be handed to somebody. */
 	signOut(): void {
 		this.#credentials.clear();
 		clearGrantRecord(this.#grants);
@@ -2344,7 +2342,7 @@ export class WorkspaceStorage {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE GITHUB APP SIGN-IN (ticket 10, ADR-0031)
+	// THE GITHUB APP SIGN-IN (ADR-0031)
 	//
 	// The second acquisition path behind the same credential interface. Everything below this class
 	// — `bindWorkspaceToRemote`, `readRemoteRights`, the publish engine — receives an opaque bearer
@@ -2435,9 +2433,9 @@ export class WorkspaceStorage {
 		if (declined !== '') throw new GitHubSignInError(declined);
 
 		// ⚠ **Not from inside somebody else's Project.** The credential and the grant record are both
-		// sealed while a review copy is open (story 40), so an exchange here could only end in a token
-		// that was thrown away and a screen claiming a sign-in that is not held — and the exchange
-		// itself is a request leaving a submission. Refused before the code goes anywhere.
+		// sealed while a review copy is open, so an exchange here could only end in a token that was
+		// thrown away and a screen claiming a sign-in that is not held — and the exchange itself is a
+		// request leaving a submission. Refused before the code goes anywhere.
 		if (this.review !== null) {
 			throw new GitHubSignInError(
 				`A review copy of somebody else's Project is open, so nothing has been signed in to. No ` +
@@ -2454,8 +2452,9 @@ export class WorkspaceStorage {
 		// ⚠ **The record is written beside the credential with nothing between them that can throw.**
 		// A credential held with no record beside it reads exactly like a pasted token — no expiry to
 		// check and no refresh token to spend — so an eight-hour App token would then be carried into a
-		// publish that meets its end partway through, which is the one outcome story 33 forbids.
-		// `readGitHubLogin`, which can fail and is only a name on the bar, comes after both.
+		// publish that meets its end partway through, which is the one outcome
+		// {@link ensureCredentialFresh} exists to prevent. `readGitHubLogin`, which can fail and is only
+		// a name on the bar, comes after both.
 		writeGrantRecord(this.#grants, grant);
 		this.#keepGrant(grant);
 		this.identity = await readGitHubLogin(grant.token);
@@ -2464,10 +2463,10 @@ export class WorkspaceStorage {
 	/**
 	 * Make sure the held credential will still be good when work starts — **before** it starts.
 	 *
-	 * Story 33, and the ticket's rule: *"An expired token surfaces as 'sign in again', never as a
-	 * publish that fails partway through — check before starting, not during."* A pasted token has no
-	 * grant record and is therefore left alone, which is not a branch on the auth method so much as
-	 * the absence of anything to check: there is no expiry to read and no refresh token to spend.
+	 * The rule is that an expired token surfaces as "sign in again", never as a publish that fails
+	 * partway through — check before starting, not during. A pasted token has no grant record and is
+	 * therefore left alone, which is not a branch on the auth method so much as the absence of anything
+	 * to check: there is no expiry to read and no refresh token to spend.
 	 *
 	 * Nothing at all happens inside a review copy: the record is sealed there, so this reads no grant,
 	 * spends no refresh token, and reaches no broker from inside somebody else's Project.
@@ -2558,14 +2557,13 @@ export class WorkspaceStorage {
 
 	/**
 	 * Open a Workspace from GitHub: return to the one this installation already keeps for that
-	 * repository, or download, validate and adopt a new one (SPEC stories 96–104).
+	 * repository, or download, validate and adopt a new one.
 	 *
-	 * ⚠ **No credential is sent, and none is needed** (SPEC, "Import: two operations, both
-	 * unauthenticated"). Nothing on this path takes a token and this passes none — a student with no
-	 * GitHub account can seed a Workspace from their instructor's Remote, which is the story this
-	 * whole epic is most likely to be used for. The credential store is deliberately not consulted:
-	 * reading it would make the flow behave differently for somebody who happened to be signed in,
-	 * and the difference would never show up in a test that signs in first.
+	 * ⚠ **No credential is sent, and none is needed.** Nothing on this path takes a token and this
+	 * passes none — a student with no GitHub account can seed a Workspace from their instructor's
+	 * Remote, which is what this path is most likely to be used for. The credential store is
+	 * deliberately not consulted: reading it would make the flow behave differently for somebody who
+	 * happened to be signed in, and the difference would never show up in a test that signs in first.
 	 *
 	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, for the reason
 	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
@@ -2604,8 +2602,8 @@ export class WorkspaceStorage {
 			return {
 				notice: opened.baselineRecorded
 					? opened.transfer.notice
-					: // SPEC: a durable store that refused *after* the transfer succeeded is never reported as
-						// a failed Open. The Workspace is bound; what it cannot say is what has changed since.
+					: // A durable store that refused *after* the transfer succeeded is never reported as a
+						// failed Open. The Workspace is bound; what it cannot say is what has changed since.
 						`${opened.transfer.notice} This browser would not keep a record of what the two of ` +
 						`them hold in common, so Ballastella cannot tell what has changed on either side ` +
 						`until the next Publish.`
@@ -2699,7 +2697,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Which Workspace the bar names (SPEC story 88).
+	 * Which Workspace the bar names.
 	 *
 	 * The folder's own name when there is one, and the named Workspace otherwise — the two backings
 	 * name a Workspace the same way, because in both the directory *is* the Workspace.
@@ -2728,21 +2726,21 @@ export class WorkspaceStorage {
 		// The key the *arriving* Workspace is, backing included — never the one being left.
 		const workspaceKey =
 			backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName);
-		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and
-		// the session that follows all hold the *same* managed store and its one change index (ticket
-		// 10). A raw store handed to any of them would author bytes this installation then has no
-		// record of, and a Workspace whose Remote Status reads `Up to date` over work GitHub has never
-		// seen is the one failure this index exists to prevent.
+		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and the
+		// session that follows all hold the *same* managed store and its one change index. A raw store
+		// handed to any of them would author bytes this installation then has no record of, and a
+		// Workspace whose Remote Status reads `Up to date` over work GitHub has never seen is the one
+		// failure this index exists to prevent.
 		const store = trackLocalChanges(rawStore, workspaceKey, this.#metadataStorage);
 		const leaving = this.session;
 		// Whatever is still queued belongs to the Workspace it was typed into. Flushed before the
 		// swap, and swallowed if that Workspace has become unreachable — which is often exactly why
 		// the user is switching.
 		//
-		// **`capture` first, and it is not redundant** (ticket 20). The flush below may reject — an
-		// unreachable folder is the common reason for switching at all — and its bytes then stay
-		// pending against a session that is about to be discarded. Captured, they are in the leaving
-		// Workspace's own journal and are put back the next time that Workspace is opened.
+		// **`capture` first, and it is not redundant.** The flush below may reject — an unreachable
+		// folder is the common reason for switching at all — and its bytes then stay pending against a
+		// session that is about to be discarded. Captured, they are in the leaving Workspace's own
+		// journal and are put back the next time that Workspace is opened.
 		leaving.capture();
 		await leaving.flush().catch(() => undefined);
 		this.#teardownFlushOnHide?.();
@@ -2753,9 +2751,9 @@ export class WorkspaceStorage {
 			workspaceKey
 		});
 		// ⚠ **Before the mark and before the Remote, because both of those are reads of this
-		// Workspace** (ticket 05). An unresolved Import marker means the arriving Workspace is not
-		// available at all — its provisional files sit at ordinary paths — so a mark, a Remote, a
-		// replay, or the Project the route is about to ask for would all be read over half an Import.
+		// Workspace.** An unresolved Import marker means the arriving Workspace is not available at all —
+		// its provisional files sit at ordinary paths — so a mark, a Remote, a replay, or the Project the
+		// route is about to ask for would all be read over half an Import.
 		const available = await this.#recoverTransfers(store);
 		// ⚠ **The mark is read before `this.session` is published, and the order is the point.** The
 		// banner, the Publish refusal and the backup refusal are all drawn from it, so a frame in which
@@ -2828,7 +2826,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Put the arriving Workspace's journalled edits back, and account for what could not be (ticket 20).
+	 * Put the arriving Workspace's journalled edits back, and account for what could not be.
 	 *
 	 * The refresh is conditional on something having happened, and that is deliberate rather than an
 	 * optimisation: listing a Workspace with tens of thousands of tile files in it is the expensive
@@ -2837,8 +2835,8 @@ export class WorkspaceStorage {
 	 */
 	async #replayAndReport(): Promise<void> {
 		const session = this.session;
-		// **Before the replay, and before anything reads the Workspace** (ticket 21). A deletion is as
-		// asynchronous as an edit and had none of ticket 20's protection, so a Project the user deleted
+		// **Before the replay, and before anything reads the Workspace.** A deletion is as asynchronous
+		// as an edit and had none of the write-ahead journal's protection, so a Project the user deleted
 		// on the way out of the page was still on disk — and back on the hub — at the next startup.
 		// Here rather than beside the replay because it is finishing something the user already asked
 		// for, which has to have happened before the listing that follows can be true. `Workspace`
@@ -2863,11 +2861,11 @@ export class WorkspaceStorage {
 	 * browser Workspace on a listing that failed. The report therefore names them and offers
 	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
 	 *
-	 * **Both kinds of record, not only the journal** (ticket 21, review 2). An unfinished deletion
-	 * lives in the same 5 MB, under a key of the same shape, and was invisible here — so a record
-	 * naming a Workspace this browser will never open again could never be seen or discarded, while
-	 * the journal keys beside it could. It is also the one kind whose standing instruction is
-	 * destructive, which makes it the one a user is likeliest to want to be rid of.
+	 * **Both kinds of record, not only the journal.** An unfinished deletion lives in the same 5 MB,
+	 * under a key of the same shape, and would otherwise be invisible here — so a record naming a
+	 * Workspace this browser will never open again could never be seen or discarded, while the journal
+	 * keys beside it could. It is also the one kind whose standing instruction is destructive, which
+	 * makes it the one a user is likeliest to want to be rid of.
 	 */
 	refreshOrphanedJournals(): void {
 		if (this.#journalStorage === null) return;
@@ -2895,12 +2893,11 @@ export class WorkspaceStorage {
 	 * Throw away one orphaned Workspace's journalled edits and unfinished deletions, because the user
 	 * said so.
 	 *
-	 * ⚠ **Two counts, not their sum** (ticket 21, round 4). Round 2 added the deletion records to
-	 * this and added their count to the journal's, so the one sentence rendered from the answer —
-	 * *"Threw away N unsaved changes"* — was false in both nouns for a Workspace holding only a
-	 * deletion note: nothing was unsaved and nothing was a change. They are two different kinds of
-	 * thing with two different consequences, which is the whole reason `discardDeletions` exists
-	 * beside `discardJournal` rather than inside it, and a sum is exactly what cannot say so.
+	 * ⚠ **Two counts, not their sum.** A single total would be rendered as one sentence — *"Threw
+	 * away N unsaved changes"* — that is false in both nouns for a Workspace holding only a deletion
+	 * note: nothing was unsaved and nothing was a change. They are two different kinds of thing with
+	 * two different consequences, which is the whole reason `discardDeletions` exists beside
+	 * `discardJournal` rather than inside it, and a sum is exactly what cannot say so.
 	 */
 	discardOrphanedJournal(key: string): { edits: number; deletions: number } {
 		if (this.#journalStorage === null) return { edits: 0, deletions: 0 };
@@ -2923,7 +2920,7 @@ const WORKSPACE_HOST = Symbol('ballastella.workspaceHost');
  * backing did not cross the route boundary. A folder-Workspace user picking a Base Map wrote the
  * *OPFS* Project of the same name — a state the folder suite deliberately creates — with a fresh
  * `updatedAt`, the indicator said "Saved", and the file in their folder was untouched. Where there
- * was no OPFS namesake the feature was simply absent. Ticket 07 puts that pane on the Project page,
+ * was no OPFS namesake the feature was simply absent. `BaseMapPane` sits on the Project screen,
  * which makes it the default path rather than a corner.
  *
  * Provided by the root layout, which mounts once for the whole app, so a client-side navigation

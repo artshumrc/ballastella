@@ -18,7 +18,7 @@ import type { Page } from './test.js';
 // ⚠ **The fixture is one captured real response**, for a query with several candidates, so that
 // disambiguation is exercised against real data rather than two hand-written entries that are always
 // unambiguous. A fixture is a snapshot of an assumption, and the hand-run check that would notice
-// when the service's shape moves under it **is not written yet** (ticket 04) — so at present nothing
+// when the service's shape moves under it **is not written yet** — so at present nothing
 // anywhere would say that this file had stopped describing the service.
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');

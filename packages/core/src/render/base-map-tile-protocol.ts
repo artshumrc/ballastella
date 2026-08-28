@@ -4,9 +4,9 @@
 // registered once, a registry that varies, and bytes through an injected reader. The other two are
 // `apps/editor/src/lib/image-pane/tile-protocol.ts` for a Map Image's IIIF pyramid and
 // `pmtiles-protocol.ts` beside this file for the deployment's archive. This one reads
-// `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` out of the Workspace — keyed by archive since
-// ticket 12, though **this module never builds that path**: it is handed a `readTile` and the caller
-// owns which archive's cache that reads (ADR-0011's injection, again).
+// `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` out of the Workspace — keyed by archive, though
+// **this module never builds that path**: it is handed a `readTile` and the caller owns which
+// archive's cache that reads (ADR-0011's injection, again).
 //
 // **The bytes are decompressed MVT and are served as they are stored.** ADR-0025 makes compression an
 // explicit decision because getting it wrong is a silent blank map: PMTiles stores tiles gzipped and

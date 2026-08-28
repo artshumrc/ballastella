@@ -1,9 +1,9 @@
 // The one IndexedDB this installation keeps: the Workspace folder grant, and synchronization metadata.
 //
 // Factored out of `workspace-folder.ts`, which had this plumbing inline for one object store and one
-// key. It is the same database rather than a second one deliberately: SPEC keeps the Remote
-// relationship, the Synchronization Baseline and the local-change index in "durable installation-local
-// metadata ... rather than origin-wide `localStorage`", and a second database would be a second thing
+// key. It is the same database rather than a second one deliberately: the Remote relationship, the
+// Synchronization Baseline and the local-change index all belong in durable installation-local
+// metadata rather than in origin-wide `localStorage`, and a second database would be a second thing
 // to open, version and clear on a path where the first already has to be open.
 //
 // Hand-rolled rather than pulling in a wrapper library, for the reason the folder grant was: two object

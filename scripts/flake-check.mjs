@@ -5,7 +5,7 @@
 // └───────────────────────────────────────────────────────────────────────────────────────────┘
 //
 // The suite flakes in roughly one full run in three — see the `workers` comment in
-// `playwright.config.ts` for the measured profile. So every implementer who finishes a ticket meets
+// `playwright.config.ts` for the measured profile. So every implementer who finishes a change meets
 // the same question: is this red mine? And every one of them answers it the same way, by hand:
 // re-run the failing file alone, and if that passes, stash and run it against the merge-base to
 // show it was already failing.

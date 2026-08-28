@@ -13,8 +13,8 @@
 // A stray listener is also how a run comes to look like a crash. When the process holding the port
 // exits part way through — the earlier run it belonged to finishing — every page in flight loses its
 // server at once, and Playwright reports `Protocol error` and `Target closed` for whatever was
-// running. That is the profile earlier reports in this epic recorded as "browser crashes"; ten
-// measured runs after the port derivation landed produced none at all (ticket 17).
+// running. That is the profile earlier reports recorded as "browser crashes"; ten measured runs
+// after the port derivation landed produced none at all.
 //
 // This is not theoretical. An implementer working this repo hit eighteen simultaneous failures in
 // `editor-base-map.e2e.ts` and spent time reading them as a code defect; the cause was a reused

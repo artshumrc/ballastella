@@ -1,12 +1,11 @@
 // ADR-0024 justifies moving Workspace transfer off zip and onto tar on two properties of
 // `modern-tar` that were, when the ADR was written, taken from its README: that it **streams** in
 // both directions, and that it carries paths past tar's 100-byte `name` field through **USTAR
-// `prefix` or PAX**. The epic's standing constraints forbid any ticket committing to either
-// unverified.
+// `prefix` or PAX**. Neither may be built on unverified.
 //
-// This file is that verification, and it is deliberately a test rather than a paragraph. Ticket 11
-// made the same move for its tile counts — `tile-cache.test.ts` asserts the totals so the figures in
-// the module comment cannot rot unnoticed — and the reasoning is identical here, only stronger: the
+// This file is that verification, and it is deliberately a test rather than a paragraph.
+// `tile-cache.test.ts` makes the same move for its tile counts — it asserts the totals so the figures
+// in the module comment cannot rot unnoticed — and the reasoning is identical here, only stronger: the
 // numbers in `pnpm-workspace.yaml`'s `modern-tar` entry and in `workspace-tar.ts`'s header are the
 // numbers this file measures, so a `modern-tar` upgrade that quietly starts buffering whole entries
 // turns this red instead of turning a scholar's iPad restore into an out-of-memory crash.
@@ -58,15 +57,15 @@ describe('a path longer than tar’s name field survives a round trip', () => {
 	// in, byte for byte, whichever mechanism carried it.
 	//
 	// These are not invented lengths. `<project-dir-up-to-64>/annotations/<uuid>.geojson` is the
-	// real shape ADR-0024 names, and since ticket 12 the leading directory is a **Workspace or
-	// Project name the user typed**, so it can be Devanagari, CJK, Arabic, or emoji — 12 found and
-	// fixed a normaliser mangling Devanagari, and a backup that mangled it again would undo that.
+	// real shape ADR-0024 names, and the leading directory is a **Workspace or Project name the user
+	// typed**, so it can be Devanagari, CJK, Arabic, or emoji. `toWorkspaceName` keeps every one of
+	// those spellings intact, and a backup that mangled one would undo that care.
 	const uuid = '0189a4c3-1c2f-7f1e-9b3a-0f2e5d6c7a8b';
 	const sixtyFour = 'p'.repeat(64);
 
 	const paths: readonly (readonly [string, string])[] = [
 		['an ordinary short path', 'a-project/project.json'],
-		// The ticket's headline case: a Project directory at the 64-character limit
+		// The headline case: a Project directory at the 64-character limit
 		// `toDirectoryName` allows, plus the annotation path under it. 121 bytes.
 		['a 64-character Project directory’s annotation', `${sixtyFour}/annotations/${uuid}.geojson`],
 		// Straddling the 100-byte boundary exactly, from both sides, because an off-by-one in a
@@ -80,7 +79,7 @@ describe('a path longer than tar’s name field survives a round trip', () => {
 		// No `/` at all, so there is no split point and `prefix` cannot help at any length.
 		['150 bytes with no separator', 'x'.repeat(150)],
 		['300 bytes with no separator', 'y'.repeat(300)],
-		// User data. A Workspace name is whatever the scholar typed (ticket 12).
+		// User data. A Workspace name is whatever the scholar typed.
 		['a Devanagari Workspace name', 'अंकन-२०२६/project.json'],
 		['a Devanagari name at annotation depth', `${'अ'.repeat(40)}/annotations/${uuid}.geojson`],
 		['a CJK Workspace name', '標記二〇二六/images/abc/info.json'],
@@ -105,8 +104,8 @@ describe('a path longer than tar’s name field survives a round trip', () => {
 
 		expect(rest).toEqual([]);
 		// The name, exactly. Not "starts with", not normalised — a Workspace name is its directory
-		// name in both backings (ticket 12), so a name that comes back different is a Workspace
-		// that restores under the wrong name.
+		// name in both backings, so a name that comes back different is a Workspace that restores
+		// under the wrong name.
 		expect(entry?.header.name).toBe(path);
 		expect(new TextDecoder().decode(entry?.data)).toBe(body);
 	});
@@ -235,8 +234,8 @@ describe('unpacking streams rather than buffering the archive', () => {
 		//
 		// ⚠ The entry size is named from `entrySize` rather than written into this sentence, because
 		// the sentence and the code had already drifted once: the comment said 256 MiB while the test
-		// ran 64 MiB, and that wrong figure was copied into the ticket and into `pnpm-workspace.yaml`.
-		// A number in prose beside a number in code is a number that will disagree with it.
+		// ran 64 MiB, and that wrong figure was copied into `pnpm-workspace.yaml`. A number in prose
+		// beside a number in code is a number that will disagree with it.
 		//
 		// Asserted as a fraction rather than as the figure, so the bound survives a change in the
 		// stream chain's high-water marks: what must never happen is the producer reaching the end,
@@ -250,15 +249,15 @@ describe('unpacking streams rather than buffering the archive', () => {
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// ⚠ THERE IS NO MEMORY-FIGURE TEST HERE, AND THAT IS A DECISION WITH A HISTORY
 	//
-	// The acceptance criterion asks that restore be shown not to hold the whole archive, "peak usage
-	// **or** streamed consumption". Three attempts were made at *peak usage*, and all three produced a
+	// What has to be shown is that restore does not hold the whole archive, by **peak usage** or by
+	// **streamed consumption**. Three attempts were made at *peak usage*, and all three produced a
 	// number that could not be trusted:
 	//
 	//   1. **Peak `heapUsed` growth** across a 512 MiB round trip. Reported 2.80 MiB, and that figure
-	//      was published in this ticket, in `pnpm-workspace.yaml`, and in two module headers before
-	//      review caught it. It measured **nothing**: a `Uint8Array`'s payload is external memory and
-	//      does not appear in `heapUsed` at all. Measured against a consumer deliberately retaining
-	//      every chunk — the exact bug the assertion existed to catch:
+	//      was published in `pnpm-workspace.yaml` and in two module headers before review caught it. It
+	//      measured **nothing**: a `Uint8Array`'s payload is external memory and does not appear in
+	//      `heapUsed` at all. Measured against a consumer deliberately retaining every chunk — the
+	//      exact bug the assertion existed to catch:
 	//
 	//          streaming consumer   heapUsed +3.17 MiB   arrayBuffers  +18.44 MiB
 	//          retaining consumer   heapUsed +5.24 MiB   arrayBuffers +512.00 MiB
@@ -274,13 +273,12 @@ describe('unpacking streams rather than buffering the archive', () => {
 	//      `globalThis.gc` is undefined under vitest, and getting `--expose-gc` to the worker means
 	//      changing the pool configuration for all 1,100 tests in this project to serve one assertion.
 	//
-	// So this file asserts **streamed consumption**, which the criterion offers as the alternative and
-	// which is measured in bytes moved through a stream rather than in bytes the collector has got
-	// round to freeing. It is deterministic, it needs no runtime flag, and it is already asserted three
-	// times over: the packer stalls its writer into an unread sink (above), the decoder stalls its
-	// producer 9.00 MiB into a 64 MiB entry whose body is held unread (above), and
-	// `workspace-tar.test.ts` shows restore writing files while most of the archive is still unread and
-	// never letting the unwritten backlog exceed a constant.
+	// So this file asserts **streamed consumption**, the alternative, measured in bytes moved through a
+	// stream rather than in bytes the collector has got round to freeing. It is deterministic, it needs
+	// no runtime flag, and it is already asserted three times over: the packer stalls its writer into
+	// an unread sink (above), the decoder stalls its producer 9.00 MiB into a 64 MiB entry whose body
+	// is held unread (above), and `workspace-tar.test.ts` shows restore writing files while most of the
+	// archive is still unread and never letting the unwritten backlog exceed a constant.
 	//
 	// **The measurement below is the whole-archive version of that**, and it is the one that would
 	// catch a decoder that accumulated across entries rather than within one.

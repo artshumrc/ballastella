@@ -27,7 +27,7 @@ import {
 import { newMapLayer, newAnnotationLayer } from './layer.js';
 import { newProjectFile, projectFilePath, serialiseProjectFile } from './project-file.js';
 
-// SPEC's Seam 1. "Which Map Images does this Workspace hold, who uses them, and what happens
+// The in-memory seam. "Which Map Images does this Workspace hold, who uses them, and what happens
 // when one is deleted" is a question about which files exist, so the in-memory store is not standing
 // in for anything: the folder is the product.
 
@@ -474,9 +474,9 @@ describe('mapImageUsage', () => {
 /**
  * A Project this build cannot read but which is emphatically not damaged (ADR-0010).
  *
- * `formatVersion: 2` is refused by `parseProjectFile` *because the file is intact* — SPEC story 114
- * wants refusal rather than partial loading. Its Layer stack is right there and certainly names
- * Map Images; this build simply cannot say which.
+ * `formatVersion: 2` is refused by `parseProjectFile` *because the file is intact*, refusal being
+ * wanted rather than partial loading. Its Layer stack is right there and certainly names Map Images;
+ * this build simply cannot say which.
  */
 async function seedFutureProject(store: MemoryProjectStore, directory: string): Promise<void> {
 	await store.write(
@@ -686,7 +686,7 @@ describe('deleting a Map Image', () => {
 		});
 
 		/**
-		 * ⚠ **The exit that falsified the caller's rule** (ticket 21, review 3). The abandoned-write
+		 * ⚠ **The exit that falsified the caller's rule.** The abandoned-write
 		 * sweep used to run **after** every file had been deleted, so a rejection from it left the map
 		 * entirely gone and threw something that is neither {@link MapImageInUseError} nor
 		 * {@link MapImagePartlyDeletedError} — and `EditorSession.deleteMapImage` sweeps its

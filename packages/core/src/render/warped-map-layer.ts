@@ -2,7 +2,7 @@
 //
 // **In `core` rather than in either app, because both draw the same warped Map Images.** The
 // editor draws one being aligned and a Project's whole stack; the Published Site draws that same
-// stack for a Reader (ticket 17). Two copies of the rules below would be two answers to "what
+// stack for a Reader. Two copies of the rules below would be two answers to "what
 // document and which options does upstream get?" — and every one of the three upstream defects
 // documented here fails *silently*, so the copies would agree right up to the day one of them was
 // edited and the other rendered blank. `apps/viewer` therefore imports this rather than reimplementing
@@ -37,8 +37,8 @@
 //
 // Two consequences for anyone reading this later. `scripts/check-allmaps-patch.mjs` runs in `pnpm
 // lint` and fails the build if the patch stops applying — that guard is not decoration, because the
-// failure it catches is silent. And ticket 19 owns getting the fix upstream and deleting the patch;
-// it is not something to attempt from here.
+// failure it catches is silent. And getting the fix upstream and deleting the patch is its own piece
+// of work; it is not something to attempt from here.
 //
 // {@link WarpedRender} still carries the outcome up to the page rather than logging it. That is not
 // left over from the broken state: an Alignment with two Control Points is a normal thing to render,
@@ -74,7 +74,7 @@ import { distortionRamp } from './distortion-ramp.js';
  * error instead.
  *
  * @param layerId MapLibre's id for the layer. Named by the caller when a Project's Layer stack puts
- *   more than one of these on a map (ticket 09), because MapLibre keys everything — the drawing
+ *   more than one of these on a map, because MapLibre keys everything — the drawing
  *   order included — on that id, and two layers minting the same default would collide.
  */
 export function createWarpedMapLayer(fetchTile: FetchFn, layerId?: string): WarpedMapLayer {
@@ -142,7 +142,7 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
  * is a user halfway through their first pairing, who needs to be told that a third point is what
  * makes the map appear.
  *
- * `service` is the **remote** image service URI for a `'referenced'` image (ticket 14), and `''` for
+ * `service` is the **remote** image service URI for a `'referenced'` image, and `''` for
  * a local copy. It has to be here rather than inside the Alignment because `@allmaps/maplibre`
  * builds every tile URL from the document's `resource.id`, and the two cases want different
  * answers: the ADR-0004 placeholder, which the injection layer resolves out of the store, or the
@@ -151,8 +151,8 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
  * **A `'referenced'` Layer with no address is refused here rather than drawn from nowhere.** That
  * pairing used to be accepted: the placeholder document parses, the renderer names a map, this
  * reported `drawn`, and the injection layer then answered 404 for a pyramid a referenced image by
- * definition does not have locally — a blank Layer with nothing said, which is the exact failure
- * ticket 14's criterion names. It cannot be detected from `service` alone, because `''` is also the
+ * definition does not have locally — a blank Layer with nothing said, which is the exact failure this
+ * refusal exists to prevent. It cannot be detected from `service` alone, because `''` is also the
  * right answer for every local copy, so the caller says which kind of image this is with
  * `referenced` — and the guard can only run for a caller that does; see the option's own note.
  */
@@ -160,7 +160,7 @@ export function showAlignment(
 	layer: WarpedMapLayer,
 	alignment: Alignment,
 	/**
-	 * Named rather than positional. Tickets 08 and 14 each added a third parameter independently — a
+	 * Named rather than positional. Two changes each added a third parameter independently — a
 	 * distortion view and a remote service address — and collided; a caller that passed one in the
 	 * other's position would get a blank warped Layer, which is the failure this file exists to
 	 * prevent. A future third concern is a field rather than another collision.
@@ -196,7 +196,7 @@ export function showAlignment(
 		 */
 		referenced?: boolean;
 		/**
-		 * The remote image service URI for a `'referenced'` image (ticket 14), or `''` for a local copy.
+		 * The remote image service URI for a `'referenced'` image, or `''` for a local copy.
 		 * It cannot live inside the Alignment — see the note above this function.
 		 */
 		service?: string;
@@ -226,10 +226,10 @@ export function showAlignment(
 		// which is a claim rather than a guarantee, so it is widened and checked rather than trusted.
 		// Believing the declared type here would surface a rejected Alignment as a map id, and the
 		// symptom would be an empty Base Map with the page reporting success.
-		// Ticket 14 chooses the document (placeholder id versus the service's own address); ticket 08
-		// chooses the options. Both apply to either document — a referenced image needs
-		// `transformationType` just as much as a local copy does, and dropping the options for it was
-		// how the two changes first collided.
+		// `service` chooses the document (placeholder id versus the service's own address);
+		// `distortion` chooses the options. Both apply to either document — a referenced image needs
+		// `transformationType` just as much as a local copy does, so the options are never dropped for
+		// one kind of image.
 		const document =
 			service === ''
 				? toRendererDocument(alignment)

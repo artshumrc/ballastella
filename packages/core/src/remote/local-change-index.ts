@@ -4,8 +4,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY AN INDEX AND NOT A HASHING PASS
 //
-// SPEC: *"Remote Status checked automatically with bounded frequency without rereading and hashing
-// every local file"*. A Workspace is a Project directory, a handful of Annotations, and tens of
+// Remote Status is checked automatically, with bounded frequency, and without rereading and hashing
+// every local file. A Workspace is a Project directory, a handful of Annotations, and tens of
 // thousands of pyramid tiles — several gigabytes. Answering "has anything changed here?" by reading
 // and hashing all of it is the obvious implementation and it is unusable: it would run on every
 // window focus, on a folder the browser reaches through a permission-checked handle, while the user
@@ -22,15 +22,14 @@
 // A mark says *this path may differ from the Baseline*. It does not say what the file now holds, and
 // it must never be read as though it did: {@link checkSourceStatus} therefore reports a path changed
 // on both sides as a Conflict rather than as `converged`, because two changes it cannot compare are
-// not evidence that they agree. SPEC licenses exactly that — *"deliberate Update and Publish planning
-// retain the existing complete read-and-hash pass and may revise the previously displayed status
-// before transfer"*.
+// not evidence that they agree. A deliberate Update or Publish keeps the complete read-and-hash pass
+// and may revise the status that was already displayed.
 //
 // The gap is deliberate in the other direction too. An author who edits a file in their chosen
-// folder with another program never crosses the seam, so the index does not know. SPEC: *"deliberate
-// Update and Publish planning ... detects out-of-band file edits invisible to Ballastella's write
-// index"*. There is no watcher, no polling and no modification-time heuristic here; the complete pass
-// at transfer time is the answer, and it is the only one that is actually reliable.
+// folder with another program never crosses the seam, so the index does not know. Detecting an
+// out-of-band edit is the deliberate transfer's job, not this one's. There is no watcher, no polling
+// and no modification-time heuristic here; the complete pass at transfer time is the answer, and it
+// is the only one that is actually reliable.
 
 import {
 	SYNCHRONIZATION_FORMAT_VERSION,
@@ -171,9 +170,9 @@ export class LocalChangeIndex implements LocalChangeSource {
 	/**
 	 * Drop the marks on paths a transfer has just made shared, and **only** those.
 	 *
-	 * ⚠ **Selective, because an Update advances part of a Baseline.** SPEC: an Update *"retains
-	 * local-only changes"* and *"advances only state made shared"*, so the paths it left alone are
-	 * still Changes to publish afterwards and clearing the whole index would report them as shared
+	 * ⚠ **Selective, because an Update advances part of a Baseline.** An Update retains local-only
+	 * changes and advances only state that was made shared, so the paths it left alone are still
+	 * Changes to publish afterwards and clearing the whole index would report them as shared
 	 * with a Remote that has never seen them. The caller must have written the Baseline successfully
 	 * before calling this; under a refused Baseline write there is no shared state to record.
 	 *
@@ -360,7 +359,7 @@ export interface AutomaticStatus {
 	/**
 	 * Where the Remote's Publish-owned output differs from what the Baseline last shared, sorted.
 	 *
-	 * **Never part of {@link status}** (SPEC story 120): a site built by another editor version has
+	 * **Never part of {@link status}**: a site built by another editor version has
 	 * different chunk names, which means "republish when you like" and never "somebody changed your
 	 * scholarship". Empty where the Baseline is no evidence about generated output — see
 	 * {@link checkSourceStatus}.
@@ -369,24 +368,24 @@ export interface AutomaticStatus {
 }
 
 /**
- * The Workspace's Remote Status **without reading one local byte** (SPEC story 114).
+ * The Workspace's Remote Status **without reading one local byte**.
  *
  * The local inventory is *reconstructed* rather than gathered: the Baseline says what every path held
  * when the two sides last agreed, and the index says which of those Ballastella has since changed and
  * which it has removed. That is a complete local inventory for comparison purposes, with
- * {@link LOCALLY_CHANGED} standing in for the bytes it cannot name — so the whole of SPEC's table is
+ * {@link LOCALLY_CHANGED} standing in for the bytes it cannot name — so the whole three-way table is
  * reached by the same {@link compareWorkspace} a deliberate transfer uses, rather than by a second
  * implementation of it that could disagree.
  *
  * ⚠ **A path changed on both sides comes back `conflict`, not `converged`.** Two changes this cannot
  * compare are not evidence that they agree, and a passive check that guessed they did would report
  * `Up to date` over a genuine Conflict. The deliberate pass hashes and may downgrade it, which is the
- * revision SPEC allows before transfer.
+ * one revision allowed before transfer.
  *
- * ⚠ **Published Site staleness is answered only where the Baseline is evidence about it** (SPEC
- * story 120). A Baseline holding no generated output at all is no evidence about generated output,
- * and every `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that
- * holds the identical bytes — so {@link AutomaticStatus.publishedSiteStale} is empty in that case
+ * ⚠ **Published Site staleness is answered only where the Baseline is evidence about it.** A
+ * Baseline holding no generated output at all is no evidence about generated output, and every
+ * `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that holds the
+ * identical bytes — so {@link AutomaticStatus.publishedSiteStale} is empty in that case
  * rather than long and wrong. Both an Open and a Publish record source paths only (ADR-0038), so a
  * passive check answers nothing here today; a Baseline that did carry generated output would be
  * compared by the same rule.

@@ -81,8 +81,8 @@ test('renders each app’s own items in the slots it is handed', () => {
 test('says which screen this is, and nothing at all when the screen says nothing', () => {
 	render();
 
-	// A screen that names itself — the hub, before ticket 10's alignment route — leaves the slot empty
-	// rather than putting an empty heading on the bar.
+	// A screen that names itself — the hub — leaves the slot empty rather than putting an empty
+	// heading on the bar.
 	expect(testid('page-chrome')).toBeNull();
 
 	pageChrome.show('Amsterdam 1625');
@@ -177,8 +177,8 @@ test('folds the app’s items and the theme control into one menu at a phone’s
 	viewport(375);
 	flushSync();
 
-	// What a Reader keeps: where they are, and the way home. Story 6 — the two things they need must
-	// never be the two things that were dropped.
+	// What a Reader keeps: where they are, and the way home — the two things they need must never be
+	// the two things that were dropped.
 	expect(testid('site-name')).toBeInTheDocument();
 	pageChrome.show('Amsterdam 1625');
 	flushSync();

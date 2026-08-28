@@ -7,11 +7,12 @@
 //
 // Two properties are load-bearing here and are asserted:
 //
-// 1. **An unchanged document serialises byte-identically.** Ticket 09 asserts that reordering,
-//    renaming, toggling, and setting opacity leave `annotations/*.geojson` byte-identical, and that
-//    is now also a round-trip claim about this module: parse a file this app wrote and write it back
-//    and the bytes are the same. It is what lets a Workspace live in git without every save producing
-//    a diff, and what makes ADR-0010's "merely looking must not modify files" checkable.
+// 1. **An unchanged document serialises byte-identically.** `e2e/editor-layers.e2e.ts` asserts
+//    that reordering, renaming, toggling, and setting opacity leave `annotations/*.geojson`
+//    byte-identical, and that is also a round-trip claim about this module: parse a file this app
+//    wrote and write it back and the bytes are the same. It is what lets a Workspace live in git
+//    without every save producing a diff, and what makes ADR-0010's "merely looking must not modify
+//    files" checkable.
 //
 // 2. **Nothing here is on the path a stranger's archive takes in.** `assertReferencesPresent` in
 //    `transfer/open-project-bundle.ts` validates that a Layer's named GeoJSON is *present* through

@@ -15,7 +15,7 @@ import {
  * Atomicity lives here rather than in each adapter on purpose. It is the rule most likely
  * to be quietly skipped — an adapter that just opens the destination and writes looks
  * correct and passes every test that does not interrupt it — so there is one implementation,
- * exercised by the shared adapter suite, that every backend inherits. Ticket 12's File
+ * exercised by the shared adapter suite, that every backend inherits. The File
  * System Access adapter gets it by extending this class, not by reimplementing it.
  *
  * Subclasses implement the primitive operations and never override `write`.
@@ -28,7 +28,7 @@ export abstract class TempFileWriteStore implements ProjectStore {
 	// `WritablePath` and not `string`, which is the same narrowing `ProjectStore.write` makes and has
 	// to be repeated here: a caller holding the *concrete* store — every test does — would otherwise
 	// be typed against this wider signature and could hand it an `AlignmentPath`, which is the whole
-	// of what ticket 18's brand exists to refuse.
+	// of what the `AlignmentPath` brand exists to refuse.
 	async write(path: WritablePath, bytes: Bytes): Promise<void> {
 		const destination = assertStorePath(path);
 		const temp = tempPathFor(destination);

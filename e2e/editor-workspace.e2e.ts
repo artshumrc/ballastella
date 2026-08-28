@@ -19,7 +19,7 @@ import { createWorkspace, switchToWorkspace } from './support/workspace.js';
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
- * SPEC's Seam 2: the running app in a real browser against real OPFS.
+ * Seam 2: the running app in a real browser against real OPFS.
  *
  * Everything here is a browser behaviour that the core suite cannot see — the save indicator
  * transitioning, the `formatVersion: 2` refusal reaching a screen, "Workspace not reachable"
@@ -30,8 +30,8 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -60,8 +60,8 @@ async function emptyWorkspace(page: Page): Promise<void> {
 /**
  * Drop every write-ahead journal entry **and** every unfinished-deletion record in the origin.
  *
- * ⚠ **Both prefixes, and the second was missing** (ticket 21, review 2). OPFS and `localStorage` are
- * origin-shared across every test in this harness, and {@link seedProject} writes `project.json`
+ * ⚠ **Both prefixes, and the second was missing.** OPFS and `localStorage` are origin-shared across
+ * every test in this harness, and {@link seedProject} writes `project.json`
  * straight into OPFS — bypassing `Workspace.#claim`, which is what would otherwise drop a stale
  * record naming that folder. So a `ballastella.deleted.` key left behind by a failing run survived
  * into later tests, where a startup could act on it against a seeded Project and present as an
@@ -159,7 +159,7 @@ async function hashProject(page: Page, directory: string): Promise<Record<string
  */
 async function readProjectName(page: Page, directory = 'amsterdam-1625'): Promise<string> {
 	// The loop is `support/stored-file.ts`, which is where it lives for every helper that reads the
-	// Workspace — this was the last hand-rolled copy of it (ticket 17), and copies are how one of them
+	// Workspace — this was the last hand-rolled copy of it, and copies are how one of them
 	// came to be missing the retry altogether.
 	return JSON.parse(await readStoredFile(page, `${directory}/project.json`)).name as string;
 }
@@ -215,7 +215,7 @@ test.describe('the Project hub', () => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
 		await expect(page).toHaveURL(/\?p=amsterdam-1625$/);
-		// The Project's own name is the Project screen's heading (ticket 04); the app's `<h1>` was on
+		// The Project's own name is the Project screen's heading; the app's `<h1>` was on
 		// the page that screen replaced.
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 	});
@@ -247,8 +247,8 @@ test.describe('the Project hub', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625', exact: true })).toBeVisible();
 	});
 
-	// ADR-0023 keeps `images/`, `alignments/`, and `base-map/` for the Workspace itself, and ticket 01
-	// requires the refusal to reach a screen "with a message naming the reservation". It did not: the
+	// ADR-0023 keeps `images/`, `alignments/`, and `base-map/` for the Workspace itself, and the
+	// refusal has to reach a screen with a message naming the reservation. It did not: the
 	// error was missing from `describeProblem`, so the hub fell through to `status = 'unreachable'` and
 	// replaced itself — and every Project in it — with "Workspace not reachable — Your Workspace could
 	// not be opened…". A scholar who typed "Images" was told their whole Workspace had gone.
@@ -316,7 +316,7 @@ test.describe('the Project hub', () => {
 });
 
 /**
- * The Workspace's Map Images, on the hub (SPEC stories 63, 64, 65, 98).
+ * The Workspace's Map Images, on the hub.
  *
  * Everything asserted here is a browser behaviour the core suite cannot see: the list reaching a
  * screen, the refusal reaching a screen instead of a dialog, `<dialog>`'s Escape and focus
@@ -557,7 +557,7 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(page.getByTestId('map-image')).toHaveCount(3);
 		await expect(total).toContainText('3 Map Images');
 		await expect(total).toContainText('100 kB in all');
-		// Announced, not merely rendered (SPEC story 112) — so the region's own `aria-live` is asserted
+		// Announced, not merely rendered — so the region's own `aria-live` is asserted
 		// beside its text. Without that this claim sat on a `data-testid` and was vacuous: a `<p>` with
 		// the live attribute stripped would have passed it while announcing nothing. `aria-live` rather
 		// than `role="status"` because the transfer line above already owns that role on this page.
@@ -727,26 +727,26 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		await page.reload();
 	});
 
-	// Named for the sequence the indicator *actually* publishes, which has four steps and not three
-	// (ticket 17). `unsaved` is the debounce window — ADR-0017 rule 2's 400 ms, during which the
-	// edit is in memory and the tool is saying so — and it is one of rule 5's three states, not an
-	// implementation detail. The old title said `saved → saving → saved` while the old assertions
-	// never looked at the third state at all.
+	// Named for the sequence the indicator *actually* publishes, which has four steps and not three.
+	// `unsaved` is the debounce window — ADR-0017 rule 2's 400 ms, during which the edit is in memory
+	// and the tool is saying so — and it is one of rule 5's three states, not an implementation
+	// detail. The old title said `saved → saving → saved` while the old assertions never looked at the
+	// third state at all.
 	test('transitions saved → unsaved → saving → saved as the Project name is typed', async ({
 		page
 	}) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
-		// By role, because being announced is the claim (SPEC story 112, ADR-0017 rule 5): a
-		// `[data-save-state]` locator goes on passing with the live region deleted. One `role="status"`
-		// per page is the convention this repo keeps for exactly that reason — every other announcement
-		// on a page that has a save indicator is an `aria-live="polite"` region, and since ticket 04
-		// the indicator is on the navigation bar and therefore on every page.
+		// By role, because being announced is the claim (ADR-0017 rule 5): a `[data-save-state]` locator
+		// goes on passing with the live region deleted. One `role="status"` per page is the convention
+		// this repo keeps for exactly that reason — every other announcement on a page that has a save
+		// indicator is an `aria-live="polite"` region, and the indicator is on the navigation bar and
+		// therefore on every page.
 		const indicator = page.getByRole('status');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 
-		// **Recorded, not polled** (ticket 17). This used to assert the middle of the sequence by
+		// **Recorded, not polled**. This used to assert the middle of the sequence by
 		// asking twice: `toHaveAttribute('saving')` and then `toHaveAttribute('saved')`. "Saving…" can
 		// be over in a few milliseconds — it is an OPFS write of a small document — and two protocol
 		// round trips can straddle it entirely, so the first assertion failed with
@@ -773,7 +773,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		// is satisfied by the `saved` the indicator is already showing *before* the edit lands, which
 		// is exactly the hazard `support/saved.ts` exists to describe. A first read winning that race
 		// returns `['saved']`, and `toEqual` on a single read would have gone green having observed
-		// nothing at all. Found by review; it is the vacuous-pass shape this epic keeps producing.
+		// nothing at all. Found by review; it is the vacuous-pass shape this suite keeps producing.
 		await expect
 			.poll(saveStates, { message: 'the save indicator should pass through unsaved and saving' })
 			.toEqual(['saved', 'unsaved', 'saving', 'saved']);
@@ -788,7 +788,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// ⚠ WHAT THIS DESCRIBE PROVES, AND WHAT IT DOES NOT — MEASURED 2026-08-07, TICKET 20
+// ⚠ WHAT THIS DESCRIBE PROVES, AND WHAT IT DOES NOT — MEASURED 2026-08-07
 //
 // It proves the listener is installed on the real `window` and that `Autosave.flush` puts the
 // pending bytes on disk. It does **not** prove that a scholar's edit survives leaving the page,
@@ -805,9 +805,9 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 // The third line is the one that matters for whoever fixes this: something synchronous inside the
 // same handler *does* survive, so a write-ahead journal is a real option rather than a hope. It is
 // also an ADR-0017 decision and an ADR-0001 one — it puts user bytes somewhere that is not the
-// ProjectStore — so it was reported rather than guessed at. See the ticket.
+// ProjectStore — so it was reported rather than guessed at.
 //
-// ✅ **FIXED BY TICKET 20**, and the fix is asserted against a genuine navigation in
+// ✅ **FIXED**, and the fix is asserted against a genuine navigation in
 // `surviving a real navigation (ADR-0017 rule 3, as amended)` below. ADR-0017 rule 3 now reads
 // "capture synchronously, then flush", the journal is `packages/core/src/autosave/journal.ts`, and
 // the replay is `replay.ts`. This describe is kept, unchanged, because what it proves is still worth
@@ -916,8 +916,9 @@ test.describe('flushing on hide (ADR-0017 rule 3)', () => {
 // "has the bytes on disk before the debounce has run at all", and `capture` by the one case only it
 // can serve, a quota that was full at the edit and has room by the time the page goes away.
 //
-// The full record, including what review found afterwards and what was deliberately not done, is
-// `.tracker/workspace-and-layers/tickets/20-a-real-navigation-does-not-lose-an-edit.md`.
+// The reasoning behind the write-ahead journal itself — what it is, and the four things it is
+// deliberately not — is ADR-0001's "The one exception, and its exact size", with the measurement
+// that made it necessary in ADR-0017's amended rule 3.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () => {
 	/** The same shim the describe above documents: only a flush or a capture can write. */
@@ -974,8 +975,8 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 
 		await page.reload();
 
-		// SPEC story 111: visible text, not a tooltip. Story 112: inside the `aria-live` region that
-		// was already mounted, so it is announced rather than silently inserted.
+		// Visible text, not a tooltip, and inside the `aria-live` region that was already mounted, so it
+		// is announced rather than silently inserted.
 		const notice = page.getByTestId('recovered-edits');
 		await expect(notice).toBeVisible();
 		await expect(notice).toContainText('amsterdam-1625/project.json');
@@ -985,17 +986,16 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await page.getByTestId('recovered-dismiss').click();
 		await expect(notice).toBeHidden();
 
-		// ⚠ **And focus lands somewhere, which it did not** (ticket 21, round 4; the defect is
-		// ticket 20's). "Got it" removes the `<section>` that contains it, so a keyboard or
-		// screen-reader user had the focused element deleted from under them and landed on `<body>` —
-		// back at the top of the document, with the next Tab starting from the beginning of the page.
-		// It has been load-bearing since round 3 made this panel the only surface a folder Workspace's
-		// deletions are ever reported on.
+		// ⚠ **And focus lands somewhere, which it did not.** "Got it" removes the `<section>` that
+		// contains it, so a keyboard or screen-reader user had the focused element deleted from under
+		// them and landed on `<body>` — back at the top of the document, with the next Tab starting
+		// from the beginning of the page. It has been load-bearing since this panel became the only
+		// surface a folder Workspace's deletions are ever reported on.
 		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
 	});
 
 	/**
-	 * ⚠ **The notice never expires, so anything it covers it covers indefinitely** (ticket 22).
+	 * ⚠ **The notice never expires, so anything it covers it covers indefinitely**.
 	 *
 	 * It stays up until "Got it" is pressed, and a startup recovery is a thing the author has not
 	 * read yet and must not be hurried through. A fixed card in the bottom-left corner is therefore
@@ -1058,13 +1058,13 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		// **Immediately, with the deletion still in flight** — which is the whole of what this pins,
 		// and why nothing above waits for it to render. `Workspace.deleteProject` is several awaits
 		// deep against OPFS and a document being unloaded does not run the continuation (ADR-0017,
-		// "Rule 3, amended"), so before ticket 21 this reload caught the deletion before its *first*
-		// await had resolved, one run in five, and the Project came back.
+		// "Rule 3, amended"), so an unguarded reload caught the deletion before its *first* await had
+		// resolved, one run in five, and the Project came back.
 		await page.reload();
 
 		// The Project stays deleted, and nothing is quietly recreated under its directory name.
 		//
-		// ⚠ **The empty state first, and it is not decoration** (ticket 21). `toHaveCount(0)` passes
+		// ⚠ **The empty state first, and it is not decoration**. `toHaveCount(0)` passes
 		// against a page that has not rendered its list yet, so on a fresh reload both assertions
 		// below were satisfied by the hub simply not being there — and the run that found this defect
 		// passed both and then failed on the file list. Waiting for the sentence the hub shows when it
@@ -1076,13 +1076,13 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	});
 
 	/**
-	 * ⚠ **A deletion carried out at startup used to be completely silent** (ticket 21, review 2).
+	 * ⚠ **A deletion carried out at startup used to be completely silent.**
 	 *
 	 * `Workspace.finishInterruptedDeletions` answered with three lists and `EditorSession` discarded
 	 * all three. ADR-0017's standard for this exact recovery chain is explicit and repeated — *"every
 	 * replay is named to the user, so an older state coming back is visible rather than silent"* — and
 	 * the replay half honoured it while the half that **removes files from a scholar's folder** said
-	 * nothing in either direction. SPEC stories 111 and 112.
+	 * nothing in either direction, neither in visible text nor in an announcement.
 	 *
 	 * The record is seeded rather than provoked, because provoking it means winning the ~20% race this
 	 * whole suite is about; what is seeded is exactly the key and value `DeletedProjects.record`
@@ -1117,7 +1117,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	});
 
 	/**
-	 * ⚠ **The other direction, and it was rendered by no test at all** (ticket 21, review 3).
+	 * ⚠ **The other direction, and it was rendered by no test at all.**
 	 *
 	 * A refusal is the *only* thing a startup deletion ever reports in a folder Workspace since the
 	 * identity rule, and the whole arm that renders it — `deletion-refused`, the "A deletion was not
@@ -1237,7 +1237,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	});
 
 	/**
-	 * ⚠ **The one assertion in ticket 07 that no unit seam can make** (round 3, mutation M16).
+	 * ⚠ **The one assertion here that no unit seam can make.**
 	 *
 	 * `RecoveredEdits.svelte` puts a "Throw this copy away" beside a skipped row **only when its entry
 	 * was kept** — `'superseded'` and `'cannot-tell-which-is-newer'`, the two the scholar still has a
@@ -1246,10 +1246,10 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	 * to be put back".
 	 *
 	 * That branch is markup, and the editor's Node project has no component seam to drive it; adding
-	 * one would be a new test seam, which this epic forbids. So it is asserted here, where the panel
-	 * really renders. The specimen is `already-in-the-store`: an entry whose bytes the Workspace
-	 * already holds, seeded at exactly the key `WriteAheadJournal` writes — which is the state a
-	 * `forget` the browser refused leaves behind.
+	 * one would be a new test seam, and CONTRIBUTING allows two and no others. So it is asserted here,
+	 * where the panel really renders. The specimen is `already-in-the-store`: an entry whose bytes the
+	 * Workspace already holds, seeded at exactly the key `WriteAheadJournal` writes — which is the
+	 * state a `forget` the browser refused leaves behind.
 	 */
 	test('offers no way to throw away a copy the Workspace already has', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
@@ -1327,7 +1327,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 	});
 
-	test('does not put an edit into a different named Workspace (ticket 12)', async ({ page }) => {
+	test('does not put an edit into a different named Workspace', async ({ page }) => {
 		await openAndRename(page, 'Typed in the first Workspace');
 
 		// Switch Workspace, then reload. The edit belongs to the Workspace it was typed into, and the
@@ -1352,7 +1352,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	}) => {
 		// ⚠ **The other half of the test above.** "The edit is not in the *other* Workspace" is
 		// satisfied just as well by the edit having been destroyed, which is the vacuous shape this
-		// epic keeps producing; this is the assertion that says it still exists.
+		// suite keeps producing; this is the assertion that says it still exists.
 		//
 		// It does **not** pin `WorkspaceStorage.#adopt`'s `capture()` call — removing that leaves this
 		// green, measured. The reason is the same redundancy as the `pagehide` pair above: `queue`

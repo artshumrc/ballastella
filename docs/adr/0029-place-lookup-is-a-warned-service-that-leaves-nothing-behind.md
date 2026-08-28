@@ -10,7 +10,7 @@ A scholar can type a place name and either move the map to it or drop a Pin at i
 
 **A Place is a starting point, usually wrong.** The workflow this feature exists for is: look up an address, see that it landed in the middle of a river, and drag it to where the wharf actually was — reading against the Base Map or a Map Image layered over it. **The correction is the scholarship.** The lookup is step one and the cheap one.
 
-That gesture needs no new code. `overlay-points.ts` already draws `annotation-vertex` as a focusable, draggable, arrow-key-movable DOM `<button>` on a MapLibre `Marker`, which sits above the WebGL canvas where a warped Map Image is drawn. Dragging a Pin against a map image is vertex editing that shipped in ticket 10.
+That gesture needs no new code. `overlay-points.ts` already draws `annotation-vertex` as a focusable, draggable, arrow-key-movable DOM `<button>` on a MapLibre `Marker`, which sits above the WebGL canvas where a warped Map Image is drawn. Dragging a Pin against a map image is the same vertex editing an Annotation's own vertices get.
 
 ## Nothing is written about where a coordinate came from
 
@@ -63,20 +63,20 @@ The limiter is per-tab, so two tabs can exceed one request per second and nothin
 
 ## Four outcomes, told apart
 
-`nothing-fails-silently` story 10 — a failure distinguished from a refusal, "so that I am not told my connection is at fault when it is my storage, or the reverse" — applies directly. A lookup says one of four things, composed by a pure function in the domain package beside `baseMapUnavailableNotice`:
+**A failure is distinguished from a refusal**, so that a user is not told their connection is at fault when it is their storage, or the reverse. A lookup says one of four things, composed by a pure function in the domain package beside `baseMapUnavailableNotice`:
 
 1. **Places found** — the candidate list.
 2. **Nothing matched** — a real answer, not an error. The service replied; it has no such place.
 3. **The service did not answer** — unreachable, `5xx`, blocked, or a response we could not read. A fork pointed at something that is not a geocoder folds in here: it is the instance operator's problem, and a sentence about response schemas reaches the wrong person.
 4. **Too many searches, too fast** — a `429`, or our own limiter. The one failure with a remedy the scholar can act on.
 
-**2 versus 3 is the distinction that matters**, and the one an implementer collapses first because both end in an empty list. "No results for Boston Common" when the request never left the building is exactly the inversion story 10 forbids.
+**2 versus 3 is the distinction that matters**, and the one an implementer collapses first because both end in an empty list. "No results for Boston Common" when the request never left the building is exactly the inversion that rule forbids.
 
 Per `online.svelte.ts`, `navigator.onLine` "is fine for suppressing a claim and would not be fine for making one." So outcome 3 drops its it-is-probably-them clause when offline rather than asserting "you are offline" — and the search field is **never disabled** when offline, because disabling a control *is* making the claim.
 
 ## Candidates are shown, and framing uses the bounding box
 
-Silently taking the top-ranked answer for "Springfield" is precisely the `nothing-fails-silently` failure this feature is most able to manufacture: a Pin in the wrong state is indistinguishable from a Pin in the right one. `CONTEXT.md` says a Place is a candidate; taking one silently would contradict the glossary.
+Silently taking the top-ranked answer for "Springfield" is precisely the silent failure this feature is most able to manufacture: a Pin in the wrong state is indistinguishable from a Pin in the right one. `CONTEXT.md` says a Place is a candidate; taking one silently would contradict the glossary.
 
 Nominatim returns a `boundingbox` per result. `opening-view.ts` already owns `GeoBounds`, `openingViewFit`, and `applyOpeningFit` over a `FittableMap`, with identity-guarded re-framing so a fit does not fight the user's own panning. So navigation **frames** a Place rather than centring on its point at a zoom level we invented — a house address frames tight, a country frames wide, and no zoom heuristic exists anywhere in the feature. The padding and maximum-zoom constants are that module's (`OPENING_VIEW_PADDING`, `OPENING_VIEW_MAX_ZOOM`) and are not to be re-derived; if those names read wrongly for a Place, the remedy is a sibling that calls the same helper, never a second copy of the numbers.
 
@@ -110,4 +110,4 @@ No test may reach the network. Every test drives a committed fixture — one cap
 
 ## Out of scope, and declined rather than deferred
 
-Reverse lookup (click a point, get an address) — a second feature with its own outcomes and its own UI, and nothing in the originating workflow asks for it. Recent-search history — local state that immediately raises "does this persist, and where", which is a Workspace question. Bulk address import — declined at the outset; it would make this a data-import feature rather than a viewport one. A new `OverlayPointKind` for a Place — `overlay-points.ts` records that ticket 10 declared an `annotation-edge` kind, styled it, and never emitted one, and that "a kind nothing produces is an affordance the code promises and the app does not have"; nothing is tracked here, so a placed Pin is an ordinary `annotation-vertex`.
+Reverse lookup (click a point, get an address) — a second feature with its own outcomes and its own UI, and nothing in the originating workflow asks for it. Recent-search history — local state that immediately raises "does this persist, and where", which is a Workspace question. Bulk address import — declined at the outset; it would make this a data-import feature rather than a viewport one. A new `OverlayPointKind` for a Place — `overlay-points.ts` records that an `annotation-edge` kind was declared and styled and never emitted, and that "a kind nothing produces is an affordance the code promises and the app does not have"; nothing is tracked here, so a placed Pin is an ordinary `annotation-vertex`.

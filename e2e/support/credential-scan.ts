@@ -1,5 +1,5 @@
-// Where a secret is, read behind the app's back — the assertion ADR-0033 and SPEC "Out of scope"
-// item 9 are made of.
+// Where a secret is, read behind the app's back — the assertion **no credential in `localStorage`
+// or IndexedDB** is made of (ADR-0033).
 //
 // ⚠ **One scan, shared, for the reason `github-hosts.ts` is one fake.** A second copy of this under
 // the same name appeared in the sign-in suite and enumerated keys without ever comparing a value —
@@ -17,8 +17,8 @@ import type { Page } from './test.js';
  * the Workspace. So the one place a credential may be is `sessionStorage`, and a test that only
  * checked "signing in works" would pass just as happily with the token in any of the other three.
  *
- * **IndexedDB is scanned too, because SPEC "Out of scope" item 9 names it by name** — *no credential
- * in `localStorage` or IndexedDB* — and it is the obvious place a later "remember me" would reach
+ * **IndexedDB is scanned too, because the rule names it** — *no credential in `localStorage` or
+ * IndexedDB* — and it is the obvious place a later "remember me" would reach
  * for. `indexedDB.databases()` exists in Chromium, which is the only project these specs run under.
  */
 export async function whereverTheTokenIs(page: Page, token: string): Promise<string[]> {

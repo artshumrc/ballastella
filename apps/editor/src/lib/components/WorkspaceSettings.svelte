@@ -32,7 +32,7 @@
 	 * would leave a scholar looking at an empty hub with nothing to explain it.
 	 *
 	 * Every explanation here is **visible text**, not a tooltip: daisyUI renders tooltips through CSS
-	 * `::before`, so they are neither announced nor dismissable (ADR-0016, SPEC story 111).
+	 * `::before`, so they are neither announced nor dismissable (ADR-0016).
 	 *
 	 * ⚠ **The dialog's accessible name is "Workspace settings" and nothing else.** `e2e/support/
 	 * workspace.ts` reaches it by that name and every spec that touches it arrives through there.
@@ -67,7 +67,7 @@
 	let remoteOpen = $state(false);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// BACKING UP AND RESTORING (ticket 13, ADR-0024, SPEC stories 82–87)
+	// BACKING UP AND RESTORING (ADR-0024)
 	//
 	// Here rather than on the hub, in the same group as "whether this browser will keep your work"
 	// sends a scholar: that sentence tells them their work is in a place they cannot see and may be
@@ -75,7 +75,7 @@
 
 	/** What a backup or restore is doing right now, or `null`. Drives the visible progress. */
 	let transfer = $state<{ kind: 'backup' | 'restore'; files: number; label: string } | null>(null);
-	/** What the last backup or restore did, announced. Visible text, never a tooltip (story 111). */
+	/** What the last backup or restore did, announced. Visible text, never a tooltip. */
 	let transferOutcome = $state('');
 	/** Why the last backup or restore did not happen. Its own state so it can be an alert. */
 	let transferProblem = $state('');
@@ -133,11 +133,11 @@
 				};
 			});
 			// The notice comes from core rather than being phrased here, so the sentence about
-			// re-publishing is the same wherever a restore is reported (ADR-0006, story 86).
+			// re-publishing is the same wherever a restore is reported (ADR-0006).
 			transferOutcome = restored.notice;
 		} catch (cause) {
 			// ADR-0010's refusal of a newer `formatVersion` arrives here as its own message, naming
-			// where to get that version, and is shown unaltered (story 114).
+			// where to get that version, and is shown unaltered.
 			transferProblem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			transfer = null;
@@ -292,12 +292,12 @@
 			{/if}
 
 			<!--
-				Where this Workspace publishes, and as whom (ADR-0032, story 45).
+				Where this Workspace publishes, and as whom (ADR-0032).
 
-				The binding lives here rather than in the workspace menu, so the same decision is not
-				offered in two places that could disagree. Nothing about GitHub is shown until the scholar
-				opens the dialog behind this button, which is what keeps a first visit clear of a sign-in
-				prompt they never asked for (SPEC story 38).
+				The binding lives here rather than in the workspace menu, so the same decision is not offered
+				in two places that could disagree. Nothing about GitHub is shown until the scholar opens the
+				dialog behind this button, which is what keeps a first visit clear of a sign-in prompt they
+				never asked for.
 			-->
 			<h4 class="mt-3 text-sm font-semibold">Where this Workspace publishes</h4>
 			{#if storage.remote}
@@ -355,7 +355,7 @@
 		<!--
 			Backing up and restoring (ADR-0024), and the edits that belong to a Workspace this browser no
 			longer lists. Both outcomes are in an `aria-live` region so a screen-reader user is told what a
-			sighted one can see (story 112).
+			sighted one can see.
 		-->
 		<section class="flex flex-col items-start gap-3 py-6">
 			<h3 class="font-serif text-lg">Keeping it safe</h3>
@@ -370,11 +370,11 @@
 			{#if storage.review !== null}
 				<!--
 					ADR-0024: a review copy is never backed up. Said in visible text rather than left as a
-					disabled button with no explanation (workspace-and-layers SPEC story 111) — an archive of
-					somebody else's work sitting in the user's Downloads folder is indistinguishable from a
-					backup of their own, which is how a review copy comes to be restored months later as
-					though it were theirs. `WorkspaceStorage.backUp` refuses it as well, because a guard that
-					lives only in markup is one route away from being absent.
+					disabled button with no explanation — an archive of somebody else's work sitting in the
+					user's Downloads folder is indistinguishable from a backup of their own, which is how a
+					review copy comes to be restored months later as though it were theirs.
+					`WorkspaceStorage.backUp` refuses it as well, because a guard that lives only in markup is
+					one route away from being absent.
 				-->
 				<p class="text-sm text-warning" data-testid="no-backup-in-review">
 					This is a review copy of somebody else's Project, so it is not backed up. Restoring still
@@ -384,11 +384,11 @@
 
 			{#if storage.unavailable}
 				<!--
-					Tickets 05 and 15: a Backup is one of the readers a transfer marker's gate keeps out, so
-					it is absent rather than present and refused — the same arrangement as the review copy
-					above, and for a sharper reason: an archive holding half an Import or half an Update is
-					one the author restores months later believing it whole. Restoring still works, because
-					it always makes a *new* Workspace and never touches this one.
+					A Backup is one of the readers a transfer marker's gate keeps out, so it is absent rather
+					than present and refused — the same arrangement as the review copy above, and for a sharper
+					reason: an archive holding half an Import or half an Update is one the author restores
+					months later believing it whole. Restoring still works, because it always makes a *new*
+					Workspace and never touches this one.
 				-->
 				<p class="text-sm text-warning" data-testid="no-backup-unrecovered">
 					This Workspace has not opened yet, so it is not backed up. Reload the page to finish
@@ -445,7 +445,7 @@
 			{/if}
 
 			<!--
-				Unsaved changes belonging to a Workspace this browser no longer lists (ticket 20).
+				Unsaved changes belonging to a Workspace this browser no longer lists.
 
 				⚠ **Reported and never swept up.** A replay only ever looks at the Workspace being opened, so
 				an entry naming one that has gone would otherwise sit in storage for ever with nobody to meet
@@ -494,9 +494,8 @@
 			<h3 class="font-serif text-lg">This browser and your Workspaces</h3>
 
 			<!--
-				The offer the persistence sentence has been making since ticket 12, reachable from here
-				(SPEC story 6, ADR-0012): the permission and persistence questions are asked in the group
-				above, and installing is the answer to both.
+				The offer the persistence sentence makes, reachable from here (ADR-0012): the permission and
+				persistence questions are asked in the group above, and installing is the answer to both.
 			-->
 			<h4 class="text-sm font-semibold">Ballastella as an installed application</h4>
 			<InstallOffer />

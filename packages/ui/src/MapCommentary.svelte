@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The map's running commentary: what is drawn on it, and where it is looking (SPEC stories 17, 22).
+	// The map's running commentary: what is drawn on it, and where it is looking.
 	//
 	// **Announced, not drawn.** Every sentence here is for a screen reader — a sighted user reads the
 	// same facts off the map itself — so on screen these lines were restatement taking room the Base
@@ -48,7 +48,7 @@
 		 *
 		 * The editor adds whether the Project works with no network and what a copy finished doing:
 		 * making an offline copy is one button away there and nowhere at all for a Reader, so it is a
-		 * fact the one user who can act on it is told and the other is not (SPEC stories 20, 21).
+		 * fact the one user who can act on it is told and the other is not.
 		 */
 		children?: Snippet;
 	} = $props();

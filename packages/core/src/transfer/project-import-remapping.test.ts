@@ -1,5 +1,5 @@
 // The planning half of Project Import: one incoming closure remapped onto identities the destination
-// Workspace has never used (ticket 06, ADR-0037).
+// Workspace has never used (ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE FIXTURE IS A WORKSPACE AND THE ASSERTIONS ARE PARSED MODELS
@@ -160,7 +160,7 @@ const REMOTE_JSON = {
  * The closure the source offers, Project-relative.
  *
  * `images/<LOCAL>/info.json` carries the **source Workspace's published address** rather than the
- * ADR-0004 placeholder, because that is the stamp story 32 is about: a Project imported from
+ * ADR-0004 placeholder, because that is the stamp the remap has to reset: a Project imported from
  * somebody's Published Site arrives claiming their IIIF endpoint.
  */
 const CLOSURE: Record<ClosurePath, string> = {
@@ -323,7 +323,8 @@ describe('remapProjectImport', () => {
 		expect(project.updatedAt).toBe('2025-03-04T11:22:33.000Z');
 		expect(project.baseMap).toBe('protomaps-light');
 		expect(project.unknownFields).toEqual({ provenanceOfSomeLaterBuild: { kept: true } });
-		// Ticket 08 owns the publication reset and the Front Page, in one place. Nothing here.
+		// `project-import-provenance.ts` owns the publication reset and the Front Page, in one place.
+		// Nothing here.
 		expect(project.canonicalUrl).toBe('https://ada.github.io/atlas');
 		expect(project.onFrontPage).toBe(false);
 
@@ -424,7 +425,7 @@ describe('remapProjectImport', () => {
 
 	it('allocates an identity per distinct Map Image by default, without consulting the image', async () => {
 		// Two Imports of one Project are two Map Images, and an identical incoming image is never
-		// matched against one the Workspace already has (stories 27, 28).
+		// matched against one the Workspace already has.
 		const first = await remapProjectImport(await sourceOf(seed()));
 		const second = await remapProjectImport(await sourceOf(seed()));
 

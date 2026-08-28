@@ -7,7 +7,7 @@ import type { Bytes, ProjectStore, StorePath, WritablePath } from '../store/proj
 export type SaveState = 'saved' | 'saving' | 'unsaved';
 
 /**
- * The write-ahead journal, as {@link Autosave} needs it (ticket 20).
+ * The write-ahead journal, as {@link Autosave} needs it.
  *
  * An interface rather than the class, so that `@ballastella/core`'s Node-side tests can drive every
  * branch — including the refusal — and so that a build with no usable `localStorage` passes nothing
@@ -39,7 +39,7 @@ export interface AutosaveOptions {
 	 */
 	readonly inFlightWaitMs?: number;
 	/**
-	 * Where pending bytes are written ahead of the store (ADR-0017 rule 3, as amended by ticket 20).
+	 * Where pending bytes are written ahead of the store (ADR-0017 rule 3, as amended).
 	 *
 	 * Optional because it is a browser capability and not a guarantee: `localStorage` can be absent
 	 * or refused outright. Omitted, this class behaves exactly as it did before — which is to say,
@@ -59,12 +59,12 @@ export interface AutosaveOptions {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────────────────
- * WHAT IS HAPPENING TO ONE FILE, AS ONE VALUE (ticket 09).
+ * WHAT IS HAPPENING TO ONE FILE, AS ONE VALUE
  *
  * This union replaced five independent mutable fields — `pending`, `timer`, `draining`, `error` and
  * `journalRefusal` — whose legal combinations were maintained by convention across six methods.
- * **Roughly half of every defect the `nothing-fails-silently` epic found was two of those fields
- * disagreeing about one file**, and two of them were introduced by the fixes for earlier ones:
+ * **Roughly half of every defect found at this seam was two of those fields disagreeing about one
+ * file**, and two of them were introduced by the fixes for earlier ones:
  *
  * | Defect | The disagreement | Why it cannot be spelled now |
  * |---|---|---|
@@ -75,17 +75,17 @@ export interface AutosaveOptions {
  * | `settled()` answering `true` with a write coming | `timer` armed behind a caller that was told it was quiet | a timer exists only as `debouncing`, and every reader switches over the whole union |
  * | A refused deletion killing the retry | a "quiescing" flag set with nothing left to clear it | `abandoning` is owned by the drain it names, and that drain's `finally` is what ends it |
  *
- * **Half of the invariant the epic spent four rounds testing is now a property of the type**: every
- * variant that carries bytes carries either the timer that will start their drain, the drain that is
- * writing them, or — for the one stated exception — the error explaining why nothing is coming. There
- * is no fourth possibility to write.
+ * **Half of the invariant is a property of the type rather than of the methods**: every variant that
+ * carries bytes carries either the timer that will start their drain, the drain that is writing them,
+ * or — for the one stated exception — the error explaining why nothing is coming. There is no fourth
+ * possibility to write.
  *
  * ⚠ **THE OTHER HALF IS NOT, AND SAYING IT WAS COST TWO ROUNDS OF BLOCKING REGRESSIONS** (reviews 1
  * and 2). "*If bytes are pending, a drain is scheduled or running*" is a claim about **which bytes**
  * as much as about which fields, and a union cannot make it. `{ at: 'writing', bytes, drain }` is a
  * perfectly legal state whatever `bytes` holds — including bytes older than the ones the caller was
- * just told were saved. Ticket 09 turned bytes into a parameter in three places and each round found
- * the inversion in a new one: the sweep, the debounce, and then `commit` and `queue` themselves.
+ * just told were saved. Bytes are a parameter in three places — the sweep, the debounce, and
+ * `commit` and `queue` themselves — and the inversion has to be refused at each.
  *
  * ⚠ **Round 1's rule — "only a caller who was handed bytes may install bytes" — was itself false.**
  * `commit` *is* such a caller and still reverted a newer edit, because between being handed the bytes
@@ -127,8 +127,8 @@ export interface AutosaveOptions {
  * ⚠ **THIS LIST WAS DERIVED BY GREP, AND MUST BE RE-DERIVED RATHER THAN RE-READ.** An earlier
  * version called itself complete on the strength of a careful reading, and was not: the two rows
  * above were missing, and a mechanical sweep of every call expression in this file is what found
- * them. A read-derived enumeration published as complete is exactly the claim-outrunning-code shape
- * this epic exists to catch. When this class changes, run the sweep again — grep every call
+ * them. A read-derived enumeration published as complete is a claim that has outrun the code.
+ * When this class changes, run the sweep again — grep every call
  * expression and every property read on caller-supplied objects, and subtract `this.#…`, the
  * `Map`/`Set`/`Promise` builtins, and the module-level pure helpers (`bytesOf`, `drainOf`,
  * `unhandled`). What is left is this table.
@@ -197,13 +197,10 @@ type FileState =
 	 * empty payload: "a drain is running and owes the store nothing" is a different fact from "a
 	 * drain is running and these bytes are still owed".
 	 *
-	 * ⚠ **It did not fix a shipped defect, and an earlier draft of this comment said it did.**
-	 * Measured against the parent commit: the old `abandon` cleared `pending` but kept the entry
-	 * *and* its `draining` memo, so a `queue` arriving afterwards was handed the running drain and
-	 * one writer was preserved. Running this ticket's tests against that implementation gives eight
-	 * failures and `leaves a path being written to one writer, even after abandoning it` is **not**
-	 * among them. What this variant buys is that the two facts stop being one nullable field, so a
-	 * reader cannot mistake either for the other — expressiveness, not a repair.
+	 * ⚠ **It is expressiveness, not a repair.** Clearing the bytes while keeping the entry and its
+	 * drain preserves one writer by the same argument, and `leaves a path being written to one
+	 * writer, even after abandoning it` passes either way. What this variant buys is that the two
+	 * facts stop being one nullable field, so a reader cannot mistake either for the other.
 	 */
 	| { readonly at: 'abandoning'; readonly drain: Promise<void> }
 	/**
@@ -234,15 +231,15 @@ const drainOf = (state: FileState): Promise<void> | undefined =>
  * {@link queue}; rule 3 is {@link capture} and {@link flush}, wired up by `installFlushOnHide`;
  * rule 4 belongs to the store's `write`; rule 5 is {@link state} and {@link subscribe}.
  *
- * ⚠ **Rule 3 is two halves since ticket 20, and the asynchronous one does not survive a real
- * navigation.** {@link flush} awaits `store.write`, and a document being unloaded does not run the
- * continuation — a debounced Project rename followed by a real `page.reload()` lost the edit 8
- * times out of 8. So an edit is written to a synchronous journal at the moment it is queued, and
- * replayed at startup; see `journal.ts` for the measurement and for what the journal is not.
+ * ⚠ **Rule 3 is two halves, and the asynchronous one does not survive a real navigation.** {@link
+ * flush} awaits `store.write`, and a document being unloaded does not run the continuation — a
+ * debounced Project rename followed by a real `page.reload()` lost the edit 8 times out of 8. So an
+ * edit is written to a synchronous journal at the moment it is queued, and replayed at startup; see
+ * `journal.ts` for the measurement and for what the journal is not.
  *
- * ⚠ **One state per path since ticket 09.** What is happening to a file is a single {@link FileState}
- * value rather than a handful of fields kept consistent by hand — read that type first, because the
- * argument for it is a table of six shipped defects.
+ * ⚠ **One state per path.** What is happening to a file is a single {@link FileState} value rather
+ * than a handful of fields kept consistent by hand — read that type first, because the argument for
+ * it is a table of six shipped defects.
  */
 export class Autosave {
 	readonly #store: ProjectStore;
@@ -298,9 +295,9 @@ export class Autosave {
 	 * Project made the indicator read "Saved" for an edit that was never written — exactly what
 	 * ADR-0017 rule 5 exists to prevent.
 	 *
-	 * ⚠ **Reads out of `held`, which is the only variant that has an error at all** (ticket 09). It
-	 * therefore cannot answer for a file whose bytes have since been written: the error and the bytes
-	 * it is about leave together or not at all.
+	 * ⚠ **Reads out of `held`, which is the only variant that has an error at all.** It therefore
+	 * cannot answer for a file whose bytes have since been written: the error and the bytes it is
+	 * about leave together or not at all.
 	 */
 	get lastError(): unknown {
 		for (const state of this.#states.values()) {
@@ -312,8 +309,8 @@ export class Autosave {
 	/**
 	 * Called on every change of {@link state}. Returns its own unsubscribe.
 	 *
-	 * ⚠ **A listener that throws cannot reach the caller, here or anywhere else in this class**
-	 * (ticket 09). Its failure is rethrown out of band instead — see {@link #tell}.
+	 * ⚠ **A listener that throws cannot reach the caller, here or anywhere else in this class.** Its
+	 * failure is rethrown out of band instead — see {@link #tell}.
 	 */
 	subscribe(listener: (state: SaveState) => void): () => void {
 		this.#listeners.add(listener);
@@ -326,24 +323,22 @@ export class Autosave {
 	 * same path inside the window produce one write; calls for different paths keep their own
 	 * deadlines.
 	 *
-	 * **A `WritablePath`, for the same reason {@link commit} takes one** (ticket 18). This was missed
-	 * in the first cut and it was the largest hole in the guard: the pending bytes reach
+	 * **A `WritablePath`, for the same reason {@link commit} takes one.** The pending bytes reach
 	 * `store.write` in {@link #drainLoop} exactly as a committed one does, so narrowing `commit`
-	 * alone left `autosave.queue(alignmentPath(id), bytes)` compiling and blind-writing a Workspace
-	 * Alignment on the debounce — a write nobody is even awaiting.
+	 * alone would leave `autosave.queue(alignmentPath(id), bytes)` compiling and blind-writing a
+	 * Workspace Alignment on the debounce — a write nobody is even awaiting.
 	 *
-	 * ⚠ **An edit that arrives while a drain owns the path is handed to that drain and arms no timer**
-	 * (ticket 09). Before, it did both: the bytes went to the running loop *and* a timer was set, so
-	 * one file could be debouncing and writing at the same time. That combination was the stray timer
-	 * this epic twice caught firing against bytes that were no longer there, and — worse — it turned
-	 * the documented "bytes the store refused are **held**, not retried" into "retried, if the edit
-	 * that failed happened to have a sibling behind it". Now the drain is the mechanism, alone.
+	 * ⚠ **An edit that arrives while a drain owns the path is handed to that drain and arms no
+	 * timer.** Doing both would let one file be debouncing and writing at the same time, and that
+	 * combination is a stray timer firing against bytes that are no longer there — and, worse, it
+	 * turns the documented "bytes the store refused are **held**, not retried" into "retried, if the
+	 * edit that failed happened to have a sibling behind it". The drain is the mechanism, alone.
 	 *
 	 * ⚠ **Installed before anything that can call out, which is the rule in {@link FileState}'s
-	 * banner** (ticket 09, review 2). This used to journal first, and `#writeAhead` reports a refusal
-	 * to the app: a handler that made its own edit had it silently reverted by the `bytes` this method
-	 * was still holding. The journal record is still synchronous and still happens before any
-	 * suspension, which is all ticket 20 needs of it.
+	 * banner.** Journalling first would call out through `#writeAhead`'s refusal report, and a handler
+	 * that made its own edit would have it silently reverted by the `bytes` this method was still
+	 * holding. The journal record is synchronous and still happens before any suspension, which is all
+	 * the journal needs of it.
 	 */
 	queue(path: WritablePath, bytes: Bytes): void {
 		const current = this.#states.get(path);
@@ -352,8 +347,7 @@ export class Autosave {
 		else
 			this.#states.set(path, { at: 'debouncing', bytes, timer: this.#armDebounce(path, current) });
 		// Synchronously, and reading what was just installed rather than what this method was passed.
-		// This is the one call in this class that a document being torn down will actually finish
-		// (ticket 20).
+		// This is the one call in this class that a document being torn down will actually finish.
 		this.#writeAhead(path);
 		this.#publish();
 	}
@@ -370,10 +364,10 @@ export class Autosave {
 	 * **Rejects when the store rejected**, so a caller cannot report a mutation as saved when it
 	 * was not. The bytes stay pending, so a later {@link flush} still has them.
 	 *
-	 * **A `WritablePath`, which excludes an Alignment's** (ticket 18). Autosave is the route every
-	 * edit in the editor takes to storage, so branding `ProjectStore.write` alone would have left the
-	 * whole app one `autosave.commit(alignmentPath(id), …)` away from the blind overwrite the brand
-	 * exists to prevent. `alignment/alignment-file.ts` is the one module that may cross it.
+	 * **A `WritablePath`, which excludes an Alignment's.** Autosave is the route every edit in the
+	 * editor takes to storage, so branding `ProjectStore.write` alone would leave the whole app one
+	 * `autosave.commit(alignmentPath(id), …)` away from the blind overwrite the brand exists to
+	 * prevent. `alignment/alignment-file.ts` is the one module that may cross it.
 	 */
 	commit(path: WritablePath, bytes: Bytes): Promise<void> {
 		// ⚠ **Three steps, and the order is the whole of review 2's finding A.** `#owe` installs and
@@ -386,7 +380,7 @@ export class Autosave {
 		// Journalled even though the write starts immediately: "immediately" is still asynchronous,
 		// and the gap between here and the store having the bytes is exactly the gap a navigation
 		// falls into. It is also the gap a failed write leaves the bytes sitting in. Still ahead of
-		// `start`, so the ticket-20 ordering — journalled before the store is asked — is unchanged.
+		// `start`, so the journal's ordering — journalled before the store is asked — holds.
 		this.#writeAhead(path);
 		start();
 		return drain;
@@ -416,8 +410,7 @@ export class Autosave {
 	}
 
 	/**
-	 * Rule 3's synchronous half (ticket 20). Put everything still pending in the journal, **now**,
-	 * **now**.
+	 * Rule 3's synchronous half. Put everything still pending in the journal, **now**, **now**.
 	 *
 	 * Returns nothing. It briefly answered whether everything fitted, and no caller read it: a
 	 * boolean that conflated "one file did not fit" with "there is no journal on this browser" was
@@ -445,7 +438,7 @@ export class Autosave {
 	}
 
 	/**
-	 * Give up on everything still pending under `prefix`, because it is being deleted (ticket 21).
+	 * Give up on everything still pending under `prefix`, because it is being deleted.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE JOURNAL WAS SWEPT AND THE BYTES THAT FILL IT WERE NOT
@@ -455,8 +448,8 @@ export class Autosave {
 	 * is written from, so both of this class's rule-3 halves put the Project straight back:
 	 * {@link capture} re-records `<project>/project.json` at `pagehide`, **after** the sweep, and
 	 * {@link flush} writes it into the store outright. Either one resurrects a Project the user
-	 * watched disappear — the exact defect ticket 21 closes, arriving by a route the sweep could not
-	 * see.
+	 * watched disappear — the exact defect this method closes, arriving by a route the journal sweep
+	 * could not see.
 	 *
 	 * Swept here rather than by ordering the two more carefully, because there is no ordering that
 	 * works: `pagehide` can fire at any point after the click, including between the sweep and the
@@ -478,7 +471,7 @@ export class Autosave {
 	 * Which is why this answers with a promise: everything it *could* stop is stopped before it
 	 * returns, and the promise is for the writes it could not. `Workspace.deleteProject` waits on it
 	 * **after** writing the deletion down and before removing a byte, so the synchronous guarantee
-	 * that whole ticket rests on is untouched.
+	 * `DeletedProjects` provides is untouched.
 	 *
 	 * ⚠ **`abandoning` keeps the in-flight drain in the state, so a `queue` for the same path a moment
 	 * later is handed to that same drain and one writer is preserved.** Dropping the path from the map
@@ -486,34 +479,27 @@ export class Autosave {
 	 * concurrent write to one file — which `leaves a path being written to one writer, even after
 	 * abandoning it` asserts, and which deleting this branch turns red.
 	 *
-	 * ⚠ **That is not a defect this variant fixed, and an earlier draft of this comment said it was.**
-	 * The implementation before ticket 09 cleared the pending bytes but kept the entry *and* its
-	 * `draining` memo, which preserved one writer by the same argument. Corrected rather than
-	 * quietly dropped, because a fix that never happened is exactly the kind of claim this epic
-	 * exists to catch.
-	 *
 	 * Never rejects: a write that failed is a write the store does not have, which is the outcome the
 	 * caller wanted anyway.
 	 *
 	 * ⚠ **What this does NOT guarantee, stated because the paragraphs above enumerate what it does.**
 	 * An edit `queue`d for this path *after* the sweep re-adopts it — legitimately, because the caller
 	 * asked for the path back — records itself in the journal, and if its write then fails it is left
-	 * `held` with a live journal entry that `replayJournal` restores at the next startup. Pre-existing
-	 * and identical before ticket 09; named here rather than fixed, because comparing the journal
-	 * against the store is ticket 07's subject.
+	 * `held` with a live journal entry that `replayJournal` restores at the next startup. Named here
+	 * rather than fixed, because comparing the journal against the store is `replay.ts`'s subject.
 	 *
 	 * @returns whether everything under `prefix` is now quiet. `false` means a write is **still out
 	 *   there** and the wait gave up on it — see {@link #quietUnder}.
 	 */
 	abandon(prefix: string): Promise<boolean> {
 		const inFlight: Promise<unknown>[] = [];
-		// ⚠ **Keys, and the state re-read *after* `#forget`** (ticket 09, review 2). `#forget` calls an
-		// injected `AutosaveJournal.forget`, which is application code by the same standard as a
-		// listener: a `forget` that wrote to a path later in this walk left the old loop holding a
-		// value from before that write, so it saw a live `writing` state as merely debouncing, deleted
-		// it, and never put its drain into `inFlight`. This then answered `true` — everything is quiet
-		// — with a write outstanding, past the very promise it exists to provide. Pre-existing; fixed
-		// here because the rule this ticket writes down forbids it.
+		// ⚠ **Keys, and the state re-read *after* `#forget`.** `#forget` calls an injected
+		// `AutosaveJournal.forget`, which is application code by the same standard as a listener: a
+		// `forget` that writes to a path later in this walk would leave the loop holding a value from
+		// before that write, so it would see a live `writing` state as merely debouncing, delete it,
+		// and never put its drain into `inFlight` — answering `true`, everything is quiet, with a
+		// write outstanding, past the very promise this method exists to provide. That is what the
+		// rule in {@link FileState}'s banner forbids.
 		for (const path of [...this.#states.keys()]) {
 			if (!path.startsWith(prefix)) continue;
 			// One of the two points a journal refusal stops being interesting: these bytes are not
@@ -538,7 +524,7 @@ export class Autosave {
 	}
 
 	/**
-	 * Bring everything under `prefix` to rest, **losing nothing** (ticket 21, rounds 4 and 5).
+	 * Bring everything under `prefix` to rest, **losing nothing**.
 	 *
 	 * {@link abandon}'s sibling, and the difference is the whole reason it exists: `abandon` is for a
 	 * path whose bytes are about to be *removed*, so it throws them away; this is for a path that is
@@ -555,11 +541,11 @@ export class Autosave {
 	 * costs nothing because it is a write the store was about to be given anyway, and is the only
 	 * reading of "settled" that is true of bytes still held here.
 	 *
-	 * ⚠ **The version of that defect ticket 09 removes is the one where it comes back.** It came back
-	 * as a `timer` field nobody switched on, invisible to a reader of `settled` because `settled` did
-	 * not mention timers. There is now one value per path and {@link #bringToRest} switches over all
-	 * of it, so a state that carries bytes cannot be quietly left out of the answer: adding a variant
-	 * without handling it does not compile.
+	 * ⚠ **What stops that defect coming back is the union.** It would come back as a `timer` field
+	 * nobody switched on, invisible to a reader of `settled` because `settled` never mentions timers.
+	 * There is one value per path and {@link #bringToRest} switches over all of it, so a state that
+	 * carries bytes cannot be quietly left out of the answer: adding a variant without handling it
+	 * does not compile.
 	 *
 	 * ⚠ **What that is worth, stated exactly, because the round before this one over-claimed a
 	 * narrower version of it.** Today's caller — `EditorSession.#quietBeforeDeleting` — sees only
@@ -587,15 +573,15 @@ export class Autosave {
 	 *
 	 * ⚠ **The one place that reads "what has to happen before this path is quiet" out of a state**,
 	 * shared by {@link flush} and {@link settled} because they had the same three-way decision written
-	 * out twice and one of the two got it wrong (ticket 21, round 5).
+	 * out twice and one of the two got it wrong.
 	 *
-	 * ⚠ **IT WALKS KEYS, AND IT MUST NEVER CARRY A STATE ACROSS AN ITERATION** (ticket 09, review 1).
-	 * The first cut read `[...this.#states]` — keys *and values* — and handed each value's bytes to
-	 * `#drain`. Draining the first path publishes, `#publish` runs subscribers synchronously, and a
-	 * subscriber that writes to a path **later in this walk** then had its edit overwritten by the
-	 * value read before it ran. Measured: `commit` resolved, the store held the older bytes,
-	 * `hasPendingWrite` was false, the indicator read `saved` and nothing was scheduled — story 23
-	 * inverted. A subscriber that *deleted* a Project mid-walk had it written straight back.
+	 * ⚠ **IT WALKS KEYS, AND IT MUST NEVER CARRY A STATE ACROSS AN ITERATION.** Reading
+	 * `[...this.#states]` — keys *and values* — and handing each value's bytes to `#drain` is the
+	 * inversion: draining the first path publishes, `#publish` runs subscribers synchronously, and a
+	 * subscriber that writes to a path **later in this walk** has its edit overwritten by the value
+	 * read before it ran. Measured: `commit` resolved, the store held the older bytes,
+	 * `hasPendingWrite` was false, the indicator read `saved` and nothing was scheduled — ADR-0017
+	 * rule 5 inverted. A subscriber that *deleted* a Project mid-walk had it written straight back.
 	 *
 	 * {@link #drainOwed} re-reads the state at the moment it drains, and has no parameter through
 	 * which a stale value could be passed. That is why this loop destructures nothing.
@@ -661,11 +647,10 @@ export class Autosave {
 	 * Wait for `inFlight`, but **not for ever**.
 	 *
 	 * ⚠ **A store write is not guaranteed to settle, and both callers of this are on a gesture the
-	 * user is watching** (ticket 21, round 4). A folder whose grant was revoked mid-write, or an OPFS
-	 * handle a second tab tore down, can leave `store.write` pending with nothing to reject it — and
-	 * before this class answered with a promise at all, `abandon` was synchronous and a deletion ran
-	 * regardless. An unbounded wait would turn that into a Delete button that does nothing, for ever,
-	 * with the Project still on screen.
+	 * user is watching.** A folder whose grant was revoked mid-write, or an OPFS handle a second tab
+	 * tore down, can leave `store.write` pending with nothing to reject it, against an `abandon` a
+	 * deletion runs regardless of. An unbounded wait would turn that into a Delete button that does
+	 * nothing, for ever, with the Project still on screen.
 	 *
 	 * So the wait is a **courtesy to a write that is going to land**, not a guarantee, and the answer
 	 * says which of the two happened. `Workspace.deleteProject` removes the files either way — the
@@ -698,14 +683,14 @@ export class Autosave {
 	 *
 	 * **A journal refusal is not a failed save.** The bytes are in memory and the store write is
 	 * still going to happen, so throwing from here would turn a lost *guarantee* into a lost edit —
-	 * which is the failure this whole ticket is closing, reintroduced by its own fix. What it costs
+	 * which is the failure the journal exists to prevent, reintroduced by its own fix. What it costs
 	 * is protection against leaving the page in the next few hundred milliseconds, and that is what
 	 * the user is told, in the words `JournalFullError` carries.
 	 *
-	 * ⚠ **It takes no bytes: it records what `path` owes, read out of `#states`** (ticket 09, review
-	 * 2). Taking them as a parameter meant `queue` and `commit` had to hold a value across this call —
-	 * and this call reports a refusal to the app, so a handler that made its own edit had it reverted
-	 * a moment later. Reading the state instead means the journal cannot hold bytes the store is not
+	 * ⚠ **It takes no bytes: it records what `path` owes, read out of `#states`.** Taking them as a
+	 * parameter would mean `queue` and `commit` holding a value across this call — and this call
+	 * reports a refusal to the app, so a handler that made its own edit would have it reverted a
+	 * moment later. Reading the state instead means the journal cannot hold bytes the store is not
 	 * also about to be given.
 	 */
 	#writeAhead(path: StorePath): void {
@@ -734,7 +719,7 @@ export class Autosave {
 	 * three** (review 2). A journal that threw in `#drainLoop` made `commit` reject for a write the
 	 * store had actually taken: the caller reported failure for a success, the bytes had already been
 	 * released so nothing was held, `lastError` stayed `undefined`, and the indicator read **"Saved"**
-	 * — a rejected save with no sentence anywhere, which is the exact shape this epic exists to
+	 * — a rejected save with no sentence anywhere, which is the exact shape this class exists to
 	 * remove. In `abandon` it would have taken down a Delete the user was watching.
 	 *
 	 * Swallowed because **a journal failure is not a save failure**: the bytes are on disk either
@@ -745,16 +730,15 @@ export class Autosave {
 	 *
 	 * ⚠ **NOBODY IS TOLD, AND THAT IS THE COST.** There is no surface for "the journal is holding
 	 * something it should not": a journal refusal says the opposite thing, and `lastError` would be a
-	 * lie because no write failed. Inventing one belongs to ticket 03, not here.
+	 * lie because no write failed. Inventing one does not belong here.
 	 *
-	 * What the stale entry then does at the next startup is `replay.ts`'s subject, and ticket 07
-	 * changed the answer: replay compares the store against the entry rather than writing
-	 * unconditionally, so an entry whose bytes the store already has resolves to
-	 * `already-in-the-store` and **no write happens at all**, and one it cannot decide about is kept
-	 * and reported rather than applied. What `Autosave` contributes to that comparison is the
-	 * baseline, and only from {@link #forget} — this method, called after a store write has actually
-	 * succeeded. That is why a swallowed `forget` matters at all: it costs the path its baseline, not
-	 * a reverted file. See `replay.ts` for the decision table.
+	 * What the stale entry then does at the next startup is `replay.ts`'s subject: replay compares
+	 * the store against the entry rather than writing unconditionally, so an entry whose bytes the
+	 * store already has resolves to `already-in-the-store` and **no write happens at all**, and one
+	 * it cannot decide about is kept and reported rather than applied. What `Autosave` contributes to
+	 * that comparison is the baseline, and only from {@link #forget} — this method, called after a
+	 * store write has actually succeeded. That is why a swallowed `forget` matters at all: it costs
+	 * the path its baseline, not a reverted file. See `replay.ts` for the decision table.
 	 *
 	 * ⚠ **Reachability is not claimed, on the same standard as {@link #drain}'s.** `WriteAheadJournal`
 	 * is the only production implementation and its own `forget` already swallows a refused
@@ -783,7 +767,7 @@ export class Autosave {
 	 * ⚠ **Residual, pre-existing and not fixed here.** A refusal is dropped without being republished
 	 * when the store finally takes the bytes, so the app keeps the last refusal it was told about
 	 * until the *next* edit anywhere re-derives it. The bytes are safe by then, so the staleness is in
-	 * the notification and not in the fact; the refusal surface is ticket 03's subject.
+	 * the notification and not in the fact.
 	 */
 	#publishJournalRefusal(): void {
 		let refusal: unknown = null;
@@ -810,7 +794,7 @@ export class Autosave {
 	 * ⚠ **A timer belongs to exactly one state and dies with it.** Every transition out of
 	 * `debouncing` runs through here, {@link #drain} or {@link abandon}, and all three clear it — which
 	 * is why the callback can trust that a `debouncing` state it finds is the one it was armed for.
-	 * The epic has twice paid for a timer that outlived the reason it was set.
+	 * This class has twice paid for a timer that outlived the reason it was set.
 	 */
 	#armDebounce(path: StorePath, current: FileState | undefined): ReturnType<typeof setTimeout> {
 		if (current) this.#stopDebounce(current);
@@ -820,7 +804,7 @@ export class Autosave {
 			// than as an assertion so that a future transition which forgets to clear costs a missed
 			// write rather than a second writer on a path that already has one.
 			//
-			// ⚠ **Deliberately not bound to a variable** (ticket 09, review 2). Holding `state` here and
+			// ⚠ **Deliberately not bound to a variable.** Holding `state` here and
 			// passing `state.bytes` on the next line was measured to be an *equivalent* mutant — nothing
 			// runs in between, so nothing could redden it — which meant "every route but `queue` and
 			// `commit` drains what the path owes rather than a value it is carrying" was enforced by
@@ -860,7 +844,7 @@ export class Autosave {
 	 * (Reproduced deterministically here with a store that hands the test the promise the loop
 	 * awaits. **Whether real OPFS timing enters that window has not been shown and is not claimed.**)
 	 *
-	 * ⚠ **Ticket 09 makes the invariant a property of the type rather than of this method.** There is
+	 * ⚠ **The invariant is a property of the type rather than of this method.** There is
 	 * no `FileState` carrying bytes without the thing that will write them, so the window has no
 	 * value to land in: a `commit` arriving here either finds a `writing`/`abandoning` state and gives
 	 * its bytes to that drain, or finds a state with no drain and starts one. The stated exception —
@@ -879,9 +863,6 @@ export class Autosave {
 	 * starts a **second concurrent loop on the same path**: rule 2's one-writer invariant broken
 	 * outright, with two writes racing into one file and the store free to end up holding the older of
 	 * them. Measured, with a subscriber that commits once on `'saving'`: two loops instead of one.
-	 *
-	 * ⚠ **That hole predates ticket 01**: the `??=` it replaced assigned just as late, so the
-	 * concurrent-loop measurement reproduces on the commit before it too.
 	 *
 	 * Asserted by `keeps one writer per path when a subscriber commits back into it`. This shape is
 	 * not a stylistic choice.
@@ -983,7 +964,7 @@ export class Autosave {
 	}
 
 	/**
-	 * Tell every listener, and **let none of them reach the code that called us** (ticket 09).
+	 * Tell every listener, and **let none of them reach the code that called us**.
 	 *
 	 * ⚠ **A subscriber that threw has corrupted this class's state twice.** `#drainLoop` publishes
 	 * before it does anything else, so a throw from a listener used to abort the loop: once leaving a
@@ -991,11 +972,11 @@ export class Autosave {
 	 * bytes stranded with the indicator reading "Saving". Guarding the loop against it was a defence
 	 * in one of three places; not letting a listener throw into this class at all retires the class.
 	 *
-	 * The failure is **rethrown out of band, never swallowed**, which is the pattern ticket 04
-	 * already established at the tile-fetch seam: `queueMicrotask` puts it where an uncaught error
-	 * goes, with nothing of ours left on the stack to catch it, so `window.onerror` and the e2e
-	 * suites' `pageerror` watch both still see it. A silent subscriber failure is precisely what this
-	 * epic exists to stop.
+	 * The failure is **rethrown out of band, never swallowed**, which is the pattern
+	 * `injection/store-image-fetch.ts` uses at the tile-fetch seam: `queueMicrotask` puts it where an
+	 * uncaught error goes, with nothing of ours left on the stack to catch it, so `window.onerror` and
+	 * the e2e suites' `pageerror` watch both still see it. A silent subscriber failure is precisely
+	 * what this class exists to stop.
 	 *
 	 * Per listener, so one that throws no longer stops the rest being notified — a residual named
 	 * against the previous shape of this method and closed here.
@@ -1004,7 +985,7 @@ export class Autosave {
 		const next = this.#derive();
 		if (next === this.#state) return;
 		this.#state = next;
-		// ⚠ **`this.#state` at call time, never the `next` computed above** (ticket 09, review 3).
+		// ⚠ **`this.#state` at call time, never the `next` computed above.**
 		// Handing each listener the value derived before the loop began made this the sixth way out
 		// of this class, and the only one a sweep for *where control leaves* could not find, because
 		// nothing about the seam moved — a value did. A listener that reacts by editing runs a nested
@@ -1032,10 +1013,10 @@ export class Autosave {
 	/**
 	 * What the indicator should show, **derived from the states and from nothing else**.
 	 *
-	 * ⚠ **There is no way to force a value past this** (ticket 09). `#publish` used to take an
-	 * override, used once to announce `'saving'` before the loop had done anything — a second source
-	 * of truth for the one field the user actually sees. It is unnecessary now: a drain puts its
-	 * `writing` state in the map before the loop runs, so the derivation already says `'saving'`.
+	 * ⚠ **There is no way to force a value past this.** An override on `#publish` — announcing
+	 * `'saving'` before the loop had done anything — would be a second source of truth for the one
+	 * field the user actually sees, and it is unnecessary: a drain puts its `writing` state in the map
+	 * before the loop runs, so the derivation already says `'saving'`.
 	 */
 	#derive(): SaveState {
 		let unsaved = false;

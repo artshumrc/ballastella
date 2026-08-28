@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parsePublishedSite, readReturnLink, returnLinkUrl, withoutReturnLink } from '../index.js';
 
-// SPEC's Seam 1 for "The Front Page's return links". One module holds both halves — the address a
+// The in-memory seam for the Front Page's return links. One module holds both halves — the address a
 // Published Site puts in an `href` and the parameters the editor reads back off its own URL — so the
 // two cannot come to disagree about what a link is called, which is the failure a second reader
 // would produce silently.
@@ -28,7 +28,7 @@ describe('the link a Published Site sends a Reader back with', () => {
 	});
 
 	/**
-	 * A site whose record says nothing about an instance carries no link (ADR-0032, story 51).
+	 * A site whose record says nothing about an instance carries no link (ADR-0032).
 	 *
 	 * The alternative — guessing at a canonical deployment — would send a Reader to a stranger's
 	 * editor, offering to clone a repository into somebody else's tool.
@@ -59,7 +59,7 @@ describe('the link a Published Site sends a Reader back with', () => {
  * The record's own coordinates, read back and turned into the two shipped invitation URLs.
  *
  * ⚠ **The shapes are the shipped ones**, `?clone=owner/repository` and
- * `?review=owner/repository&p=directory` (SPEC story 165). Sites carrying those links are in front
+ * `?review=owner/repository&p=directory`. Sites carrying those links are in front
  * of Readers now and the editor's parser reads exactly these two parameters, so where the
  * coordinates come from may change and the address may not.
  */

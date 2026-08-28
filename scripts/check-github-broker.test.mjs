@@ -1,4 +1,4 @@
-// The GitHub App fence (ADR-0031, ticket 10): the containment scan, its positive control, and the
+// The GitHub App fence (ADR-0031): the containment scan, its positive control, and the
 // two states a fork can put the configuration module into.
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐

@@ -1,6 +1,5 @@
 <script lang="ts">
-	// An Annotation's description, rendered rather than shown as Markdown source
-	// (one-shell-two-apps story 33).
+	// An Annotation's description, rendered rather than shown as Markdown source.
 	//
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// ⚠ THIS IS THE ONE SURFACE IN THIS PACKAGE WHERE A BUG IS A SECURITY VULNERABILITY
@@ -23,13 +22,12 @@
 	//
 	// ⚠ **Both apps compose this directly, and neither draws a title beside it.** The Inspector's header
 	// already names the Annotation from the rule its row draws from (ADR-0035), so a face that titled it
-	// again would put one title twice a few pixels apart in the same weight
-	// (the-annotation-inspector story 4).
+	// again would put one title twice a few pixels apart in the same weight.
 	//
 	// **It lives in this package rather than in the viewer** so that a published site's own source
 	// carries no `{@html}` at all: the sanitised rendering comes from shared code that both apps
-	// compile, which is what makes `e2e/viewer-reader.e2e.ts`'s inertness claim
-	// (the-annotation-inspector story 52) a claim about the thing that actually ships.
+	// compile, which is what makes `e2e/viewer-reader.e2e.ts`'s inertness claim a claim about the thing
+	// that actually ships.
 
 	import {
 		isDescriptionRendererSupported,

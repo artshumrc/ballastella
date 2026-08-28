@@ -1,4 +1,4 @@
-// The one GitHub every test in this epic talks to.
+// The one GitHub every test that needs one talks to.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS ONE MODULE, WRITTEN BEFORE ITS FIRST CONSUMER
@@ -6,8 +6,8 @@
 // `e2e/support/iiif-hosts.ts` is the same module written *after* the fact: three specs had grown
 // their own IIIF hosts, byte-identical in two of the three and subtly different in the third, so a
 // spec asserting a service's behaviour was asserting the behaviour of *its copy* of that service —
-// and two specs could disagree about what a level 0 host does while both stayed green. Eleven
-// tickets are about to need a GitHub. This is that module built in advance rather than extracted
+// and two specs could disagree about what a level 0 host does while both stayed green. The Remote
+// layer needs a GitHub in a dozen places. This is that module built in advance rather than extracted
 // from the wreckage afterwards.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -15,13 +15,13 @@
 //
 // It stores real bytes, computes **real** git blob SHAs through {@link gitBlobSha}, and its trees
 // are readable back as `path → bytes`. That is what lets a test assert *what arrived at the Remote*
-// rather than which calls were made — the distinction SPEC's testing decisions rest on, because
-// every failure mode here is silent and plausible: a truncated tree yields a commit missing most of
-// a pyramid, an off-by-one in the owned namespace deletes a `CNAME`, and a test counting requests
-// passes over both.
+// rather than which calls were made — the distinction every test here rests on, because every
+// failure mode is silent and plausible: a truncated tree yields a commit missing most of a pyramid,
+// an off-by-one in the owned namespace deletes a `CNAME`, and a test counting requests passes over
+// both.
 //
 // Tree and commit identifiers are content-addressed hashes of a serialisation of their own, **not**
-// git's object hashes — git frames those differently, and nothing in this epic re-derives one.
+// git's object hashes — git frames those differently, and nothing here re-derives one.
 // Blob SHAs are the only identifiers anything computes on both sides of the wire, and those are
 // exact.
 //
@@ -30,7 +30,7 @@
 //
 // A fake that answers vacuously is worse than no fake: the engine passes here and fails against
 // GitHub, which is the one place nobody is watching. So the router recognises exactly the requests
-// this epic makes and refuses everything else — an unknown path with a 404, and a *known* path
+// Ballastella makes and refuses everything else — an unknown path with a 404, and a *known* path
 // carrying a field this fake does not model (`base_tree`) with a 400 that says so.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
@@ -78,11 +78,11 @@ export type FakeGitHubOptions = {
 	 * but ADR-0031 makes it a pass-through — it answers *GitHub's token JSON verbatim* — so what it
 	 * says is GitHub's answer, and modelling it anywhere else would be a second fake free to disagree
 	 * with this one about whether a code is spent or a token has expired. That is precisely the
-	 * failure ticket 01 exists to prevent, and the one `e2e/support/github-hosts.ts` records having
-	 * already had once.
+	 * failure this single fake exists to prevent, and the one `e2e/support/github-hosts.ts` records
+	 * having already had once.
 	 *
-	 * Omit it and none of those three addresses are served, which is what every spec written before
-	 * ticket 10 expects.
+	 * Omit it and none of those three addresses are served, which is what every spec that does not
+	 * exercise sign-in expects.
 	 */
 	readonly signIn?: FakeSignInOptions;
 	/**
@@ -155,9 +155,9 @@ export interface FakeGitHub {
 	 *
 	 * {@link blobPosts}'s counterpart on the read side, and it measures the same thing for the same
 	 * reason: what the engine *asked for*, not what it got. A Clone resumes by skipping paths it
-	 * already holds (ticket 07), and "already holds" is a claim only this counter can check — an
-	 * engine that re-downloaded every file and then wrote the same bytes back would leave a Workspace
-	 * indistinguishable from a resumed one, and pass any assertion made on the result.
+	 * already holds (`clone-from-remote.ts`), and "already holds" is a claim only this counter can
+	 * check — an engine that re-downloaded every file and then wrote the same bytes back would leave a
+	 * Workspace indistinguishable from a resumed one, and pass any assertion made on the result.
 	 */
 	readonly rawGets: number;
 
@@ -229,7 +229,7 @@ export interface FakeGitHub {
 	 *
 	 * Separate from {@link refuseWrites} because Pages enablement is a different permission from the
 	 * git database's, and the common token a scholar makes by hand has the second and not the first —
-	 * so a repository fills with correct files and serves nothing (story 6).
+	 * so a repository fills with correct files and serves nothing.
 	 */
 	refusePages: boolean;
 
@@ -251,11 +251,11 @@ export interface FakeGitHub {
 	/**
 	 * Answer 404 on `raw.githubusercontent.com` to any read carrying no credential.
 	 *
-	 * SPEC puts private repositories out of scope and nothing in this epic refuses one, which is the
-	 * whole reason this knob exists: a check that reads a file from the raw host without a credential
-	 * does not *fail* on a private repository, it reads "there is no such file" and passes. That is
-	 * how the bind-time subset refusal was silently inert on exactly the repository whose owner is
-	 * most likely to have two machines.
+	 * Private repositories are out of scope and nothing here refuses one, which is the whole reason
+	 * this knob exists: a check that reads a file from the raw host without a credential does not
+	 * *fail* on a private repository, it reads "there is no such file" and passes. That is how the
+	 * bind-time subset refusal was silently inert on exactly the repository whose owner is most likely
+	 * to have two machines.
 	 *
 	 * ⚠ **Default `false`, and that matters as much as the knob.** A public repository's bytes are
 	 * read here with no credential at all, so the ordinary raw host must not so much as *look* at an
@@ -367,7 +367,7 @@ const bearsToken = (request: Request): boolean =>
 const DEFAULT_HOURLY_REQUESTS = 5000;
 
 /**
- * An in-memory GitHub answering the requests this epic makes, behind a {@link FetchFn}.
+ * An in-memory GitHub answering the requests Ballastella makes, behind a {@link FetchFn}.
  *
  * Async because seeding the starting tree computes real blob SHAs.
  */
@@ -386,7 +386,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	//
 	// An installation lists the repositories the *author* gave the App access to. This fake is one
 	// repository, and it need not be among them — a student who created `atlas` and granted nothing is
-	// exactly the state SPEC story 24 is about.
+	// exactly that state.
 	let grants: {
 		installationId: number;
 		account: string;
@@ -623,8 +623,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		const path = decodePath(url.pathname);
 		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
 
-		// `GET /user` — whose credential this is, which is the identity the bar shows after a sign-in
-		// (story 32). Authenticated, because an anonymous caller has no identity to report.
+		// `GET /user` — whose credential this is, which is the identity the bar shows after a
+		// sign-in. Authenticated, because an anonymous caller has no identity to report.
 		if (path.length === 1 && path[0] === 'user' && method === 'GET') {
 			return credentialed ? json({ login: state.login }) : problem(401, 'Requires authentication');
 		}
@@ -671,12 +671,11 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		 * A credential is demanded of writes and of nothing else, which is what GitHub does.
 		 *
 		 * **The reads below are answered unauthenticated on purpose.** A public repository's file list
-		 * and its metadata are readable with no credential at all, and this epic depends on that: Clone
-		 * and Review are unauthenticated operations (SPEC, "Import: two operations, both
-		 * unauthenticated"), so a fake that demanded a token everywhere would refuse the very flow a
-		 * student with no GitHub account is promised. Whether the credential is any *good* is still not
-		 * modelled — only that one was sent, which is enough to catch an engine that forgets the header
-		 * on a write.
+		 * and its metadata are readable with no credential at all, and the Import operations depend on
+		 * that: Clone and Review are unauthenticated, so a fake that demanded a token everywhere would
+		 * refuse the very flow a student with no GitHub account is promised. Whether the credential is
+		 * any *good* is still not modelled — only that one was sent, which is enough to catch an engine
+		 * that forgets the header on a write.
 		 */
 		const authenticated = (answer: () => Promise<Response>): Promise<Response> =>
 			credentialed ? answer() : Promise.resolve(problem(401, 'Requires authentication'));
@@ -701,7 +700,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		// the only reason it is modelled here. It is what github.com's "create a new file" uses, and a
 		// publish uses it once, to bring the branch into being before the Git Data API is asked for
 		// anything. Only the create case is implemented: this fake has no `sha` parameter and so no
-		// update-an-existing-file path, because nothing in this epic overwrites a file that way.
+		// update-an-existing-file path, because nothing here overwrites a file that way.
 		if (rest[0] === 'contents' && rest.length > 1 && method === 'PUT') {
 			return write(async () => {
 				const path = rest.slice(1).join('/');
@@ -1150,7 +1149,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		history(branch = defaultBranch) {
 			const chain: string[] = [];
-			// First-parent only. Nothing in this epic merges, so a commit never has a second parent.
+			// First-parent only. Nothing Ballastella does merges, so a commit never has a second parent.
 			for (let at = refs.get(branch); at !== undefined; at = commits.get(at)?.parents[0]) {
 				chain.push(at);
 			}

@@ -5,7 +5,7 @@
  * WHY A READ-ONLY SITE NEEDS THIS AT ALL
  *
  * Nothing here fetches on the Reader's behalf that a retry would help with — the site is static and
- * read-only. What this exists for is the **wording** of the Base Map's failure notice (ticket 22).
+ * read-only. What this exists for is the **wording** of the Base Map's failure notice.
  * `baseMapUnavailableNotice` in `@ballastella/core` says, of a `needsNetwork` entry, that the failure
  * "is usually that server rather than your connection". That sentence is true while the connection is
  * fine and a plain falsehood while it is not, and telling somebody whose wifi is off that a bucket in

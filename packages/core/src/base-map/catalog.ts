@@ -5,7 +5,7 @@ import type { BaseMapCatalog } from './entry';
 // │                                                                                       │
 // │ Adding, removing, relabelling, or repointing an entry must require **no change**       │
 // │ anywhere else in the repository. That property is what a forker pointing at their own  │
-// │ tiles depends on (SPEC story 100), and it is asserted rather than intended:            │
+// │ tiles depends on, and it is asserted rather than intended:                             │
 // │                                                                                       │
 // │   - `scripts/check-base-map-catalog.mjs` fails `pnpm lint` if any other module names   │
 // │     an entry id or an archive from this file.                                          │
@@ -41,7 +41,7 @@ import type { BaseMapCatalog } from './entry';
  * A deployment that wants worldwide coverage it controls should point this entry at its own archive
  * — a bucket of its own or a self-hosted extract — which is a change to this line and nothing else
  * (ADR-0020). `pnpm check:deployment` refuses this host for exactly that reason: production must
- * point this constant at an archive that deployment controls (ADR-0025, ticket 10).
+ * point this constant at an archive that deployment controls (ADR-0025).
  */
 const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 
@@ -64,8 +64,8 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 			flavor: { light: 'light', dark: 'dark' }
 		},
 		{
-			// SPEC story 98: a low-vision Reader must be able to pick a muted Base Map so that
-			// annotations stay legible over it. Ticket 17 asserts that selection in the published
+			// A low-vision Reader must be able to pick a muted Base Map so that annotations stay
+			// legible over it. `e2e/viewer-reader.e2e.ts` asserts that selection in the published
 			// viewer, and it cannot pass without an entry here — so this is not a nicety. It is
 			// one more style document over the same archive and costs nothing.
 			id: 'muted',

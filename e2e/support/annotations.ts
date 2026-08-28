@@ -1,4 +1,4 @@
-// Shared driving for the Annotation surface (ticket 10): get a Project open on the Layers pane with
+// Shared driving for the Annotation surface: get a Project open on the Layers pane with
 // one Annotation Layer, draw into it, and read back what landed in OPFS.
 //
 // Separate from `alignment-workspace.ts` because these tests need **no Map Image at all** — an
@@ -23,8 +23,8 @@ export const PROJECT_DIRECTORY = 'amsterdam-1625';
  * `editor-layers.e2e.ts` already augments `Window.ballastellaLayerStack` with the subset *it* needs,
  * and TypeScript requires every declaration of the same property to be identical. Two files each
  * declaring the shape they use is the shape that cannot be made to agree; a cast per call site can.
- * Ticket 11 will meet the same wall, and the real fix is one shared declaration — worth doing when a
- * third file needs it, rather than churning a green suite now.
+ * The real fix is one shared declaration — worth doing when a third file needs it, rather than
+ * churning a green suite now.
  *
  * These are all real `maplibre-gl` methods; the handle is the map itself (`layers/browser-test-handle.ts`).
  */
@@ -78,8 +78,8 @@ declare global {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 export async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
-		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
-		// one — so no test can see another's, whichever Workspace it was in.
+		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
+		// can see another's, whichever Workspace it was in.
 		//
 		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
 		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
@@ -196,7 +196,7 @@ export const projectJson = async (page: Page, directory = PROJECT_DIRECTORY) =>
  * is in the sidebar before the bytes are on disk. Reading once produced
  * `TypeError: Cannot read properties of undefined (reading 'id')` — an absence, one line from where
  * it was created — in 1 of the 10 baseline runs of 2026-08-07, and a 30 s timeout for the same
- * absence in two more (ticket 17).
+ * absence in two more.
  *
  * A poll for existence rather than for a transient state: a Layer that has been added is there for
  * good, so the only question is whether the write has landed yet.
@@ -313,10 +313,9 @@ export async function seedAnnotationProject(page: Page): Promise<string> {
 /**
  * A Project open on the Layers pane with one Annotation Layer **open**, ready to draw into.
  *
- * The open row is the step ticket 05 added, and it is the *only* change this suite's helpers needed
- * for it: the drawing tools, the Annotation list, the style controls and the Layer's default style
- * all moved inside the Layer's own row, and opening that row is now what chooses the Layer to draw
- * into. Nothing any spec asserts about them changed, which is the check that the move was a move.
+ * Opening the row is a step because the drawing tools, the Annotation list, the style controls and
+ * the Layer's default style all live inside the Layer's own row, and opening that row is what
+ * chooses the Layer to draw into.
  *
  * @returns the Annotation Layer's id
  */
@@ -355,7 +354,7 @@ export async function centreOnAmsterdam(page: Page): Promise<void> {
 }
 
 /**
- * Open the Project: a Base Map with the Layer stack beside it (ticket 04).
+ * Open the Project: a Base Map with the Layer stack beside it.
  *
  * `/?p=<dir>`, because `/layers/` is gone — the Layer stack is not a page of its own any more, it is
  * one column of the Project. The name is kept: every caller means "get me to the Layers", and that is
@@ -393,8 +392,8 @@ export async function waitForOpeningView(page: Page): Promise<void> {
  * Wait until the Layer stack has been put on the map.
  *
  * The handle appears when `drawLayerStack` has run, which is what every assertion about what MapLibre
- * drew depends on. Ticket 09 found that `styledata` fires long before a style is complete, so the app
- * gates on `isStyleLoaded()`; this is generous for the same reason.
+ * drew depends on. `styledata` fires long before a style is complete, so the app gates on
+ * `isStyleLoaded()`; this is generous for the same reason.
  */
 export async function waitForStack(page: Page): Promise<void> {
 	await expect
@@ -415,8 +414,8 @@ export async function waitForStack(page: Page): Promise<void> {
  * view back where the fixture's coordinates are, and **open the Layer**.
  *
  * That last step is the same one {@link startAnnotating} takes, and it is here for the reason it is a
- * step at all: which Layer is open is component state and is deliberately not persisted (ticket 05,
- * ADR-0002, ADR-0010), so a reload correctly leaves every row closed. A test that reloads and expects
+ * step at all: which Layer is open is component state and is deliberately not persisted (ADR-0002,
+ * ADR-0010), so a reload correctly leaves every row closed. A test that reloads and expects
  * to find the Annotation list where it left it is asking for the Layer to be opened again, and this
  * is where that is said once rather than in seven specs.
  */
@@ -444,9 +443,9 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
  * tools through here, so what a scholar presses is stated once.
  *
  * **And "New Annotation" is pressed once per shape**, because finishing a gesture disarms the tool and
- * puts the shapes away: one press, one Annotation (the-annotation-inspector story 39). That is why
- * this asks whether the shapes are on offer rather than assuming they are — a caller drawing two
- * shapes in a row arrives here with the button showing, not the shapes.
+ * puts the shapes away: one press, one Annotation. That is why this asks whether the shapes are on
+ * offer rather than assuming they are — a caller drawing two shapes in a row arrives here with the
+ * button showing, not the shapes.
  */
 export async function chooseTool(
 	page: Page,
@@ -517,9 +516,9 @@ export async function editAnnotationText(page: Page): Promise<void> {
 /**
  * Show one of the Inspector's two faces.
  *
- * **The Style face is one deliberate press away and never simply present** (the-annotation-inspector
- * story 25), so every test that touches a swatch or a slider comes through here — and the strip has no
- * memory, so selecting another Annotation puts it back on Text and the next caller has to ask again.
+ * **The Style face is one deliberate press away and never simply present**, so every test that
+ * touches a swatch or a slider comes through here — and the strip has no memory, so selecting another
+ * Annotation puts it back on Text and the next caller has to ask again.
  *
  * A click on the tab's own `<label>`, which is where daisyUI puts the hit target; the radio inside it
  * is `opacity: 0` and spread over the label.

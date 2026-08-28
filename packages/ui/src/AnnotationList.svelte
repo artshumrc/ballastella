@@ -51,8 +51,8 @@
 		 *
 		 * ⚠ **This is the drag alone, and it is the convenience rather than the contract.** ADR-0016
 		 * requires a keyboard path for a reorder, and it is not in this list: the row holds one button
-		 * and nothing opens in it (the-annotation-inspector stories 10, 69), so the Move buttons are in
-		 * the Annotation Inspector, beside the Delete that acts on the same Annotation.
+		 * and nothing opens in it, so the Move buttons are in the Annotation Inspector, beside the
+		 * Delete that acts on the same Annotation.
 		 */
 		onmove?: (id: string, toIndex: number) => void;
 		/** Whatever this consumer offers above the list. Editor only; a Reader is offered none of it. */

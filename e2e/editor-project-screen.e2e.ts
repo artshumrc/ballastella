@@ -18,15 +18,15 @@ import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 
 /**
- * Ticket 04: the Project screen replaces the Project page.
+ * The Project screen: one screen per Project, with the map and the Layer rail side by side.
  *
- * SPEC Seam 2 — the running app in a real browser. Everything here is a claim that can only be made
+ * Seam 2 — the running app in a real browser. Everything here is a claim that can only be made
  * against a laid-out page with a live MapLibre context and real OPFS behind it: which controls are
  * on screen, which are *not*, what has focus after a dialog closes, and how tall the map is.
  *
  * The Project name, its folder, `emptyWorkspace`, `createProject` and `readProjectFile` all come
- * from `support/annotations.ts` rather than being declared again here — they were, with the same
- * names and the same two constants, which is the duplication ticket 17 would have inherited.
+ * from `support/annotations.ts` rather than being declared again here, so the Project name and its
+ * folder have one definition between the two files.
  */
 
 declare global {
@@ -121,8 +121,8 @@ test.describe('the Project screen', () => {
 
 		const sidebarBox = (await sidebar.boundingBox())!;
 		const mapBox = (await map.boundingBox())!;
-		// The ticket's own measurement of "the map gets the larger share": it is taller than the
-		// sidebar is wide, and it is beside the sidebar rather than under it.
+		// What "the map gets the larger share" is measured as: it is taller than the sidebar is wide,
+		// and it is beside the sidebar rather than under it.
 		expect(mapBox.height).toBeGreaterThan(sidebarBox.width);
 		expect(mapBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width - 1);
 		// And wider than the fixed column, which is what "fixed column, map takes the rest" means.
@@ -135,9 +135,9 @@ test.describe('the Project screen', () => {
 		await freshWorkspace(page);
 		await openProject(page);
 
-		// A dozen Layers, which is story 74's own number and is what it takes to overflow a 24rem
-		// column at this viewport. Annotation Layers rather than Map Images: each is one file rather
-		// than a pyramid, and the claim is about the rail's height, not about what is in the cards.
+		// A dozen Layers, which is what it takes to overflow a 24rem column at this viewport. Annotation
+		// Layers rather than Map Images: each is one file rather than a pyramid, and the claim is about
+		// the rail's height, not about what is in the cards.
 		const rows = page.getByTestId('layer-row');
 		for (let count = 1; count <= 12; count += 1) {
 			await page.getByTestId('add-annotation-layer').click();
@@ -170,8 +170,8 @@ test.describe('the Project screen', () => {
 		await addMapImage(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
-		// **With a Layer open**, because since ticket 05 the drawing tools, the Annotation list and the
-		// Layer's default style are inside an open Annotation Layer's row. Walked with the row closed
+		// **With a Layer open**, because the drawing tools, the Annotation list and the Layer's default
+		// style are inside an open Annotation Layer's row. Walked with the row closed
 		// this test would still pass and would cover a dozen fewer controls, which is the vacuous shape
 		// of green this suite keeps finding.
 		await openLayerRow(page, 0);
@@ -224,7 +224,7 @@ test.describe('the Project screen', () => {
 		await openProject(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
-		// The tools are inside the Layer that is drawn into (ticket 05).
+		// The tools are inside the Layer that is drawn into.
 		await openLayerRow(page);
 
 		await chooseTool(page, 'polygon');
@@ -339,8 +339,8 @@ test.describe('the navigation bar', () => {
 		await assertBar('the hub');
 		await expect(bar.getByTestId('page-chrome')).toHaveCount(0);
 		// Browser storage is the silent default, and the bar names the **Workspace** rather than the
-		// backing (ticket 12): with several named Workspaces on one backing, "Browser storage" would
-		// identify nothing, and from ticket 14 a throwaway Review Workspace is browser-backed too.
+		// backing: with several named Workspaces on one backing, "Browser storage" would identify
+		// nothing, and a throwaway Review Workspace is browser-backed too.
 		await expect(bar.getByTestId('workspace-identity')).toContainText(DEFAULT_WORKSPACE);
 
 		await openProject(page);
@@ -382,7 +382,7 @@ test.describe('the navigation bar', () => {
 	});
 });
 
-test.describe('the theme (SPEC stories 109, 110)', () => {
+test.describe('the theme', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);
 	});
@@ -472,7 +472,7 @@ test.describe('the theme (SPEC stories 109, 110)', () => {
 	});
 });
 
-test.describe('what the app says when something is wrong (SPEC stories 111, 112)', () => {
+test.describe('what the app says when something is wrong', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);
 	});
@@ -481,9 +481,9 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 		page,
 		context
 	}) => {
-		// **This is a consequence of ticket 04 and not a general tidiness rule.** `SaveIndicator` owns
-		// `role="status"` and is now in the root layout, so it is on screen everywhere — which turns
-		// every *other* `status` role in the app into an ambiguity that did not exist before. The repo's
+		// **This follows from where the indicator lives, and is not a general tidiness rule.**
+		// `SaveIndicator` owns `role="status"` and sits in the root layout, so it is on screen
+		// everywhere — which makes every *other* `status` role in the app an ambiguity. The repo's
 		// answer is one `status` per page and `aria-live="polite"` for everything else; a screen reader
 		// user who has to disambiguate is the same user `getByRole('status')` cannot serve.
 		await freshWorkspace(page);
@@ -529,8 +529,8 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 		// **The Base Map switcher rather than the name field**, because only a write the app awaits
 		// produces a reason at all: `chooseBaseMap` is a discrete choice and is written now, while
 		// typing a name is debounced and its failure surfaces inside the autosave timer, where
-		// `EditorSession.#write` is not the thing that catches it. That gap is real and is not this
-		// ticket's — what is this ticket's is that the reason, once there is one, is announced.
+		// `EditorSession.#write` is not the thing that catches it. That gap is real and is a separate
+		// claim; what is asserted here is that the reason, once there is one, is announced.
 		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
 
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'unsaved');
@@ -542,7 +542,7 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 	});
 });
 
-test.describe('Project settings (SPEC stories 10, 11)', () => {
+test.describe('Project settings', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);
 	});

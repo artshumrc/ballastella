@@ -6,7 +6,7 @@ A **ballastella** — also Jacob's staff — is a graduated pole with a sliding 
 
 ## Status
 
-**All 18 v1 implementation tickets are merged.** Both apps are built and driven end to end: images are tiled in the browser, aligned against the modern world, annotated, and published as a static site. Several tickets are merged but not yet code-reviewed, and one human decision — a Base Map archive this deployment controls — is outstanding; see [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md) and the known gaps in [`docs/hosting.md`](docs/hosting.md).
+**v1 is built and driven end to end.** Images are tiled in the browser, aligned against the modern world, annotated, and published as a static site. One human decision — a Base Map archive this deployment controls — is outstanding; that and the other known gaps are in [`docs/hosting.md`](docs/hosting.md).
 
 ```sh
 pnpm install
@@ -42,12 +42,12 @@ Publishing writes a read-only viewer into the workspace. That workspace, pushed 
 | [`apps/viewer/`](apps/viewer) | `@ballastella/viewer` — the lean read-only viewer written into published sites |
 | [`e2e/`](e2e) | Playwright browser tests, run against both built apps |
 | [`docs/hosting.md`](docs/hosting.md) | How to host an instance, and how a user publishes a Workspace as a site |
-| [`docs/adr/`](docs/adr) | Architectural decision records, referenced by number throughout the spec |
-| [`.tracker/ballastella-v1/SPEC.md`](.tracker/ballastella-v1/SPEC.md) | The v1 specification: problem, solution, user stories, scope |
-| [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md) | Ticket ledger, status, and dependency ordering |
-| [`.tracker/ballastella-v1/tickets/`](.tracker/ballastella-v1/tickets) | The 18 tickets that make up v1 |
+| [`docs/adr/`](docs/adr) | Architectural decision records — every decision that would otherwise be surprising, referenced by number throughout the code |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Layout, the toolchain rules, the test seams, the accessibility bar |
 
-Start with `CONTEXT.md`, then `SPEC.md`. The ADRs explain *why* rather than *what*, and are best read on demand when the spec cites one.
+Start with `CONTEXT.md`, then `CONTRIBUTING.md`. The ADRs explain *why* rather than *what*, and are best read on demand when a module's comments cite one.
+
+Work in flight is tracked in Botley rather than in this repository, and an Epic is deleted once it lands — so nothing here cites one. What a finished Epic leaves behind is the code, the glossary, this README, `CONTRIBUTING.md`, and an ADR wherever the decision was hard to reverse.
 
 ## Licence
 

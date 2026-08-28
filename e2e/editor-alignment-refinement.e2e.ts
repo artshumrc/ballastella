@@ -28,11 +28,11 @@ import {
 import { routeBaseMapArchive } from './support/editor-deployment';
 
 /**
- * SPEC's Seam 2 for Alignment refinement: choosing how the Map Image is stretched, seeing where
- * the stretching is worst, being warned that the Alignment has folded, and outlining the part of the
- * sheet that is actually the map (stories 39–47, and 96 for the guidance in the accessibility tree).
+ * Seam 2 for Alignment refinement: choosing how the Map Image is stretched, seeing where the
+ * stretching is worst, being warned that the Alignment has folded, and outlining the part of the
+ * sheet that is actually the map.
  *
- * **Two things here reach past the interface, and both for the same reason ticket 07's suite did.**
+ * **Two things here reach past the interface, and both for the same reason.**
  * `window.ballastellaWarped` is how the *renderer's own* options and computed distortion are read,
  * because "the overlay renders log2sigma" and "distortionMeasures includes every measure" are claims
  * about what `@allmaps/render` was actually told — asserting our intention instead would go green on
@@ -55,14 +55,14 @@ const gridToggle = (page: Page) => page.getByTestId('grid-toggle');
 const checkToggle = (page: Page) => page.getByTestId('check-alignment-toggle');
 
 /**
- * Open "Check this alignment" (ticket 03).
+ * Open "Check this alignment".
  *
- * The overlay, its measure and the graticule live behind one disclosure since ticket 03, and they are
- * *not rendered* while it is closed rather than merely hidden — so every test below that reaches for
- * one of them has to open it first, and the tests that assert one is absent must not open it.
+ * The overlay, its measure and the graticule live behind one disclosure, and they are *not rendered*
+ * while it is closed rather than merely hidden — so every test below that reaches for one of them has
+ * to open it first, and the tests that assert one is absent must not open it.
  */
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET.
 //
 // Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
 // bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
@@ -349,7 +349,7 @@ test.describe('distortion (ADR-0013)', () => {
 		expect(await warpedTiles(page)).toBeGreaterThan(0);
 
 		// **Off by default**: a colourised map is not what you want while placing Control Points — and
-		// since ticket 03 the controls are not even on the page until "Check this alignment" is opened.
+		// the controls are not even on the page until "Check this alignment" is opened.
 		await expect(distortionControls(page)).toHaveCount(0);
 		await openCheck(page);
 		await expect(distortionToggle(page)).not.toBeChecked();
@@ -591,8 +591,8 @@ test.describe('the fold warning (ADR-0013)', () => {
 		await expect(foldWarning(page)).toHaveAttribute('data-fold-kind', 'mirrored');
 
 		// **With the overlay off, and with "Check this alignment" never opened.** The whole criterion:
-		// the warning is not a consequence of anything being colourised, and since ticket 03 that is the
-		// stronger statement it looks like — the overlay's controls are not on the page at all.
+		// the warning is not a consequence of anything being colourised, and that is the stronger
+		// statement it looks like — the overlay's controls are not on the page at all.
 		await expect(checkToggle(page)).toHaveAttribute('aria-expanded', 'false');
 		await expect(distortionControls(page)).toHaveCount(0);
 		await expect(distortionToggle(page)).toHaveCount(0);
@@ -624,7 +624,7 @@ test.describe('the fold warning (ADR-0013)', () => {
 	});
 });
 
-test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
+test.describe('the Resource Mask', () => {
 	test('starts as the whole image and draws the whole map', async ({ page }) => {
 		const imageId = await start(page);
 		await makePairs(page, 4);
@@ -675,7 +675,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await watchWrites(page);
 		const corner = maskVertices(page).first();
 		// The scroll {@link dragBy} documents, needed here too now that the workspace is a route with a
-		// header above it (ticket 03): `page.mouse` takes viewport coordinates and does no actionability
+		// header above it: `page.mouse` takes viewport coordinates and does no actionability
 		// check, so a handle below the fold gets a drag that lands on nothing and reports no error.
 		await corner.scrollIntoViewIfNeeded();
 		const box = await corner.boundingBox();
@@ -744,8 +744,8 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 
 	// **A Resource Mask vertex below 1e-6, reached only by editing, and only through the real UI.**
 	//
-	// This is the one that makes ticket 07's note 3 more than a hypothesis. `Number#toString` switches
-	// to exponential notation below 1e-6, upstream's `polygon points` regex is `-?\d+(\.\d+)?` — plain
+	// This is the one that makes the hazard more than a hypothesis. `Number#toString` switches to
+	// exponential notation below 1e-6, upstream's `polygon points` regex is `-?\d+(\.\d+)?` — plain
 	// decimal only — and `parseAnnotation` then throws on the *selector*, which takes the whole
 	// Alignment down: every Control Point becomes unreachable, silently, on the next open.
 	//
@@ -952,10 +952,9 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 
 	// **The help text and the cursor have to describe the gesture the handle actually has.** A dashed
 	// handle carries only `onselect`, so `paint` calls `setDraggable(false)` and dragging it does
-	// nothing — which is the right design (ticket 08: "a handle that both inserted and moved would make
-	// 'I nudged it' and 'I added one' the same gesture"). The text said "drag a dashed handle to add
-	// one" and the CSS gave it `cursor: grab` and `grabbing`, so the interface advertised the one
-	// gesture the code refuses. On a teaching tool that reads as a broken handle.
+	// nothing — which is the right design: a handle that both inserted and moved would make "I nudged
+	// it" and "I added one" the same gesture. An interface that advertises a drag the code refuses
+	// reads, on a teaching tool, as a broken handle.
 	test('promises only the gestures the mask handles actually have', async ({ page }) => {
 		await start(page);
 		await makePairs(page, 3);
@@ -1032,8 +1031,8 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		expect(vertexActiveCursors).toContain('grabbing');
 	});
 
-	// The mask is in image pixel space and belongs to the image pane only (ticket 08, out of scope:
-	// "Editing the mask on the Base Map pane").
+	// The mask is in image pixel space and belongs to the image pane only; the Base Map pane does not
+	// edit it.
 	test('has no handles on the Base Map, which speaks a different coordinate space', async ({
 		page
 	}) => {

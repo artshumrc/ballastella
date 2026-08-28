@@ -121,8 +121,8 @@ describe('what a Map Image card says about the map', () => {
 		);
 	});
 
-	// Visible text, not a badge colour and not a tooltip (SPEC story 111): this is the fact that
-	// decides whether a Layer draws anything on a train.
+	// Visible text, not a badge colour and not a tooltip: this is the fact that decides whether a
+	// Layer draws anything on a train.
 	test('says whether the tiles are here or names the Library they are on', () => {
 		hub({
 			mapImages: [
@@ -148,7 +148,7 @@ describe('what a Map Image card says about the map', () => {
 	});
 });
 
-describe('which Projects draw a map, in the words the list uses (SPEC story 63)', () => {
+describe('which Projects draw a map, in the words the list uses', () => {
 	// ⚠ **The sentence is `alignment/used-by.ts`'s, and this row is where it renders.** One Alignment
 	// belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so what refining it
 	// moves is a fact about *this map* — read here, before the align screen, rather than beside the
@@ -302,7 +302,7 @@ test('a Workspace with no Map Images says so', () => {
 	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
 });
 
-describe('each list under a heading carrying its own count (SPEC story 31)', () => {
+describe('each list under a heading carrying its own count', () => {
 	// ⚠ **Beside the heading and not inside it.** Every spec that arrives at this screen does so
 	// through `heading, { name: 'Projects' }` or `{ name: 'Map Images' }`, which is a whole-string
 	// match — so a figure inside the `<h2>` would break all of them, for a number that is not part of
@@ -339,7 +339,7 @@ describe('each list under a heading carrying its own count (SPEC story 31)', () 
 	});
 });
 
-describe('a row’s actions, and the one that is destructive (SPEC story 33)', () => {
+describe('a row’s actions, and the one that is destructive', () => {
 	/** The Project row, found by the control only a Project's row has. */
 	const projectRow = (): HTMLElement => {
 		const found = [...document.querySelectorAll<HTMLElement>('li')].find((row) =>

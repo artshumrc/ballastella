@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE BYTES ARE MEASURED, NOT CITED
 //
-// The epic's tracker names this as one of two claims that rested on documentation. It was measured
+// These figures rest on measurement rather than on anybody's documentation. They were measured
 // against `e2e/fixtures/base-map/amsterdam-centre.pmtiles`, a Protomaps basemaps v4 extract of
 // central Amsterdam (4,137,622 bytes, z0–14, `tileCompression: 2` — gzip, `tileType: 1` — MVT):
 //
@@ -85,16 +85,16 @@ export const BASE_MAP_TILE_ROOT = 'base-map/tiles/';
  * A directory name for one archive: readable at the front, and unambiguous at the back.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
- * WHY THE CACHE IS KEYED AT ALL (the deferral ticket 11 left for ticket 12)
+ * WHY THE CACHE IS KEYED AT ALL
  *
  * ADR-0020 promises that repointing a catalog entry needs no change anywhere else, and
  * `scripts/check-base-map-catalog.mjs` enforces it — so **two entries on two archives is a supported
  * deployment**, and it is the deployment a fork produces. An unkeyed directory serves both from one
  * pile of `{z}/{x}/{y}.mvt`: the tiles are well-formed, MapLibre parses them, nothing 404s and
- * nothing logs, and a scholar gets a plausible pane of the *wrong world*. Ticket 11 could only
- * detect that, because the path was already copied verbatim into a Published Site and read by the
- * viewer's HTTP store; keying it is a change to the published format, which is why it waited for the
- * ticket that was changing where a Workspace's files sit anyway.
+ * nothing logs, and a scholar gets a plausible pane of the *wrong world*. Detecting that after the
+ * fact is the most an unkeyed pile allows; the key removes the state instead. And the path is copied
+ * verbatim into a Published Site and read by the viewer's HTTP store, so the key is part of the
+ * published format rather than a local detail of the editor's storage.
  *
  * ⚠ **The key is derived from `BaseMapEntry.archive` exactly as the catalog writes it, not from the
  * URL a deployment resolves it to.** A bundled archive is a deployment-relative path, so the
@@ -159,9 +159,9 @@ export const cachedTilePath = (archive: string, tile: TileCoordinate): string =>
 const CACHED_TILE_PATH = new RegExp(`^${BASE_MAP_TILE_ROOT}([^/]+)/(\\d+)/(\\d+)/(\\d+)\\.mvt$`);
 
 /**
- * `base-map/tiles/{z}/{x}/{y}.mvt` — **the layout before ticket 12 keyed the directory**.
+ * `base-map/tiles/{z}/{x}/{y}.mvt` — **the unkeyed layout, written by older builds**.
  *
- * Still recognised, and that is not politeness. A Workspace filled by ticket 11's build holds these
+ * Still recognised, and that is not politeness. A Workspace filled by an older build holds these
  * paths, and a reader that stopped seeing them would make those bytes invisible to the hub's size
  * report and to its clear button — megabytes a user deliberately fetched from somebody else's
  * server, occupying disk that nothing in the application admits to. Nothing *writes* this shape any
@@ -182,7 +182,7 @@ export const legacyCachedTilePath = (tile: TileCoordinate): string =>
  * the key is a one-way function of an archive they are not holding. {@link parseCachedTilePath} is
  * the same read narrowed to one archive.
  *
- * **`key` is `null` for the pre-ticket-12 unkeyed layout**, which is exactly what it means: tiles
+ * **`key` is `null` for the unkeyed layout**, which is exactly what it means: tiles
  * that are certainly cached and whose archive is not recorded anywhere. Callers that only need to
  * count or delete treat it as one more cache; callers deciding *coverage* must not, because a tile
  * of unknown provenance cannot make a claim about a particular archive.
@@ -238,9 +238,9 @@ export const ESTIMATED_BYTES_PER_TILE = 152_000;
 /**
  * What the canal-belt extent actually weighed, in bytes, at every zoom from 0 to 14.
  *
- * Exported so {@link ESTIMATED_BYTES_PER_TILE} can be asserted against it rather than beside it —
- * the tracker forbade committing to this measurement unverified, and a table in a comment is not a
- * verification. `e2e/support/editor-deployment.ts` re-derives the same figure from the archive and
+ * Exported so {@link ESTIMATED_BYTES_PER_TILE} can be asserted against it rather than beside it: a
+ * measurement is never committed to unverified, and a table in a comment is not a verification.
+ * `e2e/support/editor-deployment.ts` re-derives the same figure from the archive and
  * `editor-base-map.e2e.ts` asserts it, so the two ends cannot drift apart in silence.
  */
 export const MEASURED_CANAL_BELT = { tiles: 23, decompressedBytes: 3_485_916 } as const;
@@ -295,7 +295,7 @@ const spanOf = (span: number, width: number): number => Math.min(Math.max(0, spa
  *
  * **From zoom 0, always** (ADR-0025). Low zooms are one or two tiles each; leaving them out makes
  * zooming out go blank inside an area the user was told is available offline, which reads as the
- * application breaking rather than as a boundary being reached (SPEC story 6).
+ * application breaking rather than as a boundary being reached.
  *
  * **The antimeridian is handled by the box, not by this** — {@link GeoBounds} says `east` may exceed
  * 180 for content that crosses it, so the column range simply runs past `2^z` and each column is

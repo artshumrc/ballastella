@@ -38,12 +38,11 @@
 		 * Where focus goes when the element that opened this dialog is **no longer in the document**.
 		 *
 		 * ⚠ **A dialog can outlive its own trigger, and `focus()` on a detached node is a no-op with no
-		 * complaint.** Opening a Project bundle is the case: the button that opened this is inside
-		 * `{#if review === null}`, and succeeding puts the user inside a review copy — so by the time
-		 * the dialog closes the trigger has been unmounted, focus falls to `<body>`, and a keyboard user
-		 * tabs in from the top of the page to find out what just happened (WCAG 2.4.3,
-		 * workspace-and-layers SPEC story 95). Consulted only when the trigger has gone, so nothing about the ordinary
-		 * Escape-and-cancel path changes.
+		 * complaint.** Opening a Project bundle is the case: the button that opened this is inside `{#if
+		 * review === null}`, and succeeding puts the user inside a review copy — so by the time the
+		 * dialog closes the trigger has been unmounted, focus falls to `<body>`, and a keyboard user tabs
+		 * in from the top of the page to find out what just happened (WCAG 2.4.3). Consulted only when
+		 * the trigger has gone, so nothing about the ordinary Escape-and-cancel path changes.
 		 *
 		 * ⚠ **The node it answers with may be created by the very update that closes this dialog, and
 		 * this is the ordering that makes that work.** `ProjectHub` hands back a `bind:this` on the

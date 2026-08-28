@@ -5,7 +5,7 @@ import process from 'node:process';
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
 import { chromiumLaunchArgs, useGpu } from './scripts/gpu-launch-args.mjs';
 
-// Seam 2 (SPEC, Testing Decisions): the running app in a real browser, with real MapLibre,
+// Seam 2 (see CONTRIBUTING.md): the running app in a real browser, with real MapLibre,
 // real OpenSeadragon, and real OPFS. Deliberately no map-abstraction layer — inventing one
 // purely to enable testing is the premature boundary ADR-0019 argues against, and it would
 // test a fake instead of the thing that ships.
@@ -41,7 +41,7 @@ import { chromiumLaunchArgs, useGpu } from './scripts/gpu-launch-args.mjs';
  * because the port is stable per checkout on purpose. So the command frees its own port first and
  * `reuseExistingServer` stays off: every run gets a server it started itself.
  *
- * **The build is `scripts/e2e-build.mjs` rather than this app's own** (ticket 17), for a correctness
+ * **The build is `scripts/e2e-build.mjs` rather than this app's own**, for a correctness
  * reason before a speed one. Playwright starts these two commands *in parallel*, and both of the
  * builds they used to run write `apps/viewer/build` — the viewer's directly, and the editor's
  * because its `build` is `stage:viewer && vite build`. Two `vite build` processes emptying and
@@ -178,8 +178,8 @@ export default defineConfig({
 	//   assertion failures               2
 	//   test-timeout budget exhausted    1
 	//
-	// **Zero crashes is the number that changes the conclusion.** Earlier reports in this epic
-	// counted 8, 11 and 17 failures per run, one of them "7 of 8 were `Protocol error … session
+	// **Zero crashes is the number that changes the conclusion.** Earlier reports counted 8, 11 and
+	// 17 failures per run, one of them "7 of 8 were `Protocol error … session
 	// closed`". None of that reproduces here. Those runs predate the port derivation above, and a
 	// browser whose server disappears mid-run is exactly what a reused `vite preview` from another
 	// checkout produces when the first run finishes. So the crash half of the historical flake was
@@ -187,7 +187,7 @@ export default defineConfig({
 	// number stays at 4.
 	//
 	// **The rest was bugs, not contention.** All 8 failures came from 4 tests, and every one had a
-	// cause that could be found, fixed, and watched fail (ticket 17): a Workspace walk that raised
+	// cause that could be found, fixed, and watched fail: a Workspace walk that raised
 	// when a directory was deleted underneath it — a real application bug, in
 	// `directory-handle-store.ts` — helpers that returned when a Layer was *on screen* rather than *on
 	// disk* (`e2e/support/saved.ts`), an assertion that polled for a state lasting milliseconds, and a
@@ -291,7 +291,7 @@ export default defineConfig({
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// RETRIES: 1 EVERYWHERE, VISIBLE ALWAYS, AND BUDGETED FOR AN EPIDEMIC RATHER THAN AN INCIDENT.
 	//
-	// This was `CI ? 1 : 0`, which is the arrangement that let the epic get here: a retry made CI
+	// This was `CI ? 1 : 0`, which is the arrangement that lets a suite rot: a retry made CI
 	// green whatever happened, and nothing counted them. A suite in that state can absorb a genuine
 	// race indefinitely. Turning retries *off* is not the fix either — it makes every implementer
 	// re-run by hand and guess.
@@ -303,7 +303,7 @@ export default defineConfig({
 	// only exists on CI is a number nobody looks at.
 	//
 	// ⚠ **The budget was 0.5%, meaning one retry anywhere failed the run, and that is the number this
-	// change loosened.** Held for the length of the epic it cost many hours of investigation without
+	// change loosened.** Held at that number it cost many hours of investigation without
 	// fixing the races behind it: this suite drives several workers, each with a real WebGL map against
 	// the same origin's OPFS, and under that contention a first attempt sometimes loses a timing margin
 	// that no application change removes. A gate that fires on something nobody can fix is a toll

@@ -2,9 +2,9 @@
 
 > **Renamed.** This ADR was recorded as "referenced by default, mirrored only on explicit request",
 > and the word "mirror" ran from it through the code and into the UI. CONTEXT.md names the concept
-> **Offline Copy** and lists "mirror" as the synonym to avoid; the code was brought into line by the
-> `workspace-and-layers` epic's ticket 16, and this file was renamed with it so the decision and the
-> code call the same thing by the same name. Nothing the ADR decided has changed.
+> **Offline Copy** and lists "mirror" as the synonym to avoid; the code was brought into line, and
+> this file was renamed with it so the decision and the code call the same thing by the same name.
+> Nothing the ADR decided has changed.
 
 A map image added from a remote IIIF URI is referenced in place: its tiles stay on the host. A per-image action — "make an offline copy" — fetches it into the workspace instead. Local images have their tiles here by definition.
 

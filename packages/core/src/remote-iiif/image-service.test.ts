@@ -22,7 +22,7 @@ import { RemoteIiifRejectedError } from './remote-resource';
 // **Captured verbatim, so the fixture spells things the way the servers do.** Ten of the fourteen
 // list `"mirroring"` in `extraFeatures` — a IIIF Image API 3 feature name, meaning the service can
 // reflect an image about its vertical axis. It is a third-party API member and has nothing to do
-// with CONTEXT.md's **Offline Copy**, so ticket 16's rename left it alone; editing it would make the
+// with CONTEXT.md's **Offline Copy**, so it is not ours to rename; editing it would make the
 // corpus stop being a capture, which is the one property it has.
 
 const corpus = JSON.parse(
@@ -90,7 +90,7 @@ describe('real IIIF services in the wild', () => {
 		expect(remote.imageId).toMatch(/^[0-9a-f]{16}$/);
 	});
 
-	it('trips neither of ticket 03’s two guards on any captured service', async () => {
+	it('trips neither of the image pane’s two guards on any captured service', async () => {
 		// The finding, stated as an assertion rather than left implicit above: **no live service in
 		// this corpus declares a finest level other than 1, and none declares levels of differing tile
 		// sizes.** Both guards exist for shapes the Image API permits and that no real service in this
@@ -226,7 +226,7 @@ describe('a service that declares too few levels and will not serve more', () =>
 	});
 });
 
-describe('the two shapes ticket 03 refuses, which only a stranger’s info.json can have', () => {
+describe('the two shapes the image pane refuses, which only a stranger’s info.json can have', () => {
 	const level0 = (tiles: unknown, width = 1200, height = 851) => ({
 		'@context': 'http://iiif.io/api/image/3/context.json',
 		id: 'https://iiif.example.test/iiif/3/sheet',
@@ -278,7 +278,7 @@ describe('the two shapes ticket 03 refuses, which only a stranger’s info.json 
 	it('is refusing shapes createImagePane really does reject — the guards are not restated here', () => {
 		// The mutation check for the two tests above. They would pass just as well if this module
 		// contained its own copy of the guards and `createImagePane` had none, which is the failure
-		// mode the epic keeps finding. So: the same two documents, straight into ticket 03's reader.
+		// mode reviews here keep finding. So: the same two documents, straight into the pane's reader.
 		expect(() =>
 			createImagePane(
 				level0([{ width: 256, height: 256, scaleFactors: [2, 4, 8] }]),

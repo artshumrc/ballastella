@@ -1,5 +1,5 @@
 // Making an offline copy of one referenced Map Image: the state of that job, from the button to
-// the Layer that stops saying `'referenced'` (SPEC stories 27 and 28, ADR-0007).
+// the Layer that stops saying `'referenced'` (ADR-0007).
 //
 // A class of its own beside `AddRemoteMap`, and for the same reason: none of what happens before the
 // copy starts is `project.json`. Re-reading the service's `info.json`, working out which of the two
@@ -15,8 +15,8 @@
 // and the two things a scholar needs in order to decide are the rights statement the library published
 // and what the copy costs — the host, in requests, and their own Workspace, in bytes against ADR-0008's
 // ~1 GB static-hosting cliff. Neither is knowable from the Layer list, and the Manifest they came from
-// has long since been navigated away from, which is why ticket 14 wrote `rights` and
-// `requiredStatement` into `remote.json` at add time.
+// has long since been navigated away from, which is why `rights` and `requiredStatement` are
+// written into `remote.json` at add time.
 //
 // So `prepare` reads and shows; `start` copies. Nothing between them writes.
 
@@ -38,7 +38,7 @@ import {
 import type { EditorSession } from '../editor-session.svelte.js';
 import { recordRemoteRequest } from './browser-test-handle.js';
 
-/** Which step the job is on, for the region that announces it (SPEC story 96). */
+/** Which step the job is on, for the region that announces it. */
 export type OfflineCopyStep =
 	| 'idle'
 	/** Re-reading the service's `info.json` and working out what the copy will cost. */
@@ -163,7 +163,7 @@ export class OfflineCopyJob {
 		this.progress = null;
 	}
 
-	/** Abandon a copy in flight. `ingestImageFile` removes what it wrote (ticket 05). */
+	/** Abandon a copy in flight. `ingestImageFile` removes what it wrote. */
 	cancel(): void {
 		this.#abort?.abort();
 	}
@@ -227,10 +227,10 @@ export class OfflineCopyJob {
 	}
 
 	/**
-	 * Make the copy (SPEC stories 27, 28).
+	 * Make the copy.
 	 *
-	 * Through `EditorSession`, because it is the app's only writer of `project.json` — the rule this
-	 * epic has broken more often than any other. The plan that was on screen is the plan that runs.
+	 * Through `EditorSession`, because it is the app's only writer of `project.json` — the easiest rule
+	 * in this application to break. The plan that was on screen is the plan that runs.
 	 *
 	 * @returns `true` when the copy landed
 	 */

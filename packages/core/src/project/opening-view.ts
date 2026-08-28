@@ -140,7 +140,7 @@ export type OpeningViewOutcome = 'pending' | 'content' | 'default';
  * A WebGL canvas announces nothing about what it is showing, so "the map jumped to Boston" is
  * otherwise available only to somebody who can see it — and "it did not jump, because this Project
  * has nothing on the earth" is the more useful of the two sentences and the one nobody would guess
- * (SPEC story 112). Here rather than in either app for the same reason {@link OpeningViewOutcome} is:
+ * Here rather than in either app for the same reason {@link OpeningViewOutcome} is:
  * the editor and the Published Site were saying the same thing in two nearly-identical sentences,
  * which is a difference a Reader comparing the two would have to explain to themselves.
  *

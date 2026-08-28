@@ -20,7 +20,7 @@ catalog:
   vitest: ^4.1.10
 
   # Vitest browser mode, for the ProjectStore adapters that need a real browser: there is no
-  # OPFS in Node (ticket 02), and no File System Access either (ticket 12). Pinned to the same
+  # OPFS in Node , and no File System Access either. Pinned to the same
   # minor as vitest, which @vitest/browser-playwright peers on exactly.
   '@vitest/browser-playwright': ^4.1.10
   playwright: ^1.62.1
@@ -64,11 +64,11 @@ catalog:
   '@allmaps/iiif-parser': 1.0.0-beta.48
   '@allmaps/types': 1.0.0-beta.23
 
-  # `@allmaps/id` mints the id a locally ingested image is stored under (ticket 05).
+  # `@allmaps/id` mints the id a locally ingested image is stored under.
   # `generateRandomId()` for local files; `generateId(uri)` is for remote resources.
   '@allmaps/id': 1.0.0-beta.38
 
-  # The Alignment's file format and its transformation vocabulary (ticket 07).
+  # The Alignment's file format and its transformation vocabulary.
   #
   # `@allmaps/annotation` reads and writes the IIIF Georeference Annotation an Alignment
   # serialises to. `@allmaps/transform` is here for two things. The first is a pair of named
@@ -77,7 +77,7 @@ catalog:
   # `options.order` pair the annotation actually carries — see `georeference-annotation.ts`,
   # which explains why writing the literal string loses it.
   #
-  # The second is the **solver**, in `core`, for the fold warning (ticket 08). ADR-0013 makes that
+  # The second is the **solver**, in `core`, for the fold warning. ADR-0013 makes that
   # warning continuous and independent of the overlay, and a warning read out of a WebGL layer's
   # triangulation exists only while a layer does, only in a browser, and only after the style has
   # loaded — which is not when a student placing their fourth point needs it. So `distortion.ts`
@@ -86,11 +86,11 @@ catalog:
   #
   # Both exact, no range specifier, for the reason at the top of this block: these two decide
   # whether an Alignment written today still means the same thing after a beta bump, which is
-  # the migration event ADR-0010 names and the fixture round-trip in ticket 07 guards.
+  # the migration event ADR-0010 names and the Alignment fixture round-trip guards.
   '@allmaps/annotation': 1.0.0-beta.37
   '@allmaps/transform': 1.0.0-beta.52
 
-  # The Allmaps community alignment lookup (ticket 14, ADR-0015): `fetchAnnotationsFromApi`
+  # The Allmaps community alignment lookup (ADR-0015): `fetchAnnotationsFromApi`
   # asks `annotations.allmaps.org` whether anyone has already georeferenced the resource the
   # user is adding. Exact for the reason at the top of this block, and because the *shape* of
   # what that API returns is what `@allmaps/annotation` then has to read.
@@ -107,7 +107,7 @@ catalog:
   # never asks Allmaps anything.
   '@allmaps/stdlib': 1.0.0-beta.41
 
-  # triiiceratops: unwarped viewing — a Map Image read as a document (ADR-0018, ticket 14).
+  # triiiceratops: unwarped viewing — a Map Image read as a document (ADR-0018).
   # Manifest and Collection browsing and canvas selection are **not** its: they are the editor's own
   # list, over `@allmaps/iiif-parser`, in `AddRemoteMap.svelte`.
   # Imported from its `./svelte` export as an ordinary Svelte component,
@@ -115,31 +115,31 @@ catalog:
   # a prop and awkward as an attribute.
   #
   # Exact, no range specifier, for the same reason as `@allmaps/*`: it is pre-1.0, we maintain
-  # it, and it carries `manifesto.js` — which since ticket 15 is the **only** IIIF parser in the
+  # it, and it carries `manifesto.js` — which is the **only** IIIF parser in the
   # viewer's bundle rather than the second one in a shared bundle, because the editor took
   # `@allmaps/iiif-parser` with it when it dropped this dependency. A release that changed how a
   # canvas's image service URI is reported would still move ADR-0018's boundary silently.
   #
-  # **`apps/viewer` alone, as of ticket 15.** It was both apps from ticket 17; the editor's unwarped
+  # **`apps/viewer` alone.** It was both apps once; the editor's unwarped
   # view is deleted and the dependency went with it, so a change to this pin can now only reach a
-  # Published Site. The Reader's half is story 85 and it stays: a Map Image viewed on its own,
+  # Published Site. The Reader's half stays: a Map Image viewed on its own,
   # unwarped, read as a document.
   #
   # The editor's copy was removed because it could only ever serve *referenced* maps. A locally
   # ingested pyramid has no URL, and triiiceratops 1.0.0-rc.35 offers no way to hand OpenSeadragon a
   # `TileSource` — so the affordance appeared on a library's map and not on a file's, for a reason no
-  # user could infer, while ticket 07's alignment view deep-zooms both. On a Published Site the
+  # user could infer, while the alignment view deep-zooms both. On a Published Site the
   # pyramid *does* have a URL: it is static files beside `index.html`, so the viewer's component reads
   # it over HTTP with nothing injected. The `TileSource` object that gap waits on is still kept, at
   # `packages/core/src/injection/openseadragon-tile-source.ts`, with the gap named in its header.
   triiiceratops: 1.0.0-rc.35
 
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on
-  # `WarpedMapLayer` is how a locally stored pyramid reaches it (ticket 06). Wired now, used in
-  # anger by ticket 07. It depends on `maplibre-gl` ^5, which is the range the catalog holds —
+  # `WarpedMapLayer` is how a locally stored pyramid reaches it. Used in
+  # anger by the align screen. It depends on `maplibre-gl` ^5, which is the range the catalog holds —
   # two MapLibre copies in one page is a broken map rather than a warning.
   #
-  # A dependency of `@ballastella/core` as of ticket 17, not of either app: both draw the same warped
+  # A dependency of `@ballastella/core`, not of either app: both draw the same warped
   # Map Images, and `core/src/render/` is where that stopped being two copies of the same rules.
   '@allmaps/maplibre': 1.0.0-beta.43
 
@@ -154,7 +154,7 @@ catalog:
   # (`@lucide/svelte/icons/map`) so only the glyphs used are bundled. ISC, permissive, no
   # compiled artefact — nothing THIRD-PARTY-NOTICES needs to record.
   #
-  # A glyph is never alone with meaning (SPEC story 111): a kind icon sits beside the words
+  # A glyph is never alone with meaning: a kind icon sits beside the words
   # "Map Image", and an icon-only button keeps a visible or `sr-only` label. An icon that
   # would need a tooltip to be understood is the wrong icon.
   #
@@ -166,7 +166,7 @@ catalog:
   # graph.** ADR-0019 makes the viewer's leanness a dependency-graph property rather than a
   # tree-shaking hope, and this is the one dependency of the shared package that a published site
   # does not need until it renders the shared card. What holds it is the measurement ADR-0034
-  # requires of every move into that package, recorded in the ticket that made it — not the
+  # requires of every move into that package — not the
   # bundler's cleverness.
   '@lucide/svelte': ^0.552.0
 
@@ -178,7 +178,7 @@ catalog:
   #
   # maplibre-gl is held at ^5 rather than ^6, for two reasons that both matter later.
   # `@allmaps/maplibre` and `@allmaps/basemap` peer on `^5`, and two MapLibre copies in one
-  # page is not a version warning but a broken map — ticket 07 needs those packages. And v6
+  # page is not a version warning but a broken map — the align screen needs those packages. And v6
   # moved its worker into a sibling file whose URL it computes from `import.meta.url` at
   # runtime, which no bundler can see; v5 inlines the worker and needs no `setWorkerUrl`
   # plumbing. Raise it when `@allmaps/*` does, which ADR-0010 makes a migration event anyway.
@@ -192,11 +192,10 @@ catalog:
   maplibre-gl: ^5.24.0
   pmtiles: ^4.4.1
 
-  # NOTE: `terra-draw` is deliberately **not** here, and this is now the third ticket to decline it —
-  # ticket 07 for the Control Point pairing, ticket 08 for the Resource Mask, and ticket 10 for
-  # Annotation drawing. ADR-0005 says all drawing goes through it, so the ADR and the code now
-  # disagree; that is recorded as an open question for a human in the tracker rather than decided
-  # here. The reasons are in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
+  # NOTE: `terra-draw` is deliberately **not** here, and it has been declined three times over —
+  # for the Control Point pairing, for the Resource Mask, and for Annotation drawing. ADR-0005 says
+  # all drawing goes through it, so the ADR and the code disagree; that is an open question for a
+  # human rather than something decided here. The reasons are in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
 
   # The Annotation `description` rendering pipeline (ADR-0009): `marked` parses the Markdown,
   # DOMPurify sanitises the HTML it produced, and the order is not negotiable — sanitising before
@@ -216,7 +215,7 @@ catalog:
   dompurify: ^3.4.13
   marked: ^18.0.9
 
-  # Workspace backup and restore as a tar (ticket 13, ADR-0024). Zero-dependency, Web Streams,
+  # Workspace backup and restore as a tar (ADR-0024). Zero-dependency, Web Streams,
   # USTAR with PAX extensions — and every one of those claims is *measured* rather than quoted,
   # in `packages/core/src/transfer/tar-format.test.ts`, because ADR-0024 justifies the whole
   # move off zip on them. The numbers that test pins, against this exact version:
@@ -236,12 +235,12 @@ catalog:
   #   why the assertions are now counted in bytes moved rather than bytes collected.
   # - Paths past tar's 100-byte `name` field round-trip exactly, by USTAR `prefix` up to 256
   #   bytes and by a PAX `path` record beyond it — including Devanagari, CJK, Arabic, and
-  #   emoji, which a Workspace name can be since ticket 12. Custom PAX records round-trip too,
+  #   emoji, which a Workspace name can be. Custom PAX records round-trip too,
   #   through both readers, which is what carries a folder Workspace's real name.
   # - A truncated archive **throws** rather than yielding a short one, which is the exact
   #   failure the zip path made silent and the reason this dependency exists.
   #
-  # **Both transfer artefacts are tars since ticket 14** — a whole-Workspace backup and a
+  # **Both transfer artefacts are tars** — a whole-Workspace backup and a
   # one-Project handoff bundle (ADR-0024) — so the zip library is gone from the tree entirely.
   # The Project-level path had its own reason to leave: the entry ceiling was reachable by an
   # ordinary Project with two large archival scans, and the refusal that kept a silently short

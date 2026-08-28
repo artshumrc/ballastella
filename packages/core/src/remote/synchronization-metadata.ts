@@ -4,8 +4,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // INSTALLATION-LOCAL, AND NOT IN THE WORKSPACE
 //
-// SPEC: *"Keep the Remote relationship, Synchronization Baseline, and local-change index in durable
-// installation-local metadata keyed by stable Workspace identity and backing."* Both records say what
+// The Remote relationship, the Synchronization Baseline and the local-change index are all durable
+// installation-local metadata, keyed by stable Workspace identity and backing. Both records say what
 // **this machine** believes about a Remote, and a record that travelled — into a Backup, into a
 // Project Bundle, up to the Remote and back down into a fork — would be somebody else's belief
 // arriving as this machine's evidence. That is the whole reason `remote.json` stops being the active
@@ -23,10 +23,10 @@
 //
 // A store that will not answer, a record from a build that spells this differently, a truncated one,
 // **a record naming a different repository or branch**: all of them read as no valid Baseline, which
-// is `Cannot tell` — SPEC: *"Cannot tell is the Remote Status when no valid Baseline exists because
-// evidence is absent, unreadable, for another Remote, or could not be stored."* It is the only
-// direction that cannot turn a storage problem into an overwrite, and it is a determination the
-// consumers of this module have to handle anyway.
+// is `Cannot tell`: that is the Remote Status whenever no valid Baseline exists, because evidence is
+// absent, unreadable, for another Remote, or could not be stored. It is the only direction that cannot
+// turn a storage problem into an overwrite, and it is a determination the consumers of this module
+// have to handle anyway.
 //
 // The mismatch case is why a Baseline names its Remote rather than only its Workspace. A Workspace can
 // be re-bound with the Baseline untouched, and a self-validating record answers that without anything
@@ -34,9 +34,9 @@
 // not.
 //
 // {@link SynchronizationMetadata.writeBaseline} answers *whether it was kept* rather than throwing,
-// for the reason `PublishManifests.write` does: SPEC: *"If durable Baseline storage fails after Remote
-// publication succeeds, report that Publish succeeded but status is now Cannot tell; never report the
-// Publish as failed and never retain stale evidence."*
+// for the reason `PublishManifests.write` does: if durable Baseline storage fails after Remote
+// publication succeeds, the Publish succeeded and the status is now Cannot tell — never the Publish
+// reported as failed, and never stale evidence retained.
 
 import { isSameRemote, normaliseRemoteIdentity } from './remote-binding.js';
 import type { RemoteRepository } from './publish-to-remote.js';
@@ -53,7 +53,7 @@ export interface MetadataStorage {
 	get(key: string): Promise<unknown>;
 	put(key: string, value: unknown): Promise<void>;
 	delete(key: string): Promise<void>;
-	/** Every key currently held, for the repository-to-Workspace lookup ticket 11 builds on. */
+	/** Every key currently held, for the repository-to-Workspace reverse lookup an Open builds on. */
 	keys(): Promise<readonly string[]>;
 }
 
@@ -71,7 +71,7 @@ export const SYNCHRONIZATION_FORMAT_VERSION = 2;
 /**
  * The one Remote a Workspace has, or has not.
  *
- * SPEC: *"A Workspace has zero or one active Remote."* There is deliberately no API here that could
+ * A Workspace has zero or one active Remote. There is deliberately no API here that could
  * represent a second one — {@link SynchronizationMetadata.bindRemote} replaces, and
  * {@link SynchronizationMetadata.clearRemote} clears.
  */
@@ -252,10 +252,10 @@ export async function discardSynchronizationMetadata(
 /**
  * Every Workspace key this installation holds a relationship for, and the repository it names.
  *
- * The hook under SPEC's *"installation-local reverse lookup so reopening a repository selects its
- * existing synchronized Workspace rather than creating another"*. Ticket 11 owns that flow; this only
- * answers the question, and answers it with an empty list rather than throwing when the store will not
- * be read.
+ * The hook under the installation-local reverse lookup that makes reopening a repository select its
+ * existing synchronized Workspace rather than create another. `open-workspace-from-github.ts` owns
+ * that flow; this only answers the question, and answers it with an empty list rather than throwing
+ * when the store will not be read.
  */
 export async function listRemoteRelationships(
 	storage: MetadataStorage
@@ -329,7 +329,7 @@ function decodeBaseline(
 	// that "the same repository" means here exactly what it means to the Open that reuses a Workspace
 	// and the Import that refuses its own Remote. Compared byte for byte, re-binding `ada/atlas` by
 	// pasting `github.com/Ada/Atlas` would throw away a Baseline that describes this very Remote and
-	// report `Cannot tell` over evidence there is (SPEC story 151).
+	// report `Cannot tell` over evidence there is.
 	if (!isSameRemote(identity, remote)) return null;
 	const record = stored as Partial<StoredBaseline>;
 	if (typeof record.commit !== 'string' || record.commit === '') return null;

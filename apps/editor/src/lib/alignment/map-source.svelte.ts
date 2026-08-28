@@ -1,5 +1,5 @@
 // Where a Map Image is served from, derived so that an unrelated Workspace change is not a
-// reason to rebuild a live pane (ticket 07).
+// reason to rebuild a live pane.
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 // │ THE POINT OF THIS MODULE IS THAT THE TWO-STEP DERIVE IS TESTABLE.                         │

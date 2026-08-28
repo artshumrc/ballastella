@@ -2,7 +2,7 @@
 
 > **Amends [ADR-0020](./0020-base-map-catalog-author-default-and-reader-switching.md) and narrows [ADR-0012](./0012-pwa-with-explicit-update-prompt.md).**
 >
-> **Amended by ticket 12: the cache directory is keyed by archive** — `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt`, where the key is derived from the catalog entry's own `archive` string. This ADR wrote the path with no archive in it, which is correct only while every entry shares one archive; ADR-0020 promises that repointing an entry needs no change anywhere else, so two entries on two archives is a supported deployment and one directory would serve both — well-formed tiles, no 404, no log, and a plausible pane of the wrong world. Because the path is copied verbatim into a Published Site and read back by the viewer over HTTP, which cannot list a directory, `PublishedSite` now carries `baseMapCaches`: which archives a site has tiles for, and how deep each goes.
+> **Amended: the cache directory is keyed by archive** — `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt`, where the key is derived from the catalog entry's own `archive` string. This ADR wrote the path with no archive in it, which is correct only while every entry shares one archive; ADR-0020 promises that repointing an entry needs no change anywhere else, so two entries on two archives is a supported deployment and one directory would serve both — well-formed tiles, no 404, no log, and a plausible pane of the wrong world. Because the path is copied verbatim into a Published Site and read back by the viewer over HTTP, which cannot list a directory, `PublishedSite` now carries `baseMapCaches`: which archives a site has tiles for, and how deep each goes.
 
 No pmtiles archive is shipped. The deployment names its own, and a user makes a **Project** work offline by caching the Base Map tiles that Project's own content needs — not the world, and not a city somebody else chose.
 
@@ -44,7 +44,7 @@ Storing tiles as files also means:
 
 ## Consequences
 
-- **ADR-0012's offline claim narrows, and SPEC story 8 must be reworded rather than quietly broken.** The honest claim: a user's Map Images, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline.
+- **ADR-0012's offline claim narrows.** The honest claim: a user's Map Images, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline.
 - **The tile budget is shown before it is spent, and there is a refusal threshold.** A city centre at z0–14 is tens of tiles; a country at z14 is thousands; a continent is hundreds of thousands. The user sees tile count and megabytes before agreeing — this fetches from someone else's server, and ADR-0007 already demands that courtesy before making an offline copy a level-0 pyramid.
 - **Every zoom level from 0 to the source's maximum is cached over the Project's extent.** Low zooms are one or two tiles each and nearly free, and omitting them makes zooming out go blank, which reads as breakage.
 - **Compression is explicit.** PMTiles stores tiles gzipped and its Protocol decompresses on the way out; storing them compressed and serving them as though they were not is a silent blank map.
@@ -62,7 +62,7 @@ This is settled. It is not a known issue awaiting a fix, and it should not be re
 Two things follow, and both are already true:
 
 - **No test relies on the demo archive.** That is the standing rule (no test may depend on the network, 2026-08-07) and it is enforced rather than followed: `e2e/support/test.ts` is the one composed root fixture, `scripts/check-e2e-network-fence.mjs` fails any spec importing `test` from `@playwright/test`, and every Base Map assertion routes to the committed Amsterdam extract. The URL appears in tests only as the *example of a blocked host*, which is the opposite of depending on it.
-- **The failure is honest.** Ticket 22 gives the published viewer the unreachable-archive notice the editor already had, so a Reader is told it is not their fault, that their work is safe, and what would fix it. An outage renders as an explanation rather than a blank rectangle.
+- **The failure is honest.** The published viewer carries the same unreachable-archive notice as the editor, so a Reader is told it is not their fault, that their work is safe, and what would fix it. An outage renders as an explanation rather than a blank rectangle.
 
 **`pnpm check:deployment` is deliberately left as it is** — it still fails while the catalog reads an archive this deployment does not control, and it still blocks a *production* deployment. That is the correct relationship between a proof of concept and a production one, and nothing about this decision asks for the safeguard to be weakened. Changing what the catalog points at remains a one-file change by ADR-0020's design, for whenever a real deployment wants one.
 

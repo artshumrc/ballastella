@@ -190,8 +190,7 @@ describe('the ordinary Workspace a review copy records as its origin', () => {
 // ⚠ **The two refusals, at the only seam they have.** Both sentences used to live in
 // `apps/editor/src/lib/workspace-storage.svelte.ts`, which has no test project at all, so the
 // wording and both branches were unasserted — and a message nobody asserts is a message that
-// drifts, which is the whole reason there is one sentence rather than a phrase per call site
-// (workspace-and-layers SPEC story 111).
+// drifts, which is the whole reason there is one sentence rather than a phrase per call site.
 describe('what a Review Workspace may and may not be asked to do', () => {
 	it('lets a Workspace of the user’s own be backed up', () => {
 		expect(() => assertNotReviewing('My Workspace', null, 'backed up')).not.toThrow();

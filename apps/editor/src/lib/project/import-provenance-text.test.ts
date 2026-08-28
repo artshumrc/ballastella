@@ -91,7 +91,7 @@ describe('what a reader is told about the evidence', () => {
 		).toBe('Seen by Ballastella as this copy was made.');
 	});
 
-	// Story 64: a carried claim shown beside a witnessed one must not read as a verified one.
+	// A carried claim shown beside a witnessed one must not read as a verified one.
 	it('says an inherited entry was not checked', () => {
 		expect(
 			describeImportEvidence({

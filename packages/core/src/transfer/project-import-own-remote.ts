@@ -1,4 +1,4 @@
-// What a bound Workspace's one Remote does to an Import into it (ticket 17, ADR-0037, ADR-0038).
+// What a bound Workspace's one Remote does to an Import into it (ADR-0037, ADR-0038).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AN IMPORT INTO A SYNCHRONIZED WORKSPACE IS STILL ORDINARY LOCAL WORK
@@ -6,9 +6,9 @@
 // Nothing here gives an imported Project a Remote, a Baseline, a status or a Publish action of its
 // own: synchronization stays one whole Workspace to at most one Remote (ADR-0038), and an Import is
 // a copy that keeps no relationship with where it came from (ADR-0037). The imported files cross the
-// managed store like any other write, so they are in ticket 10's local-change index and the next
-// Remote Status reads `Changes to publish`; the next deliberate Publish carries them because Publish
-// owns the whole Workspace namespace and has never needed to be told about a particular Project.
+// managed store like any other write, so they are in the local-change index and the next Remote
+// Status reads `Changes to publish`; the next deliberate Publish carries them because Publish owns
+// the whole Workspace namespace and has never needed to be told about a particular Project.
 //
 // So there are exactly two things a Remote adds to an Import, and both of them happen *before* the
 // allocation.
@@ -18,8 +18,8 @@
 //
 // A bound Workspace's Remote may hold a Project this installation has never seen — published from
 // another machine, or added by a collaborator. `allocateProjectImport` reserves those directories
-// when it is told about them (SPEC stories 143, 161), and this is what tells it: one tree listing,
-// taken before a byte is allocated.
+// when it is told about them, and this is what tells it: one tree listing, taken before a byte is
+// allocated.
 //
 // ⚠ **A listing that failed is refused rather than read as an empty Remote.** Allocating
 // `amsterdam-1625` because a truncated tree did not happen to mention it manufactures a Conflict the
@@ -36,7 +36,7 @@
 // author's own — their second machine's URL, a link they sent themselves, their own Published Site
 // found through a search. Copying it in would detach a second, unsynchronized duplicate of work the
 // Workspace already tracks: the same Project twice on the hub, one of them with no route back to the
-// Remote, and an author who edits whichever they open (SPEC stories 69–71).
+// Remote, and an author who edits whichever they open.
 //
 // The refusal names what to do instead — the Project they already have, or **Update from GitHub** —
 // and deliberately does *not* offer to import a detached copy anyway. There is no version of that
@@ -50,8 +50,8 @@
 // (untrusted, chosen by whoever sent it) and the Project's carried provenance is another build's
 // observation, inherited on every transfer since. Neither says where these bytes came from, so a
 // bundle whose history mentions the Workspace's own Remote is an ordinary Import — refusing it would
-// refuse a colleague's legitimate hand-back on the strength of a string in a file (SPEC "not treated
-// as an own-Remote source unless its directly observed evidence can establish that fact").
+// refuse a colleague's legitimate hand-back on the strength of a string in a file. Nothing counts as
+// an own-Remote source unless directly observed evidence can establish that it is one.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { RemoteRepository } from '../remote/publish-to-remote.js';

@@ -1,13 +1,12 @@
-// SPEC's Seam 2 for Annotations: drawing, editing, styling, and rendering Markdown in the running app
-// (stories 55–67).
+// Seam 2 for Annotations: drawing, editing, styling, and rendering Markdown in the running app.
 //
 // Two things about the shape of this file.
 //
 // **Every claim about styling is asserted on what MapLibre reports it drew**, never on the app's own
 // state. `queryRenderedFeatures` names the layer that painted each Annotation, and
 // `getPaintProperty` is the dash pattern that layer actually carries — which is the mechanism by which
-// a dashed line looks different from a solid one. Ticket 08 lost a whole slice's worth of assertions to
-// exactly this: its distortion values were computed in a different object from the one that painted,
+// a dashed line looks different from a solid one. A whole slice's worth of distortion assertions was
+// once lost to exactly this: the values were computed in a different object from the one that painted,
 // so every assertion passed while the renderer threw once per frame. Hence also the `pageerror` watch
 // on every test that renders.
 //
@@ -72,9 +71,9 @@ import {
 /**
  * Anything the page threw, and any native dialog it opened.
  *
- * Installed on every test that renders. Ticket 08's `rgb()`-into-a-hex-parser bug threw once per frame
- * inside the draw path and was caught only by an unrelated test's `pageerror` watch, while every
- * assertion about the values passed. It doubles as an XSS probe: `alert(1)` in a payload is a dialog.
+ * Installed on every test that renders. An `rgb()`-into-a-hex-parser bug threw once per frame inside
+ * the draw path and was caught only by an unrelated test's `pageerror` watch, while every assertion
+ * about the values passed. It doubles as an XSS probe: `alert(1)` in a payload is a dialog.
  */
 function watchFailures(page: Page): string[] {
 	const failures: string[] = [];
@@ -131,7 +130,7 @@ const SIMPLESTYLE_NAMES = new Set([
 	'stroke-dasharray'
 ]);
 
-test.describe('drawing (SPEC stories 57, 58, 59)', () => {
+test.describe('drawing', () => {
 	test('a pin, a line, and a shape are drawn and land in the Annotation Layer’s own file, with the polygon’s ring closed (RFC 7946 §3.1.6)', async ({
 		page
 	}) => {
@@ -200,7 +199,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(painted[shape!]).toContain(`ballastella-layer-${layerId}-fill`);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────
-		// AND EACH IS NUMBERED IN THE SIDEBAR (stories 37, 38, 42)
+		// AND EACH IS NUMBERED IN THE SIDEBAR
 		//
 		// Folded in here rather than given a test of its own because this is already the suite's one
 		// Project holding a pin, a line and a shape at once — and because the Seam 2 budget is spent
@@ -260,7 +259,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			]);
 		}, middle);
 
-		// ── AND THE LEADER JOINS THE SHAPE TO ITS ROW (ticket 12, stories 39–42) ─────────────
+		// ── AND THE LEADER JOINS THE SHAPE TO ITS ROW ────────────────────────────────────────
 		//
 		// Folded in here rather than given a test of its own, for the reason the ordinals above were:
 		// this is already the suite's one Project holding a pin, a line and a shape at once, already
@@ -322,8 +321,8 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// ── IT CARRIES NOTHING, AND CANNOT BE REACHED ───────────────────────────────────────
 		//
-		// Story 42: `aria-expanded` on the row is what says which Annotation is active, so this layer
-		// must add nothing to either the accessibility tree or the tab order.
+		// `aria-expanded` on the row is what says which Annotation is active, so this layer must add
+		// nothing to either the accessibility tree or the tab order.
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
 		expect(
 			await leaderLayer(page).evaluate(
@@ -334,7 +333,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			'none'
 		);
 
-		// ── AND IT IS NOT DRAWN TO SOMEWHERE THE MARK IS NOT (story 41) ─────────────────────
+		// ── AND IT IS NOT DRAWN TO SOMEWHERE THE MARK IS NOT ────────────────────────────────
 		//
 		// Panned until the shape's mark has left the canvas. A line to nowhere is worse than no line.
 		await page.evaluate(async (at) => {
@@ -369,8 +368,8 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// ── AND NOT TO A ROW THAT HAS LEFT ITS COLUMN ───────────────────────────────────────
 		//
-		// The other end's half of story 41: the column is scrolled until the selected row is outside it,
-		// which is the moment the line would start pointing at a row that is not on the screen.
+		// The other end's half: the column is scrolled until the selected row is outside it, which is
+		// the moment the line would start pointing at a row that is not on the screen.
 		//
 		// ⚠ **The window is shortened to make that possible, and the shortening is not the assertion.**
 		// An Annotation's content is read over the map now (ADR-0035), so this column is a stack of rows
@@ -466,7 +465,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await page.setViewportSize({ width: 1280, height: 720 });
 		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 
-		// ── AND THE MAP DRAWS THE SELECTED ANNOTATION MORE STRONGLY (story 40) ───────────────
+		// ── AND THE MAP DRAWS THE SELECTED ANNOTATION MORE STRONGLY ──────────────────────────
 		//
 		// The other end's answer to "which one is this line about". **A change of weight and never of
 		// colour** — `stroke` and `marker-color` are the scholar's own choices — so what is asserted is
@@ -522,11 +521,10 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// ── AND THE LEADER IS DRAWN UNDER THE PANEL AND UNDER THE CONTROLS ──────────────────
 		//
-		// The-annotation-inspector story 22, and the measurement `layout.css` records, repeated on the two
-		// things the line may never be drawn across. `.maplibregl-map` opens no stacking context, so the
-		// leader's 5, MapLibre's control corners at 6 and the Inspector's 7 are all compared in the one
-		// container they are painted in — three numbers in two files, with nothing but a test to say they are
-		// still in that order.
+		// The measurement `layout.css` records, repeated on the two things the line may never be drawn
+		// across. `.maplibregl-map` opens no stacking context, so the leader's 5, MapLibre's control
+		// corners at 6 and the Inspector's 7 are all compared in the one container they are painted in
+		// — three numbers in two files, with nothing but a test to say they are still in that order.
 		//
 		// ⚠ **`pointer-events` has to be turned on for the probe, and that is the whole instrument.** The
 		// leader takes none by design, so `elementFromPoint` answers straight past it whatever the stacking
@@ -588,7 +586,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	test('Escape abandons a part-drawn shape first, and then collapses the open row', async ({
 		page
 	}) => {
-		// **The ordering is the subject** (ticket 07). With no popup on this screen, Escape has two
+		// **The ordering is the subject**. With no popup on this screen, Escape has two
 		// jobs left and they are in a fixed order: a gesture in progress is what somebody pressing
 		// Escape almost always means, and the open row is what is left when there is no gesture. An
 		// Escape that collapsed the row first would throw away a shape's worth of clicks.
@@ -661,7 +659,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// The gesture went, and the row that was open stayed: one Escape, one job.
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
-		// **And the tool went with it** (the-annotation-inspector stories 38, 41): an abandoned gesture is
+		// **And the tool went with it**: an abandoned gesture is
 		// over, so the next click on the map selects rather than starting the polygon again.
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'select');
 		await expect(reopened).toHaveAttribute('aria-expanded', 'true');
@@ -694,12 +692,11 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	 * helper that clicked a row unconditionally would deselect the new shape and take the editor and
 	 * the vertex handles with it.
 	 *
-	 * **It is also where "finishing returns everything to rest" is asserted**
-	 * (the-annotation-inspector stories 37, 38, 39, 40). The tool disarming itself is
-	 * `AnnotationDrawing`'s and is asserted directly in `drawing.svelte.test.ts`; what needs a browser
-	 * is the whole surface answering to it at once — the resting button back, the shapes gone, the
-	 * keyboard in the new Annotation's title, and the next click on the canvas selecting rather than
-	 * drawing. None of those five is visible to the node seam or to the component seam.
+	 * **It is also where "finishing returns everything to rest" is asserted**. The tool disarming
+	 * itself is `AnnotationDrawing`'s and is asserted directly in `drawing.svelte.test.ts`; what needs
+	 * a browser is the whole surface answering to it at once — the resting button back, the shapes
+	 * gone, the keyboard in the new Annotation's title, and the next click on the canvas selecting
+	 * rather than drawing. None of those five is visible to the node seam or to the component seam.
 	 */
 	test('a shape drawn on the map arrives selected, at rest, with its title ready to type', async ({
 		page
@@ -721,11 +718,11 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		await expect(inspector(page)).toBeVisible();
 		await expect(page.getByTestId('annotation-title')).toBeFocused();
-		// **And the row opened nothing inside itself** (ADR-0035, the-annotation-inspector story 10): the
-		// row is a selector, the Annotation's content is read in the Inspector, and the list stays the
-		// same length however much any one Annotation has to say. Asserted as the `<li>`'s children
-		// rather than as the absence of a `data-testid`, because a renamed id is exactly how an absence
-		// assertion goes quietly green — there is nothing left in the row that could carry one.
+		// **And the row opened nothing inside itself** (ADR-0035): the row is a selector, the
+		// Annotation's content is read in the Inspector, and the list stays the same length however
+		// much any one Annotation has to say. Asserted as the `<li>`'s children rather than as the
+		// absence of a `data-testid`, because a renamed id is exactly how an absence assertion goes
+		// quietly green — there is nothing left in the row that could carry one.
 		expect(
 			await page
 				.getByTestId('annotation-row')
@@ -968,7 +965,7 @@ test.describe('editing a vertex costs exactly one write, on gesture end (ADR-001
 	});
 });
 
-test.describe('title and description (SPEC stories 62 and 67)', () => {
+test.describe('title and description', () => {
 	/** Draw one pin and select it, which is the smallest thing that has a description. */
 	async function withOnePin(page: Page): Promise<string> {
 		const layerId = await startAnnotating(page);
@@ -1003,8 +1000,8 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 		// Read as text; the pencil is what turns them back into fields. The title is read off the
-		// Inspector's header, which is the one place the panel names its Annotation
-		// (the-annotation-inspector story 4), and it appears there exactly once.
+		// Inspector's header, which is the one place the panel names its Annotation, and it appears
+		// there exactly once.
 		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('Warehouses');
 		await expect(page.getByTestId('annotation-description-text')).toContainText('The west quay.');
 		expect((await inspector(page).innerText()).match(/Warehouses/g)).toHaveLength(1);
@@ -1029,15 +1026,15 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// tiles while a scholar typed a title. The structure key now carries only which MapLibre layers
 		// the contents need; the features themselves are pushed into the source that is already there.
 		//
-		// Counted rather than looked at, through the stack's own build counter — the same one ticket
-		// 09 used to assert that dragging opacity is not a rebuild.
+		// Counted rather than looked at, through the stack's own build counter — the same one
+		// `editor-layers.e2e.ts` uses to assert that dragging opacity is not a rebuild.
 		await withOnePin(page);
 		const builds = () =>
 			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack?.builds ?? -1);
 		const before = await builds();
 		expect(before).toBeGreaterThan(0);
 
-		// ── AND SELECTING ONE COSTS THE STORE NOTHING AT ALL (ticket 12) ────────────────────
+		// ── AND SELECTING ONE COSTS THE STORE NOTHING AT ALL ────────────────────────────────
 		//
 		// The leader recomputes on every frame of a pan, and the way that goes wrong is not a slow
 		// frame — it is a redraw that reaches back through the application for the coordinate it is
@@ -1054,7 +1051,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await expect(onlyRow).toHaveAttribute('aria-expanded', 'false');
 		await countFileReads(page);
 		await countFileWrites(page);
-		// ⚠ **And it costs no camera move either** (the-annotation-inspector story 19, the restraint half).
+		// ⚠ **And it costs no camera move either.**
 		// Selecting an Annotation reserves the Inspector's footprint in the camera so that the mark is never
 		// behind the panel describing it — and that reservation must not be spent on a mark already
 		// comfortably in view. This pin is in the middle of the pane, the gesture was a press of a row, and a
@@ -1191,12 +1188,11 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// what the description does on the screen, and the Seam 2 budget (`scripts/check-seam-2-size.mjs`)
 		// is spent. It cannot be asserted anywhere cheaper: Seam 1c has no layout at all — no scroll
 		// geometry, no `offsetHeight`, no attribution — so a panel growing past the licence it may not cover
-		// is Seam 2 or nothing (the-annotation-inspector story 73).
+		// is Seam 2 or nothing.
 		//
-		// **The attribution is the boundary and it is a licence condition** (ODbL), not decoration
-		// (the-annotation-inspector stories 9, 21): the panel is capped so that the words underneath it stay
-		// uncovered, and a description longer than the cap scrolls inside the panel's own body rather than
-		// making the panel taller.
+		// **The attribution is the boundary and it is a licence condition** (ODbL), not decoration: the
+		// panel is capped so that the words underneath it stay uncovered, and a description longer than
+		// the cap scrolls inside the panel's own body rather than making the panel taller.
 		await editAnnotationText(page);
 		await page
 			.getByTestId('annotation-description')
@@ -1247,9 +1243,9 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 
 		// ── AND THE MAP IS STILL THE MAP BELOW IT ───────────────────────────────────────────
 		//
-		// The-annotation-inspector story 17, read at the panel's tallest, which is the hardest case: the
-		// panel is docked *over* the map rather than beside it, so below its bottom edge — in its own column
-		// — the canvas is still the canvas.
+		// Read at the panel's tallest, which is the hardest case: the panel is docked *over* the map
+		// rather than beside it, so below its bottom edge — in its own column — the canvas is still the
+		// canvas.
 		//
 		// The point probed is halfway between the panel's bottom edge and the attribution's top, so it is
 		// clear of both: the attribution is in this same column and its links are real links.
@@ -1290,7 +1286,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 	test('clicking the Annotation on the map opens its row, where the description is rendered', async ({
 		page
 	}) => {
-		// **The map draws no popup on this screen** (ticket 07). Clicking an Annotation opens its own
+		// **The map draws no popup on this screen**. Clicking an Annotation opens its own
 		// row instead, which is where an Annotation is read in both apps — so "what is this shape?" has
 		// one answer rather than a bubble over the map and a row in the sidebar that can disagree.
 		const failures = watchFailures(page);
@@ -1333,11 +1329,11 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 
 		// ── AND A MARK THAT WOULD BE BEHIND THE PANEL IS BROUGHT OUT FROM UNDER IT ──────────
 		//
-		// The-annotation-inspector story 19, and the case a scholar most needs the leader in: the Inspector
-		// docks over the top-right, so a mark in that quadrant ends up behind the panel describing it and the
-		// leader's end goes with it. Nothing throws — the one thing the line exists to show is simply
-		// invisible. Selecting the Annotation therefore reserves the panel's footprint in the camera and
-		// brings the mark out into the part of the pane nothing is covering.
+		// The case a scholar most needs the leader in: the Inspector docks over the top-right, so a mark
+		// in that quadrant ends up behind the panel describing it and the leader's end goes with it.
+		// Nothing throws — the one thing the line exists to show is simply invisible. Selecting the
+		// Annotation therefore reserves the panel's footprint in the camera and brings the mark out into
+		// the part of the pane nothing is covering.
 		//
 		// Folded in here rather than given a test of its own because this is already the suite's Project
 		// with a long description on the screen — which is what makes the panel stand at its cap, and the
@@ -1552,22 +1548,21 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
  */
 const STACKS_BELOW = 1024;
 
-test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => {
+test.describe('on a phone', () => {
 	/**
 	 * The Project screen has never had a breakpoint: a 24 rem sidebar and whatever was left. At 390 px
 	 * that is the whole window given to the stack and nothing at all to the map.
 	 *
 	 * **One test, and the folding is the Seam 2 budget** (`scripts/check-seam-2-size.mjs`): the three
-	 * stories are one layout — the screen stacks, and *because* it stacks the panel has no corner to
+	 * claims are one layout — the screen stacks, and *because* it stacks the panel has no corner to
 	 * dock to and the leader has no two columns to run between. Every one of them is a claim about
 	 * rendered geometry, which Seam 1c cannot hold at all: it has no `offsetWidth`, no scroll
-	 * geometry, and no attribution (the-annotation-inspector story 73).
+	 * geometry, and no attribution.
 	 *
-	 * **Driven by resizing rather than by a Playwright project**, which is what the ticket's scope
-	 * refuses: a project per viewport multiplies every spec in the suite. Resizing also buys the
-	 * comparison the desktop assertions here are for — the same run measures both sides of the
-	 * breakpoint, so "unchanged on a desktop" is asserted against the same Project rather than
-	 * inferred from another test.
+	 * **Driven by resizing rather than by a Playwright project**: a project per viewport multiplies
+	 * every spec in the suite. Resizing also buys the comparison the desktop assertions here are for —
+	 * the same run measures both sides of the breakpoint, so "unchanged on a desktop" is asserted
+	 * against the same Project rather than inferred from another test.
 	 */
 	test('the screen stacks, the Inspector becomes a sheet at the bottom, and no leader is drawn', async ({
 		page
@@ -1652,8 +1647,6 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 		await expect.poll(columnsOverlap, 'still two columns one pixel below it').toBe(true);
 
 		// ── AT A PHONE'S OWN SIZE, BOTH HALVES OF THE SCREEN ARE USABLE ─────────────────────
-		//
-		// The-annotation-inspector story 60.
 		await page.setViewportSize({ width: 390, height: 844 });
 		const column = (await sidebar.boundingBox())!;
 		const pane = (await map.boundingBox())!;
@@ -1665,7 +1658,7 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 		expect(column.width, 'the sidebar is not the width of the screen').toBe(
 			page.viewportSize()!.width
 		);
-		// And the map got something rather than nothing, which is the fault story 60 names.
+		// And the map got something rather than nothing, which is the fault a stacked layout invites.
 		expect(pane.width).toBeGreaterThan(0);
 		expect(pane.height).toBeGreaterThan(0);
 		// **The map is the first thing on the screen and the stack is beneath it**, because the Inspector is
@@ -1696,8 +1689,6 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 		await expect(sidebar.getByTestId('annotation-row')).toHaveCount(1);
 
 		// ── THE PANEL IS A SHEET ACROSS THE BOTTOM OF THE PANE ──────────────────────────────
-		//
-		// The-annotation-inspector story 61.
 		const sheet = (await inspector(page).boundingBox())!;
 		expect(sheet.x, 'the sheet does not reach the pane’s left edge').toBeLessThan(pane.x + 16);
 		expect(sheet.x + sheet.width, 'the sheet does not reach the pane’s right edge').toBeGreaterThan(
@@ -1724,16 +1715,16 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 
 		// ── AND MAPLIBRE'S ZOOM CONTROL IS STILL TAPPABLE UNDER IT ──────────────────────────
 		//
-		// ⚠ **The-annotation-inspector story 18, and a sheet is the layout that reinstates the fault it
-		// names.** The sheet is `z-index: 7` and `layout.css` pins MapLibre's control corners to 6, so a
-		// full-width band across the pane's bottom edge covers the zoom control the dock decision moved to
+		// ⚠ **A sheet is the layout that reinstates the fault the zoom control's own corner was chosen to
+		// rule out.** The sheet is `z-index: 7` and `layout.css` pins MapLibre's control corners to 6, so
+		// a full-width band across the pane's bottom edge covers the zoom control the dock decision moved to
 		// the bottom-left *precisely* so that it could never be under the Inspector. Measured at 390 × 844
 		// with a 2 rem inset: the zoom-in button 100% overlapped, and `elementFromPoint` at its centre
 		// answering with a paragraph of the description — "I never have to dismiss a panel to zoom" gone,
 		// on the one layout where dismissing costs the most.
 		//
 		// **`elementFromPoint` at the button's centre is the assertion that can actually fail**, because
-		// what the story is about is whether the button can be pressed. The overlap is asserted beside it so
+		// what is at stake is whether the button can be pressed. The overlap is asserted beside it so
 		// that a sheet clearing the centre and covering the corners cannot pass, and the button is then
 		// really pressed and the zoom really read — the three together are the claim in the terms a thumb
 		// meets it in.
@@ -1765,8 +1756,8 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 
 		// ── AND THE SELECTED MARK IS BROUGHT OUT FROM UNDER THE SHEET, ON THE Y AXIS ────────
 		//
-		// ⚠ **The-annotation-inspector story 19 on the other axis, which is the whole difference a sheet
-		// makes.** The docked panel is a column inset from the pane's right edge, so `keepAnnotationClear`
+		// ⚠ **The same reservation on the other axis, which is the whole difference a sheet makes.** The
+		// docked panel is a column inset from the pane's right edge, so `keepAnnotationClear`
 		// reserves *width* and the mark moves sideways into the strip beside it. A sheet spans the pane's
 		// width and there is no such strip: a reservation computed from the occluder's left edge clamps to
 		// half the pane and shoves the mark sideways for nothing. Measured at 390 × 844 before this was
@@ -1876,8 +1867,8 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 
 		// ── AND BOTH FACES SCROLL INSIDE IT AT THE CAP ──────────────────────────────────────
 		//
-		// ⚠ **The Style face as well as the Text one**, which ticket 07 left for this ticket: it is the
-		// taller of the two — some twenty-five controls — and it had never been measured against a cap.
+		// ⚠ **The Style face as well as the Text one**: it is the taller of the two — some twenty-five
+		// controls — and it had never been measured against a cap.
 		const face = page.getByTestId('annotation-inspector-face');
 		/**
 		 * How far the identity header sits below the top of the sheet, in pixels.
@@ -1934,8 +1925,6 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 
 		// ── AND NO LEADER IS DRAWN, BECAUSE `leaderPath` REFUSED ────────────────────────────
 		//
-		// The-annotation-inspector story 62.
-		//
 		// ⚠ **Not "the line is invisible".** A media query hiding the element would satisfy any
 		// assertion about what can be seen; what the contract asks is that the *function* declines, so
 		// the polyline carries no `points` at all. The layer itself is asserted still rendered and still
@@ -1952,10 +1941,10 @@ test.describe('on a phone (the-annotation-inspector stories 60, 61, 62)', () => 
 
 		// ── AND A PHONE IN LANDSCAPE STILL REACHES THE STYLE FACE ───────────────────────────
 		//
-		// ⚠ **What this holds is the pane's fixed `h-[26rem]`, not a phone in landscape.** The fault ticket
-		// 07 left here is a *short pane*: the identity header and the tab strip are `shrink-0`, so once the
-		// sheet's cap falls below their combined height the face is clipped to nothing while the Style tab
-		// goes on pressing. No viewport below `lg` can produce one — the pane is `h-[26rem]` there, measured
+		// ⚠ **What this holds is the pane's fixed `h-[26rem]`, not a phone in landscape.** The fault here
+		// is a *short pane*: the identity header and the tab strip are `shrink-0`, so once the sheet's cap
+		// falls below their combined height the face is clipped to nothing while the Style tab goes on
+		// pressing. No viewport below `lg` can produce one — the pane is `h-[26rem]` there, measured
 		// at 416 px from 320 × 320 to 1023 × 400, so this reads a comfortable 176 px against its 24 px
 		// floor. What the floor therefore guards is the pane's fixed height, which is the choice worth
 		// holding: a fraction of a phone in landscape is exactly the short pane that clips the face.
@@ -2012,7 +2001,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 	const PROSE = 'The **west** quay, per the survey.';
 
 	/**
-	 * The payload ticket 13 proved reaches storage byte-identical, plus a `javascript:` link.
+	 * The payload an import stores byte-identical, plus a `javascript:` link.
 	 *
 	 * The `javascript:` link is written in **Markdown** syntax deliberately: it contains no HTML, so a
 	 * sanitise-then-parse implementation passes it through as inert text and then reconstructs an
@@ -2093,7 +2082,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 
 	/**
 	 * A Project whose Annotation carries the payload in **both** its title and its description, seeded
-	 * into the file the way ticket 13's import would have left it.
+	 * into the file the way a zip import would have left it.
 	 *
 	 * Seeded rather than typed, because that is the real threat model: the payload arrives in a zip or
 	 * from a remote source, written by somebody else, and the first time this app touches it is when it
@@ -2129,7 +2118,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		// sanitises, in that order — and it is asserted over the same payload in
 		// `packages/core/src/annotation/markdown.browser.test.ts`, where a real DOM is the assertion
 		// and no application has to boot. That file still exercises `renderAnnotationPopup` as well as
-		// `renderDescription`: the sanitiser did not retire with the popup (ticket 07).
+		// `renderDescription`: the sanitiser did not retire with the popup.
 		//
 		// What no test there can fail for is **whether the application calls it**. The sanitiser could
 		// be perfect and this row could set `innerHTML` from the raw `description`, and every assertion
@@ -2189,7 +2178,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 
 	test('rendering the payload does not rewrite the file it came from', async ({ page }) => {
 		// ADR-0010: merely looking at somebody else's Project must not modify a byte of it. This also
-		// carries forward what ticket 13 asserted — the payload is stored as it arrived — through a
+		// carries forward the import's own claim — the payload is stored as it arrived — through a
 		// session that has now *rendered* it three ways.
 		const layerId = await withPayload(page);
 		const before = await hashesUnder(page, 'annotations/');
@@ -2199,7 +2188,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		await chooseTool(page, 'select');
 		await clickAt(baseMap(page), 0.5, 0.5);
 		await expect(page.getByTestId('annotation-description-text')).toBeVisible();
-		// Tab out of the title field, which is the shape ticket 02 got wrong: a blur must not rewrite.
+		// Tab out of the title field: a blur must not rewrite.
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').focus();
 		await page.getByTestId('annotation-title').blur();
@@ -2209,7 +2198,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 	});
 });
 
-test.describe('style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
+test.describe('style controls write simplestyle names exactly', () => {
 	/**
 	 * **The nine swatches fit on one line inside the Inspector**, which is the half of this claim that
 	 * needs a laid-out page.
@@ -2294,7 +2283,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 const readAnnotationText = async (page: Page, layerId: string): Promise<string> =>
 	JSON.stringify(await storedAnnotations(page, layerId));
 
-test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
+test.describe('solid, dashed, and dotted', () => {
 	test('the three render distinctly, each by its own layer with its own dash pattern', async ({
 		page
 	}) => {
@@ -2482,7 +2471,7 @@ const pixelsAbove = (page: Page, at: [number, number], rows: number) =>
 		[at, rows] as const
 	);
 
-test.describe('a Label draws its words on the map (write-on-the-map stories 28–32, 37, 61)', () => {
+test.describe('a Label draws its words on the map', () => {
 	/**
 	 * A title a stranger wrote, drawn on the map by a renderer that has no HTML parser in it.
 	 *
@@ -2550,7 +2539,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 			expect.objectContaining({ layer: pointLayer })
 		);
 
-		// ── AN EMPTY TITLE DRAWS NOTHING, RATHER THAN AN EMPTY COLOURED BOX (story 61) ──────
+		// ── AN EMPTY TITLE DRAWS NOTHING, RATHER THAN AN EMPTY COLOURED BOX ─────────────────
 		//
 		// Neither the words nor the chip they would have sat on — which is a stronger claim than "no
 		// text", and the reason `icon-image` is chosen per feature: MapLibre draws a symbol that has an
@@ -2560,18 +2549,18 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 
 		// ── AND SO DOES A TITLE OF NOTHING BUT WHITESPACE ───────────────────────────────────
 		//
-		// Story 61's other half, and the one `!== ''` missed: MapLibre's shaping trims each line before
-		// it measures anything, so a single space shapes to no text at all while the icon still resolves
+		// The other half, and the one `!== ''` missed: MapLibre's shaping trims each line before it
+		// measures anything, so a single space shapes to no text at all while the icon still resolves
 		// — a bare coloured box for an author who typed a space, or who deleted a word back to one.
 		expect(await annotationsAt(page, SPACES)).toEqual([]);
 
-		// ── THE CHIP GROWS WITH THE WORDS (story 37) ────────────────────────────────────────
+		// ── THE CHIP GROWS WITH THE WORDS ───────────────────────────────────────────────────
 		const short = await chipWidth(page, SHORT, 'short');
 		const long = await chipWidth(page, LONG, 'long');
 		expect(short).toBeGreaterThan(0);
 		expect(long).toBeGreaterThan(short);
 
-		// ── AND A TITLE THAT LOOKS LIKE MARKUP IS CHARACTERS (story 18) ─────────────────────
+		// ── AND A TITLE THAT LOOKS LIKE MARKUP IS CHARACTERS ────────────────────────────────
 		//
 		// The map is a WebGL canvas, so the payload cannot become an element there; what this asserts is
 		// that it did not become one anywhere else on the way, and that every character was typeset —
@@ -2601,7 +2590,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		await reopenLayers(page);
 		await waitForPaintedAnnotations(page, ['zuiderzee']);
 
-		// ── CLICKED ON THE MAP, LIKE A PIN (story 31) ───────────────────────────────────────
+		// ── CLICKED ON THE MAP, LIKE A PIN ──────────────────────────────────────────────────
 		//
 		// Hit-testing is by layer id, so a Label absent from `annotationLayerIds` is a mark nobody can
 		// click — and nothing about the click path is Label-specific, which is the point.
@@ -2622,7 +2611,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('Zuiderzee');
 		// The emphasis on the map is a feature state the chip's `icon-halo-width` reads, so the selected
-		// Label is drawn exactly as the file asks with an aura around it and never recoloured (story 32).
+		// Label is drawn exactly as the file asks with an aura around it and never recoloured.
 		expect(
 			await page.evaluate(
 				(source) =>
@@ -2639,8 +2628,8 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		// ⚠ **The claim `label-chip.ts`'s transparent margin exists for.** The chip is an SDF and its halo
 		// is drawn wherever the field has fallen below the shader's own edge value; a field clipped at the
 		// shape's outline has none of that beside a flat edge, so `icon-halo-width` used to paint four
-		// small corner arcs with nothing between them while SPEC promises "an aura around it". Read on the
-		// column above the coordinate, which is the middle of the flat top edge.
+		// small corner arcs with nothing between them instead of an aura around the whole chip. Read on
+		// the column above the coordinate, which is the middle of the flat top edge.
 		//
 		// Only the halo can have changed: `icon-color`, `icon-opacity` and `text-color` are all read from
 		// the feature and selection touches none of them.
@@ -2648,7 +2637,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		const changed = beforeSelecting.filter((pixel, row) => pixel !== afterSelecting[row]).length;
 		expect(changed).toBeGreaterThanOrEqual(2);
 
-		// ── AND THE LEADER RUNS TO THE WORDS THEMSELVES (story 33) ──────────────────────────
+		// ── AND THE LEADER RUNS TO THE WORDS THEMSELVES ─────────────────────────────────────
 		//
 		// A Label is centred on its coordinate and has no pin standing above it, so the line ends on the
 		// drawing rather than half a pin's height over the ground beside it. The coordinate is the file's
@@ -2658,7 +2647,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 		expect(Math.hypot(end.x - (pane.x + at.x), end.y - (pane.y + at.y))) //
 			.toBeLessThanOrEqual(MARK_CLEARANCE + 1);
 
-		// ── AND IT IS DRAGGED BY ITS VERTEX HANDLE FOR EXACTLY ONE WRITE (stories 34, 36) ───
+		// ── AND IT IS DRAGGED BY ITS VERTEX HANDLE FOR EXACTLY ONE WRITE ────────────────────
 		const handle = page.getByTestId('pane-overlay-point-annotation-vertex');
 		await expect(handle).toHaveCount(1);
 		const before = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
@@ -2681,11 +2670,10 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 	test('the chip fits its words at all three sizes, with a short word and a long phrase', async ({
 		page
 	}) => {
-		// ⚠ **Ticket 01 proved this geometry in a browser and `label-chip.ts` changed it**: the shape now
-		// stops short of the image's own border so the halo has somewhere to be, which moves `content`,
-		// both stretch zones and the icon's total extent. Nothing in a unit test can say whether
-		// `icon-text-fit` still lands on the words after that, so the six cases the proof used are asserted
-		// here instead of being trusted.
+		// ⚠ **`label-chip.ts`'s shape stops short of the image's own border so the halo has somewhere to
+		// be**, which moves `content`, both stretch zones and the icon's total extent. Nothing in a unit
+		// test can say whether `icon-text-fit` still lands on the words after that, so all six cases are
+		// asserted here in a browser instead of being trusted.
 		const failures = watchFailures(page);
 		const layerId = await seedAnnotationProject(page);
 		const SHORT_WORD = 'Ee';
@@ -2742,7 +2730,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 
 		for (const { size } of ROWS) {
 			// The chip is fitted to its words on both axes, so a long phrase's chip is wider than a short
-			// word's at the same size — story 37, at each size rather than only at the default one.
+			// word's at the same size — at each size rather than only at the default one.
 			expect(widths[size]!.long).toBeGreaterThan(widths[size]!.short);
 		}
 		// And the three sizes are three sizes: larger words, a larger chip around them.
@@ -2753,7 +2741,7 @@ test.describe('a Label draws its words on the map (write-on-the-map stories 28�
 	});
 });
 
-test.describe('a Label is placed and its words typed (write-on-the-map stories 3, 4, 9, 10, 16, 26)', () => {
+test.describe('a Label is placed and its words typed', () => {
 	/**
 	 * ⚠ **The one test in this suite that *creates* a Label rather than seeding one**, which is why it
 	 * carries the claims a seeded fixture cannot: what the creation path wrote, what it cost, and what
@@ -2763,9 +2751,9 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 	 * that the whole gesture — a keyboard, a real canvas, real OPFS — comes out as words on a map and a
 	 * Point in a file.
 	 *
-	 * **Driven by the keyboard alone**, so story 9's "the map pane is operable without a pointer" is part
-	 * of this gesture rather than a separate test: every control is a native button, and `Enter` on the
-	 * focused canvas places a vertex at the crosshair.
+	 * **Driven by the keyboard alone**, so "the map pane is operable without a pointer" is part of this
+	 * gesture rather than a separate test: every control is a native button, and `Enter` on the focused
+	 * canvas places a vertex at the crosshair.
 	 */
 	test('typed with the keyboard alone, the words draw and the file says label; its style is inherited and the Pin after it is a Pin', async ({
 		page
@@ -2780,7 +2768,7 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		await page.getByTestId('annotation-tool-text').press('Enter');
 		await expect(page.getByTestId('annotation-tool-text')).toHaveAttribute('aria-pressed', 'true');
 		// The tool names itself and says what to do with it — "Label", never the `'text'` the union
-		// spells it (stories 7 and 63).
+		// spells it.
 		await expect(page.getByTestId('annotation-status')) //
 			.toHaveText('Label tool. Click the map to place.');
 
@@ -2789,11 +2777,10 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
-		// Placed, announced, and the tool put itself down: one press of New Annotation, one Annotation
-		// (stories 5 and 8).
+		// Placed, announced, and the tool put itself down: one press of New Annotation, one Annotation.
 		await expect(page.getByTestId('annotation-status')).toContainText('Label added');
 		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
-		// And the keyboard is in the field the words go in, so clicking and typing is one gesture (story 4).
+		// And the keyboard is in the field the words go in, so clicking and typing is one gesture.
 		await expect(page.getByTestId('annotation-title')).toBeFocused();
 
 		// **The placement is exactly one write** (ADR-0017 rule 1), and it is the *untitled* document,
@@ -2821,7 +2808,7 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		const at = label.geometry!.coordinates as [number, number];
 
 		// The file is the product: a Point carrying the discriminator and the words, and nothing this app
-		// invented (story 47).
+		// invented.
 		expect(label.geometry?.type).toBe('Point');
 		expect(label.properties).toMatchObject({ 'marker-symbol': 'label', title: 'Zuiderzee' });
 
@@ -2834,7 +2821,7 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 		// the file without a counted write per character.
 		expect(await annotationWrites(page)).toHaveLength(1);
 
-		// Drawn where the point said, out of the Label bucket, with the words on it (story 28).
+		// Drawn where the point said, out of the Label bucket, with the words on it.
 		await waitForPaintedAnnotations(page, [label.id]);
 		expect(await annotationsAt(page, at)) //
 			.toContainEqual({ id: label.id, layer: labelLayer, title: 'Zuiderzee' });
@@ -2945,7 +2932,7 @@ test.describe('a Label is placed and its words typed (write-on-the-map stories 3
 			'marker-size': 'large'
 		});
 
-		// ── AND DRAWING A PIN STRAIGHT AFTER IT GIVES A PIN (story 26) ──────────────────────
+		// ── AND DRAWING A PIN STRAIGHT AFTER IT GIVES A PIN ─────────────────────────────────
 		//
 		// The inheritance carve-out's whole consequence, and the reason `marker-symbol` left the copied
 		// set: with it copied, this click produced a second Label — the tool the author chose overridden
@@ -3066,7 +3053,7 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 	});
 });
 
-test.describe('deleting an Annotation (SPEC story 66)', () => {
+test.describe('deleting an Annotation', () => {
 	/**
 	 * Which element has the keyboard, by its `data-testid`, or `'BODY'` for nowhere.
 	 *
@@ -3090,7 +3077,7 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		await chooseTool(page, 'select');
 		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
 
-		// ── DISMISSING LEAVES THE KEYBOARD IN THE LIST (story 56) ───────────────────────────
+		// ── DISMISSING LEAVES THE KEYBOARD IN THE LIST ──────────────────────────────────────
 		//
 		// Folded in here rather than given a test of its own: this is the suite's Project with three
 		// Annotations in one Layer, which is what both halves of the claim need, and the Seam 2 budget
@@ -3103,8 +3090,7 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		await page.getByTestId('annotation-inspector-close').click();
 		await expect(inspector(page)).toHaveCount(0);
 		await expect.poll(() => focused(page)).toBe('annotation-row');
-		// And dismissing left the list alone: the Layer's card is still open and the rows are still there,
-		// which is the whole of story 20.
+		// And dismissing left the list alone: the Layer's card is still open and the rows are still there.
 		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
 
 		const before = (await storedAnnotations(page, layerId)).features.map((one) => one.id);
@@ -3125,7 +3111,7 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		//
 		// The commonest delete of all — undoing a shape drawn by mistake in a Layer just made — and the
 		// one case where "a row in the list" does not exist to be focused. With `rows.length === 0` the
-		// keyboard was left on `document.body`, which is exactly what story 56 is against.
+		// keyboard was left on `document.body`, and a delete must never leave it there.
 		await selectAnnotation(page, 0);
 		await deleteAnnotation(page);
 		await selectAnnotation(page, 0);
@@ -3139,8 +3125,9 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 	test('an unchanged Annotation Layer stays byte-identical across a session that only looked', async ({
 		page
 	}) => {
-		// Ticket 09 asserts that reorder, rename, toggle, and opacity leave `annotations/*.geojson`
-		// byte-identical; this carries that forward through the surface that now *edits* them. Selecting,
+		// `editor-layers.e2e.ts` asserts that reorder, rename, toggle, and opacity leave
+		// `annotations/*.geojson` byte-identical; this carries that forward through the surface that
+		// *edits* them. Selecting,
 		// previewing, opening a popup, and tabbing through the fields are all looking, and ADR-0010 is
 		// explicit that looking must not modify files.
 		//
@@ -3198,7 +3185,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 	});
 });
 
-test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
+test.describe('the keyboard alone', () => {
 	test('every drawing tool and style control is reachable and operable, and the tool is announced', async ({
 		page
 	}) => {
@@ -3294,10 +3281,10 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		// Delete is on the Text face, beside the words it destroys, and it is reached by Tab like the rest.
 		await tabTo(page, page.getByTestId('annotation-delete'), 'annotation-delete');
 
-		// **And the Style face is reached from the keyboard as well, which is the whole of story 59 now
-		// that there is a strip in front of the controls.** The tab strip is a radio group, so it is one
-		// tab stop that lands on the checked member and arrow keys move along it — nothing was written to
-		// make that work, which is what "every control is a native element" buys.
+		// **And the Style face is reached from the keyboard as well, with a strip in front of the
+		// controls.** The tab strip is a radio group, so it is one tab stop that lands on the checked
+		// member and arrow keys move along it — nothing was written to make that work, which is what
+		// "every control is a native element" buys.
 		await tabTo(
 			page,
 			page.getByTestId('annotation-inspector-tab-text').locator('input'),
@@ -3345,7 +3332,7 @@ async function tabTo(page: Page, target: Locator, what: string, resetFocus = tru
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE OPEN LAYER IS THE LAYER BEING DRAWN INTO (ticket 05)
+// THE OPEN LAYER IS THE LAYER BEING DRAWN INTO
 //
 // There used to be two values — which Layer the sidebar was showing, and which one the "Drawing into"
 // picker had selected — and nothing stopped them disagreeing. They are one now, so opening a Layer is
@@ -3353,7 +3340,7 @@ async function tabTo(page: Page, target: Locator, what: string, resetFocus = tru
 // the stack. What follows is that identity asserted from both ends.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('drawing into the Layer that is open (ticket 05)', () => {
+test.describe('drawing into the Layer that is open', () => {
 	/** One Layer's row, by its id, because adding a Layer puts it on top and moves the others down. */
 	const rowFor = (page: Page, layerId: string) =>
 		page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`);
@@ -3361,17 +3348,17 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 	/**
 	 * A Project with no Annotation Layer says what to do about it, and stops saying it once done.
 	 *
-	 * **Guidance, not an announcement, and the difference is why this test exists.** Before ticket 05
-	 * this was said twice: `AnnotationPanel` had a "No Annotation Layers yet" branch, and the toolbar
-	 * beneath it announced "Add an Annotation Layer to start drawing." from a `disabled` state. Putting
+	 * **Guidance, not an announcement, and the difference is why this test exists.** This was once said
+	 * twice: `AnnotationPanel` had a "No Annotation Layers yet" branch, and the toolbar beneath it
+	 * announced "Add an Annotation Layer to start drawing." from a `disabled` state. Putting
 	 * the toolbar inside an open Layer's row makes the disabled state unreachable — there is no render
 	 * path to it that is not already inside an Annotation Layer — so *that* sentence went with the
 	 * state it described, which is the only condition under which removing an announcement is not an
-	 * accessibility regression (SPEC story 112).
+	 * accessibility regression.
 	 *
 	 * What could not go with it is the guidance, because the state it is about — a Project with Layers
 	 * and no Annotation Layer — is as reachable as it ever was. It is beside the button that resolves
-	 * it, and asserted as visible text rather than as a `title` (SPEC story 111).
+	 * it, and asserted as visible text rather than as a `title`.
 	 */
 	test('a Project with no Annotation Layer says so, beside the button that fixes it', async ({
 		page
@@ -3386,7 +3373,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		const guidance = page.getByTestId('no-annotation-layers');
 		await expect(guidance).toBeVisible();
 		await expect(guidance).toContainText('No Annotation Layers yet');
-		// It names the two steps the interface now takes, the second of which is ticket 05's.
+		// It names the two steps the interface takes, the second of which is opening the Layer.
 		await expect(guidance).toContainText('open it to draw');
 		// And there are no drawing tools anywhere, which is the state it is explaining.
 		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
@@ -3442,10 +3429,10 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THIS IS THE DEFECT THE CONTRACT NAMES, AND IT IS REACHABLE BY THREE CLICKS
 	 *
-	 * `activeLayer` used to fall back to `annotationLayers[0]` when nothing was chosen, and ticket 05
-	 * removed that fallback. Nothing else in this suite can see the removal: the drawing tools, the
-	 * Annotation list and the editor all render *inside* the open row, so restoring the fallback
-	 * changes no markup and leaves every other test green.
+	 * `activeLayer` has no fallback to `annotationLayers[0]` when nothing is chosen, and nothing else
+	 * in this suite can see that absence: the drawing tools, the Annotation list and the editor all
+	 * render *inside* the open row, so restoring the fallback changes no markup and leaves every other
+	 * test green.
 	 *
 	 * What it does change is the one path into the annotation writes that is live whether a row is
 	 * open or not: `BaseMapPane`'s `onclickpoint`, which is mounted for the whole screen. Closing a
@@ -3566,7 +3553,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 	});
 
 	/**
-	 * SPEC story 20, and the reason the two values had to become one.
+	 * The reason the two values had to become one.
 	 *
 	 * Clicking an Annotation on the Base Map already selected it; with the picker sitting elsewhere, a
 	 * user could be shown the editor for something they could not find in the sidebar. Now the click
@@ -3626,7 +3613,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 			'true'
 		);
 		// And nothing was drawn over the map: the row is the destination, so a bubble over the pin
-		// would be a second place to read one Annotation (ticket 07).
+		// would be a second place to read one Annotation.
 		await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
 
 		expect(failures).toEqual([]);
@@ -3634,10 +3621,10 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// PLACING A PIN AT A PLACE (ADR-0029, SPEC stories 6–14)
+// PLACING A PIN AT A PLACE (ADR-0029)
 //
-// The gesture this epic exists for: look up an address, watch the Pin land in the middle of a river,
-// and drag it onto the quay. **The lookup is the cheap step and the correction is the scholarship**,
+// The gesture place lookup exists for: look up an address, watch the Pin land in the middle of a
+// river, and drag it onto the quay. **The lookup is the cheap step and the correction is the scholarship**,
 // so nothing here treats the service's answer as authoritative and nothing records that it was
 // consulted.
 //
@@ -3855,7 +3842,7 @@ test.describe('placing a Pin at a Place', () => {
 	test('produces a Pin byte-identical to one drawn by hand and given the same title', async ({
 		page
 	}) => {
-		// ⚠ **The epic's central claim, and it is directly checkable.** Both Pins are produced through
+		// ⚠ **The central claim, and it is directly checkable.** Both Pins are produced through
 		// the interface and the two written files are compared **as text**, so a provenance property, a
 		// `properties` bag in a different order, or a style that did not inherit the same way all fail
 		// this — none of which a parsed `toMatchObject` would see.
@@ -3961,8 +3948,8 @@ test.describe('placing a Pin at a Place', () => {
 	test('takes the style the last Annotation was drawn with, as a drawn one would', async ({
 		page
 	}) => {
-		// SPEC story 14: lookup and drawing must not produce visibly different objects. Asserted by
-		// making the difference visible first — a colour nobody would get by accident — and then placing.
+		// Lookup and drawing must not produce visibly different objects. Asserted by making the
+		// difference visible first — a colour nobody would get by accident — and then placing.
 		await routePlaceLookup(page);
 		const layerId = await startAnnotating(page);
 
@@ -4069,8 +4056,8 @@ test.describe('placing a Pin at a Place', () => {
 
 		const placed = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
 
-		// Dragged — immediately, with no reselection and no redraw, which is the "one gesture rather
-		// than a delete and a redraw" of SPEC story 9.
+		// Dragged — immediately, with no reselection and no redraw: one gesture rather than a delete
+		// and a redraw.
 		const box = await handle.boundingBox();
 		if (!box) throw new Error('the vertex handle has no box');
 		// ⚠ **The handle is drawn where the Pin is** — asserted because it was not. A CSS `rotate` on
@@ -4106,8 +4093,7 @@ test.describe('placing a Pin at a Place', () => {
 			.not.toEqual(placed);
 		const dragged = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
 
-		// And by keyboard, because a precise correction should not need a steady hand on a trackpad
-		// (SPEC story 11).
+		// And by keyboard, because a precise correction should not need a steady hand on a trackpad.
 		await handle.focus();
 		await page.keyboard.press('ArrowRight');
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
@@ -4117,7 +4103,7 @@ test.describe('placing a Pin at a Place', () => {
 	});
 });
 
-test.describe('a Label author journey uses only the keyboard (write-on-the-map story 62)', () => {
+test.describe('a Label author journey uses only the keyboard', () => {
 	/**
 	 * Only a browser can prove that focus traverses the authored surfaces from the tool through styling
 	 * and deletion without a pointer, including MapLibre's keyboard-operated Base Map.

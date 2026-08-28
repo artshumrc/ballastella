@@ -1,4 +1,4 @@
-// The synchronous write-ahead journal that makes ADR-0017 rule 3 true (ticket 20).
+// The synchronous write-ahead journal that makes ADR-0017 rule 3 true.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS EXISTS, AND WHY IT IS NOT A SECOND ProjectStore
@@ -46,7 +46,7 @@
 // records synchronously, and every successful store write forgets. The entry is therefore already
 // on disk when `pagehide` arrives, `Autosave.capture` at that moment is a belt-and-braces re-record
 // rather than the only chance, and a quota refusal happens while the user is still looking at the
-// app and can be told about it in words (SPEC stories 111 and 112).
+// app and can be told about it in words.
 //
 // The cost, in full, because this is the paragraph whose job is to hold it:
 //
@@ -72,12 +72,12 @@ import {
  * The shape of the journal's own records. Bumped when the *envelope* changes, never for a change
  * to the user's bytes, which the journal does not interpret at all.
  *
- * SPEC story 114: an entry from a newer version of this application is **refused and left alone**,
+ * An entry from a newer version of this application is **refused and left alone**,
  * never partially read and never discarded — see {@link readJournal}. That is only possible because
  * the version lives in the value rather than in the key: a key a newer build had versioned would be
  * invisible to this one, and invisible is exactly what "silently damaged" looks like.
  *
- * **Not bumped for {@link JournalEntry.held} (ticket 07)**, which is additive and optional: a build
+ * **Not bumped for {@link JournalEntry.held}**, which is additive and optional: a build
  * that does not know the field reads the entry exactly as it always did, and a build that does reads
  * an older entry as one with no baseline. Bumping would make every entry written here
  * `from-a-newer-version` to any earlier build — refused, kept, and reported at every startup — which
@@ -95,10 +95,9 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
 /**
  * Where a copy a replay **declined to apply** is kept, out of reach of the live journal.
  *
- * ⚠ **A second namespace, because "kept" was not kept.** `replayJournal` used to keep such a copy by
- * leaving the ordinary entry in place, and an ordinary entry is addressed by path alone: the very
- * next edit to that file overwrote it, silently, which is SPEC story 6 — *"my next keystroke does not
- * silently destroy it"* — verbatim. That is not the same as an ordinary supersede, and the difference
+ * ⚠ **A second namespace, because "kept" is not kept by the live journal.** An ordinary entry is
+ * addressed by path alone, so a declined copy kept as one is destroyed, silently, by the very next
+ * edit to that file. That is not the same as an ordinary supersede, and the difference
  * is the whole reason this exists: journal entries hold whole-file snapshots, so entry `v2` replacing
  * entry `v1` loses nothing, `v2` being the later state of the same document. A declined copy is not
  * an earlier state of what the scholar is now editing — it is a *divergent* one, made against
@@ -135,13 +134,13 @@ export const HELD_COPIES_PER_PATH = 3;
 /**
  * The two axes an entry is keyed by: **which Workspace** and **which file**.
  *
- * The Workspace half is not decoration. Since ticket 12 the OPFS root holds several named
- * Workspaces and one click on the bar switches between them, so a journal keyed by path alone would
- * replay a Project rename typed in "Marking 2026" into whichever Workspace happened to be open at
- * the next startup — the same class of failure `WorkspaceStorage.#adopt` exists to prevent for
- * queued writes, arriving by a route that outlives the tab.
+ * The Workspace half is not decoration. The OPFS root holds several named Workspaces and one click
+ * on the bar switches between them, so a journal keyed by path alone would replay a Project rename
+ * typed in "Marking 2026" into whichever Workspace happened to be open at the next startup — the
+ * same class of failure `WorkspaceStorage.#adopt` exists to prevent for queued writes, arriving by a
+ * route that outlives the tab.
  *
- * The encoding itself is `workspace-scoped-key.ts`, shared with `deleted-projects.ts` (ticket 21):
+ * The encoding itself is `workspace-scoped-key.ts`, shared with `deleted-projects.ts`:
  * two hand-written copies of it are two things that can drift, and a key one module writes and the
  * other cannot read fails silently.
  */
@@ -417,7 +416,7 @@ export interface JournalEntry {
 	readonly at: string;
 	/**
 	 * What the store held at the moment this entry was recorded, or `null` when the journal had no
-	 * way to know (ticket 07).
+	 * way to know.
 	 *
 	 * **This is the entry's precondition, and it is what stops a replay reverting newer bytes.** An
 	 * entry means "the store has not taken these bytes"; it does not say what the store *has* taken
@@ -456,9 +455,9 @@ export interface JournalEntry {
  * An entry that exists and cannot be replayed, which is a thing to say out loud rather than a thing
  * to drop.
  *
- * Ticket 13 shipped a restore that counted a *declined* write as a restored one, and review caught
- * it. The lesson generalises past that one counter: everything the journal did not write has to be
- * reachable and nameable, which is what this type is for.
+ * Counting a *declined* write as a restored one is the mistake this type exists to prevent, and the
+ * rule generalises past that one counter: everything the journal did not write has to be reachable
+ * and nameable.
  */
 export interface JournalProblem {
 	/** The raw storage key, so a report can name something a person could go and look at. */
@@ -473,7 +472,7 @@ export interface JournalProblem {
 export type JournalProblemReason =
 	/** The envelope did not parse, or held no usable bytes. Nothing is recoverable from it. */
 	| 'unreadable'
-	/** Written by a newer version of this application (SPEC story 114). Left strictly alone. */
+	/** Written by a newer version of this application. Left strictly alone. */
 	| 'from-a-newer-version';
 
 /**
@@ -548,7 +547,7 @@ export class WriteAheadJournal {
 	 *
 	 * The entry also carries {@link JournalEntry.held} when {@link #baseline} can derive one — the
 	 * store content this edit was made against, which is what lets replay tell a stranded write from
-	 * a revert (ticket 07).
+	 * a revert.
 	 *
 	 * @throws JournalFullError when the browser is out of room for this file
 	 * @throws JournalUnavailableError when the browser refuses to store anything at all
@@ -685,13 +684,13 @@ export class WriteAheadJournal {
 	 * Put a copy a replay declined to apply out of the live journal's reach, and drop the entry.
 	 *
 	 * See {@link HELD_KEY_PREFIX} for why this is a second namespace rather than "leave the entry
-	 * where it is": an entry is addressed by path, so the next edit to that file overwrote it.
+	 * where it is": an entry is addressed by path, so the next edit to that file would overwrite it.
 	 *
 	 * ⚠ **`null` means nothing was set aside, and the caller must say so.** Two things refuse: the
 	 * origin being out of room, and {@link HELD_COPIES_PER_PATH} already being reached. An earlier
 	 * draft returned the fingerprint either way, so a report said *"It has been kept"* beside a
 	 * **Throw this copy away** button when nothing had been kept and there was nothing to throw —
-	 * the exact shape of failure this epic exists to end, inside the fix for it.
+	 * the exact shape of failure this module exists to end, inside the fix for it.
 	 *
 	 * On a refusal the journal entry is left exactly where it is, which is the same direction
 	 * `record` takes for the same reason: a refusal must never be the thing that destroys the bytes
@@ -817,9 +816,9 @@ export interface JournalContents {
  *
  * The two problems are treated differently on purpose:
  *
- *   - **`from-a-newer-version` is kept.** SPEC story 114 is that a newer format is refused with an
- *     explanation rather than partially loaded, and the entry may still be perfectly replayable by
- *     the build that wrote it. Discarding it would turn "refused" into "silently damaged".
+ *   - **`from-a-newer-version` is kept.** A newer format is refused with an explanation rather than
+ *     partially loaded, and the entry may still be perfectly replayable by the build that wrote it.
+ *     Discarding it would turn "refused" into "silently damaged".
  *   - **`unreadable` is discarded**, and reported with the key that held it. There is nothing
  *     recoverable in an envelope that does not parse, and keeping it would make the notice
  *     permanent — a warning the user can never clear is one they stop reading.

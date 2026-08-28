@@ -1,4 +1,4 @@
-// What a Published Site's link offers before it is answered (SPEC stories 72–76).
+// What a Published Site's link offers before it is answered.
 //
 // ⚠ **The subject is the offer, not the transfer.** What arrives when a choice is pressed is
 // `remote-project-source.ts`'s and `review-from-remote.ts`'s at Seam 1, and that the applications
@@ -8,10 +8,10 @@
 // a browser.
 //
 // ⚠ **Focus is asserted here rather than in `e2e/`.** Every press unmounts the button that made it,
-// which is the whole of the defect (SPEC story 95): the outcome replaces the offer's buttons, and
-// declining takes the offer off the page. Neither needs a real transfer, real OPFS or a real
-// Workspace switch to be true or false, so both are claims about this component and belong at the
-// seam that can make them for a hundredth of the cost.
+// which is the whole of the defect: the outcome replaces the offer's buttons, and declining takes
+// the offer off the page. Neither needs a real transfer, real OPFS or a real Workspace switch to be
+// true or false, so both are claims about this component and belong at the seam that can make them
+// for a hundredth of the cost.
 
 import type { ReturnLink } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -34,9 +34,9 @@ const TARGET: ImportTarget = { name: 'Harbour maps', key: 'opfs:Harbour maps' };
 /**
  * The four members the offer reads, and a tripwire on the one it may never read.
  *
- * ⚠ **`credential` throws rather than answering.** Both Project choices are anonymous (SPEC story
- * 6), and a component that consulted the store would behave differently for somebody who happened
- * to be signed in — which no test that signs in first would ever show. So the assertion is that the
+ * ⚠ **`credential` throws rather than answering.** Both Project choices are anonymous, and a
+ * component that consulted the store would behave differently for somebody who happened to be
+ * signed in — which no test that signs in first would ever show. So the assertion is that the
  * member is never touched, and the fake is what makes touching it visible.
  */
 function fakeStorage(importTarget: ImportTarget | null = TARGET) {
@@ -105,7 +105,7 @@ const press = async (testId: string): Promise<void> => {
 };
 
 describe('a link naming one published Project', () => {
-	// SPEC stories 74 and 75: two deliberate outcomes, not one accept and a footnote.
+	// Two deliberate outcomes, not one accept and a footnote.
 	test('offers Import into the named Workspace, a review copy, and a way out', () => {
 		const { storage } = fakeStorage();
 
@@ -114,7 +114,7 @@ describe('a link naming one published Project', () => {
 		expect(at('import-return-link').textContent).toContain('Harbour maps');
 		expect(at('accept-return-link').textContent).toContain('review copy');
 		expect(at('dismiss-return-link')).toBeTruthy();
-		// Story 73: an offer, before anything is downloaded, and it says so.
+		// An offer, before anything is downloaded, and it says so.
 		expect(said()).toContain('Nothing has been downloaded yet');
 		expect(said()).toContain('amsterdam-1625');
 		expect(said()).toContain('ada/atlas');
@@ -170,7 +170,7 @@ describe('a link naming one published Project', () => {
 		expect(at('return-link-outcome').textContent).toContain('Reviewing Amsterdam 1625');
 	});
 
-	// Story 76: turning it down downloads nothing and changes nothing.
+	// Turning it down downloads nothing and changes nothing.
 	test('declining calls neither choice', () => {
 		const { storage, importRemoteProject, reviewFrom } = fakeStorage();
 		const ondismiss = offer(REVIEW, storage);
@@ -198,7 +198,7 @@ describe('a link naming one published Project', () => {
 });
 
 /**
- * Where a press leaves a keyboard user (SPEC story 95).
+ * Where a press leaves a keyboard user.
  *
  * Every one of the three buttons is gone by the time its own work is finished — two are replaced by
  * the outcome and the third is unmounted with the whole offer — so `<body>` is where focus lands
@@ -241,9 +241,8 @@ describe('focus after a press, which the press itself unmounts', () => {
 	/**
 	 * A refusal keeps the reader inside the offer, which is where the retry is.
 	 *
-	 * The alert is inserted rather than announced politely, because it is text that first exists at
-	 * the moment it is needed (SPEC story 94), and every button is still there — so nothing has to
-	 * move focus at all.
+	 * The alert is inserted rather than announced politely, because it is text that first exists at the
+	 * moment it is needed, and every button is still there — so nothing has to move focus at all.
 	 */
 	test('a refusal is an alert, and leaves focus on the choice that was pressed', async () => {
 		const { storage, importRemoteProject } = fakeStorage();
@@ -267,7 +266,7 @@ describe('focus after a press, which the press itself unmounts', () => {
 });
 
 describe('a link naming a whole repository', () => {
-	// Story 77: the Workspace-level invitation is one operation and keeps its own words.
+	// The Workspace-level invitation is one operation and keeps its own words.
 	test('offers to open a Workspace from GitHub, and nothing about Import', async () => {
 		const { storage, openFromGitHub, importRemoteProject } = fakeStorage();
 

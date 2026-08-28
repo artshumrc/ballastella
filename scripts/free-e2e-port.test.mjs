@@ -21,8 +21,8 @@
 // It used to be `packages/core/src/base-map/free-e2e-port.test.ts`, filed under the Base Map — which
 // its own comment admitted was "the one awkward thing about this address" — for a reason that was
 // true at the time: `pnpm -r test` does not reach the repository root, root scripts are not a
-// workspace package, and a test nobody runs is not a test. Ticket 17 removed that constraint rather
-// than working around it: `pnpm test` now runs `node --test scripts/*.test.mjs`, and CI runs
+// workspace package, and a test nobody runs is not a test. That constraint was removed rather than
+// worked around: `pnpm test` runs `node --test scripts/*.test.mjs`, and CI runs
 // `pnpm test`. So the test sits beside its subject.
 //
 // It was also, briefly, in two places at once — this file and the Base Map one — each pinning the

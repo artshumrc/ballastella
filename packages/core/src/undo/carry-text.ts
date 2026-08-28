@@ -3,12 +3,11 @@
 // A Step holds byte images, and undo writes one back. Writing it verbatim would also take back the
 // words a scholar typed *after* the gesture the Step records — a Layer renamed while a deletion sat
 // in the history, an Annotation titled after it was drawn — and typed text is not a Step and is
-// never reverted by one (SPEC stories 30–33). So undo writes `carry(image, current)`: the image with
-// the values now on disk spliced in, for the entities present in both.
+// never reverted by one. So undo writes `carry(image, current)`: the image with the values now on
+// disk spliced in, for the entities present in both.
 //
 // **An entity absent from the image carries nothing**, which is what makes undoing the creation of
-// an Annotation take its title and description with it (SPEC story 34) rather than leave it behind
-// as a fragment.
+// an Annotation take its title and description with it rather than leave it behind as a fragment.
 //
 // One value nobody types is carried too — the chosen Base Map, for the reason given on
 // {@link carryProjectText}: no Step records it either, so an image written verbatim would swap the
@@ -17,8 +16,8 @@
 // Both functions are pure and total: whatever is at the path right now — another tool's document, an
 // empty file, nothing at all — is a thing undo has to survive, and the answer in every such case is
 // the image unchanged. And when nothing actually carries they return the image **byte-identically**,
-// which is what keeps SPEC story 54's guarantee true in the ordinary case; re-serialising only when
-// something carries is the cost ADR-0039 names.
+// so an undo that changes no typed value leaves the file exactly as the Step recorded it;
+// re-serialising only when something carries is the cost ADR-0039 names.
 
 import type { Annotation, AnnotationProperties } from '../annotation/annotation.js';
 import { parseAnnotations, serialiseAnnotations } from '../annotation/geojson.js';

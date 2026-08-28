@@ -22,8 +22,7 @@ where a fixture came from is worth more than the bytes it saves.
 IIIF Image API 3 level-0 pyramid: 256-pixel square tiles, scale factors 1, 2, 4 and 8, 29 tiles
 in total. Region and size for each tile were computed by the same arithmetic as
 `@allmaps/iiif-parser`'s `getTileImageRequest`, which is what the pane uses to read them.
-Ticket 05 replaces that throwaway script with the real client-side tiler; when it lands, this
-pyramid is what its output is compared against.
+The client-side tiler's own output is compared against this pyramid.
 
 **Why this image and this shape.** A real archival scan rather than a generated gradient,
 because a gradient hides tile ordering mistakes that engraved detail makes obvious. And

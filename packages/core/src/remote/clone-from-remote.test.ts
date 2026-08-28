@@ -65,7 +65,7 @@ const PUBLISHED: Record<string, string> = {
 /**
  * Everything this brings down: the owned namespace, less the `remote.json` in the published tree.
  *
- * The binding is **not** written here any more. It is published output (ticket 02) and the
+ * The binding is **not** written here. It is published output and the
  * relationship a Workspace actually has is installation-local metadata (ADR-0038), so the transfer
  * writes neither — see `open-workspace-from-github.ts`.
  */
@@ -136,7 +136,7 @@ describe('cloneFromRemote', () => {
 	});
 
 	it('downloads only the owned namespace, leaving the publisher’s own files behind', async () => {
-		// ⚠ **The rule that keeps story 17 true, and the reason it is enforced *here*.** Everything a
+		// ⚠ **The rule that keeps a clone readable, and the reason it is enforced *here*.** Everything a
 		// Clone writes is Workspace content, and a publish sends every Workspace file — so a `CNAME` or
 		// a `README.md` picked up from somebody else's repository would be pushed into the cloner's own
 		// as authored content the first time they publish, overwriting the address they cite in print.
@@ -282,7 +282,7 @@ describe('cloneFromRemote', () => {
 			// ⚠ And it is **not** in the source the caller records as the initial Baseline. The Remote's
 			// bytes for that path were never written, so a Baseline holding the Remote's SHA for it would
 			// claim the two sides share an Alignment they do not — and the first status check would read
-			// `Up to date` over Control Points GitHub has never seen (SPEC story 99).
+			// `Up to date` over Control Points GitHub has never seen.
 			expect(result.source.has('alignments/map-1.json')).toBe(false);
 		});
 
@@ -493,10 +493,10 @@ describe('cloneFromRemote', () => {
 		it('tells the anonymous hourly limit apart from a repository that is not public', async () => {
 			// ⚠ **A spent budget and a private repository are both 403.** A Clone signs in to nothing, so
 			// the budget is GitHub's 60 requests an hour *per IP address*: a class of students on one
-			// campus connection cloning their instructor's repository spends it between them (SPEC story
-			// 48), and "make it public" is then an instruction about somebody else's repository that
-			// would not help if they followed it. The fake answers 403 before it looks at a credential,
-			// which is what makes this the anonymous reader's 403.
+			// campus connection cloning their instructor's repository spends it between them, and "make
+			// it public" is then an instruction about somebody else's repository that would not help if
+			// they followed it. The fake answers 403 before it looks at a credential, which is what makes
+			// this the anonymous reader's 403.
 			const fake = await github();
 			fake.rateLimit = { remaining: 0, reset: 1_800_000_000 };
 			const destination = destinationFor(new MemoryProjectStore());

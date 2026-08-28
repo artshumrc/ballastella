@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Ticket 18: exactly one module writes `alignments/<image-id>.json`, and every caller of it says
-// which of create / update / replace it means.
+// Exactly one module writes `alignments/<image-id>.json`, and every caller of it says which of
+// create / update / replace it means.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THERE IS A FENCE HERE WHEN THERE IS ALREADY A TYPE
@@ -34,7 +34,7 @@
 //
 //   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
 //   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
-//     Review Workspace (ticket 14).
+//     Review Workspace.
 //   - `packages/core/src/transfer/project-import-transaction.ts` — one Project being copied into the
 //     Workspace the user already has (ADR-0037), where the path is a Map Image identity allocated
 //     for this Import rather than one anything in the source named.
@@ -50,7 +50,7 @@
 //     data, so neither `WritablePath` nor the fence can see it."
 //
 // **This list is recounted whenever it is touched, and it went wrong twice already.** It said "two,
-// both tar readers" through ticket 07 while `replay.ts` had been the third since the journal landed;
+// both tar readers" for a while, when `replay.ts` had been the third since the journal landed;
 // the recount recipe written down to fix *that* then named a command producing seventeen lines for a
 // count of three, which is the same un-checkable claim one level up. So the recipe is one that can
 // be run and compared:
@@ -68,21 +68,21 @@
 // and never listed, which is the third time this list has gone stale between recipes. Run the command;
 // do not trust the count.
 //
-// **Two of the escapes were exercised again in ticket 07, and the answers are unchanged.** A path
+// **Two of the escapes have been exercised again since, and the answers are unchanged.** A path
 // laundered through a `const` template literal in `AlignmentWorkspace.svelte` was caught here, at
 // the line, with the three intents printed; a path assembled at runtime from three fragments
 // (`folder + imageId + suffix`) passed **both** `pnpm check` and this fence. That second one is the
 // gap stated above, measured rather than assumed, and it is still the honest limit: the cheap ways
 // in are closed and the remaining ones are conspicuous.
 //
-// Ticket 07 added `writeAlignmentFileReporting` beside `writeAlignmentFile` — the same function with
-// the concurrency report attached, and `writeAlignmentFile` delegates to it. It is a third export of
+// `writeAlignmentFileReporting` sits beside `writeAlignmentFile` — the same function with the
+// concurrency report attached, and `writeAlignmentFile` delegates to it. It is a third export of
 // the one owning module rather than a third writer, so nothing here changes: the crossing from
 // `AlignmentPath` to `WritablePath` is still the single cast in `alignment-file.ts`.
 //
-// This paragraph named one file, "the Project-zip importer", which ticket 14 deleted along with the
-// whole zip path. A fence whose honesty statement describes a file that is not there any more is a
-// fence nobody can check the honesty of, so the list is kept current here rather than in a ticket.
+// This paragraph once named "the Project-zip importer", which went when the whole zip path went. A
+// fence whose honesty statement describes a file that is not there any more is a fence nobody can
+// check the honesty of, so the list is kept current here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY EITHER GUARD EXISTS AT ALL
@@ -92,12 +92,12 @@
 // in front of you; now it can cost somebody else's afternoon in a Project you are not looking at.
 //
 // Nothing in the code was changed to reflect what that means for a write, and **two blind
-// overwrites of that file were then written independently**: ticket 02's community-Alignment import
-// and ticket 03's Align route. Ticket 02's starter path, two lines from its own unguarded write,
-// guards correctly — so the same author wrote the check and missed the hole beside it. A third
-// existence check, spelled differently again, was found in the since-deleted Project-zip importer during this
-// ticket's review; it was not a live overwrite, but it was a third answer to one question. Two
-// authors reaching for the same mistake is a missing invariant, not two lapses.
+// overwrites of that file were then written independently**: the community-Alignment import and the
+// Align route. The import's own starter path, two lines from its unguarded write, guards correctly —
+// so the same author wrote the check and missed the hole beside it. A third existence check, spelled
+// differently again, was found in the since-deleted Project-zip importer; it was not a live
+// overwrite, but it was a third answer to one question. Two authors reaching for the same mistake is
+// a missing invariant, not two lapses.
 //
 // The failure mode is why this is mechanical rather than reviewed, and it is the same argument
 // `check-workspace-rooted-paths.mjs` makes about a Project-rooted image path: an overwrite does not
@@ -249,8 +249,8 @@ function violationIn(text) {
  * The line at `index` joined with the ones below it until its brackets balance.
  *
  * Without this the fence is defeated by `prettier --write`, which is not a hypothetical: the blind
- * write in `editor-session.svelte.ts` that this ticket replaced was four lines long, with `commit(`
- * on one line and the Alignment path on the next, and a per-line regex saw neither.
+ * write this fence replaced in `editor-session.svelte.ts` was four lines long, with `commit(` on one
+ * line and the Alignment path on the next, and a per-line regex saw neither.
  *
  * Bounded at {@link JOIN_LIMIT} lines, so an unbalanced bracket cannot swallow the rest of the file.
  */
@@ -434,7 +434,7 @@ const bracketDepth = (line) => {
 // ── Positive control ──────────────────────────────────────────────────────────────────────────
 //
 // Runs before the scan, because a pattern that has stopped matching prints the same success line as
-// a tree with nothing to match. Every specimen is a real spelling: the two blind writes this epic
+// a tree with nothing to match. Every specimen is a real spelling: the two blind writes that
 // actually shipped, the fixture spellings, and the cast.
 
 /** @type {{ line: string, expect: string }[]} */
@@ -675,7 +675,7 @@ for (const absolute of files) {
 }
 
 if (violations.length > 0) {
-	console.error(`\nSomething other than ${OWNER} writes an Alignment (ADR-0023, ticket 18).\n`);
+	console.error(`\nSomething other than ${OWNER} writes an Alignment (ADR-0023).\n`);
 	for (const violation of violations) {
 		console.error(`  ${violation.file}:${violation.line}  ${violation.why}`);
 		console.error(`    ${violation.text}`);
@@ -699,7 +699,7 @@ if (violations.length > 0) {
 const modules = new Set(optedOut.map(({ file }) => file));
 console.log(
 	`One module writes an Alignment in the application — ${OWNER} — across ${files.length} files ` +
-		`scanned (ticket 18; ${patterns.length} spellings checked against their specimens). ` +
+		`scanned (${patterns.length} spellings checked against their specimens). ` +
 		`${optedOut.length} fixture write${optedOut.length === 1 ? '' : 's'} in ` +
 		`${modules.size} file${modules.size === 1 ? '' : 's'} are opted out with a reason, listed below.`
 );

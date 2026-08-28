@@ -34,9 +34,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE DEFECT THIS MODULE EXISTS TO NOT INHERIT
 //
-// Recorded on ticket 09 and carried into ticket 17's own degradation table: *a `'referenced'` Layer
-// whose `remote.json` is missing or unreadable renders blank while the page reports it drawn.* The
-// editor cannot tell those apart because `EditorSession` exposes no signal for "the remote records have
+// *A `'referenced'` Layer whose `remote.json` is missing or unreadable renders blank while the page
+// reports it drawn.* The editor cannot tell those apart because `EditorSession` exposes no signal for "the remote records have
 // not been read yet", so its Layers pane hands the stack `service: ''`, and `''` on a referenced Layer
 // is a warped layer that asks the injection shim for a pyramid a referenced image by definition does not
 // have locally: blank, and reported as drawn.
@@ -44,7 +43,7 @@
 // So {@link ReadDocuments} has three states per Layer and not two. `'loading'` is the state that was
 // missing: while it holds, the Layer is **not handed to the map at all**, so nothing can be reported
 // drawn from an address that has not arrived. `'unreadable'` carries the reason, including the host that
-// did not answer, which is what ticket 17's table asks for.
+// did not answer, which is the degradation rule {@link unreadable} states in full.
 
 import {
 	PathNotFoundError,
@@ -78,7 +77,8 @@ export type LayerDocuments =
 			 * The remote image service a referenced map Layer's tiles come from, `''` for a local copy.
 			 *
 			 * `''` on a referenced Layer is unreachable by construction here: the read that would produce
-			 * it fails, and the Layer is `'unreadable'` instead. That is the ticket 09 defect not inherited.
+			 * it fails, and the Layer is `'unreadable'` instead — the defect the module comment describes, not
+			 * inherited here.
 			 */
 			readonly service?: string;
 			/**
@@ -99,8 +99,8 @@ export type LayerDocuments =
 			 * Whether this map Layer's tiles are on somebody else's server, when that much was observable.
 			 *
 			 * Present on the failed case too, because the two questions are independent: a Layer whose
-			 * Alignment will not parse can still be one whose tiles need the network, and SPEC story 29 is
-			 * owed to the Reader either way. Absent when the image itself could not be placed.
+			 * Alignment will not parse can still be one whose tiles need the network, and a Reader is owed
+			 * that either way. Absent when the image itself could not be placed.
 			 */
 			readonly referenced?: boolean;
 			/**
@@ -121,9 +121,9 @@ export type ReadDocuments = Readonly<Record<string, LayerDocuments>>;
 /**
  * Read the documents every drawable Layer of `layers` references.
  *
- * One Layer's failure is that Layer's, never the Project's — ticket 17: "A missing or broken single
- * Layer must never take down the whole Project view." So every read is caught into that Layer's own
- * entry, and this function does not reject.
+ * One Layer's failure is that Layer's, never the Project's: a missing or broken single Layer must
+ * never take down the whole Project view. So every read is caught into that Layer's own entry, and
+ * this function does not reject.
  *
  * `foreign` Layers are skipped: this build cannot draw a kind it has never heard of, and it has nothing
  * to fetch for one (ADR-0014). The Layer is still listed, named, and toggleable.
@@ -199,9 +199,9 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 	// ── Where the tiles are ─────────────────────────────────────────────────────────────────────
 	//
 	// **Reported ahead of the Alignment, so that "this Layer needs the network" survives an Alignment
-	// that will not parse.** The two are independent facts and SPEC story 29 is owed to the Reader
-	// either way: answering it out of the Alignment's success is how the warning quietly stopped
-	// appearing for exactly the Projects most likely to have something wrong with them.
+	// that will not parse.** The two are independent facts and a Reader is owed the answer either way:
+	// answering it out of the Alignment's success is how the warning quietly stopped appearing for
+	// exactly the Projects most likely to have something wrong with them.
 	//
 	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
 	// `unset.invalid` placeholder in its `info.json` against them. The presence of that file is what says
@@ -228,7 +228,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 			service = record.service;
 		} catch (second) {
 			// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
-			// drawn, which is the defect recorded on ticket 09.
+			// drawn, which is the defect the module comment describes.
 			return {
 				...unreadable(
 					second,
@@ -294,10 +294,10 @@ async function readAnnotationLayer(
 /**
  * One failed read as something a Reader can act on.
  *
- * The host is named when a host is what failed, which is ticket 17's degradation table in one line: "Say
- * so, naming the host; keep the rest of the site working". A Reader on a train and a Reader visiting
- * after a library reorganised both need the name — it is the difference between "the tool is broken" and
- * "that server is down".
+ * The host is named when a host is what failed, which is the degradation rule in one line: say so,
+ * naming the host; keep the rest of the site working. A Reader on a train and a Reader visiting after a
+ * library reorganised both need the name — it is the difference between "the tool is broken" and "that
+ * server is down".
  */
 function unreadable(
 	cause: unknown,

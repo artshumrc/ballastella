@@ -59,7 +59,7 @@ export function resolveSiteAsset(path: string): string {
  * the site record, every `project.json`, every Alignment, every Annotation Layer, every `info.json`,
  * and every tile through ADR-0011's shim — comes through here. There is no second data path and
  * nothing in this app can write, because `createHttpProjectStore` returns an object whose only method
- * is `read` (ticket 17: "the viewer has no store `write`").
+ * is `read`: this app has no store `write` at all.
  *
  * A function rather than a module-level constant: `document.baseURI` does not exist while this app is
  * being prerendered, and a store built at import time would be built against nothing.
@@ -76,8 +76,8 @@ export function siteStore(): ReadOnlyProjectStore {
  * it or the two can disagree about what a Layer is.
  *
  * Through the store rather than through its own `fetch`, so that a 404 is a `PathNotFoundError` and a
- * host that is not answering is a `SiteFileUnreachableError` — the distinction ticket 17's degradation
- * table rests on, and one this module used to flatten into a single sentence about a status code.
+ * host that is not answering is a `SiteFileUnreachableError` — the distinction the Reader's
+ * degradation notices rest on, which a single sentence about a status code would flatten.
  */
 export async function readSiteFile(path: string): Promise<Bytes> {
 	return siteStore().read(path);

@@ -1,9 +1,9 @@
 <script lang="ts">
-	// The Annotation Inspector's Style face: how one Annotation is drawn (SPEC stories 63, 64, 65).
+	// The Annotation Inspector's Style face: how one Annotation is drawn.
 	//
 	// **Beside the map rather than under the row**, so the control and the change it makes are in the
-	// same glance (the-annotation-inspector story 24) — and behind a deliberate press, so selecting an
-	// Annotation to read it never produces an authoring form (stories 23, 25).
+	// same glance — and behind a deliberate press, so selecting an Annotation to read it never produces
+	// an authoring form.
 	//
 	// Every control is a native element, which is ADR-0016's mandate and not a preference: radios for
 	// the line style, the pin size and the colours, `<input type="range">` for the opacities. There is
@@ -12,7 +12,7 @@
 	// **There are no colour wells**, and that is the mandate being followed rather than bent: an
 	// Annotation may be one of nine named colours (`ANNOTATION_COLORS`), and a fixed set of alternatives
 	// is a radio group. `ColorPicker` owns the whole argument, including why a row of coloured squares
-	// does not fall foul of SPEC story 111.
+	// is not meaning carried by appearance alone.
 	//
 	// **A geometry this build cannot draw never reaches here.** The consumer passes no `style` snippet
 	// for one, so there is no Style tab rather than a tab explaining its own emptiness — which is why
@@ -57,7 +57,7 @@
 	 *
 	 * Resolved against simplestyle's own defaults and nothing else, since ADR-0009's amendment: a
 	 * newly drawn Annotation is given the last one's style outright, so what a control shows is what
-	 * the file says rather than what it inherits (the-annotation-inspector story 29).
+	 * the file says rather than what it inherits.
 	 */
 	const resolved = $derived(resolveStyle(properties));
 

@@ -34,7 +34,7 @@ import { defineConfig } from 'vitest/config';
 // wrong shape: a component rendered against props touches no OPFS, no WebGL and no service worker,
 // so a browser process per run bought nothing but a scaled-down copy of the cost `e2e/` charges.
 // `packages/core`'s browser project has a subject only a real engine has — OPFS, and Firefox's is a
-// different implementation of it, which is SPEC story 4. Nothing of that argument reaches here.
+// different implementation of it. Nothing of that argument reaches here.
 //
 // So a DOM implementation is a **fake**, and this repository's standing rule is that a fake agreeing
 // with itself is not a test. The boundary is therefore drawn by where the fake is known to diverge,
@@ -63,10 +63,10 @@ import { defineConfig } from 'vitest/config';
 //    `{#each}` really moves the node, the focused element really is blurred to `document.body` by
 //    the move, and the restoration really lands. This is asserted three ways below.
 //
-// 4. **DOMPurify, probed on 2026-08-14 for ticket 07, and it is INERT here.** `DOMPurify.isSupported`
-//    answers `true` against happy-dom 20.11, so `isDescriptionRendererSupported()` says yes and
-//    `renderDescription` runs — and then returns its input essentially untouched. Measured, the whole
-//    string surviving the allowlist:
+// 4. **DOMPurify, probed on 2026-08-14, and it is INERT here.** `DOMPurify.isSupported` answers
+//    `true` against happy-dom 20.11, so `isDescriptionRendererSupported()` says yes and
+//    `renderDescription` runs — and then returns its input essentially untouched. Measured, the
+//    whole string surviving the allowlist:
 //
 //        renderDescription('… and <img src=x onerror=alert(1)>')
 //          → '<p>… and <img src="x" onerror="alert(1)">'
@@ -81,16 +81,16 @@ import { defineConfig } from 'vitest/config';
 //    payload matrix stays in `packages/core/src/annotation/markdown.browser.test.ts`, over a real
 //    engine. ⚠ Nothing under this project may assert anything about `renderDescription`'s output.
 //
-// 5. **`DragEvent`.** Probed 2026-08-14 (ticket 08), and the answer was no on both members that
-//    matter. happy-dom's `DragEvent` does not extend `MouseEvent`, and its constructor ignores both
+// 5. **`DragEvent`.** Probed 2026-08-14, and the answer was no on both members that matter.
+//    happy-dom's `DragEvent` does not extend `MouseEvent`, and its constructor ignores both
 //    `dataTransfer` and `relatedTarget` from the init dictionary — `new DragEvent('dragstart', {
 //    dataTransfer })` arrives with `event.dataTransfer === undefined`. So `LayerList`'s
 //    `dragTheWholeCard` takes its own early return and never calls `setDragImage`, and its
-//    `ondragleave` guard — `relatedTarget` inside this card is not a departure, which is the whole of
-//    the anti-flicker fix — sees `undefined` every time and treats every leave as real. **The
-//    workaround is the trap:** dispatching a `MouseEvent` named `dragleave` makes both pass, and it is
-//    a fake agreeing with a fake about the one member the fake gets wrong. Every drag claim therefore
-//    stays in `e2e/editor-layers.e2e.ts`, which says so beside them.
+//    `ondragleave` guard — `relatedTarget` inside this card is not a departure, which is the whole
+//    of the anti-flicker fix — sees `undefined` every time and treats every leave as real. **The
+//    workaround is the trap:** dispatching a `MouseEvent` named `dragleave` makes both pass, and it
+//    is a fake agreeing with a fake about the one member the fake gets wrong. Every drag claim
+//    therefore stays in `e2e/editor-layers.e2e.ts`, which says so beside them.
 //
 // 6. **The Web Animations API.** Probed 2026-08-14 (the Annotation row disclosure): `Element`
 //    has no `animate`, in happy-dom 20.11 and in jsdom 30 alike. Svelte's `transition:` calls it for
@@ -113,12 +113,12 @@ import { defineConfig } from 'vitest/config';
 // `happy-dom` over `jsdom` on speed, both having answered the three probes identically.
 //
 // **What the move cost and bought**, measured three runs each on the same machine, same 13 claims
-// plus the probe: browser mode ran its tests in 1.04–1.08s inside a 2.88–3.04s wall clock; Node runs
-// them in 0.09–0.11s inside a 2.34–2.40s wall clock. Ten times cheaper in the tests themselves and
-// about 20% off the wall clock, which is the honest figure — a run this small is mostly Vite
+// plus the probe: browser mode ran its tests in 1.04–1.08s inside a 2.88–3.04s wall clock; Node
+// runs them in 0.09–0.11s inside a 2.34–2.40s wall clock. Ten times cheaper in the tests themselves
+// and about 20% off the wall clock, which is the honest figure — a run this small is mostly Vite
 // transforming, and the transform is now the floor rather than the browser. The saving that matters
-// is per-test rather than per-run: this is the seam the rest of the epic moves claims *into*, and it
-// no longer takes a browser process to add one.
+// is per-test rather than per-run: this is the seam claims move *into*, and it no longer takes a
+// browser process to add one.
 //
 // Concretely, these belong here — a row's text for an unaligned Layer, which control holds focus
 // after a delete, what a live region says, whether a dialog is a real `<dialog>`. These do not —
@@ -126,21 +126,21 @@ import { defineConfig } from 'vitest/config';
 // byte-identical on disk, that a Published Site's relative paths resolve in a subdirectory.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// The editor's unit seam (ticket 06).
+// The editor's unit seam.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS EXISTS NOW AND DID NOT BEFORE
 //
 // `apps/editor/` had no `*.test.ts` and no vitest project at all, so the only seam under
 // `EditorSession` and the Project screen was the 7-minute Playwright suite. That is why a
-// silent-return guard survived a whole epic: a browser test that drives the interface cannot
+// silent-return guard could survive unnoticed: a browser test that drives the interface cannot
 // easily reach a branch the interface has no gesture for, and nobody writes twenty of them.
 //
-// **What made it worth having is the carve.** Ticket 06 moved the Project screen's 369-line
-// annotation state layer into `annotation-editing.svelte.ts`, a class whose whole dependency on
-// the application is four methods (`AnnotationWriter`). That is a unit — it can be handed a fake
-// writer and a `$state` array of Layers — and until it existed there was nothing in this app that
-// could be tested without a browser.
+// **What made it worth having is the carve.** The Project screen's 369-line annotation state layer
+// lives in `annotation-editing.svelte.ts`, a class whose whole dependency on the application is
+// four methods (`AnnotationWriter`). That is a unit — it can be handed a fake writer and a `$state`
+// array of Layers — and until it existed there was nothing in this app that could be tested without
+// a browser.
 //
 // **Node, not browser.** There is no OPFS or WebGL below this seam and nothing here touches the
 // DOM: `packages/core`'s browser project exists because OPFS has no Node implementation, and that
