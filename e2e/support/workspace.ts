@@ -128,22 +128,80 @@ export async function closeRemoteSettings(page: Page): Promise<void> {
 // them. What each fact is now read from is named on its own helper, and each is the surface a
 // scholar would actually be looking at.
 
-/** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
-export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await expect(page.getByTestId('connect-to-github')).toHaveText(`Connected to ${remote}`);
+/** The bar's one GitHub control, which is the whole relationship behind one press (ADR-0041). */
+export const doorButton = (page: Page) => page.getByTestId('connect-to-github');
+
+/**
+ * Open the door, and wait for whichever of its landings is true.
+ *
+ * A `<dialog>` opened with `showModal()`, so everything behind it is inert until it is closed —
+ * which is why this and {@link closeTheDoor} are paired, and why the two gestures inside it
+ * ({@link checkRemoteStatus}, {@link updateFromGitHub}) close it on the press rather than reporting
+ * from behind it.
+ */
+export async function openTheDoor(page: Page): Promise<void> {
+	await doorButton(page).click();
+	await expect(page.getByTestId('connect-sequence')).toBeVisible();
+}
+
+export async function closeTheDoor(page: Page): Promise<void> {
+	await page.getByTestId('close-connect-sequence').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Do something behind the door, and close it again unless the press closed it itself. */
+export async function inTheDoor(
+	page: Page,
+	act: () => Promise<void>,
+	options: { closeAfter?: boolean } = {}
+): Promise<void> {
+	await openTheDoor(page);
+	await act();
+	if (options.closeAfter !== false) await closeTheDoor(page);
 }
 
 /**
- * What Remote settings says about the Synchronization Baseline (ADR-0038).
+ * Ask GitHub what it holds now, from the one place that asks.
+ *
+ * The door closes on the press, because the answer is the badge's: a `showModal()` dialog makes the
+ * bar inert, and a check whose result is behind the dialog that asked for it is a full stop.
+ */
+export async function checkRemoteStatus(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('check-remote-status').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Bring the Remote's changes in, from the same place, which closes for the same reason. */
+export async function updateFromGitHub(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('update-from-github').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Open the Publish dialog, which is a landing of the door rather than a control beside it. */
+export async function openPublishFromTheDoor(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('connect-publish').click();
+	await expect(page.getByRole('dialog', { name: /Publish/ })).toBeVisible();
+}
+
+/** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
+export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
+	await expect(doorButton(page)).toHaveText(`Connected to ${remote}`);
+}
+
+/**
+ * What the door says about the Synchronization Baseline (ADR-0038).
  *
  * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
  * stating, and saying nothing when the two sides' history is known is what keeps the sentence
  * meaningful when it appears.
  */
 export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
-	await openRemoteSettings(page);
-	await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
-	await closeRemoteSettings(page);
+	await inTheDoor(page, async () => {
+		await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
+	});
 }
 
 /** What Remote settings says about the push credential — "Signed in to GitHub", or not. */
@@ -161,7 +219,7 @@ export async function expectCredential(page: Page, sentence: string): Promise<vo
  * one: "publishes nowhere" and "names a repository" must not both be true.
  */
 export async function expectNoRemote(page: Page): Promise<void> {
-	await expect(page.getByTestId('connect-to-github')).toHaveText('Connect to GitHub');
+	await expect(doorButton(page)).toHaveText('Connect to GitHub');
 	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
 }
 
@@ -172,16 +230,16 @@ export async function expectNoRemote(page: Page): Promise<void> {
  * and is never published (ADR-0024), so there is no gesture here to refuse.
  */
 export async function expectNoRemoteInReview(page: Page): Promise<void> {
-	await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
+	await expect(doorButton(page)).toHaveCount(0);
 	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
 }
 
 /**
- * Open the badge's disclosure, which is where the determination, the reading's time, the Baseline
- * and the two gestures live (ADR-0041).
+ * Open the badge's disclosure, which is where the determination, the reading's time and the Baseline
+ * live (ADR-0041). The gestures are not here: they are behind the door.
  *
- * Idempotent, because a check and an Update both leave it open: pressing a disclosure that is
- * already expanded would close the panel the caller is about to reach into.
+ * Idempotent, because a check leaves it open: pressing a disclosure that is already expanded would
+ * close the panel the caller is about to reach into.
  */
 export async function showRemoteStatusDetail(page: Page): Promise<void> {
 	const disclosure = page.getByTestId('remote-status-explain');

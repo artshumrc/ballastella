@@ -76,11 +76,9 @@ function bar(
 			saveState: 'saved',
 			state: { ...UNCHECKED_REMOTE_STATUS, ...state },
 			baseline: extra.baseline ?? null,
-			onCheck: vi.fn(),
 			update: null,
 			notice: '',
 			failure: '',
-			onUpdate: vi.fn(),
 			deletionPreview: null,
 			onAnswerDeletions: vi.fn()
 		}
@@ -203,7 +201,11 @@ describe('everything else, one press away', () => {
 		expect(at('remote-status-baseline')).toBeNull();
 	});
 
-	test('keeps the check and the Update reachable behind the same press', () => {
+	// ⚠ **The two gestures are behind the door and not here** (ADR-0041). This panel is the reading:
+	// what the determination is, what it means, when it was taken and what the two sides last agreed
+	// on. What to *do* about any of it is one surface, reached from the bar's one GitHub control, and
+	// `connect-to-github.dom.test.ts` is where their presence is asserted.
+	test('offers no gesture of its own, in either state of the disclosure', () => {
 		bar({ status: 'up-to-date', at: Date.parse('2026-08-27T10:00:00Z') });
 
 		expect(at('check-remote-status')).toBeNull();
@@ -211,8 +213,8 @@ describe('everything else, one press away', () => {
 
 		press('remote-status-explain');
 
-		expect(at('check-remote-status')).not.toBeNull();
-		expect(at('update-from-github')).not.toBeNull();
+		expect(at('check-remote-status')).toBeNull();
+		expect(at('update-from-github')).toBeNull();
 	});
 
 	test.each(DETERMINATIONS)('%s has both a label and a sentence behind the press', (status) => {

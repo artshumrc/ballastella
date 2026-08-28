@@ -14,9 +14,12 @@
 	// is kept in the text, where it does the work, rather than in two badges side by side, where it
 	// only cost height.
 	//
-	// ⚠ **The check and the Update are behind the disclosure and are not deleted.** An Update is the
-	// only way Remote work reaches a Workspace, and an explicit check is the only status a signed-out
-	// author can get — so they move rather than go.
+	// ⚠ **The check and the Update are not here: they are behind the door** (ADR-0041). An Update is
+	// the only way Remote work reaches a Workspace and an explicit check is the only status a
+	// signed-out author can get, so they moved rather than went — to the one surface that holds the
+	// whole GitHub relationship, beside the Publish they must never be merged with. What stays here is
+	// what an Update *says*: its progress, its outcome and its refusals, and the question it stops to
+	// ask before it removes anything.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE MEANING IS IN THE TEXT
@@ -78,33 +81,36 @@
 		saveState,
 		state: remote,
 		baseline,
-		onCheck,
 		update,
 		notice,
 		failure,
-		onUpdate,
 		deletionPreview,
-		onAnswerDeletions
+		onAnswerDeletions,
+		restoreFocusTo
 	}: {
 		/** The local clause of the one badge, passed straight through. */
 		saveState: SaveState;
 		state: RemoteStatusState;
 		/** What this Workspace and GitHub last agreed on, or `null` when nothing here knows. */
 		baseline: SynchronizationBaseline | null;
-		/** Check now, because the author asked. Never throttled — see `RemoteStatusChecker`. */
-		onCheck: () => void;
 		/** An Update in flight, as files done out of files planned, or `null` for none. */
 		update: { files: number; totalFiles: number } | null;
 		/** What the last Update did, or `''`. */
 		notice: string;
 		/** Why the last Update did not happen, or `''`. */
 		failure: string;
-		/** Bring the Remote's changes in, because the author asked. */
-		onUpdate: () => void;
 		/** What the Update in flight would remove, while it waits to be told. */
 		deletionPreview: UpdateDeletionPreview | null;
 		/** Answer that question. `false` for every way of not saying yes. */
 		onAnswerDeletions: (confirmed: boolean) => void;
+		/**
+		 * Where focus goes if the control that started the Update is no longer in the document.
+		 *
+		 * The bar's door control, which is what the Update was pressed from — the door closes on that
+		 * press, so by the time this question arrives focus is already back on it and this is the
+		 * fallback rather than the ordinary path.
+		 */
+		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	/**
@@ -215,17 +221,6 @@
 			? ''
 			: new Date(remote.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 	);
-
-	/** Whether an Update is running, which is the one state that makes the control inert. */
-	const running = $derived(update !== null);
-
-	/**
-	 * The Update button, so the dialog's focus goes back to the control that opened it (WCAG 2.4.3).
-	 *
-	 * `$state` because the button lives behind the disclosure and so comes and goes: a plain binding
-	 * that Svelte cannot track would leave `restoreFocusTo` reading whichever element was bound last.
-	 */
-	let updateButton = $state<HTMLButtonElement | undefined>();
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
@@ -265,16 +260,13 @@
 	</div>
 
 	<!--
-		The determination, what it means, when it was read, what the two sides last agreed on, and the
-		two gestures — in that order, because each line explains the one above it.
+		The determination, what it means, when it was read and what the two sides last agreed on — in
+		that order, because each line explains the one above it. What to *do* about any of it is behind
+		the door (ADR-0041); this panel is the reading, and the reading alone.
 
 		⚠ **Not in the live region.** It appears because the reader pressed for it, and a polite region
 		that grew four sentences on a press would re-read the whole status to say something the reader
 		is already looking at.
-
-		⚠ **It opens into the corner the toast stack is fixed at**, which is why `AppBar`'s header sits
-		above that stack: a message drawn over these two buttons swallows the presses meant for them. A
-		message underneath the panel is still announced, since the refusals carry `role="alert"`.
 	-->
 	{#if detailShown}
 		<div
@@ -310,56 +302,6 @@
 					{baseline.files.size === 1 ? 'file' : 'files'}.
 				</p>
 			{/if}
-			<div class="mt-2 flex flex-wrap justify-end gap-2">
-				<!--
-					The explicit check.
-
-					**Always offered, not only while signed out.** Signed out it is the *only* way to a status
-					— automatic anonymous polling is ruled out by GitHub's sixty-an-hour anonymous budget,
-					which a shared campus address spends between everybody on it. Signed in it is still the
-					answer to "has anything changed *now*".
-
-					`aria-disabled` and never `disabled`, for the reason Publish uses the same: a `disabled`
-					button leaves the tab order the instant it is pressed.
-				-->
-				<button
-					type="button"
-					class="btn btn-xs"
-					class:btn-disabled={remote.checking}
-					aria-disabled={remote.checking}
-					data-testid="check-remote-status"
-					onclick={() => {
-						if (!remote.checking) onCheck();
-					}}
-				>
-					Check Remote Status
-				</button>
-				<!--
-					The inbound half, and the *only* way Remote work reaches a Workspace.
-
-					**Always offered, and never armed by a status.** An Update is refused with a sentence when
-					there is nothing to take and when a path changed on both sides, and it stops to ask when
-					the Remote has deleted something — so hiding or disabling it against the last
-					determination would replace legible refusals and one real question with a control that
-					does nothing and says nothing about why. It is also the reason a status check never
-					applies anything: the two gestures are separate because their consequences are.
-
-					`aria-disabled` and never `disabled`, for the reason the check beside it uses the same.
-				-->
-				<button
-					bind:this={updateButton}
-					type="button"
-					class="btn btn-xs"
-					class:btn-disabled={running}
-					aria-disabled={running}
-					data-testid="update-from-github"
-					onclick={() => {
-						if (!running) onUpdate();
-					}}
-				>
-					Update from GitHub
-				</button>
-			</div>
 		</div>
 	{/if}
 
@@ -447,7 +389,7 @@
 <ModalDialog
 	bind:open={() => deletionPreview !== null, (open) => !open && onAnswerDeletions(false)}
 	title="Update will remove work from this Workspace"
-	restoreFocusTo={() => updateButton}
+	{restoreFocusTo}
 >
 	{#if deletionPreview !== null}
 		<p data-testid="deletion-preview-message">{deletionPreview.message}</p>

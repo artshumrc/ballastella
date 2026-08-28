@@ -268,45 +268,6 @@
 			opening = false;
 		}
 	}
-
-	async function acceptLegacy(): Promise<void> {
-		reset();
-		const lifted = legacy;
-		working = true;
-		try {
-			await storage.acceptLegacyRemote();
-			outcome =
-				`This Workspace publishes to ${lifted ? describeRemote(lifted) : 'that repository'}. ` +
-				`Ballastella has no record of what is there yet, so it cannot tell what has changed since ` +
-				`the two last agreed — the next publish establishes that record.`;
-		} catch (cause) {
-			problem = cause instanceof Error ? cause.message : String(cause);
-		} finally {
-			working = false;
-		}
-	}
-
-	function declineLegacy(): void {
-		reset();
-		storage.declineLegacyRemote();
-		outcome =
-			'Left unbound. Nothing has been published and nothing on GitHub has changed. Bind this ' +
-			'Workspace yourself if you do want it to publish somewhere.';
-	}
-
-	async function unbind(): Promise<void> {
-		reset();
-		const was = bound;
-		try {
-			await storage.unbindRemote();
-			outcome =
-				`This Workspace no longer publishes to ${was ? describeRemote(was) : 'a repository'}. ` +
-				`Nothing there has been changed — the site is exactly as it was, and binding again puts ` +
-				`things back.`;
-		} catch (cause) {
-			problem = cause instanceof Error ? cause.message : String(cause);
-		}
-	}
 </script>
 
 <ModalDialog bind:open title="Remote repository" wide>
@@ -328,59 +289,43 @@
 				<!--
 					⚠ **A `remote.json` this installation cannot corroborate** (ADR-0038). The binding is a
 					file inside the published tree, so a fork, a colleague's copied folder and a restored
-					Backup all carry one naming somebody else's repository. Lifting it silently would aim a
-					Publish button at a repository this author has never seen, so it is named and asked
-					about — and until it is answered the Workspace is unbound and there is no bind form
-					underneath to answer it by accident.
+					Backup all carry one naming somebody else's repository — and lifting it silently would
+					aim a Publish at a repository this author has never seen.
+
+					**The question itself is the door's** (ADR-0041): it is asked once, where every other
+					way to a Remote already is, rather than sitting in a dialog nobody opens. What this
+					section does is stay out of the way of it — there is no bind form underneath while the
+					question stands, so it cannot be answered here by accident.
 				-->
-				<p class="mt-1 text-sm" data-testid="legacy-remote-offer">
+				<p class="mt-1 text-sm" data-testid="legacy-remote-waiting">
 					This Workspace's files say it was published to
-					<code data-testid="legacy-remote">{describeRemote(legacy)}</code>, but this browser has no
-					record of ever having published there. Only accept this if
-					<code>{describeRemote(legacy)}</code> is your own repository — a copied folder or a fork carries
-					somebody else's address.
+					<code>{describeRemote(legacy)}</code>, and this browser has no record of ever having
+					published there. Connect to GitHub asks whether that repository is yours.
 				</p>
-				<div class="mt-3 flex flex-wrap gap-2">
-					<button
-						class="btn btn-primary btn-sm"
-						data-testid="accept-legacy-remote"
-						disabled={working}
-						onclick={() => void acceptLegacy()}
-					>
-						Yes, publish to {describeRemote(legacy)}
-					</button>
-					<button
-						class="btn btn-outline btn-sm"
-						data-testid="decline-legacy-remote"
-						disabled={working}
-						onclick={() => declineLegacy()}
-					>
-						No, leave this Workspace unbound
-					</button>
-				</div>
+				{#if sequenceOffered}
+					<div class="mt-3">
+						<button
+							class="btn btn-sm"
+							data-testid="open-connect-sequence"
+							onclick={() => connectSequence.start()}
+						>
+							Connect to GitHub…
+						</button>
+					</div>
+				{/if}
 			{:else if bound}
 				<p class="mt-1 text-sm opacity-70">
 					Publishing sends this Workspace to
 					<code data-testid="bound-remote">{describeRemote(bound)}</code>, on the branch
 					<code>{bound.branch}</code>, and nowhere else.
 				</p>
-				<!--
-					The Baseline, said in words. `Cannot tell` is a determination rather than a silence — see
-					`NavigationBar`'s note — so it is stated here too, on the screen a scholar comes to when
-					they want to know where their work goes.
-				-->
-				<p class="mt-1 text-sm opacity-70" data-testid="remote-baseline">
-					{#if storage.baseline}
-						Ballastella last agreed with {describeRemote(bound)} at commit
-						<code>{storage.baseline.commit}</code>, over {storage.baseline.files.size} files.
-					{:else}
-						Cannot tell what has changed since this Workspace and {describeRemote(bound)} last agreed:
-						there is no record of it on this computer.
-					{/if}
-				</p>
 				<div class="mt-3 flex flex-wrap gap-2">
-					<!-- The same sequence the navigation bar opens, which for a bound Workspace names the
-					     repository and the address its Published Site answers at. -->
+					<!--
+						The door, which for a bound Workspace names the repository, states what it and this
+						Workspace last agreed on, and holds every gesture about it — Publish, Update from
+						GitHub, the check, and giving the repository up (ADR-0041). None of those is
+						reimplemented here.
+					-->
 					{#if sequenceOffered}
 						<button
 							class="btn btn-sm"
@@ -390,19 +335,7 @@
 							Show this Workspace's repository
 						</button>
 					{/if}
-					<button
-						class="btn btn-outline btn-sm btn-warning"
-						data-testid="unbind-remote"
-						disabled={working}
-						onclick={() => unbind()}
-					>
-						Unbind from {describeRemote(bound)}
-					</button>
 				</div>
-				<p class="mt-3 text-sm opacity-70">
-					Unbinding only makes this computer forget the address. Nothing on GitHub is deleted and
-					your published site goes on serving.
-				</p>
 			{:else}
 				<p class="mt-1 text-sm opacity-70">
 					One GitHub repository, once, for the whole Workspace. Afterwards publishing never asks you

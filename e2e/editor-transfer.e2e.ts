@@ -16,8 +16,10 @@ import {
 	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
+	openPublishFromTheDoor,
 	openWorkspaceMenu,
 	openWorkspaceSettings,
+	seedRemoteRelationship,
 	switchToWorkspace
 } from './support/workspace.js';
 
@@ -821,17 +823,22 @@ test.describe('opening a bundle lands in a review copy', () => {
 		await seedProject(page, 'my-own-amsterdam', {
 			'project.json': projectJson({ name: 'My own Amsterdam', layers: [] })
 		});
+		// Publishing is a landing of the door, and the door lands there only for a Workspace that has
+		// somewhere to publish to (ADR-0041) — so the relationship is seeded rather than the dialog
+		// being reached over a Workspace bound to nothing. No credential goes with it: the plan this
+		// asserts is a walk of the Workspace, and nothing is asked of GitHub without one.
+		await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
 		await page.reload();
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
 
-		// There is no Publish button inside a review copy at all.
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		// There is no way to a publish inside a review copy at all: the door itself is absent.
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await expect(page.getByTestId('review-workspace-note')).toBeVisible();
 
 		await page.getByTestId('leave-review').click();
 		await expect(banner(page)).toBeHidden();
-		await page.getByTestId('publish').click();
+		await openPublishFromTheDoor(page);
 		const dialog = page.getByRole('dialog', { name: /Publish/ });
 		await expect(dialog).toBeVisible();
 		// The dialog counts the Projects it is about to publish, and counts **one** — the user's own.
@@ -2147,8 +2154,8 @@ test.describe('an Import that did not finish', () => {
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
 		// Nor is there a reader to reach: publishing and backing up are two more walks of this
 		// Workspace, and both are absent rather than present and refused — the arrangement a review copy
-		// already has.
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		// already has. Publishing goes with the door it is behind.
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await openWorkspaceSettings(page);
 		await expect(page.getByTestId('no-backup-unrecovered')).toBeVisible();
 		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);

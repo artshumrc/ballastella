@@ -375,7 +375,9 @@ a credential.
 
 ### 3. Press Publish
 
-**Publish…**, on the navigation bar. The dialog tells you how many files and how many bytes it is
+**Publish…**, behind the navigation bar's one GitHub control — the one that names your repository.
+Everything about GitHub is behind it: connecting, publishing, **Update from GitHub** and **Check
+Remote Status**. The dialog tells you how many files and how many bytes it is
 about to send, how many Projects the Published Site will carry and how many of those the Front Page
 lists, and warns you about anything that would disappoint a Reader — a Project that references
 images from a Library, for instance, which a Reader with no network will not see.

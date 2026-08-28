@@ -101,6 +101,13 @@
 	let settingsOpen = $state(false);
 	let publishOpen = $state(false);
 	/**
+	 * The door control, so a dialog opened from behind it has somewhere to put focus back.
+	 *
+	 * The Update's own question is the case: it is raised by the transfer rather than by a press, and
+	 * the press that started the transfer was inside the door, which closed on it.
+	 */
+	let doorButton = $state<HTMLButtonElement | undefined>();
+	/**
 	 * Whether a publish is running, and how far it has got.
 	 *
 	 * Bound out of `PublishDialog` rather than kept there, because the control that started it is on
@@ -442,64 +449,50 @@
 		</div>
 
 		<!--
-			5. Getting the Workspace onto GitHub in the first place (ADR-0032).
+			5. The one door to GitHub — the whole relationship, in one control (ADR-0041).
+
+			**One control where there were two, and behind it one surface where there were five.** A save
+			badge, a Remote Status badge, *Check Remote Status*, *Update from GitHub*, *Connect to
+			GitHub* and *Publish…* all answered one question — *is my work safe* — and a scholar had no
+			way to choose between them. The badge in the eyebrow answers it; this opens the place where
+			everything that can be *done* about it lives, and **Publish** and **Update from GitHub**
+			stay two separate presses in there, because their consequences differ in kind.
 
 			**On the bar rather than filed away in Workspace settings, and that is what this control is
 			for.** A settings dialog two menus deep is where a person goes when something already works
 			and they want it different, and not where anybody looks for *how do I put this on the web*.
 			The bar is on every screen including Workspace Home, so a student meets it before they have
-			opened a Project, and the sequence it opens is the same one wherever it was pressed.
+			opened a Project, and the surface it opens is the same one wherever it was pressed.
 
 			**It reflects the Workspace rather than offering the same thing twice.** With no Remote it
 			offers connecting; with one it says which repository, which is a standing fact and not
-			unfinished work. Both presses open the same sequence, which lands on whichever of its steps is
+			unfinished work. Both presses open the same surface, which lands on whichever of its steps is
 			true — there is no second path and no remembered position (see `ConnectToGitHub`).
 
-			**Before Publish, in the row and in the order**, because a Workspace has to have somewhere to
-			go before Publish has anywhere to send it.
+			**A publish under way is said here**, because this is the one GitHub control on the bar and a
+			publish is the one GitHub act that runs for minutes — including after the modal that started
+			it was dismissed with Escape. `aria-disabled` and never `disabled`: a `disabled` button leaves
+			the tab order the instant it is pressed, dropping a keyboard user's focus to `<body>` for the
+			length of the publish (WCAG 2.4.3).
 		-->
 		{#if publishable && storage !== null}
 			<button
 				type="button"
+				bind:this={doorButton}
 				class="btn btn-sm"
 				class:btn-primary={storage.remote === null}
-				data-testid="connect-to-github"
-				onclick={() => connectSequence.start()}
-			>
-				{storage.remote === null
-					? 'Connect to GitHub'
-					: `Connected to ${describeRemote(storage.remote)}`}
-			</button>
-		{/if}
-
-		<!--
-			6. Putting the work on the web (ADR-0032).
-
-			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
-			and "Publish" answer the two questions a scholar has about where their work is, and separating
-			them across two screens is how somebody comes to believe a saved edit is a published one.
-			They sit in different tiers because they answer differently: whether the work is kept is true
-			of the Workspace, while publishing is an action taken from wherever you are. The Workspace is
-			the site (ADR-0008), so this belongs to the bar rather than to a Project — it was on the hub,
-			which meant it was absent from every screen where a person is actually working.
-
-			**Enabled in every state except while it is running**, and each of them leads somewhere: it
-			offers the binding when there is none, asks for the credential when there is no credential,
-			and says so when nothing needs changing. A disabled Publish button with no explanation is
-			the failure this arrangement exists to remove.
-		-->
-		{#if publishable}
-			<button
-				type="button"
-				class="btn btn-sm"
 				class:btn-disabled={publishing}
 				aria-disabled={publishing}
-				data-testid="publish"
+				data-testid="connect-to-github"
 				onclick={() => {
-					if (!publishing) publishOpen = true;
+					if (!publishing) connectSequence.start();
 				}}
 			>
-				{publishing ? publishControlLabel(publishProgress) : 'Publish…'}
+				{publishing
+					? publishControlLabel(publishProgress)
+					: storage.remote === null
+						? 'Connect to GitHub'
+						: `Connected to ${describeRemote(storage.remote)}`}
 			</button>
 		{/if}
 	{/if}
@@ -535,13 +528,12 @@
 					saveState={session.saveState}
 					state={storage.remoteStatusState}
 					baseline={storage.baseline}
-					onCheck={() => void storage.checkRemoteStatus()}
 					update={storage.updateProgress}
 					notice={storage.updateNotice}
 					failure={storage.updateFailure}
-					onUpdate={() => void storage.updateFromRemote()}
 					deletionPreview={storage.deletionPreview}
 					onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
+					restoreFocusTo={() => doorButton}
 				/>
 			{:else}
 				<WhereYourWorkIs saveState={session.saveState} />
@@ -641,6 +633,7 @@
 		bind:open={publishOpen}
 		bind:publishing
 		bind:progress={publishProgress}
+		restoreFocusTo={() => doorButton}
 	/>
 	<!--
 		The guided sequence, mounted **once** and here. Workspace settings' Remote section opens this

@@ -8,6 +8,7 @@ import { routeGitHubHosts } from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	closeRemoteSettings,
+	closeTheDoor,
 	closeWorkspaceSettings,
 	expectCredential,
 	expectNoRemote,
@@ -16,6 +17,7 @@ import {
 	expectRemoteStatus,
 	expectWorkspaceNamed,
 	openRemoteSettings,
+	openTheDoor,
 	openWorkspaceSettings,
 	revealBindToken,
 	revealSignInToken
@@ -310,13 +312,20 @@ test.describe('the pasted credential', () => {
 	test('can still be signed out of after unbinding', async ({ page }) => {
 		await start(page);
 		await bind(page);
+		await closeRemoteSettings(page);
+
+		// Giving the repository up is the door's, beside the standing fact it undoes (ADR-0041), and
+		// signing out is beside it on the same surface — which is the whole of the point: the two
+		// gestures a person handing a machine over makes are in one place.
+		await openTheDoor(page);
 		await page.getByTestId('unbind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText('no longer publishes');
+		await expect(page.getByTestId('connect-notice')).toContainText('no longer publishes');
 
-		await page.getByTestId('remote-sign-out').click();
+		await page.getByTestId('connect-sign-out').click();
 
-		await expect(page.getByTestId('remote-outcome')).toContainText('Signed out of GitHub');
 		expect(await whereverTheTokenIs(page, TOKEN)).toEqual([]);
+		await closeTheDoor(page);
+		await expectNoRemote(page);
 	});
 
 	test('can be supplied again for a Workspace that is already bound', async ({ page }) => {
@@ -536,11 +545,11 @@ test.describe('a Workspace bound by an older build', () => {
 
 		// Bound with no question asked, and with real evidence behind it.
 		await expectRemoteNamed(page, REMOTE);
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 		await expect(page.getByTestId('legacy-remote-offer')).toHaveCount(0);
 		await expect(page.getByTestId('remote-baseline')).toContainText('at commit');
 		await expect(page.getByTestId('remote-baseline')).toContainText('c0ffeec0ffee');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		// Which is the visible difference from the confirmed case below.
 		await expectRemoteStatus(page, '');
 	});
@@ -557,29 +566,41 @@ test.describe('a Workspace bound by an older build', () => {
 		// Unbound until it is answered. A file inside the published tree is not evidence about this
 		// browser, so nothing offers to publish anywhere yet.
 		await expectNoRemote(page);
-		await openRemoteSettings(page);
+		// ⚠ **The question is the door's landing, asked once because it is true** (ADR-0041), and it
+		// stands in front of every step of the path to a repository: there is nothing to connect and
+		// nothing to sign in for until somebody says whether that repository is theirs.
+		await openTheDoor(page);
 		await expect(page.getByTestId('legacy-remote-offer')).toContainText(REMOTE);
+		await expect(page.getByTestId('connect-sign-in')).toHaveCount(0);
+		// And Remote settings offers no way to answer it and no bind form underneath, so it cannot be
+		// answered there by accident: it says where the question is and sends the author to it.
+		await closeTheDoor(page);
+		await openRemoteSettings(page);
 		await expect(page.getByTestId('bind-remote')).toHaveCount(0);
+		await expect(page.getByTestId('legacy-remote-waiting')).toContainText(REMOTE);
+		await closeRemoteSettings(page);
 
 		// Declining writes nothing at all.
+		await openTheDoor(page);
 		await page.getByTestId('decline-legacy-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText('Left unbound');
-		await closeRemoteSettings(page);
+		await expect(page.getByTestId('connect-notice')).toContainText('Left unbound');
+		await closeTheDoor(page);
 		await expectNoRemote(page);
 
 		// The question is asked again on the next visit, and confirming it names the repository.
 		await page.reload();
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 		await expect(page.getByTestId('legacy-remote')).toHaveText(REMOTE);
 		await page.getByTestId('accept-legacy-remote').click();
-		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
 		// ⚠ **Bound, and `Cannot tell`.** Confirmation lifts the relationship and nothing else: an
 		// invented empty Baseline would claim the Remote holds nothing, which is the reading that
 		// licenses overwriting all of it.
 		await expect(page.getByTestId('remote-baseline')).toContainText('Cannot tell');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		await expectRemoteNamed(page, REMOTE);
-		await expectRemoteStatus(page, 'Cannot tell what has changed');
+		await openRemoteSettings(page);
+		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
+		await closeRemoteSettings(page);
 
 		// ⚠ **Copied or forked repository content cannot redirect the selected repository**.
 		// A fork carries a `remote.json` naming the repository it was forked *from*; the relationship is
@@ -587,8 +608,9 @@ test.describe('a Workspace bound by an older build', () => {
 		await seedBindingFile(page, 'someone-else', 'fork');
 		await page.reload();
 		await expectRemoteNamed(page, REMOTE);
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 		await expect(page.getByTestId('legacy-remote-offer')).toHaveCount(0);
-		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
+		await expect(page.getByTestId('remote-baseline')).toContainText('Cannot tell');
+		await closeTheDoor(page);
 	});
 });

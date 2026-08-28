@@ -13,6 +13,7 @@ import {
 	expectRemoteNamed,
 	expectWorkspaceNamed,
 	closeWorkspaceSettings,
+	openPublishFromTheDoor,
 	openRemoteSettings,
 	openWorkspaceSettings,
 	revealBindToken
@@ -695,8 +696,8 @@ test.describe('a sign-in kept past the tab', () => {
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
 		await closeRemoteSettings(page);
 
-		await page.getByRole('button', { name: 'Publish…' }).click();
-		const dialog = page.getByRole('dialog');
+		await openPublishFromTheDoor(page);
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 60_000 });
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
@@ -960,8 +961,8 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await expectRemoteNamed(page, REMOTE);
 		expect(await holdsCredential(page)).toBe(false);
 
-		await page.getByRole('button', { name: 'Publish…' }).click();
-		const dialog = page.getByRole('dialog');
+		await openPublishFromTheDoor(page);
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
 		// ⚠ **Absent, not empty and not disabled**, and this is the deployment's own answer rather than
 		// a fake's: nothing in this spec configures `GITHUB_APP`, it is what the app was built with.
@@ -970,10 +971,9 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await dialog.getByTestId('publish-sign-in-with-github').click();
 
 		// The redirect replaces the document, so nothing in the dialog resumes: the mark reopens the
-		// guided sequence, and a Workspace that is already bound derives its `connected` step — whose
-		// handoff is the Publish button that was always on the bar. Signing in from Publish therefore
-		// arrives back at Publish, which is the whole reason the dialog is not closed to open the
-		// sequence and the sequence gains no fourth first step.
+		// door, and a Workspace that is already bound derives its `connected` step — whose **Publish…**
+		// is the same dialog. Signing in from Publish therefore arrives back at Publish, which is the
+		// whole reason the dialog is not closed to open the door and the door gains no extra step.
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 		expect(await holdsCredential(page)).toBe(true);
 
@@ -1047,9 +1047,9 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 30_000 });
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 
-		// The handoff is the Publish button that is always on the bar, and it reaches GitHub.
+		// The handoff is the door's own **Publish…**, and it reaches GitHub.
 		await page.getByTestId('connect-publish').click();
-		const dialog = page.getByRole('dialog');
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
