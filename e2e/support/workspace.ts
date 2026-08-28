@@ -199,8 +199,17 @@ export async function showRemoteStatusDetail(page: Page): Promise<void> {
 
 /** The installation database and the store the synchronization records live in. */
 const METADATA_DATABASE = 'ballastella';
-const METADATA_DATABASE_VERSION = 2;
+/**
+ * ⚠ **`DATABASE_VERSION` in `installation-database.ts`, and it has to be exactly that.**
+ * A seeder that opens at an older version meets `VersionError` in every spec that ran the app first,
+ * and one that opens at a newer version runs the app's upgrade with this file's idea of the stores.
+ * So when the app bumps it, this bumps with it — and {@link METADATA_STORES} gains the new store.
+ */
+const METADATA_DATABASE_VERSION = 3;
 const METADATA_STORE = 'synchronization';
+
+/** Every object store the app's own upgrade creates, so a seeded database has the shape it expects. */
+const METADATA_STORES = ['workspace', 'synchronization', 'credential'];
 
 /** `SYNCHRONIZATION_FORMAT_VERSION`. A record of any other version reads as no evidence at all. */
 const METADATA_FORMAT_VERSION = 2;
@@ -220,11 +229,11 @@ export async function seedRemoteRelationship(
 	options: { owner: string; repository: string; branch?: string; workspace?: string }
 ): Promise<void> {
 	await page.evaluate(
-		async ([key, record, database, version, store]) => {
+		async ([key, record, database, version, store, stores]) => {
 			const open = indexedDB.open(database as string, version as number);
 			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
 				open.onupgradeneeded = () => {
-					for (const name of ['workspace', store as string]) {
+					for (const name of stores as string[]) {
 						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
 					}
 				};
@@ -250,7 +259,8 @@ export async function seedRemoteRelationship(
 			},
 			METADATA_DATABASE,
 			METADATA_DATABASE_VERSION,
-			METADATA_STORE
+			METADATA_STORE,
+			METADATA_STORES
 		] as const
 	);
 }
@@ -371,11 +381,11 @@ export async function seedBaseline(
 	}
 ): Promise<void> {
 	await page.evaluate(
-		async ([key, record, database, version, store]) => {
+		async ([key, record, database, version, store, stores]) => {
 			const open = indexedDB.open(database as string, version as number);
 			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
 				open.onupgradeneeded = () => {
-					for (const name of ['workspace', store as string]) {
+					for (const name of stores as string[]) {
 						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
 					}
 				};
@@ -408,7 +418,8 @@ export async function seedBaseline(
 			},
 			METADATA_DATABASE,
 			METADATA_DATABASE_VERSION,
-			METADATA_STORE
+			METADATA_STORE,
+			METADATA_STORES
 		] as const
 	);
 }

@@ -60,6 +60,9 @@ export const SIGN_IN_STATE_KEY = 'ballastella.github-sign-in-state';
 /** Where the expiry and the refresh token live, beside the credential rather than inside it. */
 export const GITHUB_APP_SESSION_KEY = 'ballastella.github-app-session';
 
+/** Where the renewable half of a sign-in waits when the author has asked for it past the tab. */
+export const REMEMBERED_GRANT_KEY = 'ballastella.github-app-remembered';
+
 /** What GitHub sends back to the callback: a code, or a refusal, and the `state` either way. */
 export type SignInCallback = {
 	readonly code: string;
@@ -429,6 +432,78 @@ export function writeGrantRecord(storage: CredentialStorage, grant: GitHubTokenG
 export function clearGrantRecord(storage: CredentialStorage): void {
 	try {
 		storage.removeItem(GITHUB_APP_SESSION_KEY);
+	} catch {
+		// Best effort, as above.
+	}
+}
+
+// ── The half of a grant that may be kept past the tab (ADR-0041) ──────────────────────────────
+
+/**
+ * What survives a tab close when the author has asked this machine to keep their sign-in.
+ *
+ * ⚠ **The access token is not in it, and cannot be added to it.** Eight hours of publish rights at
+ * rest is the thing this feature must not create; a refresh token at rest still has to be exchanged
+ * through the broker, which leaves the broker's `Origin` allowlist in the path. {@link
+ * writeRememberedGrant} takes a whole grant and writes these two fields, so the stripping is one
+ * function rather than a rule each caller has to remember.
+ */
+export type RememberedGrant = {
+	/** The renewable half. `''` never gets here — see {@link writeRememberedGrant}. */
+	readonly refreshToken: string;
+	/** When the access token this was issued beside ran out, or `null` for one that never did. */
+	readonly expiresAt: number | null;
+};
+
+/** The remembered half of a sign-in, or `null` when this machine has kept none. */
+export function readRememberedGrant(storage: CredentialStorage): RememberedGrant | null {
+	let raw: string | null;
+	try {
+		raw = storage.getItem(REMEMBERED_GRANT_KEY);
+	} catch {
+		return null;
+	}
+	if (raw === null || raw === '') return null;
+	try {
+		const record = JSON.parse(raw) as Partial<RememberedGrant>;
+		if (typeof record.refreshToken !== 'string' || record.refreshToken === '') return null;
+		return {
+			refreshToken: record.refreshToken,
+			expiresAt: typeof record.expiresAt === 'number' ? record.expiresAt : null
+		};
+	} catch {
+		// As with the session record: one that will not parse is one nobody can act on, and reading it
+		// as *nothing remembered* costs a sign-in rather than a broken screen.
+		return null;
+	}
+}
+
+/**
+ * Keep the renewable half of this grant, and only that half.
+ *
+ * A grant with no refresh token has no renewable half, so nothing is kept and anything kept before
+ * is taken away — a record describing a sign-in that cannot be renewed would be spent once on the
+ * next visit, fail, and report an expiry to somebody who never asked for one.
+ */
+export function writeRememberedGrant(storage: CredentialStorage, grant: GitHubTokenGrant): void {
+	if (grant.refreshToken === '') {
+		clearRememberedGrant(storage);
+		return;
+	}
+	const remembered: RememberedGrant = {
+		refreshToken: grant.refreshToken,
+		expiresAt: grant.expiresAt
+	};
+	try {
+		storage.setItem(REMEMBERED_GRANT_KEY, JSON.stringify(remembered));
+	} catch {
+		// A sign-in that could not be kept costs the next visit a sign-in, not this tab.
+	}
+}
+
+export function clearRememberedGrant(storage: CredentialStorage): void {
+	try {
+		storage.removeItem(REMEMBERED_GRANT_KEY);
 	} catch {
 		// Best effort, as above.
 	}

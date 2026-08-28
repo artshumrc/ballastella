@@ -44,6 +44,7 @@
 	const tokenId = `${fieldId}-token`;
 	const signInTokenId = `${fieldId}-sign-in-token`;
 	const openRepositoryId = `${fieldId}-open-repository`;
+	const rememberId = `${fieldId}-remember-sign-in`;
 
 	let repository = $state('');
 	let token = $state('');
@@ -553,10 +554,17 @@
 						Review Workspace is open (ADR-0033), and a token that cannot be read is a token this
 						screen must not claim to hold.
 					-->
+					<!--
+						⚠ **The sentence states which of the two rules is in force**, rather than one wording
+						that is true in both. What happens when this tab closes is the whole subject of the
+						choice below it, and a scholar on a shared machine deciding whether to tick it is owed
+						the current answer in the same breath (ADR-0041).
+					-->
 					<p class="mt-1 text-sm opacity-70" data-testid="remote-signed-in">
 						Signed in to GitHub{storage.identity ? ` as ${storage.identity}` : ''}. The sign-in
-						survives a reload and is forgotten when this tab closes, so a shared machine keeps no
-						credential.
+						survives a reload{storage.rememberSignIn
+							? `, and this computer keeps the renewable half of it so that coming back tomorrow does not mean signing in again. The eight-hour token itself is still forgotten when this tab closes.`
+							: ` and is forgotten when this tab closes, so a shared machine keeps no credential.`}
 					</p>
 					<div class="mt-3 flex flex-wrap gap-2">
 						<button class="btn btn-sm" data-testid="remote-sign-out" onclick={() => signOut()}>
@@ -640,6 +648,36 @@
 						</form>
 					{/if}
 				{/if}
+				<!--
+					⚠ **Unticked until the author ticks it, and this is a plain control rather than its final
+					home** (ADR-0041). The rule narrows rather than falls: a scholar on a shared or lab
+					machine changes nothing and keeps the old behaviour, and a durable credential is never a
+					default somebody else chose.
+
+					Offered signed out as well as signed in, because it is a decision about this machine
+					rather than about the sign-in currently held — and answering it before pressing the
+					button is the order a person actually meets it in.
+				-->
+				<div class="mt-4 border-t border-base-300 pt-3">
+					<label class="flex items-start gap-2 text-sm" for={rememberId}>
+						<input
+							id={rememberId}
+							class="checkbox mt-0.5 checkbox-sm"
+							type="checkbox"
+							data-testid="remember-sign-in"
+							checked={storage.rememberSignIn}
+							onchange={(event) => storage.setRememberSignIn(event.currentTarget.checked)}
+						/>
+						<span>
+							Keep me signed in on this computer.
+							<span class="block opacity-70">
+								Only the part that renews the sign-in is kept, never the token that publishes, and
+								it is kept outside every Workspace — a Backup and a Publish carry no part of it.
+								Leave this off on a shared or library computer.
+							</span>
+						</span>
+					</label>
+				</div>
 			</section>
 		{/if}
 

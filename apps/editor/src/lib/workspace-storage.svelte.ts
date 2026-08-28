@@ -72,17 +72,23 @@ import {
 	GITHUB_APP,
 	SIGN_IN_STATE_KEY,
 	clearGrantRecord,
+	clearRememberedGrant,
 	describeCallbackRefusal,
+	durableCredentialStorage,
 	exchangeAuthorizationCode,
 	isGitHubAppConfigured,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
+	readRememberSignIn,
+	readRememberedGrant,
 	refreshGitHubToken,
 	signInAgainMessage,
 	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
+	writeRememberSignIn,
+	writeRememberedGrant,
 	GitHubCallbackRefusedError,
 	GitHubSignInError,
 	RemoteStatusChecker,
@@ -90,6 +96,7 @@ import {
 	type CloneReference,
 	type CredentialStorage,
 	type CredentialStore,
+	type DurableCredentialStorage,
 	type GitHubTokenGrant,
 	type SignInCallback,
 	type JournalStorage,
@@ -199,6 +206,33 @@ const sealedSignInStorage = (reviewing: () => boolean): CredentialStorage => ({
 	},
 	removeItem: (key) => {
 		if (!reviewing()) signInStorage().removeItem(key);
+	}
+});
+
+/**
+ * Where the renewable half of a sign-in waits past the tab, shut until the author has asked for it.
+ *
+ * ⚠ **The preference is read here rather than branched on at each caller.** Written the other way
+ * this would be an `if (remembering)` beside every write of a grant, which is the shape ADR-0041
+ * forbids above the credential interface — and the shape that goes wrong the first time somebody
+ * adds a sixth call site. Shut, this reads and writes nothing, so the durable record simply never
+ * comes into existence and the default stays exactly what it was.
+ *
+ * ⚠ **Forgetting is not gated on the preference**, because unticking has to be able to take away
+ * what ticking put there. It *is* gated on the review seal, for the reason the grant record beside
+ * it is: putting somebody else's submission down must not sign the reader out of their own account.
+ */
+const rememberedGrantStorage = (
+	asked: () => boolean,
+	reviewing: () => boolean,
+	inner: CredentialStorage
+): CredentialStorage => ({
+	getItem: (key) => (asked() && !reviewing() ? inner.getItem(key) : null),
+	setItem: (key, value) => {
+		if (asked() && !reviewing()) inner.setItem(key, value);
+	},
+	removeItem: (key) => {
+		if (!reviewing()) inner.removeItem(key);
 	}
 });
 
@@ -579,6 +613,15 @@ export class WorkspaceStorage {
 	 */
 	signedIn = $state(false);
 	/**
+	 * Whether the author has asked this machine to keep their sign-in past the tab (ADR-0041).
+	 *
+	 * ⚠ **Unticked until somebody ticks it, and installation-local rather than per-Workspace.** The
+	 * beneficiary of the original rule — a scholar on a shared or lab machine — keeps the old
+	 * behaviour untouched, because a durable credential is never a default somebody else chose.
+	 * Read from the database on {@link start}, so the first paint is the safe answer either way.
+	 */
+	rememberSignIn = $state(false);
+	/**
 	 * The Workspace of the user's own to go back to, which is the banner's first exit.
 	 *
 	 * Never a Review Workspace — see {@link OWN_WORKSPACE_KEY}. An exit that led into another review
@@ -762,6 +805,20 @@ export class WorkspaceStorage {
 	);
 	/** The grant record's storage, sealed by the same question — see {@link sealedSignInStorage}. */
 	readonly #grants: CredentialStorage = sealedSignInStorage(() => this.review !== null);
+	/**
+	 * The installation-local database a sign-in is kept in when the author has asked for one to be.
+	 *
+	 * Opened here so the preference and the remembered half are read from one hydration rather than
+	 * two, and held raw: {@link #remembered} is the sealed view the grant goes through, and the
+	 * preference itself is not a credential and is read and written directly.
+	 */
+	readonly #durable: DurableCredentialStorage = durableCredentialStorage();
+	/** The remembered half of a sign-in, shut until the author asks — see {@link rememberedGrantStorage}. */
+	readonly #remembered: CredentialStorage = rememberedGrantStorage(
+		() => this.rememberSignIn,
+		() => this.review !== null,
+		this.#durable
+	);
 	/**
 	 * Resolves once the arriving Workspace's journalled edits have been put back.
 	 *
@@ -964,6 +1021,11 @@ export class WorkspaceStorage {
 				return this.refreshWorkspaces();
 			})
 			.catch(() => undefined);
+		// The sign-in this machine was asked to keep, put back. Fire and forget: it reaches the broker,
+		// and nothing a scholar is looking at may wait on a network request. It writes nothing at all on
+		// an installation that has never ticked the preference, which is what keeps ADR-0010's "opening
+		// a Project modifies nothing" true of the default.
+		void this.#restoreRememberedSignIn().catch(() => undefined);
 		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
 		// waiting on: Chromium answers from its own heuristics and Firefox may not answer at all until a
 		// permission prompt is dealt with, and neither is a reason to hold up opening a Workspace.
@@ -2463,15 +2525,41 @@ export class WorkspaceStorage {
 	#keepPasted(token: string): void {
 		this.#credentials.write(token);
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.#refreshCredential();
 	}
 
-	/** Forget the credential, so this machine can be handed to somebody. */
+	/**
+	 * Forget the credential, so this machine can be handed to somebody.
+	 *
+	 * Including the half kept past the tab: a sign-out that left a refresh token in the database
+	 * would be signed back in by the next visit, which is the opposite of what the button says.
+	 */
 	signOut(): void {
 		this.#credentials.clear();
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.identity = '';
 		this.#refreshCredential();
+	}
+
+	/**
+	 * Record whether this machine keeps the sign-in past the tab, and act on the answer now.
+	 *
+	 * Ticking with a sign-in already held keeps its renewable half straight away, so the choice is
+	 * about the sign-in the author is looking at rather than about the next one. Unticking takes
+	 * that half away in the same gesture: a preference that said *forget me* while a refresh token
+	 * sat in the database would be a promise the next visit breaks.
+	 */
+	setRememberSignIn(remember: boolean): void {
+		this.rememberSignIn = remember;
+		writeRememberSignIn(this.#durable, remember);
+		if (!remember) {
+			clearRememberedGrant(this.#remembered);
+			return;
+		}
+		const grant = readGrantRecord(this.#grants);
+		if (grant !== null) writeRememberedGrant(this.#remembered, grant);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -2666,9 +2754,70 @@ export class WorkspaceStorage {
 		return search;
 	}
 
-	/** Hold a grant's token as *the* credential, which is all anything below this class ever sees. */
+	/**
+	 * Put back a sign-in this machine was asked to keep, by spending the half that was kept.
+	 *
+	 * ⚠ **There is nothing to put back but a refresh token.** The access token died with the tab, by
+	 * design, so the only way back to one is the broker's refresh endpoint — which is what keeps a
+	 * stolen database from being a publish: the exchange still has to pass the broker's `Origin`
+	 * allowlist. A refresh that fails is a sign-in that has ended, and what was kept goes with it
+	 * rather than being tried again on every visit for ever.
+	 *
+	 * ⚠ **After `recovered`, because that is when the review mark is known.** `this.review` is `null`
+	 * until the arriving Workspace has been read, so a restore that ran before it would put a
+	 * credential into a tab that turns out to be holding somebody else's submission — the one place
+	 * ADR-0024 says a sign-in may not be reachable from.
+	 */
+	async #restoreRememberedSignIn(): Promise<void> {
+		await this.#durable.settled();
+		this.rememberSignIn = readRememberSignIn(this.#durable);
+		await this.recovered;
+		if (!this.rememberSignIn) return;
+		// ⚠ **This tab already holds a credential**, so there is nothing to put back — but there may
+		// be something to write down. The preference is off until the database answers, and a sign-in
+		// completing in that window therefore wrote no durable record at all: an author who ticked the
+		// box, signed out and signed in again would come back tomorrow to a sign-in prompt. Reconciled
+		// here rather than by making `#keepGrant` wait for the answer, which it cannot — it is
+		// synchronous, because the interface above it is. A record naming anything other than what is
+		// held is a leftover, as {@link ensureCredentialFresh} says, so it is not the thing to keep.
+		if (this.#credentials.read() !== null) {
+			const held = readGrantRecord(this.#grants);
+			if (held !== null && held.token === this.#credentials.read()) {
+				writeRememberedGrant(this.#remembered, held);
+			}
+			return;
+		}
+		const remembered = readRememberedGrant(this.#remembered);
+		if (remembered === null) return;
+		try {
+			const renewed = await refreshGitHubToken({
+				app: GITHUB_APP,
+				refreshToken: remembered.refreshToken
+			});
+			// The session record first, and with nothing between them that can throw, for the reason
+			// {@link completeGitHubSignIn} gives: a credential held with no record beside it reads as a
+			// pasted token, and an eight-hour one would then be carried into a publish that ends partway.
+			writeGrantRecord(this.#grants, renewed);
+			this.#keepGrant(renewed);
+			this.identity = await readGitHubLogin(renewed.token);
+		} catch {
+			// A spent refresh token, a broker that is down, one that was never deployed: the scholar's
+			// remedy is the same in all three and it is the ordinary one — press sign in. Announcing it
+			// on a load nobody started would be a notice about a thing they did not do.
+			clearRememberedGrant(this.#remembered);
+		}
+	}
+
+	/**
+	 * Hold a grant's token as *the* credential, which is all anything below this class ever sees.
+	 *
+	 * The renewable half goes to {@link #remembered} in the same breath, which keeps it past the tab
+	 * only where the author has asked for that and writes nothing at all where they have not. The
+	 * access token is never part of what is kept — {@link writeRememberedGrant} strips it.
+	 */
 	#keepGrant(grant: GitHubTokenGrant): void {
 		this.#credentials.write(grant.token);
+		writeRememberedGrant(this.#remembered, grant);
 		this.#refreshCredential();
 	}
 
@@ -2676,6 +2825,7 @@ export class WorkspaceStorage {
 	#endExpiredSession(): void {
 		this.#credentials.clear();
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.identity = '';
 		this.#refreshCredential();
 	}
