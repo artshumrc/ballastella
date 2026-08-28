@@ -1060,7 +1060,9 @@
 		<!--
 			⚠ **Closing is offered on every step, and it is what makes this a sequence rather than a
 			trap** (story 33). Nothing is lost by it: the step is derived, so reopening reads the same
-			facts and lands in the same place (story 34).
+			facts (story 34). `creating` is the one step that lands somewhere else — the close clears the
+			set its return comparison is made against, deliberately, for the reason written where that
+			clearing happens.
 		-->
 		<button class="btn" data-testid="close-connect-sequence" onclick={() => (open = false)}>
 			Close
