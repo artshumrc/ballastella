@@ -14,11 +14,13 @@ import {
 	clearGrantRecord,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	installUrl,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
 	readSignInCallback,
 	refreshGitHubToken,
+	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord
 } from './github-sign-in.js';
@@ -30,7 +32,8 @@ import {
 /** A fake App, supplied by the test rather than read from the module (see `github-app.ts`). */
 const APP: GitHubApp = {
 	brokerOrigin: 'https://broker.test',
-	clientId: 'Iv1.testclientid'
+	clientId: 'Iv1.testclientid',
+	appSlug: 'specimen-atlas'
 };
 
 const REDIRECT_URI = 'https://atlas.example.edu/editor/';
@@ -40,7 +43,14 @@ const github = (): Promise<FakeGitHub> =>
 		owner: 'ada',
 		repository: 'atlas',
 		tree: { 'README.md': '# Atlas\n' },
-		signIn: { brokerOrigin: APP.brokerOrigin, clientId: APP.clientId, login: 'ada' }
+		signIn: {
+			brokerOrigin: APP.brokerOrigin,
+			clientId: APP.clientId,
+			appSlug: APP.appSlug,
+			// The App's registered callback, which is where the install screen returns to.
+			callbackUrl: REDIRECT_URI,
+			login: 'ada'
+		}
 	});
 
 /** Press "Authorize" on GitHub's screen, and read the callback it redirects to. */
@@ -50,6 +60,13 @@ async function authorize(fake: FakeGitHub, state: string): Promise<URLSearchPara
 	});
 	expect(response.status).toBe(302);
 	return new URL(response.headers.get('location') ?? '').searchParams;
+}
+
+/** Press "Install" on the App's own screen, which authorises in the same act. */
+async function install(fake: FakeGitHub, state: string): Promise<URL> {
+	const response = await fake.fetch(installUrl({ app: APP, state }), { method: 'GET' });
+	expect(response.status).toBe(302);
+	return new URL(response.headers.get('location') ?? '');
 }
 
 /** A `Storage`-shaped `Map`, which is all the grant record needs. */
@@ -77,11 +94,19 @@ describe('the App this deployment ships with', () => {
 		expect(isGitHubAppConfigured(GITHUB_APP)).toBe(true);
 	});
 
-	// A fork with no infrastructure empties both values, and must then get no dead button at all.
-	it('reads as unconfigured when either value is empty', () => {
-		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: 'Iv1.x' })).toBe(false);
-		expect(isGitHubAppConfigured({ brokerOrigin: 'https://b.test', clientId: '' })).toBe(false);
-		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: '' })).toBe(false);
+	// A fork with no infrastructure empties all three values, and must then get no dead button at all.
+	// ⚠ **Each of the three, on its own.** A half-configured fork offers a sign-in that cannot
+	// complete: no broker to exchange the code, no client ID to look a secret up by, or an install
+	// screen that is somebody else's App or nobody's.
+	it('reads as unconfigured when any one of the three values is empty', () => {
+		expect(isGitHubAppConfigured({ ...APP, brokerOrigin: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, brokerOrigin: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, clientId: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, clientId: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, appSlug: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, appSlug: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: '', appSlug: '' })).toBe(false);
+		expect(isGitHubAppConfigured(APP)).toBe(true);
 	});
 });
 
@@ -102,6 +127,88 @@ describe('the authorize URL', () => {
 
 		expect(url.searchParams.get('code_challenge')).toBeNull();
 		expect(url.searchParams.get('code_challenge_method')).toBeNull();
+	});
+});
+
+describe('the install URL', () => {
+	// The one screen that installs the App *and* issues the code, so a first-time author is not sent
+	// back a second time for a step nothing named.
+	it('is the App\u2019s own install screen, carrying the state', () => {
+		const url = installUrl({ app: APP, state: 'abc123' });
+
+		expect(url).toBe('https://github.com/apps/specimen-atlas/installations/new?state=abc123');
+	});
+
+	// ⚠ **No `redirect_uri`, and no `setup_action`.** The install screen has no redirect parameter —
+	// GitHub comes back to the callback registered on the App — and `setup_action` is undocumented
+	// across the whole of GitHub's documentation, so nothing may be built on it.
+	it('sends no redirect_uri and asks for no setup action', () => {
+		const url = new URL(installUrl({ app: APP, state: 'abc123' }));
+
+		expect([...url.searchParams.keys()]).toEqual(['state']);
+	});
+
+	it('escapes a slug, so a mis-typed one cannot reach outside its own path segment', () => {
+		const url = new URL(installUrl({ app: { ...APP, appSlug: 'a/../evil' }, state: 's' }));
+
+		expect(url.pathname).toBe('/apps/a%2F..%2Fevil/installations/new');
+	});
+});
+
+describe('the install screen’s return leg', () => {
+	// ⚠ **The whole claim of install-first**: one screen installs the App *and* issues the code, so
+	// nothing about what comes back differs from the authorize trip — same callback, same `state`,
+	// same exchange. This is what lets the return leg go unchanged.
+	it('comes back to the App’s registered callback with a code and the state', async () => {
+		const fake = await github();
+
+		const back = await install(fake, 'abc123');
+
+		expect(`${back.origin}${back.pathname}`).toBe(REDIRECT_URI);
+		expect(back.searchParams.get('state')).toBe('abc123');
+		expect(back.searchParams.get('code')).not.toBe('');
+	});
+
+	it('issues a code the broker will exchange, against that same callback', async () => {
+		const fake = await github();
+		const back = await install(fake, 'abc123');
+
+		const grant = await exchangeAuthorizationCode({
+			app: APP,
+			code: back.searchParams.get('code') ?? '',
+			redirectUri: REDIRECT_URI,
+			fetch: fake.fetch
+		});
+
+		expect(grant.token).not.toBe('');
+	});
+});
+
+describe('where a departing sign-in goes', () => {
+	// An author with no Installation: an authorize-only trip would leave them holding a credential
+	// against no Installation, which reads to them as owning no repositories.
+	it('is the install screen for an author who has not installed the App', () => {
+		const url = signInDepartureUrl({
+			app: APP,
+			redirectUri: REDIRECT_URI,
+			state: 'abc123',
+			installed: false
+		});
+
+		expect(url).toBe(installUrl({ app: APP, state: 'abc123' }));
+	});
+
+	// An Installation that already exists needs only a fresh credential, which is what the plain
+	// authorize URL is for — and it is kept unchanged.
+	it('is the plain authorize screen for an author who has', () => {
+		const url = signInDepartureUrl({
+			app: APP,
+			redirectUri: REDIRECT_URI,
+			state: 'abc123',
+			installed: true
+		});
+
+		expect(url).toBe(authorizeUrl({ app: APP, redirectUri: REDIRECT_URI, state: 'abc123' }));
 	});
 });
 

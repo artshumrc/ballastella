@@ -150,18 +150,19 @@ configuration, and no account of yours. **If you do nothing at all in this secti
 fork's whole authentication and everything still works** — the publish path, its speed, and where the
 data goes are identical either way.
 
-**It is the door offered where there is no App, and only there.** The two values below decide which
+**It is the door offered where there is no App, and only there.** The three values below decide which
 of the two a scholar is shown, and they are never shown both: a person asked to choose between two
 credentials has no way to tell which one is meant for them, and one of the two sends them off to
 generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
 token field appears anywhere — the paste is still there, one disclosure deep in Workspace settings,
 worded for somebody who already knows what they are asking for, which is where you go when your App
-installation has broken during a class. Where the two values are empty, *Connect to GitHub* leads
+installation has broken during a class. Where the three values are empty, *Connect to GitHub* leads
 straight to the paste, with the guidance a fork's author needs, and no sign-in button is shown at
 all.
 
-**The nicer front door** is a button: press *Sign in with GitHub*, authorise on GitHub's own screen,
-choose which repositories the app may touch, and come back signed in. This is the one part of
+**The nicer front door** is a button: press *Sign in with GitHub*, install the App and authorise it
+on GitHub's own screen, choose which repositories the app may touch, and come back signed in — one
+trip, because the App asks for user authorisation *during* installation. This is the one part of
 Ballastella that needs a server, and it needs one for a single reason:
 `github.com/login/oauth/access_token` sends no CORS headers, so a browser cannot exchange an
 authorisation code for a token by itself. Every other request — the file list, every blob, the
@@ -194,6 +195,16 @@ own App and its own client ID — and until it has them, the pasted token is the
    `…/editor/index.html` that is what GitHub is asked to match, and a callback registered as
    `…/editor/` will be refused with `redirect_uri_mismatch`. Give it **Contents: Read and write** and
    **Pages: Read and write**, and enable user-to-server tokens with expiry.
+
+   Then tick **Request user authorization (OAuth) during installation**. This is what makes a
+   first-time author's trip one screen instead of two: GitHub installs the App and issues the
+   authorisation code together, and returns to the callback URL above carrying `code` and `state`.
+   Without it, somebody signing in for the first time comes back holding a credential against no
+   installation, and Ballastella can only show them a list of no repositories.
+
+   **Register no Setup URL.** Ballastella never reads `setup_action`, which is undocumented across
+   the whole of GitHub's documentation, and a Setup URL would take the author somewhere the
+   application is not.
 2. Deploy a broker that implements the two endpoints below, holding your App's client **secret**.
    The contract is fixed so the two repositories cannot drift:
 
@@ -209,25 +220,35 @@ own App and its own client ID — and until it has them, the pasted token is the
    no secret.
 3. Edit **one file** —
    [`packages/core/src/remote/github-app.ts`](../packages/core/src/remote/github-app.ts) — and set
-   the two values on `GITHUB_APP`:
+   the three values on `GITHUB_APP`:
 
    ```ts
    export const GITHUB_APP: GitHubApp = {
    	brokerOrigin: 'https://broker.your-institution.edu',
-   	clientId: 'Iv1.your-real-client-id'
+   	clientId: 'Iv1.your-real-client-id',
+   	appSlug: 'your-app-slug'
    };
    ```
 
-   **Neither is a secret.** A client ID is public by design — it travels in the authorize URL, in
-   front of the user. The client secret never leaves your broker.
+   `appSlug` is the last segment of **Public link** on your App's settings page — the address
+   `https://github.com/apps/…` points at. It is *not* the App's display name: GitHub lowercases and
+   hyphenates that to make the slug, and the two can differ. It is what the install screen a
+   first-time author is sent to hangs off, so a wrong one sends them to somebody else's App or to a
+   404.
+
+   **None of the three is a secret.** A client ID is public by design — it travels in the authorize
+   URL, in front of the user — and the slug is a public link GitHub prints for you. The client secret
+   never leaves your broker.
 
 Nothing else in the repository needs to know: `scripts/check-github-broker.mjs` fails `pnpm lint` if
-any module outside that file names your broker's host or your client ID, which is what keeps
-"repoint it in one edit" true rather than merely intended.
+any module outside that file names your broker's host, your client ID, or `github.com/apps/<your
+slug>`, which is what keeps "repoint it in one edit" true rather than merely intended. The slug is
+fenced as that address rather than as a bare word, because an App is usually named after the project
+it belongs to and a fence on the word alone would refuse the project's own package names.
 
 #### Turning it off
 
-Set both values to the empty string. The button disappears entirely — rather than sitting there
+Set all three values to the empty string. The button disappears entirely — rather than sitting there
 leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again, and
 the front door of the guided sequence: *Connect to GitHub* opens on the repository address and the
 token rather than on a sign-in nobody can complete.
@@ -235,8 +256,9 @@ token rather than on a sign-in nobody can complete.
 deliberately different line: a fence with nothing to look for must not print the same success message
 as a fence that looked and found nothing.
 
-Set **both, or neither**. A broker with no client ID has nothing to look a secret up by, and a client
-ID with no broker has nowhere to exchange a code, so `pnpm lint` refuses a half-configured pair.
+Set **all three, or none**. A broker with no client ID has nothing to look a secret up by, a client
+ID with no broker has nowhere to exchange a code, and a missing slug is an install screen nobody can
+be sent to, so `pnpm lint` refuses a part-configured App.
 
 #### What owning the App means you can reach
 

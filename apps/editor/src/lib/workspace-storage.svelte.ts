@@ -67,7 +67,6 @@ import {
 	GITHUB_API_ORIGIN,
 	GITHUB_APP,
 	SIGN_IN_STATE_KEY,
-	authorizeUrl,
 	clearGrantRecord,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
@@ -77,6 +76,7 @@ import {
 	readGrantRecord,
 	refreshGitHubToken,
 	signInAgainMessage,
+	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
 	GitHubCallbackRefusedError,
@@ -155,6 +155,11 @@ const SIGN_IN_RETURN_KEY = 'ballastella.github-sign-in-return';
  * navigation to the app's own resolved root, which normalises a pathname a deployment may well have
  * been reached by (`…/editor/index.html` becomes `…/editor/`). So the string that went out is kept,
  * and the string that went out is what comes back.
+ *
+ * ⚠ **An install-first departure sends no `redirect_uri` at all** — GitHub's install screen takes
+ * none, and comes back to the callback registered on the App. The exchange still names this one,
+ * which is the same address: the App's registered callback *is* where this page is served from, and
+ * a deployment where it is not has a sign-in that cannot complete either way.
  */
 const SIGN_IN_REDIRECT_KEY = 'ballastella.github-sign-in-redirect';
 
@@ -2363,9 +2368,16 @@ export class WorkspaceStorage {
 	identity = $state('');
 
 	/**
-	 * Send the user to GitHub to authorise, or say why this browser cannot start a sign-in.
+	 * Send the user to GitHub to install and authorise, or say why this browser cannot start a sign-in.
 	 *
 	 * Answers `''` when the redirect is under way, and the sentence to show when it is not.
+	 *
+	 * ⚠ **The default trip is install-first**, which is what {@link signInDepartureUrl} decides: an
+	 * authorize-only trip leaves a first-time author holding a credential against no Installation and
+	 * a list of no repositories, which reads to them as owning nothing rather than as a step nobody
+	 * named. Pass `installed` where an Installation is already known to exist — a sign-in that ran
+	 * out, a listing GitHub refused the credential for, a Workspace already bound — and the plain
+	 * authorize URL is used instead, which is what only-a-fresh-credential wants.
 	 *
 	 * ⚠ **The redirect happens only once the `state` is known to have been kept, and the check is a
 	 * read-back rather than the absence of a throw.** A browser with storage blocked hands back a
@@ -2373,7 +2385,7 @@ export class WorkspaceStorage {
 	 * make them authorise, and refuse them on return for a reason they cannot act on. Refusing here
 	 * costs a sentence and leaves the paste, which needs no storage of that kind, on the same screen.
 	 */
-	beginGitHubSignIn(): string {
+	beginGitHubSignIn(options: { readonly installed?: boolean } = {}): string {
 		const state = newSignInState();
 		// Captured **before** the redirect and kept, because the exchange has to name this same string
 		// and cannot recompute it — see {@link SIGN_IN_REDIRECT_KEY}.
@@ -2398,7 +2410,14 @@ export class WorkspaceStorage {
 				`that path needs none of this.`
 			);
 		}
-		globalThis.location.assign(authorizeUrl({ app: GITHUB_APP, redirectUri, state }));
+		globalThis.location.assign(
+			signInDepartureUrl({
+				app: GITHUB_APP,
+				redirectUri,
+				state,
+				installed: options.installed ?? false
+			})
+		);
 		return '';
 	}
 

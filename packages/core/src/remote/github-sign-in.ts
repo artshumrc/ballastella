@@ -39,10 +39,20 @@ import type { GitHubApp } from './github-app.js';
  * Where a user is sent to authorise, on GitHub's own screen.
  *
  * ⚠ Named here rather than in `github-app.ts`: this is GitHub's address, the same for every
- * deployment on earth, and it is not the thing a fork repoints. What a fork repoints is the broker
- * and the client ID, and `scripts/check-github-broker.mjs` fences those two alone.
+ * deployment on earth, and it is not the thing a fork repoints. What a fork repoints is the broker,
+ * the client ID and the App's slug, and `scripts/check-github-broker.mjs` fences those three alone.
  */
 export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
+
+/**
+ * Where every GitHub App lives, publicly, under its own slug.
+ *
+ * ⚠ Named here for the same reason {@link GITHUB_AUTHORIZE_URL} is: this is GitHub's address, the
+ * same for every deployment on earth. What a fork repoints is the slug that goes after it, which is
+ * `GITHUB_APP`'s, and `scripts/check-github-broker.mjs` fences `github.com/apps/<slug>` — the two
+ * together — rather than either half.
+ */
+export const GITHUB_APPS_URL = 'https://github.com/apps';
 
 /** Where the `state` waits while the user is away on GitHub. Session-scoped, like the credential. */
 export const SIGN_IN_STATE_KEY = 'ballastella.github-sign-in-state';
@@ -121,6 +131,44 @@ export function authorizeUrl(options: {
 		state: options.state
 	});
 	return `${GITHUB_AUTHORIZE_URL}?${parameters}`;
+}
+
+/**
+ * Where a first-time author is sent: the App's own install screen, carrying the `state`.
+ *
+ * ⚠ **This installs *and* signs in, in one trip.** The App registration has **Request user
+ * authorization (OAuth) during installation** enabled, so GitHub returns to the callback URL
+ * registered on the App with `code` and `state` — the same return leg {@link readSignInCallback}
+ * and {@link verifySignInState} already read. There is no `redirect_uri` to send: the install screen
+ * has no such parameter, and the App's registered callback is the one address it will come back to.
+ *
+ * ⚠ **No Setup URL is registered and `setup_action` is never read.** It is undocumented across the
+ * whole of GitHub's documentation, so nothing here may be built on it.
+ */
+export function installUrl(options: { readonly app: GitHubApp; readonly state: string }): string {
+	const parameters = new URLSearchParams({ state: options.state });
+	const slug = encodeURIComponent(options.app.appSlug);
+	return `${GITHUB_APPS_URL}/${slug}/installations/new?${parameters}`;
+}
+
+/**
+ * The one address a departing sign-in goes to, given what is already true.
+ *
+ * An author with no Installation gets {@link installUrl}, because an authorize-only trip leaves them
+ * holding a credential against no Installation and a list of no repositories — which reads to them
+ * as having no repositories rather than as a step nobody named. An author who already installed the
+ * App and wants only a fresh credential gets {@link authorizeUrl}, which is what that is for.
+ *
+ * Both mint and verify `state` the same way, and both come back through the same callback.
+ */
+export function signInDepartureUrl(options: {
+	readonly app: GitHubApp;
+	readonly redirectUri: string;
+	readonly state: string;
+	/** Whether an Installation is already known to exist, so only a credential is wanted. */
+	readonly installed: boolean;
+}): string {
+	return options.installed ? authorizeUrl(options) : installUrl(options);
 }
 
 /**

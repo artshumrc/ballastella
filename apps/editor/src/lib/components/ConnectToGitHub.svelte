@@ -503,11 +503,11 @@
 	 * assigns `location` and *then* returns `''`, so there is no moment after it in which this page is
 	 * still the one on screen. A refusal means the trip never started, and the mark comes back up.
 	 */
-	function beginSignIn(): void {
+	function beginSignIn(installed = false): void {
 		problem = '';
 		connectSequence.signInRefusal = '';
 		connectSequence.leavingForGitHub();
-		problem = storage.beginGitHubSignIn();
+		problem = storage.beginGitHubSignIn({ installed });
 		if (problem !== '') connectSequence.notLeavingAfterAll();
 	}
 
@@ -759,10 +759,15 @@
 			<section data-testid="connect-sign-in-ended">
 				<h3 class="font-semibold">Your GitHub sign-in has ended</h3>
 				<p class="mt-3 max-w-prose" data-testid="connect-expiry">{expiry}</p>
+				<!--
+					⚠ **This author has an Installation already**, or the sign-in that ran out could never
+					have listed anything: only a fresh credential is wanted, which is what the plain
+					authorize screen gives without asking them to review an installation they already made.
+				-->
 				<button
 					class="btn mt-3 w-fit btn-primary btn-sm"
 					data-testid="connect-sign-in-with-github"
-					onclick={() => beginSignIn()}
+					onclick={() => beginSignIn(true)}
 				>
 					Sign in with GitHub
 				</button>
@@ -772,8 +777,23 @@
 				<h3 class="font-semibold">Sign in to GitHub</h3>
 				<p class="mt-1 max-w-prose text-sm opacity-70">
 					GitHub is where your map will live once it is on the web. Pressing this takes you to
-					GitHub, where you choose which repositories Ballastella may work with, and brings you back
+					GitHub, where you install Ballastella and sign in on the same screen, and brings you back
 					here to carry on. Nothing is kept on this computer beyond this tab.
+				</p>
+				<!--
+					⚠ **Said before the departure, because after it this screen is gone.** GitHub's install
+					screen asks which repositories Ballastella may work with, and *All repositories* is the
+					answer that does not come back to bite: it is GitHub's own promise that the grant covers
+					every repository the account owns now and every one it owns later. Choosing only some is
+					allowed and is not undone here — what it costs is that a repository made next week is
+					invisible until the author returns to GitHub and adds it, and that consequence is theirs
+					to accept rather than to discover.
+				-->
+				<p class="mt-3 max-w-prose" data-testid="connect-choose-all-repositories">
+					On GitHub's screen, choose <strong>All repositories</strong>: GitHub says that covers
+					every repository you own now <em>and</em> every one you make later. If you choose only some,
+					a repository you make after today will not be there when you look for it here, until you go
+					back to GitHub and add it.
 				</p>
 				<!--
 					⚠ **A decline on GitHub's own screen happened on a document this component did not
@@ -862,10 +882,12 @@
 							notice.
 						-->
 						{#if listing.refusal === 'credential'}
+							<!-- A credential that reached GitHub and was refused is one an Installation was made
+							     for, so this is the only-a-fresh-credential trip too. -->
 							<button
 								class="btn btn-sm"
 								data-testid="connect-sign-in-again"
-								onclick={() => beginSignIn()}
+								onclick={() => beginSignIn(true)}
 							>
 								Sign in with GitHub
 							</button>

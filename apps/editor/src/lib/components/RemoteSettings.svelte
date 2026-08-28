@@ -225,7 +225,11 @@
 	 */
 	function beginSignIn(): void {
 		reset();
-		problem = storage.beginGitHubSignIn();
+		// ⚠ **`installed: true`, and this is the re-acquisition surface rather than the front door.**
+		// The install-first trip belongs to the guided sequence, which is where a first-time author
+		// arrives; somebody who has opened Workspace settings to sign in again has been here before,
+		// and wants a credential rather than a second look at an installation they already made.
+		problem = storage.beginGitHubSignIn({ installed: true });
 	}
 
 	function signOut(): void {

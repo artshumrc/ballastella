@@ -339,7 +339,10 @@
 		uploadProblem = '';
 		connectSequence.signInRefusal = '';
 		connectSequence.leavingForGitHub();
-		uploadProblem = storage.beginGitHubSignIn();
+		// ⚠ **`installed: true`, because this dialog is only ever open over a bound Workspace.** The
+		// binding came from a repository GitHub listed as granted, so the Installation exists and what
+		// is missing is the credential alone — which is what the plain authorize screen issues.
+		uploadProblem = storage.beginGitHubSignIn({ installed: true });
 		if (uploadProblem !== '') connectSequence.notLeavingAfterAll();
 	};
 

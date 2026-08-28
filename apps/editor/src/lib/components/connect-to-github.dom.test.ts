@@ -19,7 +19,11 @@
 // isolation. The action being visible without scrolling is layout and is not asserted at any seam
 // this file can reach.
 
-import type { GrantedRepositoriesOutcome, GrantedRepository } from '@ballastella/core';
+import {
+	authorizeUrl,
+	type GrantedRepositoriesOutcome,
+	type GrantedRepository
+} from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -27,6 +31,9 @@ import { connectSequence } from '$lib/connect-sequence.svelte.js';
 
 import ConnectToGitHub from './ConnectToGitHub.svelte';
 import {
+	FAKE_APP,
+	FAKE_REDIRECT_URI,
+	FAKE_STATE,
 	FakeStorage,
 	outcome,
 	sequenceProps,
@@ -44,6 +51,20 @@ const ATLAS: GrantedRepository = {
 const listed = (
 	repositories: readonly GrantedRepository[] = [ATLAS]
 ): GrantedRepositoriesOutcome => ({ kind: 'listed', repositories });
+
+/**
+ * The two addresses a departing sign-in can go to, composed from the fake App.
+ *
+ * ⚠ **Written out rather than taken from `installUrl`**, so the shape of the address is a claim this
+ * file makes rather than one it inherits: a first-time author leaves for the App's own install
+ * screen, which installs and signs in on one screen.
+ */
+const INSTALL_FIRST = `https://github.com/apps/${FAKE_APP.appSlug}/installations/new?state=${FAKE_STATE}`;
+const AUTHORIZE_ONLY = authorizeUrl({
+	app: FAKE_APP,
+	redirectUri: FAKE_REDIRECT_URI,
+	state: FAKE_STATE
+});
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -195,6 +216,28 @@ describe('which step the sequence shows', () => {
 		press('connect-sign-in-with-github');
 
 		expect(storage.signInsBegun).toBe(1);
+	});
+
+	// ⚠ **The trip a first-time author takes installs the App *and* issues the code, on one screen.**
+	// An authorize-only trip leaves them holding a credential against no Installation and a list of no
+	// repositories — which reads as owning nothing rather than as a step nobody named.
+	test('departs to the App’s own install screen, not to the plain authorize screen', () => {
+		const { storage } = openPastAccount(new FakeStorage());
+
+		press('connect-sign-in-with-github');
+
+		expect(storage.signInDepartures).toEqual([INSTALL_FIRST]);
+	});
+
+	// Story 7 and Story 8: the choice, the reason for it, and what choosing otherwise costs — said
+	// **before** the departure, because after it this screen is gone.
+	test('says to choose All repositories, and what choosing only some costs', () => {
+		openPastAccount(new FakeStorage());
+
+		const said = text(at('connect-choose-all-repositories'));
+		expect(said).toContain('All repositories');
+		expect(said).toContain('every one you make later');
+		expect(said).toMatch(/make after today will not be there/);
 	});
 
 	// ⚠ **The other half of the return trip, which is what the mark is for.** The sign-in replaces
@@ -825,6 +868,20 @@ describe('a sign-in that ran out', () => {
 		expect(opened.storage.signInsBegun).toBe(1);
 	});
 
+	// ⚠ **An Installation this author already has**, or the sign-in that ran out could never have
+	// listed anything. What is wanted is a fresh credential, which the plain authorize screen issues
+	// without asking them to review an installation they made once already.
+	test('departs to the plain authorize screen, not to the install screen again', async () => {
+		const storage = signedIn();
+		storage.expiry = new Error(RAN_OUT);
+		const opened = open(storage);
+		await settle();
+
+		press('connect-sign-in-with-github');
+
+		expect(opened.storage.signInDepartures).toEqual([AUTHORIZE_ONLY]);
+	});
+
 	// ⚠ **Not as a repository problem and not as a publishing failure**, which are the two things an
 	// expiry looks like from underneath: the listing comes back refused, and a publish stops partway.
 	test('does not present as a Workspace with no repositories', async () => {
@@ -870,6 +927,9 @@ describe('every refusal names what to do next', () => {
 		expect(text(at('connect-choices-refused'))).toContain('sign-in has ended');
 		press('connect-sign-in-again');
 		expect(opened.storage.signInsBegun).toBe(1);
+		// A credential that reached GitHub and was refused is one an Installation was made for, so
+		// this is the only-a-fresh-credential trip too.
+		expect(opened.storage.signInDepartures).toEqual([AUTHORIZE_ONLY]);
 	});
 
 	test('a GitHub that could not be reached offers to ask it again', async () => {
