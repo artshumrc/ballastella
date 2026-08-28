@@ -54,6 +54,43 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  * it — the part that can only be exercised in a real browser.
  */
 
+/**
+ * The Workspace key the app files the picked folder's durable records under.
+ *
+ * ⚠ **Read out of the installation database, never spelled.** A folder Workspace is keyed by a
+ * minted reference (ADR-0042), so a record seeded at `folder:<folderName>` would belong to a
+ * Workspace that does not exist and the app would rightly never look at it. The record the app wrote
+ * when the folder was chosen is what says which reference this folder got.
+ */
+function folderWorkspaceKey(page: Page): Promise<string> {
+	return page.evaluate(
+		(folderName) =>
+			new Promise<string>((resolve, reject) => {
+				const open = indexedDB.open('ballastella');
+				open.onerror = () => reject(open.error ?? new Error('no installation database'));
+				open.onsuccess = () => {
+					const database = open.result;
+					const all = database
+						.transaction('workspace', 'readonly')
+						.objectStore('workspace')
+						.getAll();
+					all.onerror = () => {
+						database.close();
+						reject(all.error ?? new Error('the Workspace store could not be read'));
+					};
+					all.onsuccess = () => {
+						database.close();
+						const held = all.result as { reference?: string; folderName?: string }[];
+						const record = held.find((one) => one.folderName === folderName);
+						if (!record?.reference) reject(new Error(`no record for ${folderName}`));
+						else resolve(`folder:${record.reference}`);
+					};
+				};
+			}),
+		PICKED_FOLDER
+	);
+}
+
 /** The folder the stubbed picker hands back, as a directory in OPFS. */
 const PICKED_FOLDER = 'e2e-picked-folder';
 /** `granted` | `prompt` | `denied` — what the scripted permission methods answer. */
@@ -412,10 +449,10 @@ test.describe('choosing a folder as the Workspace', () => {
 		// Exactly the state the ~20% teardown window leaves: the record written, nothing removed.
 		const manifest = await readInFolder(page, 'amsterdam-1625/project.json');
 		await page.evaluate(
-			([folder, text]) => {
+			([workspace, text]) => {
 				const was = JSON.parse(text as string);
 				localStorage.setItem(
-					`ballastella.deleted.${encodeURIComponent(`folder:${folder as string}`)}/${encodeURIComponent('amsterdam-1625')}`,
+					`ballastella.deleted.${encodeURIComponent(workspace as string)}/${encodeURIComponent('amsterdam-1625')}`,
 					JSON.stringify({
 						formatVersion: 1,
 						at: new Date().toISOString(),
@@ -423,7 +460,7 @@ test.describe('choosing a folder as the Workspace', () => {
 					})
 				);
 			},
-			[PICKED_FOLDER, manifest]
+			[await folderWorkspaceKey(page), manifest]
 		);
 
 		await page.reload();
@@ -474,18 +511,21 @@ test.describe('choosing a folder as the Workspace', () => {
 		// associated with neither. A screen-reader user meets two identical controls and has to guess
 		// which note each one throws away, for the one gesture here that is supposed to be safe.
 		await createProject(page, 'Boston 1775');
-		await page.evaluate((folder) => {
-			for (const directory of ['amsterdam-1625', 'boston-1775']) {
-				localStorage.setItem(
-					`ballastella.deleted.${encodeURIComponent(`folder:${folder}`)}/${encodeURIComponent(directory)}`,
-					JSON.stringify({
-						formatVersion: 1,
-						at: new Date().toISOString(),
-						was: { name: 'Whatever it was called', updatedAt: '2026-08-08T09:00:00.000Z' }
-					})
-				);
-			}
-		}, PICKED_FOLDER);
+		await page.evaluate(
+			(workspace) => {
+				for (const directory of ['amsterdam-1625', 'boston-1775']) {
+					localStorage.setItem(
+						`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent(directory)}`,
+						JSON.stringify({
+							formatVersion: 1,
+							at: new Date().toISOString(),
+							was: { name: 'Whatever it was called', updatedAt: '2026-08-08T09:00:00.000Z' }
+						})
+					);
+				}
+			},
+			await folderWorkspaceKey(page)
+		);
 
 		await page.reload();
 		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();

@@ -89,8 +89,13 @@ import {
  */
 export const JOURNAL_FORMAT_VERSION = 1;
 
-/** Every key this module owns begins with this. Nothing else in the origin may. */
-const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
+/**
+ * Every key this module owns begins with this. Nothing else in the origin may.
+ *
+ * Exported for `rekey-workspace-records.ts` alone, which has to find one Workspace's entries under
+ * every prefix at once. Nothing outside this module writes a key with it.
+ */
+export const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
 
 /**
  * Where a copy a replay **declined to apply** is kept, out of reach of the live journal.
@@ -107,7 +112,7 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
  * {@link HELD_COPIES_PER_PATH}, which is where the room this costs is reasoned about — and so
  * {@link forgetHeldCopy} destroys the one a notice names rather than whatever is at that path now.
  */
-const HELD_KEY_PREFIX = 'ballastella.held.';
+export const HELD_KEY_PREFIX = 'ballastella.held.';
 
 /**
  * How many declined copies of **one file** may be held at once.

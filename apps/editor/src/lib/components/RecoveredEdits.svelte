@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 
-	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	/**
@@ -43,6 +42,10 @@
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const report = $derived(storage?.session.replayReport ?? null);
+	/** The Workspace the replay wrote into, named the way its author knows it rather than by its key. */
+	const restoredInto = $derived(
+		report === null ? '' : (storage?.workspaceLabel(report.workspace) ?? '')
+	);
 	/**
 	 * And what the startup's **deletions** did.
 	 *
@@ -235,8 +238,7 @@
 						Ballastella closed before {report.restored.length === 1
 							? 'this file was'
 							: 'these files were'}
-						finished saving in “{workspaceKeyLabel(report.workspace)}”, so the change has been
-						written now:
+						finished saving in “{restoredInto}”, so the change has been written now:
 					</p>
 					<ul class="list-inside list-disc text-sm" data-testid="recovered-restored">
 						{#each report.restored as path (path)}

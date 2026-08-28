@@ -3,7 +3,6 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	import InstallOffer from '$lib/pwa/InstallOffer.svelte';
-	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 
 	import ModalDialog from './ModalDialog.svelte';
 	import RemoteSettings from './RemoteSettings.svelte';
@@ -172,8 +171,8 @@
 		];
 		outcome =
 			parts.length > 0
-				? `Threw away ${parts.join(' and ')} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`
-				: `There was nothing left to throw away for “${workspaceKeyLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
+				? `Threw away ${parts.join(' and ')} held for “${storage.workspaceLabel(key)}”. Nothing in any Workspace was touched.`
+				: `There was nothing left to throw away for “${storage.workspaceLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
 	}
 
 	async function askToDelete(name: string): Promise<void> {
@@ -460,8 +459,9 @@
 				assertive and interrupts. `save-error`'s precedent does not reach here: that one is inserted
 				at the instant its text first exists.
 
-				The Workspace is named the way the user knows it (`workspaceKeyLabel`), never by the internal
-				journal key — a scholar has never seen `opfs:`.
+				The Workspace is named the way the user knows it (`storage.workspaceLabel`), never by the
+				internal journal key — a scholar has never seen `opfs:`, and a folder Workspace's key is a
+				minted reference nobody could recognise at all.
 			-->
 			{#if storage.orphanedJournals.length > 0}
 				<div class="flex flex-col items-start gap-3" aria-live="polite">
@@ -471,9 +471,10 @@
 						<div class="flex flex-col items-start gap-2">
 							<p data-testid="orphaned-journals">
 								Held for {storage.orphanedJournals.length === 1 ? 'a Workspace' : 'Workspaces'} not listed
-								here: {storage.orphanedJournals.map((key) => workspaceKeyLabel(key)).join(', ')}.
-								Open that Workspace and the changes go back into it; if it is gone for good, throw
-								them away.
+								here: {storage.orphanedJournals
+									.map((key) => storage.workspaceLabel(key))
+									.join(', ')}. Open that Workspace and the changes go back into it; if it is gone
+								for good, throw them away.
 							</p>
 							{#each storage.orphanedJournals as key (key)}
 								<button
@@ -481,7 +482,7 @@
 									data-testid="discard-orphaned-journal"
 									onclick={() => discardOrphanedJournal(key)}
 								>
-									Throw away the changes for {workspaceKeyLabel(key)}
+									Throw away the changes for {storage.workspaceLabel(key)}
 								</button>
 							{/each}
 						</div>

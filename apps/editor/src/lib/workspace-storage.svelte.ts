@@ -16,7 +16,9 @@ import {
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
 	isFolderWorkspaceSupported,
+	listFolderWorkspaces,
 	listOpfsWorkspaces,
+	migratePreExistingFolderWorkspace,
 	openOpfsWorkspace,
 	openProjectBundle,
 	allocateProjectImport,
@@ -39,6 +41,7 @@ import {
 	recoverWorkspaceUpdate,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
+	resolveFolderWorkspace,
 	restoreWorkspaceTar,
 	reviewFromRemote,
 	FileSystemAccessProjectStore,
@@ -91,6 +94,7 @@ import {
 	type SignInCallback,
 	type JournalStorage,
 	type ClosureFile,
+	type FolderWorkspaceRecord,
 	type OpenedBundle,
 	type ProjectImportSource,
 	type ProjectStore,
@@ -119,8 +123,10 @@ import {
 import {
 	EditorSession,
 	folderWorkspaceKey,
+	folderWorkspaceLabel,
 	opfsWorkspaceKey,
 	trackLocalChanges,
+	workspaceKeyLabel,
 	type TransferState
 } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
@@ -409,6 +415,28 @@ function write(key: string, value: string): void {
 	}
 }
 
+/** The folder a Workspace is being adopted from, as this installation identifies and shows it. */
+interface AdoptedFolder {
+	/** Its minted reference, or `''` where no record could be kept. See {@link folderKeyOf}. */
+	readonly folderReference: string;
+	/** The author's own name for the Workspace, for the sentences that name it. */
+	readonly label: string;
+	/** The directory's own name, shown beneath the label. Never identity. */
+	readonly folderName: string;
+}
+
+/**
+ * How a folder Workspace's five durable record families are keyed.
+ *
+ * Its minted reference (ADR-0042) — or, where this installation could keep no record for it, the
+ * directory's name, which is exactly what the build that allowed one folder used. That fallback is a
+ * browser with no IndexedDB or a store that refused, and it restores the old collision rather than
+ * inventing a new failure: the Workspace opens, its journal is found, and the next visit records a
+ * reference if it can.
+ */
+const folderKeyOf = (folder: { folderReference: string; folderName: string }): string =>
+	folderWorkspaceKey(folder.folderReference || folder.folderName);
+
 /**
  * Which Workspace is open and the whole of moving between them — across backends, and across the
  * several named Workspaces browser storage holds (ADR-0024).
@@ -432,8 +460,25 @@ export class WorkspaceStorage {
 	/** The live session. Replaced, never repointed, when the Workspace changes. */
 	session = $state<EditorSession>(EditorSession.opfs(rememberedWorkspaceName()));
 	backing = $state<WorkspaceBacking>('browser');
-	/** The folder's name while {@link backing} is `folder`. */
+	/** The folder's name while {@link backing} is `folder`. Shown; never identity. */
 	folderName = $state('');
+	/**
+	 * The open folder Workspace's minted reference, which is what its durable records are keyed by
+	 * (ADR-0042).
+	 *
+	 * `''` while the Workspace is browser-backed, and also for a folder this installation could not
+	 * keep a record for — no IndexedDB, or a store that refused. That folder is keyed by its
+	 * directory's name, exactly as the single-folder build keyed the one folder it allowed.
+	 */
+	folderReference = $state('');
+	/**
+	 * Every folder Workspace this installation has a record of, so a key can be shown as a name.
+	 *
+	 * ⚠ **Not a roster.** Nothing here lists or opens them; what needs this is
+	 * {@link workspaceLabel}, because a minted reference is unreadable and the two places a Workspace
+	 * key reaches the screen would otherwise show one.
+	 */
+	folderWorkspaces = $state<readonly FolderWorkspaceRecord[]>([]);
 	/**
 	 * The named browser-storage Workspace that is open, or was last open.
 	 *
@@ -661,6 +706,13 @@ export class WorkspaceStorage {
 	 * from.
 	 */
 	#folderStore: FileSystemAccessProjectStore | null = null;
+	/**
+	 * The load-time pass that gives the pre-plural folder a reference and lists what is recorded.
+	 *
+	 * Awaited before any folder is adopted, so that picking the remembered folder before the pass has
+	 * finished cannot mint a second reference for the very folder it is about to mint one for.
+	 */
+	#foldersRecorded: Promise<void> = Promise.resolve();
 	/**
 	 * The Remote Status checker of the Workspace that is open, or `null` while nothing is bound.
 	 *
@@ -928,6 +980,7 @@ export class WorkspaceStorage {
 					this.reopenable = name;
 				})
 				.catch(() => undefined);
+			this.#foldersRecorded = this.#recordFolderWorkspaces();
 		}
 		return () => {
 			window.removeEventListener('focus', onFocus);
@@ -945,8 +998,7 @@ export class WorkspaceStorage {
 			const store = await chooseWorkspaceFolder();
 			// The picker was closed without choosing. Nothing happened, so nothing is said.
 			if (!store) return;
-			this.#folderStore = store;
-			await this.#adopt(store, 'folder', store.folderName);
+			await this.#adoptFolder(store);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
 		}
@@ -961,11 +1013,60 @@ export class WorkspaceStorage {
 				this.reopenable = null;
 				return;
 			}
-			this.#folderStore = store;
-			await this.#adopt(store, 'folder', store.folderName);
+			await this.#adoptFolder(store);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
 		}
+	}
+
+	/**
+	 * Adopt a granted folder as the Workspace, under the identity this installation records for it.
+	 *
+	 * Every folder arrives through here, so the reference the journal, the deletions, the manifest,
+	 * the Remote binding and the change index are keyed by is resolved in exactly one place.
+	 */
+	async #adoptFolder(store: FileSystemAccessProjectStore): Promise<void> {
+		const folder = await this.#identify(store);
+		this.#folderStore = store;
+		await this.#adopt(store, folder);
+		await this.#refreshFolderWorkspaces();
+	}
+
+	/**
+	 * Which folder Workspace a granted folder is, by its record rather than by its name.
+	 *
+	 * A folder with no record — no IndexedDB, or a store that refused — is named by its directory, and
+	 * {@link folderKeyOf} says what that costs.
+	 */
+	async #identify(store: FileSystemAccessProjectStore): Promise<AdoptedFolder> {
+		await this.#foldersRecorded;
+		const record = await resolveFolderWorkspace(store.folder).catch(() => null);
+		return {
+			folderReference: record?.reference ?? '',
+			label: record?.label ?? store.folderName,
+			// The folder's *current* name, because a folder that has been renamed is still the folder
+			// the grant names.
+			folderName: store.folderName
+		};
+	}
+
+	/**
+	 * Give the one folder a pre-plural installation could have a reference of its own, once.
+	 *
+	 * On load, before any gesture could pick a folder, because the migration's trigger is the folder
+	 * in the single slot and a folder picked first could share its name without being it.
+	 */
+	async #recordFolderWorkspaces(): Promise<void> {
+		await migratePreExistingFolderWorkspace({
+			journalStorage: this.#journalStorage,
+			metadataStorage: this.#metadataStorage,
+			workspaceKey: folderWorkspaceKey
+		}).catch(() => null);
+		await this.#refreshFolderWorkspaces();
+	}
+
+	async #refreshFolderWorkspaces(): Promise<void> {
+		this.folderWorkspaces = await listFolderWorkspaces().catch(() => this.folderWorkspaces);
 	}
 
 	/**
@@ -1069,7 +1170,7 @@ export class WorkspaceStorage {
 		if (this.isOpen(name)) return;
 		this.problem = '';
 		const opened = await ensureOpfsWorkspace(name);
-		await this.#adopt(openOpfsWorkspace(opened), 'browser', '', opened);
+		await this.#adopt(openOpfsWorkspace(opened), null, opened);
 	}
 
 	/**
@@ -1094,7 +1195,7 @@ export class WorkspaceStorage {
 		// Best-effort: a Workspace that is still gone stays gone, and the fresh session's own listing is
 		// what says so — in the words ADR-0008 wants, rather than as a rejection from a click handler.
 		await ensureOpfsWorkspace(name).catch(() => undefined);
-		await this.#adopt(openOpfsWorkspace(name), 'browser', '', name);
+		await this.#adopt(openOpfsWorkspace(name), null, name);
 		await this.refreshWorkspaces();
 	}
 
@@ -1406,7 +1507,7 @@ export class WorkspaceStorage {
 			const folderReference = await retainWorkspaceFolder(folder.folder).catch(() => null);
 			if (folderReference === null) return null;
 			return {
-				workspaceKey: folderWorkspaceKey(this.folderName),
+				workspaceKey: folderKeyOf(this),
 				backing: 'folder',
 				name: this.folderName,
 				folderReference
@@ -1687,10 +1788,7 @@ export class WorkspaceStorage {
 		let incomplete = '';
 		try {
 			if (reopened.folder === null) await this.#switchTo(origin.name);
-			else {
-				this.#folderStore = reopened.folder;
-				await this.#adopt(reopened.folder, 'folder', reopened.folder.folderName);
-			}
+			else await this.#adoptFolder(reopened.folder);
 			// Open or identify the imported Project, before the copy it came from goes.
 			await this.session.open(imported.directory);
 			this.workspaces = this.workspaces.filter((name) => name !== reviewWorkspace);
@@ -1731,10 +1829,11 @@ export class WorkspaceStorage {
 			if (!existing.includes(origin.name)) refuseReviewDestination(origin, 'gone');
 		}
 		const raw: ProjectStore = folder ?? openOpfsWorkspace(origin.name);
-		// The folder's *current* name, because a folder that has been renamed is still the folder the
-		// grant names — and `folderWorkspaceKey` is built from the name, so it has to be built from this
-		// one.
-		const key = folder === null ? origin.workspaceKey : folderWorkspaceKey(folder.folderName);
+		// The folder's key as it is **now**, not as the origin recorded it. An origin written before
+		// folder Workspaces were keyed by a reference names `folder:<folderName>`, and the records it
+		// names have since moved onto the reference; the grant is what says which folder this is, so
+		// the record behind the grant is what says how it is keyed.
+		const key = folder === null ? origin.workspaceKey : folderKeyOf(await this.#identify(folder));
 		const store = trackLocalChanges(raw, key, this.#metadataStorage);
 
 		let local: readonly string[];
@@ -1947,9 +2046,7 @@ export class WorkspaceStorage {
 
 	/** This Workspace, backing included, as the synchronization metadata keys it. */
 	get #workspaceKey(): string {
-		return this.backing === 'folder'
-			? folderWorkspaceKey(this.folderName)
-			: opfsWorkspaceKey(this.workspaceName);
+		return this.backing === 'folder' ? folderKeyOf(this) : opfsWorkspaceKey(this.workspaceName);
 	}
 
 	/**
@@ -2676,7 +2773,7 @@ export class WorkspaceStorage {
 	 * "which one" has to be legible even when Ballastella cannot go there itself.
 	 */
 	async #selectOpened(workspaceKey: string, remote: RemoteRelationship): Promise<string> {
-		if (this.backing === 'folder' && folderWorkspaceKey(this.folderName) === workspaceKey) {
+		if (this.backing === 'folder' && folderKeyOf(this) === workspaceKey) {
 			return (
 				`${describeRemote(remote)} is already open: this Workspace folder is the one this ` +
 				`computer keeps for it. Nothing has been downloaded.`
@@ -2757,6 +2854,22 @@ export class WorkspaceStorage {
 	}
 
 	/**
+	 * A Workspace key as the name its author knows it by, never as the key itself.
+	 *
+	 * ⚠ **A folder key holds a minted reference, and a reference is not a name** (ADR-0042). The two
+	 * places a key reaches a sentence — the report of edits recovered into another Workspace, and the
+	 * orphaned-journal list — would otherwise print a UUID at the user. The record holds the name;
+	 * {@link workspaceKeyLabel} is the fallback for a browser Workspace and for a key this
+	 * installation has no record for.
+	 */
+	workspaceLabel(key: string): string {
+		const folder = this.folderWorkspaces.find(
+			(record) => folderWorkspaceKey(record.reference) === key
+		);
+		return folder === undefined ? workspaceKeyLabel(key) : folderWorkspaceLabel(folder.label);
+	}
+
+	/**
 	 * Whether a folder from a previous visit is remembered but not open right now.
 	 *
 	 * The state a bookmarked `?p=` lands in: the Project is in the folder, the folder needs a gesture
@@ -2769,13 +2882,12 @@ export class WorkspaceStorage {
 
 	async #adopt(
 		rawStore: ProjectStore,
-		backing: WorkspaceBacking,
-		folderName: string,
+		folder: AdoptedFolder | null,
 		workspaceName = this.workspaceName
 	): Promise<void> {
+		const backing: WorkspaceBacking = folder === null ? 'browser' : 'folder';
 		// The key the *arriving* Workspace is, backing included — never the one being left.
-		const workspaceKey =
-			backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName);
+		const workspaceKey = folder === null ? opfsWorkspaceKey(workspaceName) : folderKeyOf(folder);
 		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and the
 		// session that follows all hold the *same* managed store and its one change index. A raw store
 		// handed to any of them would author bytes this installation then has no record of, and a
@@ -2826,7 +2938,8 @@ export class WorkspaceStorage {
 		this.#beginRecovery();
 		this.session = arriving;
 		this.backing = backing;
-		this.folderName = folderName;
+		this.folderName = folder?.folderName ?? '';
+		this.folderReference = folder?.folderReference ?? '';
 		this.workspaceName = workspaceName;
 		rememberWorkspaceName(workspaceName);
 		// ⚠ **`own` is not "browser-backed and unmarked".** A folder Workspace is *always* one of the
@@ -2836,7 +2949,7 @@ export class WorkspaceStorage {
 		// {@link OWN_FOLDER_KEY} for what that cost.
 		const own = this.review === null;
 		if (own) {
-			this.ownFolderName = backing === 'folder' ? folderName : '';
+			this.ownFolderName = folder?.folderName ?? '';
 			// `workspaceName` is carried across a folder adopt unchanged, so the browser Workspace the
 			// user left is still the fallback when the folder grant cannot be had back.
 			if (backing === 'browser') this.ownWorkspaceName = workspaceName;
@@ -2845,8 +2958,8 @@ export class WorkspaceStorage {
 		// The grant belongs to the folder that is open, so a switch into browser storage lets it go —
 		// what remains reachable is the *remembered* folder, which is a different record and a gesture
 		// away. A retained grant a Review Workspace is holding is untouched by this.
-		if (backing === 'browser') this.#folderStore = null;
-		this.reopenable = backing === 'folder' ? folderName : this.reopenable;
+		if (folder === null) this.#folderStore = null;
+		this.reopenable = folder?.folderName ?? this.reopenable;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a
 		// navigation cannot each trigger their own walk of a Workspace with tens of thousands of
@@ -2907,9 +3020,10 @@ export class WorkspaceStorage {
 	 * Which journalled Workspaces are not in browser storage any more.
 	 *
 	 * ⚠ **"Not in the list" is not "gone", which is why this only reports.** A folder Workspace never
-	 * appears in `listOpfsWorkspaces` at all, so every folder key is an orphan by this test; so is a
-	 * browser Workspace on a listing that failed. The report therefore names them and offers
-	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
+	 * appears in `listOpfsWorkspaces` at all — its record is what says it exists — and a browser
+	 * Workspace on a listing that failed is missing without being gone. The report therefore names
+	 * them and offers {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit
+	 * on a guess.
 	 *
 	 * **Both kinds of record, not only the journal.** An unfinished deletion lives in the same 5 MB,
 	 * under a key of the same shape, and would otherwise be invisible here — so a record naming a
@@ -2925,7 +3039,10 @@ export class WorkspaceStorage {
 		const known = [
 			...this.workspaces.map((name) => opfsWorkspaceKey(name)),
 			opfsWorkspaceKey(this.workspaceName),
-			...(this.folderName ? [folderWorkspaceKey(this.folderName)] : [])
+			// Every folder Workspace with a record, not only the one that is open: a Workspace this
+			// installation still holds the way back to is not an orphan, whichever one is on screen.
+			...this.folderWorkspaces.map((folder) => folderWorkspaceKey(folder.reference)),
+			...(this.backing === 'folder' ? [folderKeyOf(this)] : [])
 		];
 		// Deduplicated by hand for the reason `known` is an array: a plain `Set` is ruled out by
 		// `svelte/prefer-svelte-reactivity`, and a `SvelteSet` for a handful of names nothing reads
