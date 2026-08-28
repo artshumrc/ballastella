@@ -16,6 +16,7 @@ import {
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
 	type RemoteBindOutcome,
+	type RemotePagesOutcome,
 	type RemoteReference
 } from '@ballastella/core';
 
@@ -74,6 +75,10 @@ export class FakeStorage {
 	signInRefusal = '';
 	/** What `bindRemote` answers, or throws when it is an `Error`. */
 	bindAnswer: RemoteBindOutcome | Error = outcome();
+	/** How many times the later Pages act was asked for. `0` is "nothing was asked of GitHub". */
+	pagesAsks = 0;
+	/** What `enablePages` answers, or throws when it is an `Error`. */
+	pagesAnswer: RemotePagesOutcome | Error = { enabled: true, instruction: '' };
 	/** How many times the sign-in was ended by a press. */
 	signOuts = 0;
 	/**
@@ -119,6 +124,13 @@ export class FakeStorage {
 		this.credential = null;
 	}
 
+	async enablePages(): Promise<RemotePagesOutcome> {
+		this.pagesAsks += 1;
+		await Promise.resolve();
+		if (this.pagesAnswer instanceof Error) throw this.pagesAnswer;
+		return this.pagesAnswer;
+	}
+
 	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {
 		this.bindCalls.push({ remote, token });
 		await Promise.resolve();
@@ -131,7 +143,7 @@ export class FakeStorage {
 	}
 }
 
-/** A binding that worked, with push rights and Pages on. Override a field per test. */
+/** A binding that worked, with push rights. Override a field per test. */
 export function outcome(over: Partial<RemoteBindOutcome> = {}): RemoteBindOutcome {
 	return {
 		binding: {
@@ -142,7 +154,6 @@ export function outcome(over: Partial<RemoteBindOutcome> = {}): RemoteBindOutcom
 		},
 		canPush: true,
 		rightsNotice: '',
-		pages: { enabled: true, instruction: '' },
 		...over
 	};
 }

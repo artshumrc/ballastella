@@ -156,13 +156,19 @@ describe('turning Pages on, whose failure is a sentence rather than an error', (
 		});
 	});
 
-	it('names the setting, the branch, and the folder when it could not', async () => {
+	// ⚠ **Both permissions, because `POST /pages` needs both.** GitHub requires `Pages: write` *and*
+	// `Administration: write` together, and this App asks for neither — ADR-0040 refuses
+	// `Administration` outright. A sentence naming only `Pages` sends a scholar to grant the one
+	// permission they may already have granted, and leaves them there.
+	it('names both permissions, the setting, the branch, and the folder when it could not', async () => {
 		const remote = await github();
 		remote.refusePages = true;
 
 		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
 
 		expect(outcome.enabled).toBe(false);
+		expect(outcome.instruction).toMatch(/Pages: Read and write/);
+		expect(outcome.instruction).toMatch(/Administration: Read and write/);
 		expect(outcome.instruction).toMatch(/Settings → Pages/);
 		expect(outcome.instruction).toMatch(/Deploy from a branch/);
 		expect(outcome.instruction).toMatch(/“main”/);
@@ -181,7 +187,9 @@ describe('turning Pages on, whose failure is a sentence rather than an error', (
 		expect(outcome.enabled).toBe(false);
 		expect(outcome.instruction).toMatch(/repository is empty/);
 		expect(outcome.instruction).toMatch(/Publish once/);
-		expect(outcome.instruction).not.toMatch(/does not have|Pages: Read and write/);
+		expect(outcome.instruction).not.toMatch(
+			/does not have|Pages: Read and write|Administration: Read and write/
+		);
 	});
 
 	it('never throws, even when GitHub cannot be reached at all', async () => {
@@ -195,7 +203,7 @@ describe('turning Pages on, whose failure is a sentence rather than an error', (
 });
 
 describe('binding a Workspace', () => {
-	it('writes the binding, checks the rights, and turns Pages on, in one gesture', async () => {
+	it('writes the binding and checks the rights, in one gesture', async () => {
 		const store = new MemoryProjectStore();
 		const remote = await github();
 
@@ -207,13 +215,47 @@ describe('binding a Workspace', () => {
 
 		expect(outcome.canPush).toBe(true);
 		expect(outcome.rightsNotice).toBe('');
-		expect(outcome.pages.enabled).toBe(true);
 		expect(await readRemoteBinding(store)).toEqual({
 			formatVersion: 1,
 			owner: 'ada',
 			repository: 'atlas',
 			branch: 'main'
 		});
+	});
+
+	// ⚠ **A Remote is a place the work lives before it is a site anybody reads.** Turning Pages on is
+	// a separate, later, optional act, so a bind that succeeds leaves the repository exactly as it
+	// found it — and never answers a question about who may read this with a paragraph about a
+	// permission.
+	it('does not turn Pages on, so the repository is left as it was found', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+
+		await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: remote.fetch
+		});
+
+		expect(remote.pagesEnabled).toBe(false);
+	});
+
+	// The same claim where it would otherwise be loudest: a credential that cannot enable Pages binds
+	// with nothing to say about Pages at all.
+	it('binds without a word about Pages when the credential could not have turned it on', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+		remote.refusePages = true;
+
+		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: remote.fetch
+		});
+
+		expect(outcome).not.toHaveProperty('pages');
+		expect(outcome.rightsNotice).toBe('');
+		expect(await readRemoteBinding(store)).not.toBeNull();
 	});
 
 	it('binds to main without being asked, because there is one branch', async () => {
@@ -246,24 +288,6 @@ describe('binding a Workspace', () => {
 		expect(outcome.canPush).toBe(false);
 		expect(outcome.rightsNotice).toMatch(/cannot push to ada\/atlas/);
 		expect(outcome.rightsNotice).toMatch(/Contents: Read and write/);
-		expect(await readRemoteBinding(store)).not.toBeNull();
-	});
-
-	it('binds even when Pages could not be turned on, and carries the instruction', async () => {
-		const store = new MemoryProjectStore();
-		const remote = await github();
-		// Rights read fine and Pages does not: exactly the shape of a token with `contents: write`
-		// and no `pages: write`, which is the common case a scholar makes by hand.
-		remote.refusePages = true;
-
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(outcome.pages.enabled).toBe(false);
-		expect(outcome.pages.instruction).toMatch(/Settings → Pages/);
 		expect(await readRemoteBinding(store)).not.toBeNull();
 	});
 

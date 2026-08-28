@@ -58,6 +58,7 @@ import {
 	journalledWorkspaces,
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
+	enableRemotePages,
 	browserCredentialStore,
 	clearRemoteBinding,
 	closedWhileReviewing,
@@ -98,6 +99,7 @@ import {
 	type RemoteRelationship,
 	type SynchronizationBaseline,
 	type RemoteReference,
+	type RemotePagesOutcome,
 	type RemoteRights,
 	type RemoteStatusState,
 	type RestoreDestination,
@@ -2301,6 +2303,35 @@ export class WorkspaceStorage {
 		this.baseline = metadata === null ? null : await metadata.readBaseline(binding);
 		this.#watchRemoteStatus(this.session);
 		return outcome;
+	}
+
+	/**
+	 * Turn GitHub Pages on for the Remote this Workspace is bound to.
+	 *
+	 * ⚠ **Deliberately not part of {@link bindRemote}.** A Remote is a place the work lives before it
+	 * is a site anybody reads, so this is a separate, later, optional act with a press of its own —
+	 * and it is asked for from exactly one control, on the guided sequence's connected step.
+	 *
+	 * Refusals are answers rather than throws, for the reason `bind-remote.ts` records: the repository
+	 * is correctly connected either way, and what is owed is the sentence naming the two permissions
+	 * GitHub requires and the setting to change by hand. The two things that *are* thrown are the two
+	 * that make the request impossible rather than refused.
+	 */
+	async enablePages(): Promise<RemotePagesOutcome> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository yet, so there is no site to turn on.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Turning the site on for ${describeRemote(binding)} needs you to be signed in to GitHub, ` +
+					`and you are not. Sign in and press it again.`
+			);
+		}
+		return enableRemotePages({ token, remote: binding });
 	}
 
 	/**

@@ -552,9 +552,8 @@ test.describe('with no broker served at all', () => {
 			`This Workspace is bound to ${REMOTE}`
 		);
 		expect(await holdsCredential(page)).toBe(true);
-		// Pages was turned on and the rights were read — the whole binding path, against GitHub's data
-		// plane, with no broker anywhere in it.
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+		// The rights were read — the whole binding path, against GitHub's data plane, with no broker
+		// anywhere in it.
 		expect(github.requests).toContain(`/repos/${OWNER}/${REPOSITORY}`);
 		// And nothing in that path went near the broker.
 		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
@@ -587,7 +586,6 @@ test.describe('with no broker served at all', () => {
 		await expect(page.getByTestId('remote-outcome')).toContainText(
 			`This Workspace is bound to ${REMOTE}`
 		);
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 	});
 
 	// ⚠ **The gate itself, which no seam below this one can see.** Which fields `RemoteSettings`
@@ -630,7 +628,6 @@ test.describe('with no broker served at all', () => {
 			`This Workspace is bound to ${REMOTE}`
 		);
 		expect(await holdsCredential(page)).toBe(true);
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 		// And nothing in that path went near the broker, which is not there anyway.
 		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
 	});
@@ -765,12 +762,18 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		await page.getByTestId('choose-repository').click();
 
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
-		// Pages was turned on as part of that one press, with nothing else asked of anybody.
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 		// The address the assignment asked for.
 		await expect(page.getByTestId('published-site-address')).toHaveText(
 			`https://${OWNER}.github.io/${REPOSITORY}/`
 		);
+
+		// ⚠ **Connecting turned nothing on**, because a Remote is a place the work lives before it is
+		// a site anybody reads. Letting other people see it is the press after it, and this is the one
+		// place the whole of that act is wired to the real GitHub.
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
+		await page.getByTestId('enable-pages').click();
+		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 30_000 });
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 
 		// The handoff is the Publish button that is always on the bar, and it reaches GitHub.
 		await page.getByTestId('connect-publish').click();

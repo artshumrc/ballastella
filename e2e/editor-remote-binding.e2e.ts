@@ -210,43 +210,34 @@ test.describe('a credential that cannot push', () => {
 
 // A repository full of correct files that serves nothing is the failure; an error dialog over a
 // binding that otherwise worked is a worse one.
-test.describe('turning Pages on', () => {
-	test('turns it on when the credential is permitted to', async ({ page }) => {
+// ⚠ **A Remote is a place the work lives before it is a site anybody reads.** Turning a Published
+// Site on is a separate, later, optional act with a press of its own, on the guided sequence's
+// connected step — so binding must leave the repository exactly as it found it and say nothing about
+// Pages at all. What the later act says when GitHub refuses it is `bind-remote.test.ts`'s at Seam 1,
+// and that the press exists and renders the answer is the sequence's at Seam 1c; what only a browser
+// can show is that a bind through this form asks for none of it.
+test.describe('binding does not turn Pages on', () => {
+	test('leaves the site off, with nothing to say about it', async ({ page }) => {
 		const github = await start(page);
 
 		await bind(page);
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
 
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
 		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
 	});
 
-	// A scholar binding a second machine to the repository they published from last week meets this
-	// every time, and it is success: the site already serves.
-	test('treats “already enabled” as success, with nothing to say', async ({ page }) => {
-		await start(page, {
-			repositories: [{ owner: OWNER, name: REPOSITORY, pagesEnabled: true }]
-		});
-
-		await bind(page);
-
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
-	});
-
-	test('names the setting, the branch and the folder when it could not', async ({ page }) => {
+	// The case that used to put a paragraph about a permission in front of somebody who had only said
+	// where their work goes: a credential that could not have enabled Pages binds in silence.
+	test('says nothing when the credential could not have turned it on', async ({ page }) => {
 		await start(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY, refusePages: true }]
 		});
 
 		await bind(page);
 
-		const notice = page.getByTestId('remote-notice').first();
-		await expect(notice).toContainText('Settings → Pages');
-		await expect(notice).toContainText('Deploy from a branch');
-		await expect(notice).toContainText('/ (root)');
-		// And the binding stands, which is the half a refusal would have cost.
 		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
 	});
 });
 
