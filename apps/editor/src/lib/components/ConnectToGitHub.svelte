@@ -32,6 +32,14 @@
 	 * on.** Each is a request in flight and each is guaranteed to answer — a listing read that throws
 	 * becomes `choices-refused`, and a bind that throws clears `connecting` and goes back to the
 	 * choice — which is why neither renders a control of its own and why nothing here waits for ever.
+	 *
+	 * `hydrate` is the one refusal that has a step rather than a sentence. Every other way a bind can
+	 * be refused leaves the author with the list to choose from again; the Remote that carries
+	 * Projects this Workspace has not got is the one where the author's actual question — *is this
+	 * mine, and can I have it here* — has an operation that answers it. The refusal is not softened
+	 * into a warning by having one (ADR-0033: publishing there would delete somebody's work), and the
+	 * operation offered is not a merge (ADR-0024): it opens the Remote into a **new** Workspace and
+	 * leaves the current one alone.
 	 */
 	export const CONNECT_STEPS = [
 		'legacy',
@@ -45,6 +53,7 @@
 		'choices-refused',
 		'creating',
 		'connecting',
+		'hydrate',
 		'connected'
 	] as const;
 
@@ -57,6 +66,7 @@
 		describeTokenProblem,
 		parseRemoteReference,
 		readGrantedRepositories,
+		RemoteBindRefusedError,
 		type GrantedInstallation,
 		type GrantedRepositoriesOutcome,
 		type GrantedRepository,
@@ -204,6 +214,17 @@
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
 	/** The repository being connected, which is what makes `connecting` a state of the world. */
 	let connecting = $state<RemoteReference | null>(null);
+	/**
+	 * The repository whose work this Workspace has not got, and the refusal that named it.
+	 *
+	 * ⚠ **A fact about a press, and it survives nothing.** Closing the sequence forgets it, because
+	 * the step is a reading of the world and the world's answer is that this Workspace is not
+	 * connected to anything — the offer is what the author gets *while* the refusal they just met is
+	 * the last thing that happened.
+	 */
+	let notHere = $state<{ remote: RemoteReference; refusal: string } | null>(null);
+	/** Whether the Open is running, so a second press is not a second download. */
+	let hydrating = $state(false);
 	/** What the connection succeeded *with*: rights that cannot publish. */
 	let notices = $state<string[]>([]);
 	/**
@@ -270,6 +291,7 @@
 	/** Whether an Update is running, which is the only thing that makes its control busy. */
 	const updating = $derived(storage.updateProgress !== null);
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
+	const notHereName = $derived(notHere === null ? '' : describeRemote(notHere.remote));
 
 	/** What GitHub last said the author has granted, and `[]` while it has said nothing or refused. */
 	const granted = $derived<readonly GrantedRepository[]>(
@@ -346,45 +368,50 @@
 	});
 
 	const step = $derived<Step>(
-		bound !== null && !changing
-			? 'connected'
-			: connecting !== null
-				? 'connecting'
-				: // ⚠ **Ahead of the whole path, because it needs no credential and it is not a step of
-					// one.** A Workspace whose files name a repository nothing here corroborates is unbound
-					// until somebody says whether it is theirs, so there is nothing to connect and nothing to
-					// sign in for until it is answered.
-					legacy !== null
-					? 'legacy'
-					: // A deployment with no App of its own opens on the paste: a sign-in button with no client
-						// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
-						!storage.signInWithGitHubOffered
-						? 'no-app'
-						: !storage.signedIn
-							? expiry !== ''
-								? 'sign-in-ended'
-								: accountKnown
-									? 'needs-sign-in'
-									: 'needs-account'
-							: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
-								// refusal as well as for a grant of nothing, and every state under here treats that
-								// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
-								// will not act on as a refusal rather than as an empty list precisely so that nothing tells
-								// a student their repository is missing when the read is what failed — and `creating` is
-								// where that misreading does the most damage, since its own account of a listing that did
-								// not grow is that access to the new repository was never granted.
-								listing?.kind === 'refused'
-								? 'choices-refused'
-								: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
-									// instructions for the other tab off the screen and replace them with “asking GitHub…”.
-									// The step ends when GitHub answers with something that was not there before.
-									madeAgainst !== null && newlyGranted.size === 0
-									? 'creating'
-									: listing === null
-										? 'loading-choices'
-										: granted.length === 0
-											? 'no-choices'
-											: 'choosing'
+		// ⚠ **Ahead of `connected`, because a Workspace that already has a Remote can meet this too**:
+		// an author who pressed *Choose a different repository* and picked one carrying work they have
+		// not got is owed the same offer as an author with no Remote at all.
+		notHere !== null
+			? 'hydrate'
+			: bound !== null && !changing
+				? 'connected'
+				: connecting !== null
+					? 'connecting'
+					: // ⚠ **Ahead of the whole path, because it needs no credential and it is not a step of
+						// one.** A Workspace whose files name a repository nothing here corroborates is unbound
+						// until somebody says whether it is theirs, so there is nothing to connect and nothing to
+						// sign in for until it is answered.
+						legacy !== null
+						? 'legacy'
+						: // A deployment with no App of its own opens on the paste: a sign-in button with no client
+							// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
+							!storage.signInWithGitHubOffered
+							? 'no-app'
+							: !storage.signedIn
+								? expiry !== ''
+									? 'sign-in-ended'
+									: accountKnown
+										? 'needs-sign-in'
+										: 'needs-account'
+								: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
+									// refusal as well as for a grant of nothing, and every state under here treats that
+									// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
+									// will not act on as a refusal rather than as an empty list precisely so that nothing tells
+									// a student their repository is missing when the read is what failed — and `creating` is
+									// where that misreading does the most damage, since its own account of a listing that did
+									// not grow is that access to the new repository was never granted.
+									listing?.kind === 'refused'
+									? 'choices-refused'
+									: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
+										// instructions for the other tab off the screen and replace them with “asking GitHub…”.
+										// The step ends when GitHub answers with something that was not there before.
+										madeAgainst !== null && newlyGranted.size === 0
+										? 'creating'
+										: listing === null
+											? 'loading-choices'
+											: granted.length === 0
+												? 'no-choices'
+												: 'choosing'
 	);
 
 	/**
@@ -475,7 +502,9 @@
 												? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
 												: step === 'connecting'
 													? `${lastStep}: connecting ${connectingName}.`
-													: `Done: this Workspace is on GitHub at ${boundName}.`
+													: step === 'hydrate'
+														? `${notHereName} carries work this Workspace has not got, so it cannot publish there. It can be opened as a new Workspace instead.`
+														: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
@@ -541,6 +570,9 @@
 			repository = '';
 			token = '';
 			working = false;
+			// The offer is what an author gets while the refusal they just met is the last thing that
+			// happened, so reopening reads the world instead: an unconnected Workspace, and the list.
+			notHere = null;
 			return;
 		}
 		// A credential in hand settles the one question the account step exists to ask, so an author
@@ -804,11 +836,51 @@
 			const outcome: RemoteBindOutcome = await storage.bindRemote(remote, pasted);
 			notices = outcome.rightsNotice ? [outcome.rightsNotice] : [];
 		} catch (cause) {
-			problem = cause instanceof Error ? cause.message : String(cause);
+			// ⚠ **One refusal of the several has an operation that answers it**, and this is where the
+			// two part. Everything else is a sentence over the list the author chooses from again; a
+			// Remote carrying Projects this Workspace has not got is a second device meeting its own
+			// work, and what they asked for is that work here.
+			if (cause instanceof RemoteBindRefusedError && cause.refusal === 'projects-not-here') {
+				notHere = { remote, refusal: cause.message };
+			} else {
+				problem = cause instanceof Error ? cause.message : String(cause);
+			}
 		} finally {
 			connecting = null;
 			// Whatever came back, the request for a different repository has been answered.
 			changing = false;
+		}
+	}
+
+	/**
+	 * Open the Remote as a Workspace of its own, which is what the author was actually asking for.
+	 *
+	 * ⚠ **It touches the current Workspace not at all**, which is why it is offered whether or not
+	 * that Workspace is empty: refusing somebody with work of their own would make them create an
+	 * empty Workspace before they were allowed to ask a question about a different one.
+	 *
+	 * ⚠ **`openFromGitHub` unchanged, and its properties are load-bearing** — no credential is sent
+	 * and none is read, the new Workspace is always browser-backed, and this installation keeps at
+	 * most one synchronized Workspace per repository, so a repository already opened here goes back
+	 * to the Workspace it has rather than downloading a second copy. Nothing is merged: ADR-0024
+	 * refuses to answer two Alignments of one sheet, and a new way in does not reopen it.
+	 */
+	async function openAsNewWorkspace(): Promise<void> {
+		const offered = notHere;
+		if (offered === null || hydrating) return;
+		problem = '';
+		notices = [];
+		hydrating = true;
+		try {
+			const { notice } = await storage.openFromGitHub(offered.remote);
+			// Cleared only once it worked, so the step the outcome is read on is the standing state of
+			// the Workspace the author is now in rather than the refusal that sent them there.
+			notHere = null;
+			notices = [notice];
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			hydrating = false;
 		}
 	}
 
@@ -1326,6 +1398,74 @@
 							</p>
 						{/if}
 					</div>
+				{/if}
+			</section>
+		{:else if step === 'hydrate'}
+			<!--
+				⚠ **The refusal stands, and it gains a way forward.** Publishing this Workspace over that
+				Remote would delete work the Remote has and this Workspace has not (ADR-0033), so the
+				connection did not happen and is not offered again here. What is offered is the operation
+				the author was actually reaching for: bring that repository down into a Workspace of its
+				own, beside the one they are in.
+
+				⚠ **Not a merge, and not an offer to proceed anyway.** ADR-0024 refuses to answer two
+				Alignments of one sheet, and this entry point does not reopen it.
+
+				⚠ **Offered whether or not this Workspace has anything in it.** An operation that touches
+				the current Workspace not at all has no business asking whether it is empty first.
+			-->
+			<section data-testid="connect-hydrate">
+				<h3 class="font-semibold">Your work is already on {notHereName}</h3>
+				<!--
+					`packages/core`'s own sentence, rendered as it arrives: it names the Projects, says what
+					publishing there would do, and a second wording here would be a second account of a rule
+					`bind-remote.ts` owns.
+				-->
+				<p class="mt-3 max-w-prose" data-testid="connect-projects-not-here">{notHere?.refusal}</p>
+				<p class="mt-3 max-w-prose text-sm opacity-70">
+					Opening it makes a second Workspace on this computer and fills it from
+					{notHereName}. The Workspace you are in now is left exactly as it is — nothing in it is
+					changed, moved or combined with anything. If you have opened {notHereName} on this computer
+					before, this takes you back to the Workspace you made then rather than downloading it again.
+				</p>
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					<!-- `aria-disabled` and never `disabled` while it runs: a `disabled` button leaves the
+					     tab order the instant it is pressed, dropping a keyboard user to `<body>` for the
+					     length of a download that runs in minutes (WCAG 2.4.3). -->
+					<button
+						class="btn btn-primary btn-sm"
+						class:btn-disabled={hydrating}
+						aria-disabled={hydrating}
+						data-testid="open-as-new-workspace"
+						onclick={() => {
+							if (!hydrating) void openAsNewWorkspace();
+						}}
+					>
+						{hydrating ? 'Opening…' : `Open ${notHereName} as a new Workspace`}
+					</button>
+					<!--
+						The other way on, which is the one this refusal has always had: a different repository.
+						It puts the list back rather than closing anything, so neither answer is a full stop.
+					-->
+					<button
+						class="btn btn-sm"
+						data-testid="choose-another-repository"
+						onclick={() => (notHere = null)}
+					>
+						Choose a different repository
+					</button>
+				</div>
+				<!--
+					Per-file progress, announced. A Map Image's pyramid is thousands of files over real
+					minutes, and this is one of the places a scholar is waiting on something they cannot see.
+					`role="status"` so it reaches assistive technology without interrupting, which is
+					CONTRIBUTING's mandated method for exactly this.
+				-->
+				{#if hydrating && storage.transfer}
+					<p role="status" class="mt-3 text-sm" data-testid="hydrate-progress">
+						{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
+						{storage.transfer.subject}.
+					</p>
 				{/if}
 			</section>
 		{:else if step === 'connecting'}

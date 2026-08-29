@@ -1,10 +1,16 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page, type Route } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { GITHUB_RAW_ORIGIN, routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
+import {
+	GITHUB_API_ORIGIN,
+	GITHUB_RAW_ORIGIN,
+	routeGitHubHosts,
+	type GitHubHosts
+} from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
+	expectWorkspaceNamed,
 	openRemoteSettings,
 	revealBindToken,
 	seedBaseline,
@@ -65,6 +71,39 @@ const projectFiles = (directory: string, name: string): Record<string, string> =
 				}
 			],
 			baseMap: 'physical'
+		},
+		null,
+		'\t'
+	)}\n`,
+	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
+});
+
+/**
+ * A Project as it sits on a Remote, whose Layer reference really resolves.
+ *
+ * ⚠ **`geojsonRef` is Project-relative**, unlike {@link projectFiles}', and here that is
+ * load-bearing: opening a Remote validates the whole prospective Workspace before adopting any of
+ * it, so a Project whose Layer names a file that would not be there refuses the transfer rather than
+ * arriving broken. The Workspace-side fixture above is never opened by the tests that use it.
+ */
+const publishedProject = (directory: string, name: string): Record<string, string> => ({
+	[`${directory}/project.json`]: `${JSON.stringify(
+		{
+			formatVersion: 1,
+			name,
+			updatedAt: '2026-01-02T03:04:05.000Z',
+			layers: [
+				{
+					id: 'l2',
+					name: 'Warehouses',
+					visible: true,
+					order: 0,
+					kind: 'annotation',
+					geojsonRef: 'annotations/l2.geojson',
+					defaultStyle: {}
+				}
+			],
+			baseMap: null
 		},
 		null,
 		'\t'
@@ -140,10 +179,53 @@ async function seed(page: Page, files: Record<string, string>): Promise<void> {
 	}, files);
 }
 
+/** Every file in a named Workspace, read behind the app's back. */
+async function everyByteOf(page: Page, workspace: string): Promise<Record<string, string>> {
+	return page.evaluate(async (name) => {
+		const found: Record<string, string> = {};
+		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+			for await (const [entry, child] of handle.entries()) {
+				if (child.kind === 'directory') {
+					await walk(child as FileSystemDirectoryHandle, `${prefix}${entry}/`);
+					continue;
+				}
+				found[`${prefix}${entry}`] = await (await (child as FileSystemFileHandle).getFile()).text();
+			}
+		};
+		try {
+			await walk(await (await navigator.storage.getDirectory()).getDirectoryHandle(name), '');
+		} catch {
+			return {};
+		}
+		return found;
+	}, workspace);
+}
+
+/** Every named Workspace in browser storage, which is how a second copy would show itself. */
+async function workspaceNames(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const names: string[] = [];
+		for await (const [name, handle] of (await navigator.storage.getDirectory()).entries()) {
+			if (handle.kind === 'directory') names.push(name);
+		}
+		return names.sort();
+	});
+}
+
 /** Open the editor on an empty Workspace holding exactly `files`, with `remote` on GitHub. */
 async function start(
 	page: Page,
-	options: { workspace?: Record<string, string>; onRemote?: Record<string, string> } = {}
+	options: {
+		workspace?: Record<string, string>;
+		onRemote?: Record<string, string>;
+		/**
+		 * Answer the door's listing, so the repository can be chosen from where the author asks.
+		 *
+		 * Left out, nothing routes GitHub's sign-in surface and the door has no list — which is what
+		 * every test here that binds through the Remote dialog's form wants.
+		 */
+		granted?: boolean;
+	} = {}
 ): Promise<GitHubHosts> {
 	const github = await routeGitHubHosts(page, {
 		repositories: [
@@ -152,7 +234,18 @@ async function start(
 				name: REPOSITORY,
 				files: { 'README.md': '# Atlas\n', ...options.onRemote }
 			}
-		]
+		],
+		...(options.granted === true
+			? {
+					signIn: true,
+					login: OWNER,
+					grants: {
+						installationId: 1,
+						account: OWNER,
+						repositories: [{ owner: OWNER, repository: REPOSITORY, push: true }]
+					}
+				}
+			: {})
 	});
 	await page.goto('./');
 	await emptyBrowserStorage(page);
@@ -243,6 +336,102 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 		// The binding is what a Publish button aims at, so a refused bind must leave none — otherwise
 		// the next press is the one that deletes the Project just named.
 		await expect(page.getByTestId('remote-outcome')).toHaveText('');
+	});
+
+	// ⚠ **The refusal is not softened, and it stops being a dead end.** Arriving on a second device is
+	// the ordinary way to meet it: press the same door, choose the repository the first device
+	// publishes to, and what comes back names work this Workspace has not got. The answer to the
+	// question actually asked is that repository as a Workspace of its own, here.
+	//
+	// Seam 2, and only what a browser can settle. Which control the refusal renders, what it hands to
+	// the Open and what it says afterwards are asserted at Seam 1c against a fake store
+	// (`connect-to-github.dom.test.ts`); the transfer, the uniqueness lookup and the Baseline at
+	// Seam 1 (`clone-from-remote.test.ts`, `open-workspace-from-github.test.ts`). What no seam below
+	// can falsify is the three real stores meeting: that the Workspace the author is standing in is
+	// **byte for byte** what it was after an operation that only adds, that the second Workspace is a
+	// real OPFS directory beside it, that the installation's own IndexedDB record makes a second Open
+	// of the same repository a way *back* rather than a second copy, and that nothing on the path
+	// carries the credential the author is signed in with. One test rather than four, because each
+	// leg starts from the state the leg before it leaves.
+	test('offers the Remote as a Workspace of its own, and only ever adds one', async ({ page }) => {
+		const github = await start(page, {
+			granted: true,
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			onRemote: {
+				'ballastella-site.json': siteRecord([
+					{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' },
+					{ directory: 'florida-1657', name: 'Florida 1657' }
+				]),
+				...publishedProject('amsterdam-1625', 'Amsterdam 1625'),
+				...publishedProject('florida-1657', 'Florida 1657')
+			}
+		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
+		// ⚠ **A Workspace with work of its own**, because hydration must be offered whether or not this
+		// one is empty: an operation that touches it not at all has no business asking first.
+		const before = await everyByteOf(page, DEFAULT_WORKSPACE);
+		expect(Object.keys(before)).toContain('amsterdam-1625/project.json');
+
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').click();
+
+		// The refusal, naming the Project — and beside it the operation that answers it.
+		const refusal = page.getByTestId('connect-projects-not-here');
+		await expect(refusal).toContainText('“Florida 1657”', { timeout: 30_000 });
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible();
+
+		// ⚠ **The transfer sends no credential, and the author is signed in.** That is how they reached
+		// the list, and a path that quietly attached the token would behave differently for them than
+		// for the student with no account this operation exists for — a difference no test that signs
+		// in first would otherwise see. Recorded from the press, so the credentialed listing and bind
+		// above are not what is being read.
+		const asked: { url: string; credentialed: boolean }[] = [];
+		page.on('request', (request) => {
+			const url = request.url();
+			if (!url.startsWith(GITHUB_API_ORIGIN) && !url.startsWith(GITHUB_RAW_ORIGIN)) return;
+			asked.push({ url, credentialed: request.headers()['authorization'] !== undefined });
+		});
+
+		await page.getByTestId('open-as-new-workspace').click();
+
+		await expect(page.getByTestId('connect-notice')).toContainText('atlas', { timeout: 60_000 });
+		// The transfer's own window: everything up to the last byte it read. What comes after it is the
+		// automatic Remote Status check on the Workspace just adopted, which is signed-in work by
+		// design and asks the same tree endpoint — so the boundary is the last byte rather than a path.
+		const lastByte = asked.map((one) => one.url.startsWith(GITHUB_RAW_ORIGIN)).lastIndexOf(true);
+		expect(lastByte).toBeGreaterThan(0);
+		expect(asked.slice(0, lastByte + 1).filter((one) => one.credentialed)).toEqual([]);
+		await page.getByTestId('close-connect-sequence').click();
+
+		// A second Workspace beside the first, switched to, with the Remote's Project in it.
+		await expectWorkspaceNamed(page, 'atlas');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
+		const opened = await everyByteOf(page, 'atlas');
+		expect(Object.keys(opened)).toContain('florida-1657/project.json');
+		// ⚠ **Byte for byte**, over the whole Workspace rather than over the file the collision was
+		// about: an operation that only adds has nothing at all to say about this one.
+		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toEqual(before);
+
+		// ⚠ **One repository, one Workspace on this computer.** Asked a second time from the same
+		// place, the answer is the Workspace this installation already keeps — not a second copy with
+		// a second Publish button aimed at one site.
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').click();
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible({ timeout: 30_000 });
+		// Counted after the refusal rather than before it: the bind that produced the refusal read the
+		// Remote's own site record off the raw host, and that read is the refusal's, not a download's.
+		const downloaded = github.rawGets(OWNER, REPOSITORY);
+		await page.getByTestId('open-as-new-workspace').click();
+
+		await expect(page.getByTestId('connect-notice')).toContainText('Went back to “atlas”', {
+			timeout: 60_000
+		});
+		await page.getByTestId('close-connect-sequence').click();
+		await expectWorkspaceNamed(page, 'atlas');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
+		expect(github.rawGets(OWNER, REPOSITORY)).toBe(downloaded);
 	});
 
 	test('goes ahead when the Remote’s Projects are all here', async ({ page }) => {
