@@ -25,6 +25,8 @@ import {
 	type GrantedInstallation,
 	type GrantedRepositoriesOutcome,
 	type GrantedRepository,
+	type RemoteBindOutcome,
+	type RemoteReference,
 	type SynchronizationBaseline
 } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -32,7 +34,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { connectSequence } from '$lib/connect-sequence.svelte.js';
 
-import ConnectToGitHub from './ConnectToGitHub.svelte';
+import ConnectToGitHub, { CONNECT_STEPS, type Step } from './ConnectToGitHub.svelte';
 import {
 	FAKE_APP,
 	FAKE_REDIRECT_URI,
@@ -109,11 +111,17 @@ type Opened = {
 };
 
 /** Open the sequence over a Workspace in whatever state the caller has put the fake into. */
-function open(storage: FakeStorage, answer: GrantedRepositoriesOutcome | Error = listed()): Opened {
+function open(
+	storage: FakeStorage,
+	answer: GrantedRepositoriesOutcome | Error | Promise<GrantedRepositoriesOutcome> = listed()
+): Opened {
 	const list = vi.fn(async (token: string) => {
 		void token;
 		if (answer instanceof Error) throw answer;
-		return answer;
+		// ⚠ **Awaited only where there is something to wait for.** A promise is a listing GitHub has
+		// not answered yet, which is the whole of the step that waits for one; awaiting an outcome
+		// already in hand would cost every other test in this file a turn of {@link settle}.
+		return answer instanceof Promise ? await answer : answer;
 	});
 	const onpublish = vi.fn();
 	const main = document.createElement('main');
@@ -976,6 +984,55 @@ describe('the student who has never heard of GitHub', () => {
 		expect(absent('connect-needs-account')).toBe(true);
 	});
 
+	// ⚠ **Said once, and the saying is the whole of what is kept.** The step states a prerequisite
+	// nothing can read, so an author who has answered it must not be asked again by a close, a reopen
+	// or the reload that coming back from GitHub so often is — and it is a hint rather than a
+	// position, so it is this tab's: the next student at this machine starts from the beginning.
+	test('is offered once to a tab, and again to the next one', () => {
+		const opened = open(new FakeStorage());
+		press('connect-have-account');
+		expect(at('connect-sign-in')).toBeTruthy();
+
+		press('close-connect-sequence');
+		opened.props.open = true;
+		flushSync();
+		expect(at('connect-sign-in')).toBeTruthy();
+
+		unmount(mounted!);
+		mounted = undefined;
+		document.body.innerHTML = '';
+		open(new FakeStorage());
+		expect(at('connect-sign-in')).toBeTruthy();
+		expect(absent('connect-needs-account')).toBe(true);
+
+		// A lab machine handed over: a tab that never made the press starts where everybody starts.
+		sessionStorage.clear();
+		unmount(mounted!);
+		mounted = undefined;
+		document.body.innerHTML = '';
+		open(new FakeStorage());
+
+		expect(at('connect-needs-account')).toBeTruthy();
+	});
+
+	// ⚠ **A held credential overrules the hint, so the one thing remembered can never hold the
+	// sequence behind where reality has got to.** Somebody signed in has answered the question by
+	// being signed in, whether or not they ever saw this step — and giving the credential up is a step
+	// back to the sign-in rather than to the beginning, because having had one is still having an
+	// account.
+	test('is overruled by a held credential, and does not come back when one is given up', async () => {
+		const opened = open(signedIn());
+		await settle();
+		expect(absent('connect-needs-account')).toBe(true);
+
+		press('connect-sign-out');
+		await settle();
+
+		expect(opened.storage.signOuts).toBe(1);
+		expect(at('connect-sign-in')).toBeTruthy();
+		expect(absent('connect-needs-account')).toBe(true);
+	});
+
 	// ⚠ **Making an account must not cost the author their place.** They leave for GitHub's sign-up
 	// in a second tab, make an account, and come back — often to a reloaded editor — and the step
 	// they land on is the sign-in rather than the sentence they have already read.
@@ -1147,6 +1204,39 @@ describe('a sign-in that ran out', () => {
 		expect(absent('repository-choice-empty')).toBe(true);
 	});
 
+	// ⚠ **One event, two screens, and folding them would lose the difference that matters.** A sign-in
+	// that has run out is met in two places — before any work starts, which is this step, and by the
+	// listing read, which is `choices-refused` — and GitHub says much the same sentence about both. It
+	// is what surrounds the sentence that tells an author which of the two they are in, so the two
+	// steps and the two announcements have to stay two even when the sentence is one.
+	test('is its own screen and its own announcement, beside a listing GitHub would not answer', async () => {
+		const ENDED = 'Your GitHub sign-in has ended. Sign in to GitHub again to carry on.';
+
+		const storage = signedIn();
+		storage.expiry = new Error(ENDED);
+		open(storage);
+		await settle();
+
+		expect(text(at('connect-expiry'))).toBe(ENDED);
+		expect(absent('connect-refused-choices')).toBe(true);
+		const asAnExpiry = text(at('connect-step'));
+
+		unmount(mounted!);
+		mounted = undefined;
+		document.body.innerHTML = '';
+		sessionStorage.clear();
+
+		open(signedIn(), { kind: 'refused', refusal: 'credential', message: ENDED });
+		await settle();
+
+		expect(text(at('connect-choices-refused'))).toBe(ENDED);
+		expect(absent('connect-sign-in-ended')).toBe(true);
+		// The same sentence, in two steps a reader who cannot see the screen still tells apart.
+		expect(text(at('connect-step'))).not.toBe(asAnExpiry);
+		expect(asAnExpiry).toContain('sign-in has ended');
+		expect(text(at('connect-step'))).toContain('could not be read');
+	});
+
 	// The account step is behind anybody who has held a credential, so an expiry is a step back to the
 	// sign-in rather than to the beginning.
 	test('does not send an author who had signed in back to the account step', async () => {
@@ -1250,6 +1340,232 @@ describe('every refusal names what to do next', () => {
 
 		expect(at('connect-connected')).toBeTruthy();
 		expect(text(at('connect-sign-in-refused'))).toContain('GitHub refused the sign-in');
+	});
+});
+
+// ⚠ **Two claims about *every* branch, enumerated rather than sampled.** No step of this sequence may
+// be a dead end, and no step may say GitHub's own word for the per-account list. Both are properties
+// of the whole union, so a thirteenth step added without them is the regression worth catching —
+// which is why `CONNECT_STEPS` is a list the component exports and this table is keyed by it. A step
+// added to the union and not to the table does not compile.
+describe('every step of the sequence, enumerated', () => {
+	/**
+	 * A step reached, with the request it is waiting on where it is waiting on one.
+	 *
+	 * `answers` is present for the two steps the author passes *through* rather than lands on — a
+	 * listing GitHub has not replied to, and a connection under way. Neither has anything to press,
+	 * and what makes that not a dead end is that both end.
+	 */
+	type Arrived = { readonly answers?: () => Promise<void> };
+
+	/** A promise a test settles by hand, so a request in flight is a state and not a race. */
+	function deferred<T>(): { readonly promise: Promise<T>; readonly settle: (value: T) => void } {
+		let settle: (value: T) => void = () => {};
+		const promise = new Promise<T>((resolve) => {
+			settle = resolve;
+		});
+		return { promise, settle: (value: T) => settle(value) };
+	}
+
+	/** A store whose bind waits to be let go, which is the only way `connecting` stays on screen. */
+	class PausedBind extends FakeStorage {
+		private readonly gate = deferred<void>();
+
+		letGo(): void {
+			this.gate.settle();
+		}
+
+		override async bindRemote(
+			remote: RemoteReference,
+			token: string | null
+		): Promise<RemoteBindOutcome> {
+			await this.gate.promise;
+			return super.bindRemote(remote, token);
+		}
+	}
+
+	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been published.';
+	const COULD_NOT_BE_READ = 'GitHub could not be reached, so your repositories could not be read.';
+
+	const reach: Record<Step, { readonly shows: string; readonly go: () => Promise<Arrived> }> = {
+		legacy: {
+			shows: 'connect-legacy',
+			go: async () => {
+				const storage = new FakeStorage();
+				storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+				open(storage);
+				return {};
+			}
+		},
+		'no-app': {
+			shows: 'connect-no-app',
+			go: async () => {
+				open(noApp());
+				return {};
+			}
+		},
+		'needs-account': {
+			shows: 'connect-needs-account',
+			go: async () => {
+				open(new FakeStorage());
+				return {};
+			}
+		},
+		'needs-sign-in': {
+			shows: 'connect-sign-in',
+			go: async () => {
+				openPastAccount(new FakeStorage());
+				return {};
+			}
+		},
+		'sign-in-ended': {
+			shows: 'connect-sign-in-ended',
+			go: async () => {
+				const storage = signedIn();
+				storage.expiry = new Error(RAN_OUT);
+				open(storage);
+				await settle();
+				return {};
+			}
+		},
+		'loading-choices': {
+			shows: 'connect-loading-choices',
+			go: async () => {
+				const held = deferred<GrantedRepositoriesOutcome>();
+				open(signedIn(), held.promise);
+				await settle();
+				return {
+					answers: async () => {
+						held.settle(listed());
+						await settle();
+					}
+				};
+			}
+		},
+		choosing: {
+			shows: 'connect-choosing',
+			go: async () => {
+				// Every mark the list has, because the reasons a row cannot be chosen are the sentences
+				// on this step most likely to reach for a word off GitHub's own screens.
+				open(
+					signedIn(),
+					listed([
+						ATLAS,
+						{ ...ATLAS, repository: 'notebook', canPublish: false },
+						{ ...ATLAS, repository: 'diary', isPrivate: true }
+					])
+				);
+				await settle();
+				return {};
+			}
+		},
+		'no-choices': {
+			shows: 'connect-no-choices',
+			go: async () => {
+				open(signedIn(), listed([]));
+				await settle();
+				return {};
+			}
+		},
+		'choices-refused': {
+			shows: 'connect-refused-choices',
+			go: async () => {
+				open(signedIn(), { kind: 'refused', refusal: 'network', message: COULD_NOT_BE_READ });
+				await settle();
+				return {};
+			}
+		},
+		creating: {
+			shows: 'connect-creating',
+			go: async () => {
+				open(signedIn());
+				await settle();
+				pressLink('create-repository');
+				// Looked again and found the same list, which is the step at its fullest: the
+				// instructions, the outstanding step named, and the way to put it right.
+				press('reread-repositories');
+				await settle();
+				return {};
+			}
+		},
+		connecting: {
+			shows: 'connect-connecting',
+			go: async () => {
+				const storage = new PausedBind();
+				storage.signedIn = true;
+				storage.identity = 'ada';
+				storage.credential = 'a-credential-this-component-never-renders';
+				open(storage);
+				await settle();
+				press('choose-repository');
+				return {
+					answers: async () => {
+						storage.letGo();
+						await settle();
+					}
+				};
+			}
+		},
+		connected: {
+			shows: 'connect-connected',
+			go: async () => {
+				const storage = signedIn();
+				storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+				open(storage);
+				await settle();
+				return {};
+			}
+		}
+	};
+
+	/**
+	 * Everything inside the sequence a person can press or type into.
+	 *
+	 * Close is outside it, in the dialog's own actions, and so is Sign out — which is the point: a
+	 * step whose only sequel is Close reads as an empty list here.
+	 */
+	const controls = (): string[] =>
+		[
+			...at('connect-sequence').querySelectorAll<HTMLElement>(
+				'button, a[href], input, select, textarea'
+			)
+		].map((one) => one.dataset.testid ?? one.tagName.toLowerCase());
+
+	// ⚠ **The failure this is for**: a branch that says what went wrong and leaves the author holding
+	// a dialog whose only button shuts it. A step that is a request in flight has nothing to press,
+	// and it earns that by ending — the answer arrives and the sequence moves to a step that does.
+	test.each([...CONNECT_STEPS])(
+		'%s renders something to do, or is a request that answers',
+		async (step) => {
+			const { shows, go } = reach[step];
+			const { answers } = await go();
+			expect(at(shows)).toBeTruthy();
+
+			if (answers === undefined) {
+				expect(controls()).not.toEqual([]);
+				return;
+			}
+			await answers();
+			expect(absent(shows)).toBe(true);
+			expect(controls()).not.toEqual([]);
+		}
+	);
+
+	// ⚠ **The word this Epic exists to stop saying.** The wall an author hit was the App's
+	// Installation — a per-account list of repositories the interface had never mentioned — and the
+	// remedy is not to explain it but to describe what Ballastella can see, in a sentence the author
+	// can act on. `Installation` stays a term the codebase needs and the author never meets.
+	//
+	// Every step, including the ones carrying a sentence `packages/core` composed: those name a
+	// setting on GitHub's own screens and are not this component's to reword, and none of them says
+	// any of these either.
+	const GITHUB_VOCABULARY = ['installation', 'installations', 'grant', 'permission'];
+
+	test.each([...CONNECT_STEPS])('%s says none of GitHub’s words for it', async (step) => {
+		await reach[step].go();
+
+		const words = said().toLowerCase();
+		expect(GITHUB_VOCABULARY.filter((word) => words.includes(word))).toEqual([]);
 	});
 });
 

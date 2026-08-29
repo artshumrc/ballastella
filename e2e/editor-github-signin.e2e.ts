@@ -1013,6 +1013,39 @@ test.describe('the guided sequence, wired to the real thing', () => {
 			}
 		});
 
+		// ⚠ **Nothing is asked of an author who has decided nothing, and this is the only seam that can
+		// see the whole screen.** A scholar arrives with a Workspace already made and meets no dialog,
+		// no sign-in and no prompt. What says GitHub at all is two controls, and both are doors: the
+		// bar's one door, and the reviewer's way in from a link somebody sent them (ADR-0024, whose
+		// re-homing of Workspace Home is a later slice's). Neither is open and neither is a question.
+		//
+		// Read as every element on screen whose own words say it, so a sentence added anywhere fails
+		// this rather than slipping past a locator that was only ever asked about one testid.
+		//
+		// A closed `<dialog>` keeps its children in the document, and daisyUI's `.modal` keeps them laid
+		// out as well — `ModalDialog` says so where it has to work around the same thing — so `dialog:
+		// not([open])` is what tells "in the tree" from "on screen". Clipped text is on screen: the
+		// bar's announcements are read aloud, and a sentence about GitHub hidden in one would still
+		// reach the reader this story is written for.
+		await expect(page.getByTestId('connect-to-github')).toBeVisible();
+		const saysGitHub = await page.evaluate(() =>
+			[...document.querySelectorAll('body *')]
+				.filter(
+					(element) =>
+						element.children.length === 0 &&
+						/github/i.test(element.textContent ?? '') &&
+						element.closest('dialog:not([open])') === null &&
+						element.checkVisibility()
+				)
+				.map(
+					(element) =>
+						(element.closest('[data-testid]') as HTMLElement | null)?.dataset.testid ??
+						element.tagName.toLowerCase()
+				)
+		);
+		expect([...new Set(saysGitHub)].sort()).toEqual(['connect-to-github', 'review-remote']);
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
+
 		// One control, in the bar, on Workspace Home — before any Project is open.
 		await page.getByTestId('connect-to-github').click();
 

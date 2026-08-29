@@ -1,3 +1,56 @@
+<script module lang="ts">
+	/**
+	 * The steps this sequence has.
+	 *
+	 * ⚠ **A list rather than a bare union, because "every one of them" is a claim under test.** No step
+	 * of this sequence may be a dead end, and no step may say GitHub's own vocabulary for the
+	 * per-account list — both are properties of *all* the branches, so a thirteenth added without one
+	 * of them is exactly the regression that has to fail. Enumerating the type is what lets
+	 * `connect-to-github.dom.test.ts` reach every branch and read what it renders.
+	 *
+	 * `no-app` is the paste, and it is the whole of a fork's authentication rather than a fallback: a
+	 * deployment with no App of its own opens there and never on a sign-in that cannot complete.
+	 *
+	 * `choices-refused` is separate from `no-choices` and must stay separate. `github-installations`
+	 * answers a sign-in GitHub will not act on as a refusal rather than as an empty list precisely so
+	 * that nothing tells a student they have no repository when what is wrong is the sign-in; folded
+	 * into `no-choices`, that is exactly what this sequence would say in the one region a reader who
+	 * cannot see the screen has.
+	 *
+	 * `sign-in-ended` is not a step of the path so much as the one place the path can be thrown back
+	 * to from anywhere: an eight-hour sign-in that ran out and could not be renewed. It exists as a
+	 * step of its own so that an expiry reads as an expiry, rather than as a Workspace with no
+	 * repositories or as a publish that failed.
+	 *
+	 * `legacy` is a **question asked once when it is true** (ADR-0041), and it is ahead of the whole
+	 * path because it needs no credential: the Workspace's own files name a repository this browser
+	 * has no record of, and until somebody says whether it is theirs there is nothing to connect and
+	 * nothing to sign in for. Answering it either way is what moves the sequence off it, because both
+	 * answers change `storage.legacyRemote` and every step here is a reading of the world.
+	 *
+	 * ⚠ **`loading-choices` and `connecting` are the two the author passes through rather than lands
+	 * on.** Each is a request in flight and each is guaranteed to answer — a listing read that throws
+	 * becomes `choices-refused`, and a bind that throws clears `connecting` and goes back to the
+	 * choice — which is why neither renders a control of its own and why nothing here waits for ever.
+	 */
+	export const CONNECT_STEPS = [
+		'legacy',
+		'no-app',
+		'needs-account',
+		'needs-sign-in',
+		'sign-in-ended',
+		'loading-choices',
+		'choosing',
+		'no-choices',
+		'choices-refused',
+		'creating',
+		'connecting',
+		'connected'
+	] as const;
+
+	export type Step = (typeof CONNECT_STEPS)[number];
+</script>
+
 <script lang="ts">
 	import {
 		describeRemote,
@@ -132,43 +185,6 @@
 		 */
 		list?: (token: string) => Promise<GrantedRepositoriesOutcome>;
 	} = $props();
-
-	/**
-	 * The steps this sequence has.
-	 *
-	 * `no-app` is the paste, and it is the whole of a fork's authentication rather than a fallback: a
-	 * deployment with no App of its own opens there and never on a sign-in that cannot complete.
-	 *
-	 * `choices-refused` is separate from `no-choices` and must stay separate. `github-installations`
-	 * answers a sign-in GitHub will not act on as a refusal rather than as an empty list precisely so
-	 * that nothing tells a student they have no repository when what is wrong is the sign-in; folded
-	 * into `no-choices`, that is exactly what this sequence would say in the one region a reader who
-	 * cannot see the screen has.
-	 *
-	 * `sign-in-ended` is not a step of the path so much as the one place the path can be thrown back
-	 * to from anywhere: an eight-hour sign-in that ran out and could not be renewed. It exists as a
-	 * step of its own so that an expiry reads as an expiry, rather than as a Workspace with no
-	 * repositories or as a publish that failed.
-	 *
-	 * `legacy` is a **question asked once when it is true** (ADR-0041), and it is ahead of the whole
-	 * path because it needs no credential: the Workspace's own files name a repository this browser
-	 * has no record of, and until somebody says whether it is theirs there is nothing to connect and
-	 * nothing to sign in for. Answering it either way is what moves the sequence off it, because both
-	 * answers change `storage.legacyRemote` and every step here is a reading of the world.
-	 */
-	type Step =
-		| 'legacy'
-		| 'no-app'
-		| 'needs-account'
-		| 'needs-sign-in'
-		| 'sign-in-ended'
-		| 'loading-choices'
-		| 'choosing'
-		| 'no-choices'
-		| 'choices-refused'
-		| 'creating'
-		| 'connecting'
-		| 'connected';
 
 	/**
 	 * Hydration-stable ids for the fork's own two fields, for the reason `NavigationBar` documents.
@@ -830,7 +846,7 @@
 		} catch {
 			problem =
 				`This browser would not let the page put anything on the clipboard, so copy the address ` +
-				`above by hand. It is usually a permission for this site.`;
+				`above by hand. It is usually a setting this browser holds for this site.`;
 		}
 	}
 
