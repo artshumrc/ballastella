@@ -22,6 +22,12 @@
 	 * step of its own so that an expiry reads as an expiry, rather than as a Workspace with no
 	 * repositories or as a publish that failed.
 	 *
+	 * `by-address` is the inbound door, and it sits **before the sign-in** rather than behind it. It
+	 * needs no account, sends no credential and touches the current Workspace not at all, so making a
+	 * student sign in to reach it would lock them out of the likeliest thing this tool is used for:
+	 * opening the Workspace their instructor published. Signing in only ever *adds* the list of the
+	 * author's own repositories beside it.
+	 *
 	 * `legacy` is a **question asked once when it is true** (ADR-0041), and it is ahead of the whole
 	 * path because it needs no credential: the Workspace's own files name a repository this browser
 	 * has no record of, and until somebody says whether it is theirs there is nothing to connect and
@@ -43,6 +49,7 @@
 	 */
 	export const CONNECT_STEPS = [
 		'legacy',
+		'by-address',
 		'no-app',
 		'needs-account',
 		'needs-sign-in',
@@ -67,6 +74,8 @@
 		parseRemoteReference,
 		readGrantedRepositories,
 		RemoteBindRefusedError,
+		resolveWorkspaceAddress,
+		type AddressResolution,
 		type GrantedInstallation,
 		type GrantedRepositoriesOutcome,
 		type GrantedRepository,
@@ -183,7 +192,8 @@
 		open = $bindable(false),
 		storage,
 		onpublish,
-		list = (token: string) => readGrantedRepositories({ token })
+		list = (token: string) => readGrantedRepositories({ token }),
+		resolveAddress = (pasted: string) => resolveWorkspaceAddress(pasted)
 	}: {
 		open?: boolean;
 		storage: WorkspaceStorage;
@@ -194,6 +204,11 @@
 		 * Defaults to the one read of GitHub's installation endpoints there is.
 		 */
 		list?: (token: string) => Promise<GrantedRepositoriesOutcome>;
+		/**
+		 * Which repository a pasted address means, injectable for the same reason {@link list} is.
+		 * Defaults to `packages/core`'s probe, which asks GitHub anonymously and answers a sentence.
+		 */
+		resolveAddress?: (pasted: string) => Promise<AddressResolution>;
 	} = $props();
 
 	/**
@@ -205,11 +220,32 @@
 	const fieldId = $props.id();
 	const repositoryFieldId = `${fieldId}-repository`;
 	const tokenFieldId = `${fieldId}-token`;
+	const addressFieldId = `${fieldId}-address`;
 
 	/** What the fork's author typed, in the step that is the only place this sequence has fields. */
 	let repository = $state('');
 	let token = $state('');
 
+	/**
+	 * That the author has asked to open a Workspace by its address.
+	 *
+	 * ⚠ **A fact about a press, exactly as {@link changing} is, and it survives nothing.** Closing the
+	 * sequence forgets it, so reopening reads the world again and lands wherever the world says.
+	 */
+	let byAddress = $state(false);
+	/** What the author pasted: a Published Site's address, a GitHub one, or `owner/repository`. */
+	let address = $state('');
+	/** Whether GitHub is being asked which candidate is real, so a second press is not a second ask. */
+	let resolving = $state(false);
+	/**
+	 * The repository the address turned out to mean, waiting to be confirmed.
+	 *
+	 * ⚠ **Nothing is transferred until this has been confirmed**: the download runs to gigabytes and
+	 * an ambiguous address has two real answers, so the one that was chosen is named first.
+	 */
+	let resolved = $state<{ remote: RemoteReference; why: string } | null>(null);
+	/** Why the address could not be resolved. `packages/core`'s own sentence, or `''`. */
+	let addressRefusal = $state('');
 	/** What GitHub answered about the grant, or `null` while nothing has been asked. */
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
 	/** The repository being connected, which is what makes `connecting` a state of the world. */
@@ -292,6 +328,7 @@
 	const updating = $derived(storage.updateProgress !== null);
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
 	const notHereName = $derived(notHere === null ? '' : describeRemote(notHere.remote));
+	const resolvedName = $derived(resolved === null ? '' : describeRemote(resolved.remote));
 
 	/** What GitHub last said the author has granted, and `[]` while it has said nothing or refused. */
 	const granted = $derived<readonly GrantedRepository[]>(
@@ -383,35 +420,57 @@
 						// sign in for until it is answered.
 						legacy !== null
 						? 'legacy'
-						: // A deployment with no App of its own opens on the paste: a sign-in button with no client
-							// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
-							!storage.signInWithGitHubOffered
-							? 'no-app'
-							: !storage.signedIn
-								? expiry !== ''
-									? 'sign-in-ended'
-									: accountKnown
-										? 'needs-sign-in'
-										: 'needs-account'
-								: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
-									// refusal as well as for a grant of nothing, and every state under here treats that
-									// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
-									// will not act on as a refusal rather than as an empty list precisely so that nothing tells
-									// a student their repository is missing when the read is what failed — and `creating` is
-									// where that misreading does the most damage, since its own account of a listing that did
-									// not grow is that access to the new repository was never granted.
-									listing?.kind === 'refused'
-									? 'choices-refused'
-									: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
-										// instructions for the other tab off the screen and replace them with “asking GitHub…”.
-										// The step ends when GitHub answers with something that was not there before.
-										madeAgainst !== null && newlyGranted.size === 0
-										? 'creating'
-										: listing === null
-											? 'loading-choices'
-											: granted.length === 0
-												? 'no-choices'
-												: 'choosing'
+						: // ⚠ **Ahead of the sign-in, because it needs no account.** Story 39: a door whose first
+							// step is signing in locks out the person most likely to be standing at it.
+							byAddress
+							? 'by-address'
+							: // A deployment with no App of its own opens on the paste: a sign-in button with no client
+								// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
+								!storage.signInWithGitHubOffered
+								? 'no-app'
+								: !storage.signedIn
+									? expiry !== ''
+										? 'sign-in-ended'
+										: accountKnown
+											? 'needs-sign-in'
+											: 'needs-account'
+									: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
+										// refusal as well as for a grant of nothing, and every state under here treats that
+										// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
+										// will not act on as a refusal rather than as an empty list precisely so that nothing tells
+										// a student their repository is missing when the read is what failed — and `creating` is
+										// where that misreading does the most damage, since its own account of a listing that did
+										// not grow is that access to the new repository was never granted.
+										listing?.kind === 'refused'
+										? 'choices-refused'
+										: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
+											// instructions for the other tab off the screen and replace them with “asking GitHub…”.
+											// The step ends when GitHub answers with something that was not there before.
+											madeAgainst !== null && newlyGranted.size === 0
+											? 'creating'
+											: listing === null
+												? 'loading-choices'
+												: granted.length === 0
+													? 'no-choices'
+													: 'choosing'
+	);
+
+	/**
+	 * The steps the inbound door is offered beside.
+	 *
+	 * ⚠ **Every step a signed-out author can land on, and the listing steps as well.** Opening a
+	 * public Remote needs no account, so it belongs in front of the sign-in rather than behind it;
+	 * and signing in only ever *adds* the author's own repositories beside it, so it does not
+	 * disappear the moment somebody has a credential.
+	 */
+	const offersAddress = $derived(
+		step === 'no-app' ||
+			step === 'needs-account' ||
+			step === 'needs-sign-in' ||
+			step === 'sign-in-ended' ||
+			step === 'choosing' ||
+			step === 'no-choices' ||
+			step === 'choices-refused'
 	);
 
 	/**
@@ -482,29 +541,33 @@
 	const announcement = $derived(
 		step === 'legacy'
 			? `This Workspace's files name ${legacyName}, which this browser has no record of. Say whether it is yours.`
-			: step === 'no-app'
-				? 'Step 1 of 2: name your repository on GitHub and paste an access token for it.'
-				: step === 'needs-account'
-					? 'Step 1 of 4: you need a GitHub account.'
-					: step === 'needs-sign-in'
-						? 'Step 2 of 4: sign in to GitHub.'
-						: step === 'sign-in-ended'
-							? 'Your GitHub sign-in has ended. Sign in again to carry on.'
-							: step === 'loading-choices'
-								? 'Step 3 of 4: asking GitHub which repositories you have given Ballastella access to.'
-								: step === 'choosing'
-									? 'Step 3 of 4: choose where your map goes.'
-									: step === 'no-choices'
-										? 'Step 3 of 4: you have given Ballastella access to no repository yet, so make one.'
-										: step === 'choices-refused'
-											? 'Step 3 of 4: your repositories on GitHub could not be read.'
-											: step === 'creating'
-												? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
-												: step === 'connecting'
-													? `${lastStep}: connecting ${connectingName}.`
-													: step === 'hydrate'
-														? `${notHereName} carries work this Workspace has not got, so it cannot publish there. It can be opened as a new Workspace instead.`
-														: `Done: this Workspace is on GitHub at ${boundName}.`
+			: step === 'by-address'
+				? resolved !== null
+					? `${describeRemote(resolved.remote)} holds a Workspace. Say whether to open it.`
+					: 'Paste the address of a published Workspace to open it.'
+				: step === 'no-app'
+					? 'Step 1 of 2: name your repository on GitHub and paste an access token for it.'
+					: step === 'needs-account'
+						? 'Step 1 of 4: you need a GitHub account.'
+						: step === 'needs-sign-in'
+							? 'Step 2 of 4: sign in to GitHub.'
+							: step === 'sign-in-ended'
+								? 'Your GitHub sign-in has ended. Sign in again to carry on.'
+								: step === 'loading-choices'
+									? 'Step 3 of 4: asking GitHub which repositories you have given Ballastella access to.'
+									: step === 'choosing'
+										? 'Step 3 of 4: choose where your map goes.'
+										: step === 'no-choices'
+											? 'Step 3 of 4: you have given Ballastella access to no repository yet, so make one.'
+											: step === 'choices-refused'
+												? 'Step 3 of 4: your repositories on GitHub could not be read.'
+												: step === 'creating'
+													? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
+													: step === 'connecting'
+														? `${lastStep}: connecting ${connectingName}.`
+														: step === 'hydrate'
+															? `${notHereName} carries work this Workspace has not got, so it cannot publish there. It can be opened as a new Workspace instead.`
+															: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
@@ -573,6 +636,13 @@
 			// The offer is what an author gets while the refusal they just met is the last thing that
 			// happened, so reopening reads the world instead: an unconnected Workspace, and the list.
 			notHere = null;
+			// The address step is a press like any other here, so a reopened sequence reads the world
+			// rather than the field somebody typed into an hour ago.
+			byAddress = false;
+			address = '';
+			resolved = null;
+			addressRefusal = '';
+			resolving = false;
 			return;
 		}
 		// A credential in hand settles the one question the account step exists to ask, so an author
@@ -885,6 +955,63 @@
 	}
 
 	/**
+	 * Ask GitHub which repository the pasted address means.
+	 *
+	 * ⚠ **This resolves and does not transfer.** `resolveWorkspaceAddress` reads a file list per
+	 * candidate and nothing else, so what a press costs is at most two anonymous listings; the
+	 * download begins on the confirmation below and never here.
+	 */
+	async function findByAddress(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		if (resolving) return;
+		problem = '';
+		notices = [];
+		addressRefusal = '';
+		resolved = null;
+		resolving = true;
+		try {
+			const answer = await resolveAddress(address);
+			if (answer.kind === 'resolved') {
+				resolved = { remote: answer.remote, why: answer.why };
+			} else {
+				addressRefusal = answer.message;
+			}
+		} catch (cause) {
+			addressRefusal = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			resolving = false;
+		}
+	}
+
+	/**
+	 * Open the repository the author has just confirmed.
+	 *
+	 * The same `openFromGitHub` the hydrate step calls, with the same properties: no credential is
+	 * sent, the new Workspace is browser-backed, the Workspace the author is in is untouched, and a
+	 * repository already opened on this computer goes back to the Workspace it has.
+	 */
+	async function openConfirmedAddress(): Promise<void> {
+		const found = resolved;
+		if (found === null || hydrating) return;
+		problem = '';
+		notices = [];
+		hydrating = true;
+		try {
+			const { notice } = await storage.openFromGitHub(found.remote);
+			// Cleared only once it worked, so the step that follows is the standing state of the
+			// Workspace the author is now in rather than the address that got them there.
+			byAddress = false;
+			address = '';
+			resolved = null;
+			notices = [notice];
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			hydrating = false;
+		}
+	}
+
+	/**
 	 * Turn the Published Site on, which is the one act connecting deliberately does not perform.
 	 *
 	 * ⚠ **Never throws its answer at anybody.** A refusal is a sentence naming the two permissions
@@ -1010,6 +1137,128 @@
 						No, leave this Workspace unbound
 					</button>
 				</div>
+			</section>
+		{:else if step === 'by-address'}
+			<!--
+				⚠ **The inbound door, in front of the sign-in rather than behind it** (ADR-0031, ADR-0043).
+				A student with no GitHub account opening their instructor's published Workspace is the
+				likeliest thing this tool is asked to do, and it needs nothing: no account, no credential,
+				and no change to the Workspace they are in.
+
+				⚠ **The address is resolved by asking GitHub, never by asking the author.**
+				`ada.github.io/atlas` is two real GitHub layouts and no parser can tell them apart, so
+				`packages/core` probes the candidates in order and the first that holds a Workspace wins.
+				What the author is asked is the one question they can answer: whether the repository that
+				came back is the one they meant.
+			-->
+			<section data-testid="connect-by-address">
+				<h3 class="font-semibold">Open a published Workspace</h3>
+				<p class="mt-1 max-w-prose text-sm opacity-70">
+					Paste the address somebody gave you — the web address of their published map, the
+					github.com address of the repository, or just <code>owner/repository</code>. It has to be
+					a public repository. You need no GitHub account for this and nothing is sent anywhere but
+					GitHub. The Workspace you are in now is left exactly as it is: this makes a second one
+					beside it.
+				</p>
+				<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void findByAddress(event)}>
+					<div class="flex flex-col gap-1">
+						<label class="text-sm font-medium" for={addressFieldId}>The address to open</label>
+						<input
+							id={addressFieldId}
+							class="input w-full max-w-md input-sm"
+							bind:value={address}
+							data-testid="workspace-address-field"
+							placeholder="ada.github.io/atlas"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						<!-- `aria-disabled` and never `disabled` while the request runs, for the reason every
+						     busy control on this surface uses the same one: a `disabled` button leaves the tab
+						     order the instant it is pressed (WCAG 2.4.3). -->
+						<button
+							class="btn w-fit btn-primary btn-sm"
+							class:btn-disabled={resolving}
+							aria-disabled={resolving}
+							type="submit"
+							data-testid="find-workspace-address"
+						>
+							{resolving ? 'Asking GitHub…' : 'Find it on GitHub'}
+						</button>
+						<!--
+							The way back, so this step is no more a full stop than any other: an author who
+							pressed it by mistake returns to whichever step the world says they are on.
+						-->
+						<button
+							class="btn btn-sm"
+							type="button"
+							data-testid="leave-by-address"
+							onclick={() => {
+								byAddress = false;
+							}}
+						>
+							Never mind
+						</button>
+					</div>
+				</form>
+				{#if resolved !== null}
+					<!--
+						⚠ **The confirmation, and the only place the download can start from.** An ambiguous
+						address has two real answers and a Workspace can run to gigabytes, so the repository
+						that was chosen is named — with why it was chosen — before a byte moves.
+					-->
+					<div class="mt-4 rounded-box border border-base-300 p-4">
+						<p class="max-w-prose" data-testid="resolved-address">
+							<code>{resolvedName}</code> holds a Workspace published by Ballastella.
+						</p>
+						<p class="mt-1 max-w-prose text-sm opacity-70" data-testid="resolved-address-why">
+							{resolved.why}
+						</p>
+						<div class="mt-3 flex flex-wrap items-center gap-2">
+							<button
+								class="btn btn-primary btn-sm"
+								class:btn-disabled={hydrating}
+								aria-disabled={hydrating}
+								data-testid="open-resolved-address"
+								onclick={() => {
+									if (!hydrating) void openConfirmedAddress();
+								}}
+							>
+								{hydrating ? 'Opening…' : `Open ${resolvedName} as a new Workspace`}
+							</button>
+							<button
+								class="btn btn-sm"
+								data-testid="reject-resolved-address"
+								onclick={() => {
+									resolved = null;
+								}}
+							>
+								That is not it
+							</button>
+						</div>
+					</div>
+				{/if}
+				{#if addressRefusal}
+					<!--
+						`packages/core`'s own sentence. A site on an address of its own cannot be traced back
+						to the repository behind it, and only that sentence can say so and say what to paste
+						instead — a wording here would be a second account of a rule that module owns.
+					-->
+					<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="workspace-address-refused">{addressRefusal}</p>
+					</div>
+				{/if}
+				<!--
+					Per-file progress, announced. A Map Image's pyramid is thousands of files over real
+					minutes, and this is one of the places a scholar is waiting on something they cannot see.
+				-->
+				{#if hydrating && storage.transfer}
+					<p role="status" class="mt-3 text-sm" data-testid="address-progress">
+						{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
+						{storage.transfer.subject}.
+					</p>
+				{/if}
 			</section>
 		{:else if step === 'no-app'}
 			<!--
@@ -1654,6 +1903,30 @@
 						{copied ? 'The address is on your clipboard.' : ''}
 					</p>
 				</div>
+			</section>
+		{/if}
+
+		{#if offersAddress}
+			<!--
+				⚠ **The inbound door, offered on every step a signed-out author can be standing on.**
+				Someone opening their instructor's published Workspace needs no account, so being asked to
+				sign in first would be a prerequisite invented for nothing — and signing in only *adds* the
+				list of the author's own repositories beside this.
+			-->
+			<section class="border-t border-base-300 pt-3" data-testid="connect-address-offer">
+				<p class="max-w-prose text-sm opacity-70">
+					Has somebody sent you the address of a map they published? You can open it into a
+					Workspace of your own without an account.
+				</p>
+				<button
+					class="btn mt-2 w-fit btn-sm"
+					data-testid="open-by-address"
+					onclick={() => {
+						byAddress = true;
+					}}
+				>
+					Open a published Workspace by its address
+				</button>
 			</section>
 		{/if}
 

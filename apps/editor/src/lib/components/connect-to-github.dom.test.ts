@@ -23,6 +23,8 @@
 import {
 	authorizeUrl,
 	RemoteBindRefusedError,
+	resolveWorkspaceAddress,
+	type AddressResolution,
 	type GrantedInstallation,
 	type GrantedRepositoriesOutcome,
 	type GrantedRepository,
@@ -107,14 +109,24 @@ type Opened = {
 	readonly storage: FakeStorage;
 	readonly list: ReturnType<typeof vi.fn>;
 	readonly onpublish: ReturnType<typeof vi.fn>;
+	/** Every address the inbound door asked about, which is what "nothing is asked twice" reads. */
+	readonly resolve: ReturnType<typeof vi.fn>;
 	/** Writable, so a test can close the sequence and open it again without remounting it. */
 	readonly props: SequenceProps;
+};
+
+/** What the address probe answers by default: the repository a Published Site's address means. */
+const ATLAS_ADDRESS: AddressResolution = {
+	kind: 'resolved',
+	remote: { owner: 'ada', repository: 'atlas' },
+	why: 'A published site at ada.github.io/atlas is usually the repository ada/atlas.'
 };
 
 /** Open the sequence over a Workspace in whatever state the caller has put the fake into. */
 function open(
 	storage: FakeStorage,
-	answer: GrantedRepositoriesOutcome | Error | Promise<GrantedRepositoriesOutcome> = listed()
+	answer: GrantedRepositoriesOutcome | Error | Promise<GrantedRepositoriesOutcome> = listed(),
+	address: AddressResolution | Error | Promise<AddressResolution> = ATLAS_ADDRESS
 ): Opened {
 	const list = vi.fn(async (token: string) => {
 		void token;
@@ -125,16 +137,22 @@ function open(
 		return answer instanceof Promise ? await answer : answer;
 	});
 	const onpublish = vi.fn();
+	const resolve = vi.fn(async (pasted: string) => {
+		void pasted;
+		if (address instanceof Error) throw address;
+		return address instanceof Promise ? await address : address;
+	});
 	const main = document.createElement('main');
 	document.body.append(main);
 	const props = sequenceProps({
 		storage: storage as unknown as WorkspaceStorage,
 		onpublish,
-		list
+		list,
+		resolveAddress: resolve
 	});
 	mounted = mount(ConnectToGitHub, { target: main, props });
 	flushSync();
-	return { storage, list, onpublish, props };
+	return { storage, list, onpublish, resolve, props };
 }
 
 /**
@@ -465,20 +483,25 @@ describe('making a repository, without leaving the sequence', () => {
 			return answer;
 		});
 		const onpublish = vi.fn();
+		const resolve = vi.fn(async (pasted: string) => {
+			void pasted;
+			return ATLAS_ADDRESS;
+		});
 		const storage = signedIn();
 		const main = document.createElement('main');
 		document.body.append(main);
 		const props = sequenceProps({
 			storage: storage as unknown as WorkspaceStorage,
 			onpublish,
-			list
+			list,
+			resolveAddress: resolve
 		});
 		mounted = mount(ConnectToGitHub, { target: main, props });
 		flushSync();
 		await settle();
 		pressLink('create-repository');
 		answer = then;
-		return { storage, list, onpublish, props };
+		return { storage, list, onpublish, resolve, props };
 	}
 
 	// Having nothing granted is an ordinary case with an action in it, not a dead end.
@@ -1275,6 +1298,120 @@ describe('the student who has never heard of GitHub', () => {
 	});
 });
 
+// ⚠ **The one path through this sequence that needs no account at all** (ADR-0031, ADR-0043). A
+// student opening their instructor's published Workspace is the likeliest thing this tool is asked
+// to do, and a door whose first step is signing in locks exactly that person out of it.
+describe('opening somebody else’s published Workspace, by its address', () => {
+	test.each([
+		['the account step', () => open(new FakeStorage())],
+		['the sign-in step', () => openPastAccount(new FakeStorage())]
+	])('is offered on %s, before any sign-in', (_name, arrange) => {
+		arrange();
+
+		expect(at('open-by-address')).toBeTruthy();
+	});
+
+	// Signing in *adds* the author's own repositories beside this; it never takes it away.
+	test('is still offered once the author is signed in', async () => {
+		open(signedIn());
+		await settle();
+
+		expect(at('connect-choosing')).toBeTruthy();
+		expect(at('open-by-address')).toBeTruthy();
+	});
+
+	// ⚠ **Nothing is asked of GitHub about the author.** The listing read needs a credential and this
+	// step needs none, so a student with no account reaches the field without one being wanted.
+	test('is reached signed out, with nothing asked about the author’s own repositories', () => {
+		const { storage, list } = open(new FakeStorage());
+
+		press('open-by-address');
+
+		expect(at('connect-by-address')).toBeTruthy();
+		expect(storage.signedIn).toBe(false);
+		expect(list).not.toHaveBeenCalled();
+	});
+
+	// ⚠ **The confirmation is what stands between an address and a download of gigabytes**, and an
+	// ambiguous Pages address has two real answers — so the repository that was chosen is named, with
+	// why, and nothing is transferred until somebody says yes.
+	test('names the repository it resolved, and downloads nothing until that is confirmed', async () => {
+		const { storage, resolve } = open(new FakeStorage());
+		press('open-by-address');
+
+		fill('workspace-address-field', 'ada.github.io/atlas');
+		press('find-workspace-address');
+		await settle();
+
+		expect(resolve).toHaveBeenCalledWith('ada.github.io/atlas');
+		expect(text(at('resolved-address'))).toContain('ada/atlas');
+		expect(text(at('resolved-address-why'))).toContain('ada/atlas');
+		expect(storage.openCalls).toEqual([]);
+
+		press('open-resolved-address');
+		await settle();
+
+		expect(storage.openCalls).toEqual([{ owner: 'ada', repository: 'atlas' }]);
+		expect(text(at('connect-notice'))).toContain('new Workspace');
+	});
+
+	// The other answer to the confirmation, which is what makes it one: the address is ambiguous and
+	// the author is the one who knows which repository they meant.
+	test('takes “that is not it” back to the address', async () => {
+		open(new FakeStorage());
+		press('open-by-address');
+		fill('workspace-address-field', 'ada.github.io/atlas');
+		press('find-workspace-address');
+		await settle();
+
+		press('reject-resolved-address');
+
+		expect(absent('resolved-address')).toBe(true);
+		expect(at('workspace-address-field')).toBeTruthy();
+	});
+
+	// ⚠ **`packages/core`'s own sentence, over the real probe**, which spends no request at all on an
+	// address it can produce no candidate for. A site on an address of its own cannot be traced back
+	// to the repository behind it, and the refusal has to say what to paste instead.
+	test('refuses a custom domain by naming what to paste instead', async () => {
+		open(new FakeStorage(), listed(), resolveWorkspaceAddress('https://maps.example.org/atlas'));
+		press('open-by-address');
+
+		fill('workspace-address-field', 'https://maps.example.org/atlas');
+		press('find-workspace-address');
+		await settle();
+
+		expect(text(at('workspace-address-refused'))).toContain('owner/repository');
+		expect(absent('resolved-address')).toBe(true);
+	});
+
+	// No step of this sequence is a full stop, and that includes the one somebody pressed by mistake.
+	test('goes back to the step the world says the author is on', () => {
+		open(new FakeStorage());
+		press('open-by-address');
+
+		press('leave-by-address');
+
+		expect(at('connect-needs-account')).toBeTruthy();
+	});
+
+	// The step is a press, not a position: closing forgets it, and reopening reads the world again.
+	test('is forgotten on a close, along with what was typed into it', async () => {
+		const opened = open(new FakeStorage());
+		press('open-by-address');
+		fill('workspace-address-field', 'ada.github.io/atlas');
+
+		press('close-connect-sequence');
+		opened.props.open = true;
+		flushSync();
+		await settle();
+
+		expect(at('connect-needs-account')).toBeTruthy();
+		press('open-by-address');
+		expect((at('workspace-address-field') as HTMLInputElement).value).toBe('');
+	});
+});
+
 describe('leaving the sequence, and coming back to it', () => {
 	// Every step offers the way out, including the ones in the middle of something.
 	test.each([
@@ -1607,6 +1744,14 @@ describe('every step of the sequence, enumerated', () => {
 				const storage = new FakeStorage();
 				storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 				open(storage);
+				return {};
+			}
+		},
+		'by-address': {
+			shows: 'connect-by-address',
+			go: async () => {
+				open(new FakeStorage());
+				press('open-by-address');
 				return {};
 			}
 		},

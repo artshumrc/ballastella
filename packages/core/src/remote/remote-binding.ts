@@ -75,8 +75,17 @@ const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+$/;
  * The two exact strings, rather than the character: real repositories are called `.github` and
  * `foo.js`, and banning the dot would refuse them.
  */
-const isRepositoryName = (value: string): boolean =>
+export const isRepositoryName = (value: string): boolean =>
 	REPOSITORY_PATTERN.test(value) && value !== '.' && value !== '..';
+
+/**
+ * An account name, by {@link OWNER_PATTERN}.
+ *
+ * Exported beside {@link isRepositoryName} so that every reader of an address — the bind's parse
+ * here, and the candidates an opened Remote's address produces — asks one pair of questions rather
+ * than keeping its own copy of GitHub's rules.
+ */
+export const isOwnerName = (value: string): boolean => OWNER_PATTERN.test(value);
 
 /**
  * `{ owner, repository, branch }` out of untrusted members, or `null` when they are not a repository.
@@ -99,7 +108,7 @@ export function normaliseRemoteIdentity(record: {
 	const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 	const owner = text(record.owner);
 	const repository = text(record.repository);
-	if (!OWNER_PATTERN.test(owner) || !isRepositoryName(repository)) return null;
+	if (!isOwnerName(owner) || !isRepositoryName(repository)) return null;
 	return { owner, repository, branch: text(record.branch) || DEFAULT_REMOTE_BRANCH };
 }
 
@@ -227,7 +236,7 @@ export function parseRemoteReference(
 	const segments = trimmed.split('/');
 	if (segments.length !== 2) return null;
 	const [owner, repository] = segments;
-	if (owner === undefined || !OWNER_PATTERN.test(owner)) return null;
+	if (owner === undefined || !isOwnerName(owner)) return null;
 	if (repository === undefined || !isRepositoryName(repository)) return null;
 	return { owner, repository };
 }
