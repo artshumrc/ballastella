@@ -75,8 +75,8 @@
 		const reasons: string[] = [];
 		if (!repository.canPublish) {
 			reasons.push(
-				`You do not have permission to publish to this one. If it is somebody else’s, ask them ` +
-					`for write access to it.`
+				`You cannot put work into this one. If it is somebody else’s, ask them for write ` +
+					`access to it.`
 			);
 		}
 		if (repository.isPrivate) {
