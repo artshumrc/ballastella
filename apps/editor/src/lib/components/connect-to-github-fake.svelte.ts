@@ -15,6 +15,7 @@ import {
 	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
 	UNCHECKED_REMOTE_STATUS,
+	type AddressResolution,
 	type CloneReference,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
@@ -269,6 +270,14 @@ export type SequenceProps = {
 	storage: WorkspaceStorage;
 	onpublish: () => void;
 	list: (token: string) => Promise<GrantedRepositoriesOutcome>;
+	/**
+	 * Which repository a pasted address means.
+	 *
+	 * ⚠ **Injected in every mount rather than left to its default**, because the default is the real
+	 * anonymous probe: a test that pressed the inbound door's button without one would reach for the
+	 * network, which both seams' fences refuse.
+	 */
+	resolveAddress: (pasted: string) => Promise<AddressResolution>;
 };
 
 /**

@@ -696,6 +696,15 @@ export {
 	type GrantedRepository,
 	type GrantedInstallation
 } from './remote/github-installations.js';
+// Whatever address a student happens to have — a Published Site's, a GitHub one, or
+// `owner/repository` — turned into the repository it means, by asking GitHub which of the
+// candidates is real rather than asking the author a question only GitHub can answer.
+export {
+	resolveWorkspaceAddress,
+	workspaceAddressCandidates,
+	type AddressCandidate,
+	type AddressResolution
+} from './remote/workspace-address.js';
 export {
 	DEFAULT_REMOTE_BRANCH,
 	REMOTE_BINDING_FORMAT_VERSION,
