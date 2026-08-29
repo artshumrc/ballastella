@@ -370,7 +370,8 @@ function unreachableMessage(remote: RemoteReference, cause: unknown): string {
  * missing work" is not something anybody can act on; *"“Amsterdam 1625” is on it and is not here"*
  * is. And the remedy has to be on the same screen as the refusal, because the alternative a scholar
  * will otherwise reach for is to bind anyway from a second machine and publish — which is the loss
- * this refusal exists to prevent.
+ * this refusal exists to prevent. The guided sequence renders the control beside this sentence, so
+ * the operation it names is a press rather than an instruction to go and find one.
  */
 function notHereMessage(remote: RemoteReference, missing: readonly PublishedProject[]): string {
 	const names = missing.map((project) => `“${project.name || project.directory}”`).join(', ');

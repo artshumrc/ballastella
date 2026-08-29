@@ -15,6 +15,7 @@ import {
 	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
 	UNCHECKED_REMOTE_STATUS,
+	type CloneReference,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
 	type RemoteBindOutcome,
@@ -24,6 +25,7 @@ import {
 	type SynchronizationBaseline
 } from '@ballastella/core';
 
+import type { TransferState } from '../editor-session.svelte.js';
 import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 /** What `bindRemote` was called with, which is where "one act, existing code" is asserted. */
@@ -74,6 +76,14 @@ export class FakeStorage {
 	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
 	/** An Update in flight, which is the one thing that makes its control busy. */
 	updateProgress = $state<{ files: number; totalFiles: number } | null>(null);
+	/**
+	 * The transfer the bar's progress line is a reading of, or `null` between transfers.
+	 *
+	 * A signal because the hydrate step's count is one: the real storage writes it per file over
+	 * minutes, and a plain field could not show that the line follows the download rather than
+	 * being written once when it starts.
+	 */
+	transfer = $state<TransferState | null>(null);
 
 	/** Every call to {@link bindRemote}, in order. */
 	readonly bindCalls: BindCall[] = [];
@@ -108,6 +118,18 @@ export class FakeStorage {
 	unbindAnswer: Error | null = null;
 	/** What `acceptLegacyRemote` answers, or throws when it is an `Error`. */
 	legacyAnswer: Error | null = null;
+	/**
+	 * Every repository {@link openFromGitHub} was asked for, in order.
+	 *
+	 * ⚠ **The shape is the claim.** The Open takes the repository and nothing else — no token, no
+	 * option that could carry one — which is what makes "no credential is sent on this path" a thing
+	 * the type system holds rather than a thing a test has to remember to check.
+	 */
+	readonly openCalls: CloneReference[] = [];
+	/** What `openFromGitHub` answers, or throws when it is an `Error`. */
+	openAnswer: { notice: string } | Error = {
+		notice: 'Opened ada/atlas into a new Workspace called “atlas”.'
+	};
 	/**
 	 * What the freshness check answers: `null` for a sign-in with life in it, an `Error` for one that
 	 * has run out and could not be renewed. The real one clears the credential in that case, so this
@@ -193,6 +215,25 @@ export class FakeStorage {
 	async updateFromRemote(): Promise<void> {
 		this.updates += 1;
 		await Promise.resolve();
+	}
+
+	/**
+	 * Open a Workspace from GitHub, exactly as the real one does: a new Workspace, switched to.
+	 *
+	 * The real one adopts the Workspace it made and that Workspace is bound to the repository it came
+	 * from, so `remote` moves — which is what the door reads next, and why this fake has to move it
+	 * too rather than leaving the sequence sitting on the offer it has just taken.
+	 */
+	async openFromGitHub(remote: CloneReference): Promise<{ notice: string }> {
+		this.openCalls.push(remote);
+		await Promise.resolve();
+		if (this.openAnswer instanceof Error) throw this.openAnswer;
+		this.remote = {
+			owner: remote.owner,
+			repository: remote.repository,
+			branch: remote.branch ?? 'main'
+		};
+		return this.openAnswer;
 	}
 
 	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {
