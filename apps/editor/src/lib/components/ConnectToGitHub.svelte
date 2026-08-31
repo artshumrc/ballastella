@@ -457,20 +457,23 @@
 		// not got is owed the same offer as an author with no Remote at all.
 		notHere !== null
 			? 'hydrate'
-			: bound !== null && !changing
-				? 'connected'
-				: connecting !== null
-					? 'connecting'
-					: // ⚠ **Ahead of the whole path, because it needs no credential and it is not a step of
-						// one.** A Workspace whose files name a repository nothing here corroborates is unbound
-						// until somebody says whether it is theirs, so there is nothing to connect and nothing to
-						// sign in for until it is answered.
-						legacy !== null
-						? 'legacy'
-						: // ⚠ **Ahead of the sign-in, because it needs no account.** Story 39: a door whose first
-							// step is signing in locks out the person most likely to be standing at it.
-							byAddress
-							? 'by-address'
+			: // ⚠ **Ahead of `connected` as well as of the sign-in, because it needs neither.** Story 39
+				// puts it in front of the sign-in: a door whose first step is signing in locks out the
+				// person most likely to be standing at it. And a Workspace that already has a Remote is
+				// not a Workspace that may not ask — this operation touches the one the author is in not
+				// at all, and the Conflict whose stated remedy it is arrives on a bound Workspace.
+				byAddress
+				? 'by-address'
+				: bound !== null && !changing
+					? 'connected'
+					: connecting !== null
+						? 'connecting'
+						: // ⚠ **Ahead of the whole path, because it needs no credential and it is not a step of
+							// one.** A Workspace whose files name a repository nothing here corroborates is unbound
+							// until somebody says whether it is theirs, so there is nothing to connect and nothing to
+							// sign in for until it is answered.
+							legacy !== null
+							? 'legacy'
 							: // A deployment with no App of its own opens on the paste: a sign-in button with no client
 								// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
 								!storage.signInWithGitHubOffered
@@ -509,6 +512,13 @@
 	 * public Remote needs no account, so it belongs in front of the sign-in rather than behind it;
 	 * and signing in only ever *adds* the author's own repositories beside it, so it does not
 	 * disappear the moment somebody has a credential.
+	 *
+	 * ⚠ **The connected step too, because a Workspace with a Remote is not a Workspace that may not
+	 * ask.** This is the whole of where opening a public repository by address lives (ADR-0042), and
+	 * the surface it came from offered it outside every condition it had — a Conflict whose stated
+	 * remedy is *open it in a Workspace of its own* is reached from a Workspace that is bound, and
+	 * an author who cannot reach the operation from there has been told to go and find a control
+	 * that is nowhere.
 	 */
 	const offersAddress = $derived(
 		step === 'no-app' ||
@@ -517,7 +527,8 @@
 			step === 'sign-in-ended' ||
 			step === 'choosing' ||
 			step === 'no-choices' ||
-			step === 'choices-refused'
+			step === 'choices-refused' ||
+			step === 'connected'
 	);
 
 	/**
@@ -1549,6 +1560,57 @@
 							tab stays where it is.
 						</p>
 					</div>
+					{#if grantTarget !== null}
+						<!--
+							⚠ **The repository the author already has and cannot see is the other half of this
+							step, and it is not answered by making a second one.** The list says an absent
+							repository is one Ballastella has not been let at rather than one that is not on
+							GitHub; what it could not say until here is *what to do about that* — and the only
+							other route to the same screen is behind **Create a new one**, which asks somebody
+							who has a repository to make one they do not need.
+
+							⚠ **The link where widening is the author's, the admin where it is not**, exactly as
+							the `creating` step decides it and for the same reason: a screen an author can save
+							nothing on is the dead end this hand-off replaced, and offering it at a better
+							address would only move the wall.
+						-->
+						<div class="m-4 flex flex-col items-start gap-2" data-testid="repository-missing">
+							<p class="max-w-prose text-sm opacity-70">
+								If the repository you want is not in this list, it is on GitHub all the same — what
+								is missing is that Ballastella has not been let at it.
+							</p>
+							{#if canGrantAccess}
+								<!-- eslint-disable svelte/no-navigation-without-resolve -->
+								<a
+									class="btn btn-sm"
+									href={grantAccessHref}
+									rel="noreferrer noopener"
+									target="_blank"
+									data-testid="grant-access"
+								>
+									Give Ballastella access to it
+								</a>
+								<!-- eslint-enable svelte/no-navigation-without-resolve -->
+								<p class="max-w-prose text-sm opacity-70">
+									Opens Ballastella's own screen on GitHub, on the account the repository is under.
+									Add it, save, then come back and press <strong>Look again</strong>.
+								</p>
+							{:else}
+								<p class="max-w-prose text-sm opacity-70">
+									Only somebody who administers that repository can let Ballastella at it, so that
+									is who to ask. Once they have, come back and press
+									<strong>Look again</strong>.
+								</p>
+							{/if}
+							<button
+								class="btn btn-sm"
+								data-testid="reread-repositories"
+								onclick={() => readAgain()}
+							>
+								Look again
+							</button>
+						</div>
+					{/if}
 				{:else if listing?.kind === 'refused'}
 					<!--
 						`github-installations` answers a rejected sign-in as a refusal rather than as an empty

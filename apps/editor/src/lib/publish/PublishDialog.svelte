@@ -33,7 +33,7 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// GITHUB IS REQUIRED BEFORE PUBLISHING IS OFFERED
 	//
-	// An unbound Workspace is directed to the Remote repository control, and a bound Workspace must
+	// An unbound Workspace is directed to the door on the bar, and a bound Workspace must
 	// have a credential before Publish enters the action row. Once offered, Publish remains in the tab
 	// order while planning, uploading, or waiting on a conflict; `aria-disabled` preserves focus in
 	// those states without making an unavailable local-only publish look like an option.
@@ -1090,8 +1090,10 @@
 										<strong>Update from GitHub</strong> is on the navigation bar, behind the control that
 										names your repository.
 									{:else}
-										Opening it in a new Workspace is in the Workspace menu at the top left, under
-										<strong>Remote repository…</strong>. It leaves this one exactly as it is.
+										Opening it in a new Workspace is behind the control on the bar that names your
+										repository, under
+										<strong>Open a published Workspace by its address</strong>. It leaves this one
+										exactly as it is.
 									{/if}
 								</p>
 								<button
