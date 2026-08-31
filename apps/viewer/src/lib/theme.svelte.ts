@@ -1,4 +1,4 @@
-import { otherTheme, type Theme } from '@ballastella/core';
+import { DEFAULT_DARK_THEME, DEFAULT_THEME, type Theme } from '@ballastella/core';
 
 /**
  * The one theme signal, on the Published Site.
@@ -11,7 +11,7 @@ import { otherTheme, type Theme } from '@ballastella/core';
  *
  * The editor has a module of the same name, and they are deliberately not shared — but they are no
  * longer the same shape, and the difference is the point. What is shared is the thing worth sharing:
- * `otherTheme` and the flavor-per-theme mapping inside each catalog entry, both in `core`. The *rule*
+ * the theme catalog and the flavor-per-scheme mapping inside each Base Map entry, both in `core`. The *rule*
  * that matters — that one signal drives both surfaces — is a rule about there being exactly one of
  * these per app, which a shared module would not make any truer.
  *
@@ -21,7 +21,7 @@ import { otherTheme, type Theme } from '@ballastella/core';
  * sunset has to move it. This module reads the media query **once, at construction**, and that is a
  * deliberate difference rather than the bug the editor fixed: a Reader has no stored preference to
  * respect and no long session to be interrupted in, so the only state is "what the machine asked for
- * when the page loaded" plus whatever they toggle while reading. If a Reader is ever given a
+ * when the page loaded" plus whatever they choose while reading. If a Reader is ever given a
  * remembered theme, this is where the live listener has to arrive with it.
  *
  * A Reader's theme is **not** persisted. The Base Map choice is the one thing a Published Site
@@ -39,21 +39,24 @@ class ThemeSignal {
 		this.#current = next;
 		applyToDocument(next);
 	}
-
-	toggle(): void {
-		this.current = otherTheme(this.#current);
-	}
 }
 
 function preferredTheme(): Theme {
-	if (typeof window === 'undefined') return 'light';
-	return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	if (typeof window === 'undefined') return DEFAULT_THEME;
+	return window.matchMedia('(prefers-color-scheme: dark)').matches
+		? DEFAULT_DARK_THEME
+		: DEFAULT_THEME;
 }
 
 function applyToDocument(theme: Theme): void {
 	if (typeof document === 'undefined') return;
-	// daisyUI ships `light` and `dark` and selects on `data-theme` (ADR-0016).
+	// daisyUI selects both built-in and custom themes on `data-theme` (ADR-0016).
 	document.documentElement.dataset.theme = theme;
+	const browserChrome = document.querySelector('meta[name="theme-color"]');
+	const base = getComputedStyle(document.documentElement)
+		.getPropertyValue('--color-base-100')
+		.trim();
+	if (base !== '') browserChrome?.setAttribute('content', base);
 }
 
 export const theme = new ThemeSignal();

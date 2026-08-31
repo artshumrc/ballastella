@@ -55,6 +55,7 @@
 		isDrawnMap,
 		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
+		themeColour,
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile,
@@ -318,16 +319,9 @@
 				// build; `baseMapNotPublishedNotice` is where a Reader is told the Labels are not drawn.
 				layers: [
 					{
-						// daisyUI's stock `base-100` for each theme, written out. A MapLibre paint value is
-						// parsed by the style spec rather than by CSS, so it cannot be `var(--color-base-100)`
-						// — and the variable's own value is an `oklch()` the style spec's colour parser does
-						// not read either. So these two literals are the page's background restated, and they
-						// are the one place in this app that would drift if the daisyUI theme were replaced
-						// (ADR-0016): the empty rectangle would stop matching the page around it. Nothing else
-						// depends on them, and they are only ever seen on a site published without its Base Map.
 						id: 'ballastella-no-base-map',
 						type: 'background',
-						paint: { 'background-color': theme.current === 'dark' ? '#1d232a' : '#f2f2f2' }
+						paint: { 'background-color': themeColour('--color-base-100') || '#ffffff' }
 					}
 				]
 			};

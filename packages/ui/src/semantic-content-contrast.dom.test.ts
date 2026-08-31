@@ -116,10 +116,10 @@ test("every semantic ground's ink clears AA, in every theme both apps declare", 
 
 	// Four blocks, or the loop below asserts less than it looks like it does.
 	expect(blocks.map(({ app, name }) => `${app}:${name}`).sort()).toEqual([
-		'editor:dark',
-		'editor:light',
-		'viewer:dark',
-		'viewer:light'
+		'editor:carto-dark',
+		'editor:carto-light',
+		'viewer:carto-dark',
+		'viewer:carto-light'
 	]);
 
 	let measurements = 0;

@@ -370,15 +370,15 @@ test.describe('the navigation bar', () => {
 		await expect(bar.getByTestId('project-name')).toHaveText(PROJECT_NAME);
 	});
 
-	test('holds the app’s only theme toggle', async ({ page }) => {
+	test('holds the app’s only theme picker', async ({ page }) => {
 		await freshWorkspace(page);
-		// One in the whole document, on every screen — the toggle used to be on three routes and not
+		// One in the whole document, on every screen — the control used to be on three routes and not
 		// on the hub, which is three controls that had to agree and one place that never heard.
-		await expect(page.getByRole('button', { name: /switch to .* theme/i })).toHaveCount(1);
+		await expect(page.getByRole('button', { name: 'Theme', exact: true })).toHaveCount(1);
 		await openProject(page);
-		await expect(page.getByRole('button', { name: /switch to .* theme/i })).toHaveCount(1);
+		await expect(page.getByRole('button', { name: 'Theme', exact: true })).toHaveCount(1);
 		await page.goto('./align/?p=amsterdam-1625&layer=none');
-		await expect(page.getByRole('button', { name: /switch to .* theme/i })).toHaveCount(1);
+		await expect(page.getByRole('button', { name: 'Theme', exact: true })).toHaveCount(1);
 	});
 });
 
@@ -403,32 +403,47 @@ test.describe('the theme', () => {
 			)
 		);
 
+	async function selectTheme(page: Page, next: string): Promise<void> {
+		await page.getByRole('button', { name: 'Theme', exact: true }).click();
+		await page.getByTestId(`theme-option-${next}`).click();
+	}
+
 	test('changes the interface and the Base Map flavour in one action', async ({ page }) => {
 		await freshWorkspace(page);
 		await openProject(page);
 		await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
 		await expect.poll(() => backgroundPaint(page), { timeout: 30_000 }).not.toBe('null');
 
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-light');
 		const light = await backgroundPaint(page);
 
-		await page.getByTestId('theme-toggle').click();
+		await selectTheme(page, 'synthwave');
 
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
 		await expect.poll(() => backgroundPaint(page), { timeout: 30_000 }).not.toBe(light);
 	});
 
 	test('a chosen theme survives a reload', async ({ page }) => {
 		await freshWorkspace(page);
-		await page.getByTestId('theme-toggle').click();
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		const cartoBase = await page.evaluate(() =>
+			getComputedStyle(document.documentElement).getPropertyValue('--color-base-100')
+		);
+		await selectTheme(page, 'synthwave');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
+		await expect
+			.poll(() =>
+				page.evaluate(() =>
+					getComputedStyle(document.documentElement).getPropertyValue('--color-base-100')
+				)
+			)
+			.not.toBe(cartoBase);
 
 		await page.reload();
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
 
 		// And on another screen, because the choice is the person's and not the page's.
 		await openProject(page);
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
 	});
 
 	test('with no theme ever chosen, the operating system moves it live', async ({ page }) => {
@@ -438,21 +453,21 @@ test.describe('the theme', () => {
 		// bright white application until the scholar reloads. A scholar mid-alignment does not reload.
 		await page.emulateMedia({ colorScheme: 'light' });
 		await freshWorkspace(page);
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-light');
 
 		await page.emulateMedia({ colorScheme: 'dark' });
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-dark');
 
 		await page.emulateMedia({ colorScheme: 'light' });
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-light');
 	});
 
 	test('an explicit choice stops the operating system moving it', async ({ page }) => {
 		// The third state's whole point: once chosen, it is *kept*, and the machine no longer wins.
 		await page.emulateMedia({ colorScheme: 'light' });
 		await freshWorkspace(page);
-		await page.getByTestId('theme-toggle').click();
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await selectTheme(page, 'synthwave');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
 
 		// **The operating system has to actually move, twice.** Re-emulating the scheme the page is
 		// already under fires no `change` event at all, so an assertion that only re-states the
@@ -468,7 +483,7 @@ test.describe('the theme', () => {
 			.toBe(false);
 		// A settle, because this asserts an absence: nothing must move it back.
 		await page.waitForTimeout(500);
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'synthwave');
 	});
 });
 

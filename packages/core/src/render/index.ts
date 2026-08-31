@@ -21,7 +21,7 @@
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
 // Where an Annotation sits on the screen, which is what the leader points at.
 export { annotationMarkBox, type ScreenBox } from './annotation-mark.js';
-export { distortionRamp } from './distortion-ramp.js';
+export { distortionRamp, themeColour } from './distortion-ramp.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
 // The Workspace's own Base Map tiles, behind ADR-0011's third `addProtocol` handler (ADR-0025).
 export {

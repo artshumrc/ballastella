@@ -47,7 +47,7 @@ import { fileURLToPath } from 'node:url';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, expect, test, vi } from 'vitest';
 
-import type { Layer } from '@ballastella/core';
+import { THEMES, type Layer } from '@ballastella/core';
 
 import { KIND_STYLE } from './layer-kind-style';
 import LayerList from './LayerList.svelte';
@@ -124,6 +124,22 @@ function themeBlocks(): ThemeBlock[] {
 	}
 	return blocks;
 }
+
+test('both apps emit every selectable theme', () => {
+	const expected = THEMES.map(({ name }) => name).sort();
+	for (const app of ['editor', 'viewer']) {
+		const text = source(`../../../apps/${app}/src/routes/layout.css`);
+		const builtInBody = /@plugin\s+'daisyui'\s*\{([^}]*)\}/.exec(text)?.[1] ?? '';
+		const builtIns = (/themes:\s*([^;]+);/.exec(builtInBody)?.[1] ?? '')
+			.split(',')
+			.map((name) => name.trim())
+			.filter(Boolean);
+		const custom = themeBlocks()
+			.filter((block) => block.app === app)
+			.map(({ name }) => name);
+		expect([...custom, ...builtIns].sort(), `apps/${app}`).toEqual(expected);
+	}
+});
 
 // ── Colour arithmetic ─────────────────────────────────────────────────────────────────────────
 // Ottosson's oklab, and WCAG 2.1's relative luminance. Linear-light sRGB is the common currency:
@@ -258,10 +274,10 @@ test("every Layer kind's ink clears AA on a base-100 card, in every theme both a
 	// this test's only real failure mode: two kinds, and two themes in each of two apps.
 	expect([...inked.keys()].sort()).toEqual(['Annotation Layer', 'Map Image']);
 	expect(blocks.map(({ app, name }) => `${app}:${name}`).sort()).toEqual([
-		'editor:dark',
-		'editor:light',
-		'viewer:dark',
-		'viewer:light'
+		'editor:carto-dark',
+		'editor:carto-light',
+		'viewer:carto-dark',
+		'viewer:carto-light'
 	]);
 
 	let measurements = 0;

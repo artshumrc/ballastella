@@ -90,7 +90,7 @@
 		wherever that is.
 	-->
 	<link rel="manifest" href={asset('/manifest.webmanifest')} />
-	<meta name="theme-color" content="#134e4a" />
+	<meta name="theme-color" content="#fbfaf7" />
 </svelte:head>
 <!--
 	The app is one screen tall and the routes divide it, rather than each route setting its own

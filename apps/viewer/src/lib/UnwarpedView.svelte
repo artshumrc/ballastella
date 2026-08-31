@@ -26,6 +26,7 @@
 	import { TriiiceratopsViewer } from 'triiiceratops/svelte';
 	import 'triiiceratops/style.css';
 
+	import { themeScheme } from '@ballastella/core';
 	import { theme } from '$lib/theme.svelte';
 
 	let {
@@ -91,7 +92,7 @@
 		<TriiiceratopsViewer
 			{manifestId}
 			manifestJson={manifest}
-			theme={theme.current}
+			theme={themeScheme(theme.current)}
 			onviewererror={(error) => (viewerError = error.message || 'This image could not be shown.')}
 		/>
 	</div>

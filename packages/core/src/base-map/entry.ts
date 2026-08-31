@@ -1,4 +1,4 @@
-import type { Theme } from '../theme';
+import type { ThemeScheme } from '../theme';
 
 /**
  * A named Protomaps flavor. A `Flavor` is a struct of colours per layer class — `water`,
@@ -49,7 +49,7 @@ export type BaseMapEntry = {
 	readonly archive: string;
 	readonly emphasis: BaseMapEmphasis;
 	/** The flavor per theme, so one theme signal drives the map as well as the UI (ADR-0016). */
-	readonly flavor: Readonly<Record<Theme, BaseMapFlavorName>>;
+	readonly flavor: Readonly<Record<ThemeScheme, BaseMapFlavorName>>;
 };
 
 /**

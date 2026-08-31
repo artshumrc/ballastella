@@ -77,7 +77,12 @@ const CATALOG_OPTIONS = [
 // By role, not by label: MapLibre gives the canvas the accessible name "Base Map" too, which is
 // right for the pane and would make a name-only lookup ambiguous.
 const switcher = (page: Page) => page.getByRole('combobox', { name: 'Base Map' });
-const themeToggle = (page: Page) => page.getByRole('button', { name: /switch to .* theme/i });
+const themePicker = (page: Page) => page.getByRole('button', { name: 'Theme', exact: true });
+
+async function selectTheme(page: Page, theme: string): Promise<void> {
+	await themePicker(page).click();
+	await page.getByTestId(`theme-option-${theme}`).click();
+}
 
 /** Tab from the current control until `target` has focus, without pretending a canvas is not focusable. */
 async function tabUntilFocused(page: Page, target: Locator, what: string): Promise<void> {
@@ -414,7 +419,7 @@ test.describe('the Base Map pane', () => {
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('publish')).toBeFocused();
 		await page.keyboard.press('Tab');
-		await expect(themeToggle(page)).toBeFocused();
+		await expect(themePicker(page)).toBeFocused();
 		await tabUntilFocused(page, page.getByTestId('place-search-query'), 'place search');
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('place-search-submit')).toBeFocused();
@@ -1697,13 +1702,13 @@ test.describe('the theme', () => {
 	test('changes the Base Map flavor in the same action as the interface', async ({ page }) => {
 		await openPane(page);
 
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-light');
 		const light = await backgroundColour(page);
 
-		await themeToggle(page).click();
+		await selectTheme(page, 'carto-dark');
 
 		// One action, one signal, both surfaces: a dark interface never frames a bright white map.
-		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'carto-dark');
 		await expect.poll(() => backgroundColour(page), { timeout: 30_000 }).not.toBe(light);
 	});
 });
