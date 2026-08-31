@@ -381,6 +381,7 @@
 	/** Supply the credential from here, rather than sending the user off to another dialog. */
 	const signIn = async (event: SubmitEvent) => {
 		event.preventDefault();
+		if (signingIn) return;
 		const problem = describeTokenProblem(token);
 		if (problem) {
 			uploadProblem = problem;
@@ -1021,11 +1022,15 @@
 											spellcheck="false"
 										/>
 									</div>
+									<!-- `aria-disabled` and a guard in the handler, never `disabled`, for the reason
+									     rule 4 above gives: a control removed from the tab order the instant it is
+									     pressed drops the keyboard user who pressed it. -->
 									<button
 										class="btn btn-sm"
+										class:btn-disabled={signingIn}
+										aria-disabled={signingIn}
 										type="submit"
 										data-testid="publish-sign-in"
-										disabled={signingIn}
 									>
 										{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
 									</button>

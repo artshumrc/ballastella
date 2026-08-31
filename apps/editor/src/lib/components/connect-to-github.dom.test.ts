@@ -1938,6 +1938,38 @@ describe('every step of the sequence, enumerated', () => {
 	// any of these either.
 	const GITHUB_VOCABULARY = ['installation', 'installations', 'grant', 'permission'];
 
+	/**
+	 * ⚠ **Every landing the door can present, reachable by keyboard** (user story 128).
+	 *
+	 * The Seam 2 pass tabs through the *connected* landing end to end, which is the one property no
+	 * single surface can see; what it cannot afford is a boot per landing. This is the fence for the
+	 * other twelve, and it is drawn where reach is actually won or lost in this codebase: a control
+	 * spelled as a `<div>` with a role, or taken out of the tab order with `tabindex="-1"`, is
+	 * unreachable however it looks — and a native element with no accessible name is a stop a screen
+	 * reader announces as nothing at all.
+	 *
+	 * The name computation here is `dom-accessibility-api`'s approximation and not an accessibility
+	 * tree (see this project's own header), so this is a fence against an unnamed control and not the
+	 * only home of any naming claim.
+	 */
+	test.each([...CONNECT_STEPS])(
+		'%s puts every control it renders in the tab order, with a name on each',
+		async (step) => {
+			const { answers } = await reach[step].go();
+			if (answers !== undefined) await answers();
+
+			const sequence = at('connect-sequence');
+			expect(
+				sequence.querySelectorAll('[role="button"], [role="link"], [tabindex="-1"]')
+			).toHaveLength(0);
+			const named = [
+				...sequence.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea')
+			];
+			expect(named.length).toBeGreaterThan(0);
+			for (const control of named) expect(control).toHaveAccessibleName();
+		}
+	);
+
 	test.each([...CONNECT_STEPS])('%s says none of GitHub’s words for it', async (step) => {
 		await reach[step].go();
 
@@ -2710,5 +2742,30 @@ describe('the sign-in this computer holds', () => {
 
 		expect(absent('connect-credential')).toBe(true);
 		expect(absent('remember-sign-in')).toBe(true);
+	});
+});
+
+/**
+ * Where the door leaves the keyboard when it closes (user story 129, WCAG 2.4.3).
+ *
+ * The door is the one control on the bar for the whole GitHub relationship, so a scholar who opens
+ * it, reads the answer and closes it again has to be put back on it — otherwise every visit to the
+ * door costs a tab from the top of the document. `ModalDialog` performs the restoration and
+ * `modal-dialog.dom.test.ts` asserts the three shapes it can take; what is asserted here is that the
+ * door is one of its dialogs at all, which is the claim a rewrite of this surface could break.
+ */
+describe('closing the door', () => {
+	test('puts focus back on the control that opened it', () => {
+		// Standing in for the bar's own door button, which is `NavigationBar`'s: what this component
+		// can be asked is where focus goes, and that is decided by what was focused when it opened.
+		const door = document.createElement('button');
+		door.dataset.testid = 'the-door';
+		document.body.append(door);
+		door.focus();
+
+		open(new FakeStorage());
+		press('close-connect-sequence');
+
+		expect(document.activeElement).toBe(door);
 	});
 });

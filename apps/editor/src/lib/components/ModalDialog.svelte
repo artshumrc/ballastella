@@ -116,6 +116,15 @@
 		// `isConnected` rather than a `try`: a detached element accepts `focus()` and does nothing, so
 		// there is no failure to catch — which is exactly why this went unnoticed.
 		//
+		// ⚠ **`<body>` is not an opener, and it is what `document.activeElement` answers far more often
+		// than it looks.** Nothing focused at all answers `<body>`; so does a dialog raised by
+		// something other than a press; and so does the vanishing-trigger case above, because Svelte
+		// removes the trigger in the render effect that runs *before* this component's own effect, so
+		// the capture below already reads `<body>` rather than the button. `<body>` is connected and
+		// inside no closed dialog, so it passed as usable — and `focus()` on it does nothing, silently,
+		// leaving {@link restoreFocusTo} unconsulted and the keyboard user exactly where this
+		// restoration exists to stop them being.
+		//
 		// ⚠ **And in the document is not the same as reachable.** A dialog opened from inside another
 		// dialog that has since closed — the Publish dialog, opened from the door, which closes on the
 		// press — has a trigger that is still connected and inside a `<dialog>` nobody can see. Worse
@@ -123,7 +132,10 @@
 		// *succeeds* and a keyboard user is left on a control that is not on the screen. Asking whether
 		// the focus landed cannot tell the two apart; asking where the trigger lives can.
 		const usable =
-			(trigger?.isConnected ?? false) && trigger?.closest('dialog:not([open])') === null;
+			trigger !== null &&
+			trigger !== document.body &&
+			trigger.isConnected &&
+			trigger.closest('dialog:not([open])') === null;
 		if (usable && trigger) {
 			trigger.focus();
 			return;

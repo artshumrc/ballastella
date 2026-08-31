@@ -101,7 +101,15 @@
 	let outcome = $state('');
 	/** Why the last one did not happen. Its own state so it can be an alert. */
 	let problem = $state('');
-	/** Whether one is running, so a second cannot be started on top of it. */
+	/**
+	 * Whether one is running, so a second cannot be started on top of it.
+	 *
+	 * ⚠ **Every control it makes busy says so with `aria-disabled` and refuses in its own handler,
+	 * never with `disabled`.** A `disabled` button leaves the tab order the instant it is pressed, so
+	 * the keyboard user who started a transfer that runs for minutes is dropped on `<body>` and cannot
+	 * even tab back to the progress line beneath it (WCAG 2.4.3). `aria-disabled` is a statement to
+	 * the accessibility tree and stops nothing, which is why the refusal is in the handler as well.
+	 */
 	let working = $state(false);
 	/** The file input, so the button can open it without a label wrapping a hidden control. */
 	let restoreInput = $state<HTMLInputElement | null>(null);
@@ -238,9 +246,12 @@
 	<button
 		type="button"
 		class="btn btn-sm"
+		class:btn-disabled={working}
+		aria-disabled={working}
 		data-testid="download-backup"
-		disabled={working}
-		onclick={() => void backUp()}
+		onclick={() => {
+			if (!working) void backUp();
+		}}
 	>
 		Download a Backup
 	</button>
@@ -423,18 +434,24 @@
 		{#if storage.review === null && !storage.unavailable}
 			<button
 				class="btn btn-sm"
+				class:btn-disabled={working}
+				aria-disabled={working}
 				data-testid="back-up-workspace"
-				disabled={working}
-				onclick={() => void backUp()}
+				onclick={() => {
+					if (!working) void backUp();
+				}}
 			>
 				Back up “{storage.name}”
 			</button>
 		{/if}
 		<button
 			class="btn btn-sm"
+			class:btn-disabled={working}
+			aria-disabled={working}
 			data-testid="restore-workspace"
-			disabled={working}
-			onclick={() => restoreInput?.click()}
+			onclick={() => {
+				if (!working) restoreInput?.click();
+			}}
 		>
 			Restore from a backup…
 		</button>
@@ -477,9 +494,12 @@
 		</p>
 		<button
 			class="btn btn-sm"
+			class:btn-disabled={working}
+			aria-disabled={working}
 			data-testid="move-into-folder"
-			disabled={working}
-			onclick={() => void moveIntoFolder()}
+			onclick={() => {
+				if (!working) void moveIntoFolder();
+			}}
 		>
 			Move this Workspace into a folder…
 		</button>
