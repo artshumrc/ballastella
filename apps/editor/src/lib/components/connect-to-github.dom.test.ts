@@ -2538,6 +2538,18 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(opened.storage.bindCalls).toEqual([]);
 	});
 
+	// Story 124. The paste is the whole of this deployment's authentication, so the guidance it
+	// carries has to be enough to make a token that works first time: both permissions, and the
+	// **Resource owner** row, which is the trap — a token made under the wrong owner cannot see the
+	// repository, and the symptom is a repository that appears not to exist.
+	test('names both permissions the token needs, and the resource owner trap', () => {
+		open(noApp());
+
+		expect(said()).toContain('Contents: Read and write');
+		expect(said()).toContain('Pages: Read and write');
+		expect(said()).toContain('Resource owner');
+	});
+
 	// The fork-shaped half of the same offer: the one step the tool does not take arrives with the
 	// name filled in, and the sentence beside it says the repository has to be public.
 	test('offers to create the repository with its name already filled in, and says it must be public', () => {
@@ -2575,6 +2587,70 @@ describe('a fork that has registered no GitHub App', () => {
 		await settle();
 
 		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
+	});
+});
+
+// ⚠ **The escape hatch, and the whole of what makes it one: it is closed** (story 126).
+//
+// An instructor whose App installation has broken mid-class needs a way in that does not depend on
+// the installation, and a student on the same deployment must never be offered a choice between two
+// credentials. A disclosure is what those two facts add up to: the field is not in the document
+// until somebody who knows what they are asking for asks for it, so the screen a student meets is
+// the sign-in and nothing else.
+describe('the way in for an installation that has broken', () => {
+	test('is closed, with nothing behind it in the document', () => {
+		open(signedIn());
+
+		expect(at('connect-other-way-in')).toHaveAttribute('aria-expanded', 'false');
+		expect(absent('connect-token-field')).toBe(true);
+		expect(absent('connect-paste')).toBe(true);
+	});
+
+	test('says it is open once it is, and puts the field there', () => {
+		open(signedIn());
+		press('connect-other-way-in');
+
+		expect(at('connect-other-way-in')).toHaveAttribute('aria-expanded', 'true');
+		expect(at('connect-token-field')).toBeTruthy();
+	});
+
+	// The same bind the fork's own step makes, because it is the same act: what is different is who
+	// is standing there and why, not what happens on the press.
+	test('binds the typed repository with the pasted token', async () => {
+		const opened = open(signedIn());
+		press('connect-other-way-in');
+
+		fill('connect-repository-field', 'ada/atlas');
+		fill('connect-token-field', 'github_pat_11ABCDE0000abcdefghijklmnop');
+		submit();
+		await settle();
+
+		expect(opened.storage.bindCalls).toEqual([
+			{
+				remote: { owner: 'ada', repository: 'atlas' },
+				token: 'github_pat_11ABCDE0000abcdefghijklmnop'
+			}
+		]);
+	});
+
+	// A Workspace that is already bound is the state an instructor mid-class is actually in: the
+	// repository is not the question, so it is not asked again.
+	test('arrives with the repository already named where there is one', () => {
+		const storage = signedIn();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		open(storage);
+		press('connect-other-way-in');
+
+		expect((at('connect-repository-field') as HTMLInputElement).value).toBe('ada/atlas');
+	});
+
+	// Where there is no App there is nothing to be an escape from: the paste is the front door, and a
+	// disclosure over the step the author is standing on would be a second copy of it.
+	test('is not offered where the deployment has no App of its own', () => {
+		open(noApp());
+
+		expect(absent('connect-other-way-in')).toBe(true);
+		expect(at('connect-no-app')).toBeTruthy();
 	});
 });
 

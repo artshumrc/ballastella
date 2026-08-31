@@ -817,6 +817,31 @@ test.describe('with no broker served at all', () => {
 		expect(github.requests).toContain('/github/token');
 	});
 
+	// ⚠ **The escape hatch, driven against the *real* `isGitHubAppConfigured(GITHUB_APP)`** (stories
+	// 126 and 127). This checkout has an App configured, so the door offers the sign-in and no token
+	// field — which is the state an instructor whose installation has broken is standing in, and the
+	// one the disclosure exists for. Here rather than at Seam 1c because the gate is the deployment's
+	// own value rather than a fake's, and because "the broker is on no data path" is a claim about
+	// which hosts were reached: the broker's origin is routed and every request to it fails, so a
+	// bind that touched it could not pass and one that did not is proved rather than assumed.
+	test('the way in behind the disclosure binds with no request to the broker', async ({ page }) => {
+		const github = await start(page, { brokerUnreachable: true });
+
+		await openTheDoor(page);
+		// Absent, not empty and not disabled, until somebody who knows what they are asking for asks.
+		await expect(page.getByTestId('connect-token-field')).toHaveCount(0);
+		await page.getByTestId('connect-other-way-in').click();
+
+		await page.getByTestId('connect-repository-field').fill(REMOTE);
+		await page.getByTestId('connect-token-field').fill(PASTED);
+		await page.getByTestId('connect-paste').click();
+
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		expect(await holdsCredential(page)).toBe(true);
+		expect(github.requests).not.toContain('/github/token');
+		expect(github.requests).not.toContain('/github/refresh');
+	});
+
 	// ⚠ **A held credential and a bound Workspace are two different durabilities, and both survive
 	// with no service of any kind involved.** The credential is this tab's `sessionStorage` and the
 	// binding is the installation's IndexedDB, so a reload is where a deployment whose broker will

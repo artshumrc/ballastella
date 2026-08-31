@@ -20,8 +20,8 @@
 // IT KNOWS NOTHING ABOUT WHERE THE TOKEN CAME FROM
 //
 // An opaque bearer string and a `fetch` shim, and no import that could tell a pasted personal access
-// token from one the broker exchanged for a code (ADR-0031). There is no `if (authMethod === …)`
-// here or below here, and there must not be.
+// token from one the broker exchanged for a code (ADR-0031). Nothing here or below here branches on
+// which door the credential came through, and nothing may.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import {

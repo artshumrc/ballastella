@@ -1004,7 +1004,9 @@
 							<form class="mt-3" onsubmit={(event) => void signIn(event)}>
 								<p class="text-sm" data-testid="publish-sign-in-needed">
 									Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
-									<strong>Contents: Read and write</strong>. Kept only in this tab.
+									<strong>Contents: Read and write</strong> and
+									<strong>Pages: Read and write</strong>, made under the account that owns the
+									repository. Kept only in this tab.
 								</p>
 								<div class="mt-3 flex flex-wrap items-end gap-3">
 									<div class="flex min-w-0 grow basis-72 flex-col gap-1">

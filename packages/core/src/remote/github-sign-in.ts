@@ -7,8 +7,8 @@
 // A push credential lives behind {@link CredentialStore}: a token can be put in, taken out, and
 // thrown away. A pasted fine-grained token was the first way to get one; this is the second, and
 // **below that interface the two are indistinguishable** — the publish engine is handed an opaque
-// bearer string and never learns which door it came through. There is no `if (authMethod === …)`
-// here or anywhere beneath the UI, which is ADR-0031's consequence written as a rule.
+// bearer string and never learns which door it came through. Nothing here or anywhere beneath the UI
+// branches on which of the two it holds, which is ADR-0031's consequence written as a rule.
 //
 // What this module adds on top of the string is the part a pasted token does not have: an **expiry**
 // and a **refresh token**. A GitHub App's user-to-server token lasts eight hours, so the record below
