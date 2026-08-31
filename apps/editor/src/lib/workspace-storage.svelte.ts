@@ -51,6 +51,8 @@ import {
 	Workspace,
 	workspaceSize,
 	requestPersistentStorage,
+	readPersistentStoragePermission,
+	readStoragePersisted,
 	browserJournalStorage,
 	discardDeletions,
 	discardJournal,
@@ -124,7 +126,7 @@ import {
 	type ReviewOrigin,
 	type ReviewReference,
 	type ReviewedProject,
-	type StoragePersistence,
+	type StorageAnswers,
 	type TransferProgressListener,
 	type UpdateDeletionPreview,
 	type WorkspaceBackup,
@@ -737,13 +739,18 @@ export class WorkspaceStorage {
 	 */
 	transfer = $state<TransferState | null>(null);
 	/**
-	 * What the browser said when asked to keep this origin's storage, or `null` before it answered.
+	 * What this browser has answered about keeping this origin's storage, or `null` before it answered.
 	 *
-	 * Recorded rather than acted on: nothing here changes behaviour by it. It is reported in Workspace
-	 * settings because a refusal means everything the user has is evictable under disk pressure
-	 * (ADR-0024), and they are the only one who can do anything about it.
+	 * The browser's half of a {@link StorageDurability}: Workspace Home adds the two things the
+	 * application knows and the browser does not — whether Ballastella is installed, and whether File
+	 * System Access exists — and derives the one sentence a scholar is told (ADR-0042).
+	 *
+	 * Recorded rather than acted on: nothing here changes behaviour by it. It is *said*, because
+	 * without the grant everything the author has is evictable under disk pressure (ADR-0024), and on
+	 * WebKit it is deleted outright after seven days without a visit (ADR-0001's amendment) — and they
+	 * are the only one who can do anything about either.
 	 */
-	persistence = $state<StoragePersistence | null>(null);
+	storageAnswers = $state<StorageAnswers | null>(null);
 	/** Whether this browser can put a Workspace in a folder at all. */
 	canChooseFolder = $state(false);
 	/**
@@ -1105,13 +1112,16 @@ export class WorkspaceStorage {
 		// an installation that has never ticked the preference, which is what keeps ADR-0010's "opening
 		// a Project modifies nothing" true of the default.
 		void this.#restoreRememberedSignIn().catch(() => undefined);
-		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
-		// waiting on: Chromium answers from its own heuristics and Firefox may not answer at all until a
-		// permission prompt is dealt with, and neither is a reason to hold up opening a Workspace.
+		// What this browser has promised, read before anything is asked of it, so Workspace Home has a
+		// sentence to show on the browsers whose answer is that no grant is reachable at all.
+		void this.#readStorageAnswers();
+		// ADR-0024's latent data-loss fix, and separately: this *asks*, where the read above does not.
+		// Fire and forget, and never awaited by anything the user is waiting on — Chromium answers from
+		// its own heuristics and Firefox does not settle this at all without a user gesture, and neither
+		// is a reason to hold up opening a Workspace. Whatever it changed is read back after it lands,
+		// which is how Chromium's silent grant reaches the screen.
 		void requestPersistentStorage()
-			.then((answer) => {
-				this.persistence = answer;
-			})
+			.then(() => this.#readStorageAnswers())
 			.catch(() => undefined);
 		// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission* that
 		// needs the gesture, and nothing on this path asks for one.
@@ -1123,6 +1133,46 @@ export class WorkspaceStorage {
 			this.#teardownFlushOnHide?.();
 			this.#teardownFlushOnHide = undefined;
 		};
+	}
+
+	/**
+	 * Read what this browser has promised about keeping the work, asking it for nothing.
+	 *
+	 * Cheap, safe on load, and repeated after anything that could have changed the answer: a
+	 * permission query prompts for nothing, and `persisted()` is a question rather than a request.
+	 */
+	async #readStorageAnswers(): Promise<void> {
+		const [persisted, permission] = await Promise.all([
+			readStoragePersisted(),
+			readPersistentStoragePermission()
+		]);
+		this.storageAnswers = {
+			persisted,
+			permission,
+			// A page the browser will not give `localStorage` to is a session that keeps nothing — the
+			// one form of a private window a browser will admit to, and already the signal
+			// {@link unprotected} is drawn from.
+			ephemeral: this.#journalStorage === null
+		};
+	}
+
+	/**
+	 * Ask this browser to keep this origin's storage, because the author pressed for it.
+	 *
+	 * ⚠ **Called from a user gesture and from nowhere else.** `persist()` is what opens Firefox's
+	 * permission prompt, and Firefox does not settle the promise at all without one — which is why
+	 * the load-time read above asks nothing, and why this exists as a separate act with a button in
+	 * front of it. Whatever the browser decided is read back, so the sentence on screen changes to
+	 * what is now true.
+	 */
+	async askToKeepStorage(): Promise<void> {
+		try {
+			await navigator.storage?.persist?.();
+		} catch {
+			// A browser that has the method and throws from it has decided nothing; the re-read below
+			// reports whatever is actually true rather than inventing a refusal.
+		}
+		await this.#readStorageAnswers();
 	}
 
 	/** Pick a folder. Also the locate-again action for a folder that has gone away (ADR-0008). */

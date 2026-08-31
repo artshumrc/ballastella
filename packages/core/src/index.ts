@@ -225,6 +225,15 @@ export {
 } from './store/opfs-workspaces.js';
 // Whether this **origin's** storage is evictable — a question about the browser, not a Workspace.
 export { requestPersistentStorage, type StoragePersistence } from './store/persistent-storage.js';
+// What that answer, and three others, add up to for the person whose work it is (ADR-0042).
+export {
+	deriveStorageDurability,
+	readPersistentStoragePermission,
+	readStoragePersisted,
+	type StorageAnswers,
+	type StorageDurability,
+	type StorageDurabilityInputs
+} from './store/storage-durability.js';
 export {
 	InvalidPathError,
 	PathNotFoundError,

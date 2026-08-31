@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { describeBytes } from '@ballastella/core';
+	import {
+		describeBytes,
+		deriveStorageDurability,
+		type StorageDurability
+	} from '@ballastella/core';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	import InstallOffer from '$lib/pwa/InstallOffer.svelte';
+	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
@@ -27,6 +32,68 @@
 	 * `::before`, so they are neither announced nor dismissable (ADR-0016).
 	 */
 	let { storage }: { storage: WorkspaceStorage } = $props();
+
+	const app = useInstalledApp();
+
+	/**
+	 * What this browser has promised about keeping the work, and therefore which lever to name.
+	 *
+	 * Derived here rather than held on the store because two of its five inputs are not the store's
+	 * to know: whether Ballastella is running installed is `InstalledApp`'s, and it changes while this
+	 * screen is open — an author who installs from the offer below should see the sentence above it
+	 * become true without a reload. `$derived` over an `$effect` for exactly that reason.
+	 *
+	 * ⚠ **No user-agent string is read, here or in the derivation.** See
+	 * `deriveStorageDurability`: every distinction is drawn from a capability the browser has or has
+	 * not, so the advice does not break when a browser changes what it calls itself.
+	 */
+	const durability = $derived<StorageDurability | null>(
+		storage.storageAnswers === null
+			? null
+			: deriveStorageDurability({
+					...storage.storageAnswers,
+					installed: app.installed,
+					// The presence of File System Access, which is also the whole of what
+					// `canChooseFolder` reports.
+					fileSystemAccess: storage.canChooseFolder
+				})
+	);
+
+	/**
+	 * The one short line, per state. Present without being a lecture; the truth is behind the
+	 * disclosure, except on WebKit where it is not (ADR-0042).
+	 */
+	const DURABILITY_LEAD: Record<StorageDurability['kind'], string> = {
+		granted:
+			'Kept. This browser has promised not to clear your Workspace to make room for other sites.',
+		'can-ask': 'Not kept yet — this browser will ask you first.',
+		'install-to-keep': 'Not kept yet. Installing Ballastella is what changes that.',
+		'seven-day': 'This browser deletes your Workspace after seven days without a visit.',
+		ephemeral: 'This window keeps nothing: your work will not survive closing it.',
+		unknown: 'This browser will not say whether it keeps your Workspace.'
+	};
+
+	/**
+	 * Whether the truth behind the line is on screen.
+	 *
+	 * A `<button aria-expanded>` disclosure and not `<details>`: ADR-0016 bans the `<details>`
+	 * dropdown, and the WAI-ARIA disclosure button is unambiguously outside that ban.
+	 */
+	let durabilityShown = $state(false);
+
+	/** What the last press for the browser's own grant left true, announced. */
+	let keeping = $state('');
+
+	async function askToKeepStorage(): Promise<void> {
+		keeping = '';
+		await storage.askToKeepStorage();
+		// Read back off the derivation rather than from what `persist()` returned, so the sentence and
+		// the outcome cannot disagree about the same browser.
+		keeping =
+			durability?.kind === 'granted'
+				? 'Kept. This browser has promised to keep your Workspace, and you may store much more in it.'
+				: 'This browser did not grant it. A backup is the answer that does not depend on it.';
+	}
 
 	/** What a backup, a restore or a move is doing right now, or `null`. Drives the visible progress. */
 	let transfer = $state<string>('');
@@ -162,6 +229,24 @@
 </script>
 
 <!--
+	The answer that does not depend on the browser, offered in every state — including the granted one,
+	because a grant is a promise about *this* browser on *this* computer and not about a disk that
+	fails. Its own copy of the control rather than a pointer down the page: this panel is where the
+	question was asked, and the section below is a heading away.
+-->
+{#snippet backupOffer()}
+	<button
+		type="button"
+		class="btn btn-sm"
+		data-testid="download-backup"
+		disabled={working}
+		onclick={() => void backUp()}
+	>
+		Download a Backup
+	</button>
+{/snippet}
+
+<!--
 	Quiet, below the two lists: a scholar comes to Workspace Home to work on a Project, and this is
 	the answer to a question they ask occasionally. One section with a heading rather than a boxed
 	panel each (ADR-0036).
@@ -170,36 +255,125 @@
 	<h2 class="font-serif text-lg">Keeping your work</h2>
 
 	<!--
-		What the browser said about keeping this storage (ADR-0024).
+		What this browser has promised about keeping the work, and the lever that would change it
+		(ADR-0042, and ADR-0001's WebKit amendment).
 
-		A refusal is **said**, not swallowed: without the grant everything in browser storage is
-		evictable under disk pressure, and on Firefox, Safari, and iPadOS browser storage is the only
-		Workspace there is.
+		One short line, with the truth behind a **Learn more** — because a scholar asks this question
+		occasionally and a paragraph standing here permanently is the sediment ADR-0036 rules out.
 
-		⚠ **Not `role="alert"`, which is what it was inside the settings dialog.** An alert is
-		assertive and interrupts, and CONTRIBUTING's mandated-method table reserves it for text
-		inserted at the moment it first exists. This is a steady-state fact about the Workspace, true
-		before the screen is drawn — and on Workspace Home there is a second cost: an `alert` standing
-		here permanently is a second one beside every real refusal this screen raises, which is a
-		screen reader hearing the storage sentence again every time a transfer fails. Drawn as a
-		warning and read in place.
+		⚠ **`seven-day` is the exception, and it is not a style choice.** On WebKit there is no grant a
+		page can reach: ITP deletes the OPFS store after seven days of browser use with no interaction,
+		so the local-first promise is simply untrue there until the app is on the Home Screen. A truth
+		that costs a scholar everything they have may not be behind a press nobody makes.
+
+		⚠ **Not `role="alert"`, which is what the old three-state sentence was inside the settings
+		dialog.** An alert is assertive and interrupts, and CONTRIBUTING's mandated-method table
+		reserves it for text inserted at the moment it first exists. This is a steady-state fact about
+		the Workspace, true before the screen is drawn — and on Workspace Home there is a second cost:
+		an `alert` standing here permanently is a second one beside every real refusal this screen
+		raises, which is a screen reader hearing the storage sentence again every time a transfer fails.
 	-->
-	{#if storage.persistence === 'granted'}
-		<p class="text-sm opacity-70" data-testid="persistence-granted">
-			Kept. This browser will not clear your Workspace to make room for other sites.
-		</p>
-	{:else if storage.persistence === 'refused'}
-		<div class="alert items-start alert-soft alert-warning">
-			<TriangleAlert class="size-5 shrink-0" aria-hidden="true" />
-			<p data-testid="persistence-refused">
-				Not kept: this browser may clear your Workspace if the disk runs low. Installing Ballastella
-				usually changes that, and a folder Workspace is unaffected.
-			</p>
-		</div>
-	{:else if storage.persistence === 'unsupported'}
-		<p class="text-sm opacity-70" data-testid="persistence-unsupported">
-			This browser will not say. Keep a backup, or use a folder Workspace.
-		</p>
+	{#if durability !== null}
+		{#if durability.kind === 'seven-day'}
+			<div class="alert items-start alert-soft alert-warning" data-testid="durability">
+				<TriangleAlert class="size-5 shrink-0" aria-hidden="true" />
+				<div class="flex flex-col items-start gap-2">
+					<p class="font-semibold" data-testid="durability-lead">
+						{DURABILITY_LEAD[durability.kind]}
+					</p>
+					<div class="flex flex-col items-start gap-2 text-sm" data-testid="durability-detail">
+						<p>
+							Seven days of using this browser without opening Ballastella is enough to lose
+							everything in this Workspace. A tap, a click or a keypress on the page counts as a
+							visit; <strong>scrolling does not</strong>.
+						</p>
+						<p>
+							<strong>Add Ballastella to your Home Screen and this stops</strong> — an installed
+							Ballastella is the one thing this browser will keep storage for. Do that
+							<strong>before you bring in large maps</strong>: the Home Screen copy starts empty, so
+							anything already here has to be restored from a backup into it.
+						</p>
+						{@render backupOffer()}
+					</div>
+				</div>
+			</div>
+		{:else}
+			<div class="flex flex-col items-start gap-2" data-testid="durability">
+				<div class="flex flex-wrap items-center gap-2">
+					<p
+						class="text-sm {durability.kind === 'ephemeral' ? 'text-warning' : 'opacity-70'}"
+						data-testid="durability-lead"
+					>
+						{DURABILITY_LEAD[durability.kind]}
+					</p>
+					<button
+						type="button"
+						class="btn btn-ghost btn-xs"
+						aria-controls="durability-detail"
+						aria-expanded={durabilityShown}
+						data-testid="durability-learn-more"
+						onclick={() => (durabilityShown = !durabilityShown)}
+					>
+						{durabilityShown ? 'Hide this' : 'Learn more'}
+					</button>
+				</div>
+				{#if durabilityShown}
+					<div
+						id="durability-detail"
+						class="flex max-w-prose flex-col items-start gap-2 rounded-box bg-base-200 px-3 py-2 text-sm"
+						data-testid="durability-detail"
+					>
+						{#if durability.kind === 'granted'}
+							<p>
+								This browser will not clear your Workspace to make room for other sites, and there
+								is nothing left to ask it for. It is still one computer, so a backup is the copy
+								that survives losing it.
+							</p>
+						{:else if durability.kind === 'can-ask'}
+							<p>
+								This browser will ask you before it promises anything, and it is the one that really
+								asks. Saying yes also raises how much you may keep here — from about 10 GB to around
+								half this disk — and takes this Workspace out of the allowance it shares with every
+								other site.
+							</p>
+							<button
+								type="button"
+								class="btn btn-sm"
+								data-testid="keep-storage"
+								onclick={() => void askToKeepStorage()}
+							>
+								Ask this browser to keep my work…
+							</button>
+							<p aria-live="polite" data-testid="keep-storage-outcome">{keeping}</p>
+						{:else if durability.kind === 'install-to-keep'}
+							<p>
+								<strong>Installing Ballastella makes this browser promise to keep your work</strong> —
+								it grants that to an installed application outright, and never asks about it otherwise.
+								The offer is just below.
+							</p>
+							<p>
+								Moving this Workspace into a folder on your own computer does the same thing a
+								different way: then the files are yours, and no browser decides what happens to
+								them.
+							</p>
+						{:else if durability.kind === 'ephemeral'}
+							<p>
+								This browser is not letting Ballastella keep anything between visits, which is what
+								a private window does. Everything in this Workspace goes when the window closes, and
+								there is nothing this browser will promise instead.
+							</p>
+						{:else}
+							<p>
+								Nothing this browser answers says whether it will clear your Workspace to make room
+								for other sites. Take it as evictable: keep a backup, or move this Workspace into a
+								folder on your own computer, where the files are yours.
+							</p>
+						{/if}
+						{@render backupOffer()}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 
 	<!--

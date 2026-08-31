@@ -23,6 +23,8 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import type { StorageDurability } from '@ballastella/core';
+
 import KeepingYourWorkHarness from './KeepingYourWorkHarness.svelte';
 import { FakeStorage, backup } from './keeping-your-work-fake.svelte.js';
 
@@ -34,12 +36,19 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-function open(storage: FakeStorage): FakeStorage {
+function open(storage: FakeStorage, installed = false): FakeStorage {
 	const main = document.createElement('main');
 	document.body.append(main);
-	mounted = mount(KeepingYourWorkHarness, { target: main, props: { storage } });
+	mounted = mount(KeepingYourWorkHarness, { target: main, props: { storage, installed } });
 	flushSync();
 	return storage;
+}
+
+/** Take the screen down, so a loop over the six states is six screens and not one. */
+function close(): void {
+	if (mounted) unmount(mounted, { outro: false });
+	mounted = undefined;
+	document.body.innerHTML = '';
 }
 
 const at = (testId: string): HTMLElement => {
@@ -318,42 +327,250 @@ describe('unsaved changes with nowhere to go', () => {
 	});
 });
 
-describe('what the browser promised, and the offer that answers it', () => {
-	test('reports a grant plainly and once', () => {
-		open(new FakeStorage());
+describe('what the browser promised about keeping the work', () => {
+	/**
+	 * A browser whose capability answers add up to `kind`.
+	 *
+	 * ⚠ **Built from capabilities, never from a name.** These are the same five inputs the real
+	 * `WorkspaceStorage` supplies, and which of the six they mean is `deriveStorageDurability`'s to
+	 * decide — exhausted at Seam 1 in `packages/core`'s `storage-durability.test.ts`. What this file
+	 * asserts is the *sentence*: that each state has one of its own, that only one of them is up front,
+	 * and that the advice in it is true for the browser it is about.
+	 */
+	function browser(kind: StorageDurability['kind']): FakeStorage {
+		const storage = new FakeStorage();
+		storage.canChooseFolder = true;
+		switch (kind) {
+			case 'granted':
+				storage.storageAnswers = { persisted: true, permission: 'granted', ephemeral: false };
+				break;
+			// Firefox-shaped: a permission to give, and no File System Access.
+			case 'can-ask':
+				storage.canChooseFolder = false;
+				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
+				break;
+			// Chromium-shaped: a permission that exists, File System Access, and not installed.
+			case 'install-to-keep':
+				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
+				break;
+			// WebKit: the `persistent-storage` permission name is not known at all.
+			case 'seven-day':
+				storage.canChooseFolder = false;
+				storage.storageAnswers = { persisted: false, permission: undefined, ephemeral: false };
+				break;
+			case 'ephemeral':
+				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: true };
+				break;
+			case 'unknown':
+				storage.storageAnswers = { persisted: undefined, permission: undefined, ephemeral: false };
+				break;
+		}
+		return storage;
+	}
 
-		expect(text(at('persistence-granted'))).toContain('will not clear your Workspace');
-		expect(at('persistence-granted').closest('[role="alert"]')).toBe(null);
+	const KINDS: StorageDurability['kind'][] = [
+		'granted',
+		'can-ask',
+		'install-to-keep',
+		'seven-day',
+		'ephemeral',
+		'unknown'
+	];
+
+	// One short line per state, and six different lines: a scholar is told which of the six they are
+	// in, and no two of them read the same.
+	test('every state has a line of its own', () => {
+		const lines = new Set<string>();
+		for (const kind of KINDS) {
+			open(browser(kind));
+			lines.add(text(at('durability-lead')));
+			close();
+		}
+		expect(lines.size).toBe(6);
+		for (const line of lines) expect(line.length).toBeGreaterThan(0);
 	});
 
-	// A refusal means everything in browser storage is evictable under disk pressure, and on Firefox,
-	// Safari and iPadOS browser storage is the only Workspace there is.
-	//
-	// ⚠ **Said, and not as an `alert`.** It is true before the screen is drawn rather than inserted
-	// when it happens, which is what CONTRIBUTING's mandated-method table reserves `role="alert"`
-	// for — and an assertive region standing here permanently would be a second one beside every
-	// refusal this screen actually raises.
-	test('reports a refusal in words, without interrupting', () => {
+	// ⚠ The claim the WebKit finding turns on. Everywhere else the detail is behind a press; there it
+	// is not, because a scholar who never presses it loses everything they have after seven days.
+	test('only the seven-day state says its detail without being pressed', () => {
+		for (const kind of KINDS) {
+			open(browser(kind));
+			if (kind === 'seven-day') {
+				expect(at('durability-detail')).toBeTruthy();
+				expect(absent('durability-learn-more')).toBe(true);
+			} else {
+				expect(absent('durability-detail'), `${kind} showed its detail unasked`).toBe(true);
+				expect(at('durability-learn-more').getAttribute('aria-expanded')).toBe('false');
+			}
+			close();
+		}
+	});
+
+	// A disclosure is a disclosure: a button that says whether it is expanded, and that names the
+	// panel it controls (ADR-0016 bans `<details>`; the WAI-ARIA disclosure button is what is left).
+	test('the detail is a disclosure that says whether it is showing', () => {
+		open(browser('install-to-keep'));
+
+		press('durability-learn-more');
+		expect(at('durability-learn-more').getAttribute('aria-expanded')).toBe('true');
+		const panel = at('durability-detail');
+		expect(at('durability-learn-more').getAttribute('aria-controls')).toBe(panel.id);
+		expect(panel.id).not.toBe('');
+
+		press('durability-learn-more');
+		expect(absent('durability-detail')).toBe(true);
+	});
+
+	// A resolved worry stops occupying the screen: it is said, plainly, and it is one line.
+	test('a grant is reported plainly and once, without interrupting', () => {
+		open(browser('granted'));
+
+		expect(text(at('durability-lead'))).toContain('Kept');
+		expect(at('durability-lead').closest('[role="alert"]')).toBe(null);
+	});
+
+	// Chromium answers `persist()` from its own heuristics and opens no dialog, so the only lever is
+	// installing — and saying "the browser will ask" there would be advice for a prompt that never
+	// comes.
+	test('a Chromium-shaped browser is told installing is what makes the promise', () => {
+		open(browser('install-to-keep'));
+
+		expect(text(at('durability-lead'))).toContain('Installing Ballastella');
+		press('durability-learn-more');
+		expect(text(at('durability-detail'))).toContain('installed application');
+		// And it is not offered a control for a prompt this browser will never show.
+		expect(absent('keep-storage')).toBe(true);
+	});
+
+	// Firefox is the one engine that really asks, and granting raises its ceiling as well as
+	// protecting the work — both halves are what makes saying yes worth it.
+	test('a Firefox-shaped browser is offered the browser’s own prompt, and what it buys', () => {
+		const storage = open(browser('can-ask'));
+
+		press('durability-learn-more');
+		const detail = text(at('durability-detail'));
+		expect(detail).toContain('10 GB');
+		expect(detail).toContain('half this disk');
+
+		expect(storage.asked).toBe(0);
+		press('keep-storage');
+		expect(storage.asked).toBe(1);
+	});
+
+	// The press is what asks — `persist()` is what opens Firefox's prompt, so it must not have been
+	// called on the way to drawing the screen (ADR-0012: do not nag).
+	test('nothing asks the browser for the grant until the author presses', () => {
+		const storage = open(browser('can-ask'));
+		press('durability-learn-more');
+
+		expect(storage.asked).toBe(0);
+	});
+
+	test('the grant, once given, is reported where it was asked for', async () => {
+		const storage = open(browser('can-ask'));
+		press('durability-learn-more');
+		press('keep-storage');
+		await settle();
+
+		expect(text(at('durability-lead'))).toContain('Kept');
+		expect(storage.storageAnswers?.persisted).toBe(true);
+	});
+
+	// ⚠ The WebKit copy, clause by clause. Each of these is a rule a scholar has to be able to
+	// satisfy, and the epic's stories name them individually because a paraphrase loses one.
+	test('the WebKit line names the seven days, what counts as a visit, and the order to install in', () => {
+		open(browser('seven-day'));
+
+		const said = `${text(at('durability-lead'))} ${text(at('durability-detail'))}`;
+		expect(said).toContain('seven days');
+		expect(said).toMatch(/tap, a click or a keypress/);
+		expect(said).toContain('scrolling does not');
+		expect(said).toContain('Home Screen');
+		expect(said).toMatch(/before you bring in large maps/);
+		expect(said).toMatch(/starts empty/);
+	});
+
+	test('a private window is told its work will not survive the session', () => {
+		open(browser('ephemeral'));
+
+		expect(text(at('durability-lead'))).toContain('will not survive closing it');
+		press('durability-learn-more');
+		expect(text(at('durability-detail'))).toContain('private window');
+	});
+
+	// The one answer that depends on no browser, so it is in every state — the granted one included,
+	// because a promise about this browser is not a promise about this disk.
+	test('a backup is offered in every state', () => {
+		for (const kind of KINDS) {
+			open(browser(kind));
+			if (kind !== 'seven-day') press('durability-learn-more');
+			expect(text(at('download-backup')), `${kind} offered no backup`).toContain(
+				'Download a Backup'
+			);
+			close();
+		}
+	});
+
+	test('that backup is a real one', async () => {
+		const storage = open(browser('granted'));
+		press('durability-learn-more');
+		press('download-backup');
+		await settle();
+
+		expect(text(at('transfer-outcome'))).toContain('“My Workspace.tar”');
+		expect(storage.backupAnswer).not.toBeInstanceOf(Error);
+	});
+
+	// ⚠ **Never advise turning a privacy protection off.** It would remove WebKit's seven-day
+	// deletion, and it also makes `persist()` fail for everybody, because the exemption set comes out
+	// of ITP's own store. Asserted over every state's copy at once, because the temptation is
+	// specifically in the WebKit one.
+	test('no state suggests turning off a privacy setting', () => {
+		for (const kind of KINDS) {
+			open(browser(kind));
+			if (kind !== 'seven-day') press('durability-learn-more');
+			const said = `${text(at('durability-lead'))} ${text(at('durability-detail'))}`.toLowerCase();
+			for (const forbidden of [
+				'tracking prevention',
+				'prevent cross-site tracking',
+				'turn off',
+				'switch off',
+				'disable'
+			]) {
+				expect(said, `${kind} suggested “${forbidden}”`).not.toContain(forbidden);
+			}
+			close();
+		}
+	});
+
+	// Nothing is said at all until the browser has answered, rather than a wrong reassurance shown
+	// while the read is in flight.
+	test('says nothing before the browser has answered', () => {
 		const storage = new FakeStorage();
-		storage.persistence = 'refused';
+		storage.storageAnswers = null;
 		open(storage);
 
-		expect(text(at('persistence-refused'))).toContain('may clear your Workspace');
-		expect(at('persistence-refused').closest('[role="alert"]')).toBe(null);
+		expect(absent('durability')).toBe(true);
 	});
 
-	test('says a browser that will not answer has not answered', () => {
-		const storage = new FakeStorage();
-		storage.persistence = 'unsupported';
-		open(storage);
+	// Whether Ballastella is installed is not the store's to know, and it changes while this screen is
+	// open: installing from the offer below turns the Chromium grant, and the sentence above it has to
+	// follow without a reload.
+	test('an installed application is not told to install', () => {
+		open(browser('install-to-keep'));
+		expect(text(at('durability-lead'))).toContain('Installing Ballastella');
+		close();
 
-		expect(text(at('persistence-unsupported'))).toContain('will not say');
+		const storage = open(browser('install-to-keep'), true);
+		expect(text(at('durability-lead'))).not.toContain('Installing Ballastella');
+		// And the browser's own answer is unchanged: what moved is the lever, not the grant.
+		expect(storage.storageAnswers?.persisted).toBe(false);
 	});
 
-	// The install offer is the remedy the sentence above names, and it is beside it rather than in a
+	// The install offer is the remedy two of those states name, and it is beside them rather than in a
 	// dialog of its own (ADR-0012, ADR-0042).
 	test('offers installing beside the sentence it answers', () => {
-		open(new FakeStorage());
+		open(browser('install-to-keep'));
 
 		expect(at('install-offer')).toBeTruthy();
 	});
