@@ -33,7 +33,8 @@ import {
 	transactInstallationDatabase
 } from './installation-database.js';
 import { rekeyWorkspaceRecords, type WorkspaceRecordStores } from './rekey-workspace-records.js';
-import { rememberedWorkspaceFolder } from './workspace-folder.js';
+import type { FileSystemAccessProjectStore } from './file-system-access-project-store.js';
+import { grantWorkspaceFolder, rememberedWorkspaceFolder } from './workspace-folder.js';
 
 /** What this installation knows about one folder Workspace. */
 export interface FolderWorkspaceRecord {
@@ -244,4 +245,104 @@ function isStoredFolderWorkspace(value: unknown): value is StoredFolderWorkspace
 		typeof record.folderName === 'string' &&
 		record.folder instanceof FileSystemDirectoryHandle
 	);
+}
+
+/**
+ * Ask for a listed folder Workspace's directory back, or `null` where this installation no longer
+ * holds a record for it.
+ *
+ * **Must be called from a user gesture**, because `requestPermission()` needs transient user
+ * activation and a browser grants a directory only when the user asks (ADR-0012). One press is the
+ * whole cost of opening a folder Workspace from its row.
+ *
+ * A folder that has been deleted or unplugged is *not* reported here: permission survives the
+ * folder, so this resolves and the first `list` fails, which is where ADR-0008's "Workspace not
+ * reachable" belongs.
+ *
+ * @throws FolderPermissionDeniedError when the user declines
+ */
+export async function openFolderWorkspace(
+	reference: string
+): Promise<FileSystemAccessProjectStore | null> {
+	const folder = await heldFolder(reference);
+	return folder === null ? null : grantWorkspaceFolder(folder);
+}
+
+/**
+ * Give a folder Workspace the name its author wants it listed under.
+ *
+ * The directory is untouched, exactly as renaming a Project leaves its directory alone: identity is
+ * the minted reference, never a name, so two folder Workspaces may share a label and renaming can
+ * never collide or move files under a sync client's feet.
+ *
+ * Answers whether it stuck. `false` is a browser with no IndexedDB or a store that refused, which is
+ * a rename the caller has to be able to report rather than one to claim silently.
+ */
+export async function renameFolderWorkspace(reference: string, label: string): Promise<boolean> {
+	const database = await openInstallationDatabase();
+	if (!database) return false;
+	try {
+		const stored = await held(database, reference);
+		if (stored === null) return false;
+		await write(database, { ...stored, label });
+		return true;
+	} catch {
+		return false;
+	} finally {
+		database.close();
+	}
+}
+
+/**
+ * Stop listing a folder Workspace, letting its grant go.
+ *
+ * ⚠ **The folder and every byte in it are untouched, and that is the whole difference between this
+ * and deleting a browser Workspace.** These are the author's own files, in a place they chose, which
+ * this application has no business removing and — without a grant it would have to ask for first —
+ * no way to remove either. What goes is this installation's record of the folder: the row, and the
+ * hold on the directory that made the row openable. Choosing the folder again brings it back, under
+ * a fresh reference.
+ */
+export async function forgetFolderWorkspace(reference: string): Promise<void> {
+	if (!reference.startsWith(FOLDER_WORKSPACE_PREFIX)) return;
+	const database = await openInstallationDatabase();
+	if (!database) return;
+	try {
+		await transactInstallationDatabase(database, WORKSPACE_STORE, 'readwrite', (store) =>
+			store.delete(reference)
+		);
+	} catch {
+		// A record that will not be deleted is a row that comes back next visit, which is a better
+		// failure than refusing the gesture: nothing has been lost and the press can be repeated.
+	} finally {
+		database.close();
+	}
+}
+
+/** The directory a listed folder Workspace is about, or `null` for a reference with no record. */
+async function heldFolder(reference: string): Promise<FileSystemDirectoryHandle | null> {
+	if (!reference.startsWith(FOLDER_WORKSPACE_PREFIX)) return null;
+	const database = await openInstallationDatabase();
+	if (!database) return null;
+	try {
+		return (await held(database, reference))?.folder ?? null;
+	} catch {
+		return null;
+	} finally {
+		database.close();
+	}
+}
+
+/** One record by its reference, checked on the way out for the reason {@link storedWorkspaces} is. */
+async function held(
+	database: IDBDatabase,
+	reference: string
+): Promise<StoredFolderWorkspace | null> {
+	const stored = await transactInstallationDatabase<unknown>(
+		database,
+		WORKSPACE_STORE,
+		'readonly',
+		(store) => store.get(reference)
+	);
+	return isStoredFolderWorkspace(stored) ? stored : null;
 }

@@ -2,24 +2,26 @@
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
-	 * The two ways a Workspace can be not-here, and the gesture out of each.
+	 * A Workspace that cannot be reached, and the gesture out of it.
 	 *
-	 * Both are **normal states with recoveries**, not exceptions (ADR-0008), and both are reachable on
-	 * every screen — the hub, the Project, and the align route. *Choosing* where a Workspace lives is a
-	 * setting, reached from the bar; recovering a Workspace you are already using is not a choice at
-	 * all, it is the way back to the work you asked for, and burying it behind a dialog would leave a
-	 * scholar looking at an empty hub with nothing to explain it.
+	 * A **normal state with a recovery**, not an exception (ADR-0008), and reachable on every screen —
+	 * the hub, the Project, and the align route. *Choosing* where a Workspace lives is a choice made
+	 * in the roster; recovering the Workspace you are already inside is not a choice at all, it is the
+	 * way back to the work you asked for, and burying it behind a dialog would leave a scholar looking
+	 * at an empty hub with nothing to explain it.
 	 *
-	 * - **Not reachable.** The folder was moved, renamed, or deleted. Only a folder Workspace can reach
-	 *   this state: an OPFS directory cannot vanish under the app. The Project page rendered
-	 *   "Opening…" for ever, because `status` went to `unreachable` while `openProject` and
-	 *   `projectProblem` both stayed null and nothing looked at `status`.
-	 * - **Remembered but not open.** Returning to a bookmarked `?p=` needs `requestPermission()`,
-	 *   which needs a user gesture, so the folder is not open yet. Without this the page said "There
-	 *   is no Project called amsterdam-1625 in this Workspace" — true of browser storage, and exactly
-	 *   the wrong thing to tell someone whose Project is sitting in a folder on their desk.
+	 * The folder was moved, renamed, unplugged or deleted **while the author was in it**. Only a
+	 * folder Workspace normally reaches this — an OPFS directory cannot vanish under the app unless a
+	 * second tab removes it — and the Project page rendered "Opening…" for ever before, because
+	 * `status` went to `unreachable` while `openProject` and `projectProblem` both stayed null and
+	 * nothing looked at `status`.
 	 *
-	 * `null` renders nothing, so a caller can hand this the state and let it decide.
+	 * ⚠ **A folder from a previous visit is not one of these** (ADR-0042). It used to be, and the
+	 * notice it drew was on the hub for ever with no control anywhere that could clear it. A folder
+	 * that is not open is a row in the roster, which is what every other Workspace not open is.
+	 *
+	 * Renders nothing when there is nothing wrong, so a caller can hand this the state and let it
+	 * decide.
 	 */
 	let { storage }: { storage: WorkspaceStorage } = $props();
 
@@ -69,27 +71,6 @@
 				Locate Workspace again
 			</button>
 		{/if}
-	</div>
-{:else if storage.awaitingFolder && !storage.problem}
-	<!--
-		⚠ **Not while there is a `problem`.** The two states overlap exactly once and it is the common
-		case: a reopen whose permission was declined leaves the folder remembered *and* leaves an
-		explanation of why it did not open. Both blocks then render, and a screen reader is handed two
-		alerts — "your folder is not open yet" and "your folder was not opened" — which say the same
-		thing twice and answer nothing between them. The explanation wins, because it is the one that
-		says what happened, and it carries its own way back.
-	-->
-	<div role="alert" class="mt-8 alert flex-col items-start alert-info">
-		<h2 class="font-semibold">Your Workspace folder is not open yet</h2>
-		<p>
-			Your work is in the folder <code>{storage.reopenable}</code>, and your browser asks permission
-			for it each time you return. Open it to see this Project.
-		</p>
-		<!-- Must be a real click or keypress: `requestPermission()` needs transient user activation,
-		     and called automatically on load it fails silently (ADR-0012). -->
-		<button class="btn btn-primary btn-sm" onclick={() => storage.reopenFolder()}>
-			Reopen “{storage.reopenable}”
-		</button>
 	</div>
 {/if}
 

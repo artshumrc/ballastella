@@ -6,6 +6,7 @@ import { openLayerRow } from './support/layers';
 import { recordSaveStates } from './support/saved';
 import {
 	closeWorkspaceSettings,
+	deleteWorkspace,
 	createWorkspace,
 	expectWorkspaceNamed,
 	openWorkspaceMenu,
@@ -456,8 +457,8 @@ test.describe('deleting a Workspace', () => {
 		await createProject(page, 'Boston 1775');
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: 'Delete Marking 2026' }).click();
 
 		const confirm = page.getByRole('dialog', { name: 'Delete this Workspace?' });
 		await expect(confirm).toBeVisible();
@@ -471,7 +472,7 @@ test.describe('deleting a Workspace', () => {
 
 		await page.getByTestId('confirm-delete-workspace').click();
 
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('Marking 2026');
+		await expect(page.getByTestId('workspace-announcement')).toContainText('Marking 2026');
 		expect(await everyPathInBrowserStorage(page)).toEqual([]);
 	});
 
@@ -500,10 +501,8 @@ test.describe('deleting a Workspace', () => {
 			);
 		});
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
-		await page.getByTestId('confirm-delete-workspace').click();
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('Marking 2026');
+		await deleteWorkspace(page, 'Marking 2026');
+		await expect(page.getByTestId('workspace-announcement')).toContainText('Marking 2026');
 
 		expect(
 			await page.evaluate(() =>
@@ -592,8 +591,8 @@ test.describe('deleting a Workspace', () => {
 		await createProject(page, 'Boston 1775');
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: 'Delete Marking 2026' }).click();
 		await page.getByRole('button', { name: 'Keep it' }).click();
 
 		expect(await readInWorkspace(page, 'Marking 2026', 'boston-1775/project.json')).not.toBeNull();
@@ -602,20 +601,23 @@ test.describe('deleting a Workspace', () => {
 	test('never offers the Workspace you are inside', async ({ page }) => {
 		// Deleting it out from under a live `EditorSession` leaves an `Autosave` whose next flush
 		// recreates the directory — the store's resolver creates what is not there — so the user would
-		// watch their Workspace come back holding one file.
+		// watch their Workspace come back holding one file. The row that is open carries no delete at
+		// all, and `WorkspaceStorage.deleteEntry` refuses it besides.
 		await createWorkspace(page, 'Marking 2026');
 
-		await openWorkspaceSettings(page);
+		await openWorkspaceMenu(page);
 
 		await expect(page.getByTestId('delete-workspace')).toHaveCount(1);
-		await expect(page.getByTestId('delete-workspace')).toContainText(DEFAULT_WORKSPACE);
-		await expect(page.getByTestId('delete-workspace')).not.toContainText('Marking 2026');
+		await expect(page.getByRole('button', { name: `Delete ${DEFAULT_WORKSPACE}` })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Delete Marking 2026' })).toHaveCount(0);
 	});
 
-	test('lists no Workspace to delete when there is only one', async ({ page }) => {
-		await openWorkspaceSettings(page);
+	test('offers no deletion at all when the only Workspace is the one you are in', async ({
+		page
+	}) => {
+		await openWorkspaceMenu(page);
 
-		await expect(page.getByTestId('no-other-workspaces')).toBeVisible();
+		await expect(page.getByTestId('switch-workspace')).toHaveCount(1);
 		await expect(page.getByTestId('delete-workspace')).toHaveCount(0);
 	});
 });

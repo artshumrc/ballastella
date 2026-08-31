@@ -6,11 +6,14 @@ import {
 	closeRemoteSettings,
 	closeWorkspaceSettings,
 	createWorkspace,
+	deleteWorkspace,
+	renameWorkspace,
 	expectWorkspaceNamed,
 	openRemoteSettings,
 	openWorkspaceMenu,
 	openWorkspaceSettings,
 	revealBindToken,
+	switchToWorkspace,
 	checkRemoteStatus,
 	openPublishFromTheDoor,
 	updateFromGitHub
@@ -227,6 +230,39 @@ async function forgetRememberedFolder(page: Page): Promise<void> {
 	);
 }
 
+/**
+ * The directory in the single pre-plural `folder` slot, by name, or `null` when it holds none.
+ *
+ * ⚠ **Not a folder Workspace's record**, which is keyed `workspace:<uuid>` in the same object store
+ * and is what the roster lists (ADR-0042). This slot is the one folder a pre-plural installation
+ * could have, and all it still decides is where a review copy's exit goes.
+ */
+async function rememberedFolderSlot(page: Page): Promise<string | null> {
+	return page.evaluate(
+		() =>
+			new Promise<string | null>((resolve) => {
+				const open = indexedDB.open('ballastella');
+				open.onerror = () => resolve(null);
+				open.onsuccess = () => {
+					const database = open.result;
+					const held = database
+						.transaction('workspace', 'readonly')
+						.objectStore('workspace')
+						.get('folder');
+					held.onerror = () => {
+						database.close();
+						resolve(null);
+					};
+					held.onsuccess = () => {
+						database.close();
+						const stored: unknown = held.result;
+						resolve(stored instanceof FileSystemDirectoryHandle ? stored.name : null);
+					};
+				};
+			})
+	);
+}
+
 /** Every file inside the picked folder, recursively, sorted. */
 async function everyPathInFolder(page: Page): Promise<string[]> {
 	return page.evaluate(async (folder) => {
@@ -263,6 +299,22 @@ async function readInFolder(page: Page, path: string): Promise<string> {
 		},
 		[PICKED_FOLDER, path]
 	);
+}
+
+/**
+ * Every directory at the OPFS root, which is one per browser-storage Workspace.
+ *
+ * ⚠ **The directory names, not the names on the roster.** Renaming a Workspace gives it a label and
+ * moves nothing (ADR-0042), so this is what says the directory it was made with is still the one
+ * holding its work.
+ */
+async function browserWorkspaceNames(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		const names: string[] = [];
+		for await (const name of root.keys()) names.push(name);
+		return names.sort();
+	});
 }
 
 /**
@@ -309,6 +361,32 @@ const chooseFolder = async (page: Page) => {
 	await openWorkspaceSettings(page);
 	await page.getByTestId('settings-choose-folder').click();
 	await closeWorkspaceSettings(page);
+};
+
+/**
+ * The picked folder's row in the roster — the one place a folder Workspace is opened from.
+ *
+ * ⚠ **Scoped by kind, because this file's stubbed picker hands back a directory in the OPFS root**,
+ * which is where the named browser Workspaces live — so the app quite correctly lists a *browser*
+ * Workspace of the same name beside the folder one. That is an artefact of the only source of a real
+ * `FileSystemDirectoryHandle` an automated browser has, and it is the reason a name is not enough to
+ * name a row here.
+ */
+const folderRow = (page: Page) =>
+	page.locator('[data-testid="switch-workspace"][data-kind="folder"]');
+
+/**
+ * Open the picked folder from its row — one press, and the browser's own grant.
+ *
+ * ⚠ **A folder that is not open is an ordinary row** (ADR-0042). There is no "reopen the folder from
+ * last visit" offer anywhere any more: that offer stood on every screen for ever, could be cleared
+ * by no control that was rendered in the state it applied to, and made every Project in every
+ * Workspace unopenable. Opening still costs a gesture, because a browser grants a directory only
+ * when the user asks.
+ */
+const openFolderFromRoster = async (page: Page) => {
+	await openWorkspaceMenu(page);
+	await folderRow(page).click();
 };
 
 /** Go back to browser storage, which is also in settings. */
@@ -467,7 +545,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		);
 
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 		await inFolder(page);
 
 		await expect(page.getByTestId('deletion-refused')).toContainText(
@@ -531,7 +609,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		);
 
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 		await inFolder(page);
 		await expect(page.getByTestId('deletion-refused')).toHaveCount(2);
 
@@ -565,7 +643,7 @@ test.describe('choosing a folder as the Workspace', () => {
 
 		// And it stays gone, which is the half a content-keyed dismissal could never deliver.
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 		await inFolder(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await expect(page.getByTestId('deletion-refused')).toHaveCount(0);
@@ -643,7 +721,7 @@ test.describe('choosing a folder as the Workspace', () => {
 
 		// Reopening is an adoption too, so the sweep has to be on that path and not only on picking.
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 		await inFolder(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 
@@ -669,35 +747,44 @@ test.describe('choosing a folder as the Workspace', () => {
 			await root.removeEntry(folder, { recursive: true });
 		}, PICKED_FOLDER);
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 		await expect(page.getByRole('alert')).toContainText('Workspace not reachable');
 
 		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
-		// Still offered, because the folder has not been given up — only stepped away from.
-		await expect(page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` })).toBeVisible();
+		// Still on the roster, because the folder has not been given up — only stepped away from. A
+		// Workspace that is not open is an ordinary row (ADR-0042), which is what makes switching away
+		// from an unreachable one a way out rather than a trap.
+		await openWorkspaceMenu(page);
+		await expect(folderRow(page)).toBeVisible();
+		await page.keyboard.press('Escape');
 	});
 
-	test('forgets the folder when browser storage is chosen deliberately', async ({ page }) => {
+	test('lets the single pre-plural slot go when browser storage is chosen deliberately', async ({
+		page
+	}) => {
 		// The other half of the same button, so the fix above is not just "never forget".
+		//
+		// ⚠ **Read out of IndexedDB, because it is no longer visible on any screen.** The slot used to
+		// be what an offer to reopen was drawn from, and that offer is gone: a folder Workspace is
+		// listed from its own `workspace:<uuid>` record and is an ordinary row whether the slot holds
+		// it or not (ADR-0042). What the slot still decides is where "back to my own Workspace" goes
+		// from inside a review copy, so a folder the author has deliberately left must not be in it.
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
+		expect(await rememberedFolderSlot(page)).toBe(PICKED_FOLDER);
 
 		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
-		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
+		await expect.poll(() => rememberedFolderSlot(page)).toBeNull();
+		// And it stays let go across the reload, which is the half an in-memory clear alone would not
+		// deliver — the deletion that kept the old spelling of this test green was exactly that.
 		await page.reload();
-		// ⚠ **The gate, and it is the only thing that makes the line below an assertion.** This is the
-		// sole check on the *persistence* half — line above covers the in-memory clear — and an
-		// unhydrated page has no Reopen button either, so `toHaveCount(0)` resolved on the first poll
-		// against a page that had not rendered anything yet. The deletion that kept it green: make
-		// "forget the folder" clear the reactive state and skip the `localStorage` write. Waiting for
-		// the hub to say which Workspace it is in is what the reload has to survive.
 		await inBrowserStorage(page);
-		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
+		expect(await rememberedFolderSlot(page)).toBeNull();
 	});
 
 	test('writes a Project the browser backend reads with no conversion, once copied in', async ({
@@ -770,9 +857,10 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
 		// Reachable and operable from the keyboard alone, like every other control.
-		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
-		await reopen.focus();
-		await expect(reopen).toBeFocused();
+		await openWorkspaceMenu(page);
+		const row = folderRow(page);
+		await row.focus();
+		await expect(row).toBeFocused();
 		await page.keyboard.press('Enter');
 
 		await inFolder(page);
@@ -786,7 +874,7 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 	test('resumes with no prompt when the grant is still held', async ({ page }) => {
 		await page.reload();
 
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 
 		await inFolder(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
@@ -799,7 +887,7 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await page.evaluate((key) => localStorage.setItem(key, 'denied'), PERMISSION_KEY);
 		await page.reload();
 
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('Your Workspace folder was not opened');
@@ -824,18 +912,18 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		}, PICKED_FOLDER);
 		await page.reload();
 
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('Workspace not reachable');
 		await expect(page.getByRole('heading', { level: 1, name: 'Ballastella Editor' })).toBeVisible();
 
-		// ⚠ The roster marks the folder as unreachable on its own row, in words, and names where the
-		// recovery is — the menu carries no folder control, so a scholar who opens it to ask which
-		// Workspace they are in has to be able to read that this one has gone.
+		// ⚠ The roster marks the open Workspace as unreachable on its own row, in words, and names
+		// where the recovery is — so a scholar who opens the list to ask which Workspace they are in
+		// has to be able to read that this one has gone.
 		await openWorkspaceMenu(page);
 		await expect(page.getByTestId('workspace-unreachable')).toContainText(
-			'Unreachable. Workspace settings can locate it again.'
+			'Unreachable. The notice on this screen can locate it again.'
 		);
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
@@ -846,6 +934,93 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 
 		await inFolder(page);
 		await expect(page.getByText('No Projects yet')).toBeVisible();
+	});
+});
+
+/**
+ * The roster: every Workspace of either kind in one list, each opened, renamed or deleted from its
+ * own row (ADR-0042).
+ *
+ * Seam 2 because it is made of the three things only a browser has: a real granted
+ * `FileSystemDirectoryHandle`, the installation's own IndexedDB record that gives that folder an
+ * identity of its own, and a real OPFS Workspace listed beside it. There is no `WorkspaceStorage`
+ * harness below this, and a roster asserted against a fake store would be a list agreeing with the
+ * fake that produced it.
+ */
+test.describe('the Workspace roster', () => {
+	test.beforeEach(async ({ page }) => {
+		await installDirectoryPicker(page);
+		await page.goto('./');
+		await emptyBrowserStorage(page);
+		await forgetRememberedFolder(page);
+		await page.evaluate(() => localStorage.clear());
+		await page.reload();
+	});
+
+	test('lists both kinds in one list, each opened and renamed from its own row', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'In the folder');
+		await useBrowserStorage(page);
+		await inBrowserStorage(page);
+
+		// One list, both kinds, and the folder is an ordinary row rather than a mode the app is in.
+		await openWorkspaceMenu(page);
+		await expect(folderRow(page)).toHaveCount(1);
+		await expect(
+			page.locator('[data-testid="switch-workspace"][data-kind="browser"]').filter({
+				hasText: DEFAULT_WORKSPACE
+			})
+		).toBeVisible();
+		// The directory's own name is shown beneath the label, because it says which *place* this is —
+		// never as identity, which is the minted reference nobody sees (ADR-0042).
+		await expect(page.getByTestId('workspace-folder-name')).toHaveText(PICKED_FOLDER);
+		await page.keyboard.press('Escape');
+
+		// Renamed from its row, and nothing on disk moves: identity is the reference, never the name.
+		await openWorkspaceMenu(page);
+		await folderRow(page).locator('xpath=following-sibling::button[1]').click();
+		await page.getByTestId('rename-workspace-name').fill('Amsterdam sheets');
+		await page.getByTestId('save-workspace-name').click();
+		await expect(page.getByTestId('workspace-announcement')).toContainText('Amsterdam sheets');
+		await openWorkspaceMenu(page);
+		await expect(
+			page.getByTestId('switch-workspace').filter({ hasText: 'Amsterdam sheets' })
+		).toBeVisible();
+		await expect(page.getByTestId('workspace-folder-name')).toHaveText(PICKED_FOLDER);
+
+		// Opened from its row — one press, and the browser's own grant.
+		await page.getByTestId('switch-workspace').filter({ hasText: 'Amsterdam sheets' }).click();
+		await expectWorkspaceNamed(page, 'Amsterdam sheets');
+		await expect(page.getByRole('link', { name: 'In the folder' })).toBeVisible();
+		// The rename is the author's, so the folder on disk still answers to the name the operating
+		// system gave it and every file in it is exactly where it was.
+		expect(await everyPathInFolder(page)).toEqual(['in-the-folder/project.json']);
+
+		// And it survives the reload, because the name is on the folder's own record.
+		await page.reload();
+		await openWorkspaceMenu(page);
+		await expect(
+			page.getByTestId('switch-workspace').filter({ hasText: 'Amsterdam sheets' })
+		).toBeVisible();
+		await page.keyboard.press('Escape');
+
+		// A browser Workspace renames the same way and on the same terms: the label is the author's
+		// and the directory keeps the name it was made with, because OPFS has no directory move and
+		// the alternative is copying every byte of somebody's only copy of their work.
+		await renameWorkspace(page, DEFAULT_WORKSPACE, 'My research');
+		await openWorkspaceMenu(page);
+		await expect(
+			page.getByTestId('switch-workspace').filter({ hasText: 'My research' })
+		).toBeVisible();
+		await page.keyboard.press('Escape');
+		expect(await browserWorkspaceNames(page)).toContain(DEFAULT_WORKSPACE);
+
+		// Opening it names it by the name its author gave it, on every screen.
+		await switchToWorkspace(page, 'My research');
+		await expectWorkspaceNamed(page, 'My research');
 	});
 });
 
@@ -888,11 +1063,12 @@ test.describe('the Workspace is the same one on every route', () => {
 		});
 
 		await page.goto('./?p=amsterdam-1625');
-		// A bookmarked Project on a route that cannot resume the folder without a gesture. The pane
-		// has to say so and offer the gesture, rather than quietly using the other Workspace.
-		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
-		await expect(reopen).toBeVisible();
-		await reopen.click();
+		// A bookmarked Project on a route the folder is not open on. The browser Workspace's namesake
+		// is what opens — which is the honest answer, and the whole reason the choice below has to
+		// land in the folder rather than in whichever Workspace the route happened to resolve.
+		await expect(page.getByTestId('project-name')).toHaveText('In browser storage');
+		await openFolderFromRoster(page);
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 
 		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
@@ -915,23 +1091,45 @@ test.describe('the Workspace is the same one on every route', () => {
 		});
 	});
 
-	test('a Project page says the folder is not open yet, rather than "Project not found"', async ({
+	/**
+	 * ⚠ **The lockout, and the reason `awaitingFolder` had to cease to exist** (ADR-0042).
+	 *
+	 * `ProjectScreen` and the align route both computed `recovering = status === 'unreachable' ||
+	 * storage.awaitingFolder` and drew the recovery notice **instead of the screen** — and
+	 * `awaitingFolder` was true for any folder this installation merely remembered, in any Workspace.
+	 * So a scholar who had once chosen a folder and gone back to browser storage could not open a
+	 * Project anywhere, in any Workspace, ever again: one Workspace's state was every Workspace's.
+	 *
+	 * It is asserted here rather than at a lower seam because that is exactly what it was made of —
+	 * a real folder record in real IndexedDB, a real OPFS Workspace beside it, and a route effect
+	 * over `?p=` in a real browser. Nothing below Seam 2 has all three.
+	 */
+	test('a Project in a browser Workspace opens with a folder Workspace present but not open', async ({
 		page
 	}) => {
-		// Returning to a bookmarked `?p=` with a folder remembered but not resumed. The Project is in
-		// the folder, so browser storage does not have it, so the page said "There is no Project called
-		// amsterdam-1625 in this Workspace" — with no hint that the folder simply is not open yet and
-		// no way to open it.
 		await chooseFolder(page);
 		await inFolder(page);
+		await createProject(page, 'In the folder');
+
+		// Back to browser storage, with the folder still recorded: the state a scholar is in for ever
+		// after once trying a folder, and the one this lockout was reachable from.
+		await useBrowserStorage(page);
+		await inBrowserStorage(page);
 		await createProject(page, 'Amsterdam 1625');
-		await page.goto('./?p=amsterdam-1625');
 
-		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
-		await expect(reopen).toBeVisible();
-		await reopen.click();
-
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+
+		// And across the reload, which is where the remembered folder was read back in and where the
+		// notice used to reappear over a Project that had just opened.
+		await page.goto('./?p=amsterdam-1625');
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		// Not one word about a folder anywhere on the screen: no notice, dismissible or otherwise.
+		await expect(page.getByRole('alert')).toHaveCount(0);
+
+		// The folder is not gone — it is a row, which is what "not open" now means.
+		await openWorkspaceMenu(page);
+		await expect(folderRow(page)).toBeVisible();
 	});
 
 	test('a Project page reports an unreachable Workspace with a locate-again action', async ({
@@ -958,7 +1156,7 @@ test.describe('the Workspace is the same one on every route', () => {
 			await root.removeEntry(folder, { recursive: true });
 		}, PICKED_FOLDER);
 		await page.reload();
-		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await openFolderFromRoster(page);
 
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('Workspace not reachable');
@@ -987,7 +1185,6 @@ test.describe('a browser with no File System Access API', () => {
 		await openWorkspaceSettings(page);
 		await expect(page.getByTestId('settings-choose-folder')).toHaveCount(0);
 		await closeWorkspaceSettings(page);
-		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 		await inBrowserStorage(page);
 
 		await createProject(page, 'Amsterdam 1625');
@@ -995,6 +1192,28 @@ test.describe('a browser with no File System Access API', () => {
 		// Nothing is disabled, nothing is explained away, and nothing has gone wrong.
 		await expect(page.getByRole('alert')).toHaveCount(0);
 		expect(await browserStorageEntries(page)).toEqual(['amsterdam-1625']);
+	});
+
+	/**
+	 * ⚠ **The kind is never *named*, not merely never offered** (ADR-0042). Where the browser has no
+	 * picker there is no choice to make, and telling somebody their work is "kept in this browser"
+	 * implies another sort was available and is a sentence they can do nothing with. A Workspace is
+	 * simply a Workspace. What is *not* hidden is the risk: the eviction warning is stated as an
+	 * ordinary fact about this Workspace, which is ADR-0024's whole point and lives elsewhere.
+	 */
+	test('names no kind anywhere in the switcher, and offers none at creation', async ({ page }) => {
+		await openWorkspaceMenu(page);
+
+		await expect(page.getByTestId('workspace-backing')).toHaveCount(0);
+		await expect(page.getByTestId('workspace-folder-name')).toHaveCount(0);
+		const menu = page.getByTestId('workspace-switcher-menu');
+		await expect(menu).not.toContainText('folder');
+		await expect(menu).not.toContainText('browser');
+
+		// The choice at creation is absent too, rather than present with one arm disabled.
+		await page.getByTestId('new-workspace').click();
+		await expect(page.getByTestId('new-workspace-kind')).toHaveCount(0);
+		await expect(page.getByTestId('new-workspace-name')).toBeVisible();
 	});
 });
 
@@ -1283,12 +1502,9 @@ test.describe('a bundle opened from a folder Workspace', () => {
 		await inFolder(page);
 		await createProject(page, 'My own work');
 
-		// Legal: it is not the Workspace being looked out of, so settings offers it.
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').filter({ hasText: 'assignment 7' }).click();
-		await page.getByTestId('confirm-delete-workspace').click();
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('assignment 7');
-		await closeWorkspaceSettings(page);
+		// Legal: it is not the Workspace being looked out of, so its row offers it.
+		await deleteWorkspace(page, 'assignment 7');
+		await expect(page.getByTestId('workspace-announcement')).toContainText('assignment 7');
 
 		await page.getByTestId('open-bundle').click();
 		await page

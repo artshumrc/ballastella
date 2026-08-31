@@ -65,6 +65,36 @@ export async function switchToWorkspace(page: Page, name: string): Promise<void>
 	await expectWorkspaceNamed(page, name);
 }
 
+/**
+ * Rename a Workspace from its own row in the roster (ADR-0042).
+ *
+ * The row's control opens an inline field on the bar, as the creation one does, so this is the same
+ * three steps and is written once here rather than at every call.
+ */
+export async function renameWorkspace(page: Page, from: string, to: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	await page.getByRole('button', { name: `Rename ${from}` }).click();
+	await page.getByTestId('rename-workspace-name').fill(to);
+	await page.getByTestId('save-workspace-name').click();
+	await expect(page.getByTestId('workspace-announcement')).toContainText(to);
+}
+
+/**
+ * Delete a Workspace from its own row, confirming the question that names it.
+ *
+ * ⚠ **Deletion is in the roster and nowhere else** (ADR-0042): a Workspace is deleted from the list
+ * of Workspaces, which is where a person looking for one is looking. It used to be in Workspace
+ * settings, which had no second entry point and was two menus deep.
+ */
+export async function deleteWorkspace(page: Page, name: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	// A browser Workspace, whose row says "Delete". A folder row says "Take … off the list", because
+	// it takes the row and leaves every file where it is — a different act with a different question.
+	await page.getByRole('button', { name: `Delete ${name}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Delete this Workspace?' })).toBeVisible();
+	await page.getByTestId('confirm-delete-workspace').click();
+}
+
 /** Make a Workspace from the bar and switch into it. */
 export async function createWorkspace(page: Page, name: string): Promise<void> {
 	await openWorkspaceMenu(page);

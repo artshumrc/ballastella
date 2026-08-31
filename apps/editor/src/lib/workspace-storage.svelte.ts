@@ -12,11 +12,14 @@ import {
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
 	exportWorkspaceTar,
+	forgetFolderWorkspace,
 	forgetWorkspaceFolder,
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
 	isFolderWorkspaceSupported,
 	listFolderWorkspaces,
+	openFolderWorkspace,
+	renameFolderWorkspace,
 	listOpfsWorkspaces,
 	migratePreExistingFolderWorkspace,
 	openOpfsWorkspace,
@@ -39,7 +42,6 @@ import {
 	readReviewMark,
 	recoverProjectImport,
 	recoverWorkspaceUpdate,
-	rememberedFolderName,
 	reopenWorkspaceFolder,
 	resolveFolderWorkspace,
 	restoreWorkspaceTar,
@@ -295,8 +297,7 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
  * ⚠ **Two members, and a Remote is not a third** (ADR-0032). A Workspace bound to a repository is
  * still browser-backed or folder-backed; the binding is orthogonal and lives in a document at the
  * Workspace root. A third member would mean a new case in `#adopt`, the journal keys, the switcher,
- * `reopenable`, `canChooseFolder`, and `discard` — six sites where a mistake in the journal key is
- * silent.
+ * `canChooseFolder`, and `discard` — five sites where a mistake in the journal key is silent.
  *
  * **A value rather than only a type, so the rule is assertable.** A union written out as a type
  * alias cannot be checked against itself — a test naming its two members is a test of what the test
@@ -306,6 +307,30 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
 export const WORKSPACE_BACKINGS = ['browser', 'folder'] as const;
 
 export type WorkspaceBacking = (typeof WORKSPACE_BACKINGS)[number];
+
+/**
+ * One row of the roster: a Workspace this installation has, of either kind (ADR-0042).
+ *
+ * ⚠ **The backing is a property of the *Workspace*, not of the application.** A folder used to be a
+ * mode the whole app was in, which is what made a folder merely remembered from a previous visit
+ * into a state every Project in every Workspace was blocked by. A folder that is not open is simply
+ * not the one that is open, which is what every other row here already means.
+ *
+ * {@link key} is the Workspace key its five durable record families hang off — `opfs:<name>` or
+ * `folder:<reference>` — so it identifies the row without any part of the interface having to hold
+ * an opinion about which kind it is looking at.
+ */
+export type WorkspaceEntry = {
+	readonly key: string;
+	/** The name its author knows it by. A folder's directory name until they give it another. */
+	readonly label: string;
+	readonly kind: WorkspaceBacking;
+	/** The directory's own name, shown beneath the label. `''` for a browser Workspace. */
+	readonly folderName: string;
+	readonly isOpen: boolean;
+	/** Somebody else's work, held in a Workspace built to be thrown away (ADR-0024). */
+	readonly isReviewCopy: boolean;
+};
 
 /**
  * The ordinary Workspace an Import offer named when it was opened (ADR-0037).
@@ -414,6 +439,44 @@ const OWN_WORKSPACE_KEY = 'ballastella.own-workspace';
  */
 const OWN_FOLDER_KEY = 'ballastella.own-folder';
 
+/**
+ * What a browser-storage Workspace is **called**, as against what its directory is named.
+ *
+ * ⚠ **The directory stays exactly where it is when a Workspace is renamed**, for the reason
+ * `Workspace.renameProject` gives about a Project: identity is the directory name, never the display
+ * name, so two Workspaces may share a label, a rename can never collide, and no byte of a scholar's
+ * work moves — which a rename that renamed the directory could not promise, because OPFS has no
+ * directory move and the alternative is copying a pyramid.
+ *
+ * `localStorage` rather than the installation database, because this is a string of a few dozen
+ * bytes read on every listing and IndexedDB would put a round trip in front of the switcher. A
+ * folder Workspace's label is not kept here: it lives in that Workspace's own record beside its
+ * reference (ADR-0042), because a folder that is not open cannot be read at all — there is no grant
+ * — so its name has to be installation-local, while a browser Workspace's directory is always
+ * readable and is the thing the label is *about*.
+ *
+ * Swept when the Workspace is deleted, for the reuse hazard every other record keyed by a Workspace
+ * name carries: left behind, it is a name standing ready for whatever Workspace is made next under
+ * the directory name this one had.
+ */
+const WORKSPACE_LABEL_PREFIX = 'ballastella.workspace-label.';
+
+/** The label an author gave a browser Workspace, or `''` where they have given it none. */
+const rememberedWorkspaceLabel = (name: string): string =>
+	remembered(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`);
+
+function rememberWorkspaceLabel(name: string, label: string): void {
+	write(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`, label);
+}
+
+function forgetWorkspaceLabel(name: string): void {
+	try {
+		localStorage.removeItem(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`);
+	} catch {
+		// A browser refusing storage never kept one to remove.
+	}
+}
+
 /** Read one remembered name. Never throws: private mode has no storage. */
 function remembered(key: string): string {
 	try {
@@ -475,6 +538,20 @@ const folderKeyOf = (folder: { folderReference: string; folderName: string }): s
 	folderWorkspaceKey(folder.folderReference || folder.folderName);
 
 /**
+ * The browser-storage Workspace a roster key names, or `null` when it names a folder.
+ *
+ * Derived from the same two constructors the keys are built by, so that no caller can hold a key and
+ * a contradicting opinion about which kind it is — the one way a row could act on the wrong
+ * Workspace.
+ */
+const namedWorkspaceOf = (key: string): string | null =>
+	key.startsWith('opfs:') ? key.slice('opfs:'.length) : null;
+
+/** The folder reference a roster key names. Meaningless for a key {@link namedWorkspaceOf} answers. */
+const folderReferenceOf = (key: string): string =>
+	key.startsWith('folder:') ? key.slice('folder:'.length) : '';
+
+/**
  * Which Workspace is open and the whole of moving between them — across backends, and across the
  * several named Workspaces browser storage holds (ADR-0024).
  *
@@ -524,8 +601,16 @@ export class WorkspaceStorage {
 	 * somebody else's work appearing where their own had been.
 	 */
 	workspaceName = $state(rememberedWorkspaceName());
-	/** Every named Workspace in browser storage, for the bar's switcher. */
+	/** Every named Workspace in browser storage, for the roster. */
 	workspaces = $state<string[]>([]);
+	/**
+	 * What their authors call them, for the browser Workspaces that have been renamed.
+	 *
+	 * Keyed by directory name and holding only the ones with a label of their own, so a Workspace
+	 * nobody has renamed answers with its directory name and there is nothing to keep in step. See
+	 * {@link WORKSPACE_LABEL_PREFIX} for why a rename does not move the directory.
+	 */
+	workspaceLabels = $state<Readonly<Record<string, string>>>({});
 	/**
 	 * The mark on the Workspace that is open, or `null` when it is one of the user's own (ADR-0024).
 	 *
@@ -659,14 +744,6 @@ export class WorkspaceStorage {
 	 * (ADR-0024), and they are the only one who can do anything about it.
 	 */
 	persistence = $state<StoragePersistence | null>(null);
-	/**
-	 * A folder from a previous visit, named so the offer to reopen it can name it too.
-	 *
-	 * Only an offer. Reopening needs `requestPermission()`, which needs transient user activation,
-	 * so it must come from a click or a keypress — called automatically on load it fails silently
-	 * and the app looks as though it has lost the folder (ADR-0012).
-	 */
-	reopenable = $state<string | null>(null);
 	/** Whether this browser can put a Workspace in a folder at all. */
 	canChooseFolder = $state(false);
 	/**
@@ -746,10 +823,9 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **The raw store, kept because the handle is the only durable name a folder has.** What the
 	 * session holds is that store wrapped in the local-change index, and a wrapper has no `folder` on
-	 * it; what {@link reopenable} holds is a *name*, which two folders may share and which survives a
-	 * folder being deleted and another made in its place. A Review Workspace opened from a folder has
-	 * to be able to ask for that exact folder again (ADR-0037), and this is what it retains a grant
-	 * from.
+	 * it. A folder's *name* is no substitute: two folders may share one, and it survives the folder
+	 * being deleted and another made in its place. A Review Workspace opened from a folder has to be
+	 * able to ask for that exact folder again (ADR-0037), and this is what it retains a grant from.
 	 */
 	#folderStore: FileSystemAccessProjectStore | null = null;
 	/**
@@ -1037,16 +1113,9 @@ export class WorkspaceStorage {
 				this.persistence = answer;
 			})
 			.catch(() => undefined);
-		if (this.canChooseFolder) {
-			// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission*
-			// that needs the gesture.
-			void rememberedFolderName()
-				.then((name) => {
-					this.reopenable = name;
-				})
-				.catch(() => undefined);
-			this.#foldersRecorded = this.#recordFolderWorkspaces();
-		}
+		// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission* that
+		// needs the gesture, and nothing on this path asks for one.
+		if (this.canChooseFolder) this.#foldersRecorded = this.#recordFolderWorkspaces();
 		return () => {
 			window.removeEventListener('focus', onFocus);
 			this.#statusChecker?.close();
@@ -1074,10 +1143,7 @@ export class WorkspaceStorage {
 		this.problem = '';
 		try {
 			const store = await reopenWorkspaceFolder();
-			if (!store) {
-				this.reopenable = null;
-				return;
-			}
+			if (!store) return;
 			await this.#adoptFolder(store);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
@@ -1153,7 +1219,6 @@ export class WorkspaceStorage {
 		this.problem = '';
 		if (this.session.status !== 'unreachable') {
 			await forgetWorkspaceFolder().catch(() => undefined);
-			this.reopenable = null;
 		}
 		await this.openWorkspace(this.workspaceName);
 	}
@@ -1201,6 +1266,13 @@ export class WorkspaceStorage {
 				this.workspaces.map(async (name) => ((await isReviewCopy(name)) ? name : ''))
 			)
 		).filter((name) => name !== '');
+		// Synchronous, out of `localStorage`, and therefore in this pass rather than in one of its own:
+		// a label is a few dozen bytes and there is nothing to wait for.
+		this.workspaceLabels = Object.fromEntries(
+			this.workspaces
+				.map((name) => [name, rememberedWorkspaceLabel(name)] as const)
+				.filter(([, label]) => label !== '')
+		);
 		// Here rather than beside the replay, because "which Workspaces exist" is the answer the
 		// orphan check is *against* — computed before this listing it reported every Workspace but
 		// the open one as orphaned, which is a warning about nothing on every first load.
@@ -1264,16 +1336,205 @@ export class WorkspaceStorage {
 		await this.refreshWorkspaces();
 	}
 
-	/** Make a Workspace and switch into it. Answers with the name it really got. */
+	/** Make a browser-storage Workspace and switch into it. Answers with the name it really got. */
 	async createWorkspace(displayName: string): Promise<string> {
 		const name = await createOpfsWorkspace(displayName);
 		await this.openWorkspace(name);
 		return name;
 	}
 
+	/**
+	 * Make a Workspace in a folder the author picks, and switch into it.
+	 *
+	 * **Must be called from a click or a keypress**: the picker needs transient user activation. The
+	 * name the author typed becomes the Workspace's label, over the directory's own name — which is
+	 * what {@link renameEntry} would give it a moment later anyway, and asking twice for one name
+	 * would be asking twice for one name.
+	 *
+	 * `''` when the picker was closed without choosing, which is a cancelled gesture rather than a
+	 * failure and needs no message. A refusal lands in {@link problem}, as every other one does.
+	 */
+	async createFolderWorkspace(displayName: string): Promise<string> {
+		this.problem = '';
+		try {
+			const store = await chooseWorkspaceFolder();
+			if (!store) return '';
+			await this.#adoptFolder(store);
+			const wanted = displayName.trim();
+			if (wanted !== '' && this.folderReference !== '') {
+				await this.renameEntry(folderKeyOf(this), wanted);
+			}
+			return this.name;
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
+			return '';
+		}
+	}
+
 	/** Whether `name` is the browser-storage Workspace **this tab** currently has open. */
 	isOpen(name: string): boolean {
 		return this.backing === 'browser' && name === this.workspaceName;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE ROSTER (ADR-0042)
+	//
+	// Every Workspace this installation has, of either kind, in one list — each one opened, renamed
+	// or deleted from its own row. A folder is a kind of Workspace rather than a mode the
+	// application is in, which is what makes a folder from a previous visit an ordinary row instead
+	// of a state that blocked every Project in every Workspace.
+
+	/**
+	 * Every Workspace there is, browser-backed and folder-backed together.
+	 *
+	 * Browser Workspaces first because they are always openable — a folder costs the browser's own
+	 * permission gesture — and in the order the OPFS listing gives, which is the order the switcher
+	 * has always had.
+	 *
+	 * ⚠ **An open folder with no record of its own still gets a row.** That is a browser with no
+	 * IndexedDB, or a store that refused, so `folderWorkspaces` is empty while a folder Workspace is
+	 * open; without this the roster would say the author is in no Workspace at all. It is keyed by
+	 * the directory's name, exactly as {@link folderKeyOf} keys everything else about it.
+	 */
+	get workspaceEntries(): readonly WorkspaceEntry[] {
+		const browser: WorkspaceEntry[] = this.workspaces.map((name) => ({
+			key: opfsWorkspaceKey(name),
+			label: this.workspaceLabels[name] || name,
+			kind: 'browser',
+			folderName: '',
+			isOpen: this.isOpen(name),
+			isReviewCopy: this.reviewWorkspaces.includes(name)
+		}));
+		const folders: WorkspaceEntry[] = this.folderWorkspaces.map((record) => ({
+			key: folderWorkspaceKey(record.reference),
+			label: record.label,
+			kind: 'folder',
+			folderName: record.folderName,
+			isOpen: this.backing === 'folder' && this.folderReference === record.reference,
+			// A bundle only ever opens into browser storage, so there is no such mark to read here.
+			isReviewCopy: false
+		}));
+		const unrecorded: WorkspaceEntry[] =
+			this.backing === 'folder' && this.folderReference === ''
+				? [
+						{
+							key: folderKeyOf(this),
+							label: this.folderName || 'Workspace folder',
+							kind: 'folder',
+							folderName: this.folderName,
+							isOpen: true,
+							isReviewCopy: false
+						}
+					]
+				: [];
+		return [...browser, ...folders, ...unrecorded];
+	}
+
+	/**
+	 * Open the Workspace a row is about.
+	 *
+	 * **Must be called from a click or a keypress.** Opening a folder Workspace costs one gesture,
+	 * because a browser grants a directory only when the user asks and guessing would be a silent
+	 * switch into somebody else's files (ADR-0042). A browser Workspace needs no permission and this
+	 * is the ordinary switch.
+	 *
+	 * A row whose record has gone — another tab forgot it — says so rather than doing nothing, in
+	 * {@link problem}, which is where every other folder refusal is already reported.
+	 */
+	async openEntry(key: string): Promise<void> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			await this.openWorkspace(named);
+			return;
+		}
+		this.problem = '';
+		try {
+			const store = await openFolderWorkspace(folderReferenceOf(key));
+			if (store === null) {
+				this.problem =
+					'This computer no longer holds a grant for that folder, so it cannot be opened from the ' +
+					'list. Choose it again to put it back.';
+				await this.#refreshFolderWorkspaces();
+				return;
+			}
+			await this.#adoptFolder(store);
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
+		}
+	}
+
+	/**
+	 * Give the Workspace a row is about the name its author wants it listed under.
+	 *
+	 * ⚠ **Nothing on disk moves, in either kind.** A browser Workspace's directory keeps the name it
+	 * was made with and a folder keeps the name the operating system gave it; what changes is the
+	 * label the roster shows. This is `renameProject`'s bargain one level up — identity is never the
+	 * display name — and the alternative for a browser Workspace is copying every byte of a Workspace
+	 * that may hold a tile pyramid, on the author's only copy of their work.
+	 *
+	 * Answers whether the new name stuck. A browser that will keep no record is the one case where it
+	 * does not, and the caller says so rather than showing a name the next visit will not have.
+	 */
+	async renameEntry(key: string, label: string): Promise<boolean> {
+		const wanted = label.trim();
+		if (wanted === '') return false;
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			rememberWorkspaceLabel(named, wanted);
+			await this.refreshWorkspaces();
+			return this.workspaceLabels[named] === wanted;
+		}
+		const renamed = await renameFolderWorkspace(folderReferenceOf(key), wanted).catch(() => false);
+		await this.#refreshFolderWorkspaces();
+		return renamed;
+	}
+
+	/**
+	 * What the Workspace a row is about weighs, or `null` when this installation cannot say.
+	 *
+	 * `null` for a folder that is not open: reading it would need the browser's permission, and
+	 * asking for a grant in order to answer a question the author has not yet agreed to act on is a
+	 * prompt for nothing. The confirmation names the Workspace either way.
+	 */
+	async sizeOfEntry(key: string): Promise<WorkspaceSize | null> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) return this.sizeOfWorkspace(named).catch(() => null);
+		return this.backing === 'folder' && folderKeyOf(this) === key
+			? workspaceSize(this.session.store).catch(() => null)
+			: null;
+	}
+
+	/**
+	 * Remove the Workspace a row is about — and, for a folder, remove only this installation's
+	 * record of it.
+	 *
+	 * ⚠ **The two kinds differ in what "delete" can honestly mean, and the interface says so rather
+	 * than pretending they are the same.** A browser Workspace lives in storage this application
+	 * owns, and deleting it takes every Project, Map Image and Alignment with it. A folder is the
+	 * author's own directory, in a place they chose, holding files they may be syncing or committing
+	 * — this application has no business removing it and, without asking for a grant first, no way
+	 * to. So a folder row lets the folder *go from the list*: the row and the hold on the directory,
+	 * and none of the bytes. Choosing the folder again brings it back.
+	 */
+	async deleteEntry(key: string): Promise<void> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			await this.deleteWorkspace(named);
+			return;
+		}
+		if (this.backing === 'folder' && folderKeyOf(this) === key) {
+			throw new Error(
+				'This is the Workspace you are in, so it cannot be taken off the list from inside ' +
+					'itself. Open another Workspace first.'
+			);
+		}
+		await forgetFolderWorkspace(folderReferenceOf(key));
+		// Its durable records go with the record that named them, for the reason `#removeWorkspace`
+		// discards a deleted browser Workspace's: left behind they are this installation's claims —
+		// an unreplayed edit, a standing deletion, a Remote binding, a Baseline — about a Workspace
+		// nothing lists any more.
+		await this.#discardWorkspaceRecords(key);
+		await this.#refreshFolderWorkspaces();
 	}
 
 	/**
@@ -1323,32 +1584,39 @@ export class WorkspaceStorage {
 			);
 		}
 		await deleteOpfsWorkspace(name);
-		// Its journalled edits go with it. Without this they survive the Workspace, become orphans
-		// nothing will ever replay, and — if a Workspace of the same name is made later — are put back
-		// into somebody else's work under a name they happened to reuse.
-		//
-		// **And its unfinished deletions, for the same reason and with more force.** The records have
-		// the same key shape and the same reuse hazard, and their effect is *destructive* rather than
-		// additive: a record left behind by a Workspace called "Marking 2026" is a standing instruction
-		// to delete a folder name inside whatever "Marking 2026" is made next. Nothing else sweeps them.
+		await this.#discardWorkspaceRecords(opfsWorkspaceKey(name));
+		// And the name its author gave it, which is keyed by the directory name and would otherwise be
+		// waiting for whatever Workspace is made under that name next.
+		forgetWorkspaceLabel(name);
+	}
+
+	/**
+	 * Throw away every installation-local record keyed by a Workspace that is going.
+	 *
+	 * ⚠ **All five families, and the reason is the same for each: the key is reusable.** Journalled
+	 * edits left behind become orphans nothing will ever replay — and, if a Workspace of the same
+	 * name is made later, are put back into somebody else's work under a name they happened to
+	 * reuse. Unfinished deletions carry the same hazard with more force, because their effect is
+	 * *destructive* rather than additive: a record left by a Workspace called "Marking 2026" is a
+	 * standing instruction to delete a directory inside whatever "Marking 2026" is made next. A
+	 * publish manifest (ADR-0033) is this browser's claim about a repository, standing ready for
+	 * whichever repository the next Workspace of that name is bound to — and a publish is judged by
+	 * it. The Remote relationship with its Baseline (ADR-0038), and the local-change index, are the
+	 * same claim in the direction that matters most: that these files are already shared with a
+	 * repository the author has never seen. Nothing else sweeps any of them.
+	 *
+	 * Keyed rather than named, because a folder Workspace taken off the roster needs exactly this and
+	 * has no name to be keyed by (ADR-0042).
+	 */
+	async #discardWorkspaceRecords(workspaceKey: string): Promise<void> {
 		if (this.#journalStorage) {
-			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
-			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
-			// **And what this machine last saw on that Workspace's Remote** (ADR-0033). The same key shape
-			// and the same reuse hazard: left behind, it is this browser's claim about a repository,
-			// standing ready for whichever repository a Workspace made under that name next is bound to —
-			// and a publish is judged by it.
-			discardPublishManifest(this.#journalStorage, opfsWorkspaceKey(name));
+			discardJournal(this.#journalStorage, workspaceKey);
+			discardDeletions(this.#journalStorage, workspaceKey);
+			discardPublishManifest(this.#journalStorage, workspaceKey);
 		}
-		// **And its Remote relationship and Baseline** (ADR-0038), which carry the same reuse hazard in
-		// the direction that matters most: left behind, they are this installation's claim that a
-		// Workspace called "Marking 2026" belongs to a repository and that its files are already
-		// shared with it — standing ready for whatever "Marking 2026" is made next.
 		if (this.#metadataStorage) {
-			await discardSynchronizationMetadata(this.#metadataStorage, opfsWorkspaceKey(name));
-			// The marks are the third installation-local record keyed by this Workspace, and left behind
-			// they would stand ready for whatever Workspace is next made with the same name.
-			await discardLocalChanges(this.#metadataStorage, opfsWorkspaceKey(name));
+			await discardSynchronizationMetadata(this.#metadataStorage, workspaceKey);
+			await discardLocalChanges(this.#metadataStorage, workspaceKey);
 		}
 	}
 
@@ -3063,13 +3331,26 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Which Workspace the bar names.
+	 * Which Workspace the bar names — the label its author knows it by, in either kind.
 	 *
-	 * The folder's own name when there is one, and the named Workspace otherwise — the two backings
-	 * name a Workspace the same way, because in both the directory *is* the Workspace.
+	 * ⚠ **Not the directory's name, which is what this used to be** (ADR-0042). A Workspace of either
+	 * kind may be renamed from its row, and in neither does that move a directory; the name a scholar
+	 * gave it is the one thing on the bar that has to agree with the row they gave it in. The
+	 * directory's own name is still shown, beneath the label, where it says which place this is.
 	 */
 	get name(): string {
-		return this.backing === 'folder' ? this.folderName || 'Workspace folder' : this.workspaceName;
+		if (this.backing === 'folder') {
+			return this.#openFolderRecord()?.label || this.folderName || 'Workspace folder';
+		}
+		return this.workspaceLabels[this.workspaceName] || this.workspaceName;
+	}
+
+	/** This installation's record of the folder Workspace that is open, or `null`. */
+	#openFolderRecord(): FolderWorkspaceRecord | null {
+		if (this.folderReference === '') return null;
+		return (
+			this.folderWorkspaces.find((record) => record.reference === this.folderReference) ?? null
+		);
 	}
 
 	/**
@@ -3086,17 +3367,6 @@ export class WorkspaceStorage {
 			(record) => folderWorkspaceKey(record.reference) === key
 		);
 		return folder === undefined ? workspaceKeyLabel(key) : folderWorkspaceLabel(folder.label);
-	}
-
-	/**
-	 * Whether a folder from a previous visit is remembered but not open right now.
-	 *
-	 * The state a bookmarked `?p=` lands in: the Project is in the folder, the folder needs a gesture
-	 * to reopen, and browser storage does not have that Project. Said rather than silently treated as
-	 * "no such Project", and said on every route rather than only where the storage question is asked.
-	 */
-	get awaitingFolder(): boolean {
-		return this.backing === 'browser' && this.reopenable !== null;
 	}
 
 	async #adopt(
@@ -3178,7 +3448,6 @@ export class WorkspaceStorage {
 		// what remains reachable is the *remembered* folder, which is a different record and a gesture
 		// away. A retained grant a Review Workspace is holding is untouched by this.
 		if (folder === null) this.#folderStore = null;
-		this.reopenable = folder?.folderName ?? this.reopenable;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a
 		// navigation cannot each trigger their own walk of a Workspace with tens of thousands of

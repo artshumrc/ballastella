@@ -252,8 +252,11 @@ export {
 // A folder Workspace's own durable record, which is what makes there able to be more than one
 // (ADR-0042). Keyed by a minted reference; the folder's name is shown, never asked.
 export {
+	forgetFolderWorkspace,
 	listFolderWorkspaces,
 	migratePreExistingFolderWorkspace,
+	openFolderWorkspace,
+	renameFolderWorkspace,
 	resolveFolderWorkspace,
 	type FolderWorkspaceRecord
 } from './store/folder-workspaces.js';
