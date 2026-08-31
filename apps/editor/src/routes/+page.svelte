@@ -112,9 +112,17 @@
 
 		try {
 			await current.completeGitHubSignIn(callback);
+			// ⚠ **Which of the two rules is in force, rather than one wording that is true under both.**
+			// The author may have asked this machine to keep the renewable half of a sign-in (ADR-0041),
+			// and telling them it is forgotten when the tab closes contradicts the thing they ticked —
+			// on the one screen that reports what their sign-in just did. The door states it the same
+			// way, and the eight-hour credential itself is forgotten either way.
+			const kept = current.rememberSignIn
+				? 'This computer keeps the part that renews it, so coming back tomorrow does not mean signing in again.'
+				: 'Your sign-in is forgotten when this tab closes.';
 			signInOutcome = current.identity
-				? `Signed in to GitHub as ${current.identity}. Your sign-in is forgotten when this tab closes.`
-				: 'Signed in to GitHub. Your sign-in is forgotten when this tab closes.';
+				? `Signed in to GitHub as ${current.identity}. ${kept}`
+				: `Signed in to GitHub. ${kept}`;
 			await strip(returning);
 		} catch (cause) {
 			signInProblem = cause instanceof Error ? cause.message : String(cause);

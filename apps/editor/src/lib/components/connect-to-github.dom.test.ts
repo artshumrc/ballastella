@@ -458,6 +458,62 @@ describe('the repositories the sequence offers', () => {
 		expect(text(at('connect-step'))).not.toContain('make one');
 		expect(absent('connect-no-choices')).toBe(true);
 	});
+
+	/**
+	 * ⚠ **A repository the author already has and cannot see is answered here, not only after
+	 * making a new one.** The other route to the same screen is behind *Create a new one*, which
+	 * asks somebody who has a repository to make a second one they do not need — which is the
+	 * failure the refusal-versus-empty-list rule above exists to prevent, reached from the list.
+	 */
+	test('offers the screen that lets Ballastella at a repository missing from the list', async () => {
+		open(signedIn(), listed([ATLAS]));
+		await settle();
+
+		expect(text(at('repository-missing'))).toContain('not in this list');
+		expect(at('grant-access').getAttribute('href')).toBe(
+			`https://github.com/apps/${FAKE_APP.appSlug}/installations/new/permissions` +
+				`?suggested_target_id=${NARROW.targetId}`
+		);
+	});
+
+	// The same press the `creating` step has, and for the same reason: a repository added on GitHub's
+	// screen a moment ago is exactly what this sequence has to be able to see without a reload.
+	test('reads the listing again when the author comes back from that screen', async () => {
+		const { list } = open(signedIn(), listed([ATLAS]));
+		await settle();
+		expect(list).toHaveBeenCalledTimes(1);
+
+		press('reread-repositories');
+		await settle();
+
+		expect(list).toHaveBeenCalledTimes(2);
+		expect(at('connect-choosing')).toBeTruthy();
+	});
+
+	// ⚠ **No link at all where widening is somebody else's, rather than a link they cannot save.**
+	test('names the admin, and offers no link, where it is not the author’s to do', async () => {
+		open(
+			signedIn(),
+			listed(
+				[{ ...ATLAS, owner: 'harvard', canGrantAccess: false }],
+				[{ ...NARROW, id: 9, account: 'harvard', targetId: 606, isOrganization: true }]
+			)
+		);
+		await settle();
+
+		expect(absent('grant-access')).toBe(true);
+		expect(text(at('repository-missing'))).toContain('administers');
+	});
+
+	// Ballastella already reaches everything on this account, so a missing repository is not a
+	// missing access — and naming one would be a confident wrong answer.
+	test('says nothing about access where the reach already covers everything', async () => {
+		open(signedIn(), listed([ATLAS], [WIDE]));
+		await settle();
+
+		expect(absent('repository-missing')).toBe(true);
+		expect(absent('grant-access')).toBe(true);
+	});
 });
 
 describe('making a repository, without leaving the sequence', () => {
@@ -2167,6 +2223,27 @@ describe('the standing state, and the gestures on it', () => {
 			expect(opened.props.open).toBe(true);
 		}
 	);
+
+	/**
+	 * ⚠ **Opening a public Remote by address is reachable from a Workspace that has one** (ADR-0042).
+	 * The door is the whole of where that capability lives now, and the surface it came from offered
+	 * it outside every condition it had — a Conflict, whose stated remedy is to open the Remote in a
+	 * Workspace of its own, is met by an author whose Workspace is bound. Offered only behind the
+	 * sign-in path, that remedy would be an instruction to find a control that is nowhere.
+	 */
+	test('offers the inbound door on a Workspace that already has a repository', async () => {
+		const opened = open(connected());
+
+		expect(at('connect-address-offer')).toBeTruthy();
+		press('open-by-address');
+		await settle();
+
+		expect(at('connect-by-address')).toBeTruthy();
+		// The Workspace it was pressed from is untouched by reaching the step: the Open makes a second
+		// Workspace beside it, and nothing here unbinds anything.
+		expect(opened.storage.remote).not.toBeNull();
+		expect(opened.storage.unbinds).toBe(0);
+	});
 
 	test('uses `disabled` on no control of the connected step, busy or not', async () => {
 		const storage = connected();
