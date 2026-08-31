@@ -1186,6 +1186,73 @@ test.describe('the offer to install', () => {
 	});
 });
 
+test.describe('what the browser has promised about keeping the work', () => {
+	let site: EditorDeployment;
+
+	test.beforeEach(async () => {
+		site = await deployEditor();
+	});
+	test.afterEach(async () => {
+		await site.close();
+	});
+
+	/**
+	 * The real browser's real answer, on the real screen (ADR-0042).
+	 *
+	 * ⚠ **Which of the six a browser is, is not asserted here and cannot be.** A run produces exactly
+	 * one — the engine it is — so a test that named it would be a test of headless Chromium's
+	 * heuristics rather than of this application. The six-way derivation is exhausted at Seam 1 in
+	 * `packages/core`'s `storage-durability.test.ts` over injected capability answers. What only a real
+	 * browser can prove is what this asserts: that the answer arrives at all with no user-agent string
+	 * read anywhere on the path, that it is one line rather than a paragraph, that the truth behind it
+	 * is a working disclosure, and that a backup is offered whatever the browser said.
+	 */
+	test('is one line on Workspace Home, with the truth behind a disclosure and a backup either way', async ({
+		page
+	}) => {
+		await page.goto(site.url);
+		await emptyWorkspace(page);
+		await page.reload();
+
+		const lead = page.getByTestId('durability-lead');
+		await expect(lead).toBeVisible();
+		// One line, not a lecture: the bar for "short" is generous, and a paragraph still fails it.
+		expect((await lead.innerText()).length).toBeLessThan(160);
+
+		const learnMore = page.getByTestId('durability-learn-more');
+		if (await learnMore.isVisible()) {
+			// Every state but WebKit's. The detail is behind the press and reachable by keyboard alone.
+			await expect(page.getByTestId('durability-detail')).toBeHidden();
+			await expect(learnMore).toHaveAttribute('aria-expanded', 'false');
+			await learnMore.focus();
+			await page.keyboard.press('Enter');
+			await expect(learnMore).toHaveAttribute('aria-expanded', 'true');
+		} else {
+			// WebKit: the truth is up front and unhedged, because a scholar who never presses loses
+			// everything they have after seven days (ADR-0001's amendment).
+			await expect(page.getByTestId('durability-detail')).toBeVisible();
+		}
+
+		await expect(page.getByTestId('durability-detail')).toBeVisible();
+		await expect(page.getByTestId('download-backup')).toBeVisible();
+
+		// ⚠ Nothing on this path consults what the browser calls itself. That claim is over source
+		// rather than over a run — `packages/core`'s `storage-durability.test.ts` asserts it of the
+		// derivation, and CONTRIBUTING's grep over `apps/editor/src` covers the modules that feed it —
+		// because a runtime counter here would be measuring MapLibre and the framework as well.
+
+		// The grant, pressed for where this browser offers one. Nothing may ask for it before the
+		// press: `persist()` is what opens Firefox's prompt, and ADR-0012 rules out the nagging.
+		const keep = page.getByTestId('keep-storage');
+		if (await keep.isVisible()) {
+			await keep.click();
+			await expect(page.getByTestId('keep-storage-outcome')).not.toHaveText('');
+		}
+		// And whatever it answered, the line is still there and still one line.
+		await expect(page.getByTestId('durability-lead')).toBeVisible();
+	});
+});
+
 test.describe('an update, and who decides when', () => {
 	let site: EditorDeployment;
 

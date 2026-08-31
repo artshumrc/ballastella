@@ -11,7 +11,7 @@
 
 import type {
 	ReviewMark,
-	StoragePersistence,
+	StorageAnswers,
 	TransferProgressListener,
 	WorkspaceBackup,
 	WorkspaceRestore
@@ -36,7 +36,11 @@ export class FakeStorage {
 	folderName = $state('');
 	backing = $state<WorkspaceBacking>('browser');
 	canChooseFolder = $state(true);
-	persistence = $state<StoragePersistence | null>('granted');
+	storageAnswers = $state<StorageAnswers | null>({
+		persisted: true,
+		permission: 'granted',
+		ephemeral: false
+	});
 	review = $state<ReviewMark | null>(null);
 	unavailable = $state('');
 	orphanedJournals = $state<string[]>([]);
@@ -85,6 +89,17 @@ export class FakeStorage {
 		await this.#report(onProgress);
 		if (this.moveAnswer instanceof Error) throw this.moveAnswer;
 		return this.moveAnswer;
+	}
+
+	/** Every time the author pressed for the grant, and what the browser then said. */
+	asked = 0;
+	/** What {@link askToKeepStorage} leaves the browser having answered. */
+	grantAnswer: StorageAnswers = { persisted: true, permission: 'granted', ephemeral: false };
+
+	async askToKeepStorage(): Promise<void> {
+		this.asked += 1;
+		this.storageAnswers = this.grantAnswer;
+		await Promise.resolve();
 	}
 
 	discardOrphanedJournal(key: string): { edits: number; deletions: number } {

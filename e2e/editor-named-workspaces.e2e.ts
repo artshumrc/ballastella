@@ -413,21 +413,11 @@ test.describe('Workspace Home’s account of this Workspace', () => {
 		await expect(page.getByTestId('move-into-folder')).toBeVisible();
 		await expect(page.getByTestId('install-offer')).toBeVisible();
 
-		// `navigator.storage.persist()` is what keeps OPFS data from being evicted under disk
-		// pressure (ADR-0024). What the browser answers is its own business —
-		// Chromium decides on heuristics — so what is asserted is that an answer arrives and is
-		// **reported**, in one of the three honest forms, rather than being swallowed.
-		await expect
-			.poll(async () =>
-				(
-					await Promise.all(
-						['persistence-granted', 'persistence-refused', 'persistence-unsupported'].map((id) =>
-							page.getByTestId(id).count()
-						)
-					)
-				).reduce((sum, count) => sum + count, 0)
-			)
-			.toBe(1);
+		// What the browser has promised about keeping the work (ADR-0042). Which of the six it answers
+		// is its own business — Chromium decides on its own heuristics — so what is asserted here is
+		// that an answer arrives and is **reported** as one line, rather than being swallowed. Which
+		// line each browser gets, and what the advice in it says, is `editor-pwa`'s.
+		await expect(page.getByTestId('durability-lead')).toBeVisible();
 	});
 });
 
