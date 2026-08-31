@@ -98,10 +98,20 @@ function folderWorkspaceKey(page: Page): Promise<string> {
 
 /** The folder the stubbed picker hands back, as a directory in OPFS. */
 const PICKED_FOLDER = 'e2e-picked-folder';
+/** A second folder, for the specs whose subject is *which* of an installation's folders is reached. */
+const SECOND_FOLDER = 'e2e-other-folder';
 /** `granted` | `prompt` | `denied` — what the scripted permission methods answer. */
 const PERMISSION_KEY = 'e2e-folder-permission';
 /** `yes` makes the stubbed picker report the dialog being closed without a choice. */
 const CANCEL_KEY = 'e2e-folder-cancel';
+/**
+ * Which directory the next pick hands back, for the specs that need a **second** folder.
+ *
+ * A real picker asks a person and they may answer with a different folder every time; the stub can
+ * only hand back what it was told to, so this is where a spec says so. Unset means
+ * {@link PICKED_FOLDER}, which is what every spec about one folder wants.
+ */
+const FOLDER_NAME_KEY = 'e2e-folder-name';
 
 declare global {
 	interface Window {
@@ -130,7 +140,7 @@ declare global {
  */
 async function installDirectoryPicker(page: Page): Promise<void> {
 	await page.addInitScript(
-		({ folder, permissionKey, cancelKey }) => {
+		({ folder, permissionKey, cancelKey, folderNameKey }) => {
 			const grant = {
 				pickerCalls: [] as { mode: string | undefined; id: string | undefined }[],
 				activationAtPick: [] as boolean[],
@@ -152,7 +162,8 @@ async function installDirectoryPicker(page: Page): Promise<void> {
 						throw new DOMException('The user aborted a request.', 'AbortError');
 					}
 					const root = await navigator.storage.getDirectory();
-					return root.getDirectoryHandle(folder, { create: true });
+					const wantedFolder = localStorage.getItem(folderNameKey) || folder;
+					return root.getDirectoryHandle(wantedFolder, { create: true });
 				}
 			});
 
@@ -172,7 +183,12 @@ async function installDirectoryPicker(page: Page): Promise<void> {
 				return wanted() === 'denied' ? 'denied' : 'granted';
 			};
 		},
-		{ folder: PICKED_FOLDER, permissionKey: PERMISSION_KEY, cancelKey: CANCEL_KEY }
+		{
+			folder: PICKED_FOLDER,
+			permissionKey: PERMISSION_KEY,
+			cancelKey: CANCEL_KEY,
+			folderNameKey: FOLDER_NAME_KEY
+		}
 	);
 }
 
@@ -411,6 +427,29 @@ const openFolderFromRoster = async (page: Page) => {
 	await folderRow(page).click();
 };
 
+/** Open one named folder Workspace from its row, where there is more than one to tell apart. */
+const openFolderNamed = async (page: Page, label: string) => {
+	await openWorkspaceMenu(page);
+	await folderRow(page).filter({ hasText: label }).first().click();
+	await expectWorkspaceNamed(page, label);
+};
+
+/**
+ * Make a **second** folder Workspace, in a directory of its own, and end up inside it.
+ *
+ * ⚠ **Picking is what writes the installation's single pre-plural folder slot**, so this also leaves
+ * that slot naming this folder rather than the first one — which is the arrangement every claim about
+ * *which* folder Workspace a gesture reaches has to be made under (ADR-0042).
+ */
+const chooseSecondFolder = async (page: Page, label: string) => {
+	await page.evaluate(([key, folder]) => localStorage.setItem(key, folder), [
+		FOLDER_NAME_KEY,
+		SECOND_FOLDER
+	] as const);
+	await createFolderWorkspace(page, label);
+	await page.evaluate((key) => localStorage.removeItem(key), FOLDER_NAME_KEY);
+};
+
 /**
  * Go back to the browser Workspace, which is an ordinary row in the roster.
  *
@@ -425,10 +464,10 @@ const useBrowserStorage = async (page: Page) => {
 /**
  * Which Workspace is open, read off the **navigation bar**.
  *
- * The bar names it on every screen, which is a better place to ask than the settings
- * dialog: it is what a scholar actually sees, and it does not need opening. In both backings the
- * directory *is* the Workspace, so a folder Workspace is named by its folder and a browser-managed
- * one by its own name.
+ * The bar names it on every screen, which is what a scholar actually sees. A Workspace of either
+ * kind is named by its **label** (ADR-0042), and a label is the directory's own name until an author
+ * gives it another — so the folders here are named by their directories because nothing in these
+ * specs renames them.
  */
 const inFolder = (page: Page) => expectWorkspaceNamed(page, PICKED_FOLDER);
 
@@ -642,7 +681,7 @@ test.describe('choosing a folder as the Workspace', () => {
 	 * `maps` folder, which happens to hold its own `amsterdam-1625`. The manifest is readable so the
 	 * record is not cleared, the identity rule refuses, and the note is kept — and nothing ends it.
 	 * No record expires, `Workspace.#claim` fires only when a Project is created or duplicated under
-	 * that name, Workspace settings' discard is by construction unable to reach the Workspace that is
+	 * that name, the journal discard is by construction unable to reach the Workspace that is
 	 * *open*, and the panel's "Got it" is keyed on the report's contents, so the next startup builds a
 	 * byte-identical report and shows the same warning again. Since round 3 made a refusal the only
 	 * thing a folder Workspace ever reports, that is a warning at every visit for ever — whose one
@@ -1379,12 +1418,22 @@ test.describe('a bundle opened from a folder Workspace', () => {
 		};
 	};
 
-	test('goes back to the folder, not to an OPFS Workspace invented for the purpose', async ({
+	test('goes back to the folder it came from, not to an OPFS Workspace invented for the purpose', async ({
 		page
 	}) => {
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'My own work');
+
+		// ⚠ **A second folder Workspace, picked and then left, is what makes "the folder" a question
+		// with a wrong answer** (ADR-0042, story 86). The installation's single pre-plural slot holds
+		// whichever folder was picked *last*, so an exit that reopens through it lands the author in
+		// this one — with a banner announcing they are back in their own Workspace and none of their
+		// work in it. The author's own folder Workspace is the one its record names, and this is the
+		// arrangement where the two differ.
+		await chooseSecondFolder(page, 'Somewhere else');
+		await openFolderNamed(page, PICKED_FOLDER);
+		await expect(page.getByRole('link', { name: 'My own work' })).toBeVisible();
 
 		await page.getByTestId('open-bundle').click();
 		await page

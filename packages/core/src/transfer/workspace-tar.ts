@@ -48,8 +48,9 @@
 //     so the importer chooses the name and a collision is a question for the user. A Workspace
 //     backup is the opposite case: restore creates a **new** Workspace, so there is nothing to
 //     collide with, and the name is the one piece of the user's work that has nowhere else to live.
-//     It is not in any file: the directory name *is* the name (ADR-0008), precisely so there would
-//     be no second record to disagree with the disk.
+//     It is in no file the Workspace holds: the name a Workspace is listed under is this
+//     installation's own record of it (ADR-0042), which a restore on another machine cannot read, so
+//     the archive's root directory is where it travels.
 //   - **`tar xf backup.tar` produces a folder named after the Workspace**, on a computer with no
 //     browser involved. For the Firefox, Safari and iPad users this whole path exists for, the
 //     archive is the only copy of their work that is not inside a browser they cannot see into

@@ -425,7 +425,17 @@ const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 const OWN_WORKSPACE_KEY = 'ballastella.own-workspace';
 
 /**
- * The **folder** the user's own Workspace was in, or `''` when it was browser storage.
+ * Which **folder Workspace** the user's own work is in, by its minted reference, or `''` when it is
+ * browser storage.
+ *
+ * ⚠ **The reference and never the folder's name** (ADR-0042). A name identifies no folder — two may
+ * share one — and the pre-plural slot `reopenWorkspaceFolder` reads holds whichever folder was picked
+ * *last*, which is not "the author's folder Workspace" once there can be more than one: pick a second
+ * folder, open the first from its row, and an exit that reopened through that slot would hand back the
+ * second, under a banner announcing they were back in their own. Where no record could be kept — no
+ * IndexedDB — this holds the folder's name instead, which is the one case where that slot is the only
+ * handle there is and the one where there can be only one folder anyway. A value an earlier build
+ * wrote is such a name and takes the same path.
  *
  * ⚠ **A third key, because a folder Workspace is one of the user's own and has no OPFS name.** The
  * first cut recorded "own" only for browser-backed Workspaces, so a scholar whose Workspace is a
@@ -503,9 +513,9 @@ function rememberWorkspaceName(name: string): void {
 }
 
 /** Record where "back to my own Workspace" goes: a folder if it was one, otherwise a named one. */
-function rememberOwnWorkspace(name: string, folderName: string): void {
-	if (!folderName) write(OWN_WORKSPACE_KEY, name);
-	write(OWN_FOLDER_KEY, folderName);
+function rememberOwnWorkspace(name: string, folder: string): void {
+	if (!folder) write(OWN_WORKSPACE_KEY, name);
+	write(OWN_FOLDER_KEY, folder);
 }
 
 function write(key: string, value: string): void {
@@ -719,12 +729,13 @@ export class WorkspaceStorage {
 	 */
 	ownWorkspaceName = $state(rememberedOwnWorkspaceName());
 	/**
-	 * The folder the user's own Workspace is in, or `''` when it is browser storage.
+	 * Which folder Workspace the user's own work is in, or `''` when it is browser storage.
 	 *
 	 * See {@link OWN_FOLDER_KEY}. This is what makes the banner's first exit lead back to a folder
-	 * Workspace rather than into an OPFS one the user has never seen.
+	 * Workspace rather than into an OPFS one the user has never seen, and to *that* folder Workspace
+	 * rather than to whichever one was picked most recently.
 	 */
-	ownFolderName = $state(remembered(OWN_FOLDER_KEY));
+	ownFolder = $state(remembered(OWN_FOLDER_KEY));
 	/**
 	 * A bundle being read, announced across the session swap that finishes it.
 	 *
@@ -1091,7 +1102,7 @@ export class WorkspaceStorage {
 				// only ever runs from something the user did.
 				if (this.review === null) {
 					this.ownWorkspaceName = this.workspaceName;
-					this.ownFolderName = '';
+					this.ownFolder = '';
 				}
 				await this.#replayAndReport();
 				return true;
@@ -1188,11 +1199,22 @@ export class WorkspaceStorage {
 		}
 	}
 
-	/** Reopen the folder from last visit. Must be called from a user gesture. */
-	async reopenFolder(): Promise<void> {
+	/**
+	 * Reopen the folder Workspace the author's own work is in. Must be called from a user gesture.
+	 *
+	 * ⚠ **By {@link ownFolder}'s reference, and by the pre-plural slot only where there is no
+	 * reference to go on** (ADR-0042). `reopenWorkspaceFolder` answers with whichever folder was last
+	 * picked, so on an installation with two folder Workspaces it is a different Workspace than the
+	 * one the author left — and the fallback is reached only where no record could be kept, which is
+	 * also where there can be only one folder.
+	 *
+	 * A declined grant is a refusal about *this* folder and not a reason to open another, so it lands
+	 * in {@link problem} rather than falling through.
+	 */
+	async #reopenOwnFolder(): Promise<void> {
 		this.problem = '';
 		try {
-			const store = await reopenWorkspaceFolder();
+			const store = (await openFolderWorkspace(this.ownFolder)) ?? (await reopenWorkspaceFolder());
 			if (!store) return;
 			await this.#adoptFolder(store);
 		} catch (cause) {
@@ -1947,7 +1969,7 @@ export class WorkspaceStorage {
 	 * landing than a second review copy or a refusal.
 	 *
 	 * ⚠ **A folder Workspace is gone back *to*, not replaced by an OPFS namesake.** When the user's
-	 * own Workspace is a folder ({@link ownFolderName}), this reopens it — which is why it must be
+	 * own Workspace is a folder ({@link ownFolder}), this reopens it — which is why it must be
 	 * called from a click or a keypress, as both of the banner's exits are: `requestPermission()`
 	 * needs transient user activation (ADR-0012). The first cut recorded "own" only for browser
 	 * backings, so a folder-Workspace user pressing this exit landed in an OPFS Workspace called "My
@@ -1956,7 +1978,7 @@ export class WorkspaceStorage {
 	 *
 	 * A refused or withdrawn grant falls back to the remembered browser Workspace rather than leaving
 	 * the user inside the review copy, and `problem` says why the folder was not reopened — the same
-	 * bargain {@link reopenFolder} already makes everywhere else.
+	 * bargain every other folder gesture makes.
 	 */
 	async leaveReview(): Promise<void> {
 		await this.#leaveReview();
@@ -1970,8 +1992,8 @@ export class WorkspaceStorage {
 	 * no-op.** `#switchTo` returns at once when the destination is already open, and the destination
 	 * *can be the review copy's own name*: a user in browser Workspace "assignment 7" switches to a
 	 * folder — which carries `ownWorkspaceName` across unchanged — deletes the now-unopened OPFS
-	 * "assignment 7" from settings, and opens `assignment 7.project.tar`, whose review copy takes the
-	 * name that has just come free. Pressing Discard with the folder grant refused then left the
+	 * "assignment 7" from its row in the roster, and opens `assignment 7.project.tar`, whose review
+	 * copy takes the name that has just come free. Pressing Discard with the folder grant refused then left the
 	 * review copy open, and the removal that follows deleted a Workspace with a live `EditorSession`
 	 * on it — the failure {@link #removeWorkspace}'s guard exists for, reached from the one caller
 	 * that used to bypass it. So when the name is taken by the Workspace being left, a **new** one
@@ -1984,8 +2006,8 @@ export class WorkspaceStorage {
 		// so without this the reason the folder was not reopened was wiped by the very step that made it
 		// matter, and the docstring above promising it was said was false.
 		let folderProblem = '';
-		if (this.ownFolderName) {
-			await this.reopenFolder();
+		if (this.ownFolder) {
+			await this.#reopenOwnFolder();
 			folderProblem = this.problem;
 			if (this.backing === 'folder') {
 				// ⚠ **`workspaceName` is carried across a folder adopt unchanged, and coming out of a
@@ -2025,9 +2047,9 @@ export class WorkspaceStorage {
 	 * removal the switcher offered a Workspace whose directory was being deleted — and switching
 	 * *creates*, so one click in that window raced a `getDirectoryHandle({ create: true })` against a
 	 * `removeEntry` on the same directory, leaving the user in a Workspace made of whatever survived.
-	 * Withdrawing it here closes that: `workspaces` is the only thing either the switcher or Workspace
-	 * settings offers, so from the first line of this method there is no control anywhere on screen
-	 * that opens the Workspace being discarded.
+	 * Withdrawing it here closes that: `workspaces` is what the roster is composed from, so from the
+	 * first line of this method there is no control anywhere on screen that opens the Workspace being
+	 * discarded.
 	 *
 	 * Narrower than it sounds and worth being exact about: nothing here reaches a *second tab*, which
 	 * has its own listing and no way to hear about this one, for the reason {@link deleteWorkspace}
@@ -3519,11 +3541,11 @@ export class WorkspaceStorage {
 		// {@link OWN_FOLDER_KEY} for what that cost.
 		const own = this.review === null;
 		if (own) {
-			this.ownFolderName = folder?.folderName ?? '';
+			this.ownFolder = folder ? folder.folderReference || folder.folderName : '';
 			// `workspaceName` is carried across a folder adopt unchanged, so the browser Workspace the
 			// user left is still the fallback when the folder grant cannot be had back.
 			if (backing === 'browser') this.ownWorkspaceName = workspaceName;
-			rememberOwnWorkspace(this.ownWorkspaceName, this.ownFolderName);
+			rememberOwnWorkspace(this.ownWorkspaceName, this.ownFolder);
 		}
 		// The grant belongs to the folder that is open, so a switch into browser storage lets it go —
 		// what remains reachable is the *remembered* folder, which is a different record and a gesture

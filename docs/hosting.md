@@ -366,10 +366,17 @@ broker can complete that sign-in (part 1, step 6). If you do not know which kind
 on, paste a token: it is the same publish either way, and where the button is there the paste is
 behind *Signing in will not work for me* on the same screen.
 
-**The credential is forgotten when you close the tab.** It is kept in the browser tab's own storage,
+**A pasted token is forgotten when you close the tab.** It is kept in the browser tab's own storage,
 never in your Workspace — a token in the Workspace would leave your machine inside the next publish,
 or inside an archive you sent a colleague. Reloading the page keeps it; closing the tab, or coming
-back tomorrow, means pasting it again.
+back tomorrow, means pasting it again. There is no way to keep one longer, because a pasted token has
+no renewable half.
+
+**A sign-in is forgotten when you close the tab too, unless the person using it asks otherwise.**
+*Connect to GitHub* carries *Keep me signed in on this computer*, unticked until somebody ticks it, so
+a shared or library machine keeps nothing of a sign-in unless the person at it says otherwise. Where it
+is ticked, this installation keeps the part that renews the sign-in and never the part that publishes,
+in storage no Backup packs and no Publish uploads.
 
 The **binding** is the part that persists. Binding checks that the credential can actually write to
 that repository before it keeps anything, so a mistyped address or a token without the rights is

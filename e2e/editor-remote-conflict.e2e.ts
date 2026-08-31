@@ -222,7 +222,7 @@ async function start(
 		 * Answer the door's listing, so the repository can be chosen from where the author asks.
 		 *
 		 * Left out, nothing routes GitHub's sign-in surface and the door has no list — which is what
-		 * every test here that binds through the Remote dialog's form wants.
+		 * every test here that starts from a seeded binding rather than connecting wants.
 		 */
 		granted?: boolean;
 		/**

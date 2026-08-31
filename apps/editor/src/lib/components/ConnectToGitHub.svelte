@@ -1174,8 +1174,8 @@
 	 *
 	 * ⚠ **Both refusals are `packages/core`'s and neither costs a request.** `parseRemoteReference`
 	 * and `describeTokenProblem` catch the paste that went wrong — an empty clipboard, half a token, an
-	 * address in the wrong field — and say which, which is the whole of what the Remote settings
-	 * dialog's form does with the same two values. A refused token stays in the field: pasting
+	 * address in the wrong field — and say which, which is the whole of what any form over those two
+	 * values can do about them. A refused token stays in the field: pasting
 	 * eighty-two characters again to fix a one-character mistake is not a remedy.
 	 */
 	async function connectWithToken(event: SubmitEvent): Promise<void> {

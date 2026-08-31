@@ -965,8 +965,8 @@ describe('a repository carrying work this Workspace has not got', () => {
 	});
 
 	// ⚠ **The repository and nothing else.** No credential is sent on this path and none is read, so
-	// what the press hands over is the reference the author chose — the same call the address field
-	// in Remote settings makes, reached from where the question was actually asked.
+	// what the press hands over is the reference the author chose, reached from where the question was
+	// actually asked rather than from a field the repository had to be typed into from memory.
 	test('hands the chosen repository to the Open, once', async () => {
 		const opened = await refused();
 

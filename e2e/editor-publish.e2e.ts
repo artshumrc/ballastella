@@ -1401,8 +1401,8 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * The stale sign-in, and where its refusal arrives.
 	 *
-	 * Rights are read at a bind and at a paste and at no other moment, so the Workspace menu's "Signed
-	 * in to GitHub" means *a credential is held*, never *a credential still works*. The label is left
+	 * Rights are read at a bind and at a paste and at no other moment, so the door's "Signed in to
+	 * GitHub" means *a credential is held*, never *a credential still works*. The sentence is left
 	 * alone and the **refusal** carries it instead. It arrives on opening the dialog, because planning
 	 * is the first credentialed request a publish makes and it sends nothing — so a scholar meets it
 	 * with the Remote untouched rather than after four thousand tiles have gone.

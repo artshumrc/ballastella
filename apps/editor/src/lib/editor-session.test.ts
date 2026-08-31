@@ -283,7 +283,7 @@ describe('deleting a Project, at the unit seam', () => {
 	 *
 	 * A folder Workspace finishes no deletion unattended, so a refusal is the whole of what a startup
 	 * there ever reports — and nothing ended one. No record expires, `#claim` drops one only on
-	 * create or duplicate, Workspace settings cannot reach the Workspace that is open, and the
+	 * create or duplicate, the journal discard cannot reach the Workspace that is open, and the
 	 * panel's dismiss is keyed on report *contents*, so the identical report returns at every
 	 * startup. The sentence's one remedy — "delete it again" — destroys the Project of whoever's
 	 * folder this is.
