@@ -33,7 +33,7 @@ export type StoragePersistence = 'granted' | 'refused' | 'unsupported';
  * acting on.
  *
  * The refusal is returned rather than swallowed because the user is entitled to know that the thing
- * holding all of their work is evictable, and what to do about it. Workspace settings says so.
+ * holding all of their work is evictable, and what to do about it. Workspace Home says so.
  *
  * `storage` is injectable so the three answers can be asserted. A real browser cannot be made to
  * produce all three — Chromium decides on its own heuristics, and Firefox's `persist()` blocks on a

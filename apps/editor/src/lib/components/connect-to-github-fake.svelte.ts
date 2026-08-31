@@ -64,6 +64,14 @@ export class FakeStorage {
 	name = $state('Atlas');
 	signedIn = $state(false);
 	identity = $state('');
+	/**
+	 * Whether this computer has been asked to keep the sign-in past the tab (ADR-0041).
+	 *
+	 * A signal because the sentence beside the choice is a reading of it: what happens when the tab
+	 * closes is the whole subject of the choice, so ticking it has to change the sentence rather than
+	 * leave the author with the answer that was true a moment ago.
+	 */
+	rememberSignIn = $state(false);
 	credential = $state<string | null>(null);
 	/**
 	 * A `remote.json` nothing on this machine corroborates, waiting to be answered.
@@ -183,6 +191,14 @@ export class FakeStorage {
 		this.expiry = null;
 		this.signOut();
 		throw ranOut;
+	}
+
+	/** Every value the preference was set to, in order, so a press is distinguishable from a render. */
+	readonly remembers: boolean[] = [];
+
+	setRememberSignIn(remember: boolean): void {
+		this.remembers.push(remember);
+		this.rememberSignIn = remember;
 	}
 
 	signOut(): void {

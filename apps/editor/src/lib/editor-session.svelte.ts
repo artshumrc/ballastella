@@ -206,7 +206,7 @@ export const workspaceIdentityOf = (key: string): WorkspaceIdentity =>
  * A journal key as a **Workspace the user recognises**, never as the key itself.
  *
  * ⚠ **`opfs:` is a debug token and it was reaching the screen**, in "finished saving in
- * `opfs:Marking 2026`" and on the buttons in Workspace settings. CONTEXT.md is that the UI names
+ * `opfs:Marking 2026`" and on the buttons that act on a Workspace. CONTEXT.md is that the UI names
  * the Workspace; a scholar has never seen that prefix and has no way to find out what it means.
  *
  * The folder case keeps a qualifier rather than dropping the distinction, because a folder
@@ -935,7 +935,7 @@ export class EditorSession {
 	 * ⚠ **The only other exit a refusal has is the destructive one.** A folder Workspace finishes no
 	 * deletion unattended, so a refusal is the *whole* of what a startup there ever reports — and
 	 * nothing else ends one. No record expires; `Workspace.#claim` drops one only when a
-	 * Project is created or duplicated under that name; and Workspace settings' discard is by
+	 * Project is created or duplicated under that name; and the journal discard is by
 	 * construction unable to reach the Workspace that is open, which is always the one showing the
 	 * refusal. The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
 	 * byte-identical report and shows it again. Without this the user is left with a warning at every
@@ -1050,7 +1050,7 @@ export class EditorSession {
 	 * ⚠ **`'superseded'` is the first skip that keeps its entry, and a kept entry has no other
 	 * exit.** The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
 	 * byte-identical report and shows it again; nothing expires; and the only other remedy on offer
-	 * is discarding the whole Workspace's journal from Workspace settings, which takes every other
+	 * is discarding the whole Workspace's journal from Workspace Home, which takes every other
 	 * file's rescue copy with it. That is the same corner an unfinished deletion was left in, and
 	 * this is the same answer: an exit the user can take once they have read the sentence.
 	 *

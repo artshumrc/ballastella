@@ -7,13 +7,13 @@ import {
 	assertNotReviewing as refuseInsideReview,
 	assertReviewing as refuseOutsideReview,
 	chooseWorkspaceFolder,
+	copyWorkspaceFiles,
 	openWorkspaceFromGitHub,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
 	exportWorkspaceTar,
 	forgetFolderWorkspace,
-	forgetWorkspaceFolder,
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
 	isFolderWorkspaceSupported,
@@ -1201,29 +1201,6 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Go back to browser-managed storage.
-	 *
-	 * The folder is untouched and every Project in it stays where it is; so does every Project in
-	 * OPFS, which is why trying the folder option and changing one's mind costs nothing.
-	 *
-	 * **Whether the handle is dropped depends on which of two buttons this is.** Beside "Choose
-	 * Workspace folder…" it is a deliberate switch, and dropping it is right: continuing to offer a
-	 * folder the user has just moved away from is nagging, and choosing it again brings it back in one
-	 * gesture. Beside "Locate Workspace folder again", when the Workspace cannot be reached, it is the
-	 * escape hatch — a user whose external drive is unplugged clicking it to keep working — and
-	 * dropping the grant there costs them a trip back through the operating system's dialog for a
-	 * folder they never gave up. Same button, two meanings, told apart by whether the Workspace they
-	 * are leaving was reachable.
-	 */
-	async useBrowserStorage(): Promise<void> {
-		this.problem = '';
-		if (this.session.status !== 'unreachable') {
-			await forgetWorkspaceFolder().catch(() => undefined);
-		}
-		await this.openWorkspace(this.workspaceName);
-	}
-
-	/**
 	 * The mark on a store, with an unreadable answer kept rather than turned into "your own".
 	 *
 	 * `readReviewMark` already treats an unreadable *file* as a mark; this covers the store itself
@@ -1369,6 +1346,60 @@ export class WorkspaceStorage {
 			this.problem = describeFolderProblem(cause);
 			return '';
 		}
+	}
+
+	/**
+	 * Move the open browser Workspace into a folder the author picks, and switch into it.
+	 *
+	 * ⚠ **The only way work that already exists reaches a folder on disk.** {@link restoreFrom} and
+	 * {@link openFromGitHub} both always make a browser Workspace, and a folder Workspace can
+	 * otherwise be made only empty and new — so without this a scholar's existing Projects could
+	 * never become files they can see (ADR-0042).
+	 *
+	 * **Nothing is deleted and nothing is overwritten.** The folder has to be empty, which
+	 * `copyWorkspaceFiles` refuses without; the Workspace this copies *from* is left exactly as it
+	 * was and stays on the roster, so an author who looks in the folder and finds their work there
+	 * deletes the browser copy themselves, from the row it is listed on. A move that removed the
+	 * author's only copy on the strength of a walk that had just finished is the loss ADR-0024 exists
+	 * to rule out.
+	 *
+	 * **Must be called from a click or a keypress**: the picker needs transient user activation.
+	 *
+	 * **Flushed first**, for {@link backUp}'s reason: a debounced rename still in the `Autosave`
+	 * queue is work the author has done, and a copy taken around it arrives in the folder missing the
+	 * last thing they typed.
+	 *
+	 * `''` when the picker was closed without choosing, which is a cancelled gesture rather than a
+	 * failure and needs no message.
+	 *
+	 * @throws Error whose message is for the author to read: a review copy, a Workspace that has not
+	 *   opened, a folder that already holds files, or a folder the browser would not give us.
+	 */
+	async moveIntoFolder(onProgress?: TransferProgressListener): Promise<string> {
+		this.assertNotReviewing('moved into a folder');
+		this.assertRecovered('moved into a folder');
+		this.problem = '';
+		await this.session.flush().catch(() => undefined);
+
+		const moving = this.name;
+		const store = await chooseWorkspaceFolder().catch((cause: unknown) => {
+			throw new Error(describeFolderProblem(cause));
+		});
+		if (!store) return '';
+
+		const copied = await copyWorkspaceFiles({
+			from: this.session.store,
+			to: store,
+			workspaceName: moving,
+			onProgress
+		});
+		await this.#adoptFolder(store);
+		return (
+			`“${moving}” is now in the folder “${store.folderName}”, as ` +
+			`${copied.files} ${copied.files === 1 ? 'file' : 'files'} you can see. ` +
+			`The copy in browser storage is untouched and still on the Workspace list, so look in the ` +
+			`folder first and delete it from there when you are satisfied.`
+		);
 	}
 
 	/** Whether `name` is the browser-storage Workspace **this tab** currently has open. */
@@ -1909,9 +1940,9 @@ export class WorkspaceStorage {
 			if (this.backing === 'folder') {
 				// ⚠ **`workspaceName` is carried across a folder adopt unchanged, and coming out of a
 				// review copy that is the one thing it must not be.** It is "where a switch back to
-				// browser storage goes", and left pointing at the review copy it would send
-				// {@link useBrowserStorage} back into the Workspace the user has just left — or, after a
-				// discard, recreate the empty directory of one that has just been deleted.
+				// browser storage goes", and left pointing at the review copy it would send the next
+				// switch back into the Workspace the user has just left — or, after a discard, recreate
+				// the empty directory of one that has just been deleted.
 				this.workspaceName = this.ownWorkspaceName;
 				rememberWorkspaceName(this.ownWorkspaceName);
 				return;

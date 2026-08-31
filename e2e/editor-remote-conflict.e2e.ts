@@ -10,14 +10,14 @@ import {
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
+	doorButton,
 	expectWorkspaceNamed,
-	openRemoteSettings,
-	revealBindToken,
 	seedBaseline,
 	seedGitHubCredential,
 	seedRemoteRelationship,
 	checkRemoteStatus,
 	openTheDoor,
+	closeTheDoor,
 	showRemoteStatusDetail,
 	updateFromGitHub,
 	switchToWorkspace
@@ -317,18 +317,22 @@ async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promi
 }
 
 test.describe('binding to a Remote that already carries somebody else’s Projects', () => {
+	/**
+	 * Connect from the door, choosing the repository GitHub says the author has granted.
+	 *
+	 * ⚠ **There is no address field and no token field** (ADR-0042): the sequence lists what GitHub
+	 * answers and the row is the gesture, so a refused bind is refused where the author chose.
+	 */
 	async function bind(page: Page): Promise<void> {
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(TOKEN);
-		await page.getByTestId('bind-remote').click();
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').first().click();
 	}
 
 	test('is refused, names the Project, and points at Open a Workspace from GitHub', async ({
 		page
 	}) => {
 		await start(page, {
+			granted: true,
 			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 			onRemote: {
 				'ballastella-site.json': siteRecord([
@@ -338,15 +342,21 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida 1657"}'
 			}
 		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
 
 		await bind(page);
 
-		const problem = page.getByTestId('remote-problem');
-		await expect(problem).toContainText('“Florida 1657”');
-		await expect(problem).toContainText(`Open ${REMOTE} from GitHub`);
+		// The refusal, on the step the author chose from, naming the Project — and the operation that
+		// answers it beside it rather than a full stop (ADR-0041).
+		const refusal = page.getByTestId('connect-projects-not-here');
+		await expect(refusal).toContainText('“Florida 1657”', { timeout: 30_000 });
+		await expect(refusal).toContainText(`Open ${REMOTE} from GitHub`);
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible();
 		// The binding is what a Publish button aims at, so a refused bind must leave none — otherwise
 		// the next press is the one that deletes the Project just named.
-		await expect(page.getByTestId('remote-outcome')).toHaveText('');
+		await closeTheDoor(page);
+		await expect(doorButton(page)).toHaveText('Connect to GitHub');
 	});
 
 	// ⚠ **The refusal is not softened, and it stops being a dead end.** Arriving on a second device is
@@ -447,6 +457,7 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 
 	test('goes ahead when the Remote’s Projects are all here', async ({ page }) => {
 		await start(page, {
+			granted: true,
 			workspace: {
 				...projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 				...projectFiles('florida-1657', 'Florida 1657')
@@ -458,12 +469,14 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam 1625"}'
 			}
 		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
 
 		await bind(page);
 
-		await expect(page.getByTestId('remote-outcome')).toContainText(
-			`This Workspace is bound to ${REMOTE}`
-		);
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, {
+			timeout: 30_000
+		});
 	});
 });
 

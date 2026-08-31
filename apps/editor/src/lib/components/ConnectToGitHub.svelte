@@ -222,6 +222,7 @@
 	const repositoryFieldId = `${fieldId}-repository`;
 	const tokenFieldId = `${fieldId}-token`;
 	const addressFieldId = `${fieldId}-address`;
+	const rememberFieldId = `${fieldId}-remember-sign-in`;
 
 	/** What the fork's author typed, in the step that is the only place this sequence has fields. */
 	let repository = $state('');
@@ -732,8 +733,8 @@
 	 * composes for exactly this — rendered as it arrives, because a wording of ours would be a second
 	 * account of a lifetime GitHub owns.
 	 *
-	 * The same call `RemoteSettings` makes on opening, and for the same reason: this is the screen a
-	 * scholar comes to when they suspect their sign-in has gone.
+	 * Asked on opening rather than at the first press, because this is the screen a scholar comes to
+	 * when they suspect their sign-in has gone.
 	 */
 	$effect(() => {
 		if (!open) return;
@@ -2008,8 +2009,8 @@
 					<!--
 						⚠ **Connecting once is not permanent**. A Workspace that has a Remote derives the
 						connected step from having one, so the way back to the choice is a press that says the
-						author wants a different one — and it is here, on the step they land on, rather than
-						behind Workspace settings.
+						author wants a different one — and it is here, on the step they land on, which is the
+						only place a repository is chosen at all.
 					-->
 					{#if !pullOnly}
 						<button
@@ -2071,6 +2072,67 @@
 			</section>
 		{/if}
 
+		{#if storage.signInWithGitHubOffered}
+			<!--
+				⚠ **What is true of the sign-in, and the one choice about it, on every step of the door**
+				(ADR-0041). Both were in the Remote dialog ADR-0042 deletes, and both belong wherever a
+				sign-in is reachable: *which* account is the question a scholar on a shared or a
+				classmate's machine is actually asking, and the choice below is about this computer rather
+				than about the sign-in currently held — so it is answerable before the button is pressed,
+				which is the order a person meets it in.
+
+				The account is read from the credential store rather than from anything remembered, so it
+				says what is true: the store is sealed while a Review Workspace is open (ADR-0033), and a
+				token that cannot be read is one this screen must not claim to hold.
+
+				⚠ **The sentence states which of the two rules is in force**, rather than one wording that
+				is true under both. What happens when this tab closes is the whole subject of the choice
+				beneath it, and a scholar deciding whether to tick it is owed the current answer in the
+				same breath.
+
+				⚠ **Absent where no App is configured.** There is nothing renewable to keep: a fork's whole
+				authentication is a pasted token, which lives in this tab and has no refresh half at all,
+				so the choice would be a promise this deployment cannot make.
+			-->
+			<section class="border-t border-base-300 pt-3" data-testid="connect-credential">
+				{#if storage.signedIn}
+					<p class="max-w-prose text-sm opacity-70" data-testid="connect-signed-in">
+						Signed in to GitHub{storage.identity ? ` as ${storage.identity}` : ''}. The sign-in
+						survives a reload{storage.rememberSignIn
+							? `, and this computer keeps the part that renews it, so that coming back tomorrow does not mean signing in again. The eight-hour sign-in itself is still forgotten when this tab closes.`
+							: ` and is forgotten when this tab closes, so a shared machine keeps nothing of it.`}
+					</p>
+				{:else}
+					<p class="max-w-prose text-sm opacity-70" data-testid="connect-signed-out">
+						Not signed in to GitHub, so nothing can be published yet.
+					</p>
+				{/if}
+				<!--
+					⚠ **Unticked until the author ticks it** (ADR-0041). The rule narrows rather than falls: a
+					scholar on a shared or lab machine changes nothing and keeps the old behaviour, and a
+					durable credential is never a default somebody else chose.
+				-->
+				<label class="mt-3 flex max-w-prose items-start gap-2 text-sm" for={rememberFieldId}>
+					<input
+						id={rememberFieldId}
+						class="checkbox mt-0.5 checkbox-sm"
+						type="checkbox"
+						data-testid="remember-sign-in"
+						checked={storage.rememberSignIn}
+						onchange={(event) => storage.setRememberSignIn(event.currentTarget.checked)}
+					/>
+					<span>
+						Keep me signed in on this computer.
+						<span class="block opacity-70">
+							Only the part that renews the sign-in is kept, never the part that publishes, and it
+							is kept outside every Workspace — nothing you download and nothing you publish carries
+							any of it. Leave this off on a shared or library computer.
+						</span>
+					</span>
+				</label>
+			</section>
+		{/if}
+
 		<!--
 			What the connection stands *with*, and what refused it. Two regions rather than one, because
 			the first is not a failure: a repository that is correctly connected stays connected when
@@ -2094,7 +2156,7 @@
 			⚠ **Sign out is beside Close, so it is on every step a sign-in is held through**. The
 			credential lasts as long as this tab and no longer, which is what makes a shared machine safe
 			to walk away from — but "as long as the tab" is too long for somebody handing the seat over
-			now, and Workspace settings is not where they would look for it.
+			now, and the door is where everything else about the sign-in already is.
 		-->
 		{#if storage.signedIn}
 			<button class="btn" data-testid="connect-sign-out" onclick={() => signOut()}>Sign out</button>
