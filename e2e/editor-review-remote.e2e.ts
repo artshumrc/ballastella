@@ -286,6 +286,9 @@ test.describe('reviewing one Project from a Remote', () => {
 		// ⚠ **Every control on this path from the keyboard alone**. The trigger, both
 		// fields and the confirmation, reached and pressed without a pointer: one taken out of the tab
 		// order passes a `click()` while being unreachable in the app.
+		const menu = page.getByTestId('import-existing-project');
+		await menu.focus();
+		await page.keyboard.press('Enter');
 		const trigger = page.getByTestId('review-remote');
 		await trigger.focus();
 		await page.keyboard.press('Enter');

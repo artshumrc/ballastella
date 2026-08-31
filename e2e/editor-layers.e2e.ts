@@ -626,6 +626,59 @@ async function waitForOpeningView(page: Page): Promise<void> {
 
 const rows = (page: Page) => page.getByTestId('layer-row');
 
+type HeaderForeground = {
+	control: string;
+	opacity: string;
+	color: string;
+	ink: string;
+};
+
+/** The inherited kind-content ink each visible header control receives. */
+const headerForegrounds = (page: Page, theme: string): Promise<HeaderForeground[]> =>
+	page.evaluate((nextTheme) => {
+		document.documentElement.dataset.theme = nextTheme;
+		return [...document.querySelectorAll<HTMLElement>('[data-testid="layer-row"]')].flatMap((row) => {
+			const kind = row.querySelector<HTMLElement>('[data-testid="layer-kind"]');
+			if (!kind) return [];
+			const ink = getComputedStyle(kind).color;
+			const controls: [string, HTMLElement | null][] = [
+				['name', row.querySelector<HTMLElement>('[data-testid="layer-name-text"]')],
+				['handle', row.querySelector<HTMLElement>('[data-testid="layer-drag-handle"]')],
+				['disclosure', row.querySelector<HTMLElement>('[data-testid="layer-disclosure"]')]
+			];
+			return controls.flatMap(([control, element]) =>
+				element
+					? [
+						{
+							control,
+							opacity: getComputedStyle(element).opacity,
+							color: getComputedStyle(element).color,
+							ink
+						}
+					]
+					: []
+			);
+		});
+	}, theme);
+
+test('Layer header controls use each kind’s paired content token in Carto Light and Bumblebee', async ({
+	page
+}) => {
+	const directory = await projectWithImage(page);
+	await openLayers(page, directory, { drawn: 0 });
+	await page.getByTestId('add-annotation-layer').click();
+	await expect(rows(page)).toHaveCount(2);
+
+	for (const theme of ['carto-light', 'bumblebee']) {
+		const foregrounds = await headerForegrounds(page, theme);
+		expect(foregrounds, theme).toHaveLength(6);
+		for (const foreground of foregrounds) {
+			expect(foreground.opacity, `${theme} ${foreground.control} opacity`).toBe('1');
+			expect(foreground.color, `${theme} ${foreground.control} colour`).toBe(foreground.ink);
+		}
+	}
+});
+
 /** MapLibre's own account of the drawing order, bottom first. */
 const layerOrder = (page: Page): Promise<string[]> =>
 	page.evaluate(() => window.ballastellaLayerStack?.map.getLayersOrder() ?? []);

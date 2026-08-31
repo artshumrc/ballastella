@@ -377,11 +377,16 @@ test('says on the Layer, in text, where this map’s tiles live', async ({ page 
 	// attribute and dropped the words would pass an attribute assertion.
 	// Inside the open card since the Layers revision, so the card is opened rather than the badge
 	// waited for on a collapsed row — where it is not in the DOM at all.
-	const badge = (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-image-mode');
+	const card = await openLayerRow(page, layerRows(page).first());
+	const badge = card.getByTestId('layer-image-mode');
 	await expect(badge).toBeVisible();
+	await expect(badge.locator('xpath=preceding-sibling::*[1]')).toHaveAttribute(
+		'data-testid',
+		'align-map-image'
+	);
 	// "Remote reference" against "Local copy" — the words say where the tiles are, which is what
-	// decides whether a reader needs the network. Still words: the `badge-warning` colour beside them
-	// is the second channel, never the only one.
+	// decides whether a reader needs the network. Still words: colour is a second channel, never the
+	// only one.
 	await expect(badge).toHaveText(/remote reference/i);
 	await expect(badge).toHaveAttribute('data-image-mode', 'referenced');
 });

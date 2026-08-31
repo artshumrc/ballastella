@@ -29,13 +29,11 @@
 	let {
 		layers: initial,
 		outcomes = {},
-		referencedImageIds = new Set<string>(),
 		openLayerId: initialOpen = null,
 		onmove
 	}: {
 		layers: readonly Layer[];
 		outcomes?: Readonly<Record<string, DrawnOutcome>>;
-		referencedImageIds?: ReadonlySet<string>;
 		openLayerId?: string | null;
 		/** Reported as well as applied, so a test can assert what the component asked for. */
 		onmove?: (id: string, toIndex: number) => void;
@@ -77,7 +75,6 @@
 	{annotationContents}
 	{layers}
 	{outcomes}
-	{referencedImageIds}
 	{openLayerId}
 	onopen={(id) => (openLayerId = id)}
 	ontypename={() => {}}

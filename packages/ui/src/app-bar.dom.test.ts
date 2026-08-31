@@ -61,6 +61,7 @@ test('carries the one theme picker both apps share', () => {
 	const toggle = testid('theme-toggle')!;
 	expect(toggle).toHaveAccessibleName('Theme');
 	expect(toggle).toHaveAttribute('aria-controls');
+	expect(testid('theme-toggle-menu')).toHaveAttribute('data-theme', 'carto-light');
 	expect(testid('theme-option-carto-light')).toHaveAttribute('aria-current', 'true');
 	expect(testid('theme-option-synthwave')).not.toHaveAttribute('aria-current');
 

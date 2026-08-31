@@ -1336,6 +1336,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 		await signedIn(page);
 		await page.keyboard.press('Escape');
 
+		await page.getByTestId('import-existing-project').click();
 		await page.getByTestId('import-project').click();
 		await page
 			.getByRole('dialog', { name: 'Import a Project' })

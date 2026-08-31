@@ -146,7 +146,6 @@ const stack = (options: {
 	layers: readonly Layer[];
 	outcomes?: Readonly<Record<string, DrawnOutcome>>;
 	openLayerId?: string | null;
-	referencedImageIds?: ReadonlySet<string>;
 }): void =>
 	shown(
 		mount(LayerList, {
@@ -154,7 +153,6 @@ const stack = (options: {
 			props: {
 				layers: options.layers,
 				outcomes: options.outcomes ?? {},
-				referencedImageIds: options.referencedImageIds ?? new Set<string>(),
 				openLayerId: options.openLayerId ?? null,
 				...handlers()
 			}
@@ -198,7 +196,6 @@ type OptionalProps = {
 	ondragopacity?: (id: string, opacity: number) => void;
 	onmove?: (id: string, toIndex: number) => void;
 	ondelete?: (id: string) => void;
-	referencedImageIds?: ReadonlySet<string>;
 	noLayersGuidance?: Snippet;
 	foreignLayerNote?: Snippet;
 	mapContents?: Snippet<[MapLayer]>;
@@ -413,7 +410,6 @@ describe('one Layer is open at a time', () => {
 				props: {
 					layers: [mapLayer('l-map', 'La Floride')],
 					outcomes: {},
-					referencedImageIds: new Set<string>(),
 					openLayerId: null,
 					...spies
 				}
@@ -868,23 +864,6 @@ describe('a control the consumer does not ask for is not there', () => {
 		expect(one('layer-kind')).toHaveTextContent('Map Image');
 	});
 
-	test('draws the tiles badge only with referencedImageIds', () => {
-		offering(
-			{ referencedImageIds: new Set(['image-l-map']) },
-			{ layers: oneMap(), openLayerId: 'l-map' }
-		);
-
-		expect(one('layer-image-mode')).toHaveAttribute('data-image-mode', 'referenced');
-
-		takeDown();
-		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
-
-		// Not an empty badge and not the other half of the sentence: no badge. Where a Map
-		// Image's tiles are held is the author's decision, and a consumer whose user cannot act on it
-		// has no reason to say it.
-		expect(one('layer-image-mode')).not.toBeInTheDocument();
-	});
-
 	test('draws a map card’s supplied regions, and leaves out each one it was not given', () => {
 		const outcomes: Readonly<Record<string, DrawnOutcome>> = {
 			'l-map': { status: 'refused', reason: NOT_ALIGNED }
@@ -951,8 +930,7 @@ describe('the two prop sets a real consumer passes', () => {
 		'layer-move-up',
 		'layer-move-down',
 		'layer-delete',
-		'layer-drag-handle',
-		'layer-image-mode'
+		'layer-drag-handle'
 	];
 
 	const stackOfBoth = (): Layer[] => [
@@ -967,8 +945,7 @@ describe('the two prop sets a real consumer passes', () => {
 		onshow: vi.fn(),
 		ondragopacity: vi.fn(),
 		onmove: vi.fn(),
-		ondelete: vi.fn(),
-		referencedImageIds: new Set(['image-l-map'])
+		ondelete: vi.fn()
 	});
 
 	/** What the published viewer passes. A Reader shows, hides and fades, and changes nothing. */

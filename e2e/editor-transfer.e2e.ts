@@ -1456,6 +1456,7 @@ test.describe('Importing a Project into the Workspace that is open', () => {
 		page: Page,
 		fixture: { name: string; mimeType: string; buffer: Buffer }
 	): Promise<void> {
+		await page.getByTestId('import-existing-project').click();
 		await page.getByTestId('import-project').click();
 		await importDialog(page).getByLabel('Project bundle').setInputFiles(fixture);
 	}
@@ -1484,6 +1485,7 @@ test.describe('Importing a Project into the Workspace that is open', () => {
 	}) => {
 		const before = await everyByteOf(page, 'My Workspace');
 
+		await page.getByTestId('import-existing-project').click();
 		await page.getByTestId('import-project').click();
 		// Said before a file is chosen, because that is when the author decides which offer they are in.
 		await expect(page.getByTestId('import-destination')).toHaveText('Import into My Workspace');
@@ -1579,17 +1581,19 @@ test.describe('Importing a Project into the Workspace that is open', () => {
 		page
 	}) => {
 		const before = await everyByteOf(page, 'My Workspace');
-		for (const name of [
-			'Import a Project…',
-			'Review a Project…',
-			'Review from GitHub…',
-			'New Project'
-		]) {
+		for (const name of ['Import Existing Project', 'New Project']) {
 			await expect(page.getByRole('button', { name })).toBeVisible();
 		}
+		await expect(page.getByRole('button', { name: 'Import a Project' })).toHaveCount(0);
 
 		// Reached and opened from the keyboard alone, rather than `click()`ed: a control taken out of
 		// the tab order passes a pointer test while being unreachable in the app (WCAG 2.4.3).
+		const menu = page.getByTestId('import-existing-project');
+		await menu.focus();
+		await page.keyboard.press('Enter');
+		for (const name of ['Import a Project', 'Review a Project', 'Review from GitHub']) {
+			await expect(page.getByRole('button', { name })).toBeVisible();
+		}
 		const trigger = page.getByTestId('import-project');
 		await trigger.focus();
 		await page.keyboard.press('Enter');
@@ -1606,44 +1610,17 @@ test.describe('Importing a Project into the Workspace that is open', () => {
 			.setInputFiles(await bundleFixture(HANDED_ON));
 		await page.keyboard.press('Escape');
 		await expect(importDialog(page)).toBeHidden();
-		await expect(trigger).toBeFocused();
+		await expect(menu).toBeFocused();
 		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
 
 		// And Cancel, which is the same promise through the other control.
 		await chooseToImport(page, await bundleFixture(HANDED_ON));
 		await importDialog(page).getByRole('button', { name: 'Cancel' }).click();
 		await expect(importDialog(page)).toBeHidden();
-		await expect(trigger).toBeFocused();
+		await expect(menu).toBeFocused();
 		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
 		expect(await workspaceNames(page)).toEqual(['My Workspace']);
 		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
-
-		// ⚠ **The third action, from the keyboard, because it is the one that creates rather than
-		// copies**. It sits in the same row as the two above and is the control an
-		// author reaches for by mistake, so "these three are told apart" is only true if all three can
-		// be operated the same way.
-		const fresh = page.getByRole('button', { name: 'New Project' });
-		await fresh.focus();
-		await page.keyboard.press('Enter');
-		const creating = page.getByRole('dialog', { name: 'New Project' });
-		await expect(creating).toBeVisible();
-		await page.keyboard.press('Escape');
-		await expect(creating).toBeHidden();
-		await expect(fresh).toBeFocused();
-		await expect(page.getByTestId('projects-count')).toHaveText('1 Project');
-
-		await page.keyboard.press('Enter');
-		await expect(creating).toBeVisible();
-		await creating.getByLabel('Project name').fill('Boston 1776');
-		const confirmNew = creating.getByRole('button', { name: 'Create Project' });
-		await confirmNew.focus();
-		await page.keyboard.press('Enter');
-		await expect(creating).toBeHidden();
-		await expect(page.getByRole('link', { name: 'Boston 1776' })).toBeVisible();
-		await expect(page.getByTestId('projects-count')).toHaveText('2 Projects');
-		// Creating a Project leaves the author on the hub, so the trigger is still there and is where
-		// focus belongs — nothing was copied, so there is no arrival to be sent to.
-		await expect(fresh).toBeFocused();
 	});
 
 	// Every way a source can be refused is asserted against real archive bytes at Seam 1. What only a

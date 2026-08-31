@@ -8,7 +8,7 @@
 		type ProjectSummary,
 		type WorkspaceMapImage
 	} from '@ballastella/core';
-	import { ProjectCardList } from '@ballastella/ui';
+	import { MenuPopover, ProjectCardList } from '@ballastella/ui';
 
 	import { describeAlignmentUsers } from '../alignment/used-by.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -38,6 +38,7 @@
 
 	let creating = $state(false);
 	let newName = $state('');
+	let importMenu = $state<ReturnType<typeof MenuPopover> | undefined>();
 
 	let renaming = $state<ProjectSummary | null>(null);
 	let renamedTo = $state('');
@@ -190,6 +191,11 @@
 		newName = '';
 		session.dismissProjectProblem();
 		creating = true;
+	};
+
+	const fromImportMenu = (action: () => void) => {
+		importMenu?.dismiss();
+		action();
 	};
 
 	const create = async () => {
@@ -678,53 +684,31 @@ What else the Hub says about a Project: whether this build can read it.
 				{/if}
 			</div>
 			<div class="flex flex-wrap gap-2">
-				<!--
-				Opening a Project somebody sent you. Beside New Project rather than in a menu, because
-				for a Firefox, Safari, or iPad user whose Workspace lives in storage they cannot see
-				(ADR-0001), a file is the only way anything gets in or out at all.
-
-				**Absent inside a review copy**, rather than present and refused. A review copy is a
-				throwaway Workspace holding one Project, and opening a second bundle from inside it would
-				land in a *third* Workspace — which is not wrong, but it invites a user to treat the review
-				copy as a place things accumulate, which is the mental model ADR-0024 is built to prevent.
-				The button is on the hub of their own Workspace, which is one exit away.
-			-->
-				{#if review === null}
-					<!--
-					Import: the inverse of Export, and the **first** of the three because it is what an
-					author reaching for a file someone sent them usually means (ADR-0037). It copies
-					into the Workspace already open, which is what makes it a different action from the
-					two beside it rather than a setting on one of them.
-
-					**Absent inside a review copy.** Copying the reviewed Project out is its own
-					operation with its own destination — the ordinary Workspace review began in — and
-					offering this one here would aim it at the throwaway Workspace instead.
-				-->
-					<button class="btn" data-testid="import-project" onclick={startImporting}>
-						Import a Project…
-					</button>
-					<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
-						Review a Project…
-					</button>
-					<!--
-					The same operation from a Remote rather than from a file. Absent inside a review copy
-					for the reason above and one more: a reviewer who follows a second link from inside the
-					first would accumulate review copies, which is the mental model ADR-0024 exists to
-					prevent.
-
-					⚠ **Shorter than its dialog's title, and the four labels have to share one line.**
-					The Projects column is pinned to `--workspace-home-measure` (42rem), and with
-					“Review a Project from GitHub…” spelled out here the row wrapped — dropping New
-					Project to a line of its own, pushing the first Project card down, and putting its
-					Delete button underneath the bottom-anchored recovery toast, where a click cannot
-					reach it. The dialog has room for the whole sentence; a button in a pinned column
-					does not.
-				-->
-					<button class="btn" data-testid="review-remote" onclick={startReviewingRemote}>
-						Review from GitHub…
-					</button>
-				{/if}
 				<button class="btn btn-primary" onclick={startCreating}>New Project</button>
+				{#if review === null}
+					<MenuPopover
+						bind:this={importMenu}
+						label="Import Existing Project"
+						buttonClass="btn"
+						testid="import-existing-project"
+					>
+						<li>
+							<button data-testid="import-project" onclick={() => fromImportMenu(startImporting)}>
+								Import a Project
+							</button>
+						</li>
+						<li>
+							<button data-testid="open-bundle" onclick={() => fromImportMenu(startOpeningBundle)}>
+								Review a Project
+							</button>
+						</li>
+						<li>
+							<button data-testid="review-remote" onclick={() => fromImportMenu(startReviewingRemote)}>
+								Review from GitHub
+							</button>
+						</li>
+					</MenuPopover>
+				{/if}
 			</div>
 		</div>
 
@@ -765,7 +749,7 @@ What else the Hub says about a Project: whether this build can read it.
 			Focused when the dialog closes, which is how the allocated result is *reached* rather than
 			merely rendered. The Import leaves the author on this hub, so the trigger above is still
 			mounted and `ModalDialog` would restore focus to it — putting a keyboard user back on
-			“Import a Project…” with no word about what the last press did.
+			“Import Existing Project” with no word about what the last press did.
 
 			`aria-live="polite"` rather than `role="status"`, this page's settled convention: the
 			transfer line above and the save indicator on the bar already account for that role here.
