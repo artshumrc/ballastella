@@ -2515,7 +2515,6 @@ describe('the words the sequence uses', () => {
 		'credential',
 		'namespace',
 		'token',
-		'sync',
 		'deploy',
 		'upload',
 		'push',

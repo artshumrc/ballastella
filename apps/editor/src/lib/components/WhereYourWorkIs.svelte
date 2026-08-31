@@ -103,7 +103,7 @@
 	data-save-state={shown}
 	data-remote-status={github === '' ? undefined : determination}
 	data-testid="where-your-work-is"
-	class="badge gap-1.5 badge-sm font-medium whitespace-nowrap shadow-sm"
+	class="badge h-8 gap-1.5 font-medium whitespace-nowrap shadow-sm"
 	class:badge-success={settled}
 	class:badge-warning={!settled}
 >

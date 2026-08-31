@@ -4,12 +4,10 @@
 // One module because the bar is on every screen, and because the two-step (menu, then item) is
 // exactly the kind of thing that gets copied slightly differently each time.
 //
-// ⚠ **There is no Workspace settings dialog and no Remote dialog** (ADR-0042). What was in them is
-// on Workspace Home — Backup, Restore, the install offer, the storage warning, the journal orphans
-// and *Move this Workspace into a folder…*, all read straight off the page — or behind the one door,
-// which {@link openTheDoor} reaches. The seven helpers that opened and closed those two dialogs are
-// gone rather than renamed: a spec that wants Backup is on Workspace Home, and a spec that wants
-// anything about GitHub is behind the door.
+// ⚠ **There is no Workspace settings dialog and no Remote dialog** (ADR-0042). The rename dialog
+// also holds Backup, Restore, the install offer, the storage warning, the journal orphans and *Move
+// this Workspace into a folder…*. GitHub remains behind the one door, which {@link openTheDoor}
+// reaches.
 
 import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
 
@@ -36,6 +34,13 @@ export async function openWorkspaceMenu(page: Page): Promise<void> {
 	await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
 }
 
+/** Open the editing dialog for a Workspace row in the roster. */
+export async function editWorkspace(page: Page, name: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	await page.getByRole('button', { name: `Rename ${name}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeVisible();
+}
+
 /** Switch to an existing named Workspace. */
 export async function switchToWorkspace(page: Page, name: string): Promise<void> {
 	await openWorkspaceMenu(page);
@@ -50,8 +55,7 @@ export async function switchToWorkspace(page: Page, name: string): Promise<void>
  * three steps and is written once here rather than at every call.
  */
 export async function renameWorkspace(page: Page, from: string, to: string): Promise<void> {
-	await openWorkspaceMenu(page);
-	await page.getByRole('button', { name: `Rename ${from}` }).click();
+	await editWorkspace(page, from);
 	await page.getByTestId('rename-workspace-name').fill(to);
 	await page.getByTestId('save-workspace-name').click();
 	await expect(page.getByTestId('workspace-announcement')).toContainText(to);
@@ -171,7 +175,7 @@ export async function openPublishFromTheDoor(page: Page): Promise<void> {
 
 /** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
 export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await expect(doorButton(page)).toHaveText(`Connected to ${remote}`);
+	await expect(doorButton(page)).toHaveText(`Synced with ${remote}`);
 }
 
 /**
@@ -224,7 +228,7 @@ export async function bindThroughTheDoor(page: Page): Promise<void> {
  * one: "publishes nowhere" and "names a repository" must not both be true.
  */
 export async function expectNoRemote(page: Page): Promise<void> {
-	await expect(doorButton(page)).toHaveText('Connect to GitHub');
+	await expect(doorButton(page)).toHaveText('Sync with GitHub');
 	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
 }
 

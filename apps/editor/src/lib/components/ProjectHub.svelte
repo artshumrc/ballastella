@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
+	import Plus from '@lucide/svelte/icons/plus';
 	import {
 		describeBytes,
 		parseRemoteReference,
@@ -684,8 +685,11 @@ What else the Hub says about a Project: whether this build can read it.
 				{/if}
 			</div>
 			<div class="flex flex-wrap gap-2">
-				<button class="btn btn-primary" onclick={startCreating}>New Project</button>
-				{#if review === null}
+				<button class="btn btn-success gap-2" onclick={startCreating}>
+					<Plus class="size-4" aria-hidden="true" />
+					New Project
+				</button>
+				{#if false && review === null}
 					<MenuPopover
 						bind:this={importMenu}
 						label="Import Existing Project"
@@ -693,18 +697,28 @@ What else the Hub says about a Project: whether this build can read it.
 						testid="import-existing-project"
 					>
 						<li>
-							<button data-testid="import-project" onclick={() => fromImportMenu(startImporting)}>
-								Import a Project
+							<button data-testid="import-project" class="font-semibold" onclick={() => fromImportMenu(startImporting)}>
+								Load a Project File
 							</button>
 						</li>
 						<li>
-							<button data-testid="open-bundle" onclick={() => fromImportMenu(startOpeningBundle)}>
-								Review a Project
+							<button data-testid="open-bundle" class="font-semibold" onclick={() => fromImportMenu(startOpeningBundle)}>
+								<div>
+									Review a Project
+									<span class="text-xs opacity-70 block font-normal">
+										Load a project archive file (.tar) in an isolated workspace
+									</span>
+								</div>  
 							</button>
 						</li>
 						<li>
-							<button data-testid="review-remote" onclick={() => fromImportMenu(startReviewingRemote)}>
-								Review from GitHub
+							<button data-testid="review-remote" class="font-semibold" onclick={() => fromImportMenu(startReviewingRemote)}>
+								<div>
+									Review from GitHub
+									<span class="text-xs opacity-70 block font-normal">
+										Load a project from a GitHub repository in an isolated workspace
+									</span>
+								</div>  
 							</button>
 						</li>
 					</MenuPopover>

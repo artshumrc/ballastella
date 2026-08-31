@@ -248,6 +248,14 @@ test('stays one row for an app that hands it no status', () => {
 	expect(testid('app-control')).toBeInTheDocument();
 });
 
+test('can place the theme control after an app’s controls in a single-row bar', () => {
+	render({ themeLast: true });
+
+	const control = testid('app-control')!;
+	const theme = testid('theme-toggle')!;
+	expect(control.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+});
+
 test('does not fold for an app that offers it nothing to fold into', () => {
 	// The editor's case. Authoring is desktop-only (ADR-0014), and its bar must behave at every width
 	// exactly as it did before there was a shell at all.

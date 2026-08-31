@@ -1303,7 +1303,7 @@ test.describe('publishing to a Remote', () => {
 			signedIn: false
 		});
 
-		await expect(page.getByTestId('connect-to-github')).toHaveText('Connect to GitHub');
+		await expect(page.getByTestId('connect-to-github')).toHaveText('Sync with GitHub');
 		await openTheDoor(page);
 
 		// The path to a repository, and no publish anywhere on it: there is nowhere to send this

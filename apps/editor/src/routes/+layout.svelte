@@ -6,6 +6,7 @@
 	import favicon32 from '$lib/assets/favicon-32.png';
 	import NavigationBar from '$lib/components/NavigationBar.svelte';
 	import RecoveredEdits from '$lib/components/RecoveredEdits.svelte';
+	import ResumeFolderWorkspace from '$lib/components/ResumeFolderWorkspace.svelte';
 	import ReviewBanner from '$lib/components/ReviewBanner.svelte';
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
@@ -125,6 +126,9 @@
 	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
 -->
 <UpdatePrompt />
+{#if host.storage}
+	<ResumeFolderWorkspace storage={host.storage} />
+{/if}
 <!--
 	The one place every dismissible message is drawn, for `UpdatePrompt`'s reason and one of its own: a
 	daisyUI toast is `position: fixed`, so a second container in the document would sit on top of this

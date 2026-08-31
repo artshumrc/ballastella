@@ -1205,9 +1205,9 @@ test.describe('what the browser has promised about keeping the work', () => {
 	 * `packages/core`'s `storage-durability.test.ts` over injected capability answers. What only a real
 	 * browser can prove is what this asserts: that the answer arrives at all with no user-agent string
 	 * read anywhere on the path, that it is one line rather than a paragraph, that the truth behind it
-	 * is a working disclosure, and that a backup is offered whatever the browser said.
+	 * is a working disclosure.
 	 */
-	test('is one line on Workspace Home, with the truth behind a disclosure and a backup either way', async ({
+	test('is one line on Workspace Home, with the truth behind a disclosure', async ({
 		page
 	}) => {
 		await page.goto(site.url);
@@ -1234,7 +1234,6 @@ test.describe('what the browser has promised about keeping the work', () => {
 		}
 
 		await expect(page.getByTestId('durability-detail')).toBeVisible();
-		await expect(page.getByTestId('download-backup')).toBeVisible();
 
 		// ⚠ Nothing on this path consults what the browser calls itself. That claim is over source
 		// rather than over a run — `packages/core`'s `storage-durability.test.ts` asserts it of the

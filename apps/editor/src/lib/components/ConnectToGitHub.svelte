@@ -623,13 +623,13 @@
 												: step === 'creating'
 													? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
 													: step === 'connecting'
-														? `${lastStep}: connecting ${connectingName}.`
+														? `${lastStep}: syncing ${connectingName}.`
 														: step === 'hydrate'
 															? `${notHereName} carries work this Workspace has not got, so it cannot publish there. It can be opened as a new Workspace instead.`
 															: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
-	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Connect to GitHub');
+	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Sync with GitHub');
 
 	/**
 	 * The Baseline, in words, on the step the repository is named on.
@@ -928,7 +928,7 @@
 		problem = '';
 		storage.declineLegacyRemote();
 		notices = [
-			'Left unbound. Nothing has been published and nothing on GitHub has changed. Connect this ' +
+			'Left unbound. Nothing has been published and nothing on GitHub has changed. Sync this ' +
 				'Workspace yourself if you do want it to publish somewhere.'
 		];
 	}
@@ -951,7 +951,7 @@
 			await storage.unbindRemote();
 			notices = [
 				`This Workspace no longer publishes to ${was}. Nothing there has been changed — the site ` +
-					`is exactly as it was, and connecting again puts things back.`
+					`is exactly as it was, and syncing again puts things back.`
 			];
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
@@ -1837,7 +1837,7 @@
 			</section>
 		{:else if step === 'connecting'}
 			<section data-testid="connect-connecting">
-				<h3 class="font-semibold">Connecting your repository</h3>
+				<h3 class="font-semibold">Syncing your repository</h3>
 				<p class="mt-3 max-w-prose">
 					Setting {connectingName} up as the place this Workspace publishes to, and checking you may publish
 					there. This is one step and there is nothing else to do.
@@ -1845,10 +1845,10 @@
 			</section>
 		{:else}
 			<section data-testid="connect-connected">
-				<h3 class="font-semibold">Connected</h3>
+				<h3 class="font-semibold">Synced</h3>
 				<p class="mt-1 max-w-prose" data-testid="connect-outcome">
 					<code>{boundName}</code>
-					is connected, so publishing sends this Workspace there and nowhere else. Setting up is over.
+					is synced, so publishing sends this Workspace there and nowhere else. Setting up is over.
 				</p>
 				<!--
 					The address, which is what the author was asked for: a link to give a professor or paste
@@ -2308,7 +2308,7 @@
 		</div>
 		<div>
 			<button class="btn w-fit btn-primary btn-sm" type="submit" data-testid="connect-paste">
-				Connect this Workspace
+				Sync this Workspace
 			</button>
 		</div>
 	</form>
