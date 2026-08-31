@@ -99,7 +99,13 @@ export async function chooseWorkspaceFolder(): Promise<FileSystemAccessProjectSt
 }
 
 /**
- * Reopen the folder from last visit, or `null` if there is none to reopen.
+ * Reopen the folder in the single pre-plural slot — whichever was picked last — or `null` if there is
+ * none.
+ *
+ * ⚠ **Not "the folder Workspace the author was in".** Since ADR-0042 that question is answered by a
+ * folder Workspace's own record, and this slot holds only the most recent pick, so the app reaches
+ * this only where no record could be kept — which is also the one case where there can be no second
+ * folder to confuse it with.
  *
  * **Must be called from a user gesture.** `requestPermission()` needs transient user activation,
  * and called automatically on load it fails silently — leaving an app that appears to have lost
@@ -117,11 +123,11 @@ export async function reopenWorkspaceFolder(): Promise<FileSystemAccessProjectSt
 }
 
 /**
- * The name of the folder waiting to be reopened, or `null`.
+ * The name of the folder in the single pre-plural slot, or `null`.
  *
  * Reads IndexedDB and nothing else — no permission is queried and no prompt can appear — so it is
- * safe on load, and it is what lets the resume affordance name the folder rather than offering a
- * blank "reopen something".
+ * safe on load. Nothing in the running app calls it: the offer to reopen a remembered folder is what
+ * ADR-0042 deleted, and a folder Workspace's name comes from its own record.
  */
 export async function rememberedFolderName(): Promise<string | null> {
 	const folder = await recallFolder();
@@ -129,12 +135,13 @@ export async function rememberedFolderName(): Promise<string | null> {
 }
 
 /**
- * Stop offering to reopen the folder.
+ * Let the single pre-plural slot go.
  *
- * Called when the user goes back to browser storage. Their choice is honoured next visit rather
- * than second-guessed: continuing to offer a folder they have just moved away from is exactly the
- * nagging this rules out. The folder itself is untouched — every Project in it is still there, and
- * choosing it again brings them back.
+ * ⚠ **Nothing in the running app calls this, and that is the state ADR-0042 left it in.** A folder
+ * Workspace is a row in the roster with a record of its own, so there is no "go back to browser
+ * storage" that drops a folder grant and no offer that has to stop being made. What remains is the
+ * slot itself, which the one-time migration's trigger reads and which a test has to be able to
+ * empty. The folder is untouched either way — every Project in it is still there.
  */
 export async function forgetWorkspaceFolder(): Promise<void> {
 	remembered = null;

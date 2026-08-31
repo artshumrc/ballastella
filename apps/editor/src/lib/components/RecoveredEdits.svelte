@@ -253,8 +253,8 @@
 					reasons now keep one — a refusal that would otherwise destroy an edit, and an entry
 					waiting on the scholar to say which version wins — and "Got it" below is keyed on the
 					report's *contents*, so the next startup builds a byte-identical report and shows the
-					same warning again, for ever. Nothing else ends it: no record expires, and Workspace
-					settings' discard would take every other file's rescue copy with it.
+					same warning again, for ever. Nothing else ends it: no record expires, and the journal
+					discard on Workspace Home would take every other file's rescue copy with it.
 
 					Unlike the deletion's note, this one **is** destructive, so the label says which file it
 					throws away and the sentence beside it has already said the copy is the only one.

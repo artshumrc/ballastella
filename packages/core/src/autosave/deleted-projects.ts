@@ -91,8 +91,8 @@ import {
  *
  * ⚠ **Not under `ballastella.journal.`**, and not by accident: `journalledWorkspaces` and
  * `discardJournal` walk that prefix and treat everything under it as an edge of the write-ahead
- * journal. A deletion record living there would be counted as an unsaved edit in the Workspace
- * settings screen and discarded by the button that offers to throw those away.
+ * journal. A deletion record living there would be counted as an unsaved edit on Workspace Home and
+ * discarded by the button that offers to throw those away.
  */
 export const DELETED_KEY_PREFIX = 'ballastella.deleted.';
 

@@ -83,7 +83,8 @@
 	 *
 	 * ⚠ **Beside the bundle's button and not beside Clone's, because it is the bundle's operation.**
 	 * A Clone makes a Workspace of the user's own that they may go on working in, which is why it
-	 * lives in the Remote dialog with the binding. This makes a *review copy*, from a link somebody
+	 * lives behind the bar's one door to GitHub, beside the binding (ADR-0041). This makes a *review
+	 * copy*, from a link somebody
 	 * sent — the same throwaway, unbound, unpublishable Workspace `open-bundle` makes, differing only
 	 * in where the bytes come from — so it is offered where the reader already looks for "somebody
 	 * sent me a Project", and it is absent inside a review copy for the identical reason.

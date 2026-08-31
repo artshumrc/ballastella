@@ -394,7 +394,7 @@
 		try {
 			const rights = await storage.signIn(token.trim());
 			token = '';
-			// Read at the sign-in and said out loud here, as the Remote dialog does: every request the
+			// Read at the sign-in and said out loud here, as the door does: every request the
 			// forecast makes is a GET, so a token that can read and not write plans perfectly and meets
 			// its 403 at the first blob — with the whole website already written into the Workspace.
 			rightsNotice = rights.canPush

@@ -27,7 +27,7 @@ import {
  *     and the Annotations all really landed, in a store the app reads through its own code;
  *   - only the **owned namespace** arrives, so the publisher's `README.md`, `CNAME` and workflow do
  *     not become the opener's own content and are not published as theirs later (ADR-0033);
- *   - the result is **bound with a Baseline**, which the Remote dialog is the one place that says —
+ *   - the result is **bound with a Baseline**, which the bar's door is the one place that says —
  *     and bound to the repository the *user* chose, never the one the published tree named;
  *   - **opening the same repository again goes back to that Workspace** rather than making a second
  *     synchronized copy of it, which needs real IndexedDB and so is unreachable below this seam;

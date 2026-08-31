@@ -122,9 +122,10 @@ export async function exportWorkspaceTar(
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// ⚠ THE NAME IS NORMALISED HERE, AND SKIPPING THIS SHIPPED BACKUPS THAT COULD NOT BE RESTORED
 	//
-	// `displayName` is whatever the app calls this Workspace, and for a **folder** Workspace that is
-	// the operating system's folder name — which has never been through `toWorkspaceName` and is
-	// under no obligation to look like anything. Meanwhile `backupWorkspaceName` refuses to restore
+	// `displayName` is whatever the app calls this Workspace, which since ADR-0042 is a label its
+	// author typed — or, for a folder Workspace they have not renamed, the operating system's folder
+	// name. Neither has been through `toWorkspaceName` or is under any obligation to look like
+	// anything. Meanwhile `backupWorkspaceName` refuses to restore
 	// an archive whose root directory is not already normalised, because a name that changes under
 	// an idempotent normaliser is one our exporter could not have written.
 	//
