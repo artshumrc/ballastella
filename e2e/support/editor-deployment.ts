@@ -184,9 +184,9 @@ export async function baseMapArchiveFixture(): Promise<Buffer> {
  * on a stranger's uptime.
  *
  * `editor-alignment.e2e.ts` had already reached for this and missed: it picks a "bundled" catalog
- * entry over `streets-worldwide` and says doing otherwise "would buy nothing and cost a flake on
+ * entry over `streets` and says doing otherwise "would buy nothing and cost a flake on
  * every reading-room wifi this suite is ever run on". The intent was right; the lever was wrong,
- * because **all four** catalog entries share one `REMOTE_ARCHIVE`.
+ * because **all three** catalog entries share one `REMOTE_ARCHIVE`.
  */
 export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<void> {
 	const archive = await baseMapArchiveFixture();

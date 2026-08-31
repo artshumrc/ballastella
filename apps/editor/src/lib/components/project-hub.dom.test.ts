@@ -50,6 +50,7 @@ const map = (imageId: string, over: Partial<WorkspaceMapImage> = {}): WorkspaceM
 const project = (directory: string, over: Partial<ProjectSummary> = {}): ProjectSummary => ({
 	directory,
 	name: directory,
+	description: '',
 	updatedAt: '2026-01-02T03:04:05.000Z',
 	onFrontPage: true,
 	problem: null,
@@ -343,26 +344,47 @@ describe('a row’s actions, and the one that is destructive', () => {
 	/** The Project row, found by the control only a Project's row has. */
 	const projectRow = (): HTMLElement => {
 		const found = [...document.querySelectorAll<HTMLElement>('li')].find((row) =>
-			[...row.querySelectorAll('button')].some((button) => text(button).startsWith('Rename'))
+			[...row.querySelectorAll('button')].some((button) => text(button).startsWith('Edit'))
 		);
 		if (!found) throw new Error('no Project row is rendered');
 		return found;
 	};
 
-	// Delete last, so it is never where Rename was a moment ago, and `error` on nothing else, so the
-	// colour means one thing on this screen.
-	test('ends a Project row with Delete, and colours nothing else in error', () => {
+	// Open, Edit, Duplicate and nothing else. Nothing destructive is in the row at all: Delete is
+	// inside the Edit dialog, behind its own confirmation, so no click on this list can be the first
+	// half of losing a Project.
+	test('offers a Project row Open, Edit and Duplicate, and nothing in error', () => {
 		hub({ projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })] });
 
-		const buttons = [...projectRow().querySelectorAll('button')];
+		const row = projectRow();
+		const buttons = [...row.querySelectorAll('button')];
 		// By accessible name, because each label's per-row half is `sr-only` text beside the verb.
-		expect(buttons).toHaveLength(4);
-		expect(buttons[0]).toHaveAccessibleName('Rename Amsterdam 1625');
-		expect(buttons[1]).toHaveAccessibleName('Duplicate Amsterdam 1625');
-		expect(buttons[2]).toHaveAccessibleName('Export Amsterdam 1625');
-		expect(buttons[3]).toHaveAccessibleName('Delete Amsterdam 1625');
-		const destructive = buttons.filter((button) => button.className.includes('btn-error'));
-		expect(destructive).toEqual([buttons[buttons.length - 1]]);
+		expect(buttons).toHaveLength(3);
+		expect(buttons[0]).toHaveAccessibleName('Open Amsterdam 1625');
+		expect(buttons[1]).toHaveAccessibleName('Edit Amsterdam 1625');
+		expect(buttons[2]).toHaveAccessibleName('Duplicate Amsterdam 1625');
+		expect(row.querySelectorAll('.btn-error')).toHaveLength(0);
+	});
+
+	// A description is the author's own prose, so the line breaks they typed are the ones a reader
+	// gets. `whitespace-pre-line` is what does that, and CSS is not applied in this seam — so what is
+	// pinned here is the class carrying it and the text arriving unmangled.
+	test('renders a Project’s description, keeping the breaks its author typed', () => {
+		hub({
+			projects: [
+				project('amsterdam-1625', { description: 'Blaeu, 1649.\n\nSheets 1–4 only.' })
+			]
+		});
+
+		const described = at('project-description');
+		expect(described.textContent).toContain('Blaeu, 1649.\n\nSheets 1–4 only.');
+		expect(described.className).toContain('whitespace-pre-line');
+	});
+
+	test('says nothing at all about a Project whose author wrote no description', () => {
+		hub({ projects: [project('amsterdam-1625')] });
+
+		expect(document.querySelector('[data-testid="project-description"]')).toBeNull();
 	});
 
 	// A Map Image's row has the one action, and it is the same one in the same colour.

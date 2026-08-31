@@ -253,7 +253,7 @@ against that directory. Any later face arrives the same way.
   under [Records](#records).
 - **Two redesigns of the Layer rail.** One turned the cards into a continuous ruled ledger with each
   Layer's kind as a coloured left edge — which the no-left-border rule above would now forbid anyway.
-  The other added a fixed head and foot to the rail and moved the Base Map chooser and *Fit project*
+  The other added a fixed head and foot to the rail and moved the Base Map chooser and *Frame project*
   off the map pane, which would have deliberately deleted the arrangement
   `editor-base-map.e2e.ts:205-232` asserts. The one genuine repair inside the second — the add-Layer
   buttons scrolling out of reach — is kept, and needs no redesign.

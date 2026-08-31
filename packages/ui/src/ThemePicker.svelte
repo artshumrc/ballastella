@@ -28,8 +28,9 @@
 	{buttonClass}
 	align="end"
 	testid="theme-toggle"
-	menuClass="menu max-h-[min(32rem,calc(100vh-6rem))] w-72 flex-nowrap overflow-y-auto p-2"
-	theme={theme}
+	flush
+	menuClass="menu max-h-[min(32rem,calc(100vh-6rem))] w-72 flex-nowrap overflow-y-auto"
+	{theme}
 >
 	{#each THEMES as option (option.name)}
 		<li data-theme={option.name}>

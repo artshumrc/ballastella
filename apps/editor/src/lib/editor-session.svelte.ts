@@ -1132,14 +1132,31 @@ export class EditorSession {
 		}
 	}
 
-	async createProject(displayName: string): Promise<ProjectSummary | null> {
-		return this.#mutate(null, () => this.#workspace.createProject(displayName));
+	async createProject(displayName: string, description = ''): Promise<ProjectSummary | null> {
+		return this.#mutate(null, () => this.#workspace.createProject(displayName, description));
 	}
 
 	async renameProject(directory: string, displayName: string): Promise<void> {
-		await this.#mutate(directory, () => this.#workspace.renameProject(directory, displayName));
+		await this.updateProjectDetails(directory, { name: displayName });
+	}
+
+	/**
+	 * Change a Project's name, its description, or both, in one write.
+	 *
+	 * The open Project's copy of what changed is updated here as well, so the name in the editor's own
+	 * chrome does not go on showing what it was called before the hub renamed it.
+	 */
+	async updateProjectDetails(
+		directory: string,
+		details: { name?: string; description?: string }
+	): Promise<void> {
+		await this.#mutate(directory, () => this.#workspace.updateProjectDetails(directory, details));
 		if (this.openDirectory === directory && this.openProject) {
-			this.openProject = { ...this.openProject, name: displayName };
+			this.openProject = {
+				...this.openProject,
+				name: details.name ?? this.openProject.name,
+				description: (details.description ?? this.openProject.description).trim()
+			};
 		}
 	}
 

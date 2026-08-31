@@ -484,7 +484,11 @@ test.describe('exporting a Project as a bundle', () => {
 		await page.reload();
 
 		const download = page.waitForEvent('download');
-		await page.getByRole('button', { name: 'Export Amsterdam 1625' }).click();
+		await page.getByRole('button', { name: 'Edit Amsterdam 1625' }).click();
+		await page
+			.getByRole('dialog', { name: 'Edit Project' })
+			.getByRole('button', { name: 'Export Project' })
+			.click();
 		const { unpackTar } = await import('modern-tar');
 		const entries = await unpackTar(new Uint8Array(await readFile(await (await download).path())), {
 			strict: true
@@ -1018,10 +1022,10 @@ test.describe('opening a bundle lands in a review copy', () => {
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
 
-		await page.getByRole('button', { name: 'Rename Amsterdam 1625' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Rename Project' });
-		await dialog.getByLabel('New name').fill('Amsterdam 1625, marked');
-		await dialog.getByRole('button', { name: 'Rename' }).click();
+		await page.getByRole('button', { name: 'Edit Amsterdam 1625' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Edit Project' });
+		await dialog.getByLabel('Project name').fill('Amsterdam 1625, marked');
+		await dialog.getByRole('button', { name: 'Save Changes' }).click();
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625, marked' })).toBeVisible();
 	});
@@ -1557,10 +1561,10 @@ test.describe('Importing a Project into the Workspace that is open', () => {
 		// Ordinary editable work: renamed with the hub's own control, which no review copy offers and
 		// which writes to the Project this Import created.
 		const card = page.getByRole('heading', { level: 3, name: 'Amsterdam 1625 (imported)' });
-		await page.getByRole('button', { name: 'Rename Amsterdam 1625 (imported)' }).click();
-		const renameDialog = page.getByRole('dialog', { name: 'Rename Project' });
-		await renameDialog.getByRole('textbox').fill('Amsterdam, mine now');
-		await renameDialog.getByRole('button', { name: 'Rename', exact: true }).click();
+		await page.getByRole('button', { name: 'Edit Amsterdam 1625 (imported)' }).click();
+		const renameDialog = page.getByRole('dialog', { name: 'Edit Project' });
+		await renameDialog.getByLabel('Project name').fill('Amsterdam, mine now');
+		await renameDialog.getByRole('button', { name: 'Save Changes' }).click();
 		await expect(
 			page.getByRole('heading', { level: 3, name: 'Amsterdam, mine now' })
 		).toBeVisible();
@@ -1783,10 +1787,10 @@ test.describe('Importing the review copy back into the Workspace review began fr
 		await expect(banner(page)).toBeVisible();
 
 		// A review copy is editable on purpose, and what an Import keeps is what is on screen.
-		await page.getByRole('button', { name: 'Rename Amsterdam 1625' }).click();
-		const renaming = page.getByRole('dialog', { name: 'Rename Project' });
-		await renaming.getByLabel('New name').fill('Amsterdam 1625, marked');
-		await renaming.getByRole('button', { name: 'Rename' }).click();
+		await page.getByRole('button', { name: 'Edit Amsterdam 1625' }).click();
+		const renaming = page.getByRole('dialog', { name: 'Edit Project' });
+		await renaming.getByLabel('Project name').fill('Amsterdam 1625, marked');
+		await renaming.getByRole('button', { name: 'Save Changes' }).click();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625, marked' })).toBeVisible();
 
 		// Away and back, which is what the banner's first exit is for and what a later switch must not

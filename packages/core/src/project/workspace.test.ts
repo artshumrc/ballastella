@@ -91,6 +91,7 @@ describe('Workspace', () => {
 				{
 					directory: 'newer',
 					name: 'Newer',
+					description: '',
 					updatedAt: '2026-06-01T00:00:00.000Z',
 					onFrontPage: true,
 					problem: null
@@ -98,6 +99,7 @@ describe('Workspace', () => {
 				{
 					directory: 'older',
 					name: 'Older',
+					description: '',
 					updatedAt: '2026-01-01T00:00:00.000Z',
 					onFrontPage: true,
 					problem: null
@@ -122,6 +124,7 @@ describe('Workspace', () => {
 				{
 					directory: 'from-the-future',
 					name: 'from-the-future',
+					description: '',
 					updatedAt: '',
 					onFrontPage: true,
 					problem: 'format-too-new'
@@ -415,6 +418,7 @@ describe('Workspace', () => {
 				{
 					directory: 'from-the-future',
 					name: 'from-the-future',
+					description: '',
 					updatedAt: '',
 					onFrontPage: false,
 					problem: 'format-too-new'
@@ -431,6 +435,7 @@ describe('Workspace', () => {
 			expect((await workspace.listProjects())[0]).toEqual({
 				directory: 'broken',
 				name: 'broken',
+				description: '',
 				updatedAt: '',
 				onFrontPage: true,
 				problem: 'unreadable'

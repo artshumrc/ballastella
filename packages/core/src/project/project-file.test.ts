@@ -34,6 +34,40 @@ describe('project.json', () => {
 		expect(parseProjectFile(serialiseProjectFile(file))).toEqual(file);
 	});
 
+	// The field is optional in the file and `''` in the model, so both directions of that are pinned:
+	// a description survives a round trip, and a Project without one carries no key at all — the same
+	// byte-identity promise `canonicalUrl` and `onFrontPage` are shaped by.
+	it('round-trips a description', () => {
+		const file = newProjectFile('Boston 1775', new Date(0), 'The siege, sheet by sheet.');
+
+		expect(parseProjectFile(serialiseProjectFile(file)).description).toBe(
+			'The siege, sheet by sheet.'
+		);
+	});
+
+	it('writes no description field for a Project whose author has not written one', () => {
+		expect(decode(serialiseProjectFile(newProjectFile('x', new Date(0))))).not.toContain(
+			'description'
+		);
+	});
+
+	// Not prose this build can render, so it renders none — and it is still somebody's field, so it is
+	// carried back out untouched rather than destroyed (ADR-0010).
+	it('reads a description of some other shape as none, and writes it back unchanged', () => {
+		const bytes = encode({ formatVersion: 1, name: 'x', description: { en: 'a title' } });
+		const parsed = parseProjectFile(bytes);
+
+		expect(parsed.description).toBe('');
+		expect(decode(serialiseProjectFile(parsed))).toContain('"en": "a title"');
+	});
+
+	it('lets an author’s own description replace one it could not read', () => {
+		const bytes = encode({ formatVersion: 1, name: 'x', description: { en: 'a title' } });
+		const described = { ...parseProjectFile(bytes), description: 'Mine now.' };
+
+		expect(parseProjectFile(serialiseProjectFile(described)).description).toBe('Mine now.');
+	});
+
 	it('is written with a trailing newline, so a workspace in git has readable diffs', () => {
 		expect(decode(serialiseProjectFile(newProjectFile('x', new Date(0))))).toMatch(/\n$/);
 	});
@@ -57,6 +91,7 @@ describe('project.json', () => {
 		expect(Object.keys(opened).toSorted()).toEqual([
 			'baseMap',
 			'canonicalUrl',
+			'description',
 			'formatVersion',
 			'layers',
 			'name',
@@ -451,6 +486,7 @@ describe('Import Provenance (ADR-0037)', () => {
 		expect(Object.keys(parsed).toSorted()).toEqual([
 			'baseMap',
 			'canonicalUrl',
+			'description',
 			'formatVersion',
 			'importProvenance',
 			'layers',

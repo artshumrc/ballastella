@@ -86,6 +86,8 @@ export interface ProjectSummary {
 	readonly directory: string;
 	/** The display name. May be shared with another Project. */
 	readonly name: string;
+	/** What the Project is, in the author's words, or `''` — including for one that will not read. */
+	readonly description: string;
 	/** ISO 8601, or `''` for a Project whose manifest never recorded one. */
 	readonly updatedAt: string;
 	/**
@@ -389,7 +391,7 @@ export class Workspace {
 	 *
 	 * @throws ReservedDirectoryNameError when the folder name is reserved
 	 */
-	async createProject(displayName: string): Promise<ProjectSummary> {
+	async createProject(displayName: string, description = ''): Promise<ProjectSummary> {
 		const name = displayName.trim() || 'Untitled Project';
 		const preferred = toDirectoryName(name);
 		if (isReservedDirectoryName(preferred)) {
@@ -397,7 +399,7 @@ export class Workspace {
 		}
 		const directory = await this.#unusedDirectory(name);
 		this.#claim(directory);
-		await this.writeProject(directory, newProjectFile(name, this.#now()));
+		await this.writeProject(directory, newProjectFile(name, this.#now(), description.trim()));
 		return this.#summarise(directory);
 	}
 
@@ -413,8 +415,32 @@ export class Workspace {
 		displayName: string,
 		options: { debounce?: boolean } = {}
 	): Promise<ProjectSummary> {
+		return this.updateProjectDetails(directory, { name: displayName }, options);
+	}
+
+	/**
+	 * Change what a Project says about itself: its display name, its description, or both.
+	 *
+	 * One write for both, because the dialog that edits them changes them together and two writes
+	 * would leave a Project renamed but not redescribed if the second one failed. A field left out is
+	 * left alone rather than cleared, so a caller that knows about one of them cannot silently drop
+	 * the other — which is what {@link renameProject} relies on.
+	 */
+	async updateProjectDetails(
+		directory: string,
+		details: { name?: string; description?: string },
+		options: { debounce?: boolean } = {}
+	): Promise<ProjectSummary> {
 		const file = await this.readProject(directory);
-		await this.writeProject(directory, { ...file, name: displayName }, options);
+		await this.writeProject(
+			directory,
+			{
+				...file,
+				name: details.name ?? file.name,
+				description: (details.description ?? file.description).trim()
+			},
+			options
+		);
 		return this.#summarise(directory);
 	}
 
@@ -776,6 +802,7 @@ export class Workspace {
 			return {
 				directory,
 				...identityOf(directory, file),
+				description: file.description,
 				onFrontPage: file.onFrontPage,
 				problem: null
 			};
@@ -790,6 +817,8 @@ export class Workspace {
 			return {
 				directory,
 				...unreadableIdentity(directory),
+				// Nothing to say about a manifest that will not read; the row shows its problem instead.
+				description: '',
 				// Read out of the bytes even though nothing else here could be. See
 				// {@link readOnFrontPage}: the field is version-independent by construction, and the
 				// author's answer to "is this on my front page?" is the one thing about a Project from the

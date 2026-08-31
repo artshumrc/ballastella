@@ -44,6 +44,7 @@
 		open = $bindable(false),
 		buttonClass = 'btn btn-sm',
 		menuClass = 'menu w-64 p-0',
+		flush = false,
 		theme,
 		align = 'start',
 		testid,
@@ -57,6 +58,7 @@
 		open?: boolean;
 		buttonClass?: string;
 		menuClass?: string;
+		flush?: boolean;
 		/** The daisyUI theme for the popover's own surface, independent of themed menu items. */
 		theme?: string;
 		/**
@@ -139,6 +141,7 @@
 	data-testid={testid ? `${testid}-menu` : undefined}
 	data-theme={theme}
 	class="menu-popover rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+	class:menu-popover-flush={flush}
 	class:menu-popover-end={align === 'end'}
 	aria-label={ariaLabel}
 	style="position-anchor: --{id}"
@@ -167,6 +170,10 @@
 	.menu-popover-end {
 		left: auto;
 		right: 1rem;
+	}
+
+	.menu-popover-flush {
+		padding: 0;
 	}
 
 	/*
