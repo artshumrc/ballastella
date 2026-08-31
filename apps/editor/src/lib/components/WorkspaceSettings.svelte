@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { describeBytes, describeRemote, type WorkspaceSize } from '@ballastella/core';
+	import { describeBytes, describeRemote } from '@ballastella/core';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	import InstallOffer from '$lib/pwa/InstallOffer.svelte';
@@ -52,14 +52,7 @@
 	 */
 	const pickableHere = $derived(storage.problem === '');
 
-	/** The Workspaces that may be deleted: every named one except the one being looked out of. */
-	const deletable = $derived(storage.workspaces.filter((name) => !storage.isOpen(name)));
-
-	/** The Workspace the confirmation is about, or `null` when nothing is being confirmed. */
-	let confirming = $state<{ name: string; size: WorkspaceSize | null } | null>(null);
-	/** Whether the confirmation is showing. Separate from {@link confirming} so Escape can close it. */
-	let confirmOpen = $state(false);
-	/** What happened to the last delete — or the last discarded journal, announced. */
+	/** What went when a journal with nowhere to go was last thrown away, announced. */
 	let outcome = $state('');
 
 	/** Whether the Remote dialog is showing. */
@@ -174,36 +167,15 @@
 				? `Threw away ${parts.join(' and ')} held for “${storage.workspaceLabel(key)}”. Nothing in any Workspace was touched.`
 				: `There was nothing left to throw away for “${storage.workspaceLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
 	}
-
-	async function askToDelete(name: string): Promise<void> {
-		// The size is read *before* the confirmation is answered rather than quoted from a tally,
-		// because what the user is agreeing to is the bytes that are there now (ADR-0016 wants the
-		// Workspace and its size named). `list` + `size`, never `read` — a Workspace with a copied
-		// pyramid in it is tens of thousands of files.
-		confirming = { name, size: null };
-		confirmOpen = true;
-		const size = await storage.sizeOfWorkspace(name).catch(() => null);
-		if (confirming?.name === name) confirming = { name, size };
-	}
-
-	async function confirmDelete(): Promise<void> {
-		const going = confirming;
-		if (!going) return;
-		confirmOpen = false;
-		confirming = null;
-		try {
-			await storage.deleteWorkspace(going.name);
-			outcome = `Deleted the Workspace “${going.name}” and everything in it.`;
-		} catch (cause) {
-			outcome = cause instanceof Error ? cause.message : String(cause);
-		}
-	}
 </script>
 
 <!--
 	Three groups, separated by a hairline and space rather than by a box each (ADR-0036): the questions
-	a scholar comes here with are "where is my work", "how do I not lose it", and "what may I do to
-	these Workspaces", and each group answers exactly one of them.
+	a scholar comes here with are "where is my work", "how do I not lose it", and "what has this browser
+	promised", and each group answers exactly one of them. **What may be *done* to the Workspaces
+	themselves is not among them**: a Workspace is opened, renamed and deleted from the roster on the
+	bar, which is the list of Workspaces and therefore where a person looking for one is looking
+	(ADR-0042).
 
 	⚠ **No tabs.** ADR-0016 would mandate radio inputs with `role="tablist"`, and whether this browser
 	will keep the work is the one sentence in the dialog that must not be behind anything.
@@ -244,17 +216,6 @@
 						Use browser storage instead
 					</button>
 				{:else if storage.canChooseFolder}
-					{#if storage.reopenable}
-						<!-- Must be a real click or keypress: `requestPermission()` needs transient user
-					     activation, and called automatically on load it fails silently (ADR-0012). -->
-						<button
-							class="btn btn-primary btn-sm"
-							data-testid="settings-reopen-folder"
-							onclick={() => storage.reopenFolder()}
-						>
-							Reopen “{storage.reopenable}”
-						</button>
-					{/if}
 					{#if pickableHere}
 						<button
 							class="btn btn-sm"
@@ -266,13 +227,6 @@
 					{/if}
 				{/if}
 			</div>
-
-			{#if storage.backing === 'browser' && storage.reopenable}
-				<p class="text-sm opacity-70">
-					This browser asks permission for <code>{storage.reopenable}</code> on every visit. Installing
-					Ballastella is what stops it asking.
-				</p>
-			{/if}
 
 			{#if storage.problem}
 				<!-- Never a silent fall back: a Workspace that quietly became browser storage again looks,
@@ -489,10 +443,13 @@
 					</div>
 				</div>
 			{/if}
+			<p aria-live="polite" class="text-sm" data-testid="workspace-delete-outcome">
+				{outcome}
+			</p>
 		</section>
 
 		<section class="flex flex-col items-start gap-3 pt-6">
-			<h3 class="font-serif text-lg">This browser and your Workspaces</h3>
+			<h3 class="font-serif text-lg">This browser</h3>
 
 			<!--
 				The offer the persistence sentence makes, reachable from here (ADR-0012): the permission and
@@ -500,72 +457,12 @@
 			-->
 			<h4 class="text-sm font-semibold">Ballastella as an installed application</h4>
 			<InstallOffer />
-
-			<h4 class="mt-3 text-sm font-semibold">Your Workspaces</h4>
-			<p class="text-sm opacity-70">
-				Switch between them from the Workspace button on the bar. Deleting one takes its Projects,
-				Map Images, and Alignments with it.
-			</p>
-			{#if deletable.length === 0}
-				<p class="text-sm opacity-70" data-testid="no-other-workspaces">
-					There are no other Workspaces to delete. The one you are in cannot be deleted from inside
-					itself.
-				</p>
-			{:else}
-				<ul class="flex w-full flex-col gap-2">
-					{#each deletable as name (name)}
-						<li class="flex items-center justify-between gap-3">
-							<span class="text-sm">{name}</span>
-							<button
-								class="btn btn-outline btn-sm btn-warning"
-								data-testid="delete-workspace"
-								onclick={() => askToDelete(name)}
-							>
-								Delete “{name}”…
-							</button>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-			<p aria-live="polite" class="text-sm" data-testid="workspace-delete-outcome">
-				{outcome}
-			</p>
 		</section>
 	</div>
 
 	{#snippet actions()}
 		<button class="btn" data-testid="close-workspace-settings" onclick={() => (open = false)}>
 			Close
-		</button>
-	{/snippet}
-</ModalDialog>
-
-<!--
-	The confirmation, naming the Workspace and what it weighs (ADR-0016). A second `<dialog>` rather
-	than a branch inside the first: `showModal()` stacks in the top layer, so the settings dialog stays
-	where it was and Escape dismisses only the question that was asked last.
--->
-<ModalDialog bind:open={confirmOpen} title="Delete this Workspace?">
-	<p class="max-w-prose">
-		“{confirming?.name}” and everything in it — every Project, every Map Image, every Alignment —
-		will be deleted from this browser. This cannot be undone.
-	</p>
-	<p class="mt-3 text-sm" data-testid="delete-workspace-size">
-		{#if confirming?.size}
-			It holds {confirming.size.files}
-			{confirming.size.files === 1 ? 'file' : 'files'}, {describeBytes(confirming.size.bytes)}.
-		{:else}
-			Working out what it holds…
-		{/if}
-	</p>
-	{#snippet actions()}
-		<button class="btn" onclick={() => (confirmOpen = false)}>Keep it</button>
-		<button
-			class="btn btn-warning"
-			data-testid="confirm-delete-workspace"
-			onclick={() => confirmDelete()}
-		>
-			Delete “{confirming?.name}”
 		</button>
 	{/snippet}
 </ModalDialog>

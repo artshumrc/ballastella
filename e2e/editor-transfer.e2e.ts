@@ -767,21 +767,19 @@ test.describe('opening a bundle lands in a review copy', () => {
 		await page.reload();
 
 		// ⚠ **The third clause, and it was asserted only in this test's title.** From inside the review
-		// copy, the user's own Workspace is one the settings dialog offers to delete — and the
-		// confirmation names what it weighs, which is the one place in the app a Workspace's size
-		// reaches a screen. It counts the user's own four files and **not** the six the bundle brought,
-		// which is what "not counted in its size" means. A size computed over the OPFS root would say
-		// ten here.
+		// copy, the user's own Workspace is one the roster offers to delete — and the confirmation
+		// names what it weighs, which is the one place in the app a Workspace's size reaches a screen.
+		// It counts the user's own four files and **not** the six the bundle brought, which is what
+		// "not counted in its size" means. A size computed over the OPFS root would say ten here.
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
-		await openWorkspaceSettings(page);
+		await openWorkspaceMenu(page);
 		await page.getByTestId('delete-workspace').click();
 		await expect(page.getByTestId('delete-workspace-size')).toContainText(
 			`It holds ${Object.keys(own).length} files,`
 		);
 		// Nothing is deleted: what was wanted was the number.
 		await page.getByRole('button', { name: 'Keep it' }).click();
-		await closeWorkspaceSettings(page);
 
 		// Back to the user's own Workspace: the reviewed Project is not in its list.
 		await page.getByTestId('leave-review').click();
@@ -2124,13 +2122,12 @@ test.describe('an Import that did not finish', () => {
 		// the one place a Workspace's size reaches a screen, and it is offered only for a Workspace the
 		// user is *not* in — so reaching it means standing somewhere else and looking back at this one.
 		await createWorkspace(page, 'Elsewhere');
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: `Delete ${DEFAULT_WORKSPACE}` }).click();
 		await expect(page.getByTestId('delete-workspace-size')).toContainText(
 			`It holds ${Object.keys(OWN).length} files,`
 		);
 		await page.getByRole('button', { name: 'Keep it' }).click();
-		await closeWorkspaceSettings(page);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
 		// ── A transaction that had committed. Every final path is durable and nothing may be rolled
