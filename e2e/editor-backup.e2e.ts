@@ -6,11 +6,10 @@ import { readFile } from 'node:fs/promises';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { renderedAnnotationLayers, waitForPaintedAnnotations } from './support/annotations.js';
 import {
-	closeWorkspaceSettings,
+	createFolderWorkspace,
 	expectNoRemote,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openWorkspaceSettings,
 	readRemoteRelationship,
 	seedRemoteRelationship
 } from './support/workspace';
@@ -161,8 +160,6 @@ async function seedWorkspace(
 	);
 }
 
-const settings = (page: Page) => page.getByRole('dialog', { name: 'Workspace settings' });
-
 /**
  * A path inside a named Workspace — an archive entry's, or a path in the OPFS root.
  *
@@ -186,10 +183,8 @@ test.describe('backing up a Workspace', () => {
 	test('downloads one tar named after the Workspace, holding the work and not the site', async ({
 		page
 	}) => {
-		await openWorkspaceSettings(page);
-
 		const downloading = page.waitForEvent('download');
-		await settings(page).getByTestId('back-up-workspace').click();
+		await page.getByTestId('back-up-workspace').click();
 		const download = await downloading;
 
 		// Named after the Workspace, because the Workspace's name is its directory name and that is the
@@ -221,15 +216,12 @@ test.describe('backing up a Workspace', () => {
 		expect(names.filter((name) => name.startsWith(`${DEFAULT_WORKSPACE}/_app/`))).toEqual([]);
 
 		// Said in words the user can read, not only drawn, and announced.
-		await expect(settings(page).getByTestId('transfer-outcome')).toContainText(
-			`${DEFAULT_WORKSPACE}.tar`
-		);
+		await expect(page.getByTestId('transfer-outcome')).toContainText(`${DEFAULT_WORKSPACE}.tar`);
 	});
 
 	test('is reachable and operable from the keyboard alone', async ({ page }) => {
 		// The one way a scholar's work leaves the browser cannot be mouse-only.
-		await openWorkspaceSettings(page);
-		const button = settings(page).getByTestId('back-up-workspace');
+		const button = page.getByTestId('back-up-workspace');
 		await button.focus();
 		await expect(button).toBeFocused();
 
@@ -249,12 +241,10 @@ test.describe('restoring a Workspace', () => {
 
 	/** Back up the open Workspace and hand the bytes back, as a file a user could have kept. */
 	async function backUpToBuffer(page: Page): Promise<Buffer> {
-		await openWorkspaceSettings(page);
 		const downloading = page.waitForEvent('download');
-		await settings(page).getByTestId('back-up-workspace').click();
+		await page.getByTestId('back-up-workspace').click();
 		const download = await downloading;
 		const buffer = await readFile(await download.path());
-		await closeWorkspaceSettings(page);
 		return buffer;
 	}
 
@@ -277,21 +267,16 @@ test.describe('restoring a Workspace', () => {
 		// The backup is now restored into the *same* browser, which is the sharper case: there is
 		// already a Workspace by that name, so the name suffixing has to produce a second one rather
 		// than opening the first.
-		await openWorkspaceSettings(page);
-		await settings(page)
-			.getByTestId('restore-file')
-			.setInputFiles({
-				name: `${DEFAULT_WORKSPACE}.tar`,
-				mimeType: 'application/x-tar',
-				buffer: backup
-			});
+		await page.getByTestId('restore-file').setInputFiles({
+			name: `${DEFAULT_WORKSPACE}.tar`,
+			mimeType: 'application/x-tar',
+			buffer: backup
+		});
 
 		// The notice, in words, saying a re-publish is needed and announced.
-		const outcome = settings(page).getByTestId('transfer-outcome');
+		const outcome = page.getByTestId('transfer-outcome');
 		await expect(outcome).toContainText('publish', { timeout: 30_000 });
 		await expect(outcome).toContainText('not been touched');
-
-		await closeWorkspaceSettings(page);
 
 		// **Switched to the new one**, which the bar says on every screen.
 		const restoredName = `${DEFAULT_WORKSPACE} (2)`;
@@ -336,18 +321,14 @@ test.describe('restoring a Workspace', () => {
 		await page.reload();
 		const backup = await backUpToBuffer(page);
 
-		await openWorkspaceSettings(page);
-		await settings(page)
-			.getByTestId('restore-file')
-			.setInputFiles({
-				name: `${DEFAULT_WORKSPACE}.tar`,
-				mimeType: 'application/x-tar',
-				buffer: backup
-			});
-		await expect(settings(page).getByTestId('transfer-outcome')).toContainText('publish', {
+		await page.getByTestId('restore-file').setInputFiles({
+			name: `${DEFAULT_WORKSPACE}.tar`,
+			mimeType: 'application/x-tar',
+			buffer: backup
+		});
+		await expect(page.getByTestId('transfer-outcome')).toContainText('publish', {
 			timeout: 30_000
 		});
-		await closeWorkspaceSettings(page);
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
 
 		await routeBaseMapArchive(page);
@@ -361,22 +342,18 @@ test.describe('restoring a Workspace', () => {
 	test('refuses a file that is not a backup, in words, and creates no Workspace', async ({
 		page
 	}) => {
-		await openWorkspaceSettings(page);
-		await settings(page)
-			.getByTestId('restore-file')
-			.setInputFiles({
-				name: 'holiday.jpg',
-				mimeType: 'image/jpeg',
-				buffer: Buffer.from('this is a photograph, not a Workspace')
-			});
+		await page.getByTestId('restore-file').setInputFiles({
+			name: 'holiday.jpg',
+			mimeType: 'image/jpeg',
+			buffer: Buffer.from('this is a photograph, not a Workspace')
+		});
 
 		// An alert the user can read, ending with the promise every refusal here makes — rather than
 		// the tar parser's own sentence, which names nothing anybody can act on.
-		const problem = settings(page).getByTestId('transfer-problem');
+		const problem = page.getByTestId('transfer-problem');
 		await expect(problem).toBeVisible();
 		await expect(problem).toContainText('Nothing has been restored');
 
-		await closeWorkspaceSettings(page);
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
 
 		// Nothing was made. Read out of OPFS, because "no second Workspace" is a claim about
@@ -403,19 +380,17 @@ test.describe('restoring a Workspace', () => {
 			'latin1'
 		);
 
-		await openWorkspaceSettings(page);
-		await settings(page).getByTestId('restore-file').setInputFiles({
+		await page.getByTestId('restore-file').setInputFiles({
 			name: 'from-the-future.tar',
 			mimeType: 'application/x-tar',
 			buffer: tampered
 		});
 
-		const problem = settings(page).getByTestId('transfer-problem');
+		const problem = page.getByTestId('transfer-problem');
 		await expect(problem).toBeVisible({ timeout: 30_000 });
 		await expect(problem).toContainText('ballastella');
 		await expect(problem).toContainText('Nothing has been restored');
 
-		await closeWorkspaceSettings(page);
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
 
 		// **Nothing left behind.** The destination Workspace is created before the manifests are read,
@@ -489,21 +464,21 @@ test.describe('backing up a folder Workspace', () => {
 		// ordinary OPFS directory either way, so filling it first costs nothing.
 		await seedWorkspace(page, FOLDER, workspaceFiles());
 
-		// Take the folder through the real button and a real user gesture. No reload after this point.
-		await openWorkspaceSettings(page);
-		await settings(page).getByTestId('settings-choose-folder').click();
-		await expect(settings(page).getByTestId('settings-folder-name')).toHaveText(FOLDER);
-		await closeWorkspaceSettings(page);
-		await expectWorkspaceNamed(page, FOLDER);
+		// Take the folder through the real control and a real user gesture. No reload after this point.
+		//
+		// ⚠ **Created as a folder Workspace from the roster, not converted from this one** (ADR-0042).
+		// *Move this Workspace into a folder…* copies the open Workspace's files into an **empty**
+		// folder, and this folder is deliberately full — the whole subject here is a Workspace whose
+		// name is the operating system's and is not a legal Workspace name.
+		await createFolderWorkspace(page, FOLDER);
+		await expect(page.getByTestId('workspace-folder-place')).toHaveText(FOLDER);
 	});
 
 	test('produces an archive that restores, rather than one that fails at restore', async ({
 		page
 	}) => {
-		await openWorkspaceSettings(page);
-
 		const downloading = page.waitForEvent('download');
-		await settings(page).getByTestId('back-up-workspace').click();
+		await page.getByTestId('back-up-workspace').click();
 		const download = await downloading;
 
 		// Named after what it will restore as, not after the folder — so what lands in Downloads, what
@@ -518,16 +493,15 @@ test.describe('backing up a folder Workspace', () => {
 		expect(entries.every((entry) => entry.header.name.startsWith(`${LEGAL}/`))).toBe(true);
 
 		// Said in words, because the name did change and a silent rename is what the suffixing avoids.
-		await expect(settings(page).getByTestId('transfer-outcome')).toContainText(LEGAL);
+		await expect(page.getByTestId('transfer-outcome')).toContainText(LEGAL);
 
 		// **And it restores** — the assertion whose absence was the defect.
-		await settings(page)
+		await page
 			.getByTestId('restore-file')
 			.setInputFiles({ name: `${LEGAL}.tar`, mimeType: 'application/x-tar', buffer: archive });
 
-		const outcome = settings(page).getByTestId('transfer-outcome');
+		const outcome = page.getByTestId('transfer-outcome');
 		await expect(outcome).toContainText('publish', { timeout: 30_000 });
-		await closeWorkspaceSettings(page);
 
 		// A folder Workspace restores into browser storage beside it, with the folder untouched.
 		await expectWorkspaceNamed(page, LEGAL);

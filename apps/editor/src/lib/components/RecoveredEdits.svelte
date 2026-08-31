@@ -188,7 +188,7 @@
 					A folder Workspace finishes no deletion unattended, so a refusal is the whole of what a
 					startup there ever reports — and nothing else ends one. No record expires,
 					`Workspace.#claim` drops one only when a Project is created or duplicated under that name,
-					Workspace settings' discard cannot by construction reach the Workspace that is open, and
+					the journal discard cannot by construction reach the Workspace that is open, and
 					"Got it" below is keyed on the report's *contents*, so the next startup builds a
 					byte-identical report and shows it again. The one remedy the sentence used to offer was
 					"delete it again", which — in the case the sentence exists for, a colleague's folder

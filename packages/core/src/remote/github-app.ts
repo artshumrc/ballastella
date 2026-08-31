@@ -37,7 +37,7 @@
 // │ ⚠ **It is not, however, always on screen.** The values below decide which door the          │
 // │ editor offers, through {@link isGitHubAppConfigured}: where an App is configured a          │
 // │ scholar is never shown a token field anywhere — not in the guided sequence, not in the      │
-// │ publish dialog, and not in Workspace settings outside a disclosure that stays closed        │
+// │ publish dialog, and nowhere else outside a disclosure that stays closed                     │
 // │ until an instructor whose App installation has broken asks for it. Being asked to           │
 // │ choose between two credentials is the failure the sequence exists to remove. Where          │
 // │ **no** App is configured the paste is the sequence's first step, the plain content of       │

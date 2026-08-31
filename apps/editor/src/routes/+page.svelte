@@ -11,6 +11,7 @@
 		withoutReturnLink,
 		type ReturnLink
 	} from '@ballastella/core';
+	import KeepingYourWork from '$lib/components/KeepingYourWork.svelte';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
@@ -175,8 +176,7 @@
 	 */
 	async function strip(query: string): Promise<void> {
 		// `resolve()` is used, but the rule only recognises it as the whole argument — and the query
-		// string that carries the open Project back has to be appended to it. Same exemption, and the
-		// same reason, as the `github.com` link in `RemoteSettings.svelte`.
+		// string that carries the open Project back has to be appended to it.
 		const address = `${resolve('/')}${query}`;
 		try {
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
@@ -319,6 +319,12 @@
 	<main class="mx-auto max-w-4xl p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<WorkspaceRecovery {storage} />
+		<!--
+			⚠ **Here as well, because a Workspace that has not opened is where a Restore matters most.**
+			Backup is absent and says why (ADR-0042 re-homes both onto this screen), and restoring is the
+			one transfer that works from here: it always makes a *new* Workspace and never reads this one.
+		-->
+		<KeepingYourWork {storage} />
 	</main>
 {:else if openDirectory === null}
 	<!--
@@ -331,10 +337,11 @@
 	<main class="mx-auto max-w-[90rem] p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<!--
-			**Where the work is stored is not asked here.** It is a setting, reached from the Workspace
-			button on the bar, and browser storage is the silent default — which is what ADR-0001 always
-			implied and what a hub that asked anyway got wrong, of everyone, including the majority of
-			browsers where there is no picker to answer with.
+			**Where the work is stored is not asked here.** Browser storage is the silent default and the
+			first Workspace exists before anything is asked — which is what ADR-0001 always implied and
+			what a hub that asked anyway got wrong, of everyone, including the majority of browsers where
+			there is no picker to answer with. The section at the foot of this screen answers the
+			question for whoever comes looking for it.
 
 			**What stays on the hub is the recovery**, and it is not the same thing. A moved, renamed, or
 			unplugged folder is a normal state with a way back (ADR-0008), and it has to be *immediate*:
@@ -351,6 +358,16 @@
 			<WorkspaceRecovery {storage} />
 		</div>
 		<ProjectHub {session} />
+		<!--
+			Backup, Restore, what this browser promised, the offer that answers it, unsaved changes with
+			nowhere to go, and the way into a folder — all about the Workspace the author is in, and all
+			of them re-homed here from the settings dialog ADR-0042 deletes. Wrapped at the Workspace
+			Home measure for the reason the recovery above is: multi-sentence prose, in a `<main>` as
+			wide as two columns.
+		-->
+		<div class="workspace-home-column">
+			<KeepingYourWork {storage} />
+		</div>
 	</main>
 {:else}
 	<!--

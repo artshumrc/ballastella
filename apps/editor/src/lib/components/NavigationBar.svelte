@@ -3,7 +3,7 @@
 	//
 	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
 	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
-	// `workspace-storage.svelte.ts`, Workspace settings into the GitHub broker, publishing into the
+	// `workspace-storage.svelte.ts`, the door into the GitHub broker, publishing into the
 	// planner — and moving the bar itself into the shared package would put all of that in the
 	// viewer's reachable graph. So the shell is shared and the filling is not.
 	//
@@ -43,7 +43,6 @@
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import Settings from '@lucide/svelte/icons/settings';
 
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import PublishDialog from '$lib/publish/PublishDialog.svelte';
@@ -63,7 +62,6 @@
 	import ModalDialog from './ModalDialog.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
 	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
-	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
@@ -117,7 +115,6 @@
 	);
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
-	let settingsOpen = $state(false);
 	let publishOpen = $state(false);
 	/**
 	 * The door control, so a dialog opened from behind it has somewhere to put focus back.
@@ -354,7 +351,7 @@
 		{:else}
 			<!-- `max-w-*` and truncation, because the name is up to 64 characters of somebody else's
 			     text and the bar has three other controls to fit. The full name is in the menu, in
-			     Workspace settings, and in the button's own `title`-free accessible name, which is the
+			     and in the button's own `title`-free accessible name, which is the
 			     text node rather than the ellipsis CSS paints over it. -->
 			<MenuPopover
 				bind:this={menu}
@@ -517,23 +514,6 @@
 						New Workspace…
 					</button>
 				</li>
-				<!-- A boundary rather than an emphasis, which is what ADR-0036 permits a rule to be: above
-				     it is this Workspace and the others, below it is the way out of the menu.
-
-				     `aria-hidden` and no `role`: `MenuPopover`'s list is a plain `<ul>` with no
-				     `role="menu"`, so this is a listitem, and a `role="separator"` that is also hidden
-				     announces nothing while adding a widget role to a list that has none. -->
-				<li aria-hidden="true" class="my-1 border-t border-rule"></li>
-				<li>
-					<button
-						type="button"
-						data-testid="open-workspace-settings"
-						onclick={() => fromMenu(() => (settingsOpen = true))}
-					>
-						<Settings size={16} aria-hidden="true" class="shrink-0" />
-						Workspace settings…
-					</button>
-				</li>
 			</MenuPopover>
 		{/if}
 	</div>
@@ -659,9 +639,9 @@
 			everything that can be *done* about it lives, and **Publish** and **Update from GitHub**
 			stay two separate presses in there, because their consequences differ in kind.
 
-			**On the bar rather than filed away in Workspace settings, and that is what this control is
-			for.** A settings dialog two menus deep is where a person goes when something already works
-			and they want it different, and not where anybody looks for *how do I put this on the web*.
+			**On the bar rather than filed away in a settings dialog, and that is what this control is
+			for.** A dialog two menus deep is where a person goes when something already works and they
+			want it different, and not where anybody looks for *how do I put this on the web*.
 			The bar is on every screen including Workspace Home, so a student meets it before they have
 			opened a Project, and the surface it opens is the same one wherever it was pressed.
 
@@ -812,14 +792,6 @@
 />
 
 <!--
-	Outside the bar so its own layout does not have to make room for a modal, and mounted
-	unconditionally so the `<dialog>` element exists before `showModal()` is asked for.
--->
-{#if storage !== null}
-	<WorkspaceSettings bind:open={settingsOpen} {storage} />
-{/if}
-
-<!--
 	ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
 	dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on the
 	backup path where the button is in another component entirely.
@@ -837,10 +809,10 @@
 		restoreFocusTo={() => doorButton}
 	/>
 	<!--
-		The guided sequence, mounted **once** and here. Workspace settings' Remote section opens this
-		same dialog through `connectSequence` rather than mounting a second copy of it, which is what
-		keeps connecting one implementation with two entry points — and keeps the settings route from
-		stacking a third `<dialog>` over the two it is already inside.
+		The guided sequence, mounted **once** and here. Anything else that wants it — a refusal
+		offering the way forward, a link that landed on the page — opens this same dialog through
+		`connectSequence` rather than mounting a second copy, which is what keeps connecting one
+		implementation however it was reached.
 
 		`onpublish` hands off to the button beside it: the sequence ends where publishing begins, and
 		there is no second publish path.

@@ -939,8 +939,8 @@
 							<p class="font-medium">This Workspace publishes nowhere yet.</p>
 							<p class="mt-1 text-sm opacity-80">
 								Publishing sends the website to a GitHub repository, and this Workspace is bound to
-								none. Bind one with <strong>Remote repository…</strong> in Workspace settings, and the
-								destination and what sending it would cost appear here.
+								none. Choose one with <strong>Connect to GitHub</strong> on the bar, and the destination
+								and what sending it would cost appear here.
 							</p>
 						</div>
 					</div>

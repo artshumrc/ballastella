@@ -2577,3 +2577,62 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHAT IS TRUE OF THE SIGN-IN, AND THE ONE CHOICE ABOUT IT (ADR-0041, ADR-0042)
+//
+// Both were in the Remote dialog this Epic deletes, and both are about a sign-in — so they are on
+// the door, which is where every other gesture about one already is. The claim is that the sentence
+// states which of the two rules is *currently* in force, and that the choice is never a default
+// somebody else made.
+describe('the sign-in this computer holds', () => {
+	test('says the sign-in is forgotten with the tab until the author says otherwise', () => {
+		const storage = signedIn();
+		open(storage);
+
+		expect(text(at('connect-signed-in'))).toContain('Signed in to GitHub as ada');
+		expect(text(at('connect-signed-in'))).toContain('forgotten when this tab closes');
+		expect((at('remember-sign-in') as HTMLInputElement).checked).toBe(false);
+	});
+
+	test('states the other rule once the author has asked for it', () => {
+		const storage = signedIn();
+		storage.rememberSignIn = true;
+		open(storage);
+
+		expect(text(at('connect-signed-in'))).toContain('keeps the part that renews it');
+		expect((at('remember-sign-in') as HTMLInputElement).checked).toBe(true);
+	});
+
+	test('records the choice on the press, and states the rule that is now in force', () => {
+		const { storage } = open(signedIn());
+
+		const box = at('remember-sign-in') as HTMLInputElement;
+		box.checked = true;
+		box.dispatchEvent(new Event('change', { bubbles: true }));
+		flushSync();
+
+		expect(storage.remembers).toEqual([true]);
+		expect(text(at('connect-signed-in'))).toContain(
+			'coming back tomorrow does not mean signing in'
+		);
+	});
+
+	// Offered before the button is pressed, because it is a decision about this machine rather than
+	// about the sign-in currently held — and that is the order a person meets it in.
+	test('offers the choice signed out as well, and says nothing is held', () => {
+		open(new FakeStorage());
+
+		expect(text(at('connect-signed-out'))).toContain('Not signed in to GitHub');
+		expect((at('remember-sign-in') as HTMLInputElement).checked).toBe(false);
+	});
+
+	// A fork's whole authentication is a pasted credential, which lives in the tab and has no
+	// renewable half at all — so the choice would be a promise this deployment cannot keep.
+	test('offers no such choice where the deployment has no App of its own', () => {
+		open(noApp());
+
+		expect(absent('connect-credential')).toBe(true);
+		expect(absent('remember-sign-in')).toBe(true);
+	});
+});

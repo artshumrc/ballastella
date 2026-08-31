@@ -682,7 +682,7 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 		// Naming the file that is absent, and the other archive it might have been: a Workspace backup
 		// picked here is the commonest way to arrive at this refusal.
 		expect((cause as Error).message).toContain('no project.json at its root');
-		expect((cause as Error).message).toContain('Workspace settings');
+		expect((cause as Error).message).toContain('Workspace Home');
 		expect(into.discarded()).toBe(true);
 		expect(contents(into.store)).toEqual({});
 	});

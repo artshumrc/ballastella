@@ -13,12 +13,10 @@ import { layerRows, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import {
-	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
 	openPublishFromTheDoor,
 	openWorkspaceMenu,
-	openWorkspaceSettings,
 	seedRemoteRelationship,
 	switchToWorkspace
 } from './support/workspace.js';
@@ -789,7 +787,6 @@ test.describe('opening a bundle lands in a review copy', () => {
 
 		// And not in a backup of it, nor in what that backup weighs.
 		const download = page.waitForEvent('download');
-		await openWorkspaceSettings(page);
 		await page.getByTestId('back-up-workspace').click();
 		const saved = await download;
 		const { unpackTar } = await import('modern-tar');
@@ -1193,8 +1190,6 @@ test.describe('the review banner is on every screen', () => {
 	});
 
 	test('a review copy is not backed up', async ({ page }) => {
-		await openWorkspaceSettings(page);
-
 		await expect(page.getByTestId('no-backup-in-review')).toBeVisible();
 		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);
 	});
@@ -2087,7 +2082,6 @@ test.describe('an Import that did not finish', () => {
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// Nor is any of it in a Backup — a second walk of the same Workspace.
 		const download = page.waitForEvent('download');
-		await openWorkspaceSettings(page);
 		await page.getByTestId('back-up-workspace').click();
 		const { unpackTar } = await import('modern-tar');
 		const entries = await unpackTar(new Uint8Array(await readFile(await (await download).path())), {
@@ -2104,7 +2098,6 @@ test.describe('an Import that did not finish', () => {
 				)
 			].sort()
 		);
-		await closeWorkspaceSettings(page);
 		// The marker went last and took the whole inventory with it, so the disk is the pre-Import
 		// Workspace exactly.
 		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toEqual(
@@ -2153,10 +2146,8 @@ test.describe('an Import that did not finish', () => {
 		// Workspace, and both are absent rather than present and refused — the arrangement a review copy
 		// already has. Publishing goes with the door it is behind.
 		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
-		await openWorkspaceSettings(page);
 		await expect(page.getByTestId('no-backup-unrecovered')).toBeVisible();
 		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);
-		await closeWorkspaceSettings(page);
 		// Staging internals are not the author's to read, and the marker is left where it is — which is
 		// the durable evidence the next startup retries from.
 		await expect(page.getByTestId('unrecovered-import')).not.toContainText('import.json');

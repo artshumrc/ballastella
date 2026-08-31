@@ -154,9 +154,10 @@ data goes are identical either way.
 of the two a scholar is shown, and they are never shown both: a person asked to choose between two
 credentials has no way to tell which one is meant for them, and one of the two sends them off to
 generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
-token field appears anywhere — the paste is still there, one disclosure deep in Workspace settings,
-worded for somebody who already knows what they are asking for, which is where you go when your App
-installation has broken during a class. Where the three values are empty, *Connect to GitHub* leads
+token field appears anywhere. The paste for an App installation that has broken during a class is a
+later slice's: this Epic deleted the settings dialog it used to be one disclosure deep in, and the
+escape hatch comes back on the door itself, worded for somebody who already knows what they are
+asking for. Where the three values are empty, *Connect to GitHub* leads
 straight to the paste, with the guidance a fork's author needs, and no sign-in button is shown at
 all.
 
@@ -330,8 +331,8 @@ One repository for the whole Workspace, not one per Project.
 
 ### 2. Bind your Workspace to it
 
-In the editor: **Workspace menu → Remote repository…**. Paste the repository's address, and give the
-editor a credential.
+In the editor: **Connect to GitHub** on the bar. Paste the repository's address, and give the editor
+a credential.
 
 **A pasted token always works, on any instance.** Make a fine-grained personal access token on
 GitHub — **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate

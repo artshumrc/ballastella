@@ -401,6 +401,13 @@ export {
 	type ExportWorkspaceTarOptions,
 	type WorkspaceBackup
 } from './transfer/export-workspace-tar.js';
+// Moving an existing Workspace into a folder the author can see (ADR-0042). The only way work that
+// already exists reaches disk: restore and hydrate both always make a browser Workspace.
+export {
+	copyWorkspaceFiles,
+	type CopyWorkspaceFilesOptions,
+	type WorkspaceCopy
+} from './transfer/copy-workspace-files.js';
 export {
 	restoreWorkspaceTar,
 	type EstimateStorage,

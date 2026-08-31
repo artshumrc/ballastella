@@ -1,6 +1,5 @@
 import { expect, test } from './support/test.js';
 
-import { openWorkspaceSettings } from './support/workspace';
 import { type Page } from '@playwright/test';
 
 import {
@@ -1109,7 +1108,7 @@ test.describe('the offer to install', () => {
 		await site.close();
 	});
 
-	test('is made where the folder permission is explained, and says how when the browser will not offer', async ({
+	test('is made on Workspace Home beside the sentence it answers, and says how when the browser will not offer', async ({
 		page
 	}) => {
 		await page.goto(site.url);
@@ -1118,15 +1117,10 @@ test.describe('the offer to install', () => {
 
 		// ADR-0012's reason for the whole slice: installing is the answer both to "why does it keep
 		// asking about my folder?" and to "will this browser keep my Workspace at all?", so the offer
-		// sits beside those two explanations and nowhere else — Workspace settings rather than a
-		// permanently visible hub section, because the offer belongs with the question it answers.
-		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
-		// frame, because a `<dialog>` has to exist before `showModal()` can be called on it. The claim
-		// is that the offer is not *on screen* until the dialog is opened.
-		await expect(page.getByTestId('install-offer')).toBeHidden();
-		await openWorkspaceSettings(page);
-		const settings = page.getByRole('dialog', { name: 'Workspace settings' });
-		await expect(settings.getByTestId('install-offer')).toBeVisible();
+		// sits beside those two explanations and nowhere else. That is Workspace Home now (ADR-0042):
+		// the two sentences it answers are on the screen that *is* this Workspace, so the reason and
+		// the remedy are together and neither is two menus deep.
+		await expect(page.getByTestId('install-offer')).toBeVisible();
 
 		// Headless Chromium does not fire `beforeinstallprompt`, and neither does Firefox or Safari ever.
 		// So the state that most users are in is the one asserted first: a sentence saying where to look,
@@ -1146,9 +1140,8 @@ test.describe('the offer to install', () => {
 		// after `load`, since hydration is a dynamic import. Dispatching before it is attached is a
 		// test that measures nothing, and it failed as "the offer never appeared".
 		//
-		// The offer lives in Workspace settings, so the dialog is opened to see it. The listener is in
-		// the layout and not in the dialog, so it is attached either way.
-		await openWorkspaceSettings(page);
+		// The offer is on Workspace Home, which is the screen this spec has just loaded. The listener is
+		// in the layout rather than in the offer, so it is attached either way.
 		await expect(page.getByTestId('install-state-unavailable')).toBeVisible();
 
 		// The event is synthesised because Chromium's install criteria include engagement heuristics no

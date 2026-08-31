@@ -4,10 +4,11 @@ import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import {
-	closeRemoteSettings,
+	doorButton,
+	expectCredential,
+	expectNoRemote,
 	expectWorkspaceNamed,
-	openRemoteSettings,
-	revealBindToken,
+	seedGitHubCredential,
 	switchToWorkspace
 } from './support/workspace.js';
 
@@ -389,11 +390,10 @@ test.describe('reviewing one Project from a Remote', () => {
 		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await expect(page.getByTestId('review-workspace-note')).toBeVisible();
 
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('no-remote-in-review')).toBeVisible();
-		// The binding form is absent, rather than present and refused on submission.
-		await expect(page.getByTestId('remote-repository-field')).toHaveCount(0);
-		await expect(page.getByTestId('bind-remote')).toHaveCount(0);
+		// ⚠ **Absent rather than present and refused, and there is nowhere else to look** (ADR-0042):
+		// every gesture about GitHub is behind the door, and over a review copy the door is not mounted
+		// at all. There is no second surface left that could offer to bind somebody else's work.
+		await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
 	});
 
 	test('seals the GitHub sign-in for as long as it is open', async ({ page }) => {
@@ -402,28 +402,19 @@ test.describe('reviewing one Project from a Remote', () => {
 		// containment rather than a sign-out (`closedWhileReviewing`).
 		await start(page);
 
-		// Bound with a pasted token, which is how this deployment signs in (ADR-0031) and the state a
-		// teacher is in when a submission arrives: their own Workspace publishes somewhere, and the
-		// credential that pushes there is in the tab.
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(TOKEN);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
-		await closeRemoteSettings(page);
+		// The state a teacher is in when a submission arrives: a credential that pushes to their own
+		// Remote, held in the tab. Seeded rather than acquired, because the round trip through GitHub is
+		// `editor-github-signin.e2e.ts`'s subject and the seal is this one's.
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
+		await expectCredential(page, 'Signed in to GitHub');
 
 		await review(page);
 		await expect(banner(page)).toBeVisible();
 
-		await openRemoteSettings(page);
-		// Sealed: every screen above the store renders the not-signed-in state without knowing why, and
-		// the whole sign-in section is absent rather than present and refused.
-		await expect(page.getByTestId('no-remote-in-review')).toBeVisible();
-		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
-		await expect(page.getByTestId('remote-sign-out')).toHaveCount(0);
-		await expect(page.getByTestId('remote-sign-in-field')).toHaveCount(0);
-		await closeRemoteSettings(page);
+		// Sealed, and there is no surface left that could claim otherwise: the door is where every
+		// sentence about a sign-in is, and it is not mounted over a review copy at all (ADR-0042).
+		await expect(doorButton(page)).toHaveCount(0);
 
 		// Not written to either: the token is exactly where it was, in `sessionStorage` and nowhere
 		// else, and no copy of it landed in the review copy the Review had just made.
@@ -434,8 +425,7 @@ test.describe('reviewing one Project from a Remote', () => {
 		// And back out, the same sign-in is readable again — the seal is not a sign-out.
 		await page.getByTestId('leave-review').click();
 		await expect(banner(page)).toBeHidden();
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
+		await expectCredential(page, 'Signed in to GitHub');
 	});
 
 	test('needs no credential, and sends none', async ({ page }) => {
@@ -708,10 +698,8 @@ test.describe('arriving on a link from a Published Site', () => {
 		// copied or forked repository choosing a stranger's Remote is the failure the separation between
 		// published metadata and local binding exists to prevent, so the bind form is what the Remote
 		// screen shows.
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('remote-repository-field')).toBeVisible();
-		await expect(page.getByTestId('bound-remote')).toHaveCount(0);
-		await closeRemoteSettings(page);
+		// Read from the door, which offers connecting rather than naming a repository.
+		await expectNoRemote(page);
 
 		// Closing the offer leaves the reader on the Project they came for, addressed by where it
 		// landed rather than by the link's own directory.

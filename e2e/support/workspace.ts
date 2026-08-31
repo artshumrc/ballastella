@@ -1,9 +1,15 @@
 // Driving the Workspace control on the navigation bar: which Workspace you are in, moving between
-// them, and the settings dialog behind them.
+// them, and what may be done to them from their own rows.
 //
-// One module because the bar is on every screen and every spec that used to reach for the hub's
-// "Where your work is stored" section now goes through here — and because the two-step (menu, then
-// item) is exactly the kind of thing that gets copied slightly differently each time.
+// One module because the bar is on every screen, and because the two-step (menu, then item) is
+// exactly the kind of thing that gets copied slightly differently each time.
+//
+// ⚠ **There is no Workspace settings dialog and no Remote dialog** (ADR-0042). What was in them is
+// on Workspace Home — Backup, Restore, the install offer, the storage warning, the journal orphans
+// and *Move this Workspace into a folder…*, all read straight off the page — or behind the one door,
+// which {@link openTheDoor} reaches. The seven helpers that opened and closed those two dialogs are
+// gone rather than renamed: a spec that wants Backup is on Workspace Home, and a spec that wants
+// anything about GitHub is behind the door.
 
 import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
 
@@ -28,34 +34,6 @@ export async function expectWorkspaceNamed(page: Page, name: string): Promise<vo
 export async function openWorkspaceMenu(page: Page): Promise<void> {
 	await workspaceButton(page).click();
 	await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
-}
-
-/**
- * Open Workspace settings from the bar.
- *
- * A `<dialog>` opened with `showModal()` (ADR-0016), so everything behind it is inert until it is
- * closed — which is why {@link closeWorkspaceSettings} exists and why the helpers here are paired.
- */
-export async function openWorkspaceSettings(page: Page): Promise<void> {
-	await openWorkspaceMenu(page);
-	await page.getByTestId('open-workspace-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeVisible();
-}
-
-export async function closeWorkspaceSettings(page: Page): Promise<void> {
-	await page.getByTestId('close-workspace-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeHidden();
-}
-
-/** Do something inside Workspace settings, and close it again. */
-export async function inWorkspaceSettings(
-	page: Page,
-	act: () => Promise<void>,
-	options: { closeAfter?: boolean } = {}
-): Promise<void> {
-	await openWorkspaceSettings(page);
-	await act();
-	if (options.closeAfter !== false) await closeWorkspaceSettings(page);
 }
 
 /** Switch to an existing named Workspace. */
@@ -105,48 +83,23 @@ export async function createWorkspace(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Open Remote settings, which is reached **through Workspace settings**.
+ * Make a Workspace in a folder the browser's picker hands back, and switch into it (ADR-0042).
  *
- * The workspace menu answers one question — which Workspace am I in — so the binding is offered in
- * exactly one place, and that place is the *Where your work lives* group. Two `<dialog>`s stacked in
- * the top layer, which is why {@link closeRemoteSettings} closes both.
- */
-export async function openRemoteSettings(page: Page): Promise<void> {
-	await openWorkspaceSettings(page);
-	await page.getByTestId('open-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-}
-
-/**
- * Open the escape hatch that reaches the pasted token, in the Remote dialog's bind form.
+ * ⚠ **The caller has to have installed a picker**, because a real `showDirectoryPicker` opens an
+ * operating-system dialog no automated browser can answer — `editor-folder-workspace.e2e.ts`'s
+ * `installDirectoryPicker` is the one that does it, and every spec that wants a folder Workspace
+ * either uses it or stubs the picker itself.
  *
- * ⚠ **Every spec that pastes a token needs this, and that is the point.** Where a GitHub App is
- * configured — which this checkout is, and every spec is built with — a scholar is never shown a
- * token field: one door, and it is the sign-in. The paste is not deleted, and
- * these specs are what proves it still works; it is one press away, closed by default, for the
- * instructor whose App installation has broken during a class.
+ * The kind is asked at creation and only where the File System Access API is present, which is what
+ * keeps a browser that has no picker from being told there are two kinds at all.
  */
-export async function revealBindToken(page: Page): Promise<void> {
-	await page.getByTestId('reveal-bind-token').click();
-	await expect(page.getByTestId('remote-token-field')).toBeVisible();
-}
-
-/** The same hatch, in the sign-in section: paste a credential rather than fetch one from GitHub. */
-export async function revealSignInToken(page: Page): Promise<void> {
-	await page.getByTestId('reveal-sign-in-token').click();
-	await expect(page.getByTestId('remote-sign-in-field')).toBeVisible();
-}
-
-/**
- * Close Remote settings **and the Workspace settings it was opened from**, back to the page.
- *
- * Both, because closing only the top one leaves a modal over everything a spec goes on to touch —
- * and a `showModal()` dialog makes the page behind it inert rather than merely obscured.
- */
-export async function closeRemoteSettings(page: Page): Promise<void> {
-	await page.getByTestId('close-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeHidden();
-	await closeWorkspaceSettings(page);
+export async function createFolderWorkspace(page: Page, name: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	await page.getByTestId('new-workspace').click();
+	await page.getByTestId('new-workspace-name').fill(name);
+	await page.getByTestId('new-workspace-folder').check();
+	await page.getByTestId('create-workspace').click();
+	await expectWorkspaceNamed(page, name);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -234,11 +187,33 @@ export async function expectRemoteStatus(page: Page, sentence: string): Promise<
 	});
 }
 
-/** What Remote settings says about the push credential — "Signed in to GitHub", or not. */
+/**
+ * What the door says about the sign-in this computer holds — "Signed in to GitHub", or not.
+ *
+ * ⚠ **Read from the door and nowhere else** (ADR-0041, ADR-0042). Which account is held, and the
+ * choice about keeping it past the tab, were in the Remote dialog; they are on the door now, which
+ * is where every other gesture about a sign-in already was.
+ */
 export async function expectCredential(page: Page, sentence: string): Promise<void> {
-	await openRemoteSettings(page);
-	await expect(page.getByTestId('remote-sign-in-section')).toContainText(sentence);
-	await closeRemoteSettings(page);
+	await inTheDoor(page, async () => {
+		await expect(page.getByTestId('connect-credential')).toContainText(sentence);
+	});
+}
+
+/**
+ * Connect this Workspace to the repository GitHub says the author has granted.
+ *
+ * ⚠ **The door's own path, and the only one there is on a deployment with an App.** Binding used to
+ * mean typing an address and pasting a token into a settings dialog; the sequence picks the
+ * repository out of what GitHub answers, so nothing has to be typed correctly from memory. The
+ * caller is responsible for a held credential — `seedGitHubCredential` where the subject is not the
+ * sign-in itself — and for a `routeGitHubHosts` that grants the repository.
+ *
+ * Leaves the door open, because what a bind said is said inside it.
+ */
+export async function bindThroughTheDoor(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('choose-repository').first().click();
 }
 
 /**

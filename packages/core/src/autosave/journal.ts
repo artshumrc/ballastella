@@ -29,7 +29,7 @@
 //     work, and nothing that has already been written.
 //   - **Not durable.** Clearing site data, a private window closing, or a browser evicting the
 //     origin takes it. `navigator.storage.persist()` (ADR-0024) covers it along with everything
-//     else, and a refusal there is already reported in Workspace settings.
+//     else, and a refusal there is already reported on Workspace Home.
 //
 // ADR-0001 makes the ProjectStore the one home for user bytes, and this is a real exception to it.
 // It is recorded in ADR-0001 rather than left for a future reader to discover.
@@ -1036,7 +1036,7 @@ export function forgetHeldCopy(
 // folder never reopened — and an instance bound to a Workspace is structurally unable to ask it.
 //
 // What keeps them from weakening the guarantee is that **neither can write an entry**. One lists
-// names; the other deletes wholesale, from a user's explicit gesture in Workspace settings. There is
+// names; the other deletes wholesale, from a user's explicit gesture on Workspace Home. There is
 // no path here that puts bytes at a key, which is the only operation the binding exists to fence.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
