@@ -27,7 +27,7 @@
 // and ADR-0040 refuses `Administration` for the App outright — so on a correctly configured
 // deployment this call cannot succeed, and its refusal has to name both permissions or it sends a
 // scholar to grant the one they already granted. It never throws: a repository full of correct files
-// that serves nothing is the failure this exists to avoid (story 6), and an error dialog is a worse
+// that serves nothing is the failure this exists to avoid, and an error dialog is a worse
 // one. So every outcome except success carries {@link pagesInstruction} — which setting, where, and
 // what to choose.
 //

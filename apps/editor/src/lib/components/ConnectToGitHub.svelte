@@ -363,7 +363,7 @@
 	/**
 	 * Whether the author may publish to the Remote they have: `null` until GitHub has said.
 	 *
-	 * ⚠ **Signed out it is `null` and stays there**, which is the whole of story 72: push rights
+	 * ⚠ **Signed out it is `null` and stays there.** Push rights
 	 * cannot be read without a credential, so the door says publishing needs a sign-in and **nothing
 	 * about rights** (ADR-0043). Claiming either way from an absent credential would be inventing the
 	 * answer.
@@ -458,8 +458,8 @@
 		// not got is owed the same offer as an author with no Remote at all.
 		notHere !== null
 			? 'hydrate'
-			: // ⚠ **Ahead of `connected` as well as of the sign-in, because it needs neither.** Story 39
-				// puts it in front of the sign-in: a door whose first step is signing in locks out the
+			: // ⚠ **Ahead of `connected` as well as of the sign-in, because it needs neither.** It sits
+				// in front of the sign-in because a door whose first step is signing in locks out the
 				// person most likely to be standing at it. And a Workspace that already has a Remote is
 				// not a Workspace that may not ask — this operation touches the one the author is in not
 				// at all, and the Conflict whose stated remedy it is arrives on a bound Workspace.
@@ -1984,7 +1984,7 @@
 					{:else}
 						<!--
 							⚠ **The main action becomes the way forward, on the same screen as the limitation**
-							(ADR-0043, story 74). It is the control that was already here — choosing a different
+							(ADR-0043). It is the control that was already here — choosing a different
 							repository — promoted and relabelled for the one state where it is the only thing that
 							can be done, so there is no second path to the repository list.
 						-->
@@ -2165,7 +2165,7 @@
 					</span>
 				</label>
 				<!--
-					⚠ **A disclosure, and *closed* is the whole of what makes it one** (story 126, ADR-0041).
+					⚠ **A disclosure, and *closed* is the whole of what makes it one** (ADR-0041).
 					An App installation that has broken mid-class leaves an instructor with no way in, and
 					this is it; a student on the same deployment must never be offered a choice between two
 					credentials, and a field that is not in the document is not an offer. So the word is

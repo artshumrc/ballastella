@@ -477,7 +477,7 @@ describe('what the browser promised about keeping the work', () => {
 	});
 
 	// ⚠ The WebKit copy, clause by clause. Each of these is a rule a scholar has to be able to
-	// satisfy, and the epic's stories name them individually because a paraphrase loses one.
+	// satisfy, and each is asserted on its own because a paraphrase loses one.
 	test('the WebKit line names the seven days, what counts as a visit, and the order to install in', () => {
 		open(browser('seven-day'));
 
@@ -577,7 +577,7 @@ describe('what the browser promised about keeping the work', () => {
 });
 
 /**
- * A control that is busy keeps its place in the tab order (user story 130, WCAG 2.4.3).
+ * A control that is busy keeps its place in the tab order (WCAG 2.4.3).
  *
  * ⚠ **`disabled` is the wrong spelling and the reason is not stylistic.** A `disabled` button is
  * removed from the tab order the instant it is pressed, so the keyboard user who pressed it is

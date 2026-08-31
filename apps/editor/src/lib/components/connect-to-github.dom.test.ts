@@ -331,7 +331,7 @@ describe('which step the sequence shows', () => {
 		expect(storage.signInDepartures).toEqual([INSTALL_FIRST]);
 	});
 
-	// Story 7 and Story 8: the choice, the reason for it, and what choosing otherwise costs — said
+	// The choice, the reason for it, and what choosing otherwise costs — said
 	// **before** the departure, because after it this screen is gone.
 	test('says to choose All repositories, and what choosing only some costs', () => {
 		openPastAccount(new FakeStorage());
@@ -885,7 +885,7 @@ describe('connecting, which is one act', () => {
 		expect(text(at('connect-outcome'))).toContain('Setting up is over');
 	});
 
-	// ⚠ **Story 137.** Turning a site on is a question about who may read this, and connecting is not
+	// ⚠ Turning a site on is a question about who may read this, and connecting is not
 	// the moment it is asked — so a connection that worked says nothing about it at all, and the
 	// author is never handed a paragraph about a permission in answer to a question they have not
 	// asked.
@@ -1149,7 +1149,7 @@ describe('the address, and the handoff', () => {
 	});
 });
 
-// ⚠ **A Remote is a place the work lives before it is a site anybody reads** (stories 136 and 137).
+// ⚠ **A Remote is a place the work lives before it is a site anybody reads.**
 // Turning a Published Site on is offered here, once, after the connection is made and never during
 // it — and its refusal names both the permissions GitHub actually requires, so an author is not sent
 // to grant the one they already granted. The sentence itself is `bind-remote.ts`'s at Seam 1; what
@@ -1995,7 +1995,7 @@ describe('every step of the sequence, enumerated', () => {
 	const GITHUB_VOCABULARY = ['installation', 'installations', 'grant', 'permission'];
 
 	/**
-	 * ⚠ **Every landing the door can present, reachable by keyboard** (user story 128).
+	 * ⚠ **Every landing the door can present, reachable by keyboard.**
 	 *
 	 * The Seam 2 pass tabs through the *connected* landing end to end, which is the one property no
 	 * single surface can see; what it cannot afford is a boot per landing. This is the fence for the
@@ -2190,7 +2190,7 @@ describe('the standing state, and the gestures on it', () => {
 
 	// ⚠ **`aria-disabled`, never `disabled`.** A `disabled` button leaves the tab order the instant it
 	// is pressed, dropping a keyboard user to `<body>` — and these are the controls a scholar is most
-	// likely to be pressing when they are made busy (WCAG 2.4.3, stories 130 and 51).
+	// likely to be pressing when they are made busy (WCAG 2.4.3).
 	test.each([
 		[
 			'a check already running',
@@ -2279,7 +2279,7 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		return storage;
 	}
 
-	// ⚠ **Story 72, and the whole of it is the second assertion.** Nothing may be claimed about rights
+	// ⚠ **The second assertion is the whole of this.** Nothing may be claimed about rights
 	// from an absent credential — not that the author may publish, and not that they may not — and the
 	// only way to hold that is for the question never to be asked.
 	test('says publishing needs a sign-in, and nothing about rights, while signed out', async () => {
@@ -2300,10 +2300,10 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		await settle();
 
 		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
-		// Story 71: absent rather than refusing. A control that will certainly turn the author down is
+		// Absent rather than refusing. A control that will certainly turn the author down is
 		// worse than no control, and there is no second path to the publish dialog (ADR-0041).
 		expect(absent('connect-publish')).toBe(true);
-		// Story 74: the way forward is on the same screen as the limitation, and it is the main action.
+		// The way forward is on the same screen as the limitation, and it is the main action.
 		expect(at('publish-to-your-own')).toBeTruthy();
 		expect(absent('publish-needs-sign-in')).toBe(true);
 	});
@@ -2366,7 +2366,7 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		expect(storage.rightsReads).toBe(2);
 	});
 
-	// ⚠ **Story 77: the boundary stated up front rather than met as a Conflict.** ADR-0024 refuses to
+	// ⚠ **The boundary stated up front rather than met as a Conflict.** ADR-0024 refuses to
 	// answer two Alignments of one sheet, so this is a limit rather than a defect — and a limit
 	// discovered at the end of an afternoon is the same sentence one afternoon later.
 	test('states the one thing two people cannot both do, before either of them does it', () => {
@@ -2647,7 +2647,7 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(opened.storage.bindCalls).toEqual([]);
 	});
 
-	// Story 124. The paste is the whole of this deployment's authentication, so the guidance it
+	// The paste is the whole of this deployment's authentication, so the guidance it
 	// carries has to be enough to make a token that works first time: both permissions, and the
 	// **Resource owner** row, which is the trap — a token made under the wrong owner cannot see the
 	// repository, and the symptom is a repository that appears not to exist.
@@ -2699,7 +2699,7 @@ describe('a fork that has registered no GitHub App', () => {
 	});
 });
 
-// ⚠ **The escape hatch, and the whole of what makes it one: it is closed** (story 126).
+// ⚠ **The escape hatch, and the whole of what makes it one: it is closed.**
 //
 // An instructor whose App installation has broken mid-class needs a way in that does not depend on
 // the installation, and a student on the same deployment must never be offered a choice between two
@@ -2823,7 +2823,7 @@ describe('the sign-in this computer holds', () => {
 });
 
 /**
- * Where the door leaves the keyboard when it closes (user story 129, WCAG 2.4.3).
+ * Where the door leaves the keyboard when it closes (WCAG 2.4.3).
  *
  * The door is the one control on the bar for the whole GitHub relationship, so a scholar who opens
  * it, reads the answer and closes it again has to be put back on it — otherwise every visit to the

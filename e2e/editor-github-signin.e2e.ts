@@ -546,7 +546,7 @@ test.describe('a sign-in that has run out', () => {
 // is kept is the renewable half, in the installation's own database, where neither a Backup nor a
 // Publish walks.
 test.describe('a sign-in kept past the tab', () => {
-	// Stories 57 and 59, and the pair that has to stay true: the scholar on a shared or lab machine
+	// The pair that has to stay true: the scholar on a shared or lab machine
 	// changes nothing, is changed by nothing, and is told which rule is in force while they decide.
 	test('is not the default, says so, and leaves nothing when the tab closes', async ({ page }) => {
 		await start(page);
@@ -573,7 +573,7 @@ test.describe('a sign-in kept past the tab', () => {
 		await expect(page.getByTestId('connect-sign-in-with-github')).toBeVisible();
 	});
 
-	// Stories 58 and 60. The refresh token is what survives; the eight-hour token that publishes is
+	// The refresh token is what survives; the eight-hour token that publishes is
 	// kept nowhere at all, and the way back to one is the broker — which is what leaves the broker's
 	// `Origin` allowlist in the path of anybody who took the database.
 	test('keeps the renewable half only, and signs itself back in with it', async ({ page }) => {
@@ -669,7 +669,7 @@ test.describe('a sign-in kept past the tab', () => {
 		await expect(page.getByTestId('connect-sign-in-with-github')).toBeVisible();
 	});
 
-	// Story 61, both halves, from one held sign-in: `export-workspace-tar` walks a Workspace into a
+	// Both places a held sign-in could leak from, out of one: `export-workspace-tar` walks a Workspace into a
 	// file the author mails to a colleague, and a Publish uploads one to a public repository. The
 	// archive's own bytes and the fake's received files are what is asked — a list of paths would
 	// pass just as happily with the secret inside one of them.

@@ -178,7 +178,7 @@ test.describe('binding a Workspace to a repository', () => {
 });
 
 // ADR-0033: *"Push rights are checked when a Remote is bound, not when 4,000 tiles have finished
-// uploading."* That check moved *in front of* the choice (story 22): a repository the author cannot
+// uploading."* That check sits *in front of* the choice: a repository the author cannot
 // publish to is marked as such in the door's list and cannot be chosen at all, so there is no
 // binding-with-a-notice state left to drive from a browser. Which mark each row carries and why is
 // asserted at Seam 1c against a reactive fake (`repository-choice.dom.test.ts`), and what the rights

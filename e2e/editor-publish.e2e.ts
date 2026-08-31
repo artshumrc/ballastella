@@ -1344,7 +1344,7 @@ test.describe('publishing to a Remote', () => {
 	 * The credential that reaches a repository and cannot push to it.
 	 *
 	 * ⚠ **This test used to press through to a refusal, and it cannot any more — by design**
-	 * (ADR-0043, story 71). A read-only collaborator is offered no publish affordance at all: the door
+	 * (ADR-0043). A read-only collaborator is offered no publish affordance at all: the door
 	 * is the only way to the publish dialog (ADR-0041), and the door withdraws **Publish…** once
 	 * GitHub has said this sign-in may not write there. So the claim this test carries is now the
 	 * *absence*, which is the stronger one — a control that will certainly refuse is worse than no
@@ -1369,7 +1369,7 @@ test.describe('publishing to a Remote', () => {
 		// refusal after the whole website has been written into the Workspace.
 		await expect(page.getByTestId('pull-only-remote')).toContainText('you cannot publish to it');
 		await expect(page.getByTestId('connect-publish')).toHaveCount(0);
-		// Story 74: the way forward is on the same screen as the limitation.
+		// The way forward is on the same screen as the limitation.
 		await expect(page.getByTestId('publish-to-your-own')).toBeVisible();
 		// Update from GitHub is untouched: taking changes from a repository needs no write access, and
 		// this is exactly the relationship the pull-only sentence describes.
