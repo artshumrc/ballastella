@@ -54,21 +54,22 @@ test('is one banner landmark, under the test id both suites address the bar by',
 	expect(document.querySelectorAll('header')).toHaveLength(1);
 });
 
-test('carries the one control both apps share, saying what it will do rather than what it is', () => {
-	const onToggleTheme = vi.fn();
-	render({ theme: 'light', onToggleTheme });
+test('carries the one theme picker both apps share', () => {
+	const onSelectTheme = vi.fn();
+	render({ theme: 'carto-light', onSelectTheme });
 
 	const toggle = testid('theme-toggle')!;
-	expect(toggle).toHaveAccessibleName('Switch to dark theme');
-	expect(toggle).toHaveAttribute('aria-label', 'Switch to dark theme');
-	expect(toggle.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+	expect(toggle).toHaveAccessibleName('Theme');
+	expect(toggle).toHaveAttribute('aria-controls');
+	expect(testid('theme-option-carto-light')).toHaveAttribute('aria-current', 'true');
+	expect(testid('theme-option-synthwave')).not.toHaveAttribute('aria-current');
 
-	(toggle as HTMLButtonElement).click();
+	(testid('theme-option-synthwave') as HTMLButtonElement).click();
 	flushSync();
 
 	// The bar changes nothing itself: which theme is in force, and whether it is remembered, is the
 	// app's own signal (ADR-0034 keeps `theme.svelte.ts` two modules).
-	expect(onToggleTheme).toHaveBeenCalledTimes(1);
+	expect(onSelectTheme).toHaveBeenCalledWith('synthwave');
 });
 
 test('renders each app’s own items in the slots it is handed', () => {

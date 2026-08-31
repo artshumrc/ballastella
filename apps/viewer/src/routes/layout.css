@@ -4,84 +4,25 @@
    `@source` that lets Tailwind see the classes they are written with (ADR-0034). */
 @import '@ballastella/ui/layout.css';
 
-/* ADR-0016: daisyUI is the only UI dependency. Tracy's generated theme replaces the
-   stock ones here, and ships in the published viewer as well as the authoring app.
-
-   `themes: false` is what makes "replaces" literal: it stops the plugin emitting any built-in
-   theme, so the only themes in the sheet are the two Sidereal blocks below. See point 2 there for
-   why leaving the stock ones in makes Sidereal inert. */
+/* ADR-0016: daisyUI is the only UI dependency. Every built-in theme is selectable; the two custom
+   Carto themes below remain the system-preference defaults and ship in both apps. The explicit list
+   deliberately gives no built-in theme `--default` or `--prefersdark`, because those first-paint
+   roles belong to Carto. */
 @plugin 'daisyui' {
-	themes: false;
+	themes:
+		light, dark, cupcake, bumblebee, emerald, corporate, synthwave, retro, cyberpunk, valentine,
+		halloween, garden, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk,
+		autumn, business, acid, lemonade, night, coffee, winter, dim, nord, sunset, caramellatte, abyss,
+		silk;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
-   Sidereal — the generated theme (ADR-0036).
-
-   ⚠ **This block is duplicated verbatim in the other app's `routes/layout.css`, and the two must
-   not diverge.** daisyUI's theme plugin is invoked per stylesheet and each app has its own, so
-   there is no file either could import this from; a change to one is a change to both in the same
-   edit. ADR-0036 holds the tables these values are copied from.
-
-   Four things here are load-bearing rather than style preferences:
-
-     1. **The names are exactly `light` and `dark`**, because those are the two strings
-        `src/lib/theme.svelte.ts` writes to `data-theme`. A third name is a theme nothing can
-        select.
-     2. **`prefersdark: true` on the `dark` block, and `themes: false` on the `@plugin 'daisyui'`
-        above.** `themes: false` keeps stock daisyUI out (see below). `prefersdark` is *not* a second
-        opinion about the operating system's preference, which is the divergence ADR-0016 exists to
-        prevent, because daisyUI emits it behind `:root:not([data-theme])`
-        (`daisyui/theme/index.js`): it styles only the window before `ThemeSignal` has spoken, and
-        goes inert the instant the attribute is written. This app's `ThemeSignal` still owns the
-        decision, reading `prefers-color-scheme` once when it is constructed and registering no
-        listener.
-
-        `themes: false` is also what lets these two blocks win at all. daisyUI's built-in `light` is
-        selected by `:is(:root:has(input.theme-controller[value=light]:checked),[data-theme=light])`
-        — specificity (0,3,1) — while `default: true` here emits
-        `:where(:root),[data-theme="light"]`, whose attribute branch is only (0,1,0). So with the
-        stock themes emitted, every Sidereal light colour and every structure token loses the moment
-        `src/lib/theme.svelte.ts` writes `data-theme="light"`, and stock `dark` additionally owns
-        first paint on an OS-dark machine through its own
-        `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { … } }`.
-
-        `default: true` stays, and does exactly one job: it puts the Sidereal light palette on bare
-        `:root`, so a prerendered page is Sidereal at first paint, before the root layout has
-        written any attribute. Deleting either `themes: false` or `default: true` reintroduces stock
-        daisyUI with nothing erroring.
-
-        ⚠ **`prefersdark: true` is what keeps that first paint from being the *wrong* half.**
-        `startTheme()` runs from a mounted component and `preferredTheme()` answers `light` while
-        prerendering, so without the media query an OS-dark machine paints Sidereal light and flips
-        to dark at hydration — on every prerendered page, **including every Published Site**, which
-        is the artefact a scholar is judged by. Stock `dark` used to own that paint; `themes: false`
-        took it away, and this puts it back under our own palette.
-     3. **The base ramp descends** — `base-100` lightest, `base-300` deepest — in *both* themes, as
-        daisyUI's own do. Inverting it in dark inverts every `border-base-300` in both apps and
-        turns the align sidebar's and the Layer rail's `bg-base-300` from a well into a highlight,
-        with nothing erroring and no test failing.
-     4. **The structure tokens are identical in both blocks.** Square structure with soft controls
-        comes from daisyUI's own three radius tokens and no per-component override; `--depth: 0` is
-        what makes a surface read as drawn rather than rendered, and stock light ships `1`.
-
-   ⚠ **A token omitted here is inherited, not undefined.** `daisyui/theme` merges a custom block
-   with the built-in theme of the same name (`daisyui/theme/index.js`, "Merge custom theme with
-   built-in theme if it exists"), and `light` and `dark` are both built-in names — so every token
-   this block does not state keeps daisyUI's stock value.
-
-   That is why the four `--color-{info,success,warning,error}-content` tokens are stated below even
-   though they read as redundant. Omitted, they inherit stock's inks, which are drawn for stock's
-   *light* semantic colours — and Sidereal's are dark, so the inherited pairs land at 1.95:1 (info),
-   1.53:1 (success), 1.85:1 (warning) and 2.16:1 (error). Every `alert-*`, `badge-success`,
-   `badge-warning` and `btn-error` in both apps reads through one of those pairs.
-
-   Each theme therefore takes the other's ground as its semantic ink — `base-100` here, and light's
-   `base-content` in the dark block — which is one value per theme rather than four, invents no hue
-   the palette does not already have, and clears 4.5:1 on all eight pairs (light 4.78–6.95:1, dark
-   5.13–8.21:1). The tightest is `warning` in light at 4.78:1, so darkening `--color-warning` is what
-   would break this first. */
+   Carto — the generated theme (ADR-0036). These blocks are duplicated in the editor stylesheet and
+   must move together. The full token sets avoid inheriting unrelated values from another palette;
+   `default` and `prefersdark` provide the correct prerendered first paint before ThemeSignal writes
+   `data-theme`. */
 @plugin 'daisyui/theme' {
-	name: 'light';
+	name: 'carto-light';
 	default: true;
 	prefersdark: false;
 	color-scheme: 'light';
@@ -119,7 +60,7 @@
 }
 
 @plugin 'daisyui/theme' {
-	name: 'dark';
+	name: 'carto-dark';
 	prefersdark: true;
 	color-scheme: 'dark';
 

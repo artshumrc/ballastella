@@ -1283,7 +1283,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 		const opacity = page.getByTestId('layer-opacity');
 		await opacity.fill('0.35');
 		await page.getByTestId('base-map-switcher').selectOption({ index: 1 });
-		await page.getByRole('button', { name: /Switch to .* theme/ }).click();
+		await page.getByRole('button', { name: 'Theme', exact: true }).click();
+		await page.getByTestId('theme-option-synthwave').click();
 		await expect(page.getByTestId('layer-view-status')).toContainText('%');
 
 		expect(seen.requests.filter((request) => request.method !== 'GET')).toEqual([]);
@@ -2328,7 +2329,7 @@ test.describe('the Base Map a Reader sees', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('toggling the theme changes the Base Map flavor in the same action (ADR-0016)', async ({
+	test('choosing a theme changes the Base Map flavor in the same action (ADR-0016)', async ({
 		page
 	}) => {
 		site = await published(oneProject());
@@ -2340,7 +2341,8 @@ test.describe('the Base Map a Reader sees', () => {
 		const before = await paint(page);
 		const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme);
 
-		await page.getByRole('button', { name: /Switch to .* theme/ }).click();
+		await page.getByRole('button', { name: 'Theme', exact: true }).click();
+		await page.getByTestId('theme-option-carto-dark').click();
 
 		// One signal drove both: the interface's `data-theme` and the map's paint changed together.
 		await expect
@@ -3989,6 +3991,16 @@ test.describe('a Reader on a phone', () => {
 			await expect(menu).toHaveAttribute('aria-expanded', 'true');
 			await expect(bar.getByTestId('theme-toggle')).toBeVisible();
 			await expect(bar.getByTestId('all-projects')).toBeVisible();
+			if (where === '') {
+				await bar.getByTestId('theme-toggle').click();
+				const option = page.getByTestId('theme-option-nord');
+				await expect(option).toBeVisible();
+				const optionBox = (await option.boundingBox())!;
+				expect(optionBox.x).toBeGreaterThanOrEqual(-1);
+				expect(optionBox.x + optionBox.width).toBeLessThanOrEqual(376);
+				await option.click();
+				await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord');
+			}
 
 			const link = bar.getByRole('link', { name: RETURN_LINK });
 			await expect(link).toBeVisible();

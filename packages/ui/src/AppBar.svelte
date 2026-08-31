@@ -24,7 +24,7 @@
 	// never be the two things that were dropped.
 	//
 	// ⚠ **Each foldable affordance is rendered once, never twice.** The usual responsive-navigation
-	// spelling — an inline row and a menu, one of them `display: none` — puts two theme toggles in the
+	// spelling — an inline row and a menu, one of them `display: none` — puts two theme pickers in the
 	// document, which is two controls that have to agree and a `getByTestId` that can no longer say
 	// which one a user pressed. So the choice is made in JavaScript off one media query, and the app
 	// spells its items twice because a bar button and a menu item are genuinely different markup.
@@ -54,13 +54,12 @@
 	// A tiered bar does not fold. Folding is the published site's arrangement and tiering is the
 	// editor's; no app passes both, and authoring is desktop-only anyway.
 
-	import { otherTheme, type Theme } from '@ballastella/core';
-	import Moon from '@lucide/svelte/icons/moon';
+	import type { Theme } from '@ballastella/core';
 	import Pencil from '@lucide/svelte/icons/pencil';
-	import Sun from '@lucide/svelte/icons/sun';
 	import type { Snippet } from 'svelte';
 
 	import MenuPopover from './MenuPopover.svelte';
+	import ThemePicker from './ThemePicker.svelte';
 	import { pageChrome } from './page-chrome.svelte.js';
 
 	let {
@@ -70,7 +69,7 @@
 		status,
 		wordmark,
 		theme,
-		onToggleTheme,
+		onSelectTheme,
 		homeHref
 	}: {
 		/** Who you are looking at: the Workspace switcher, or the site's own name. */
@@ -108,7 +107,7 @@
 		wordmark?: Snippet;
 		/** The theme in force, for the control's own words. The signal behind it is the app's. */
 		theme: Theme;
-		onToggleTheme: () => void;
+		onSelectTheme: (theme: Theme) => void;
 		/**
 		 * The app's own root, already resolved by the app.
 		 *
@@ -142,11 +141,6 @@
 	});
 
 	const folded = $derived(menu !== undefined && narrow);
-
-	// Written once because the control has two spellings — a `btn` in the bar and an `<li>` in the
-	// folded menu — and a scholar meeting either must be told the same thing.
-	const themeLabel = $derived(`Switch to ${otherTheme(theme)} theme`);
-	const ThemeIcon = $derived(otherTheme(theme) === 'dark' ? Moon : Sun);
 </script>
 
 <!--
@@ -232,16 +226,8 @@
      places it can appear — the masthead and the single row — and exactly one of them may hold it. The
      folded menu spells its own control instead, because there it is an `<li>` menu item rather than a
      `btn`; `themeLabel` is shared so the two cannot drift apart in wording. -->
-{#snippet themeControl()}
-	<button
-		type="button"
-		class="btn btn-sm"
-		data-testid="theme-toggle"
-		aria-label={themeLabel}
-		onclick={() => onToggleTheme()}
-	>
-		<ThemeIcon aria-hidden="true" />
-	</button>
+{#snippet themeControl(buttonClass = 'btn btn-sm')}
+	<ThemePicker {theme} onSelect={onSelectTheme} {buttonClass} />
 {/snippet}
 
 <!--
@@ -299,14 +285,7 @@
 				{#if folded && menu}
 					<MenuPopover label="Menu" testid="bar-menu" align="end">
 						<li>
-							<button
-								type="button"
-								data-testid="theme-toggle"
-								aria-label={themeLabel}
-								onclick={() => onToggleTheme()}
-							>
-								<ThemeIcon aria-hidden="true" />
-							</button>
+							{@render themeControl('w-full justify-start')}
 						</li>
 						{@render menu()}
 					</MenuPopover>

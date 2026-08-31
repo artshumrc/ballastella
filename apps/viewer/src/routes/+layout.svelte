@@ -10,6 +10,7 @@
 <svelte:head>
 	<link rel="icon" type="image/png" sizes="16x16" href={favicon16} />
 	<link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
+	<meta name="theme-color" content="#fbfaf7" />
 </svelte:head>
 <!--
 	Outside `children()` so it is on every screen of the site — the Front Page, a Project, and a

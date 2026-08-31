@@ -48,12 +48,8 @@ institutional prospectus.
 
 **The four semantic `-content` inks are one value per theme, and they have to be stated.** Each theme
 takes the other's ground as its semantic ink: light uses its own `base-100`, dark uses light's
-`base-content`. Omitting them is not neutral — `daisyui/theme` merges a custom block with the
-built-in theme of the same name, and `light` and `dark` are both built-in names, so an omitted token
-keeps daisyUI's stock value. Stock's inks are drawn for stock's *light* semantic colours while
-Sidereal's are dark, which puts the inherited pairs at 1.95:1 (info), 1.53:1 (success), 1.85:1
-(warning) and 2.16:1 (error) — illegible, across every `alert-*`, `badge-success`, `badge-warning`
-and `btn-error` in both apps.
+`base-content`. Omitting them would leave the semantic pair incomplete and risks illegible
+`alert-*`, `badge-success`, `badge-warning`, and `btn-error` surfaces in both apps.
 
 One ink per theme rather than eight hand-tuned values: it invents no hue the palette does not already
 have, and it clears 4.5:1 on all eight pairs — light 4.78–6.95:1, dark 5.13–8.21:1. The tightest is
@@ -61,18 +57,19 @@ have, and it clears 4.5:1 on all eight pairs — light 4.78–6.95:1, dark 5.13�
 `semantic-content-contrast.dom.test.ts` measures all eight from the rendered colours and is what
 fails if a later palette change does.
 
-**Two themes, named `light` and `dark`, and nothing else.** Those two literal names are what
-`apps/{editor,viewer}/src/lib/theme.svelte.ts` write to `data-theme`, so a third name would be a
-theme nothing can select. `ThemeSignal` owns the `prefers-color-scheme` decision — the editor's live,
-the viewer's read once at construction — and a second opinion about it is precisely the divergence
-ADR-0016 exists to prevent.
+**Amendment: the generated themes are named `carto-light` and `carto-dark`, and every built-in
+daisyUI theme is also selectable.** `ThemeSignal` still owns the `prefers-color-scheme` decision —
+the editor's live, the viewer's read once at construction — and uses the two Carto themes while no
+explicit choice exists. Every selectable theme declares a light or dark scheme in the shared theme
+catalog so the same signal selects the matching Base Map flavor; theme name and map scheme are not
+independent controls.
 
-**`prefersdark` is nonetheless `true` on the `dark` block, and it is not that second opinion.**
+**`prefersdark` is nonetheless `true` on the `carto-dark` block, and it is not that second opinion.**
 daisyUI emits it behind `:root:not([data-theme])` (`daisyui/theme/index.js`), so it styles only the
 window before `ThemeSignal` has spoken and goes inert the moment the attribute is written — it cannot
 disagree with the signal, because the two never apply at once. It is there because `themes: false`
-removed stock `dark`'s own copy of that rule, and `startTheme()` runs from a mounted component while
-`preferredTheme()` answers `light` during prerendering: without it, an OS-dark machine paints Sidereal
+the built-ins carry no default flags, and `startTheme()` runs from a mounted component while
+`preferredTheme()` answers `carto-light` during prerendering: without it, an OS-dark machine paints Sidereal
 light and flips to dark at hydration on every prerendered page, **including every Published Site**.
 Verified in the built stylesheet rather than inferred — the emitted media query carries the dark
 ramp, the semantic inks and the structure tokens.

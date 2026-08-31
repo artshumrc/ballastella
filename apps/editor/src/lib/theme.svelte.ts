@@ -1,4 +1,4 @@
-import { otherTheme, type Theme } from '@ballastella/core';
+import { DEFAULT_DARK_THEME, DEFAULT_THEME, isTheme, type Theme } from '@ballastella/core';
 
 /**
  * Where an explicit choice is kept.
@@ -13,7 +13,8 @@ import { otherTheme, type Theme } from '@ballastella/core';
  * Reader preference that *is* persisted is scoped by ADR-0020's origin-and-path keying rather than
  * by a name. A segment here would be guarding against a collision that cannot happen.
  */
-const STORAGE_KEY = 'ballastella.theme';
+const STORAGE_KEY = 'ballastella.theme.v2';
+const LEGACY_STORAGE_KEY = 'ballastella.theme';
 
 /**
  * The one theme signal.
@@ -26,13 +27,12 @@ const STORAGE_KEY = 'ballastella.theme';
  * The Base Map side reads `theme.current` inside an effect. Nothing else stores a theme.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
- * THREE STATES BEHIND A TWO-STATE CONTROL
+ * SYSTEM DEFAULT UNTIL AN EXPLICIT CHOICE
  *
- * The visible control has two positions, but there are three states, and the third is the one that
- * makes the tool feel like part of the machine rather than a thing with an opinion:
+ * The picker offers every emitted theme. Until the user chooses one, the app follows the operating
+ * system live using Carto Light and Carto Dark:
  *
- * - explicit `light` — chosen, kept across visits
- * - explicit `dark` — chosen, kept across visits
+ * - any explicit theme — chosen, kept across visits
  * - **unset — follows the operating system, live**
  *
  * "Live" is the whole of it, and it is why {@link #system} is a `$state` fed by the media query's
@@ -41,15 +41,14 @@ const STORAGE_KEY = 'ballastella.theme';
  * Reading `matchMedia(...).matches` once — which is what this did — respects the preference only
  * for people who reload, and a scholar mid-alignment does not reload.
  *
- * The first click writes an explicit preference and stops following the OS. There is deliberately
- * no third position to get back to "follow my system": it would be a control nobody could name, and
- * clearing site data is the honest way out.
+ * The first selection writes an explicit preference and stops following the OS. Clearing site data
+ * returns to the system default.
  */
 class ThemeSignal {
 	/** An explicit choice, or `null` while the operating system is being followed. */
 	#chosen = $state.raw<Theme | null>(null);
 	/** What the operating system currently asks for. Updated by the media query's `change` event. */
-	#system = $state.raw<Theme>('light');
+	#system = $state.raw<Theme>(DEFAULT_THEME);
 	/** So a second `startTheme()` — a second layout mount in a test — does not add a second listener. */
 	#started = false;
 
@@ -61,10 +60,6 @@ class ThemeSignal {
 		this.#chosen = next;
 		remember(next);
 		applyToDocument(next);
-	}
-
-	toggle(): void {
-		this.current = otherTheme(this.current);
 	}
 
 	/**
@@ -83,9 +78,9 @@ class ThemeSignal {
 		}
 
 		const query = window.matchMedia('(prefers-color-scheme: dark)');
-		this.#system = query.matches ? 'dark' : 'light';
+		this.#system = query.matches ? DEFAULT_DARK_THEME : DEFAULT_THEME;
 		const onchange = (event: MediaQueryListEvent): void => {
-			this.#system = event.matches ? 'dark' : 'light';
+			this.#system = event.matches ? DEFAULT_DARK_THEME : DEFAULT_THEME;
 			// Writes the *effective* theme, which is the chosen one when there is a choice — so an OS
 			// change with an explicit preference in force repaints nothing.
 			applyToDocument(this.current);
@@ -102,7 +97,7 @@ class ThemeSignal {
 /**
  * The stored choice, or `null`.
  *
- * Anything that is not one of the two themes is `null` rather than an error: `localStorage` is
+ * Anything that is not a selectable theme is `null` rather than an error: `localStorage` is
  * shared with every other script on the origin and with this app's own past versions, and a value
  * nobody recognises means "no choice has been made", which is a state this already handles.
  */
@@ -110,7 +105,11 @@ function remembered(): Theme | null {
 	if (typeof localStorage === 'undefined') return null;
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
-		return stored === 'light' || stored === 'dark' ? stored : null;
+		if (stored !== null && isTheme(stored)) return stored;
+		const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+		if (legacy === 'light') return DEFAULT_THEME;
+		if (legacy === 'dark') return DEFAULT_DARK_THEME;
+		return null;
 	} catch {
 		// Private-mode Safari and a blocked-storage policy both throw here. A theme that does not
 		// survive the visit is a far smaller loss than a page that will not render.
@@ -129,8 +128,13 @@ function remember(theme: Theme): void {
 
 function applyToDocument(theme: Theme): void {
 	if (typeof document === 'undefined') return;
-	// daisyUI ships `light` and `dark` and selects on `data-theme` (ADR-0016).
+	// daisyUI selects both built-in and custom themes on `data-theme` (ADR-0016).
 	document.documentElement.dataset.theme = theme;
+	const browserChrome = document.querySelector('meta[name="theme-color"]');
+	const base = getComputedStyle(document.documentElement)
+		.getPropertyValue('--color-base-100')
+		.trim();
+	if (base !== '') browserChrome?.setAttribute('content', base);
 }
 
 export const theme = new ThemeSignal();

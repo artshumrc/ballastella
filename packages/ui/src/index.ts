@@ -41,6 +41,7 @@ export { default as MapCommentary } from './MapCommentary.svelte';
 export { default as MapNotice } from './MapNotice.svelte';
 export { default as MenuPopover } from './MenuPopover.svelte';
 export { default as ProjectCardList } from './ProjectCardList.svelte';
+export { default as ThemePicker } from './ThemePicker.svelte';
 export { KIND_STYLE } from './layer-kind-style';
 export { TOOL_ICONS, iconForAnnotation } from './shape-icons';
 export { pageChrome, type Breadcrumb, type WayBack } from './page-chrome.svelte.js';

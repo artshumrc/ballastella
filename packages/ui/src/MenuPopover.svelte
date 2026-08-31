@@ -42,6 +42,7 @@
 		label,
 		open = $bindable(false),
 		buttonClass = 'btn btn-sm',
+		menuClass = 'menu w-64 p-0',
 		align = 'start',
 		testid,
 		children
@@ -51,6 +52,7 @@
 		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
 		open?: boolean;
 		buttonClass?: string;
+		menuClass?: string;
 		/**
 		 * Which of the button's edges the menu hangs from.
 		 *
@@ -136,7 +138,7 @@
 >
 	<!-- Wide enough for an item's icon and its label on one line: at `w-56` "Choose Workspace
 	     folder…" wrapped, and a wrapped item in a list of one-line items reads as two items. -->
-	<ul class="menu w-64 p-0">
+	<ul class={menuClass}>
 		{@render children()}
 	</ul>
 </div>

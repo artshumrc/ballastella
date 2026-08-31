@@ -13,13 +13,13 @@
 
 	let {
 		theme = 'light',
-		onToggleTheme = () => {},
+		onSelectTheme = () => {},
 		withMenu = false,
 		withStatus = false,
 		withWordmark = false
 	}: {
 		theme?: Theme;
-		onToggleTheme?: () => void;
+		onSelectTheme?: (theme: Theme) => void;
 		/** Whether this app offers foldable items, which is what turns the fold on at all. */
 		withMenu?: boolean;
 		/** Whether this app hands the masthead a status, which is what turns the two tiers on. */
@@ -58,6 +58,6 @@
 	{...withStatus ? { status } : {}}
 	{...withWordmark ? { wordmark } : {}}
 	{theme}
-	{onToggleTheme}
+	{onSelectTheme}
 	homeHref="./"
 />

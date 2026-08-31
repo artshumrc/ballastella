@@ -63,7 +63,7 @@ const GRID_SOURCE: readonly [string, string] = ['--color-base-content', '#111111
  */
 export function distortionRamp(): DistortionRamp & { renderGridColor: string } {
 	const read = ([variable, fallback]: readonly [string, string]): string =>
-		resolveThemeColour(variable) || fallback;
+		themeColour(variable) || fallback;
 
 	return {
 		distortionColor00: read(RAMP_SOURCES.distortionColor00),
@@ -100,7 +100,7 @@ export function distortionRamp(): DistortionRamp & { renderGridColor: string } {
  * the first three channels, so an eight-digit hex would be silently truncated anyway — and a
  * half-transparent distortion ramp is not a thing the theme is trying to express.
  */
-function resolveThemeColour(variable: string): string {
+export function themeColour(variable: string): string {
 	if (typeof document === 'undefined') return '';
 	const raw = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
 	if (raw === '') return '';

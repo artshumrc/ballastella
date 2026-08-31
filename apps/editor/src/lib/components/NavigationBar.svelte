@@ -657,7 +657,7 @@
 	{status}
 	{wordmark}
 	theme={theme.current}
-	onToggleTheme={() => theme.toggle()}
+	onSelectTheme={(next) => (theme.current = next)}
 	homeHref={resolve('/')}
 />
 

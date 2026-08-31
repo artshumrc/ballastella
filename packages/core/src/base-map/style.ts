@@ -3,7 +3,7 @@ import { layers, namedFlavor, type Flavor } from '@protomaps/basemaps';
 
 import { BASE_MAP_CATALOG } from './catalog';
 import type { BaseMapCatalog, BaseMapEmphasis, BaseMapEntry } from './entry';
-import type { Theme } from '../theme';
+import { themeScheme, type Theme } from '../theme';
 
 /** The single vector source every variant reads. One archive; many style documents. */
 export const BASE_MAP_SOURCE_ID = 'protomaps';
@@ -69,7 +69,7 @@ export function baseMapStyle(
 ): StyleSpecification {
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	const resolveAsset = options.resolveAsset ?? identity;
-	const flavorName = entry.flavor[options.theme];
+	const flavorName = entry.flavor[themeScheme(options.theme)];
 	const flavor = emphasisedFlavor(namedFlavor(flavorName), entry.emphasis);
 
 	return {
