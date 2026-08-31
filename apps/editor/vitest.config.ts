@@ -243,7 +243,10 @@ export default defineConfig({
 						$lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
 						// SvelteKit generates `$app/paths` at build time and there is no build here. The
 						// stub's own header records why its `base` is `''` and what that forbids.
-						'$app/paths': fileURLToPath(new URL('./vitest-setup/app-paths.ts', import.meta.url))
+						'$app/paths': fileURLToPath(new URL('./vitest-setup/app-paths.ts', import.meta.url)),
+						'$app/navigation': fileURLToPath(
+							new URL('./vitest-setup/app-navigation.ts', import.meta.url)
+						)
 					}
 				},
 				// **No `optimizeDeps.include`, deliberately.** `packages/core`'s browser project needs

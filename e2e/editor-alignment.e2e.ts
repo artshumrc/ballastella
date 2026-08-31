@@ -1075,19 +1075,14 @@ test.describe('choosing the Base Map while aligning', () => {
 			?.baseMap ?? null;
 
 	/**
-	 * A bundled entry, deliberately — **not** the worldwide one this whole investigation was about.
+	 * A non-streets entry, deliberately, so this test exercises changing the author's choice.
 	 *
-	 * `streets-worldwide` reads Protomaps' demo bucket over the network, and no test in this suite
-	 * selects it for that reason (`editor-base-map.e2e.ts` names it only in the expected option
-	 * list). What is under test here is that the control is reachable and that operating it records
-	 * the author's choice; making that depend on a third party's bucket would buy nothing and cost
-	 * a flake on every reading-room wifi this suite is ever run on.
+	 * What is under test here is that the control is reachable and that operating it records the
+	 * author's choice; all three catalog entries use the same archive, which is routed by this suite
+	 * so the test does not depend on a third party's bucket.
 	 *
-	 * ⚠ **That reasoning was right and this constant did not achieve it**. All four
-	 * catalog entries share one `REMOTE_ARCHIVE`, so choosing a "bundled" one still fetched the demo
-	 * bucket — and when that bucket started answering 404 this spec went red along with the two other
-	 * unrouted ones. The `routeBaseMapArchive` hook at the top of this file is what actually delivers
-	 * what this comment intended; the constant now only keeps the option list honest.
+	 * The `routeBaseMapArchive` hook at the top of this file supplies the archive bytes used by the
+	 * application.
 	 */
 	const OFFLINE_ENTRY = 'physical';
 

@@ -74,14 +74,6 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 			archive: REMOTE_ARCHIVE,
 			emphasis: 'streets-and-labels',
 			flavor: { light: 'grayscale', dark: 'black' }
-		},
-		{
-			id: 'streets-worldwide',
-			label: 'Streets, worldwide',
-			needsNetwork: true,
-			archive: REMOTE_ARCHIVE,
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
 		}
 	],
 	defaultId: 'streets',

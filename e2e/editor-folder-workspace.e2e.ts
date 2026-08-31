@@ -19,6 +19,7 @@ import {
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
+import { deleteProject } from './support/annotations.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -668,8 +669,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
 
 		// And the gesture that ends it is the ordinary one, right there in the list.
-		await page.getByRole('button', { name: /^Delete/ }).click();
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await deleteProject(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		await expect.poll(() => everyPathInFolder(page)).toEqual([]);
 	});

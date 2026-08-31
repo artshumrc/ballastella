@@ -899,6 +899,7 @@ describe('telling the author a Published Site is behind', () => {
 	const summary = (directory: string, name: string, onFrontPage = true) => ({
 		directory,
 		name,
+		description: '',
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		onFrontPage,
 		problem: null

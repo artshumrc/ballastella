@@ -4644,7 +4644,7 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		expect(at.zoom).toBeCloseTo(parked.zoom, 6);
 
 		// The explicit control, with words on it, is what covers everything the once-only fit does not.
-		await page.getByRole('button', { name: 'Fit project' }).click();
+		await page.getByRole('button', { name: 'Frame project' }).click();
 		await expect
 			.poll(async () => (await readerViewport(page)).lat)
 			.toBeCloseTo(BOSTON_CENTRE.lat, 3);

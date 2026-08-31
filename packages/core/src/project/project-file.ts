@@ -44,6 +44,9 @@ export const projectFilePath = (directory: string): string => `${directory}/${PR
  */
 const REMOVED_MAP_LAYERS_KEY = 'removedMapLayers';
 
+/** The key {@link ProjectFile.description} is written under. */
+const DESCRIPTION_KEY = 'description';
+
 /**
  * A parsed `project.json`.
  *
@@ -55,6 +58,17 @@ export interface ProjectFile {
 	readonly formatVersion: number;
 	/** The display name. May collide with another Project's; identity is the directory (ADR-0008). */
 	readonly name: string;
+	/**
+	 * What the Project is, in the author's own words, or `''` when they have not said (ADR-0008).
+	 *
+	 * **Absent from the file means `''`**, and `''` is written as *absence*, for the reason
+	 * `canonicalUrl` and `onFrontPage` give: a Project with nothing to say keeps the bytes it had
+	 * before this field existed, so a Workspace in git gains no diff on the day the app is updated.
+	 *
+	 * Prose for a reader, never markup and never parsed: it is rendered as text wherever it is shown,
+	 * for the reason `ProjectCardList` gives about a display name.
+	 */
+	readonly description: string;
 	/**
 	 * When the Project was last changed, ISO 8601.
 	 *
@@ -237,6 +251,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	const {
 		formatVersion,
 		name,
+		description,
 		updatedAt,
 		layers,
 		canonicalUrl,
@@ -262,6 +277,12 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	if (importProvenance !== undefined && !Array.isArray(importProvenance)) {
 		unknownFields[IMPORT_PROVENANCE_KEY] = importProvenance;
 	}
+	// A description of some other shape is **carried rather than dropped**, for the reason above: it is
+	// not prose this build can render, but it is somebody's field and ADR-0010's tolerance covers it.
+	if (description !== undefined && typeof description !== 'string') {
+		unknownFields[DESCRIPTION_KEY] = description;
+	}
+
 	const provenance = parseImportProvenance(importProvenance);
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
@@ -274,6 +295,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	return {
 		formatVersion,
 		name: typeof name === 'string' ? name : '',
+		description: typeof description === 'string' ? description : '',
 		updatedAt: typeof updatedAt === 'string' ? updatedAt : '',
 		// Tolerant by design and never throwing — see `parseLayers`. A Layer list that refused to
 		// parse would turn one bad field into a Project that cannot be opened at all.
@@ -304,6 +326,7 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		unknownFields,
 		formatVersion,
 		name,
+		description,
 		updatedAt,
 		layers,
 		baseMap,
@@ -313,16 +336,25 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 	} = file;
 	const history =
 		importProvenance === undefined || importProvenance.length === 0 ? null : importProvenance;
+	// The keys this build is about to write itself, taken out of what it carries: `parseProjectFile`
+	// keeps a value of the wrong shape under its own key on purpose, and spread over a modelled one it
+	// would silently drop the edit that had just been made.
+	const shadowed = new Set(
+		[history === null ? null : IMPORT_PROVENANCE_KEY, description === '' ? null : DESCRIPTION_KEY]
+			.filter((key) => key !== null)
+			.filter((key) => key in unknownFields)
+	);
 	const carried =
-		history !== null && IMPORT_PROVENANCE_KEY in unknownFields
-			? Object.fromEntries(
-					Object.entries(unknownFields).filter(([key]) => key !== IMPORT_PROVENANCE_KEY)
-				)
-			: unknownFields;
+		shadowed.size === 0
+			? unknownFields
+			: Object.fromEntries(Object.entries(unknownFields).filter(([key]) => !shadowed.has(key)));
 	const json = JSON.stringify(
 		{
 			formatVersion,
 			name,
+			// Omitted when the author has said nothing, so a Project without a description is
+			// byte-identical to one from a build that had never heard of the field.
+			...(description === '' ? {} : { description }),
 			updatedAt,
 			layers: serialiseLayers(layers),
 			baseMap,
@@ -354,10 +386,11 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 }
 
 /** A brand-new Project's manifest. */
-export function newProjectFile(name: string, updatedAt: Date): ProjectFile {
+export function newProjectFile(name: string, updatedAt: Date, description = ''): ProjectFile {
 	return {
 		formatVersion: CURRENT_FORMAT_VERSION,
 		name,
+		description,
 		updatedAt: updatedAt.toISOString(),
 		layers: [],
 		baseMap: null,

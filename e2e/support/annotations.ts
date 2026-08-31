@@ -263,6 +263,28 @@ export async function createProject(page: Page, name = PROJECT_NAME): Promise<vo
 }
 
 /**
+ * Open one Project's Edit dialog from the hub, where renaming, describing, exporting and deleting
+ * it all live.
+ *
+ * A locator rather than a name, because a spec that has one Project on screen wants the only row's
+ * dialog and one with several wants a named row's.
+ */
+export async function openProjectEditor(page: Page, name?: string): Promise<Locator> {
+	const control = name
+		? page.getByRole('button', { name: `Edit ${name}` })
+		: page.getByRole('button', { name: /^Edit/ });
+	await control.click();
+	return page.getByRole('dialog', { name: 'Edit Project' });
+}
+
+/** Delete a Project the way a user must now reach it: through Edit, then the confirmation. */
+export async function deleteProject(page: Page, name?: string): Promise<void> {
+	const editor = await openProjectEditor(page, name);
+	await editor.getByRole('button', { name: 'Delete Project…' }).click();
+	await page.getByRole('button', { name: 'Delete Project', exact: true }).click();
+}
+
+/**
  * The journey that is recorded once: a Project created through the dialog, with one Annotation Layer
  * added through the interface.
  *

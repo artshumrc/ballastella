@@ -1,6 +1,7 @@
 import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
+import { deleteProject, openProjectEditor } from './support/annotations.js';
 import { openAddMapImage } from './support/map-images';
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
@@ -224,13 +225,9 @@ test.describe('the Project hub', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await createProject(page, 'Boston 1775');
 
-		const boston = page.getByRole('listitem').filter({ hasText: 'Boston 1775' });
-		await boston.getByRole('button', { name: /^Rename/ }).click();
-		await page
-			.getByRole('dialog', { name: 'Rename Project' })
-			.getByLabel('New name')
-			.fill('Amsterdam 1625');
-		await page.getByRole('button', { name: 'Rename', exact: true }).click();
+		const editor = await openProjectEditor(page, 'Boston 1775');
+		await editor.getByLabel('Project name').fill('Amsterdam 1625');
+		await editor.getByRole('button', { name: 'Save Changes' }).click();
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(2);
 		// Two display names, two distinct folders: identity is the folder, never the name.
@@ -301,8 +298,7 @@ test.describe('the Project hub', () => {
 	test('deleting a Project removes it from the list and from OPFS', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 
-		await page.getByRole('button', { name: /^Delete/ }).click();
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await deleteProject(page);
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		const remaining = await page.evaluate(async () => {
@@ -431,12 +427,13 @@ test.describe('the Workspace’s Map Images', () => {
 		// with it", a few sections above a list stating the opposite. ADR-0023 made it false — a pyramid
 		// and its Alignment belong to the **Workspace** and are shared — so this is the wording catching
 		// up with the behaviour, which is unchanged and asserted below rather than described.
-		await page.getByRole('button', { name: 'Delete Boston 1775' }).click();
+		const editor = await openProjectEditor(page, 'Boston 1775');
+		await editor.getByRole('button', { name: 'Delete Project…' }).click();
 
 		const dialog = page.getByRole('dialog', { name: 'Delete Project' });
 		await expect(dialog).toContainText('The Map Images it drew stay in the Workspace');
 		await expect(dialog).not.toContainText('Its Map Images');
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await page.getByRole('button', { name: 'Delete Project', exact: true }).click();
 
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
 		// The shared map is still there, still listed, and now drawn by one Project instead of two.
@@ -704,17 +701,22 @@ test.describe('the keyboard alone', () => {
 		// Every action on the row is reachable by tabbing forward from the heading link.
 		await page.getByRole('link', { name: 'Keyboard Only' }).focus();
 		for (const control of [
-			...[/^Rename/, /^Duplicate/, /^Export/, /^Delete/].map((name) =>
-				page.getByRole('button', { name })
-			)
+			page.getByRole('button', { name: /^Open/ }),
+			page.getByRole('button', { name: /^Edit/ }),
+			page.getByRole('button', { name: /^Duplicate/ })
 		]) {
 			await page.keyboard.press('Tab');
 			await expect(control).toBeFocused();
 		}
 
+		// And deleting it, which is now two dialogs deep, is reachable the same way.
+		await page.getByRole('button', { name: /^Edit/ }).focus();
+		await page.keyboard.press('Enter');
+		const editing = page.getByRole('dialog', { name: 'Edit Project' });
+		await editing.getByRole('button', { name: 'Delete Project…' }).focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('dialog', { name: 'Delete Project' })).toBeVisible();
-		await page.getByRole('button', { name: 'Delete Project' }).focus();
+		await page.getByRole('button', { name: 'Delete Project', exact: true }).focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toHaveCount(0);
 	});
@@ -1051,8 +1053,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 
 		// Back to the hub and delete it, with the rename still journalled.
 		await page.goto('./');
-		await page.getByRole('button', { name: /^Delete/ }).click();
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await deleteProject(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
 		// **Immediately, with the deletion still in flight** — which is the whole of what this pins,
@@ -1184,8 +1185,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 			};
 		});
 
-		await page.getByRole('button', { name: /^Delete/ }).click();
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await deleteProject(page);
 
 		await expect(page.getByTestId('deletion-warning')).toContainText(
 			'would not let Ballastella write the deletion down'
@@ -1223,8 +1223,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 			);
 		}, stray);
 
-		await page.getByRole('button', { name: /^Delete/ }).click();
-		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await deleteProject(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
 		// The same display name, so the same folder name: `amsterdam-1625`.

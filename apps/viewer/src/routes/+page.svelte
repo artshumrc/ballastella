@@ -1554,7 +1554,7 @@
 		onclick={() => fitToProject()}
 	>
 		<Scan size={16} aria-hidden="true" />
-		Fit project
+		Frame project
 	</button>
 {/snippet}
 

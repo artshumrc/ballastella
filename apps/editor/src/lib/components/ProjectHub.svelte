@@ -1,6 +1,10 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
+	import Copy from '@lucide/svelte/icons/copy';
+	import MapIcon from '@lucide/svelte/icons/map';
+	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import {
 		describeBytes,
@@ -39,10 +43,13 @@
 
 	let creating = $state(false);
 	let newName = $state('');
+	let newDescription = $state('');
 	let importMenu = $state<ReturnType<typeof MenuPopover> | undefined>();
 
-	let renaming = $state<ProjectSummary | null>(null);
-	let renamedTo = $state('');
+	/** The Project the Edit dialog is open on, and the fields it is holding until it is saved. */
+	let editing = $state<ProjectSummary | null>(null);
+	let editedName = $state('');
+	let editedDescription = $state('');
 
 	let deleting = $state<ProjectSummary | null>(null);
 
@@ -190,6 +197,7 @@
 
 	const startCreating = () => {
 		newName = '';
+		newDescription = '';
 		session.dismissProjectProblem();
 		creating = true;
 	};
@@ -201,18 +209,53 @@
 
 	const create = async () => {
 		creating = false;
-		await session.createProject(newName);
+		await session.createProject(newName, newDescription);
 	};
 
-	const startRenaming = (project: ProjectSummary) => {
-		renamedTo = project.name;
-		renaming = project;
+	/** Whether the Project being edited is one whose manifest this build must not write back. */
+	const unwritable = $derived(editing !== null && editing.problem !== null);
+
+	const startEditing = (project: ProjectSummary) => {
+		editedName = project.name;
+		editedDescription = project.description;
+		editing = project;
 	};
 
-	const rename = async () => {
-		const project = renaming;
-		renaming = null;
-		if (project) await session.renameProject(project.directory, renamedTo);
+	const saveEdits = async () => {
+		const project = editing;
+		editing = null;
+		if (project) {
+			await session.updateProjectDetails(project.directory, {
+				name: editedName,
+				description: editedDescription
+			});
+		}
+	};
+
+	/**
+	 * Export the Project being edited, closing the dialog on the way out.
+	 *
+	 * The progress and the finished line are announced on the hub behind it, so a dialog left open
+	 * would cover the only account of a transfer the user just started.
+	 */
+	const exportFromEditor = () => {
+		const project = editing;
+		if (!project || transferring) return;
+		editing = null;
+		exportProject(project);
+	};
+
+	/**
+	 * Ask to delete the Project being edited.
+	 *
+	 * The Edit dialog closes first: the confirmation is a dialog of its own, and two open at once
+	 * leaves the user answering the second one through the first one's backdrop. Whatever was typed
+	 * into the fields is dropped rather than saved on the way out, because the gesture that follows is
+	 * "delete this", not "save this and then delete it".
+	 */
+	const askToDeleteProject = (project: ProjectSummary) => {
+		editing = null;
+		deleting = project;
 	};
 
 	const remove = async () => {
@@ -552,6 +595,18 @@
 What else the Hub says about a Project: whether this build can read it.
 -->
 {#snippet details(project: ListedProject)}
+	<!-- The author's own words about the Project, as text and never as markup — the rule the display
+	     name follows, and for the same reason: a `project.json` may have come from a stranger. -->
+	{#if project.description}
+		<!-- `whitespace-pre-line`: the author typed the paragraph breaks into a textarea, so the
+		     rendered description keeps them rather than running the lines together. -->
+		<p
+			class="mt-2 text-sm break-words whitespace-pre-line opacity-90"
+			data-testid="project-description"
+		>
+			{project.description}
+		</p>
+	{/if}
 	{#if project.problem === 'format-too-new'}
 		<p class="text-sm text-warning">Made with a newer version of Ballastella.</p>
 	{:else if project.problem === 'unreadable'}
@@ -564,38 +619,36 @@ What else the Hub says about a Project: whether this build can read it.
 	without these, rather than a menu of controls that are there and refused.
 -->
 {#snippet actions(project: ListedProject)}
-	<button
-		class="btn btn-sm"
-		onclick={() => startRenaming(project)}
-		disabled={project.problem !== null}
-	>
-		Rename<span class="sr-only"> {project.name}</span>
+	<!-- Open first and in `primary`: it is what a scholar came to this page to do, and every other
+	     control here is something done *to* a Project rather than with it.
+
+	     A button rather than a second link to the same address. The row's own name is the link, and
+	     it is the one to copy or open in a new tab; a link here would put two of them on every row
+	     under two different accessible names, which is what a screen reader reads out as a list of
+	     destinations. -->
+	<button class="btn btn-primary btn-sm gap-2" onclick={() => goto(project.href)}>
+		<MapIcon class="size-4" aria-hidden="true" />
+		Open<span class="sr-only"> {project.name}</span>
+	</button>
+	<!-- Everything that changes or removes a Project is behind this one dialog: renaming it,
+	     describing it, taking a copy out of the browser, and deleting it. A row of peers put Delete
+	     one button away from Export, which is the pair a hurried click most needs kept apart.
+
+	     Offered even for a Project this build cannot open. Its name and description cannot be edited
+	     there — there is no manifest to write back — but Export is inside it, and a Project from a
+	     newer version is the one a user most needs to get out of a browser they cannot see into;
+	     export never parses `project.json` (ADR-0010). -->
+	<button class="btn btn-outline btn-sm gap-2" onclick={() => startEditing(project)}>
+		<Pencil class="size-4" aria-hidden="true" />
+		Edit<span class="sr-only"> {project.name}</span>
 	</button>
 	<button
-		class="btn btn-sm"
+		class="btn btn-ghost btn-sm gap-2"
 		onclick={() => session.duplicateProject(project.directory)}
 		disabled={project.problem !== null}
 	>
+		<Copy class="size-4" aria-hidden="true" />
 		Duplicate<span class="sr-only"> {project.name}</span>
-	</button>
-	<!-- Available even for a Project this build cannot open: a Project from a newer
-	     version is the one a user most needs to get out of a browser they cannot see
-	     into, and export never parses `project.json` (ADR-0010). -->
-	<!-- `aria-disabled`, not `disabled`. A `disabled` button is removed from the tab
-	     order the moment it is pressed, so a keyboard user's focus fell to `<body>`
-	     for the length of the export and was not restored when it came back —
-	     leaving them to tab in from the top of the page after every export
-	     (WCAG 2.4.3). -->
-	<button
-		class="btn btn-sm"
-		class:btn-disabled={transferring}
-		aria-disabled={transferring}
-		onclick={() => exportProject(project)}
-	>
-		Export<span class="sr-only"> {project.name}</span>
-	</button>
-	<button class="btn btn-outline btn-error btn-sm" onclick={() => (deleting = project)}>
-		Delete<span class="sr-only"> {project.name}</span>
 	</button>
 {/snippet}
 
@@ -970,6 +1023,17 @@ What else the Hub says about a Project: whether this build can read it.
 			onkeydown={(event) => event.key === 'Enter' && create()}
 		/>
 	</label>
+	<!-- Optional, and said to be: a scholar starting a Project usually has a name and nothing else
+	     yet, and Enter in the textarea makes a paragraph rather than creating the Project. -->
+	<label class="floating-label mt-4">
+		<span>Description (optional)</span>
+		<textarea
+			class="textarea w-full"
+			rows="3"
+			bind:value={newDescription}
+			placeholder="What this Project is, for whoever opens it next."
+		></textarea>
+	</label>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (creating = false)}>Cancel</button>
 		<button class="btn btn-primary" onclick={create}>Create Project</button>
@@ -977,24 +1041,63 @@ What else the Hub says about a Project: whether this build can read it.
 </ModalDialog>
 
 <ModalDialog
-	bind:open={() => renaming !== null, (open) => !open && (renaming = null)}
-	title="Rename Project"
+	bind:open={() => editing !== null, (open) => !open && (editing = null)}
+	title="Edit Project"
 >
 	<label class="floating-label">
-		<span>New name</span>
+		<span>Project name</span>
 		<input
 			class="input w-full"
-			bind:value={renamedTo}
-			onkeydown={(event) => event.key === 'Enter' && rename()}
+			bind:value={editedName}
+			disabled={unwritable}
+			onkeydown={(event) => event.key === 'Enter' && saveEdits()}
 		/>
 	</label>
+	<label class="floating-label mt-4">
+		<span>Description (optional)</span>
+		<textarea
+			class="textarea w-full"
+			rows="3"
+			bind:value={editedDescription}
+			disabled={unwritable}
+			placeholder="What this Project is, for whoever opens it next."
+		></textarea>
+	</label>
 	<p class="mt-3 text-sm opacity-70">
-		Two Projects may share a name; the folder this one lives in does not change, so a link you have
-		already shared keeps working.
+		{#if unwritable}
+			This Project's details cannot be changed here: its project.json is not one this version can
+			read, and writing it back would destroy what it holds. Exporting it does not read it.
+		{:else}
+			Two Projects may share a name; the folder this one lives in does not change, so a link you
+			have already shared keeps working.
+		{/if}
 	</p>
+
+	<!-- Taking the Project out of the browser, and removing it, under their own rule: neither is an
+	     edit to the fields above, and neither waits for Save. -->
+	<div class="mt-6 flex flex-wrap items-center gap-2 border-t border-rule pt-4">
+		<!-- `aria-disabled`, not `disabled`. A `disabled` button is removed from the tab order the
+		     moment it is pressed, so a keyboard user's focus fell to `<body>` for the length of the
+		     export and was not restored when it came back (WCAG 2.4.3). -->
+		<button
+			class="btn btn-sm"
+			class:btn-disabled={transferring}
+			aria-disabled={transferring}
+			onclick={() => exportFromEditor()}
+		>
+			Export Project
+		</button>
+		<button
+			class="btn btn-outline btn-error btn-sm ms-auto"
+			onclick={() => editing && askToDeleteProject(editing)}
+		>
+			Delete Project…
+		</button>
+	</div>
+
 	{#snippet actions()}
-		<button class="btn" onclick={() => (renaming = null)}>Cancel</button>
-		<button class="btn btn-primary" onclick={rename}>Rename</button>
+		<button class="btn" onclick={() => (editing = null)}>Cancel</button>
+		<button class="btn btn-primary" onclick={saveEdits} disabled={unwritable}>Save Changes</button>
 	{/snippet}
 </ModalDialog>
 

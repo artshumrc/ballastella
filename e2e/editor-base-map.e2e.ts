@@ -70,8 +70,7 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 const CATALOG_OPTIONS = [
 	{ value: 'streets', text: 'Streets' },
 	{ value: 'physical', text: 'Physical geography' },
-	{ value: 'muted', text: 'Muted, high contrast' },
-	{ value: 'streets-worldwide', text: 'Streets, worldwide' }
+	{ value: 'muted', text: 'Muted, high contrast' }
 ];
 
 // By role, not by label: MapLibre gives the canvas the accessible name "Base Map" too, which is
