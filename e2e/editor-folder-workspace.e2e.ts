@@ -931,26 +931,23 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await createProject(page, 'Amsterdam 1625');
 	});
 
-	test('resumes only from a gesture, never automatically on load', async ({ page }) => {
+	test('holds a folder Project route for a gesture that restores its Workspace', async ({ page }) => {
 		// The grant has lapsed, so resuming needs `requestPermission()` — which needs transient user
-		// activation. Called automatically on load it fails silently, and the app appears to have lost
-		// the folder; so on load nothing may be asked at all.
+		// activation. The remembered folder remains the route's destination until that gesture happens;
+		// resolving `?p=` in browser storage would falsely say this Project is missing.
 		await page.evaluate((key) => localStorage.setItem(key, 'prompt'), PERMISSION_KEY);
-		await page.reload();
+		await page.goto('./?p=amsterdam-1625');
 
-		await inBrowserStorage(page);
+		const dialog = page.getByRole('dialog', { name: 'Open your Workspace folder' });
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText('Project is read from the right place');
+		await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0);
 		expect(await grant(page)).toMatchObject({ permissionQueries: 0, permissionRequests: 0 });
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
-		// Reachable and operable from the keyboard alone, like every other control.
-		await openWorkspaceMenu(page);
-		const row = folderRow(page);
-		await row.focus();
-		await expect(row).toBeFocused();
-		await page.keyboard.press('Enter');
+		await dialog.getByRole('button', { name: 'Open Workspace folder' }).click();
 
 		await inFolder(page);
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		expect(await grant(page)).toMatchObject({
 			permissionRequests: 1,
 			activationAtRequest: [true]

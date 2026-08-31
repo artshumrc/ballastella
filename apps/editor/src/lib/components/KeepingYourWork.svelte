@@ -12,17 +12,16 @@
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
-	 * What keeps this Workspace safe, on Workspace Home: a Backup, a Restore, what the browser has
-	 * promised, the offer that answers it, unsaved changes with nowhere to go, and the way to move
+	 * What keeps this Workspace safe, in its editing dialog: a Backup, a Restore, what the browser
+	 * has promised, the offer that answers it, unsaved changes with nowhere to go, and the way to move
 	 * this Workspace into a folder.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHY THESE ARE HERE AND NOT IN A DIALOG
+	 * WHY THESE ARE IN THE WORKSPACE EDITING DIALOG
 	 *
-	 * All six were in Workspace settings, which ADR-0042 deletes: they are about *the Workspace the
-	 * author is in*, so they belong on the screen that is that Workspace, and every one of them had
-	 * no second entry point anywhere in the application — two menus deep, behind a control nobody
-	 * opens until something has already gone wrong.
+	 * They concern the Workspace the author is editing. Keeping them with the Rename form gives them
+	 * one direct entry point from its row in the roster, rather than scattering Workspace actions over
+	 * the Workspace Home and the roster.
 	 *
 	 * **What is not here is what may be done to the Workspaces themselves.** A Workspace is opened,
 	 * renamed and deleted from the roster on the bar, which is the list of Workspaces and therefore
@@ -237,30 +236,8 @@
 </script>
 
 <!--
-	The answer that does not depend on the browser, offered in every state — including the granted one,
-	because a grant is a promise about *this* browser on *this* computer and not about a disk that
-	fails. Its own copy of the control rather than a pointer down the page: this panel is where the
-	question was asked, and the section below is a heading away.
--->
-{#snippet backupOffer()}
-	<button
-		type="button"
-		class="btn btn-sm"
-		class:btn-disabled={working}
-		aria-disabled={working}
-		data-testid="download-backup"
-		onclick={() => {
-			if (!working) void backUp();
-		}}
-	>
-		Download a Backup
-	</button>
-{/snippet}
-
-<!--
-	Quiet, below the two lists: a scholar comes to Workspace Home to work on a Project, and this is
-	the answer to a question they ask occasionally. One section with a heading rather than a boxed
-	panel each (ADR-0036).
+	Below the Rename form: the same single section rather than a boxed panel for each concern
+	(ADR-0036).
 -->
 <section class="mt-10 flex flex-col items-start gap-3 border-t border-rule pt-6">
 	<h2 class="font-serif text-lg">Keeping your work</h2>
@@ -280,11 +257,18 @@
 		⚠ **Not `role="alert"`, which is what the old three-state sentence was inside the settings
 		dialog.** An alert is assertive and interrupts, and CONTRIBUTING's mandated-method table
 		reserves it for text inserted at the moment it first exists. This is a steady-state fact about
-		the Workspace, true before the screen is drawn — and on Workspace Home there is a second cost:
+		the Workspace, true before the dialog is drawn — and in the editing dialog there is a second cost:
 		an `alert` standing here permanently is a second one beside every real refusal this screen
 		raises, which is a screen reader hearing the storage sentence again every time a transfer fails.
 	-->
-	{#if durability !== null}
+	{#if storage.backing === 'folder'}
+		{#if !app.installed}
+			<p class="text-sm opacity-70" data-testid="folder-workspace-install-advice">
+				Install Ballastella to let your browser keep permission to access this Workspace folder
+				between visits.
+			</p>
+		{/if}
+	{:else if durability !== null}
 		{#if durability.kind === 'seven-day'}
 			<div class="alert items-start alert-soft alert-warning" data-testid="durability">
 				<TriangleAlert class="size-5 shrink-0" aria-hidden="true" />
@@ -304,7 +288,6 @@
 							<strong>before you bring in large maps</strong>: the Home Screen copy starts empty, so
 							anything already here has to be restored from a backup into it.
 						</p>
-						{@render backupOffer()}
 					</div>
 				</div>
 			</div>
@@ -380,7 +363,6 @@
 								folder on your own computer, where the files are yours.
 							</p>
 						{/if}
-						{@render backupOffer()}
 					</div>
 				{/if}
 			</div>

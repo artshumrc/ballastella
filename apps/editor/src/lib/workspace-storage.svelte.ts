@@ -414,6 +414,14 @@ export interface ImportedFromReview extends ImportedIntoWorkspace {
 const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 
 /**
+ * The folder Workspace that was open when this tab was last left.
+ *
+ * A folder needs a user gesture before Chromium will restore its grant, but losing this identity on
+ * reload makes a bookmarked Project resolve against browser storage and falsely say it is missing.
+ */
+const OPEN_FOLDER_KEY = 'ballastella.open-folder';
+
+/**
  * Which Workspace was last open that was **the user's own** — never a Review Workspace.
  *
  * A second key rather than a filter over the first, because they answer different questions and the
@@ -613,6 +621,8 @@ export class WorkspaceStorage {
 	 * somebody else's work appearing where their own had been.
 	 */
 	workspaceName = $state(rememberedWorkspaceName());
+	/** A folder Workspace waiting for the gesture that reopens it after a page load. */
+	resumeFolder = $state(remembered(OPEN_FOLDER_KEY));
 	/** Every named Workspace in browser storage, for the roster. */
 	workspaces = $state<string[]>([]);
 	/**
@@ -1216,6 +1226,24 @@ export class WorkspaceStorage {
 		try {
 			const store = (await openFolderWorkspace(this.ownFolder)) ?? (await reopenWorkspaceFolder());
 			if (!store) return;
+			await this.#adoptFolder(store);
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
+		}
+	}
+
+	/** Reopen the folder Workspace this tab was in before it reloaded. Must follow a user gesture. */
+	async resumeFolderWorkspace(): Promise<void> {
+		if (this.resumeFolder === '') return;
+		this.problem = '';
+		await this.#foldersRecorded;
+		try {
+			const store = await openFolderWorkspace(this.resumeFolder);
+			if (store === null) {
+				this.problem =
+					'This computer no longer holds a grant for that folder. Choose it again to open your Workspace.';
+				return;
+			}
 			await this.#adoptFolder(store);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
@@ -3534,6 +3562,10 @@ export class WorkspaceStorage {
 		this.folderReference = folder?.folderReference ?? '';
 		this.workspaceName = workspaceName;
 		rememberWorkspaceName(workspaceName);
+		// `resumeFolder` is only the startup gate. Once the folder is open this session, the durable
+		// record remains for the next reload but no recovery dialog belongs over the current work.
+		this.resumeFolder = '';
+		write(OPEN_FOLDER_KEY, folder ? folder.folderReference || folder.folderName : '');
 		// ⚠ **`own` is not "browser-backed and unmarked".** A folder Workspace is *always* one of the
 		// user's own — a bundle only ever opens into browser storage, so `review` is forced `null`
 		// above — and the first cut's extra `backing === 'browser'` therefore recorded a

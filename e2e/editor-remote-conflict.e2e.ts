@@ -356,7 +356,7 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 		// The binding is what a Publish button aims at, so a refused bind must leave none — otherwise
 		// the next press is the one that deletes the Project just named.
 		await closeTheDoor(page);
-		await expect(doorButton(page)).toHaveText('Connect to GitHub');
+		await expect(doorButton(page)).toHaveText('Sync with GitHub');
 	});
 
 	// ⚠ **The refusal is not softened, and it stops being a dead end.** Arriving on a second device is

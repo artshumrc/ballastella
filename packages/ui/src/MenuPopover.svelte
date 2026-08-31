@@ -40,6 +40,7 @@
 	 */
 	let {
 		label,
+		ariaLabel = label,
 		open = $bindable(false),
 		buttonClass = 'btn btn-sm',
 		menuClass = 'menu w-64 p-0',
@@ -50,6 +51,8 @@
 	}: {
 		/** The button's visible text. Visible words, never an icon with a tooltip. */
 		label: string;
+		/** The button and menu's accessible name when the visible words need more context. */
+		ariaLabel?: string;
 		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
 		open?: boolean;
 		buttonClass?: string;
@@ -121,6 +124,7 @@
 	popovertarget={id}
 	bind:this={button_}
 	data-testid={testid}
+	aria-label={ariaLabel}
 	aria-expanded={open}
 	aria-controls={id}
 	style="anchor-name: --{id}"
@@ -136,7 +140,7 @@
 	data-theme={theme}
 	class="menu-popover rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
 	class:menu-popover-end={align === 'end'}
-	aria-label={label}
+	aria-label={ariaLabel}
 	style="position-anchor: --{id}"
 	ontoggle={(event) => (open = (event as ToggleEvent).newState === 'open')}
 >

@@ -34,7 +34,7 @@
 
 	import { resolve } from '$app/paths';
 	import { describeBytes, describeRemote, type WorkspaceSize } from '@ballastella/core';
-	import { AppBar, BallastellaMark, MenuPopover } from '@ballastella/ui';
+	import { AppBar, BallastellaMark, MenuPopover, pageChrome } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by.
@@ -59,6 +59,7 @@
 	import Toast from '$lib/toasts/Toast.svelte';
 
 	import ConnectToGitHub from './ConnectToGitHub.svelte';
+	import KeepingYourWork from './KeepingYourWork.svelte';
 	import ModalDialog from './ModalDialog.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
 	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
@@ -338,11 +339,7 @@
 	}
 </script>
 
-<!--
-	The shell's identity slot, first in the masthead tier — which Workspace you are in, and what is true
-	of it. A published site puts its own name in the same place, which is the whole of what makes the
-	two bars one bar.
--->
+<!-- The shell's identity slot, beside the screen location in the single editor row. -->
 {#snippet start()}
 	<!--
 		1. Which Workspace, and the way to another one.
@@ -355,8 +352,7 @@
 		click elsewhere. The button's text carries the name, so the identity is readable without
 		opening anything.
 	-->
-	<div class="flex items-center gap-2 text-sm" data-testid="workspace-identity">
-		<span class="opacity-70">Workspace:</span>
+	<div class="flex items-center gap-4" data-testid="workspace-identity">
 		{#if storage === null}
 			<span class="font-medium">{workspaceName}</span>
 		{:else}
@@ -367,6 +363,7 @@
 			<MenuPopover
 				bind:this={menu}
 				label={workspaceName}
+				ariaLabel={`Workspace: ${workspaceName}`}
 				buttonClass="btn max-w-[14rem] truncate btn-sm font-medium"
 				testid="workspace-switcher"
 			>
@@ -408,7 +405,7 @@
 					     line with the name taking the space and the two actions beside it, and each of the three
 					     is a direct child so it is styled and hit-tested as a menu item rather than as a box
 					     inside one. -->
-					<li class="flex-row items-start">
+					<li class="flex-row items-center">
 						<button
 							type="button"
 							class="min-w-0 grow"
@@ -524,6 +521,9 @@
 				</li>
 			</MenuPopover>
 		{/if}
+		{#if pageChrome.breadcrumbs.length > 0}
+			<span class="h-8 border-l border-base-300" aria-hidden="true"></span>
+		{/if}
 	</div>
 
 	<!--
@@ -535,13 +535,7 @@
 	<p class="sr-only" aria-live="polite" data-testid="workspace-announcement">{announcement}</p>
 {/snippet}
 
-<!--
-	What can be done on this screen, at the far end of the main row — opposite the page-chrome slot
-	that says which screen it is, so that where you are and what you can do here are one row.
-
-	The theme control is not among them: it is the shell's, it is the one thing both apps offer
-	outright, and it now sits beside these in the main row's right cluster.
--->
+<!-- What can be done on this screen, at the far end of the editor's single row. -->
 {#snippet end()}
 	{#if session !== null}
 		<!--
@@ -559,6 +553,9 @@
 				<EditHistoryControls history={editHistorySlot.history} />
 			{/if}
 		</div>
+
+		<!-- The save state stays next to the GitHub control it qualifies. -->
+		{@render status()}
 
 		<!--
 			5. The one door to GitHub — the whole relationship, in one control (ADR-0041).
@@ -603,18 +600,14 @@
 				{publishing
 					? publishControlLabel(publishProgress)
 					: storage.remote === null
-						? 'Connect to GitHub'
-						: `Connected to ${describeRemote(storage.remote)}`}
+						? 'Sync with GitHub'
+						: `Synced with ${describeRemote(storage.remote)}`}
 			</button>
 		{/if}
 	{/if}
 {/snippet}
 
-<!--
-	What is true of the Workspace whatever screen is on: whether the work is kept, and every reason it
-	might not be. The eyebrow, beside the Workspace's own identity — a scholar asking whether their
-	work is safe is asking about their Workspace and not about this screen.
--->
+<!-- What is true of the Workspace: whether the work is kept, and every reason it might not be. -->
 {#snippet status()}
 	{#if session !== null}
 		<!--
@@ -634,7 +627,7 @@
 			(ADR-0024) and an unbound one has nothing to compare against, so the badge is the local clause
 			alone and `RemoteStatus`'s disclosure is not mounted at all.
 		-->
-		<div class="flex min-h-8 items-start" data-testid="save-slot">
+		<div class="flex items-start" data-testid="save-slot">
 			{#if storage !== null && storage.remote !== null && storage.review === null}
 				<RemoteStatus
 					saveState={session.saveState}
@@ -674,11 +667,7 @@
 	{/if}
 {/snippet}
 
-<!--
-	`status` and no `menu`. The status puts the bar in two rows: the eyebrow holds `start` and the save
-	state, and the taller main row holds the screen, the centered wordmark, and `end` + theme. No menu
-	because authoring is desktop-only (ADR-0014), so this bar does not fold at any width.
--->
+<!-- No `menu`: authoring is desktop-only (ADR-0014), so this bar does not fold at any width. -->
 <!--
 	The app's own name, in the display face, at the centre of the main row.
 
@@ -715,9 +704,9 @@
 <AppBar
 	{start}
 	{end}
-	{status}
 	{wordmark}
 	theme={theme.current}
+	themeLast
 	onSelectTheme={(next) => (theme.current = next)}
 	homeHref={resolve('/')}
 />
@@ -822,6 +811,7 @@
 				/>
 			</label>
 		</form>
+		<KeepingYourWork {storage} />
 		{#snippet actions()}
 			<button class="btn" type="button" onclick={closeRename}>Cancel</button>
 			<button
@@ -868,7 +858,7 @@
 		{:else if confirming?.kind === 'folder'}
 			<!-- Reading it would need the browser's permission, and asking for a grant to answer a
 			     question the author has not yet agreed to act on is a prompt for nothing. -->
-			Ballastella cannot say what the folder holds without opening it, and it is not opening it.
+			Ballastella cannot say what the folder holds without opening it, and it is not currently open.
 		{:else}
 			Working out what it holds…
 		{/if}

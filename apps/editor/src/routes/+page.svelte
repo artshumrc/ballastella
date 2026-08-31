@@ -11,7 +11,6 @@
 		withoutReturnLink,
 		type ReturnLink
 	} from '@ballastella/core';
-	import KeepingYourWork from '$lib/components/KeepingYourWork.svelte';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
@@ -52,7 +51,7 @@
 		const current = session;
 		const directory = openDirectory;
 		const ready = storage?.recovered;
-		if (!current || !ready) return;
+		if (!current || !ready || storage?.resumeFolder) return;
 		void ready.then(() => current.open(directory));
 	});
 
@@ -314,6 +313,10 @@
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<p class="mt-8">Starting…</p>
 	</main>
+{:else if storage.resumeFolder}
+	<main class="mx-auto max-w-4xl p-8">
+		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+	</main>
 {:else if storage.unavailable}
 	<!--
 		⚠ **Its own branch, above the hub and above the Project.** An Import or an Update that did not
@@ -327,12 +330,6 @@
 	<main class="mx-auto max-w-4xl p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 		<WorkspaceRecovery {storage} />
-		<!--
-			⚠ **Here as well, because a Workspace that has not opened is where a Restore matters most.**
-			Backup is absent and says why (ADR-0042 re-homes both onto this screen), and restoring is the
-			one transfer that works from here: it always makes a *new* Workspace and never reads this one.
-		-->
-		<KeepingYourWork {storage} />
 	</main>
 {:else if openDirectory === null}
 	<!--
@@ -366,16 +363,6 @@
 			<WorkspaceRecovery {storage} />
 		</div>
 		<ProjectHub {session} />
-		<!--
-			Backup, Restore, what this browser promised, the offer that answers it, unsaved changes with
-			nowhere to go, and the way into a folder — all about the Workspace the author is in, and all
-			of them re-homed here from the settings dialog ADR-0042 deletes. Wrapped at the Workspace
-			Home measure for the reason the recovery above is: multi-sentence prose, in a `<main>` as
-			wide as two columns.
-		-->
-		<div class="workspace-home-column">
-			<KeepingYourWork {storage} />
-		</div>
 	</main>
 {:else}
 	<!--

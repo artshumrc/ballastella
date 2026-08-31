@@ -7,6 +7,7 @@ import { recordSaveStates } from './support/saved';
 import {
 	deleteWorkspace,
 	createWorkspace,
+	editWorkspace,
 	expectWorkspaceNamed,
 	openWorkspaceMenu,
 	switchToWorkspace,
@@ -136,23 +137,13 @@ test.describe('the Workspace on the bar', () => {
 		// first Workspace exists before anything is asked, and the hub leads with the work.
 		await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
-		// ⚠ **The account of where the files are is *below* the lists, and that is the whole of what
-		// "never a gate" means now** (ADR-0042). Backup, the install offer, what the browser promised
-		// and the way into a folder are on this screen rather than two menus deep — but as a quiet
-		// section a scholar reaches when they come looking for it, never as a question standing in
-		// front of the Projects. Asserted as document order, which is the cheapest thing that can
-		// falsify a section drawn above the lists.
-		const home = page.locator('main');
-		expect(
-			await home.evaluate((main) => {
-				const projects = main.querySelector('h2');
-				const keeping = main.querySelector('[data-testid="move-into-folder"]');
-				if (!projects || !keeping) return 'one of them is missing';
-				return projects.compareDocumentPosition(keeping) & Node.DOCUMENT_POSITION_FOLLOWING
-					? 'after the Projects'
-					: 'before the Projects';
-			})
-		).toBe('after the Projects');
+		// Workspace Home leads with Projects. The occasionally needed durability and backup controls
+		// are with the Workspace row's Rename form, where they affect the same Workspace.
+		await expect(page.getByTestId('move-into-folder')).toHaveCount(0);
+		await editWorkspace(page, DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('rename-workspace-name')).toBeVisible();
+		await expect(page.getByTestId('move-into-folder')).toBeVisible();
+		await page.keyboard.press('Escape');
 
 		// ⚠ **And the menu does not ask at all**. It states what this Workspace is — its name and its
 		// backing — so the same choice cannot be offered in two places that could disagree. The
@@ -385,7 +376,7 @@ test.describe('switching Workspaces with work in flight', () => {
 	});
 });
 
-test.describe('Workspace Home’s account of this Workspace', () => {
+test.describe('the Workspace editing dialog', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto(HUB);
 		await emptyBrowserStorage(page);
@@ -393,18 +384,12 @@ test.describe('Workspace Home’s account of this Workspace', () => {
 	});
 
 	/**
-	 * ⚠ **Read straight off Workspace Home, which is the whole of what changed** (ADR-0042).
-	 *
-	 * Two tests came out of this describe with the settings dialog: that the dialog was a real
-	 * `<dialog>` opened with `showModal()`, which was ADR-0016's claim about a dialog that no longer
-	 * exists, and that the folder choice was reachable from settings *and nowhere else*, which is
-	 * the opposite of the arrangement that ships. What survives is the one claim that was never
-	 * about the dialog: that all three of these are present, on one screen, where the questions they
-	 * answer are asked.
+	 * These controls are in the editing dialog for the Workspace they affect (ADR-0042).
 	 */
 	test('carries where the files are, the install offer, and what the browser said about keeping storage', async ({
 		page
 	}) => {
+		await editWorkspace(page, DEFAULT_WORKSPACE);
 		await expect(page.getByTestId('workspace-storage-place')).toHaveText(DEFAULT_WORKSPACE);
 		await expect(page.getByTestId('move-into-folder')).toBeVisible();
 		await expect(page.getByTestId('install-offer')).toBeVisible();
@@ -502,6 +487,7 @@ test.describe('deleting a Workspace', () => {
 			);
 		});
 		await page.reload();
+		await editWorkspace(page, DEFAULT_WORKSPACE);
 
 		await expect(page.getByTestId('orphaned-journals')).toContainText(
 			'A Workspace nobody has any more'
@@ -542,6 +528,7 @@ test.describe('deleting a Workspace', () => {
 			}
 		});
 		await page.reload();
+		await editWorkspace(page, DEFAULT_WORKSPACE);
 
 		await page.getByTestId('discard-orphaned-journal').click();
 

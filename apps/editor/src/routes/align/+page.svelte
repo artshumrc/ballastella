@@ -52,7 +52,7 @@
 		const current = session;
 		const directory = openDirectory;
 		const ready = storage?.recovered;
-		if (!current || !ready) return;
+		if (!current || !ready || storage?.resumeFolder) return;
 		void ready.then(() => current.open(directory));
 	});
 
@@ -170,6 +170,8 @@
 				<p>Starting…</p>
 				<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
 			</div>
+		{:else if storage.resumeFolder}
+			<!-- The app shell's modal owns the recovery. Keep this route from resolving in browser storage. -->
 		{:else if openDirectory === null}
 			<div role="alert" class="alert flex-col items-start alert-info">
 				<h2 class="font-semibold">No Project chosen</h2>

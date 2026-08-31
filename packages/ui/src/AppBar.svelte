@@ -69,6 +69,7 @@
 		status,
 		wordmark,
 		theme,
+		themeLast = false,
 		onSelectTheme,
 		homeHref
 	}: {
@@ -107,6 +108,8 @@
 		wordmark?: Snippet;
 		/** The theme in force, for the control's own words. The signal behind it is the app's. */
 		theme: Theme;
+		/** Whether the theme control follows this app's own controls in a single-row bar. */
+		themeLast?: boolean;
 		onSelectTheme: (theme: Theme) => void;
 		/**
 		 * The app's own root, already resolved by the app.
@@ -295,9 +298,13 @@
 						{@render menu()}
 					</MenuPopover>
 				{:else}
-					<!-- Before the app's own items, which is where the editor's bar has always had it. -->
-					{@render themeControl()}
-					{@render end?.()}
+					{#if themeLast}
+						{@render end?.()}
+						{@render themeControl()}
+					{:else}
+						{@render themeControl()}
+						{@render end?.()}
+					{/if}
 				{/if}
 			</div>
 		</div>

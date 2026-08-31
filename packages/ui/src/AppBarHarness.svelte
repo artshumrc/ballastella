@@ -16,7 +16,8 @@
 		onSelectTheme = () => {},
 		withMenu = false,
 		withStatus = false,
-		withWordmark = false
+		withWordmark = false,
+		themeLast = false
 	}: {
 		theme?: Theme;
 		onSelectTheme?: (theme: Theme) => void;
@@ -27,6 +28,8 @@
 		/** Whether this app names itself in the masthead. Independent of `withStatus`, so that the
 		 * bar's refusal to render a wordmark on a single-row bar can be asserted. */
 		withWordmark?: boolean;
+		/** Whether the theme control follows the app control in a single-row bar. */
+		themeLast?: boolean;
 	} = $props();
 </script>
 
@@ -58,6 +61,7 @@
 	{...withStatus ? { status } : {}}
 	{...withWordmark ? { wordmark } : {}}
 	{theme}
+	{themeLast}
 	{onSelectTheme}
 	homeHref="./"
 />

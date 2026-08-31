@@ -4,8 +4,8 @@
 	/**
 	 * "Install Ballastella" — offered where the question it answers is being asked.
 	 *
-	 * This sits on Workspace Home, directly beneath the sentence saying whether this browser has
-	 * promised to keep the work at all (ADR-0042). ADR-0012 is blunt about what the PWA is for:
+	 * This sits in the Workspace editing dialog, directly beneath the sentence saying whether this
+	 * browser has promised to keep the work at all (ADR-0042). ADR-0012 is blunt about what the PWA is for:
 	 * Chrome's persistent File System Access grant works best for an installed app, and
 	 * `navigator.storage.persist()` is likelier to be granted to one — so "install this" is the honest
 	 * answer to the question just above it, and an offer made anywhere else is decoration.

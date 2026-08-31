@@ -377,6 +377,18 @@ describe('what the browser promised about keeping the work', () => {
 		'unknown'
 	];
 
+	test('a folder Workspace is told only how installing retains its folder permission', () => {
+		const storage = browser('install-to-keep');
+		storage.backing = 'folder';
+		open(storage);
+
+		expect(text(at('folder-workspace-install-advice'))).toBe(
+			'Install Ballastella to let your browser keep permission to access this Workspace folder between visits.'
+		);
+		expect(absent('durability')).toBe(true);
+		expect(at('install-offer')).toBeTruthy();
+	});
+
 	// One short line per state, and six different lines: a scholar is told which of the six they are
 	// in, and no two of them read the same.
 	test('every state has a line of its own', () => {
@@ -498,29 +510,6 @@ describe('what the browser promised about keeping the work', () => {
 		expect(text(at('durability-detail'))).toContain('private window');
 	});
 
-	// The one answer that depends on no browser, so it is in every state — the granted one included,
-	// because a promise about this browser is not a promise about this disk.
-	test('a backup is offered in every state', () => {
-		for (const kind of KINDS) {
-			open(browser(kind));
-			if (kind !== 'seven-day') press('durability-learn-more');
-			expect(text(at('download-backup')), `${kind} offered no backup`).toContain(
-				'Download a Backup'
-			);
-			close();
-		}
-	});
-
-	test('that backup is a real one', async () => {
-		const storage = open(browser('granted'));
-		press('durability-learn-more');
-		press('download-backup');
-		await settle();
-
-		expect(text(at('transfer-outcome'))).toContain('“My Workspace.tar”');
-		expect(storage.backupAnswer).not.toBeInstanceOf(Error);
-	});
-
 	// ⚠ **Never advise turning a privacy protection off.** It would remove WebKit's seven-day
 	// deletion, and it also makes `persist()` fail for everybody, because the exemption set comes out
 	// of ITP's own store. Asserted over every state's copy at once, because the temptation is
@@ -619,19 +608,4 @@ describe('a transfer under way, with the keyboard still in the tab order', () =>
 		expect(storage.transfers).toBe(1);
 	});
 
-	// The Backup offered inside the storage warning is the same act by a second control, and its own
-	// copy of it — so it is the same claim in the one state that renders it.
-	test('the Backup inside the storage warning is busy the same way', () => {
-		const storage = open(browser('seven-day'));
-		storage.progressSteps = 7;
-
-		press('download-backup');
-		expect(storage.transfers).toBe(1);
-
-		const control = at('download-backup') as HTMLButtonElement;
-		expect(control.disabled).toBe(false);
-		expect(control.getAttribute('aria-disabled')).toBe('true');
-		press('download-backup');
-		expect(storage.transfers).toBe(1);
-	});
 });
