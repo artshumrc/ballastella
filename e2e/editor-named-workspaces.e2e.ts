@@ -402,7 +402,7 @@ test.describe('Workspace Home’s account of this Workspace', () => {
 	 * Two tests came out of this describe with the settings dialog: that the dialog was a real
 	 * `<dialog>` opened with `showModal()`, which was ADR-0016's claim about a dialog that no longer
 	 * exists, and that the folder choice was reachable from settings *and nowhere else*, which is
-	 * the opposite of the arrangement this Epic ships. What survives is the one claim that was never
+	 * the opposite of the arrangement that ships. What survives is the one claim that was never
 	 * about the dialog: that all three of these are present, on one screen, where the questions they
 	 * answer are asked.
 	 */

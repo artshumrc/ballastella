@@ -1008,7 +1008,7 @@
 			rights = { canPush: outcome.canPush };
 			rightsAsked = true;
 			// ⚠ **`rightsNotice` is deliberately not rendered beside the pull-only statement.** They are
-			// the same fact, and this epic exists because one question had five answers on one screen.
+			// the same fact, and one fact stated twice on one screen is one question with two answers.
 			// The connected step's own statement is the one that stays, because it is the one that
 			// renders on a hydrated Remote too — where no bind happened and there is no notice — and
 			// because it carries the way forward core's sentence cannot know about: a repository of the
