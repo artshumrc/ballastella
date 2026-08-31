@@ -641,7 +641,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		});
 
 		// A first publish, which is what gives this browser its record of the Remote — and a
-		// collaborator publishing to a repository they do not own, which is story 68 end to end.
+		// collaborator publishing to a repository they do not own, which is a shared Remote end to end.
 		await confirm(page, await signedIn(page));
 
 		// A whole Project arriving from somebody else's machine. It is inbound source this Workspace

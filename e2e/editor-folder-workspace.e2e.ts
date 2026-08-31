@@ -846,7 +846,7 @@ test.describe('choosing a folder as the Workspace', () => {
 	test('lets the author switch away from an unreachable folder, keeping it on the roster', async ({
 		page
 	}) => {
-		// ⚠ **A broken folder is not a trap** (story 93). The escape is an ordinary row in the roster —
+		// ⚠ **A broken folder is not a trap.** The escape is an ordinary row in the roster —
 		// there is no "use browser storage instead" any more, because a backing is a property of each
 		// listed Workspace rather than a mode the application is in. What must not happen is the folder
 		// being given up on the way out: a user whose external drive is unplugged would lose their
@@ -1426,7 +1426,7 @@ test.describe('a bundle opened from a folder Workspace', () => {
 		await createProject(page, 'My own work');
 
 		// ⚠ **A second folder Workspace, picked and then left, is what makes "the folder" a question
-		// with a wrong answer** (ADR-0042, story 86). The installation's single pre-plural slot holds
+		// with a wrong answer** (ADR-0042). The installation's single pre-plural slot holds
 		// whichever folder was picked *last*, so an exit that reopens through it lands the author in
 		// this one — with a banner announcing they are back in their own Workspace and none of their
 		// work in it. The author's own folder Workspace is the one its record names, and this is the

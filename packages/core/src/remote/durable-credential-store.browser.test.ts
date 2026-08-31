@@ -149,7 +149,7 @@ describe('a credential kept past the tab', () => {
 });
 
 describe('the preference that selects it', () => {
-	// Story 59. The default is the shared-machine one, and it stays the default until an author
+	// The default is the shared-machine one, and it stays the default until an author
 	// says otherwise on this machine.
 	it('is unticked on an installation that has never been asked', async () => {
 		const storage = durableCredentialStorage();

@@ -728,7 +728,7 @@
 			**The badge still says *whether* the work is kept and this says *why not*.** The badge
 			is a standing fact and belongs in the bar; each of these is news about something that just
 			happened, and the eyebrow is not a log. `Toast` renders nothing here — the words are drawn
-			in the layout's one stack — so a save error no longer moves the badge beside it.
+			in the layout's one stack — so a save error does not move the badge beside it.
 
 			`refusal` on the three that are inserted at the moment their text first exists, which a polite
 			region does not reliably announce (ADR-0016's amendment). `unprotected-browser` is not one of

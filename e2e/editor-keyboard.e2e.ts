@@ -138,7 +138,7 @@ test.describe('the bar, from the keyboard alone', () => {
 	});
 
 	/**
-	 * ⚠ **One `role="status"` in the bar, and it is the badge** (user story 133).
+	 * ⚠ **One `role="status"` in the bar, and it is the badge.**
 	 *
 	 * A second status region is not a second courtesy: a screen reader user hearing an announcement
 	 * has to work out which of two regions has become true, and the bar is where both halves of *is
@@ -158,7 +158,7 @@ test.describe('the bar, from the keyboard alone', () => {
 	/**
 	 * The door, and back out of it onto itself. Closing a modal has to return the keyboard to the
 	 * control that opened it or every visit to the door costs a walk from the top of the document
-	 * (WCAG 2.4.3, user story 129).
+	 * (WCAG 2.4.3).
 	 */
 	test('the door opens on Enter and closing it comes back to the door', async ({ page }) => {
 		const door = page.getByTestId('connect-to-github');
@@ -283,7 +283,7 @@ test.describe('Workspace Home, from the keyboard alone', () => {
 	});
 
 	/**
-	 * A transfer under way must not take the keyboard's place away (user story 130). The Backup runs
+	 * A transfer under way must not take the keyboard's place away (WCAG 2.4.3). The Backup runs
 	 * to completion in milliseconds against an empty Workspace, so what is asserted is the shape the
 	 * control keeps rather than a frame mid-transfer: `aria-disabled` and never `disabled`, which is
 	 * the attribute that would remove it from the tab order the instant it was pressed.
