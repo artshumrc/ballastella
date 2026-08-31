@@ -1587,8 +1587,8 @@
 	</div>
 
 	<!--
-		ADR-0025's dialog, **outside `project-screen` on purpose**, beside the settings dialog and for
-		the same reason. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
+		ADR-0025's dialog, **outside `project-screen` on purpose**, for the reason every dialog this
+		screen raises is. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
 		merely transparent — so its buttons answer a `querySelectorAll` of visible controls while being
 		unreachable by keyboard. Inside the subtree it made `editor-project-screen.e2e.ts`'s tab walk
 		fail on "Not now" and "Count again"; a modal's whole point is that one tab order cannot cover

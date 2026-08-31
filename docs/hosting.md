@@ -418,8 +418,10 @@ connected. Press it whenever you like — before your first publish or long afte
 
 **It will often be refused, and the refusal is not about anything you did wrong.** GitHub requires
 **Pages: Read and write** *and* **Administration: Read and write** together to turn a site on for
-you, and Ballastella's GitHub App asks for neither — it will not ask to administer your repositories
-([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)). A pasted
+you, and Ballastella's GitHub App asks for the first and never the second — it will not ask to
+administer your repositories
+([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)), so the pair
+GitHub wants is never complete for a sign-in. A pasted
 token can carry both if you grant them; a sign-in never can. Either way the editor says so and names
 what to click.
 

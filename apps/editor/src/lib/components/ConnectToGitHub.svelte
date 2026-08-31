@@ -382,12 +382,13 @@
 		listing?.kind === 'listed' ? listing.repositories : []
 	);
 
-	/**
-	 * The repositories that were not there when the second tab opened.
-	 *
-	 * Empty whenever no repository is being made, so the marks are only ever about a trip the author
-	 * actually took.
-	 */
+	/** The Installations GitHub listed, and `[]` while it has said nothing or refused. */
+	const installations = $derived(listing?.kind === 'listed' ? listing.installations : []);
+
+	/** Whether an Installation sits on the account this author is signed in as. */
+	const isOwnAccount = (account: string): boolean =>
+		storage.identity !== '' && account.toLowerCase() === storage.identity.toLowerCase();
+
 	/**
 	 * Whether this author's Installation already reaches a repository they have not made yet.
 	 *
@@ -400,12 +401,6 @@
 	 * to cover future repositories in GitHub's product interface and not in their documented
 	 * contract (ADR-0040), which is why `repository_selection` is read back at all.
 	 */
-	const installations = $derived(listing?.kind === 'listed' ? listing.installations : []);
-
-	/** Whether an Installation sits on the account this author is signed in as. */
-	const isOwnAccount = (account: string): boolean =>
-		storage.identity !== '' && account.toLowerCase() === storage.identity.toLowerCase();
-
 	const coversEverything = $derived(
 		installations.some((one) => one.coversEverything && isOwnAccount(one.account))
 	);
@@ -445,6 +440,12 @@
 		);
 	});
 
+	/**
+	 * The repositories that were not there when the second tab opened.
+	 *
+	 * Empty whenever no repository is being made, so the marks are only ever about a trip the author
+	 * actually took.
+	 */
 	const newlyGranted = $derived.by<ReadonlySet<string>>(() => {
 		const before = madeAgainst;
 		if (before === null) return new Set<string>();
@@ -1415,8 +1416,8 @@
 				</p>
 				<div class="mt-3 flex flex-wrap items-center gap-2">
 					<!-- `resolve()` is for this app's own routes; github.com is not one, so the rule is
-					     disabled here for the one case it does not cover, as the Remote section's own
-					     link to GitHub already is. -->
+					     disabled here for the one case it does not cover, as it is at every other outbound
+					     link to GitHub in this component. -->
 					<!-- eslint-disable svelte/no-navigation-without-resolve -->
 					<a
 						class="btn btn-primary btn-sm"

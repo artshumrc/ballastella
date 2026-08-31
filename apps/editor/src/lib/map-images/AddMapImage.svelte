@@ -20,10 +20,9 @@
 	// ADR-0016 mandates `<dialog>` + `showModal()`, and {@link ModalDialog} is where that decision was
 	// made once: Escape, the focus trap, and focus restoration come with it.
 	//
-	// **Mounted outside `project-screen`** by its caller, beside the settings dialog and for the reason
-	// stated there: daisyUI's `.modal` keeps a closed `<dialog>` laid out, so its controls answer a
-	// `querySelectorAll` of visible controls while being unreachable by keyboard, and
-	// `editor-project-screen.e2e.ts` walks exactly that set.
+	// **Mounted outside `project-screen`** by its caller: daisyUI's `.modal` keeps a closed `<dialog>`
+	// laid out, so its controls answer a `querySelectorAll` of visible controls while being unreachable
+	// by keyboard, and `editor-project-screen.e2e.ts` walks exactly that set.
 
 	import { describeBytes, type WorkspaceMapImage } from '@ballastella/core';
 
