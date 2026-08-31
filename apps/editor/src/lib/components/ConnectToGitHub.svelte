@@ -177,8 +177,12 @@
 	 * refused there about a thing they cannot fix. That path is the whole of such a fork's
 	 * authentication, so it carries the guidance a fork's author needs rather than being a fallback:
 	 * the repository has to be public, the deep link fills its name in, and the token's two
-	 * permissions are named. `token` is a word this component may say **only** in that step; every
-	 * other step speaks of signing in.
+	 * permissions and the resource owner are named.
+	 *
+	 * ⚠ **The word `token` is said in exactly two places, and neither is a step a student lands on**:
+	 * the `no-app` step, and behind the disclosure below the sign-in — closed until an instructor
+	 * whose App installation has broken presses it. Both render the same `pasteToConnect` form,
+	 * because they are the same act. Every other step speaks of signing in.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE SENTENCES THE OUTCOMES CARRY ARE `packages/core`'s OWN
@@ -223,10 +227,19 @@
 	const tokenFieldId = `${fieldId}-token`;
 	const addressFieldId = `${fieldId}-address`;
 	const rememberFieldId = `${fieldId}-remember-sign-in`;
+	const otherWayInId = `${fieldId}-other-way-in`;
 
-	/** What the fork's author typed, in the step that is the only place this sequence has fields. */
+	/** What was typed into the two fields the paste needs, wherever the paste is being offered. */
 	let repository = $state('');
 	let token = $state('');
+
+	/**
+	 * Whether the escape hatch is open, on a deployment that has an App.
+	 *
+	 * ⚠ **Closed until it is asked for, and it survives nothing.** Closing the sequence forgets it, so
+	 * a student who never presses it never has a token field on the screen and never meets the word.
+	 */
+	let otherWayIn = $state(false);
 
 	/**
 	 * That the author has asked to open a Workspace by its address.
@@ -1134,6 +1147,17 @@
 	}
 
 	/**
+	 * Show or hide the way in that does not go through the App, and fill in what is already known.
+	 */
+	function showOtherWayIn(showing: boolean): void {
+		otherWayIn = showing;
+		// The repository is not the question for a Workspace that already has one, and an instructor
+		// who reached this because publishing stopped working has one. Prefilled, not fixed: the field
+		// is typed over freely, and an author who has already typed something keeps it.
+		if (showing && repository.trim() === '' && bound !== null) repository = describeRemote(bound);
+	}
+
+	/**
 	 * The fork's own connect: the typed address and the pasted token, checked here before GitHub.
 	 *
 	 * ⚠ **Both refusals are `packages/core`'s and neither costs a request.** `parseRemoteReference`
@@ -1360,60 +1384,7 @@
 					access token you make on GitHub yourself. Nothing is sent anywhere but GitHub, and the
 					token is kept only in this tab and forgotten when you close it.
 				</p>
-				<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void connectWithToken(event)}>
-					<div class="flex flex-col gap-1">
-						<label class="text-sm font-medium" for={repositoryFieldId}>
-							Your repository on GitHub
-						</label>
-						<input
-							id={repositoryFieldId}
-							class="input w-full max-w-md input-sm"
-							bind:value={repository}
-							data-testid="connect-repository-field"
-							placeholder="owner/repository"
-							autocomplete="off"
-							spellcheck="false"
-						/>
-						<p class="max-w-prose text-sm opacity-70">
-							It has to be public. Do not have one yet?
-							<!-- `resolve()` is for this app's own routes; github.com is not one, so the rule is
-							     disabled here for the one case it does not cover. -->
-							<!-- eslint-disable svelte/no-navigation-without-resolve -->
-							<a
-								class="link"
-								href={createRepositoryHref}
-								rel="noreferrer noopener"
-								target="_blank"
-								data-testid="connect-create-repository"
-							>
-								Create “{suggestedName}” on GitHub
-							</a>
-							<!-- eslint-enable svelte/no-navigation-without-resolve -->
-							, choose <strong>Public</strong>, then come back to this tab.
-						</p>
-					</div>
-					<div class="flex flex-col gap-1">
-						<label class="text-sm font-medium" for={tokenFieldId}>Personal access token</label>
-						<input
-							id={tokenFieldId}
-							class="input w-full max-w-md input-sm"
-							type="password"
-							bind:value={token}
-							data-testid="connect-token-field"
-							autocomplete="off"
-							spellcheck="false"
-						/>
-						<p class="max-w-prose text-sm opacity-70">
-							A fine-grained personal access token for that repository, with “Contents: Read and
-							write”. GitHub shows it once, on the page that makes it.
-						</p>
-					</div>
-					<div>
-						<button class="btn w-fit btn-primary btn-sm" type="submit" data-testid="connect-paste">
-							Connect this Workspace
-						</button>
-					</div>
-				</form>
+				{@render pasteToConnect()}
 			</section>
 		{:else if step === 'needs-account'}
 			<!--
@@ -2130,6 +2101,40 @@
 						</span>
 					</span>
 				</label>
+				<!--
+					⚠ **A disclosure, and *closed* is the whole of what makes it one** (story 126, ADR-0041).
+					An App installation that has broken mid-class leaves an instructor with no way in, and
+					this is it; a student on the same deployment must never be offered a choice between two
+					credentials, and a field that is not in the document is not an offer. So the word is
+					said only once it has been asked for, and the label that asks for it says nothing a
+					student would have to learn.
+
+					A `<button aria-expanded>` and not `<details>`: ADR-0016 bans the `<details>` dropdown,
+					and the WAI-ARIA disclosure button is unambiguously outside that ban.
+				-->
+				<div class="mt-3">
+					<button
+						type="button"
+						class="btn btn-ghost btn-xs"
+						aria-expanded={otherWayIn}
+						aria-controls={otherWayInId}
+						data-testid="connect-other-way-in"
+						onclick={() => showOtherWayIn(!otherWayIn)}
+					>
+						{otherWayIn ? 'Hide the other way in' : 'Signing in will not work for me'}
+					</button>
+					{#if otherWayIn}
+						<div id={otherWayInId} data-testid="connect-other-way-in-panel">
+							<p class="mt-2 max-w-prose text-sm opacity-70">
+								If signing in cannot reach your repository — the app's access to it was removed, or
+								it was never granted and the account that could grant it is not yours to change —
+								connect with a personal access token you make yourself instead. It publishes
+								identically, and it is kept only in this tab.
+							</p>
+							{@render pasteToConnect()}
+						</div>
+					{/if}
+				</div>
 			</section>
 		{/if}
 
@@ -2172,3 +2177,76 @@
 		</button>
 	{/snippet}
 </ModalDialog>
+
+{#snippet pasteToConnect()}
+	<!--
+		⚠ **The paste, in the one shape it has.** It is a fork's whole front door and it is the
+		instructor's way back in when an App installation has broken, and those are the same act — a
+		repository and a token, both checked by `packages/core` before GitHub is asked anything. Two
+		wordings of the same form would be two accounts of GitHub's token screen to keep in step, and
+		the guidance is what makes a token that works first time rather than on the third try.
+	-->
+	<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void connectWithToken(event)}>
+		<div class="flex flex-col gap-1">
+			<label class="text-sm font-medium" for={repositoryFieldId}>Your repository on GitHub</label>
+			<input
+				id={repositoryFieldId}
+				class="input w-full max-w-md input-sm"
+				bind:value={repository}
+				data-testid="connect-repository-field"
+				placeholder="owner/repository"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+			<p class="max-w-prose text-sm opacity-70">
+				It has to be public. Do not have one yet?
+				<!-- `resolve()` is for this app's own routes; github.com is not one, so the rule is
+				     disabled here for the one case it does not cover. -->
+				<!-- eslint-disable svelte/no-navigation-without-resolve -->
+				<a
+					class="link"
+					href={createRepositoryHref}
+					rel="noreferrer noopener"
+					target="_blank"
+					data-testid="connect-create-repository"
+				>
+					Create “{suggestedName}” on GitHub
+				</a>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
+				, choose <strong>Public</strong>, then come back to this tab.
+			</p>
+		</div>
+		<div class="flex flex-col gap-1">
+			<label class="text-sm font-medium" for={tokenFieldId}>Personal access token</label>
+			<input
+				id={tokenFieldId}
+				class="input w-full max-w-md input-sm"
+				type="password"
+				bind:value={token}
+				data-testid="connect-token-field"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+			<!--
+				⚠ **Both permissions and the owner, because all three are set on one form and only one of
+				them is obvious.** Contents is what publishing writes with and Pages is what turning the
+				site on needs, so a token with the first alone gets an author all the way to a Published
+				Site that never appears. **Resource owner** is the trap: left on a personal account for a
+				repository an organisation owns, GitHub issues a token that cannot see it, and the symptom
+				is a repository that appears not to exist.
+			-->
+			<p class="max-w-prose text-sm opacity-70">
+				A fine-grained personal access token for that repository, with
+				<strong>Contents: Read and write</strong> and <strong>Pages: Read and write</strong>. Set
+				<strong>Resource owner</strong> to whoever owns the repository — your own account, or the organisation
+				it is under — or the token will not be able to see it. GitHub shows the token once, on the page
+				that makes it.
+			</p>
+		</div>
+		<div>
+			<button class="btn w-fit btn-primary btn-sm" type="submit" data-testid="connect-paste">
+				Connect this Workspace
+			</button>
+		</div>
+	</form>
+{/snippet}

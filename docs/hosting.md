@@ -145,21 +145,21 @@ stops working.
 Publishing needs a GitHub credential, and there are two ways for a scholar to give the editor one.
 
 **The paste always works, and needs nothing from you.** A scholar makes a fine-grained personal
-access token on GitHub, pastes it into the Remote dialog, and publishes. No server is involved, no
-configuration, and no account of yours. **If you do nothing at all in this section, this is your
-fork's whole authentication and everything still works** — the publish path, its speed, and where the
-data goes are identical either way.
+access token on GitHub, pastes it behind *Connect to GitHub* on the editor's bar, and publishes. No
+server is involved, no configuration, and no account of yours. **If you do nothing at all in this
+section, this is your fork's whole authentication and everything still works** — the publish path,
+its speed, and where the data goes are identical either way.
 
 **It is the door offered where there is no App, and only there.** The three values below decide which
 of the two a scholar is shown, and they are never shown both: a person asked to choose between two
 credentials has no way to tell which one is meant for them, and one of the two sends them off to
 generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
-token field appears anywhere. The paste for an App installation that has broken during a class is a
-later slice's: this Epic deleted the settings dialog it used to be one disclosure deep in, and the
-escape hatch comes back on the door itself, worded for somebody who already knows what they are
-asking for. Where the three values are empty, *Connect to GitHub* leads
-straight to the paste, with the guidance a fork's author needs, and no sign-in button is shown at
-all.
+token field appears anywhere on the screen a student meets. The one exception is a disclosure on the
+door itself — *Signing in will not work for me* — which starts closed and puts nothing in the page
+until it is pressed. That is the way back in for an instructor whose App installation has broken
+mid-class, and it is worded for somebody who already knows what they are asking for. Where the three
+values are empty, *Connect to GitHub* leads straight to the paste, with the guidance a fork's author
+needs, and no sign-in button is shown at all.
 
 **The nicer front door** is a button: press *Sign in with GitHub*, install the App and authorise it
 on GitHub's own screen, choose which repositories the app may touch, and come back signed in — one
@@ -331,8 +331,10 @@ One repository for the whole Workspace, not one per Project.
 
 ### 2. Bind your Workspace to it
 
-In the editor: **Connect to GitHub** on the bar. Paste the repository's address, and give the editor
-a credential.
+In the editor: **Connect to GitHub** on the bar. What that opens depends on the instance. Where a
+GitHub App is configured it walks you through signing in and then lists the repositories you have
+given the app access to, and binding is pressing the one you want. Where none is, it asks for the
+repository's address and a token.
 
 **A pasted token always works, on any instance.** Make a fine-grained personal access token on
 GitHub — **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate
@@ -345,22 +347,24 @@ Four things on that form matter:
   you created it under an organisation and leave this as your own account, you will get a token that
   cannot see it — and the symptom is a repository that appears not to exist.
 - **Repository access.** Choose *Only select repositories*, and select that one repository.
-- **Permissions → Repository permissions.** One row in a long list: set **Contents** to *Read and
-  write*. Everything else can stay at *No access*. Turning your Published Site on is a separate act
-  with its own button, and step 4 says what it needs.
+- **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
+  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*. Turning your
+  Published Site on is a separate act with its own button, and step 4 says what that additionally
+  needs.
 - **Expiration.** Whatever you are comfortable with. When it expires, publishing says so and you make
   another one.
 
 Copy the token on the screen that follows — that is the only time GitHub shows it — and paste it into
-the dialog.
+the field *Connect to GitHub* asks for it in.
 
-**There may also be a *Sign in with GitHub* button, and its being there does not mean it works.** The
-button appears whenever the instance has App values configured, and a fork inherits the ones it was
-forked from — which name an App that will only ever redirect to the instance those values belong to.
-So on a fork the button is on screen and the attempt fails with a sentence telling you to paste a
-token instead. Only an instance that registered its own GitHub App and deployed a broker can complete
-that sign-in (part 1, step 6). If you do not know which kind of instance you are on, paste a token:
-it is the same publish either way.
+**Where there is a *Sign in with GitHub* button, its being there does not mean it works.** The button
+appears whenever the instance has all three App values filled in, and a fork inherits the ones
+it was forked from — which name an App that will only ever redirect to the instance those values
+belong to. So on such a fork the button is on screen and the attempt fails with a sentence telling
+you to paste a token instead. Only an instance that registered its own GitHub App and deployed a
+broker can complete that sign-in (part 1, step 6). If you do not know which kind of instance you are
+on, paste a token: it is the same publish either way, and where the button is there the paste is
+behind *Signing in will not work for me* on the same screen.
 
 **The credential is forgotten when you close the tab.** It is kept in the browser tab's own storage,
 never in your Workspace — a token in the Workspace would leave your machine inside the next publish,
