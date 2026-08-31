@@ -8,6 +8,9 @@ import { readGrantedRepositories } from './github-installations.js';
 // repositories, which of them may be published to, and whether a refusal is a refusal — rather than
 // which requests were made: the failure this module exists to prevent is a rejected sign-in
 // rendered as "you have no repositories", and no assertion on a call count can see it.
+//
+// The two exceptions count requests to assert there are no *more* of them, which is a claim about
+// cost that only a count can make.
 
 const TOKEN = 'ghu_a-user-to-server-token';
 
@@ -15,7 +18,7 @@ const GRANTS: FakeGrants = {
 	installationId: 42,
 	account: 'ada',
 	repositories: [
-		{ owner: 'ada', repository: 'atlas', push: true },
+		{ owner: 'ada', repository: 'atlas', push: true, admin: true },
 		{ owner: 'ada', repository: 'notes', push: false },
 		{ owner: 'ada', repository: 'diary', push: true, private: true }
 	]
@@ -31,13 +34,34 @@ const listed = async (fetch: FetchFn) => {
 };
 
 describe('the repositories a signed-in author has granted the App', () => {
-	it('reports each one with whether it may be published to and whether it is private', async () => {
+	// ⚠ **Publishing and widening the grant are separate rights.** `atlas` has both, `diary` only the
+	// first — which is the difference between an author who can add a missing repository themselves
+	// and one who has to ask somebody.
+	it('reports each one with what may be done to it and whether it is private', async () => {
 		const remote = await github();
 
 		expect(await listed(remote.fetch)).toEqual([
-			{ owner: 'ada', repository: 'atlas', canPublish: true, isPrivate: false },
-			{ owner: 'ada', repository: 'diary', canPublish: true, isPrivate: true },
-			{ owner: 'ada', repository: 'notes', canPublish: false, isPrivate: false }
+			{
+				owner: 'ada',
+				repository: 'atlas',
+				canPublish: true,
+				canGrantAccess: true,
+				isPrivate: false
+			},
+			{
+				owner: 'ada',
+				repository: 'diary',
+				canPublish: true,
+				canGrantAccess: false,
+				isPrivate: true
+			},
+			{
+				owner: 'ada',
+				repository: 'notes',
+				canPublish: false,
+				canGrantAccess: false,
+				isPrivate: false
+			}
 		]);
 	});
 
@@ -81,7 +105,8 @@ describe('the repositories a signed-in author has granted the App', () => {
 
 		expect(await readGrantedRepositories({ token: TOKEN, fetch: remote.fetch })).toEqual({
 			kind: 'listed',
-			repositories: []
+			repositories: [],
+			installations: []
 		});
 	});
 
@@ -142,6 +167,92 @@ describe('GitHub not answering at all', () => {
 		expect(await readGrantedRepositories({ token: TOKEN, fetch: broken })).toMatchObject({
 			kind: 'refused',
 			refusal: 'network'
+		});
+	});
+});
+
+/**
+ * What the listing keeps beside the repositories, and why it is kept.
+ *
+ * Every field here is already in the `/user/installations` response and was being dropped on the
+ * line that read it. `coversEverything` is the one the sequence acts on: an Installation GitHub
+ * reports as `all` covers a repository made after it, so there is no grant step to teach.
+ */
+describe('the installations the listing was read through', () => {
+	it('reports the account, its identifier, whether it is an organisation, and its reach', async () => {
+		const remote = await github({
+			installationId: 42,
+			account: 'ada',
+			targetId: 5150,
+			repositorySelection: 'all',
+			repositories: [{ owner: 'ada', repository: 'atlas', push: true }]
+		});
+
+		const outcome = await readGrantedRepositories({ token: TOKEN, fetch: remote.fetch });
+
+		expect(outcome).toMatchObject({
+			kind: 'listed',
+			installations: [
+				{ id: 42, account: 'ada', targetId: 5150, isOrganization: false, coversEverything: true }
+			]
+		});
+	});
+
+	/**
+	 * The one claim here that *is* about the requests, and it is about there being no more of them.
+	 *
+	 * Everything the narrowing gained was already in these two responses. A reader that had gone off
+	 * to `GET /app/installations/{id}` or `GET /repos/{owner}/{repo}` for the same fields would be
+	 * indistinguishable by its answer and would cost a request per repository.
+	 */
+	it('reads the same fields out of the two requests the listing already made', async () => {
+		const remote = await github();
+		let requests = 0;
+		const counted: FetchFn = (input, init) => {
+			requests += 1;
+			return remote.fetch(input, init);
+		};
+
+		await readGrantedRepositories({ token: TOKEN, fetch: counted });
+
+		expect(requests).toBe(2);
+	});
+
+	it('costs one request per page and not one per repository', async () => {
+		const many = Array.from({ length: 250 }, (_, at) => ({
+			owner: 'ada',
+			repository: `sheet-${String(at).padStart(3, '0')}`,
+			push: true
+		}));
+		const remote = await github({ installationId: 42, account: 'ada', repositories: many });
+		let requests = 0;
+		const counted: FetchFn = (input, init) => {
+			requests += 1;
+			return remote.fetch(input, init);
+		};
+
+		await readGrantedRepositories({ token: TOKEN, fetch: counted });
+
+		expect(requests).toBe(4);
+	});
+
+	// The two that decide whose screen a narrow grant is widened on, and whether there is one to widen.
+	it('reports an installation on an organisation, granted narrowly, as both of those', async () => {
+		const remote = await github({
+			installationId: 9,
+			account: 'harvard',
+			targetId: 77,
+			accountType: 'Organization',
+			repositorySelection: 'selected',
+			repositories: [{ owner: 'harvard', repository: 'atlas', push: true }]
+		});
+
+		const outcome = await readGrantedRepositories({ token: TOKEN, fetch: remote.fetch });
+
+		expect(outcome).toMatchObject({
+			installations: [
+				{ id: 9, account: 'harvard', targetId: 77, isOrganization: true, coversEverything: false }
+			]
 		});
 	});
 });

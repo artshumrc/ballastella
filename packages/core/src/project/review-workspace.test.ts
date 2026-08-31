@@ -234,7 +234,7 @@ describe('what a Review Workspace may and may not be asked to do', () => {
 		expect(() => assertReviewing('amsterdam-1625', mark)).not.toThrow();
 		expect(() => assertReviewing('My Workspace', null)).toThrow(ReviewWorkspaceError);
 		expect(() => assertReviewing('My Workspace', null)).toThrow(
-			/“My Workspace” is one of your own Workspaces.*Workspace settings/s
+			/“My Workspace” is one of your own Workspaces.*Workspace list on the bar/s
 		);
 	});
 });

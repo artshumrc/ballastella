@@ -179,9 +179,10 @@
 				</p>
 				<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
 			</div>
-		{:else if session.status === 'unreachable' || storage.awaitingFolder}
-			<!-- ADR-0008: both are normal states with recoveries, never error boundaries — and "the folder
-			     is remembered but not open yet" is one this route reaches by being bookmarked. -->
+		{:else if session.status === 'unreachable'}
+			<!-- ADR-0008: a Workspace that cannot be reached is a normal state with a recovery, never an
+			     error boundary. **The one that is open, and no other** — a folder from a previous visit
+			     is a row in the roster rather than a state this route is in (ADR-0042). -->
 			<div>
 				<WorkspaceRecovery {storage} />
 				<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>

@@ -20,6 +20,7 @@ const publishable: GrantedRepository = {
 	owner: 'ada',
 	repository: 'atlas',
 	canPublish: true,
+	canGrantAccess: true,
 	isPrivate: false
 };
 
@@ -27,6 +28,7 @@ const readOnly: GrantedRepository = {
 	owner: 'grace',
 	repository: 'shared-maps',
 	canPublish: false,
+	canGrantAccess: false,
 	isPrivate: false
 };
 
@@ -34,6 +36,7 @@ const priv: GrantedRepository = {
 	owner: 'ada',
 	repository: 'diary',
 	canPublish: true,
+	canGrantAccess: true,
 	isPrivate: true
 };
 
@@ -148,7 +151,15 @@ describe('a repository that cannot be published to', () => {
 	 * fix half of it and come back to the same refusal.
 	 */
 	test('names both reasons when both hold', () => {
-		choice([{ owner: 'grace', repository: 'notes', canPublish: false, isPrivate: true }]);
+		choice([
+			{
+				owner: 'grace',
+				repository: 'notes',
+				canPublish: false,
+				canGrantAccess: false,
+				isPrivate: true
+			}
+		]);
 
 		const row = rowFor('grace/notes');
 		expect(row.textContent).toContain('write access');

@@ -663,7 +663,7 @@ export class Workspace {
 				// this sentence exists for — a colleague's folder of the same name, holding their own
 				// `amsterdam-1625` — is an instruction to destroy their Project. And the note is kept, so
 				// the same sentence returns at every startup for ever: nothing expires a record,
-				// `#claim` fires only on create and duplicate, and Workspace settings can only discard
+				// `#claim` fires only on create and duplicate, and the journal discard can only discard
 				// records for a Workspace that is *not* the one open. The panel that renders this offers
 				// "Forget this note" beside it, which is the exit that costs nobody a file.
 				detail:

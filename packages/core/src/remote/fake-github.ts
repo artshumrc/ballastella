@@ -36,7 +36,7 @@
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
-import { GITHUB_AUTHORIZE_URL } from './github-sign-in.js';
+import { GITHUB_APPS_URL, GITHUB_AUTHORIZE_URL } from './github-sign-in.js';
 
 /** One entry of a tree listing, as `GET /git/trees/{ref}?recursive=1` reports it. */
 export type FakeTreeEntry = {
@@ -72,7 +72,8 @@ export type FakeGitHubOptions = {
 	 */
 	readonly submodules?: Readonly<Record<string, string>>;
 	/**
-	 * Turn on the GitHub App sign-in surface: the authorize redirect, and the broker's two endpoints.
+	 * Turn on the GitHub App sign-in surface: the two departure screens, and the broker's two
+	 * endpoints.
 	 *
 	 * ⚠ **The broker is faked *here*, in the one fake, and not in a second module.** It is not GitHub,
 	 * but ADR-0031 makes it a pass-through — it answers *GitHub's token JSON verbatim* — so what it
@@ -103,6 +104,13 @@ export type FakeGrantedRepository = {
 	readonly repository: string;
 	/** `permissions.push`, which is what decides whether the author may publish to it. */
 	readonly push: boolean;
+	/**
+	 * `permissions.admin`, which is what decides whether the author can widen the grant themselves.
+	 *
+	 * Defaults to `false`, so a spec that means "and they administer it" has to say so — the case
+	 * where somebody must be asked instead is the one that goes wrong quietly.
+	 */
+	readonly admin?: boolean;
 	/** Defaults to public, which is the only kind that can serve a Published Site on the free tier. */
 	readonly private?: boolean;
 };
@@ -112,7 +120,26 @@ export type FakeGrants = {
 	readonly installationId: number;
 	readonly account: string;
 	readonly repositories: readonly FakeGrantedRepository[];
+	/**
+	 * The account's own identifier, which is what a preselect link's `suggested_target_id` carries.
+	 *
+	 * ⚠ **Never equal to {@link installationId} unless a spec says so.** The two are separate numbers
+	 * on GitHub and a fake that defaulted them the same would pass a reader that used the wrong one.
+	 */
+	readonly targetId?: number;
+	/** `repository_selection`. Defaults to `selected`, which is the state with a grant step in it. */
+	readonly repositorySelection?: 'all' | 'selected';
+	/** `account.type` and `target_type`, which GitHub reports as the same answer twice. */
+	readonly accountType?: 'User' | 'Organization';
 };
+
+/**
+ * An account identifier for an installation whose spec did not name one.
+ *
+ * Offset so that it can never collide with an installation id a spec wrote, which is what keeps a
+ * reader that confused the two from passing here.
+ */
+const defaultTargetId = (installationId: number): number => installationId + 1_000_000;
 
 /** The App and the broker a {@link FakeGitHub} answers as, when it answers as one at all. */
 export type FakeSignInOptions = {
@@ -120,6 +147,18 @@ export type FakeSignInOptions = {
 	readonly brokerOrigin: string;
 	/** The client ID the authorize URL and both broker calls must carry, or they are refused. */
 	readonly clientId: string;
+	/** The slug the install screen hangs off, matching the `GitHubApp` the code was configured with. */
+	readonly appSlug: string;
+	/**
+	 * Where the install screen redirects back to — the callback registered on the App.
+	 *
+	 * ⚠ **The install screen carries no `redirect_uri`**, unlike the authorize screen: GitHub returns
+	 * to the App's registered callback and there is no parameter to override it with. So the fake has
+	 * to be told, and the exchange that follows must name the same address or GitHub answers
+	 * `redirect_uri_mismatch`. A thunk is allowed because a browser test installs its routes before
+	 * the page they will come back to has an address.
+	 */
+	readonly callbackUrl?: string | (() => string);
 	/** The account a completed sign-in is as, reported by `GET /user`. */
 	readonly login?: string;
 	/** How long an issued token lasts. GitHub's user-to-server token is eight hours. */
@@ -275,6 +314,17 @@ export interface FakeGitHub {
 	login: string;
 
 	/**
+	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
+	 * a solo one (ADR-0043).
+	 *
+	 * The owner alone by default, which is the solo repository every other spec here means. ⚠ **What
+	 * this cannot settle is whether a collaborator's *listing* surfaces an Installation owned by
+	 * another account** — that is an inference from GitHub's documented enumeration rather than a
+	 * documented sentence, and a fake agreeing with the inference is not evidence for it.
+	 */
+	contributors: string[];
+
+	/**
 	 * Refuse the code-for-token exchange, in GitHub's own shape: `{ error, error_description }`.
 	 *
 	 * ⚠ GitHub answers a refused exchange **in the body**, and historically with a 200, which is why
@@ -390,6 +440,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	let grants: {
 		installationId: number;
 		account: string;
+		targetId: number;
+		repositorySelection: 'all' | 'selected';
+		accountType: 'User' | 'Organization';
 		repositories: FakeGrantedRepository[];
 	} | null =
 		options.grants === undefined
@@ -397,6 +450,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			: {
 					installationId: options.grants.installationId,
 					account: options.grants.account,
+					targetId: options.grants.targetId ?? defaultTargetId(options.grants.installationId),
+					repositorySelection: options.grants.repositorySelection ?? 'selected',
+					accountType: options.grants.accountType ?? 'User',
 					repositories: [...options.grants.repositories]
 				};
 
@@ -413,6 +469,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			reset: Math.floor(Date.now() / 1000) + 3600
 		} as FakeRateLimit,
 		login: options.signIn?.login ?? 'ada',
+		contributors: [options.owner] as string[],
 		refuseExchange: false,
 		refuseRefresh: false
 	};
@@ -639,7 +696,15 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				const installations =
 					grants === null
 						? []
-						: [{ id: grants.installationId, account: { login: grants.account } }];
+						: [
+								{
+									id: grants.installationId,
+									account: { login: grants.account, type: grants.accountType },
+									target_id: grants.targetId,
+									target_type: grants.accountType,
+									repository_selection: grants.repositorySelection
+								}
+							];
 				const listed = paginated(installations, url);
 				return json({ total_count: listed.total_count, installations: listed.page });
 			}
@@ -654,7 +719,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 					name: one.repository,
 					full_name: `${one.owner}/${one.repository}`,
 					private: one.private === true,
-					permissions: { push: one.push }
+					permissions: { push: one.push, admin: one.admin === true }
 				}));
 				const listed = paginated(reported, url);
 				return json({ total_count: listed.total_count, repositories: listed.page });
@@ -729,6 +794,19 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				refs.set(target, commit);
 				return json({ content: { path, sha }, commit: { sha: commit } }, 201);
 			});
+		}
+
+		// `GET /repos/{owner}/{repo}/contributors` — who else has worked here, which is half of whether
+		// a Remote is shared (ADR-0043). Answered unauthenticated, like the reads above and for their
+		// reason: a public repository's contributors are readable with no credential at all, and this
+		// list is the same list whoever asks. What decides sharedness is the comparison the *caller*
+		// makes against `GET /user`, which is authenticated.
+		if (rest[0] === 'contributors' && rest.length === 1 && method === 'GET') {
+			// 204 is GitHub's own answer for a repository with no commits yet, and it is a different
+			// answer from an empty array: `shared-remote.ts` reads a body it cannot parse as
+			// *unanswered*, which is `shared`, while 204 is nobody.
+			if (state.contributors.length === 0) return new Response(null, { status: 204 });
+			return json(state.contributors.map((login) => ({ login })));
 		}
 
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
@@ -1005,12 +1083,38 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		}
 		if (redirectUri === '') return problem(400, 'redirect_uri is required');
 
+		return issueCode(redirectUri, url.searchParams.get('state') ?? '');
+	};
+
+	/**
+	 * The App's own install screen, which installs and authorises in one press.
+	 *
+	 * With **Request user authorization (OAuth) during installation** enabled on the App, GitHub
+	 * answers this the way the authorize screen does — except that the address it comes back to is
+	 * the callback registered on the App rather than one the request named.
+	 */
+	const answerInstall = (url: URL): Response => {
+		if (signIn === undefined) {
+			return new Response('404: Not Found', { status: 404, headers: headers() });
+		}
+		const registered = signIn.callbackUrl;
+		const redirectUri = (
+			typeof registered === 'function' ? registered() : (registered ?? '')
+		).trim();
+		if (redirectUri === '') {
+			return problem(400, 'This App has no callback URL registered, so nowhere to return to.');
+		}
+		return issueCode(redirectUri, url.searchParams.get('state') ?? '');
+	};
+
+	/** Mint a code against an address, and send the browser back to it. Both screens end here. */
+	const issueCode = (redirectUri: string, state: string): Response => {
 		const code = nextValue('code');
 		codes.set(code, { redirectUri, spent: false });
 		issuedCodes.push(code);
 		const back = new URL(redirectUri);
 		back.searchParams.set('code', code);
-		back.searchParams.set('state', url.searchParams.get('state') ?? '');
+		back.searchParams.set('state', state);
 		return new Response(null, {
 			status: 302,
 			headers: { ...headers(), location: back.toString() }
@@ -1082,6 +1186,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				});
 			}
 			if (url.href.split('?')[0] === GITHUB_AUTHORIZE_URL) return answerAuthorize(url);
+			if (url.href.split('?')[0] === `${GITHUB_APPS_URL}/${signIn.appSlug}/installations/new`) {
+				return answerInstall(url);
+			}
 		}
 
 		// The raw host spends none of the hourly budget and, unless this repository is private, does not
@@ -1230,6 +1337,12 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		set login(value) {
 			state.login = value;
 		},
+		get contributors() {
+			return state.contributors;
+		},
+		set contributors(value) {
+			state.contributors = value;
+		},
 		get refuseExchange() {
 			return state.refuseExchange;
 		},
@@ -1243,7 +1356,14 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			state.refuseRefresh = value;
 		},
 		grant(repository) {
-			grants ??= { installationId: 1, account: options.owner, repositories: [] };
+			grants ??= {
+				installationId: 1,
+				account: options.owner,
+				targetId: defaultTargetId(1),
+				repositorySelection: 'selected',
+				accountType: 'User',
+				repositories: []
+			};
 			grants.repositories.push(repository);
 		},
 		expireIssuedTokens() {

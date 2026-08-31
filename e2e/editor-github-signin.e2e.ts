@@ -1,17 +1,22 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
+import { readFile } from 'node:fs/promises';
+
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
-	closeRemoteSettings,
+	closeTheDoor,
+	seedGitHubCredential,
+	seedRemoteRelationship,
+	doorButton,
 	expectCredential,
-	expectNoRemote,
+	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openRemoteSettings,
-	revealBindToken
+	openPublishFromTheDoor,
+	openTheDoor
 } from './support/workspace';
 
 /**
@@ -32,6 +37,9 @@ import {
  *   - an expired sign-in renewed through the broker, or surfaced as "sign in again" before any work
  *     starts — and not taking a token pasted since down with it;
  *   - a Review Workspace reading, offering and spending nothing;
+ *   - a sign-in kept past the tab where the author asked for that and not where they did not, with
+ *     the renewable half surviving the close, the token that publishes not, and neither reaching a
+ *     Backup or a Publish;
  *   - and, with no broker, the sign-in failing legibly while the pasted token binds as it always did.
  *
  * ⚠ **No spec here reaches `github.com`, `api.github.com`, or a real broker.** Every one of those
@@ -41,7 +49,7 @@ import {
 
 const HUB = './';
 
-/** A pasted token of the right shape. Its value never matters: the fake looks only for a credential. */
+/** A held token of the right shape. Its value never matters: the fake looks only for a credential. */
 const PASTED = 'github_pat_11ABCDE0000abcdefghijklmnop';
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -68,11 +76,24 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 	});
 }
 
-/** Start on a clean hub with one repository, and the sign-in surface served unless told otherwise. */
+/**
+ * Start on a clean hub with one repository, the sign-in surface served unless told otherwise, and
+ * that repository granted.
+ *
+ * ⚠ **Granted by default, because binding is now a press on GitHub's own answer.** There is no
+ * address field and no token field on a deployment with an App (ADR-0042): the door lists what
+ * `GET /user/installations` reports and the row is the gesture, so a spec that means "and then bind"
+ * needs the listing to have something in it.
+ */
 async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1] = {}) {
 	const github = await routeGitHubHosts(page, {
 		repositories: [{ owner: OWNER, name: REPOSITORY }],
 		signIn: true,
+		grants: {
+			installationId: 1,
+			account: OWNER,
+			repositories: [{ owner: OWNER, repository: REPOSITORY, push: true }]
+		},
 		...options
 	});
 	await page.goto(HUB);
@@ -92,10 +113,96 @@ const grantRecord = (page: Page): Promise<{ token: string; refreshToken: string 
 		return raw === null ? null : (JSON.parse(raw) as { token: string; refreshToken: string });
 	});
 
-/** Press the button and wait for the round trip through GitHub to land back here. */
+/**
+ * What this installation has kept of a sign-in past the tab, read straight out of IndexedDB.
+ *
+ * Behind the app's back, and by opening the database rather than by asking a screen: the whole
+ * claim is about what is *at rest* when the tab that wrote it has gone.
+ */
+const rememberedGrant = (
+	page: Page
+): Promise<{ refreshToken: string; expiresAt: number | null } | null> =>
+	page.evaluate(async () => {
+		const database = await new Promise<IDBDatabase | null>((resolve) => {
+			const request = indexedDB.open('ballastella');
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => resolve(null);
+		});
+		if (database === null || !database.objectStoreNames.contains('credential')) return null;
+		try {
+			const raw = await new Promise<unknown>((resolve) => {
+				const request = database
+					.transaction('credential', 'readonly')
+					.objectStore('credential')
+					.get('ballastella.github-app-remembered');
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => resolve(undefined);
+			});
+			return typeof raw === 'string'
+				? (JSON.parse(raw) as { refreshToken: string; expiresAt: number | null })
+				: null;
+		} finally {
+			database.close();
+		}
+	});
+
+/**
+ * Close the tab and open a new one, as far as a spec can stage it.
+ *
+ * `sessionStorage` is per-tab and everything else on the origin is not, so emptying it and loading
+ * the page again is exactly the state the next visit arrives in — without giving up the routes, the
+ * fake's memory of what it has issued, or the request log the assertions are made of.
+ */
+async function reopenTheTab(page: Page): Promise<void> {
+	await page.evaluate(() => sessionStorage.clear());
+	await page.reload();
+}
+
+/**
+ * Tick "keep me signed in on this computer", and wait for the record it makes to land.
+ *
+ * Behind the door, which is where everything about a sign-in is (ADR-0041, ADR-0042).
+ */
+async function keepTheSignIn(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('remember-sign-in').check();
+	// ⚠ Polled rather than asserted once: the durable write is queued behind the database opening,
+	// and a spec that emptied `sessionStorage` before it landed would be staging a different tab
+	// close from the one it means.
+	await expect.poll(() => rememberedGrant(page)).not.toBeNull();
+	await closeTheDoor(page);
+}
+
+/**
+ * Press the button and wait for the round trip through GitHub to land back here.
+ *
+ * The sign-in is a step of the door, and the step before it — *have you got a GitHub account?* — is
+ * offered rather than detected, so it is pressed past the way somebody with one does.
+ */
 async function signInWithGitHub(page: Page): Promise<void> {
-	await openRemoteSettings(page);
-	await page.getByTestId('sign-in-with-github').click();
+	await openTheDoor(page);
+	await page.getByTestId('connect-have-account').click();
+	await page.getByTestId('connect-sign-in-with-github').click();
+	// ⚠ **The door is standing open when the round trip lands, and closing it is this helper's job.**
+	// The App sign-in replaces the document, and the sequence reopens over the page it comes back to
+	// (`connectSequence`'s resuming mark) — which is the behaviour, not an accident. A spec that went
+	// on to press anything on the bar would be clicking behind a `showModal()` dialog, so it is
+	// closed here once rather than at twenty call sites.
+	await expect(page.getByTestId('connect-sequence')).toBeVisible({ timeout: 30_000 });
+	await closeTheDoor(page);
+}
+
+/**
+ * Connect the Workspace to the granted repository, from the door.
+ *
+ * ⚠ **Nothing is typed and nothing is pasted.** The credential is the one the sign-in issued, and the
+ * repository is chosen out of GitHub's own list — which is the whole of what binding is now.
+ */
+async function bindFromTheDoor(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('choose-repository').first().click();
+	await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+	await closeTheDoor(page);
 }
 
 /** Arrive at the callback with these parameters, having seeded whatever `state` we like. */
@@ -206,42 +313,40 @@ test.describe('signing in with GitHub', () => {
 		]);
 	});
 
-	test('names the account in the Workspace menu once the Workspace is bound', async ({ page }) => {
+	test('names the account where the sign-in is held, once the Workspace is bound', async ({
+		page
+	}) => {
 		await start(page, { login: 'ada' });
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
 
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await closeRemoteSettings(page);
+		await bindFromTheDoor(page);
 
 		await expectCredential(page, 'Signed in to GitHub as ada');
 	});
 });
 
-// ⚠ **The front door's whole point, and it did not work.** A sign-in is acquired *before* there is
-// anything to bind to — that is the order the screen offers — so the binding form is the first thing
-// a signed-in scholar meets, and it used to validate its paste field regardless and refuse an empty
-// one. Signing in and then being told to paste a personal access token leaves the button decorative.
+// ⚠ **A sign-in is acquired *before* there is anything to bind to** — that is the order the door
+// offers — so the first thing a signed-in scholar meets is the list of repositories GitHub says they
+// have granted, and choosing one is the whole of binding. Nothing is typed and nothing is pasted.
 test.describe('binding while already signed in', () => {
-	test('binds with nothing pasted, on the strength of the sign-in', async ({ page }) => {
+	test('offers no credential to supply anywhere, and binds on the strength of the sign-in', async ({
+		page
+	}) => {
+		// ⚠ **The real gate, which no seam below this one can see.** `signInWithGitHubOffered` is
+		// `isGitHubAppConfigured(GITHUB_APP)` read once by the real `WorkspaceStorage`; every seam
+		// beneath Seam 2 is *given* it, so a gate wired to the wrong side of it shows up only as a
+		// student being asked for a token. Absence, on the step a signed-in author actually lands on.
 		await start(page, { login: 'ada' });
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
 
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		// ⚠ **Not merely empty: not on the screen**. A field standing beside the button, even an empty
-		// one, is the two-credentials question a signed-in scholar must never be asked, so the assertion
-		// is absence rather than emptiness — the paste lives behind the disclosure the test above opens.
-		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
-		await page.getByTestId('bind-remote').click();
+		await openTheDoor(page);
+		await expect(page.getByTestId('repository-choice')).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByTestId('connect-token-field')).toHaveCount(0);
+		await page.getByTestId('choose-repository').first().click();
 
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 	});
 
 	// ⚠ **The trap in the fix.** Binding by paste clears the grant record, which is right for a paste
@@ -255,19 +360,10 @@ test.describe('binding while already signed in', () => {
 		const before = await grantRecord(page);
 		expect(before?.refreshToken).toBeTruthy();
 
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+		await bindFromTheDoor(page);
 
 		expect(await grantRecord(page)).toEqual(before);
 	});
-
-	// ⚠ **Two claims deliberately not made here.** That a paste still wins over the sign-in is
-	// already covered by "shows the account on the bar once the Workspace is bound" above, which
-	// binds with `PASTED` while signed in. That an empty field with nobody signed in is still
-	// refused is a path this change does not touch: `describeTokenProblem` sees the empty string
-	// exactly as it did before.
 });
 
 // ⚠ **The exchange must name the same `redirect_uri` the authorisation did, byte for byte.** GitHub
@@ -285,16 +381,15 @@ test.describe('a page reached by a filename', () => {
 	test('sends the address it left from, not the one it came back to', async ({ page }) => {
 		await start(page);
 
-		/** What the two halves of the flow actually put on the wire, read off the requests. */
-		let authorized = '';
+		/** What the flow actually put on the wire, read off the requests. */
+		let departed = false;
 		let exchanged = '';
 		page.on('request', (request) => {
 			const url = new URL(request.url());
 			// Matched by path, never by host: `check-github-broker.mjs` refuses a spec that writes the
-			// broker's address down, and GitHub's own is not this spec's business either.
-			if (url.pathname === '/login/oauth/authorize') {
-				authorized = url.searchParams.get('redirect_uri') ?? '';
-			}
+			// broker's address or the App's slug down, and GitHub's own host is not this spec's business
+			// either.
+			if (url.pathname.endsWith('/installations/new')) departed = true;
 			if (url.pathname === '/github/token' && request.method() === 'POST') {
 				exchanged =
 					(JSON.parse(request.postData() ?? '{}') as { redirect_uri?: string }).redirect_uri ?? '';
@@ -305,10 +400,12 @@ test.describe('a page reached by a filename', () => {
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
 
-		// The premise: the two spellings really were different, so the assertion below is about the app
-		// rather than about a coincidence.
-		expect(authorized).toContain('/index.html');
-		expect(exchanged).toBe(authorized);
+		// ⚠ **The install-first departure carries no `redirect_uri` at all** — GitHub's install screen
+		// takes none and comes back to the callback registered on the App — so what has to be right is
+		// the address the *exchange* names. It is the one the sign-in left from, kept across the
+		// redirect, and not the app's own resolved root a navigation would have normalised it to.
+		expect(departed).toBe(true);
+		expect(exchanged).toContain('/index.html');
 		expect(await holdsCredential(page)).toBe(true);
 	});
 });
@@ -393,9 +490,9 @@ test.describe('a sign-in that has run out', () => {
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
 
 		// Opening this screen is what asks; a Publish asks the same question the same way.
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 
-		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
+		await expect(page.getByTestId('connect-signed-in')).toBeVisible();
 		expect(await holdsCredential(page)).toBe(true);
 		expect(github.requests).toContain('/github/refresh');
 	});
@@ -415,46 +512,13 @@ test.describe('a sign-in that has run out', () => {
 		github.refuseRefresh();
 		const asked = github.requests.length;
 
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 
-		await expect(page.getByTestId('remote-problem')).toContainText('sign-in has expired');
+		await expect(page.getByTestId('connect-expiry')).toContainText('sign-in has expired');
 		expect(await holdsCredential(page)).toBe(false);
 		expect(
 			github.requests.slice(asked).filter((path) => path.startsWith('/repos/') || path === '/user')
 		).toEqual([]);
-	});
-
-	// ⚠ **A record is only ever about the credential it names.** Nothing clears it when a token
-	// arrives by paste, so a scholar whose sign-in has run out and who pastes a working personal
-	// access token instead was, on the next opening of this screen, told that sign-in had expired —
-	// and the token they had just pasted was thrown away to prove it.
-	test('does not take a pasted token down with it', async ({ page }) => {
-		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS });
-		await signInWithGitHub(page);
-		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
-
-		// Opening the screen renews the stale grant, so a record — a fresh one, for a token that is
-		// about to stop being the one held — is in place when the paste happens.
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('remote-repository-field')).toBeVisible();
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await closeRemoteSettings(page);
-
-		// Whatever the App session was, it is over: the refresh below must never be reached, because
-		// there is nothing left to refresh.
-		github.refuseRefresh();
-		await openRemoteSettings(page);
-
-		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
-		await expect(page.getByTestId('remote-problem')).toHaveCount(0);
-		expect(await page.evaluate(() => sessionStorage.getItem('ballastella.github-credential'))).toBe(
-			PASTED
-		);
-		expect(await grantRecord(page)).toBeNull();
 	});
 
 	test('surfaces as “sign in again” when the refresh is refused, and is not kept', async ({
@@ -466,14 +530,183 @@ test.describe('a sign-in that has run out', () => {
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
 
 		github.refuseRefresh();
-		await openRemoteSettings(page);
+		await openTheDoor(page);
 
-		await expect(page.getByTestId('remote-problem')).toContainText('sign-in has expired');
-		await expect(page.getByTestId('remote-problem')).toContainText('Sign in with GitHub');
+		await expect(page.getByTestId('connect-expiry')).toContainText('sign-in has expired');
+		await expect(page.getByTestId('connect-expiry')).toContainText('Sign in with GitHub');
 		// ⚠ Cleared, not merely reported: every screen must render the not-signed-in state, so that a
 		// publish started a moment later cannot pick up a credential GitHub has stopped honouring.
 		expect(await holdsCredential(page)).toBe(false);
 		expect(github.requests).toContain('/github/refresh');
+	});
+});
+
+// ADR-0041: the credential rule narrows rather than falls. *Forgotten when the tab closes* becomes
+// *forgotten when the tab closes unless the author has asked otherwise on this machine* — and what
+// is kept is the renewable half, in the installation's own database, where neither a Backup nor a
+// Publish walks.
+test.describe('a sign-in kept past the tab', () => {
+	// The pair that has to stay true: the scholar on a shared or lab machine
+	// changes nothing, is changed by nothing, and is told which rule is in force while they decide.
+	test('is not the default, says so, and leaves nothing when the tab closes', async ({ page }) => {
+		await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+
+		await openTheDoor(page);
+		await expect(page.getByTestId('remember-sign-in')).not.toBeChecked();
+		await expect(page.getByTestId('connect-signed-in')).toContainText(
+			'forgotten when this tab closes'
+		);
+		await closeTheDoor(page);
+		expect(await rememberedGrant(page)).toBeNull();
+
+		await reopenTheTab(page);
+
+		expect(await holdsCredential(page)).toBe(false);
+		expect(await rememberedGrant(page)).toBeNull();
+		// Signed out, so the door is back at its first step and the sign-in is offered again — past the
+		// account question, which is offered rather than detected.
+		await openTheDoor(page);
+		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
+		await page.getByTestId('connect-have-account').click();
+		await expect(page.getByTestId('connect-sign-in-with-github')).toBeVisible();
+	});
+
+	// The refresh token is what survives; the eight-hour token that publishes is
+	// kept nowhere at all, and the way back to one is the broker — which is what leaves the broker's
+	// `Origin` allowlist in the path of anybody who took the database.
+	test('keeps the renewable half only, and signs itself back in with it', async ({ page }) => {
+		const github = await start(page, { login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
+
+		await openTheDoor(page);
+		await page.getByTestId('remember-sign-in').check();
+		// The sentence turns over with the tick, because the scholar deciding is asking exactly this.
+		await expect(page.getByTestId('connect-signed-in')).toContainText('coming back tomorrow');
+		await expect(page.getByTestId('connect-signed-in')).toContainText(
+			'still forgotten when this tab closes'
+		);
+		await expect.poll(() => rememberedGrant(page)).not.toBeNull();
+		await closeTheDoor(page);
+
+		const held = await grantRecord(page);
+		expect(held?.token).toBeTruthy();
+		expect(await rememberedGrant(page)).toMatchObject({ refreshToken: held?.refreshToken });
+
+		await page.evaluate(() => sessionStorage.clear());
+		// ⚠ **Asked of the whole browser, by value.** The access token must be nowhere — not in the
+		// database that kept the refresh token, and not in a Workspace — and the refresh token must be
+		// in exactly one place, which is the database this feature added.
+		expect(await whereverTheTokenIs(page, held?.token ?? '')).toEqual([]);
+		expect(await whereverTheTokenIs(page, held?.refreshToken ?? '')).toEqual([
+			'indexedDB:ballastella/credential'
+		]);
+
+		const departures = github.requests.filter((path) => path === '/login/oauth/authorize').length;
+		await page.reload();
+
+		await openTheDoor(page);
+		await expect(page.getByTestId('connect-signed-in')).toContainText('as ada');
+		// A new access token, minted from the half that was kept — and no second trip to GitHub's
+		// authorise screen, which is the whole of "a new sign-in is not required".
+		expect(await holdsCredential(page)).toBe(true);
+		expect((await grantRecord(page))?.token).not.toBe(held?.token);
+		expect(github.requests).toContain('/github/refresh');
+		expect(github.requests.filter((path) => path === '/login/oauth/authorize')).toHaveLength(
+			departures
+		);
+	});
+
+	// The three ways a kept sign-in ends, in one journey because each leg starts from the state the
+	// one before it leaves. Unticking is an answer about this machine, so it has to take away what
+	// ticking put there; **Sign out** means this machine rather than this tab; and a refresh token
+	// that will no longer renew is a sign-in that has ended, thrown away rather than offered to the
+	// broker again on every visit for ever — and announced to nobody, because the scholar did not
+	// start that one.
+	test('ends when it is unticked, when the author signs out, and when it will not renew', async ({
+		page
+	}) => {
+		const github = await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+
+		await openTheDoor(page);
+		await page.getByTestId('remember-sign-in').uncheck();
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		await closeTheDoor(page);
+		await reopenTheTab(page);
+		expect(await holdsCredential(page)).toBe(false);
+		await openTheDoor(page);
+		await expect(page.getByTestId('remember-sign-in')).not.toBeChecked();
+		await closeTheDoor(page);
+
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		await openTheDoor(page);
+		await page.getByTestId('connect-sign-out').click();
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		await closeTheDoor(page);
+		await reopenTheTab(page);
+		expect(await holdsCredential(page)).toBe(false);
+
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		github.refuseRefresh();
+		await reopenTheTab(page);
+
+		await expect.poll(() => rememberedGrant(page)).toBeNull();
+		expect(await holdsCredential(page)).toBe(false);
+		// Signed out, and told nothing about an expiry: there is no sign-in left to have expired, so
+		// what is on offer is a fresh one, past the account question the first step asks.
+		await openTheDoor(page);
+		await expect(page.getByTestId('connect-expiry')).toHaveCount(0);
+		await page.getByTestId('connect-have-account').click();
+		await expect(page.getByTestId('connect-sign-in-with-github')).toBeVisible();
+	});
+
+	// Both places a held sign-in could leak from, out of one: `export-workspace-tar` walks a Workspace into a
+	// file the author mails to a colleague, and a Publish uploads one to a public repository. The
+	// archive's own bytes and the fake's received files are what is asked — a list of paths would
+	// pass just as happily with the secret inside one of them.
+	test('is in no Backup the author mails and no Publish they upload', async ({ page }) => {
+		const github = await start(page);
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
+		await keepTheSignIn(page);
+		const held = await grantRecord(page);
+		expect(held?.refreshToken).toBeTruthy();
+
+		// Backup is on Workspace Home, which is the screen this test is standing on (ADR-0042).
+		const downloading = page.waitForEvent('download');
+		await page.getByTestId('back-up-workspace').click();
+		const archive = await readFile(await (await downloading).path());
+		expect(archive.includes(held?.refreshToken ?? '')).toBe(false);
+		expect(archive.includes(held?.token ?? '')).toBe(false);
+
+		// Bound on the strength of the credential already held, which is what the sign-in door exists
+		// to make possible: nothing is typed and nothing is pasted.
+		await bindFromTheDoor(page);
+
+		await openPublishFromTheDoor(page);
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
+		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 60_000 });
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 60_000
+		});
+
+		const uploaded = github.files(OWNER, REPOSITORY);
+		expect(uploaded.length).toBeGreaterThan(0);
+		const carrying = uploaded.filter((path) => {
+			const text = github.fileText(OWNER, REPOSITORY, path) ?? '';
+			return text.includes(held?.refreshToken ?? '') || text.includes(held?.token ?? '');
+		});
+		expect(carrying).toEqual([]);
 	});
 });
 
@@ -501,25 +734,20 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		await page.getByTestId('confirm-open-bundle').click();
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 
-		await expectNoRemote(page);
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('no-remote-in-review')).toContainText(
-			'cannot be bound to a repository'
-		);
-		// ⚠ **The three assertions the seal is read by.** The teacher signed in moments ago and both
-		// records are still in `sessionStorage` — sealed, not deleted — so a store that answered a
-		// review copy would put every one of these on the screen a submission is open on. The button is
-		// the one a gate widened on `signInWithGitHubOffered` brought back: it answers a question about
-		// the deployment, which no seal moves.
-		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
-		await expect(page.getByTestId('remote-sign-out')).toHaveCount(0);
-		await expect(page.getByTestId('sign-in-with-github')).toHaveCount(0);
-		await closeRemoteSettings(page);
+		// ⚠ **The door is not mounted at all over a review copy** (ADR-0024, ADR-0042), so every
+		// sentence about a sign-in, the sign-out beside it and the button that starts one are absent
+		// together — there is no second surface left that could put a teacher's credential on the
+		// screen a student's submission is open on.
+		await expectNoRemoteInReview(page);
+		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
+		await expect(page.getByTestId('connect-sign-out')).toHaveCount(0);
+		await expect(page.getByTestId('connect-sign-in-with-github')).toHaveCount(0);
+		await expect(page.getByTestId('remember-sign-in')).toHaveCount(0);
 
-		// ⚠ **And nothing was spent.** Opening that screen is what asks whether the sign-in is still
-		// good, and the held grant is stale — so an unsealed record would have sent the refresh token
-		// to the broker from inside somebody else's Project, and an unsealed clear would have ended
-		// the teacher's own session on their behalf.
+		// ⚠ **And nothing was spent.** The Review switched Workspaces, and adopting one is what asks
+		// whether the sign-in is still good — the held grant is stale, so an unsealed record would have
+		// sent the refresh token to the broker from inside somebody else's Project, and an unsealed
+		// clear would have ended the teacher's own session on their behalf.
 		expect(github.requests.slice(asked)).toEqual([]);
 		expect(await grantRecord(page)).toEqual(held);
 		expect(await holdsCredential(page)).toBe(true);
@@ -527,9 +755,45 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 		// Sealed rather than deleted: the same locators, the opposite answers, one gesture apart.
 		await page.getByTestId('leave-review').click();
 		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('remote-signed-in')).toBeVisible();
+		await openTheDoor(page);
+		await expect(page.getByTestId('connect-signed-in')).toBeVisible();
 		expect(github.requests).toContain('/github/refresh');
+	});
+
+	// ⚠ **The seal has to hold over the durable implementation too, and this is where it would stop
+	// holding unnoticed.** A refresh token kept past the tab is the longest-lived secret this app
+	// holds, and a review copy that could read it could spend it against the broker from inside
+	// somebody else's Project. The record itself is left exactly where it is: sealed, not destroyed.
+	test('reads nothing of a sign-in this machine was asked to keep', async ({ page }) => {
+		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS, login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
+		await keepTheSignIn(page);
+		const kept = await rememberedGrant(page);
+		expect(kept?.refreshToken).toBeTruthy();
+		const asked = github.requests.length;
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Review a Project' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await oneProjectBundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
+
+		// The door, and with it every reading of the sign-in, is absent over a review copy.
+		await expect(doorButton(page)).toHaveCount(0);
+		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
+		await expect(page.getByTestId('remember-sign-in')).toHaveCount(0);
+
+		expect(github.requests.slice(asked)).toEqual([]);
+		expect(await rememberedGrant(page)).toEqual(kept);
+
+		// Sealed rather than destroyed: the same record, readable again one gesture later.
+		await page.getByTestId('leave-review').click();
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		await openTheDoor(page);
+		await expect(page.getByTestId('remember-sign-in')).toBeChecked();
 	});
 });
 
@@ -537,36 +801,11 @@ test.describe('a Review Workspace, with a GitHub sign-in held', () => {
 // This is also the state **this deployment ships in** — `github-app.ts` points at a reserved domain
 // that will never answer — so it is not a hypothetical.
 test.describe('with no broker served at all', () => {
-	test('the pasted token still binds, with nothing anywhere near the broker', async ({ page }) => {
-		// `signIn: false`: the authorize address and the broker are not routed, so the default-deny
-		// network fence aborts any request to either. That is a broker that is not there.
-		const github = await start(page, { signIn: false });
-
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-
-		await expect(page.getByTestId('remote-outcome')).toContainText(
-			`This Workspace is bound to ${REMOTE}`
-		);
-		expect(await holdsCredential(page)).toBe(true);
-		// Pages was turned on and the rights were read — the whole binding path, against GitHub's data
-		// plane, with no broker anywhere in it.
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
-		expect(github.requests).toContain(`/repos/${OWNER}/${REPOSITORY}`);
-		// And nothing in that path went near the broker.
-		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
-	});
-
 	// ⚠ **This is the state this deployment ships in, exactly**: GitHub is real and answers, and the
 	// broker's host is reserved by RFC 2606 and resolves nowhere. So the scholar gets all the way
 	// through the redirect and meets the failure at the exchange, and what has to come out of it is a
 	// sentence naming the path that needs no service — not a blank screen, and not a token.
-	test('the sign-in fails legibly, and the paste is offered on the same screen', async ({
-		page
-	}) => {
+	test('the sign-in fails legibly, naming the path that needs no service', async ({ page }) => {
 		const github = await start(page, { brokerUnreachable: true });
 
 		await signInWithGitHub(page);
@@ -576,76 +815,43 @@ test.describe('with no broker served at all', () => {
 		expect(await holdsCredential(page)).toBe(false);
 		// Tried and could not, rather than never tried: the code went to the broker and no further.
 		expect(github.requests).toContain('/github/token');
-
-		// And the remedy on offer works, on the same screen, with the broker still unreachable.
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-
-		await expect(page.getByTestId('remote-outcome')).toContainText(
-			`This Workspace is bound to ${REMOTE}`
-		);
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 	});
 
-	// ⚠ **The gate itself, which no seam below this one can see.** Which fields `RemoteSettings`
-	// renders for which value of `signInWithGitHubOffered` is markup, and the derivation is asserted
-	// at Seam 1c — but *the value this deployment computes* is `isGitHubAppConfigured(GITHUB_APP)`
-	// read out of the real `WorkspaceStorage` in the real application, and a component seam is given
-	// it rather than reading it. So: the screen a scholar actually meets, in the state this deployment
-	// actually ships in.
-	//
-	// The broker is unreachable here because that is the fork's own case as well as this deployment's,
-	// and it makes the second half a real claim rather than a convenience: the paste is not deleted,
-	// it is one press away, and it still binds with no service of any kind involved.
-	test('offers no token field until the escape hatch is opened, and the paste behind it still binds', async ({
-		page
-	}) => {
+	// ⚠ **The escape hatch, driven against the *real* `isGitHubAppConfigured(GITHUB_APP)`** (stories
+	// 126 and 127). This checkout has an App configured, so the door offers the sign-in and no token
+	// field — which is the state an instructor whose installation has broken is standing in, and the
+	// one the disclosure exists for. Here rather than at Seam 1c because the gate is the deployment's
+	// own value rather than a fake's, and because "the broker is on no data path" is a claim about
+	// which hosts were reached: the broker's origin is routed and every request to it fails, so a
+	// bind that touched it could not pass and one that did not is proved rather than assumed.
+	test('the way in behind the disclosure binds with no request to the broker', async ({ page }) => {
 		const github = await start(page, { brokerUnreachable: true });
 
-		await openRemoteSettings(page);
+		await openTheDoor(page);
+		// Absent, not empty and not disabled, until somebody who knows what they are asking for asks.
+		await expect(page.getByTestId('connect-token-field')).toHaveCount(0);
+		await page.getByTestId('connect-other-way-in').click();
 
-		// ⚠ **Absent, not empty and not disabled.** A student on this deployment is never asked to
-		// choose between two credentials, so neither field exists until somebody asks for it.
-		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
-		await expect(page.getByTestId('remote-sign-in-field')).toHaveCount(0);
-		// And the sign-in is what is on the screen instead, with the hatch not a peer of it.
-		await expect(page.getByTestId('sign-in-with-github')).toBeVisible();
+		await page.getByTestId('connect-repository-field').fill(REMOTE);
+		await page.getByTestId('connect-token-field').fill(PASTED);
+		await page.getByTestId('connect-paste').click();
 
-		// Opened, then closed again with the dialog: an escape hatch left standing open would be on the
-		// screen of whoever opens this next — the second door to GitHub this design exists to remove.
-		await revealBindToken(page);
-		await closeRemoteSettings(page);
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('remote-token-field')).toHaveCount(0);
-
-		await revealBindToken(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-
-		await expect(page.getByTestId('remote-outcome')).toContainText(
-			`This Workspace is bound to ${REMOTE}`
-		);
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 		expect(await holdsCredential(page)).toBe(true);
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
-		// And nothing in that path went near the broker, which is not there anyway.
-		expect(github.requests.filter((path) => path.startsWith('/github/'))).toEqual([]);
+		expect(github.requests).not.toContain('/github/token');
+		expect(github.requests).not.toContain('/github/refresh');
 	});
 
+	// ⚠ **A held credential and a bound Workspace are two different durabilities, and both survive
+	// with no service of any kind involved.** The credential is this tab's `sessionStorage` and the
+	// binding is the installation's IndexedDB, so a reload is where a deployment whose broker will
+	// never answer either goes on working or quietly forgets both.
 	test('a bound Workspace survives a reload with its credential, broker or no broker', async ({
 		page
 	}) => {
 		await start(page, { signIn: false });
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(PASTED);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await closeRemoteSettings(page);
+		await seedRemoteRelationship(page, { owner: OWNER, repository: REPOSITORY });
+		await seedGitHubCredential(page, PASTED);
 
 		await page.reload();
 
@@ -674,11 +880,7 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		// Bound on the strength of the sign-in, which is how a bound Workspace comes to exist here.
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await page.getByTestId('bind-remote').click();
-		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
-		await closeRemoteSettings(page);
+		await bindFromTheDoor(page);
 
 		// ⚠ **Tomorrow morning's tab, reached rather than simulated.** Taking the sign-in out of
 		// `sessionStorage` and reloading is precisely what closing the tab does to it; the binding is in
@@ -691,8 +893,8 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await expectRemoteNamed(page, REMOTE);
 		expect(await holdsCredential(page)).toBe(false);
 
-		await page.getByRole('button', { name: 'Publish…' }).click();
-		const dialog = page.getByRole('dialog');
+		await openPublishFromTheDoor(page);
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
 		// ⚠ **Absent, not empty and not disabled**, and this is the deployment's own answer rather than
 		// a fake's: nothing in this spec configures `GITHUB_APP`, it is what the app was built with.
@@ -701,10 +903,9 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await dialog.getByTestId('publish-sign-in-with-github').click();
 
 		// The redirect replaces the document, so nothing in the dialog resumes: the mark reopens the
-		// guided sequence, and a Workspace that is already bound derives its `connected` step — whose
-		// handoff is the Publish button that was always on the bar. Signing in from Publish therefore
-		// arrives back at Publish, which is the whole reason the dialog is not closed to open the
-		// sequence and the sequence gains no fourth first step.
+		// door, and a Workspace that is already bound derives its `connected` step — whose **Publish…**
+		// is the same dialog. Signing in from Publish therefore arrives back at Publish, which is the
+		// whole reason the dialog is not closed to open the door and the door gains no extra step.
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 		expect(await holdsCredential(page)).toBe(true);
 
@@ -744,6 +945,39 @@ test.describe('the guided sequence, wired to the real thing', () => {
 			}
 		});
 
+		// ⚠ **Nothing is asked of an author who has decided nothing, and this is the only seam that can
+		// see the whole screen.** A scholar arrives with a Workspace already made and meets no dialog,
+		// no sign-in and no prompt. What says GitHub at all is two controls, and both are doors: the
+		// bar's one door, and the reviewer's way in from a link somebody sent them (ADR-0024, whose
+		// re-homing of Workspace Home is a later slice's). Neither is open and neither is a question.
+		//
+		// Read as every element on screen whose own words say it, so a sentence added anywhere fails
+		// this rather than slipping past a locator that was only ever asked about one testid.
+		//
+		// A closed `<dialog>` keeps its children in the document, and daisyUI's `.modal` keeps them laid
+		// out as well — `ModalDialog` says so where it has to work around the same thing — so `dialog:
+		// not([open])` is what tells "in the tree" from "on screen". Clipped text is on screen: the
+		// bar's announcements are read aloud, and a sentence about GitHub hidden in one would still
+		// reach the reader this story is written for.
+		await expect(page.getByTestId('connect-to-github')).toBeVisible();
+		const saysGitHub = await page.evaluate(() =>
+			[...document.querySelectorAll('body *')]
+				.filter(
+					(element) =>
+						element.children.length === 0 &&
+						/github/i.test(element.textContent ?? '') &&
+						element.closest('dialog:not([open])') === null &&
+						element.checkVisibility()
+				)
+				.map(
+					(element) =>
+						(element.closest('[data-testid]') as HTMLElement | null)?.dataset.testid ??
+						element.tagName.toLowerCase()
+				)
+		);
+		expect([...new Set(saysGitHub)].sort()).toEqual(['connect-to-github', 'review-remote']);
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
+
 		// One control, in the bar, on Workspace Home — before any Project is open.
 		await page.getByTestId('connect-to-github').click();
 
@@ -765,16 +999,22 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		await page.getByTestId('choose-repository').click();
 
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
-		// Pages was turned on as part of that one press, with nothing else asked of anybody.
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 		// The address the assignment asked for.
 		await expect(page.getByTestId('published-site-address')).toHaveText(
 			`https://${OWNER}.github.io/${REPOSITORY}/`
 		);
 
-		// The handoff is the Publish button that is always on the bar, and it reaches GitHub.
+		// ⚠ **Connecting turned nothing on**, because a Remote is a place the work lives before it is
+		// a site anybody reads. Letting other people see it is the press after it, and this is the one
+		// place the whole of that act is wired to the real GitHub.
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
+		await page.getByTestId('enable-pages').click();
+		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 30_000 });
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+
+		// The handoff is the door's own **Publish…**, and it reaches GitHub.
 		await page.getByTestId('connect-publish').click();
-		const dialog = page.getByRole('dialog');
+		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.getByTestId('publish-status')).toContainText('Published:', {

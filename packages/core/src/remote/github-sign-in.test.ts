@@ -10,17 +10,24 @@ import {
 	CREDENTIAL_FRESHNESS_MARGIN_MS,
 	GITHUB_APP_SESSION_KEY,
 	GitHubSignInError,
+	REMEMBERED_GRANT_KEY,
 	authorizeUrl,
 	clearGrantRecord,
+	clearRememberedGrant,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	grantAccessUrl,
+	installUrl,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
+	readRememberedGrant,
 	readSignInCallback,
 	refreshGitHubToken,
+	signInDepartureUrl,
 	verifySignInState,
-	writeGrantRecord
+	writeGrantRecord,
+	writeRememberedGrant
 } from './github-sign-in.js';
 
 // The in-memory seam for the GitHub App path (ADR-0031). The whole flow is asserted here
@@ -30,7 +37,8 @@ import {
 /** A fake App, supplied by the test rather than read from the module (see `github-app.ts`). */
 const APP: GitHubApp = {
 	brokerOrigin: 'https://broker.test',
-	clientId: 'Iv1.testclientid'
+	clientId: 'Iv1.testclientid',
+	appSlug: 'specimen-atlas'
 };
 
 const REDIRECT_URI = 'https://atlas.example.edu/editor/';
@@ -40,7 +48,14 @@ const github = (): Promise<FakeGitHub> =>
 		owner: 'ada',
 		repository: 'atlas',
 		tree: { 'README.md': '# Atlas\n' },
-		signIn: { brokerOrigin: APP.brokerOrigin, clientId: APP.clientId, login: 'ada' }
+		signIn: {
+			brokerOrigin: APP.brokerOrigin,
+			clientId: APP.clientId,
+			appSlug: APP.appSlug,
+			// The App's registered callback, which is where the install screen returns to.
+			callbackUrl: REDIRECT_URI,
+			login: 'ada'
+		}
 	});
 
 /** Press "Authorize" on GitHub's screen, and read the callback it redirects to. */
@@ -50,6 +65,13 @@ async function authorize(fake: FakeGitHub, state: string): Promise<URLSearchPara
 	});
 	expect(response.status).toBe(302);
 	return new URL(response.headers.get('location') ?? '').searchParams;
+}
+
+/** Press "Install" on the App's own screen, which authorises in the same act. */
+async function install(fake: FakeGitHub, state: string): Promise<URL> {
+	const response = await fake.fetch(installUrl({ app: APP, state }), { method: 'GET' });
+	expect(response.status).toBe(302);
+	return new URL(response.headers.get('location') ?? '');
 }
 
 /** A `Storage`-shaped `Map`, which is all the grant record needs. */
@@ -77,11 +99,19 @@ describe('the App this deployment ships with', () => {
 		expect(isGitHubAppConfigured(GITHUB_APP)).toBe(true);
 	});
 
-	// A fork with no infrastructure empties both values, and must then get no dead button at all.
-	it('reads as unconfigured when either value is empty', () => {
-		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: 'Iv1.x' })).toBe(false);
-		expect(isGitHubAppConfigured({ brokerOrigin: 'https://b.test', clientId: '' })).toBe(false);
-		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: '' })).toBe(false);
+	// A fork with no infrastructure empties all three values, and must then get no dead button at all.
+	// ⚠ **Each of the three, on its own.** A half-configured fork offers a sign-in that cannot
+	// complete: no broker to exchange the code, no client ID to look a secret up by, or an install
+	// screen that is somebody else's App or nobody's.
+	it('reads as unconfigured when any one of the three values is empty', () => {
+		expect(isGitHubAppConfigured({ ...APP, brokerOrigin: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, brokerOrigin: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, clientId: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, clientId: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, appSlug: '' })).toBe(false);
+		expect(isGitHubAppConfigured({ ...APP, appSlug: '   ' })).toBe(false);
+		expect(isGitHubAppConfigured({ brokerOrigin: '', clientId: '', appSlug: '' })).toBe(false);
+		expect(isGitHubAppConfigured(APP)).toBe(true);
 	});
 });
 
@@ -102,6 +132,115 @@ describe('the authorize URL', () => {
 
 		expect(url.searchParams.get('code_challenge')).toBeNull();
 		expect(url.searchParams.get('code_challenge_method')).toBeNull();
+	});
+});
+
+describe('the install URL', () => {
+	// The one screen that installs the App *and* issues the code, so a first-time author is not sent
+	// back a second time for a step nothing named.
+	it('is the App\u2019s own install screen, carrying the state', () => {
+		const url = installUrl({ app: APP, state: 'abc123' });
+
+		expect(url).toBe('https://github.com/apps/specimen-atlas/installations/new?state=abc123');
+	});
+
+	// ⚠ **No `redirect_uri`, and no `setup_action`.** The install screen has no redirect parameter —
+	// GitHub comes back to the callback registered on the App — and `setup_action` is undocumented
+	// across the whole of GitHub's documentation, so nothing may be built on it.
+	it('sends no redirect_uri and asks for no setup action', () => {
+		const url = new URL(installUrl({ app: APP, state: 'abc123' }));
+
+		expect([...url.searchParams.keys()]).toEqual(['state']);
+	});
+
+	it('escapes a slug, so a mis-typed one cannot reach outside its own path segment', () => {
+		const url = new URL(installUrl({ app: { ...APP, appSlug: 'a/../evil' }, state: 's' }));
+
+		expect(url.pathname).toBe('/apps/a%2F..%2Fevil/installations/new');
+	});
+});
+
+describe('the grant-access URL', () => {
+	// ⚠ **The App's own grant screen and not the list of every App installed.** The list is where the
+	// grant is five moves away, and it is the hand-off this replaced.
+	it('is the App’s own grant screen, opened on the account that has to change', () => {
+		const url = grantAccessUrl({ app: APP, targetId: 5150 });
+
+		expect(url).toBe(
+			'https://github.com/apps/specimen-atlas/installations/new/permissions' +
+				'?suggested_target_id=5150'
+		);
+	});
+
+	// The preselect, for a caller that has read an id for the repository by some route of its own.
+	it('preselects a repository where an id for one is in hand', () => {
+		const url = new URL(grantAccessUrl({ app: APP, targetId: 5150, repositoryId: 987 }));
+
+		expect(url.searchParams.get('suggested_target_id')).toBe('5150');
+		expect(url.searchParams.get('repository_ids[]')).toBe('987');
+	});
+
+	it('escapes a slug, so a mis-typed one cannot reach outside its own path segment', () => {
+		const url = new URL(grantAccessUrl({ app: { ...APP, appSlug: 'a/../evil' }, targetId: 1 }));
+
+		expect(url.pathname).toBe('/apps/a%2F..%2Fevil/installations/new/permissions');
+	});
+});
+
+describe('the install screen’s return leg', () => {
+	// ⚠ **The whole claim of install-first**: one screen installs the App *and* issues the code, so
+	// nothing about what comes back differs from the authorize trip — same callback, same `state`,
+	// same exchange. This is what lets the return leg go unchanged.
+	it('comes back to the App’s registered callback with a code and the state', async () => {
+		const fake = await github();
+
+		const back = await install(fake, 'abc123');
+
+		expect(`${back.origin}${back.pathname}`).toBe(REDIRECT_URI);
+		expect(back.searchParams.get('state')).toBe('abc123');
+		expect(back.searchParams.get('code')).not.toBe('');
+	});
+
+	it('issues a code the broker will exchange, against that same callback', async () => {
+		const fake = await github();
+		const back = await install(fake, 'abc123');
+
+		const grant = await exchangeAuthorizationCode({
+			app: APP,
+			code: back.searchParams.get('code') ?? '',
+			redirectUri: REDIRECT_URI,
+			fetch: fake.fetch
+		});
+
+		expect(grant.token).not.toBe('');
+	});
+});
+
+describe('where a departing sign-in goes', () => {
+	// An author with no Installation: an authorize-only trip would leave them holding a credential
+	// against no Installation, which reads to them as owning no repositories.
+	it('is the install screen for an author who has not installed the App', () => {
+		const url = signInDepartureUrl({
+			app: APP,
+			redirectUri: REDIRECT_URI,
+			state: 'abc123',
+			installed: false
+		});
+
+		expect(url).toBe(installUrl({ app: APP, state: 'abc123' }));
+	});
+
+	// An Installation that already exists needs only a fresh credential, which is what the plain
+	// authorize URL is for — and it is kept unchanged.
+	it('is the plain authorize screen for an author who has', () => {
+		const url = signInDepartureUrl({
+			app: APP,
+			redirectUri: REDIRECT_URI,
+			state: 'abc123',
+			installed: true
+		});
+
+		expect(url).toBe(authorizeUrl({ app: APP, redirectUri: REDIRECT_URI, state: 'abc123' }));
 	});
 });
 
@@ -324,6 +463,72 @@ describe('the refresh', () => {
 		await expect(
 			refreshGitHubToken({ app: APP, refreshToken: 'ghr_0000', fetch: fake.fetch })
 		).rejects.toThrow(GitHubSignInError);
+	});
+});
+
+// ADR-0041: what may be kept past the tab is the renewable half and nothing else. Eight hours of
+// publish rights at rest is the outcome this whole feature must not produce, so the stripping is
+// asserted at the function that does it rather than trusted to each caller.
+describe('the half of a grant that may be kept past the tab', () => {
+	it('keeps the refresh token and its expiry, and not the access token', () => {
+		const storage = fakeStorage();
+		const grant = { token: 'ghu_publishes', expiresAt: 42, refreshToken: 'ghr_renews' };
+
+		writeRememberedGrant(storage, grant);
+
+		expect(readRememberedGrant(storage)).toEqual({ refreshToken: 'ghr_renews', expiresAt: 42 });
+		expect([...storage.held.keys()]).toEqual([REMEMBERED_GRANT_KEY]);
+		// The bytes themselves, because a record that merely parses without the token could still
+		// carry it in a field nothing reads back.
+		expect(storage.held.get(REMEMBERED_GRANT_KEY)).not.toContain('ghu_publishes');
+	});
+
+	it('is taken away again when it is cleared', () => {
+		const storage = fakeStorage();
+		writeRememberedGrant(storage, { token: 'ghu_1', expiresAt: 42, refreshToken: 'ghr_1' });
+
+		clearRememberedGrant(storage);
+
+		expect(readRememberedGrant(storage)).toBeNull();
+	});
+
+	// A grant with no refresh token has no renewable half. Kept, it would be spent once on the next
+	// visit, fail, and report an expiry to somebody who never asked to be remembered.
+	it('keeps nothing at all for a grant that cannot be renewed, and removes what was kept', () => {
+		const storage = fakeStorage();
+		writeRememberedGrant(storage, { token: 'ghu_1', expiresAt: 42, refreshToken: 'ghr_1' });
+
+		writeRememberedGrant(storage, { token: 'ghu_2', expiresAt: 99, refreshToken: '' });
+
+		expect(readRememberedGrant(storage)).toBeNull();
+		expect([...storage.held.keys()]).toEqual([]);
+	});
+
+	it('reads a damaged record as nothing remembered rather than throwing', () => {
+		const storage = fakeStorage();
+		storage.held.set(REMEMBERED_GRANT_KEY, '{not json');
+
+		expect(readRememberedGrant(storage)).toBeNull();
+	});
+
+	it('survives a storage that throws from every property', () => {
+		const hostile = {
+			getItem: () => {
+				throw new Error('cookies are blocked');
+			},
+			setItem: () => {
+				throw new Error('cookies are blocked');
+			},
+			removeItem: () => {
+				throw new Error('cookies are blocked');
+			}
+		};
+
+		expect(readRememberedGrant(hostile)).toBeNull();
+		expect(() =>
+			writeRememberedGrant(hostile, { token: 'x', expiresAt: 1, refreshToken: 'ghr_1' })
+		).not.toThrow();
+		expect(() => clearRememberedGrant(hostile)).not.toThrow();
 	});
 });
 

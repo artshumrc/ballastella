@@ -1,15 +1,25 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page, type Route } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { GITHUB_RAW_ORIGIN, routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
+import {
+	GITHUB_API_ORIGIN,
+	GITHUB_RAW_ORIGIN,
+	routeGitHubHosts,
+	type GitHubHosts
+} from './support/github-hosts.js';
 import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	createWorkspace,
-	openRemoteSettings,
-	revealBindToken,
+	doorButton,
+	expectWorkspaceNamed,
 	seedBaseline,
 	seedGitHubCredential,
 	seedRemoteRelationship,
+	checkRemoteStatus,
+	openTheDoor,
+	closeTheDoor,
+	showRemoteStatusDetail,
+	updateFromGitHub,
 	switchToWorkspace
 } from './support/workspace.js';
 import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
@@ -61,6 +71,39 @@ const projectFiles = (directory: string, name: string): Record<string, string> =
 				}
 			],
 			baseMap: 'physical'
+		},
+		null,
+		'\t'
+	)}\n`,
+	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
+});
+
+/**
+ * A Project as it sits on a Remote, whose Layer reference really resolves.
+ *
+ * ⚠ **`geojsonRef` is Project-relative**, unlike {@link projectFiles}', and here that is
+ * load-bearing: opening a Remote validates the whole prospective Workspace before adopting any of
+ * it, so a Project whose Layer names a file that would not be there refuses the transfer rather than
+ * arriving broken. The Workspace-side fixture above is never opened by the tests that use it.
+ */
+const publishedProject = (directory: string, name: string): Record<string, string> => ({
+	[`${directory}/project.json`]: `${JSON.stringify(
+		{
+			formatVersion: 1,
+			name,
+			updatedAt: '2026-01-02T03:04:05.000Z',
+			layers: [
+				{
+					id: 'l2',
+					name: 'Warehouses',
+					visible: true,
+					order: 0,
+					kind: 'annotation',
+					geojsonRef: 'annotations/l2.geojson',
+					defaultStyle: {}
+				}
+			],
+			baseMap: null
 		},
 		null,
 		'\t'
@@ -136,10 +179,61 @@ async function seed(page: Page, files: Record<string, string>): Promise<void> {
 	}, files);
 }
 
+/** Every file in a named Workspace, read behind the app's back. */
+async function everyByteOf(page: Page, workspace: string): Promise<Record<string, string>> {
+	return page.evaluate(async (name) => {
+		const found: Record<string, string> = {};
+		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+			for await (const [entry, child] of handle.entries()) {
+				if (child.kind === 'directory') {
+					await walk(child as FileSystemDirectoryHandle, `${prefix}${entry}/`);
+					continue;
+				}
+				found[`${prefix}${entry}`] = await (await (child as FileSystemFileHandle).getFile()).text();
+			}
+		};
+		try {
+			await walk(await (await navigator.storage.getDirectory()).getDirectoryHandle(name), '');
+		} catch {
+			return {};
+		}
+		return found;
+	}, workspace);
+}
+
+/** Every named Workspace in browser storage, which is how a second copy would show itself. */
+async function workspaceNames(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const names: string[] = [];
+		for await (const [name, handle] of (await navigator.storage.getDirectory()).entries()) {
+			if (handle.kind === 'directory') names.push(name);
+		}
+		return names.sort();
+	});
+}
+
 /** Open the editor on an empty Workspace holding exactly `files`, with `remote` on GitHub. */
 async function start(
 	page: Page,
-	options: { workspace?: Record<string, string>; onRemote?: Record<string, string> } = {}
+	options: {
+		workspace?: Record<string, string>;
+		onRemote?: Record<string, string>;
+		/**
+		 * Answer the door's listing, so the repository can be chosen from where the author asks.
+		 *
+		 * Left out, nothing routes GitHub's sign-in surface and the door has no list — which is what
+		 * every test here that starts from a seeded binding rather than connecting wants.
+		 */
+		granted?: boolean;
+		/**
+		 * Whose the seeded credential is, as `GET /user` reports it.
+		 *
+		 * Left out it is the repository's own owner, which is the solo Remote every other test here
+		 * means. Naming somebody else is what makes the Remote *shared* (ADR-0043) — the comparison is
+		 * between the repository's owner and this, and it costs no request at all.
+		 */
+		login?: string;
+	} = {}
 ): Promise<GitHubHosts> {
 	const github = await routeGitHubHosts(page, {
 		repositories: [
@@ -148,7 +242,21 @@ async function start(
 				name: REPOSITORY,
 				files: { 'README.md': '# Atlas\n', ...options.onRemote }
 			}
-		]
+		],
+		...(options.granted === true
+			? {
+					signIn: true,
+					login: OWNER,
+					grants: {
+						installationId: 1,
+						account: OWNER,
+						repositories: [{ owner: OWNER, repository: REPOSITORY, push: true }]
+					}
+				}
+			: {}),
+		// Last, so naming the account is what a test says when it means it — even where the sign-in
+		// surface is served and would otherwise report the repository's owner.
+		...(options.login === undefined ? {} : { login: options.login })
 	});
 	await page.goto('./');
 	await emptyBrowserStorage(page);
@@ -164,9 +272,15 @@ async function start(
 	return github;
 }
 
+// Publishing is a landing of the one door (ADR-0041), so the dialog is two presses from the bar
+// rather than one: the control that names the repository, then **Publish…** beside the Update it
+// must never be merged with.
 const openPublishDialog = async (page: Page) => {
-	await page.getByRole('button', { name: 'Publish…' }).click();
-	const dialog = page.getByRole('dialog');
+	await openTheDoor(page);
+	await page.getByTestId('connect-publish').click();
+	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
+	// `getByRole('dialog')` is then two elements rather than one.
+	const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
 	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 	return dialog;
 };
@@ -203,18 +317,22 @@ async function confirm(page: Page, dialog: ReturnType<Page['getByRole']>): Promi
 }
 
 test.describe('binding to a Remote that already carries somebody else’s Projects', () => {
+	/**
+	 * Connect from the door, choosing the repository GitHub says the author has granted.
+	 *
+	 * ⚠ **There is no address field and no token field** (ADR-0042): the sequence lists what GitHub
+	 * answers and the row is the gesture, so a refused bind is refused where the author chose.
+	 */
 	async function bind(page: Page): Promise<void> {
-		await openRemoteSettings(page);
-		await page.getByTestId('remote-repository-field').fill(REMOTE);
-		await revealBindToken(page);
-		await page.getByTestId('remote-token-field').fill(TOKEN);
-		await page.getByTestId('bind-remote').click();
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').first().click();
 	}
 
 	test('is refused, names the Project, and points at Open a Workspace from GitHub', async ({
 		page
 	}) => {
 		await start(page, {
+			granted: true,
 			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 			onRemote: {
 				'ballastella-site.json': siteRecord([
@@ -224,19 +342,122 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida 1657"}'
 			}
 		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
 
 		await bind(page);
 
-		const problem = page.getByTestId('remote-problem');
-		await expect(problem).toContainText('“Florida 1657”');
-		await expect(problem).toContainText(`Open ${REMOTE} from GitHub`);
+		// The refusal, on the step the author chose from, naming the Project — and the operation that
+		// answers it beside it rather than a full stop (ADR-0041).
+		const refusal = page.getByTestId('connect-projects-not-here');
+		await expect(refusal).toContainText('“Florida 1657”', { timeout: 30_000 });
+		await expect(refusal).toContainText(`Open ${REMOTE} from GitHub`);
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible();
 		// The binding is what a Publish button aims at, so a refused bind must leave none — otherwise
 		// the next press is the one that deletes the Project just named.
-		await expect(page.getByTestId('remote-outcome')).toHaveText('');
+		await closeTheDoor(page);
+		await expect(doorButton(page)).toHaveText('Connect to GitHub');
+	});
+
+	// ⚠ **The refusal is not softened, and it stops being a dead end.** Arriving on a second device is
+	// the ordinary way to meet it: press the same door, choose the repository the first device
+	// publishes to, and what comes back names work this Workspace has not got. The answer to the
+	// question actually asked is that repository as a Workspace of its own, here.
+	//
+	// Seam 2, and only what a browser can settle. Which control the refusal renders, what it hands to
+	// the Open and what it says afterwards are asserted at Seam 1c against a fake store
+	// (`connect-to-github.dom.test.ts`); the transfer, the uniqueness lookup and the Baseline at
+	// Seam 1 (`clone-from-remote.test.ts`, `open-workspace-from-github.test.ts`). What no seam below
+	// can falsify is the three real stores meeting: that the Workspace the author is standing in is
+	// **byte for byte** what it was after an operation that only adds, that the second Workspace is a
+	// real OPFS directory beside it, that the installation's own IndexedDB record makes a second Open
+	// of the same repository a way *back* rather than a second copy, and that nothing on the path
+	// carries the credential the author is signed in with. One test rather than four, because each
+	// leg starts from the state the leg before it leaves.
+	test('offers the Remote as a Workspace of its own, and only ever adds one', async ({ page }) => {
+		const github = await start(page, {
+			granted: true,
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			onRemote: {
+				'ballastella-site.json': siteRecord([
+					{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' },
+					{ directory: 'florida-1657', name: 'Florida 1657' }
+				]),
+				...publishedProject('amsterdam-1625', 'Amsterdam 1625'),
+				...publishedProject('florida-1657', 'Florida 1657')
+			}
+		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
+		// ⚠ **A Workspace with work of its own**, because hydration must be offered whether or not this
+		// one is empty: an operation that touches it not at all has no business asking first.
+		const before = await everyByteOf(page, DEFAULT_WORKSPACE);
+		expect(Object.keys(before)).toContain('amsterdam-1625/project.json');
+
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').click();
+
+		// The refusal, naming the Project — and beside it the operation that answers it.
+		const refusal = page.getByTestId('connect-projects-not-here');
+		await expect(refusal).toContainText('“Florida 1657”', { timeout: 30_000 });
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible();
+
+		// ⚠ **The transfer sends no credential, and the author is signed in.** That is how they reached
+		// the list, and a path that quietly attached the token would behave differently for them than
+		// for the student with no account this operation exists for — a difference no test that signs
+		// in first would otherwise see. Recorded from the press, so the credentialed listing and bind
+		// above are not what is being read.
+		const asked: { url: string; credentialed: boolean }[] = [];
+		page.on('request', (request) => {
+			const url = request.url();
+			if (!url.startsWith(GITHUB_API_ORIGIN) && !url.startsWith(GITHUB_RAW_ORIGIN)) return;
+			asked.push({ url, credentialed: request.headers()['authorization'] !== undefined });
+		});
+
+		await page.getByTestId('open-as-new-workspace').click();
+
+		await expect(page.getByTestId('connect-notice')).toContainText('atlas', { timeout: 60_000 });
+		// The transfer's own window: everything up to the last byte it read. What comes after it is the
+		// automatic Remote Status check on the Workspace just adopted, which is signed-in work by
+		// design and asks the same tree endpoint — so the boundary is the last byte rather than a path.
+		const lastByte = asked.map((one) => one.url.startsWith(GITHUB_RAW_ORIGIN)).lastIndexOf(true);
+		expect(lastByte).toBeGreaterThan(0);
+		expect(asked.slice(0, lastByte + 1).filter((one) => one.credentialed)).toEqual([]);
+		await page.getByTestId('close-connect-sequence').click();
+
+		// A second Workspace beside the first, switched to, with the Remote's Project in it.
+		await expectWorkspaceNamed(page, 'atlas');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
+		const opened = await everyByteOf(page, 'atlas');
+		expect(Object.keys(opened)).toContain('florida-1657/project.json');
+		// ⚠ **Byte for byte**, over the whole Workspace rather than over the file the collision was
+		// about: an operation that only adds has nothing at all to say about this one.
+		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toEqual(before);
+
+		// ⚠ **One repository, one Workspace on this computer.** Asked a second time from the same
+		// place, the answer is the Workspace this installation already keeps — not a second copy with
+		// a second Publish button aimed at one site.
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		await openTheDoor(page);
+		await page.getByTestId('choose-repository').click();
+		await expect(page.getByTestId('open-as-new-workspace')).toBeVisible({ timeout: 30_000 });
+		// Counted after the refusal rather than before it: the bind that produced the refusal read the
+		// Remote's own site record off the raw host, and that read is the refusal's, not a download's.
+		const downloaded = github.rawGets(OWNER, REPOSITORY);
+		await page.getByTestId('open-as-new-workspace').click();
+
+		await expect(page.getByTestId('connect-notice')).toContainText('Went back to “atlas”', {
+			timeout: 60_000
+		});
+		await page.getByTestId('close-connect-sequence').click();
+		await expectWorkspaceNamed(page, 'atlas');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
+		expect(github.rawGets(OWNER, REPOSITORY)).toBe(downloaded);
 	});
 
 	test('goes ahead when the Remote’s Projects are all here', async ({ page }) => {
 		await start(page, {
+			granted: true,
 			workspace: {
 				...projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 				...projectFiles('florida-1657', 'Florida 1657')
@@ -248,12 +469,14 @@ test.describe('binding to a Remote that already carries somebody else’s Projec
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam 1625"}'
 			}
 		});
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
 
 		await bind(page);
 
-		await expect(page.getByTestId('remote-outcome')).toContainText(
-			`This Workspace is bound to ${REMOTE}`
-		);
+		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, {
+			timeout: 30_000
+		});
 	});
 });
 
@@ -355,7 +578,7 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// Workspace: with a Baseline this machine can tell whose the file is, so bringing it in is safe
 		// and keeps this Workspace's own unpublished work.
 		await expect(refusal).toContainText('Update from GitHub first');
-		await expect(refusal).toContainText('is on the navigation bar');
+		await expect(refusal).toContainText('behind the control that names your repository');
 		await expect(dialog.getByTestId('publish-replace')).toBeVisible();
 		// ⚠ **And the three budgets beside it, not instead of it.** A conflict is where the replacement
 		// tree is largest and where the scholar is being asked to press through a warning, so it is the
@@ -368,7 +591,10 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// leave.
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
-		await expect(page.getByRole('button', { name: 'Publish…' })).toBeFocused();
+		// The door closes on the press that opens this dialog, so the control this was opened from is
+		// gone by the time it closes — and focus lands on the bar's one GitHub control rather than on
+		// the document, which is where the whole two-press path starts again.
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await openPublishDialog(page);
 
 		// Taking the second remedy is two presses, the shape every irreversible action here has — and
@@ -396,6 +622,66 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// likely to press it again.
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 	});
+
+	// ⚠ **`Publish anyway` is the one control whose blast radius is somebody else's afternoon**
+	// (ADR-0043). On a repository that is the author's alone, local-wins can only ever discard their
+	// own work; on a shared one it deletes a collaborator's, so what it would remove is named — the
+	// Projects and the Map Images, never a file count — and it cannot proceed without that
+	// confirmation. Whose the repository is, and the sentence the preview carries, are Seam 1's
+	// (`shared-remote.test.ts`); what only a browser can settle is that the real dialog asks the real
+	// GitHub, that the confirm button refuses until the question is answered, and that answering it
+	// publishes to a repository the author does not own.
+	test('names what it would remove from a shared Remote, and will not proceed until told', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() },
+			// `ada/atlas` is not grace's, so the Remote is shared before anybody has contributed to it.
+			login: 'grace'
+		});
+
+		// A first publish, which is what gives this browser its record of the Remote — and a
+		// collaborator publishing to a repository they do not own, which is a shared Remote end to end.
+		await confirm(page, await signedIn(page));
+
+		// A whole Project arriving from somebody else's machine. It is inbound source this Workspace
+		// has never taken in, so an ordinary Publish refuses — and a `Publish anyway` would take it
+		// down, which is precisely the afternoon the preview has to name.
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida 1657"}',
+			'florida-1657/annotations/l1.geojson': '{"type":"FeatureCollection","features":[]}'
+		});
+
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.getByTestId('publish-conflict')).toBeVisible();
+		await dialog.getByTestId('publish-replace').click();
+
+		const preview = dialog.getByTestId('publish-shared-remote');
+		// Whose it is, then what goes: named as a Project rather than as two files, because "2 files
+		// will be removed" is not a question anybody can answer.
+		await expect(preview).toContainText(`${REMOTE} belongs to ${OWNER}, not to you`);
+		await expect(preview).toContainText('the Project florida-1657');
+		// ⚠ **And it has not armed.** The confirm button still refuses while the question stands, so
+		// the press that named the deletion is not also the press that carries it out.
+		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
+			'aria-disabled',
+			'true'
+		);
+		expect(github.files(OWNER, REPOSITORY)).toContain('florida-1657/project.json');
+
+		await dialog.getByTestId('confirm-shared-replace').click();
+		const anyway = dialog.getByRole('button', { name: 'Publish anyway, replacing it' });
+		await expect(anyway).toBeVisible();
+		await anyway.click();
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+			timeout: 120_000
+		});
+
+		expect(github.files(OWNER, REPOSITORY)).not.toContain('florida-1657/project.json');
+		// The mirror is still ADR-0033's: the repository's own files are outside the owned namespace
+		// and a confirmed replace does not reach them.
+		expect(github.fileText(OWNER, REPOSITORY, 'README.md')).toBe('# Atlas\n');
+	});
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
@@ -405,9 +691,9 @@ test.describe('a publish that would overwrite work this browser has never seen',
 // them are exhausted at Seam 1 (`synchronization-planner.test.ts`, `local-change-index.test.ts`),
 // and the bounded checking, the retained failure and the per-Workspace isolation at Seam 1 too
 // (`remote-status.test.ts`) — all of it without a browser. What only a browser can settle is that
-// the control is *there*, on every screen, in words, beside a `Saved locally` that stays its own
-// thing; that an authenticated session checks by itself and a signed-out one does not; and that a
-// failed check leaves the last answer on screen rather than reporting agreement.
+// the clause is *there*, on every screen, in words, beside a `Saved locally` that is never allowed to
+// stand for it; that an authenticated session checks by itself and a signed-out one does not; and
+// that a failed check leaves the last answer on screen rather than reporting agreement.
 //
 // The Baseline is seeded rather than earned through a Publish: a spec that had to publish to reach
 // each state would be testing publishing five times over to arrive at the thing it wanted to assert.
@@ -424,19 +710,19 @@ async function sharedShas(files: Record<string, string>): Promise<Record<string,
 }
 
 /**
- * The status control's own words. Never `role="status"` — that is the save indicator's.
+ * The one badge, and its two clauses (ADR-0041).
  *
- * ⚠ **The bar leads with the plain answer, not with the determination.** `Changes on both sides` and
+ * ⚠ **The GitHub clause is the plain answer, not the determination.** `Changes on both sides` and
  * the other five are one press behind it, so the sentences asserted here are `REMOTE_STATUS_LEADS`'s
- * and each still stands for exactly one of the six. Which lead belongs to which determination is
+ * and each still stands for exactly one of the six. Which clause belongs to which determination is
  * `remote-status.dom.test.ts`'s at Seam 1c; what this file can say is that the determination the
  * checker reached is the one the bar is speaking for.
  */
-const remoteStatus = (page: Page) => page.getByTestId('remote-status-state');
+const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
 /** Ask for a check the way an author does, and wait for it to finish. */
 async function checkNow(page: Page): Promise<void> {
-	await page.getByTestId('check-remote-status').click();
+	await checkRemoteStatus(page);
 	await expect(remoteStatus(page)).not.toContainText('Checking…');
 }
 
@@ -484,16 +770,17 @@ test.describe('Remote Status on the navigation bar', () => {
 		);
 		expect(listings(github)).toBe(0);
 
-		// ⚠ **`Saved locally` is still the one `status` region on this bar**, and strict mode is the
-		// assertion: a control that had taken that role would make the two facts a scholar most needs
-		// kept apart indistinguishable to a screen reader.
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		// ⚠ **One `status` region on this bar, carrying both clauses**, and strict mode is the
+		// assertion: a second region would make the two facts a scholar most needs kept apart into two
+		// announcements, of which a screen-reader user has to work out which is now true.
+		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('GitHub');
 		expect(
 			await remoteStatus(page).evaluate((element) => [
-				element.getAttribute('aria-live'),
-				element.getAttribute('role')
+				element.getAttribute('role'),
+				element.getAttribute('aria-atomic')
 			])
-		).toEqual(['polite', null]);
+		).toEqual(['status', 'true']);
 
 		await seedBaseline(page, {
 			owner: OWNER,
@@ -506,16 +793,21 @@ test.describe('Remote Status on the navigation bar', () => {
 		// ⚠ **Signed out, nothing is polled**. GitHub allows an anonymous reader sixty
 		// requests an hour *per IP address*, so a seminar room on one campus address checking on every
 		// window focus would spend the room's whole budget on status.
-		await expect(remoteStatus(page)).toContainText('Not checked yet');
+		await expect(remoteStatus(page)).toContainText('GitHub has not been checked yet');
 		await refocus(page);
 		await refocus(page);
 		expect(listings(github)).toBe(0);
 
 		// The gesture, reached by the keyboard alone, is what makes status available with no account at
-		// all — and the answer is dated, so a retained one can later be told from a current one.
+		// all — and the answer is dated, so a retained one can later be told from a current one. The
+		// gesture is behind the door and the date is behind the badge's disclosure: what is *done*
+		// about GitHub is one place, and what is *true* of it is the other.
+		await openTheDoor(page);
 		await page.getByTestId('check-remote-status').focus();
 		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('connect-sequence')).toBeHidden();
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await showRemoteStatusDetail(page);
 		await expect(page.getByTestId('remote-status-checked')).toContainText('Checked at');
 		expect(listings(github)).toBe(1);
 	});
@@ -588,7 +880,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// The same path on both sides, which is the one state the passive check may not read as
 		// agreement: it knows `delft/project.json` changed here and cannot compare the bytes.
@@ -601,11 +893,12 @@ test.describe('Remote Status on the navigation bar', () => {
 		// ⚠ **A failed check is not agreement**. The last determination stays, dated,
 		// with an alert beside it saying it is no longer being confirmed — never relabelled `Up to
 		// date`, and never the successful determination `Cannot tell`.
+		await showRemoteStatusDetail(page);
 		const checkedBefore = await page.getByTestId('remote-status-checked').textContent();
 		await page.route('https://api.github.com/**/git/trees/**', (route) =>
 			route.abort('connectionfailed')
 		);
-		await page.getByTestId('check-remote-status').click();
+		await checkRemoteStatus(page);
 		const failure = page.getByTestId('remote-status-failure');
 		await expect(failure).toBeVisible();
 		await expect(failure).toContainText('the last one Ballastella was able to work out');
@@ -616,9 +909,10 @@ test.describe('Remote Status on the navigation bar', () => {
 		// The alert is announced rather than merely rendered: it is inserted at the moment its text
 		// first exists, which a polite region does not reliably announce.
 		expect(await failure.getAttribute('role')).toBe('alert');
-		// And the control that was pressed still holds focus, so an alert appearing beside it does not
-		// drop a keyboard user to the top of the document (WCAG 2.4.3).
-		await expect(page.getByTestId('check-remote-status')).toBeFocused();
+		// And focus is on the bar's one GitHub control — where the closing door put it back — rather
+		// than on the document, so an alert appearing does not drop a keyboard user to the top of the
+		// page (WCAG 2.4.3).
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 	});
 
 	test('cannot render one Workspace’s pending result beside another’s name', async ({ page }) => {
@@ -647,7 +941,7 @@ test.describe('Remote Status on the navigation bar', () => {
 			await held;
 			await route.fallback();
 		});
-		await page.getByTestId('check-remote-status').click();
+		await checkRemoteStatus(page);
 		await expect(remoteStatus(page)).toContainText('Checking…');
 
 		await createWorkspace(page, 'Delft');
@@ -788,8 +1082,13 @@ test.describe('Update from GitHub', () => {
 		};
 		await page.route(`${GITHUB_RAW_ORIGIN}/**`, slowly);
 		const release = await holdRawFile(page, 'delft/annotations/l2.geojson');
+		await openTheDoor(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
+		// ⚠ **The door gets out of the way, and that is what makes the line below announceable.** A
+		// `showModal()` dialog makes everything outside it inert, and an inert `aria-live` region is
+		// not a quiet one — it is not announced at all.
+		await expect(page.getByTestId('connect-sequence')).toBeHidden();
 
 		// ⚠ **Per file, and it settles at what has actually arrived**. One file is held
 		// open, so the count has one deterministic resting place short of the total rather than a
@@ -842,14 +1141,16 @@ test.describe('Update from GitHub', () => {
 		// And the next required action is on screen already: the Baseline advanced only for what is now
 		// shared, so the Project GitHub has never seen is still Changes to publish.
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// Finally: a switch inside a transfer. The Workspace the Update was aimed at is the one it
 		// writes to, and the one that arrives wears none of it.
 		await github.commitFiles(OWNER, REPOSITORY, { 'atlas-1625/annotations/l9.geojson': '{}' });
 		const holdAgain = await holdRawFile(page, 'atlas-1625/annotations/l9.geojson');
-		await page.getByTestId('update-from-github').click();
-		await expect(page.getByTestId('update-progress')).toContainText('files');
+		await updateFromGitHub(page);
+		// The line itself, not its count: whether the plan has resolved by now decides between "file"
+		// and "files", and what this needs is only that a transfer is under way to switch out of.
+		await expect(page.getByTestId('update-progress')).toContainText('Updating from GitHub');
 		await createWorkspace(page, 'Elsewhere');
 		holdAgain();
 
@@ -873,13 +1174,13 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved locally');
 
 		// ⚠ **And an Edit History does not survive an Update** (ADR-0039). A Step holds the bytes of the
 		// files its gesture wrote, so a Step taken before an Update describes files the Update may have
@@ -898,7 +1199,7 @@ test.describe('Update from GitHub', () => {
 			'delft/annotations/l4.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('edit-history-undo')).toHaveCount(0);
@@ -939,6 +1240,7 @@ test.describe('Update from GitHub', () => {
 		const head = github.head(OWNER, REPOSITORY);
 
 		// ── The preview, reached from the control and naming the Project by its own name ──────────
+		await openTheDoor(page);
 		await page.getByTestId('update-from-github').focus();
 		await page.keyboard.press('Enter');
 		const dialog = page.getByRole('dialog', {
@@ -956,7 +1258,9 @@ test.describe('Update from GitHub', () => {
 		await dialog.getByTestId('cancel-deletions').focus();
 		await page.keyboard.press('Enter');
 		await expect(dialog).toBeHidden();
-		await expect(page.getByTestId('update-from-github')).toBeFocused();
+		// The door closed on the press that started the Update, so focus comes back to the bar's one
+		// GitHub control — which is where the Update was reached from and where it is reached again.
+		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toBeVisible();
 		// The Remote is untouched by the *asking*, and so is the record of what the two sides shared:
@@ -966,7 +1270,7 @@ test.describe('Update from GitHub', () => {
 		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
 
 		// ── Confirm: the Project goes, and the one the Remote kept does not ───────────────────────
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(dialog).toBeVisible();
 		await dialog.getByTestId('confirm-deletions').focus();
 		await page.keyboard.press('Enter');
@@ -986,11 +1290,11 @@ test.describe('Update from GitHub', () => {
 		await page.reload();
 
 		await expect(page.getByTestId('unrecovered-import')).toBeVisible();
-		// Nothing enumerates: no Project list, and the Publish control the bar offers over a Workspace
-		// it can read is not there either.
+		// Nothing enumerates: no Project list, and the GitHub control the bar offers over a Workspace
+		// it can read is not there either — which takes publishing and the Update with it.
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toHaveCount(0);
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 	});
 });
 
@@ -1055,7 +1359,7 @@ test.describe('Importing a Project into a bound Workspace', () => {
 
 		// Taking that inbound work leaves the Import as the only difference between the two sides, which
 		// is what makes the publish below an ordinary one rather than a conflict.
-		await page.getByTestId('update-from-github').click();
+		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
 

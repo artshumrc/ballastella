@@ -25,18 +25,48 @@
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { GITHUB_API_ORIGIN } from './github-api.js';
 
+/**
+ * One installation of the App, narrowed to what the sequence needs of it.
+ *
+ * ⚠ **`coversEverything` is a runtime reading and not an assumption.** GitHub's promise that *All
+ * repositories* covers repositories made later is stated on their install screen rather than in
+ * their documented contract, so the sequence asks rather than trusts — and where the answer is
+ * `all`, the grant step is not merely quiet but absent.
+ */
+export type GrantedInstallation = {
+	readonly id: number;
+	/** `account.login`: whose account the App is installed on. */
+	readonly account: string;
+	/** `target_id`, which is the account's identifier and not the installation's. */
+	readonly targetId: number;
+	/** `target_type === 'Organization'`, which decides whose admin can widen the grant. */
+	readonly isOrganization: boolean;
+	/** `repository_selection === 'all'`. */
+	readonly coversEverything: boolean;
+};
+
 /** One repository the author has granted access to, narrowed to what a choice needs. */
 export type GrantedRepository = {
 	readonly owner: string;
 	readonly repository: string;
 	/** `permissions.push` as GitHub reports it. */
 	readonly canPublish: boolean;
+	/**
+	 * `permissions.admin` as GitHub reports it, which is whether the author administers the
+	 * repository — and so whether widening a narrow grant is theirs to do or somebody else's.
+	 */
+	readonly canGrantAccess: boolean;
 	/** A private repository cannot serve a Published Site on the free tier. */
 	readonly isPrivate: boolean;
 };
 
 export type GrantedRepositoriesOutcome =
-	| { readonly kind: 'listed'; readonly repositories: readonly GrantedRepository[] }
+	| {
+			readonly kind: 'listed';
+			readonly repositories: readonly GrantedRepository[];
+			/** In the order GitHub answered in, which is the order the App was installed in. */
+			readonly installations: readonly GrantedInstallation[];
+	  }
 	| {
 			readonly kind: 'refused';
 			readonly refusal: 'credential' | 'network';
@@ -135,13 +165,30 @@ const arrayAt = (body: Record<string, unknown>, key: string): Record<string, unk
 	return Array.isArray(found) ? (found as Record<string, unknown>[]) : [];
 };
 
-/** The installation identifiers this sign-in can see. */
-const readInstallations = (options: GrantedRepositoriesOptions): Promise<number[]> =>
+/**
+ * One installation as GitHub reports it, or `null` when it carries no identifier to read it by.
+ */
+function narrowInstallation(reported: Record<string, unknown>): GrantedInstallation | null {
+	const id = reported.id;
+	if (typeof id !== 'number') return null;
+	const account = reported.account as { login?: unknown } | undefined;
+	const targetId = reported.target_id;
+	return {
+		id,
+		account: typeof account?.login === 'string' ? account.login : '',
+		targetId: typeof targetId === 'number' ? targetId : 0,
+		isOrganization: reported.target_type === 'Organization',
+		coversEverything: reported.repository_selection === 'all'
+	};
+}
+
+/** The installations this sign-in can see. */
+const readInstallations = (options: GrantedRepositoriesOptions): Promise<GrantedInstallation[]> =>
 	readEveryPage(options, '/user/installations', (body) => ({
 		total: countOf(body),
 		items: arrayAt(body, 'installations')
-			.map((installation) => installation.id)
-			.filter((id): id is number => typeof id === 'number')
+			.map(narrowInstallation)
+			.filter((one): one is GrantedInstallation => one !== null)
 	}));
 
 /**
@@ -155,11 +202,12 @@ function narrow(reported: Record<string, unknown>): GrantedRepository | null {
 	if (typeof fullName !== 'string') return null;
 	const slash = fullName.indexOf('/');
 	if (slash <= 0 || slash === fullName.length - 1) return null;
-	const permissions = reported.permissions as { push?: unknown } | undefined;
+	const permissions = reported.permissions as { push?: unknown; admin?: unknown } | undefined;
 	return {
 		owner: fullName.slice(0, slash),
 		repository: fullName.slice(slash + 1),
 		canPublish: permissions?.push === true,
+		canGrantAccess: permissions?.admin === true,
 		isPrivate: reported.private === true
 	};
 }
@@ -186,10 +234,11 @@ export async function readGrantedRepositories(
 ): Promise<GrantedRepositoriesOutcome> {
 	try {
 		const repositories: GrantedRepository[] = [];
-		for (const installation of await readInstallations(options)) {
+		const installations = await readInstallations(options);
+		for (const installation of installations) {
 			const reported = await readEveryPage(
 				options,
-				`/user/installations/${installation}/repositories`,
+				`/user/installations/${installation.id}/repositories`,
 				(body) => ({ total: countOf(body), items: arrayAt(body, 'repositories') })
 			);
 			for (const one of reported) {
@@ -197,7 +246,11 @@ export async function readGrantedRepositories(
 				if (granted !== null) repositories.push(granted);
 			}
 		}
-		return { kind: 'listed', repositories: repositories.sort(byOwnerThenRepository) };
+		return {
+			kind: 'listed',
+			repositories: repositories.sort(byOwnerThenRepository),
+			installations
+		};
 	} catch (cause) {
 		if (cause instanceof Refused) {
 			return { kind: 'refused', refusal: cause.refusal, message: cause.message };

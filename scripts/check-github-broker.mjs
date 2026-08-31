@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// ADR-0031: the broker's address and the GitHub App's client ID are deployment configuration, and
-// repointing them must require no change anywhere else. `packages/core/src/remote/github-app.ts`
-// says "change this file, and nothing else"; this is what asserts it.
+// ADR-0031: the broker's address, the GitHub App's client ID and the App's own public address are
+// deployment configuration, and repointing them must require no change anywhere else.
+// `packages/core/src/remote/github-app.ts` says "change this file, and nothing else"; this is what
+// asserts it.
 //
 // The third instance of the pattern `check-base-map-catalog.mjs` and `check-place-service.mjs`
 // already use, for the same reason: the violation it catches is a deliberate act that shows up in a
@@ -15,12 +16,21 @@
 // to register an App. A scan widened to the words "broker" or "GitHub App" would fail `pnpm lint` on
 // those paragraphs, and the remedy on offer would be "delete the explanation", which is the false
 // positive `check-place-service.mjs` records having had against a service *name* and
-// `check-base-map-catalog.mjs` against `REMOTE_ARCHIVE`'s comment. So what is scanned for is the two
-// values a fork actually repoints: the broker's **host**, and the **client ID**.
+// `check-base-map-catalog.mjs` against `REMOTE_ARCHIVE`'s comment. So what is scanned for is the
+// three values a fork actually repoints: the broker's **host**, the **client ID**, and the App's own
+// **public address**.
 //
-// `github.com/login/oauth/authorize` is deliberately *not* fenced. It is GitHub's own address, the
-// same for every deployment on earth, and it is not the thing a fork changes — it lives in
-// `github-sign-in.ts` beside the code that builds the URL, exactly as `GITHUB_API_ORIGIN` does.
+// ⚠ **The slug is fenced as `github.com/apps/<slug>`, never as a bare word**, and that is the same
+// lesson taken one step further. A deployment's App is very often named after the deployment — this
+// one's slug is this project's name — so a scan on the word alone would fail on every import of this
+// repository's own packages and offer "rename the packages" as its remedy. The address is also the
+// thing that actually matters: a slug that never reaches `github.com/apps/` is a string, and a slug
+// that does is the App a scholar is sent to install.
+//
+// `github.com/login/oauth/authorize` and the bare `github.com/apps` prefix are deliberately *not*
+// fenced. They are GitHub's own addresses, the same for every deployment on earth, and they are not
+// the thing a fork changes — they live in `github-sign-in.ts` beside the code that builds the URLs,
+// exactly as `GITHUB_API_ORIGIN` does.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE POSITIVE CONTROL IS BUILT FROM A SPECIMEN, NEVER FROM LIVE CONFIGURATION
@@ -32,7 +42,7 @@
 // ⚠ **That is a recorded lesson, not a preference.** `check-place-service.mjs` carries a warning
 // about an earlier version of itself that built a control line out of live configuration and
 // hard-failed `pnpm lint` on the most ordinary fork there is. The same trap is sharper here: a fork
-// that **empties both values** to turn the front door off is a state this repository explicitly
+// that **empties all three values** to turn the front door off is a state this repository explicitly
 // supports, and a control built from live values would then be checking that the empty string is
 // caught — which every line in the tree contains. The specimen makes the matcher provable whatever
 // this deployment happens to be configured with, including not at all.
@@ -46,7 +56,7 @@ const here = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(here), '..');
 const appModule = 'packages/core/src/remote/github-app.ts';
 
-/** Source trees the two values could leak into. Static assets and prose are not code. */
+/** Source trees the three values could leak into. Static assets and prose are not code. */
 const scannedRoots = [
 	'packages/core/src',
 	'packages/ui/src',
@@ -61,7 +71,7 @@ const scannedRoots = [
  *
  * **The browser suite is not exempt**, for the reason `check-place-service.mjs` gives about its own:
  * `e2e/` is where an address most plausibly leaks, in a `page.route` naming the host it intercepts.
- * Nothing requires a spec to write either value down — `e2e/support/github-hosts.ts` takes the origin
+ * Nothing requires a spec to write any of them down — `e2e/support/github-hosts.ts` takes the origin
  * from `GITHUB_APP` and routes that. Unit and component specs stay exempt because they sit beside
  * the module and can be handed a fake App directly, which is what `github-sign-in.test.ts` does.
  */
@@ -98,6 +108,9 @@ if (typeof GITHUB_APP !== 'object' || GITHUB_APP === null) {
 	process.exit(1);
 }
 
+/** The App's own public address, which is the form the slug is fenced in. */
+const appAddress = (slug) => `github.com/apps/${slug}`;
+
 /** A line names a value when it contains it, whatever the case. One matcher, live and specimen. */
 const namesAny = (values) => (line) => {
 	const lowered = line.toLowerCase();
@@ -107,14 +120,18 @@ const namesAny = (values) => (line) => {
 // ── Positive control ──────────────────────────────────────────────────────────────────────────
 
 /**
- * A pair that is not, and must never be, this deployment's.
+ * A set that is not, and must never be, this deployment's.
  *
  * `.invalid` is reserved by RFC 2606 and resolves nowhere, so this can never collide with a real
- * broker somebody points this at.
+ * broker somebody points this at, and no App is registered under the slug.
  */
-const SPECIMEN = { host: 'broker.specimen.invalid', clientId: 'Iv1.specimenclientid' };
+const SPECIMEN = {
+	host: 'broker.specimen.invalid',
+	clientId: 'Iv1.specimenclientid',
+	appSlug: 'specimen-app'
+};
 
-const specimenMatches = namesAny([SPECIMEN.host, SPECIMEN.clientId]);
+const specimenMatches = namesAny([SPECIMEN.host, SPECIMEN.clientId, appAddress(SPECIMEN.appSlug)]);
 
 const KNOWN_BAD = [
 	{ line: `const BROKER = 'https://${SPECIMEN.host}';`, expect: 'the broker host in a literal' },
@@ -125,22 +142,40 @@ const KNOWN_BAD = [
 	},
 	{ line: `const BROKER = 'HTTPS://${SPECIMEN.host.toUpperCase()}';`, expect: 'the host shouted' },
 	{ line: `client_id: '${SPECIMEN.clientId}'`, expect: 'the client ID in a literal' },
-	{ line: `// registered as ${SPECIMEN.clientId}`, expect: 'the client ID in a comment' }
+	{ line: `// registered as ${SPECIMEN.clientId}`, expect: 'the client ID in a comment' },
+	{
+		line: `const INSTALL = 'https://github.com/apps/${SPECIMEN.appSlug}/installations/new';`,
+		expect: "the App's install address in a literal"
+	},
+	{
+		line: `// the install screen is github.com/apps/${SPECIMEN.appSlug}`,
+		expect: "the App's address in a comment"
+	},
+	{
+		line: `await page.route('https://GITHUB.COM/APPS/${SPECIMEN.appSlug.toUpperCase()}/**', noop);`,
+		expect: "the App's address shouted"
+	}
 ];
 
 /**
  * Prose and code that must go on being allowed.
  *
- * The mechanism is explained at length in three places, and GitHub's own authorize address is not
- * deployment configuration — fencing it would move a constant out of the module it belongs beside
- * and buy nothing, since no fork changes it.
+ * The mechanism is explained at length in three places, and GitHub's own addresses are not
+ * deployment configuration — fencing them would move a constant out of the module it belongs beside
+ * and buy nothing, since no fork changes them. The last line is the one the slug's containment turns
+ * on: an import of a package named after this deployment must stay legal.
  */
 const KNOWN_GOOD = [
 	'// The broker exchanges a code for a token, and never sees repository data.',
 	"// A GitHub App's callback URL is registered per app, so a fork needs its own app.",
 	"export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';",
+	"export const GITHUB_APPS_URL = 'https://github.com/apps';",
 	'const response = await post(`${app.brokerOrigin}/github/token`, body, fetchFn);',
-	'routeGitHubHosts(page, { app: GITHUB_APP });'
+	'return `${GITHUB_APPS_URL}/${slug}/installations/new?${parameters}`;',
+	'routeGitHubHosts(page, { app: GITHUB_APP });',
+	// ⚠ The slug is this deployment's own project name, and a fence on the bare word would refuse
+	// every import in the tree. The specimen slug is shaped the same way for exactly this line.
+	`import { createFakeGitHub } from '@${SPECIMEN.appSlug}/core';`
 ];
 
 const controlFailures = [];
@@ -165,6 +200,7 @@ if (controlFailures.length > 0) {
 
 const clientId = String(GITHUB_APP.clientId ?? '').trim();
 const brokerOrigin = String(GITHUB_APP.brokerOrigin ?? '').trim();
+const appSlug = String(GITHUB_APP.appSlug ?? '').trim();
 
 /**
  * The broker's host, or `''` when there is no readable one.
@@ -185,17 +221,19 @@ const brokerHost = (() => {
 const configured =
 	typeof isGitHubAppConfigured === 'function'
 		? isGitHubAppConfigured(GITHUB_APP)
-		: brokerOrigin !== '' && clientId !== '';
+		: brokerOrigin !== '' && clientId !== '' && appSlug !== '';
 
-// ⚠ **A half-configured pair is refused outright.** A broker with no client ID has nothing to look a
-// secret up by and a client ID with no broker has nowhere to exchange a code, so this is a sign-in
-// button that cannot complete — and the scan below would silently cover only the half that was set.
-if (!configured && (brokerOrigin !== '' || clientId !== '')) {
+// ⚠ **A half-configured App is refused outright.** A broker with no client ID has nothing to look a
+// secret up by, a client ID with no broker has nowhere to exchange a code, and a missing slug is an
+// install screen nobody can be sent to — so this is a sign-in button that cannot complete, and the
+// scan below would silently cover only the parts that were set.
+if (!configured && (brokerOrigin !== '' || clientId !== '' || appSlug !== '')) {
 	console.error(
-		`\n${appModule}: only one half of the App is configured.\n\n` +
+		`\n${appModule}: only part of the App is configured.\n\n` +
 			`  brokerOrigin: ${brokerOrigin === '' ? '(empty)' : brokerOrigin}\n` +
-			`  clientId:     ${clientId === '' ? '(empty)' : clientId}\n\n` +
-			'Set both, or neither. Both empty turns the GitHub sign-in off and leaves the pasted token\n' +
+			`  clientId:     ${clientId === '' ? '(empty)' : clientId}\n` +
+			`  appSlug:      ${appSlug === '' ? '(empty)' : appSlug}\n\n` +
+			'Set all three, or none. All empty turns the GitHub sign-in off and leaves the pasted token\n' +
 			"as this deployment's whole auth, which is a supported state (ADR-0031, docs/hosting.md).\n"
 	);
 	process.exit(1);
@@ -209,7 +247,8 @@ if (!configured) {
 	console.log(
 		`${appModule}: NO GITHUB APP CONFIGURED — nothing scanned for (ADR-0031).\n` +
 			'  The GitHub sign-in is off and a pasted personal access token is this deployment’s whole\n' +
-			'  auth. That is supported. Set `brokerOrigin` and `clientId` to turn the front door on.'
+			'  auth. That is supported. Set `brokerOrigin`, `clientId` and `appSlug` to turn the front\n' +
+			'  door on.'
 	);
 	process.exit(0);
 }
@@ -225,7 +264,7 @@ if (brokerHost === '') {
 
 // ── The containment scan ──────────────────────────────────────────────────────────────────────
 
-const namesConfigured = namesAny([brokerHost, clientId]);
+const namesConfigured = namesAny([brokerHost, clientId, appAddress(appSlug)]);
 
 const files = scannedRoots.flatMap((root) => walk(path.join(repoRoot, root)));
 const violations = [];
@@ -244,21 +283,27 @@ for (const absolute of files) {
 }
 
 if (violations.length > 0) {
-	console.error(`\nThe broker or the client ID is named outside ${appModule} (ADR-0031).\n`);
+	console.error(
+		`\nThe broker, the client ID or the App's own address is named outside ${appModule}\n` +
+			'(ADR-0031).\n'
+	);
 	for (const violation of violations) {
 		console.error(`  ${violation.file}:${violation.line}`);
 		console.error(`    ${violation.text}`);
 	}
 	console.error(
-		'\nBoth are deployment configuration: a fork must be able to repoint them and change nothing\n' +
-			'else, because a GitHub App’s callback URL is registered per app. Take them from\n' +
+		'\nAll three are deployment configuration: a fork must be able to repoint them and change\n' +
+			'nothing else, because a GitHub App’s callback URL is registered per app. Take them from\n' +
 			'`GITHUB_APP` rather than naming them — including in a comment, which a repoint leaves\n' +
 			'saying something untrue.\n'
 	);
 	process.exit(1);
 }
 
-console.log(`${appModule}: ${brokerHost} and the client ID named nowhere else (ADR-0031).`);
+console.log(
+	`${appModule}: ${brokerHost}, the client ID and ${appAddress(appSlug)} named nowhere ` +
+		'else (ADR-0031).'
+);
 
 /** @param {string} directory @returns {string[]} */
 function walk(directory) {

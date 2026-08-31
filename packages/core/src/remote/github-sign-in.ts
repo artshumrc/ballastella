@@ -7,8 +7,8 @@
 // A push credential lives behind {@link CredentialStore}: a token can be put in, taken out, and
 // thrown away. A pasted fine-grained token was the first way to get one; this is the second, and
 // **below that interface the two are indistinguishable** — the publish engine is handed an opaque
-// bearer string and never learns which door it came through. There is no `if (authMethod === …)`
-// here or anywhere beneath the UI, which is ADR-0031's consequence written as a rule.
+// bearer string and never learns which door it came through. Nothing here or anywhere beneath the UI
+// branches on which of the two it holds, which is ADR-0031's consequence written as a rule.
 //
 // What this module adds on top of the string is the part a pasted token does not have: an **expiry**
 // and a **refresh token**. A GitHub App's user-to-server token lasts eight hours, so the record below
@@ -39,16 +39,29 @@ import type { GitHubApp } from './github-app.js';
  * Where a user is sent to authorise, on GitHub's own screen.
  *
  * ⚠ Named here rather than in `github-app.ts`: this is GitHub's address, the same for every
- * deployment on earth, and it is not the thing a fork repoints. What a fork repoints is the broker
- * and the client ID, and `scripts/check-github-broker.mjs` fences those two alone.
+ * deployment on earth, and it is not the thing a fork repoints. What a fork repoints is the broker,
+ * the client ID and the App's slug, and `scripts/check-github-broker.mjs` fences those three alone.
  */
 export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
+
+/**
+ * Where every GitHub App lives, publicly, under its own slug.
+ *
+ * ⚠ Named here for the same reason {@link GITHUB_AUTHORIZE_URL} is: this is GitHub's address, the
+ * same for every deployment on earth. What a fork repoints is the slug that goes after it, which is
+ * `GITHUB_APP`'s, and `scripts/check-github-broker.mjs` fences `github.com/apps/<slug>` — the two
+ * together — rather than either half.
+ */
+export const GITHUB_APPS_URL = 'https://github.com/apps';
 
 /** Where the `state` waits while the user is away on GitHub. Session-scoped, like the credential. */
 export const SIGN_IN_STATE_KEY = 'ballastella.github-sign-in-state';
 
 /** Where the expiry and the refresh token live, beside the credential rather than inside it. */
 export const GITHUB_APP_SESSION_KEY = 'ballastella.github-app-session';
+
+/** Where the renewable half of a sign-in waits when the author has asked for it past the tab. */
+export const REMEMBERED_GRANT_KEY = 'ballastella.github-app-remembered';
 
 /** What GitHub sends back to the callback: a code, or a refusal, and the `state` either way. */
 export type SignInCallback = {
@@ -121,6 +134,80 @@ export function authorizeUrl(options: {
 		state: options.state
 	});
 	return `${GITHUB_AUTHORIZE_URL}?${parameters}`;
+}
+
+/**
+ * Where a first-time author is sent: the App's own install screen, carrying the `state`.
+ *
+ * ⚠ **This installs *and* signs in, in one trip.** The App registration has **Request user
+ * authorization (OAuth) during installation** enabled, so GitHub returns to the callback URL
+ * registered on the App with `code` and `state` — the same return leg {@link readSignInCallback}
+ * and {@link verifySignInState} already read. There is no `redirect_uri` to send: the install screen
+ * has no such parameter, and the App's registered callback is the one address it will come back to.
+ *
+ * ⚠ **No Setup URL is registered and `setup_action` is never read.** It is undocumented across the
+ * whole of GitHub's documentation, so nothing here may be built on it.
+ */
+export function installUrl(options: { readonly app: GitHubApp; readonly state: string }): string {
+	const parameters = new URLSearchParams({ state: options.state });
+	const slug = encodeURIComponent(options.app.appSlug);
+	return `${GITHUB_APPS_URL}/${slug}/installations/new?${parameters}`;
+}
+
+/**
+ * Where an author widens a narrow Installation so that it reaches one more repository.
+ *
+ * ⚠ **The App's own grant screen, never GitHub's list of installed Apps.** That page holds every App
+ * the author has ever installed, and from it the grant is five moves away — spot
+ * Ballastella, press Configure, find *Repository access*, find the repository, save — and it is the
+ * hand-off this replaced. `suggested_target_id` is the *account's* identifier, so GitHub opens on the
+ * Installation that has to change rather than asking which one.
+ *
+ * ⚠ **The endpoint that would do this without leaving is documented not to work.**
+ * `PUT /user/installations/{id}/repositories/{id}` is for classic personal access tokens, and
+ * ADR-0040 refuses `Administration: write`, so GitHub's own screen is the whole of the mechanism.
+ */
+export function grantAccessUrl(options: {
+	readonly app: GitHubApp;
+	/** `target_id` of the account the Installation is on — not the installation's own id. */
+	readonly targetId: number;
+	/**
+	 * The repository to arrive preselected, where an id for it is in hand.
+	 *
+	 * ⚠ **Usually it is not, and that is not an oversight.** The repository this link is about is by
+	 * definition outside the grant, and GitHub reports nothing at all — id included — about a
+	 * repository an Installation does not reach. So the caller in the editor passes none and the
+	 * author picks the repository on GitHub's screen; the parameter is here for a caller that reads a
+	 * repository by some other route and can spare them that.
+	 */
+	readonly repositoryId?: number;
+}): string {
+	const slug = encodeURIComponent(options.app.appSlug);
+	const parameters = new URLSearchParams({ suggested_target_id: String(options.targetId) });
+	if (options.repositoryId !== undefined) {
+		parameters.append('repository_ids[]', String(options.repositoryId));
+	}
+	return `${GITHUB_APPS_URL}/${slug}/installations/new/permissions?${parameters}`;
+}
+
+/**
+ * The one address a departing sign-in goes to, given what is already true.
+ *
+ * An author with no Installation gets {@link installUrl}, because an authorize-only trip leaves them
+ * holding a credential against no Installation and a list of no repositories — which reads to them
+ * as having no repositories rather than as a step nobody named. An author who already installed the
+ * App and wants only a fresh credential gets {@link authorizeUrl}, which is what that is for.
+ *
+ * Both mint and verify `state` the same way, and both come back through the same callback.
+ */
+export function signInDepartureUrl(options: {
+	readonly app: GitHubApp;
+	readonly redirectUri: string;
+	readonly state: string;
+	/** Whether an Installation is already known to exist, so only a credential is wanted. */
+	readonly installed: boolean;
+}): string {
+	return options.installed ? authorizeUrl(options) : installUrl(options);
 }
 
 /**
@@ -381,6 +468,78 @@ export function writeGrantRecord(storage: CredentialStorage, grant: GitHubTokenG
 export function clearGrantRecord(storage: CredentialStorage): void {
 	try {
 		storage.removeItem(GITHUB_APP_SESSION_KEY);
+	} catch {
+		// Best effort, as above.
+	}
+}
+
+// ── The half of a grant that may be kept past the tab (ADR-0041) ──────────────────────────────
+
+/**
+ * What survives a tab close when the author has asked this machine to keep their sign-in.
+ *
+ * ⚠ **The access token is not in it, and cannot be added to it.** Eight hours of publish rights at
+ * rest is the thing this feature must not create; a refresh token at rest still has to be exchanged
+ * through the broker, which leaves the broker's `Origin` allowlist in the path. {@link
+ * writeRememberedGrant} takes a whole grant and writes these two fields, so the stripping is one
+ * function rather than a rule each caller has to remember.
+ */
+export type RememberedGrant = {
+	/** The renewable half. `''` never gets here — see {@link writeRememberedGrant}. */
+	readonly refreshToken: string;
+	/** When the access token this was issued beside ran out, or `null` for one that never did. */
+	readonly expiresAt: number | null;
+};
+
+/** The remembered half of a sign-in, or `null` when this machine has kept none. */
+export function readRememberedGrant(storage: CredentialStorage): RememberedGrant | null {
+	let raw: string | null;
+	try {
+		raw = storage.getItem(REMEMBERED_GRANT_KEY);
+	} catch {
+		return null;
+	}
+	if (raw === null || raw === '') return null;
+	try {
+		const record = JSON.parse(raw) as Partial<RememberedGrant>;
+		if (typeof record.refreshToken !== 'string' || record.refreshToken === '') return null;
+		return {
+			refreshToken: record.refreshToken,
+			expiresAt: typeof record.expiresAt === 'number' ? record.expiresAt : null
+		};
+	} catch {
+		// As with the session record: one that will not parse is one nobody can act on, and reading it
+		// as *nothing remembered* costs a sign-in rather than a broken screen.
+		return null;
+	}
+}
+
+/**
+ * Keep the renewable half of this grant, and only that half.
+ *
+ * A grant with no refresh token has no renewable half, so nothing is kept and anything kept before
+ * is taken away — a record describing a sign-in that cannot be renewed would be spent once on the
+ * next visit, fail, and report an expiry to somebody who never asked for one.
+ */
+export function writeRememberedGrant(storage: CredentialStorage, grant: GitHubTokenGrant): void {
+	if (grant.refreshToken === '') {
+		clearRememberedGrant(storage);
+		return;
+	}
+	const remembered: RememberedGrant = {
+		refreshToken: grant.refreshToken,
+		expiresAt: grant.expiresAt
+	};
+	try {
+		storage.setItem(REMEMBERED_GRANT_KEY, JSON.stringify(remembered));
+	} catch {
+		// A sign-in that could not be kept costs the next visit a sign-in, not this tab.
+	}
+}
+
+export function clearRememberedGrant(storage: CredentialStorage): void {
+	try {
+		storage.removeItem(REMEMBERED_GRANT_KEY);
 	} catch {
 		// Best effort, as above.
 	}

@@ -225,6 +225,15 @@ export {
 } from './store/opfs-workspaces.js';
 // Whether this **origin's** storage is evictable — a question about the browser, not a Workspace.
 export { requestPersistentStorage, type StoragePersistence } from './store/persistent-storage.js';
+// What that answer, and three others, add up to for the person whose work it is (ADR-0042).
+export {
+	deriveStorageDurability,
+	readPersistentStoragePermission,
+	readStoragePersisted,
+	type StorageAnswers,
+	type StorageDurability,
+	type StorageDurabilityInputs
+} from './store/storage-durability.js';
 export {
 	InvalidPathError,
 	PathNotFoundError,
@@ -249,6 +258,21 @@ export {
 	reopenWorkspaceFolder,
 	retainWorkspaceFolder
 } from './store/workspace-folder.js';
+// A folder Workspace's own durable record, which is what makes there able to be more than one
+// (ADR-0042). Keyed by a minted reference; the folder's name is shown, never asked.
+export {
+	forgetFolderWorkspace,
+	listFolderWorkspaces,
+	migratePreExistingFolderWorkspace,
+	openFolderWorkspace,
+	renameFolderWorkspace,
+	resolveFolderWorkspace,
+	type FolderWorkspaceRecord
+} from './store/folder-workspaces.js';
+export {
+	rekeyWorkspaceRecords,
+	type WorkspaceRecordStores
+} from './store/rekey-workspace-records.js';
 
 // Handing one Project to somebody else, and reviewing one you were handed (ADR-0024).
 // Importing one into the Workspace already open is a different operation over the same file format —
@@ -386,6 +410,13 @@ export {
 	type ExportWorkspaceTarOptions,
 	type WorkspaceBackup
 } from './transfer/export-workspace-tar.js';
+// Moving an existing Workspace into a folder the author can see (ADR-0042). The only way work that
+// already exists reaches disk: restore and hydrate both always make a browser Workspace.
+export {
+	copyWorkspaceFiles,
+	type CopyWorkspaceFilesOptions,
+	type WorkspaceCopy
+} from './transfer/copy-workspace-files.js';
 export {
 	restoreWorkspaceTar,
 	type EstimateStorage,
@@ -681,8 +712,29 @@ export {
 	readGrantedRepositories,
 	type GrantedRepositoriesOptions,
 	type GrantedRepositoriesOutcome,
-	type GrantedRepository
+	type GrantedRepository,
+	type GrantedInstallation
 } from './remote/github-installations.js';
+// Whether a Remote belongs to somebody else as well, and what a confirmed Publish anyway would take
+// off it (ADR-0043). Collaboration needs nothing built to allow it; what it needs is that the one
+// local-wins escape hatch names the work it would delete when the Remote is not the author's alone.
+export {
+	describeOutboundRemovals,
+	readRemoteSharing,
+	type OutboundDeletionOptions,
+	type OutboundDeletionPreview,
+	type RemoteSharing,
+	type RemoteSharingOptions
+} from './remote/shared-remote.js';
+// Whatever address a student happens to have — a Published Site's, a GitHub one, or
+// `owner/repository` — turned into the repository it means, by asking GitHub which of the
+// candidates is real rather than asking the author a question only GitHub can answer.
+export {
+	resolveWorkspaceAddress,
+	workspaceAddressCandidates,
+	type AddressCandidate,
+	type AddressResolution
+} from './remote/workspace-address.js';
 export {
 	DEFAULT_REMOTE_BRANCH,
 	REMOTE_BINDING_FORMAT_VERSION,
@@ -716,6 +768,16 @@ export {
 	type CredentialStorage,
 	type CredentialStore
 } from './remote/credential-store.js';
+// The durable implementation behind that same interface, and the installation-local preference that
+// selects it (ADR-0041). Exported as a *storage* rather than a store because the sign-in's grant
+// record shares it: one opening of the installation database holds both halves of what is kept.
+export {
+	REMEMBER_SIGN_IN_KEY,
+	durableCredentialStorage,
+	readRememberSignIn,
+	writeRememberSignIn,
+	type DurableCredentialStorage
+} from './remote/durable-credential-store.js';
 // The second acquisition path behind that same interface (ADR-0031): a GitHub App token
 // obtained by redirect and exchanged through the broker. **The engine never learns which door a
 // token came through** — what is exported here is used by the UI layer alone, and everything below
@@ -723,24 +785,33 @@ export {
 export { GITHUB_APP, isGitHubAppConfigured, type GitHubApp } from './remote/github-app.js';
 export {
 	CREDENTIAL_FRESHNESS_MARGIN_MS,
+	GITHUB_APPS_URL,
 	GITHUB_APP_SESSION_KEY,
 	GITHUB_AUTHORIZE_URL,
 	GitHubCallbackRefusedError,
 	GitHubSignInError,
+	REMEMBERED_GRANT_KEY,
 	SIGN_IN_STATE_KEY,
 	authorizeUrl,
 	clearGrantRecord,
 	describeCallbackRefusal,
 	exchangeAuthorizationCode,
+	grantAccessUrl,
+	installUrl,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
 	readSignInCallback,
 	refreshGitHubToken,
 	signInAgainMessage,
+	clearRememberedGrant,
+	readRememberedGrant,
+	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
+	writeRememberedGrant,
 	type GitHubTokenGrant,
+	type RememberedGrant,
 	type SignInCallback
 } from './remote/github-sign-in.js';
 

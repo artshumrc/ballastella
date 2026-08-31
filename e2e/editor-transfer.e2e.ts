@@ -13,11 +13,11 @@ import { layerRows, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import {
-	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
+	openPublishFromTheDoor,
 	openWorkspaceMenu,
-	openWorkspaceSettings,
+	seedRemoteRelationship,
 	switchToWorkspace
 } from './support/workspace.js';
 
@@ -765,21 +765,19 @@ test.describe('opening a bundle lands in a review copy', () => {
 		await page.reload();
 
 		// ⚠ **The third clause, and it was asserted only in this test's title.** From inside the review
-		// copy, the user's own Workspace is one the settings dialog offers to delete — and the
-		// confirmation names what it weighs, which is the one place in the app a Workspace's size
-		// reaches a screen. It counts the user's own four files and **not** the six the bundle brought,
-		// which is what "not counted in its size" means. A size computed over the OPFS root would say
-		// ten here.
+		// copy, the user's own Workspace is one the roster offers to delete — and the confirmation
+		// names what it weighs, which is the one place in the app a Workspace's size reaches a screen.
+		// It counts the user's own four files and **not** the six the bundle brought, which is what
+		// "not counted in its size" means. A size computed over the OPFS root would say ten here.
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
-		await openWorkspaceSettings(page);
+		await openWorkspaceMenu(page);
 		await page.getByTestId('delete-workspace').click();
 		await expect(page.getByTestId('delete-workspace-size')).toContainText(
 			`It holds ${Object.keys(own).length} files,`
 		);
 		// Nothing is deleted: what was wanted was the number.
 		await page.getByRole('button', { name: 'Keep it' }).click();
-		await closeWorkspaceSettings(page);
 
 		// Back to the user's own Workspace: the reviewed Project is not in its list.
 		await page.getByTestId('leave-review').click();
@@ -789,7 +787,6 @@ test.describe('opening a bundle lands in a review copy', () => {
 
 		// And not in a backup of it, nor in what that backup weighs.
 		const download = page.waitForEvent('download');
-		await openWorkspaceSettings(page);
 		await page.getByTestId('back-up-workspace').click();
 		const saved = await download;
 		const { unpackTar } = await import('modern-tar');
@@ -821,17 +818,22 @@ test.describe('opening a bundle lands in a review copy', () => {
 		await seedProject(page, 'my-own-amsterdam', {
 			'project.json': projectJson({ name: 'My own Amsterdam', layers: [] })
 		});
+		// Publishing is a landing of the door, and the door lands there only for a Workspace that has
+		// somewhere to publish to (ADR-0041) — so the relationship is seeded rather than the dialog
+		// being reached over a Workspace bound to nothing. No credential goes with it: the plan this
+		// asserts is a walk of the Workspace, and nothing is asked of GitHub without one.
+		await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
 		await page.reload();
 		await openBundle(page, await bundleFixture(projectFiles()));
 		await expect(banner(page)).toBeVisible();
 
-		// There is no Publish button inside a review copy at all.
-		await expect(page.getByTestId('publish')).toHaveCount(0);
+		// There is no way to a publish inside a review copy at all: the door itself is absent.
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await expect(page.getByTestId('review-workspace-note')).toBeVisible();
 
 		await page.getByTestId('leave-review').click();
 		await expect(banner(page)).toBeHidden();
-		await page.getByTestId('publish').click();
+		await openPublishFromTheDoor(page);
 		const dialog = page.getByRole('dialog', { name: /Publish/ });
 		await expect(dialog).toBeVisible();
 		// The dialog counts the Projects it is about to publish, and counts **one** — the user's own.
@@ -1188,8 +1190,6 @@ test.describe('the review banner is on every screen', () => {
 	});
 
 	test('a review copy is not backed up', async ({ page }) => {
-		await openWorkspaceSettings(page);
-
 		await expect(page.getByTestId('no-backup-in-review')).toBeVisible();
 		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);
 	});
@@ -2082,7 +2082,6 @@ test.describe('an Import that did not finish', () => {
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// Nor is any of it in a Backup — a second walk of the same Workspace.
 		const download = page.waitForEvent('download');
-		await openWorkspaceSettings(page);
 		await page.getByTestId('back-up-workspace').click();
 		const { unpackTar } = await import('modern-tar');
 		const entries = await unpackTar(new Uint8Array(await readFile(await (await download).path())), {
@@ -2099,7 +2098,6 @@ test.describe('an Import that did not finish', () => {
 				)
 			].sort()
 		);
-		await closeWorkspaceSettings(page);
 		// The marker went last and took the whole inventory with it, so the disk is the pre-Import
 		// Workspace exactly.
 		expect(await everyByteOf(page, DEFAULT_WORKSPACE)).toEqual(
@@ -2117,13 +2115,12 @@ test.describe('an Import that did not finish', () => {
 		// the one place a Workspace's size reaches a screen, and it is offered only for a Workspace the
 		// user is *not* in — so reaching it means standing somewhere else and looking back at this one.
 		await createWorkspace(page, 'Elsewhere');
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: `Delete ${DEFAULT_WORKSPACE}` }).click();
 		await expect(page.getByTestId('delete-workspace-size')).toContainText(
 			`It holds ${Object.keys(OWN).length} files,`
 		);
 		await page.getByRole('button', { name: 'Keep it' }).click();
-		await closeWorkspaceSettings(page);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
 		// ── A transaction that had committed. Every final path is durable and nothing may be rolled
@@ -2147,12 +2144,10 @@ test.describe('an Import that did not finish', () => {
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
 		// Nor is there a reader to reach: publishing and backing up are two more walks of this
 		// Workspace, and both are absent rather than present and refused — the arrangement a review copy
-		// already has.
-		await expect(page.getByTestId('publish')).toHaveCount(0);
-		await openWorkspaceSettings(page);
+		// already has. Publishing goes with the door it is behind.
+		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);
 		await expect(page.getByTestId('no-backup-unrecovered')).toBeVisible();
 		await expect(page.getByTestId('back-up-workspace')).toHaveCount(0);
-		await closeWorkspaceSettings(page);
 		// Staging internals are not the author's to read, and the marker is left where it is — which is
 		// the durable evidence the next startup retries from.
 		await expect(page.getByTestId('unrecovered-import')).not.toContainText('import.json');

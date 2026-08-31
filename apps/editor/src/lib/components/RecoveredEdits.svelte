@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 
-	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	/**
@@ -43,6 +42,10 @@
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const report = $derived(storage?.session.replayReport ?? null);
+	/** The Workspace the replay wrote into, named the way its author knows it rather than by its key. */
+	const restoredInto = $derived(
+		report === null ? '' : (storage?.workspaceLabel(report.workspace) ?? '')
+	);
 	/**
 	 * And what the startup's **deletions** did.
 	 *
@@ -185,7 +188,7 @@
 					A folder Workspace finishes no deletion unattended, so a refusal is the whole of what a
 					startup there ever reports — and nothing else ends one. No record expires,
 					`Workspace.#claim` drops one only when a Project is created or duplicated under that name,
-					Workspace settings' discard cannot by construction reach the Workspace that is open, and
+					the journal discard cannot by construction reach the Workspace that is open, and
 					"Got it" below is keyed on the report's *contents*, so the next startup builds a
 					byte-identical report and shows it again. The one remedy the sentence used to offer was
 					"delete it again", which — in the case the sentence exists for, a colleague's folder
@@ -235,8 +238,7 @@
 						Ballastella closed before {report.restored.length === 1
 							? 'this file was'
 							: 'these files were'}
-						finished saving in “{workspaceKeyLabel(report.workspace)}”, so the change has been
-						written now:
+						finished saving in “{restoredInto}”, so the change has been written now:
 					</p>
 					<ul class="list-inside list-disc text-sm" data-testid="recovered-restored">
 						{#each report.restored as path (path)}
@@ -251,8 +253,8 @@
 					reasons now keep one — a refusal that would otherwise destroy an edit, and an entry
 					waiting on the scholar to say which version wins — and "Got it" below is keyed on the
 					report's *contents*, so the next startup builds a byte-identical report and shows the
-					same warning again, for ever. Nothing else ends it: no record expires, and Workspace
-					settings' discard would take every other file's rescue copy with it.
+					same warning again, for ever. Nothing else ends it: no record expires, and the journal
+					discard on Workspace Home would take every other file's rescue copy with it.
 
 					Unlike the deletion's note, this one **is** destructive, so the label says which file it
 					throws away and the sentence beside it has already said the copy is the only one.

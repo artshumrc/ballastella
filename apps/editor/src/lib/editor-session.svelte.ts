@@ -157,9 +157,15 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  * **The backing is in the key**, because a folder called `Marking 2026` and an OPFS Workspace
  * called `Marking 2026` are two different places holding two different people's afternoons, and one
  * replaying into the other is exactly the failure this key prevents.
+ *
+ * ⚠ **A folder Workspace is keyed by its minted reference, never by its directory's name**
+ * (ADR-0042). Two folders called `maps` on two drives are two Workspaces, and a name would make them
+ * one key — over a Remote binding, a Synchronization Baseline and a journal. `folder-workspaces.ts`
+ * mints and keeps the reference; what arrives here is that, or — for a browser with no IndexedDB to
+ * keep a record in — the directory's name, which is what the single-folder build always used.
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
-export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+export const folderWorkspaceKey = (folderReference: string): string => `folder:${folderReference}`;
 
 /**
  * Install local-change tracking around the store an ordinary Workspace is about to be opened from.
@@ -200,20 +206,28 @@ export const workspaceIdentityOf = (key: string): WorkspaceIdentity =>
  * A journal key as a **Workspace the user recognises**, never as the key itself.
  *
  * ⚠ **`opfs:` is a debug token and it was reaching the screen**, in "finished saving in
- * `opfs:Marking 2026`" and on the buttons in Workspace settings. CONTEXT.md is that the UI names
+ * `opfs:Marking 2026`" and on the buttons that act on a Workspace. CONTEXT.md is that the UI names
  * the Workspace; a scholar has never seen that prefix and has no way to find out what it means.
  *
  * The folder case keeps a qualifier rather than dropping the distinction, because a folder
  * Workspace and a browser-storage one may share a name and the sentence has to be true of exactly
  * one of them.
+ *
+ * ⚠ **A folder key holds a minted reference, which is not a name at all** (ADR-0042). Anything with
+ * a record to read should go through `WorkspaceStorage.workspaceLabel`, which puts the author's own
+ * name in; what is left here is the reference, shown as-is for the reason the unknown prefix is —
+ * the user is being asked to recognise a Workspace, and a mangled reference helps nobody.
  */
 export function workspaceKeyLabel(key: string): string {
 	if (key.startsWith('opfs:')) return key.slice('opfs:'.length);
-	if (key.startsWith('folder:')) return `${key.slice('folder:'.length)} (Workspace folder)`;
+	if (key.startsWith('folder:')) return folderWorkspaceLabel(key.slice('folder:'.length));
 	// A key from a build that keyed them differently. Shown as it is rather than mangled: the user
 	// is being asked to recognise it, and a prefix this build does not know is information.
 	return key;
 }
+
+/** A folder Workspace's name as a sentence about it says it, so the qualifier is written once. */
+export const folderWorkspaceLabel = (name: string): string => `${name} (Workspace folder)`;
 
 /**
  * A transfer in flight, for the status region that announces it.
@@ -921,7 +935,7 @@ export class EditorSession {
 	 * ⚠ **The only other exit a refusal has is the destructive one.** A folder Workspace finishes no
 	 * deletion unattended, so a refusal is the *whole* of what a startup there ever reports — and
 	 * nothing else ends one. No record expires; `Workspace.#claim` drops one only when a
-	 * Project is created or duplicated under that name; and Workspace settings' discard is by
+	 * Project is created or duplicated under that name; and the journal discard is by
 	 * construction unable to reach the Workspace that is open, which is always the one showing the
 	 * refusal. The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
 	 * byte-identical report and shows it again. Without this the user is left with a warning at every
@@ -1036,7 +1050,7 @@ export class EditorSession {
 	 * ⚠ **`'superseded'` is the first skip that keeps its entry, and a kept entry has no other
 	 * exit.** The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
 	 * byte-identical report and shows it again; nothing expires; and the only other remedy on offer
-	 * is discarding the whole Workspace's journal from Workspace settings, which takes every other
+	 * is discarding the whole Workspace's journal from Workspace Home, which takes every other
 	 * file's rescue copy with it. That is the same corner an unfinished deletion was left in, and
 	 * this is the same answer: an exit the user can take once they have read the sentence.
 	 *

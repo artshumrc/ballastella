@@ -20,8 +20,8 @@
 // IT KNOWS NOTHING ABOUT WHERE THE TOKEN CAME FROM
 //
 // An opaque bearer string and a `fetch` shim, and no import that could tell a pasted personal access
-// token from one the broker exchanged for a code (ADR-0031). There is no `if (authMethod === …)`
-// here or below here, and there must not be.
+// token from one the broker exchanged for a code (ADR-0031). Nothing here or below here branches on
+// which door the credential came through, and nothing may.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import {
@@ -1000,6 +1000,11 @@ export async function publishToRemote(
 	});
 	if (!tree.ok) throw await failureFrom(tree, api, 'tree', sent, total());
 
+	// ⚠ **No `author` and no `committer`, and their absence is what attributes the commit** (ADR-0043).
+	// GitHub documents the default for this endpoint as the authenticated user and the current date, so
+	// a shared repository gets a readable history for free — and sending an author composed here would
+	// be this code's guess at a name and an email address, which is how a collaborator's commits end
+	// up filed under somebody else's account or under nobody's.
 	const commit = await api.call('/git/commits', {
 		method: 'POST',
 		body: JSON.stringify({
