@@ -3,7 +3,7 @@
 	//
 	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
 	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
-	// `workspace-storage.svelte.ts`, Workspace settings into the GitHub broker, publishing into the
+	// `workspace-storage.svelte.ts`, the door into the GitHub broker, publishing into the
 	// planner — and moving the bar itself into the shared package would put all of that in the
 	// viewer's reachable graph. So the shell is shared and the filling is not.
 	//
@@ -33,15 +33,16 @@
 	// thing a user must never be in doubt about.
 
 	import { resolve } from '$app/paths';
-	import { describeRemote } from '@ballastella/core';
+	import { describeBytes, describeRemote, type WorkspaceSize } from '@ballastella/core';
 	import { AppBar, BallastellaMark, MenuPopover } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by.
 	import AppWindow from '@lucide/svelte/icons/app-window';
 	import Folder from '@lucide/svelte/icons/folder';
+	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
-	import Settings from '@lucide/svelte/icons/settings';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import PublishDialog from '$lib/publish/PublishDialog.svelte';
@@ -49,14 +50,18 @@
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 	import { theme } from '$lib/theme.svelte';
-	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
+	import {
+		useWorkspaceHost,
+		type WorkspaceBacking,
+		type WorkspaceEntry
+	} from '$lib/workspace-storage.svelte.js';
 
 	import Toast from '$lib/toasts/Toast.svelte';
 
 	import ConnectToGitHub from './ConnectToGitHub.svelte';
+	import ModalDialog from './ModalDialog.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
-	import SaveIndicator from './SaveIndicator.svelte';
-	import WorkspaceSettings from './WorkspaceSettings.svelte';
+	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
 
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
@@ -87,34 +92,37 @@
 	const unreachable = $derived(session?.status === 'unreachable');
 
 	/**
-	 * Where this Workspace's bytes are, in words — the header's second fact.
+	 * Every Workspace this installation has, of either kind — the roster (ADR-0042).
 	 *
-	 * Only for the two settled backings. A remembered folder that is not open yet is browser-backed
-	 * by this test and "Kept in this browser" is false of it, so the header states that state in its
-	 * own sentence rather than through this one — see `awaitingFolder`.
+	 * One list because switching is one list and one press, and because a folder that is not open is
+	 * simply not the one that is open, which is what every other row here already means.
 	 */
+	const entries = $derived<readonly WorkspaceEntry[]>(storage?.workspaceEntries ?? []);
+
+	/**
+	 * Whether this browser can put a Workspace in a folder at all.
+	 *
+	 * ⚠ **Where it cannot, the *kind* is never named anywhere in this menu** (ADR-0042): no icon, no
+	 * folder name, no "kept in this browser", and no choice at creation. A Workspace is simply a
+	 * Workspace, with no implication that another sort was available and refused. Where it can, the
+	 * kind is worth a glance, because the two differ in where the author's bytes are.
+	 */
+	const kindsAreVisible = $derived(storage?.canChooseFolder ?? false);
+
+	/** Where this Workspace's bytes are, in words — the header's second fact, where there are two. */
 	const backingSentence = $derived(
 		storage?.backing === 'folder' ? 'A folder on this computer' : 'Kept in this browser'
 	);
 
-	/**
-	 * Whether a push credential is held, and as whom.
-	 *
-	 * Read from the credential store rather than from anything remembered here, so it says what is
-	 * **true**: the store is sealed while a Review Workspace is open (ADR-0033), and a token that
-	 * cannot be read is a token this menu must not claim to hold.
-	 */
-	const credentialSentence = $derived(
-		storage?.signedIn
-			? storage.identity
-				? `Signed in to GitHub as ${storage.identity}`
-				: 'Signed in to GitHub'
-			: 'Not signed in'
-	);
-
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
-	let settingsOpen = $state(false);
 	let publishOpen = $state(false);
+	/**
+	 * The door control, so a dialog opened from behind it has somewhere to put focus back.
+	 *
+	 * The Update's own question is the case: it is raised by the transfer rather than by a press, and
+	 * the press that started the transfer was inside the door, which closed on it.
+	 */
+	let doorButton = $state<HTMLButtonElement | undefined>();
 	/**
 	 * Whether a publish is running, and how far it has got.
 	 *
@@ -141,24 +149,31 @@
 		storage !== null && storage.review === null && storage.unavailable === ''
 	);
 
-	/**
-	 * Whether there is trustworthy evidence of what this Workspace and its Remote last shared
-	 * (ADR-0038).
-	 *
-	 * ⚠ **Text rather than a colour, and stated rather than omitted**, for the reason the publishing
-	 * line above it is: `Cannot tell` is a *determination* — absence, corruption, a record naming
-	 * another repository, or a Baseline this browser refused to keep — and a scholar who is shown
-	 * nothing reads it as "up to date". The three-way comparison itself is not here; what this says is
-	 * whether there is anything to compare against.
-	 */
-	const remoteStatusSentence = $derived(
-		storage === null || storage.remoteStatus !== 'cannot-tell'
-			? ''
-			: 'Cannot tell what has changed since this Workspace and GitHub last agreed.'
-	);
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
 	let newNameField = $state<HTMLInputElement | undefined>();
+	/**
+	 * Which kind a new Workspace is to be.
+	 *
+	 * ⚠ **Asked at creation and barred from first contact** (ADR-0042, amending ADR-0001). A folder is
+	 * a capability upgrade and never a gate, so the first Workspace appears silently and browser-backed
+	 * with nothing asked; **New Workspace…** is a deliberate act by somebody who already has one, so
+	 * the question there is not a gate. It is not asked at all where the browser has no picker.
+	 */
+	let newKind = $state<WorkspaceBacking>('browser');
+	/** The row being renamed and the name being typed into it, or `null`. */
+	let renaming = $state<{ key: string; label: string } | null>(null);
+	let renameField = $state<HTMLInputElement | undefined>();
+	let renameReturn: HTMLElement | null = null;
+	/** The row a deletion is being confirmed for, or `null` when nothing is being confirmed. */
+	let confirming = $state<{
+		key: string;
+		label: string;
+		kind: WorkspaceBacking;
+		size: WorkspaceSize | null;
+	} | null>(null);
+	/** Whether the confirmation is showing. Separate from `confirming` so Escape can close it. */
+	let confirmOpen = $state(false);
 	/**
 	 * A hydration-stable id for the inline field's label.
 	 *
@@ -167,6 +182,14 @@
 	 * label to its field for a screen reader.
 	 */
 	const newNameId = $props.id();
+	/**
+	 * The rename field's label id, derived from the one `$props.id()` this component may have.
+	 *
+	 * ⚠ **`$props.id()` may be called once per component**, and the creation form already has it.
+	 * Suffixing keeps both ids hydration-stable and distinct, which is the whole of what a `for`/`id`
+	 * pair needs — see `MenuPopover` for why neither may be a literal.
+	 */
+	const renameId = `${newNameId}-rename`;
 	/** The button the inline form was opened from, so focus has somewhere to go back to. */
 	let newNameReturn: HTMLElement | null = null;
 
@@ -197,14 +220,81 @@
 	 */
 	function closeNewWorkspace(): void {
 		newName = null;
+		newKind = 'browser';
 		(newNameReturn ?? menu?.button())?.focus();
 		newNameReturn = null;
 	}
 
-	async function switchWorkspace(name: string): Promise<void> {
+	/**
+	 * Open the Workspace a row is about.
+	 *
+	 * The announcement is drawn from what the storage *did* rather than from what was pressed: opening
+	 * a folder Workspace goes through the browser's own permission gesture, which the author may
+	 * decline, and a line saying they had switched when they had not is the one announcement that is
+	 * wrong exactly when it matters.
+	 */
+	async function openEntry(entry: WorkspaceEntry): Promise<void> {
 		if (!storage) return;
-		await storage.openWorkspace(name);
-		announcement = `Switched to the Workspace “${name}”.`;
+		await storage.openEntry(entry.key);
+		announcement = storage.problem || `Switched to the Workspace “${storage.name}”.`;
+	}
+
+	/** Open the inline rename field for a row, remembering where focus has to go back to. */
+	function startRename(entry: WorkspaceEntry): void {
+		renameReturn = menu?.button() ?? null;
+		renaming = { key: entry.key, label: entry.label };
+		// After the popover has gone, or focus lands on an element about to be hidden.
+		queueMicrotask(() => renameField?.select());
+	}
+
+	function closeRename(): void {
+		renaming = null;
+		(renameReturn ?? menu?.button())?.focus();
+		renameReturn = null;
+	}
+
+	async function commitRename(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		const asked = renaming;
+		closeRename();
+		if (!storage || asked === null || asked.label.trim() === '') return;
+		const wanted = asked.label.trim();
+		announcement = (await storage.renameEntry(asked.key, wanted))
+			? `Renamed the Workspace to “${wanted}”.`
+			: // A browser that will keep no record is the one case where a rename does not stick, and
+				// showing the new name over a Workspace that will not have it next visit is worse than
+				// saying so.
+				`This browser would not keep the new name, so nothing has been renamed.`;
+	}
+
+	/**
+	 * Ask before deleting, naming the Workspace and what it weighs (ADR-0016).
+	 *
+	 * The size is read *after* the question is raised rather than before, because reading a Workspace
+	 * of tens of thousands of tile files takes real time and the author has already pressed the
+	 * control. It is `null` for a folder that is not open, which the dialog says in words.
+	 */
+	async function askToDelete(entry: WorkspaceEntry): Promise<void> {
+		confirming = { key: entry.key, label: entry.label, kind: entry.kind, size: null };
+		confirmOpen = true;
+		const size = (await storage?.sizeOfEntry(entry.key)) ?? null;
+		if (confirming?.key === entry.key) confirming = { ...confirming, size };
+	}
+
+	async function confirmDelete(): Promise<void> {
+		const going = confirming;
+		if (!storage || going === null) return;
+		confirmOpen = false;
+		confirming = null;
+		try {
+			await storage.deleteEntry(going.key);
+			announcement =
+				going.kind === 'folder'
+					? `Took the Workspace “${going.label}” off the list. The folder itself is untouched.`
+					: `Deleted the Workspace “${going.label}” and everything in it.`;
+		} catch (cause) {
+			announcement = cause instanceof Error ? cause.message : String(cause);
+		}
 	}
 
 	async function createWorkspace(event: SubmitEvent): Promise<void> {
@@ -214,9 +304,20 @@
 			closeNewWorkspace();
 			return;
 		}
+		const kind = newKind;
 		closeNewWorkspace();
 		try {
-			const made = await storage?.createWorkspace(asked);
+			// A folder needs the browser's own picker, and the gesture that reached this submit is what
+			// licenses opening it. `''` is a picker closed without choosing — nothing happened, so
+			// nothing is said.
+			const made =
+				kind === 'folder'
+					? await storage?.createFolderWorkspace(asked)
+					: await storage?.createWorkspace(asked);
+			if (!made) {
+				announcement = storage?.problem ?? '';
+				return;
+			}
 			// The name it *really* got, which may carry a ` (2)` the user did not type. Saying the typed
 			// name back would be the one announcement that is wrong exactly when it matters.
 			announcement = `Created the Workspace “${made}” and switched to it.`;
@@ -250,7 +351,7 @@
 		{:else}
 			<!-- `max-w-*` and truncation, because the name is up to 64 characters of somebody else's
 			     text and the bar has three other controls to fit. The full name is in the menu, in
-			     Workspace settings, and in the button's own `title`-free accessible name, which is the
+			     and in the button's own `title`-free accessible name, which is the
 			     text node rather than the ellipsis CSS paints over it. -->
 			<MenuPopover
 				bind:this={menu}
@@ -259,14 +360,13 @@
 				testid="workspace-switcher"
 			>
 				<!--
-					What this Workspace is: its name, where its bytes are, and where it publishes. The only
-					place in the app those facts appear together, and a heading rather than a set of controls
-					— every decision behind them is in Workspace settings, so the same choice is never offered
-					in two places that could disagree.
+					What this Workspace is: its name, and where its bytes are.
 
-					**The publishing line is stated even when there is nothing bound.** An omitted line
-					reads as a rendering fault, and "no Remote yet" is the state a first-time author is
-					in. It is still not a sign-in prompt: nothing here asks for a credential.
+					⚠ **The repository, the credential and the Remote Status are not restated here**
+					(ADR-0041). All three were said in the eyebrow at the same time, and a scholar asking
+					*is my work safe* had five candidates and no way to choose between them. The badge
+					answers it, and the door names the repository; a third copy in prose could only
+					disagree with them.
 				-->
 				<!--
 					⚠ **Every line states its own ink, and none of them may inherit.** daisyUI paints
@@ -280,81 +380,82 @@
 					<span class="block truncate text-sm font-semibold text-base-content">
 						{workspaceName}
 					</span>
-					<span class="block font-normal" data-testid="workspace-backing">
-						{#if storage.awaitingFolder}
-							<!--
-								⚠ **"Kept in this browser" is false here** and this is the state every
-								folder-backed scholar returns in: the folder is remembered, the browser wants a
-								gesture before handing it back, and until that gesture the backing reads as
-								`browser` (`workspace-storage.svelte.ts`, `awaitingFolder`). So the line names the
-								folder, says it is not open, and says where the gesture is — the menu offers no
-								folder control of its own.
-							-->
-							<span class="text-warning" data-testid="workspace-awaiting-folder">
-								Your work is in the folder “{storage.reopenable}”, which is not open yet. Workspace
-								settings can reopen it.
-							</span>
-						{:else}
+					{#if kindsAreVisible}
+						<span class="block font-normal" data-testid="workspace-backing">
 							<span class="text-base-content opacity-70">{backingSentence}</span>
-						{/if}
-					</span>
-					<span
-						class="block font-normal text-base-content opacity-70"
-						data-testid="workspace-publishes"
-					>
-						{#if storage.remote}
-							Publishes to <span data-testid="workspace-remote"
-								>{describeRemote(storage.remote)}</span
-							>. <span data-testid="workspace-credential">{credentialSentence}</span>.
-							<span data-testid="remote-status">{remoteStatusSentence}</span>
-						{:else}
-							No Remote yet, so nothing is published from this Workspace.
-						{/if}
-					</span>
+						</span>
+					{/if}
 				</li>
-				<li class="menu-title">Switch to</li>
-				{#each storage.workspaces as name (name)}
-					<li>
+				<!--
+					The roster: every Workspace there is, of either kind, each opened, renamed or deleted
+					from its own row (ADR-0042). A Workspace is deleted from the list of Workspaces, which
+					is where a person looking for it is looking.
+				-->
+				<li class="menu-title">Your Workspaces</li>
+				{#each entries as entry (entry.key)}
+					<!-- `flex-row` because daisyUI stacks a menu item's children in a column: the row is one
+					     line with the name taking the space and the two actions beside it, and each of the three
+					     is a direct child so it is styled and hit-tested as a menu item rather than as a box
+					     inside one. -->
+					<li class="flex-row items-start">
 						<button
 							type="button"
+							class="min-w-0 grow"
 							data-testid="switch-workspace"
-							data-workspace={name}
-							aria-current={storage.isOpen(name) ? 'true' : undefined}
-							onclick={() => fromMenu(() => void switchWorkspace(name))}
+							data-workspace={entry.label}
+							data-kind={entry.kind}
+							aria-current={entry.isOpen ? 'true' : undefined}
+							onclick={() =>
+								fromMenu(() => {
+									// The one that is open is already open, and for a folder asking again would
+									// mean the browser's permission dialog for no change at all.
+									if (!entry.isOpen) void openEntry(entry);
+								})}
 						>
-							<!-- A browser window, because that is where these are: the user needs to know their
-							     work is in the browser rather than among their own files, and never that the
-							     mechanism underneath is called OPFS. -->
-							<AppWindow size={16} aria-hidden="true" class="shrink-0" />
+							{#if kindsAreVisible}
+								<!-- A browser window or a folder, because where the bytes are is the one thing the
+								     two kinds differ in; never named where the browser cannot offer both. -->
+								{#if entry.kind === 'folder'}
+									<Folder size={16} aria-hidden="true" class="shrink-0" />
+								{:else}
+									<AppWindow size={16} aria-hidden="true" class="shrink-0" />
+								{/if}
+							{/if}
 							<!--
 								The name and what is true of it in **one** truncating span, so they stay next to
 								each other: as separate flex children the name's `truncate` takes the free space
 								and shunts "(open)" to the far edge of the menu, where it reads as a column
 								heading rather than as part of the line it belongs to.
 
-								Which of these is somebody else's work in a throwaway Workspace, in **words** rather
-								than as a tint or an icon. Review copies stay in the list rather than being filtered
-								out of it: a teacher marking thirty submissions moves between them, and two
-								students' conflicting Alignments of the same sheet never meet precisely because each
-								is in its own Workspace (ADR-0024).
+								Which of these is somebody else's work in a throwaway Workspace, in **words**
+								rather than as a tint or an icon. Review copies stay in the list rather than being
+								filtered out of it: a teacher marking thirty submissions moves between them, and
+								two students' conflicting Alignments of the same sheet never meet precisely
+								because each is in its own Workspace (ADR-0024).
 							-->
 							<span class="min-w-0">
 								<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of an
 								     element, so `<span> (open)</span>` renders as "My Workspace(open)". -->
 								<span class="block truncate">
-									{name}{#if storage.reviewWorkspaces.includes(name)}<span class="opacity-70"
+									{entry.label}{#if entry.isReviewCopy}<span class="opacity-70"
 											>&nbsp;(review copy)</span
-										>{/if}{#if storage.isOpen(name)}<span class="opacity-70">&nbsp;(open)</span
-										>{/if}
+										>{/if}{#if entry.isOpen}<span class="opacity-70">&nbsp;(open)</span>{/if}
 								</span>
-								{#if unreachable && storage.backing === 'browser' && storage.isOpen(name)}
+								{#if kindsAreVisible && entry.folderName}
+									<!-- The directory's own name, beneath the label the author gave it. Shown
+									     because it says which *place* this is; never identity (ADR-0042). -->
+									<span
+										class="block truncate text-xs opacity-70"
+										data-testid="workspace-folder-name">{entry.folderName}</span
+									>
+								{/if}
+								{#if unreachable && entry.isOpen}
 									<!--
-										The same marking as the folder row's, on the row that is the open Workspace when
-										the backing is browser storage — OPFS itself refusing, which a second tab
-										deleting the directory produces. One idiom for "this Workspace cannot be
-										reached" rather than two, and it names a different way back only because a
-										different one is true: nothing in Workspace settings locates a browser
-										Workspace, and `WorkspaceRecovery`'s alert — which is on every screen — does.
+										⚠ **The only thing here that can send a scholar towards recovery**, and it is
+										on the open row because `status` is a fact about the Workspace on screen and
+										about no other. A folder that has moved, been renamed or been unplugged is a
+										normal state (ADR-0008), and a scholar who cannot see that it has happened has
+										no reason to go looking for the control that fixes it.
 									-->
 									<span class="block text-warning" data-testid="workspace-unreachable">
 										Unreachable. The notice on this screen can locate it again.
@@ -362,35 +463,40 @@
 								{/if}
 							</span>
 						</button>
+						<button
+							type="button"
+							class="shrink-0"
+							data-testid="rename-workspace"
+							onclick={() => fromMenu(() => startRename(entry))}
+						>
+							<Pencil size={16} aria-hidden="true" class="shrink-0" />
+							<span class="sr-only">Rename {entry.label}</span>
+						</button>
+						{#if !entry.isOpen}
+							<!-- The Workspace you are in is never offered: deleting it out from under a live
+							     `EditorSession` leaves an `Autosave` whose next flush recreates the directory, and
+							     a folder cannot be taken off the list while it is the list's open row. The
+							     refusal lives on the operation as well (`WorkspaceStorage.deleteEntry`). -->
+							<button
+								type="button"
+								class="shrink-0"
+								data-testid="delete-workspace"
+								onclick={() => fromMenu(() => void askToDelete(entry))}
+							>
+								<Trash2 size={16} aria-hidden="true" class="shrink-0" />
+								<!-- Named in full, because the two kinds do different things: a browser Workspace's
+								     bytes go, and a folder's row goes while the folder stays exactly where it is. -->
+								<span class="sr-only">
+									{#if entry.kind === 'folder'}
+										Take {entry.label} off the list
+									{:else}
+										Delete {entry.label}
+									{/if}
+								</span>
+							</button>
+						{/if}
 					</li>
 				{/each}
-				{#if storage.backing === 'folder'}
-					<!-- The folder Workspace is not one of the named ones and never appears in the list: it
-					     is a different backing, and showing it as a sibling would suggest it can be deleted
-					     from settings alongside them, which it cannot. -->
-					<li>
-						<span>
-							<Folder size={16} aria-hidden="true" class="shrink-0" />
-							<span class="min-w-0">
-								<span class="block truncate opacity-70">
-									{storage.folderName || 'A folder on this computer'} (open)
-								</span>
-								{#if unreachable}
-									<!--
-										⚠ **The whole of the way back, now that the folder controls are in settings**
-										(ADR-0008). A folder that has moved, been renamed or been unplugged is a normal
-										state, and a scholar who cannot see that it has happened has no reason to go
-										looking for the control that fixes it — so the row says so in `warning`, in
-										words, and names where the recovery is.
-									-->
-									<span class="block text-warning" data-testid="workspace-unreachable">
-										Unreachable. Workspace settings can locate it again.
-									</span>
-								{/if}
-							</span>
-						</span>
-					</li>
-				{/if}
 				<li>
 					<button
 						type="button"
@@ -406,23 +512,6 @@
 					>
 						<Plus size={16} aria-hidden="true" class="shrink-0" />
 						New Workspace…
-					</button>
-				</li>
-				<!-- A boundary rather than an emphasis, which is what ADR-0036 permits a rule to be: above
-				     it is this Workspace and the others, below it is the way out of the menu.
-
-				     `aria-hidden` and no `role`: `MenuPopover`'s list is a plain `<ul>` with no
-				     `role="menu"`, so this is a listitem, and a `role="separator"` that is also hidden
-				     announces nothing while adding a widget role to a list that has none. -->
-				<li aria-hidden="true" class="my-1 border-t border-rule"></li>
-				<li>
-					<button
-						type="button"
-						data-testid="open-workspace-settings"
-						onclick={() => fromMenu(() => (settingsOpen = true))}
-					>
-						<Settings size={16} aria-hidden="true" class="shrink-0" />
-						Workspace settings…
 					</button>
 				</li>
 			</MenuPopover>
@@ -444,10 +533,65 @@
 					if (event.key === 'Escape') closeNewWorkspace();
 				}}
 			/>
+			{#if kindsAreVisible}
+				<!--
+					⚠ **Radio inputs, not a `role="tablist"` and not a select** (ADR-0016): two mutually
+					exclusive answers to one question, each with a visible label, is exactly what a radio
+					group is — and it is the only spelling a keyboard and a screen reader both get for free.
+
+					Absent altogether where the browser has no picker, which is what keeps the *kind* from
+					being named to somebody who could never choose it (ADR-0042).
+				-->
+				<fieldset class="flex items-center gap-3" data-testid="new-workspace-kind">
+					<legend class="sr-only">Where the new Workspace lives</legend>
+					<label class="flex items-center gap-1 text-sm">
+						<input
+							type="radio"
+							class="radio radio-sm"
+							value="browser"
+							bind:group={newKind}
+							data-testid="new-workspace-browser"
+						/>
+						In this browser
+					</label>
+					<label class="flex items-center gap-1 text-sm">
+						<input
+							type="radio"
+							class="radio radio-sm"
+							value="folder"
+							bind:group={newKind}
+							data-testid="new-workspace-folder"
+						/>
+						In a folder
+					</label>
+				</fieldset>
+			{/if}
 			<button class="btn btn-primary btn-sm" type="submit" data-testid="create-workspace">
 				Create and switch
 			</button>
 			<button class="btn btn-sm" type="button" onclick={() => closeNewWorkspace()}>Cancel</button>
+		</form>
+	{/if}
+
+	{#if renaming !== null && storage !== null}
+		<!-- The same inline form the creation uses, for the same reason: one field and one button, and
+		     a modal for that is a modal a user has to dismiss to see the list they pressed it in. -->
+		<form class="flex items-center gap-2" onsubmit={(event) => void commitRename(event)}>
+			<label class="text-sm" for={renameId}>New name</label>
+			<input
+				id={renameId}
+				class="input input-sm"
+				bind:this={renameField}
+				bind:value={renaming.label}
+				data-testid="rename-workspace-name"
+				onkeydown={(event) => {
+					if (event.key === 'Escape') closeRename();
+				}}
+			/>
+			<button class="btn btn-primary btn-sm" type="submit" data-testid="save-workspace-name">
+				Rename
+			</button>
+			<button class="btn btn-sm" type="button" onclick={() => closeRename()}>Cancel</button>
 		</form>
 	{/if}
 
@@ -486,64 +630,50 @@
 		</div>
 
 		<!--
-			5. Getting the Workspace onto GitHub in the first place (ADR-0032).
+			5. The one door to GitHub — the whole relationship, in one control (ADR-0041).
 
-			**On the bar rather than filed away in Workspace settings, and that is what this control is
-			for.** A settings dialog two menus deep is where a person goes when something already works
-			and they want it different, and not where anybody looks for *how do I put this on the web*.
+			**One control where there were two, and behind it one surface where there were five.** A save
+			badge, a Remote Status badge, *Check Remote Status*, *Update from GitHub*, *Connect to
+			GitHub* and *Publish…* all answered one question — *is my work safe* — and a scholar had no
+			way to choose between them. The badge in the eyebrow answers it; this opens the place where
+			everything that can be *done* about it lives, and **Publish** and **Update from GitHub**
+			stay two separate presses in there, because their consequences differ in kind.
+
+			**On the bar rather than filed away in a settings dialog, and that is what this control is
+			for.** A dialog two menus deep is where a person goes when something already works and they
+			want it different, and not where anybody looks for *how do I put this on the web*.
 			The bar is on every screen including Workspace Home, so a student meets it before they have
-			opened a Project, and the sequence it opens is the same one wherever it was pressed.
+			opened a Project, and the surface it opens is the same one wherever it was pressed.
 
 			**It reflects the Workspace rather than offering the same thing twice.** With no Remote it
 			offers connecting; with one it says which repository, which is a standing fact and not
-			unfinished work. Both presses open the same sequence, which lands on whichever of its steps is
+			unfinished work. Both presses open the same surface, which lands on whichever of its steps is
 			true — there is no second path and no remembered position (see `ConnectToGitHub`).
 
-			**Before Publish, in the row and in the order**, because a Workspace has to have somewhere to
-			go before Publish has anywhere to send it.
+			**A publish under way is said here**, because this is the one GitHub control on the bar and a
+			publish is the one GitHub act that runs for minutes — including after the modal that started
+			it was dismissed with Escape. `aria-disabled` and never `disabled`: a `disabled` button leaves
+			the tab order the instant it is pressed, dropping a keyboard user's focus to `<body>` for the
+			length of the publish (WCAG 2.4.3).
 		-->
 		{#if publishable && storage !== null}
 			<button
 				type="button"
+				bind:this={doorButton}
 				class="btn btn-sm"
 				class:btn-primary={storage.remote === null}
-				data-testid="connect-to-github"
-				onclick={() => connectSequence.start()}
-			>
-				{storage.remote === null
-					? 'Connect to GitHub'
-					: `Connected to ${describeRemote(storage.remote)}`}
-			</button>
-		{/if}
-
-		<!--
-			6. Putting the work on the web (ADR-0032).
-
-			**In the bar with the save indicator, and that is the whole point of both.** "Saved locally"
-			and "Publish" answer the two questions a scholar has about where their work is, and separating
-			them across two screens is how somebody comes to believe a saved edit is a published one.
-			They sit in different tiers because they answer differently: whether the work is kept is true
-			of the Workspace, while publishing is an action taken from wherever you are. The Workspace is
-			the site (ADR-0008), so this belongs to the bar rather than to a Project — it was on the hub,
-			which meant it was absent from every screen where a person is actually working.
-
-			**Enabled in every state except while it is running**, and each of them leads somewhere: it
-			offers the binding when there is none, asks for the credential when there is no credential,
-			and says so when nothing needs changing. A disabled Publish button with no explanation is
-			the failure this arrangement exists to remove.
-		-->
-		{#if publishable}
-			<button
-				type="button"
-				class="btn btn-sm"
 				class:btn-disabled={publishing}
 				aria-disabled={publishing}
-				data-testid="publish"
+				data-testid="connect-to-github"
 				onclick={() => {
-					if (!publishing) publishOpen = true;
+					if (!publishing) connectSequence.start();
 				}}
 			>
-				{publishing ? publishControlLabel(publishProgress) : 'Publish…'}
+				{publishing
+					? publishControlLabel(publishProgress)
+					: storage.remote === null
+						? 'Connect to GitHub'
+						: `Connected to ${describeRemote(storage.remote)}`}
 			</button>
 		{/if}
 	{/if}
@@ -556,23 +686,49 @@
 -->
 {#snippet status()}
 	{#if session !== null}
-		<!-- 7. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
-		     only signal that anything reached storage — which is why it is on every screen and not
-		     only on the ones that happen to write. -->
-		<!-- `min-h-8`, matching the Remote status's leading row: the eyebrow top-aligns its clusters, so
-		     the badge keeps its centre line beside the Remote status and its buttons. -->
-		<div class="flex min-h-8 items-center" data-testid="save-slot">
-			<SaveIndicator saveState={session.saveState} />
+		<!--
+			7. Where the work is: one badge, two clauses, and everything else one press away (ADR-0041).
+
+			**Whether the work is kept here, and whether GitHub has it, in one line.** ADR-0017 rule 5:
+			there is no Save button, so the first clause is the only signal that anything reached storage,
+			which is why it is on every screen and not only on the ones that happen to write. The second
+			is the question the first does not answer — "Saved locally" is about this machine and says
+			nothing about the Remote, and a scholar who reads the one as the other publishes over a
+			colleague's afternoon.
+
+			**Two clauses rather than two badges** (ADR-0041). They are the two halves of one question, so
+			they share one region and one line; what keeps them apart is that both are always said.
+
+			The GitHub clause only for an ordinary bound Workspace. A Review Workspace is never bound
+			(ADR-0024) and an unbound one has nothing to compare against, so the badge is the local clause
+			alone and `RemoteStatus`'s disclosure is not mounted at all.
+		-->
+		<div class="flex min-h-8 items-start" data-testid="save-slot">
+			{#if storage !== null && storage.remote !== null && storage.review === null}
+				<RemoteStatus
+					saveState={session.saveState}
+					state={storage.remoteStatusState}
+					baseline={storage.baseline}
+					update={storage.updateProgress}
+					notice={storage.updateNotice}
+					failure={storage.updateFailure}
+					deletionPreview={storage.deletionPreview}
+					onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
+					restoreFocusTo={() => doorButton}
+				/>
+			{:else}
+				<WhereYourWorkIs saveState={session.saveState} />
+			{/if}
 		</div>
 
 		<!--
 			Why the work is not kept, and every neighbouring refusal, as messages the reader can put
 			away rather than sentences under the bar for the rest of the session.
 
-			**`SaveIndicator` still says *whether* the work is kept and this says *why not*.** The badge
+			**The badge still says *whether* the work is kept and this says *why not*.** The badge
 			is a standing fact and belongs in the bar; each of these is news about something that just
 			happened, and the eyebrow is not a log. `Toast` renders nothing here — the words are drawn
-			in the layout's one stack — so a save error no longer moves the Remote status beside it.
+			in the layout's one stack — so a save error does not move the badge beside it.
 
 			`refusal` on the three that are inserted at the moment their text first exists, which a polite
 			region does not reliably announce (ADR-0016's amendment). `unprotected-browser` is not one of
@@ -584,32 +740,6 @@
 		<Toast text={session.protectionWarning} testid="protection-warning" refusal />
 		<Toast text={session.deletionWarning} testid="deletion-warning" refusal />
 		<Toast text={storage?.unprotected ?? ''} testid="unprotected-browser" />
-
-		<!--
-			8. Whether GitHub agrees with this Workspace (ADR-0038).
-
-			**Its own region, beside the save indicator and never inside it.** "Saved locally" is about
-			this machine and says nothing about the Remote; a scholar who reads the one as the other
-			publishes over a colleague's afternoon. They sit next to each other because they are the two
-			halves of "where is my work", and they are two controls because they have two remedies.
-
-			Only for an ordinary bound Workspace. A Review Workspace is never bound (ADR-0024) and an
-			unbound one has nothing to compare against — the Workspace menu already states "No Remote
-			yet, so nothing is published from this Workspace" in words, so a second empty control here
-			would be a gap that reads as a rendering fault.
-		-->
-		{#if storage !== null && storage.remote !== null && storage.review === null}
-			<RemoteStatus
-				state={storage.remoteStatusState}
-				onCheck={() => void storage.checkRemoteStatus()}
-				update={storage.updateProgress}
-				notice={storage.updateNotice}
-				failure={storage.updateFailure}
-				onUpdate={() => void storage.updateFromRemote()}
-				deletionPreview={storage.deletionPreview}
-				onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
-			/>
-		{/if}
 	{/if}
 {/snippet}
 
@@ -662,14 +792,6 @@
 />
 
 <!--
-	Outside the bar so its own layout does not have to make room for a modal, and mounted
-	unconditionally so the `<dialog>` element exists before `showModal()` is asked for.
--->
-{#if storage !== null}
-	<WorkspaceSettings bind:open={settingsOpen} {storage} />
-{/if}
-
-<!--
 	ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
 	dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on the
 	backup path where the button is in another component entirely.
@@ -684,12 +806,13 @@
 		bind:open={publishOpen}
 		bind:publishing
 		bind:progress={publishProgress}
+		restoreFocusTo={() => doorButton}
 	/>
 	<!--
-		The guided sequence, mounted **once** and here. Workspace settings' Remote section opens this
-		same dialog through `connectSequence` rather than mounting a second copy of it, which is what
-		keeps connecting one implementation with two entry points — and keeps the settings route from
-		stacking a third `<dialog>` over the two it is already inside.
+		The guided sequence, mounted **once** and here. Anything else that wants it — a refusal
+		offering the way forward, a link that landed on the page — opens this same dialog through
+		`connectSequence` rather than mounting a second copy, which is what keeps connecting one
+		implementation however it was reached.
 
 		`onpublish` hands off to the button beside it: the sequence ends where publishing begins, and
 		there is no second publish path.
@@ -700,3 +823,56 @@
 		onpublish={() => (publishOpen = true)}
 	/>
 {/if}
+
+<!--
+	The confirmation, naming the Workspace and what it weighs (ADR-0016).
+
+	⚠ **The two kinds differ in what deleting can honestly mean, and this says which one it is.** A
+	browser Workspace lives in storage this application owns, and deleting it takes every Project, Map
+	Image and Alignment with it. A folder is the author's own directory, in a place they chose, holding
+	files they may be syncing or committing — so what goes is this installation's record of it, and not
+	one byte of the work.
+-->
+<ModalDialog
+	bind:open={confirmOpen}
+	title={confirming?.kind === 'folder'
+		? 'Take this Workspace off the list?'
+		: 'Delete this Workspace?'}
+>
+	<p class="max-w-prose">
+		{#if confirming?.kind === 'folder'}
+			“{confirming?.label}” will be taken off this list, and this browser will let go of its hold on
+			the folder. The folder itself and every file in it stay exactly where they are. Choosing it
+			again brings it back.
+		{:else}
+			“{confirming?.label}” and everything in it — every Project, every Map Image, every Alignment —
+			will be deleted from this browser. This cannot be undone.
+		{/if}
+	</p>
+	<p class="mt-3 text-sm" data-testid="delete-workspace-size">
+		{#if confirming?.size}
+			It holds {confirming.size.files}
+			{confirming.size.files === 1 ? 'file' : 'files'}, {describeBytes(confirming.size.bytes)}.
+		{:else if confirming?.kind === 'folder'}
+			<!-- Reading it would need the browser's permission, and asking for a grant to answer a
+			     question the author has not yet agreed to act on is a prompt for nothing. -->
+			Ballastella cannot say what the folder holds without opening it, and it is not opening it.
+		{:else}
+			Working out what it holds…
+		{/if}
+	</p>
+	{#snippet actions()}
+		<button class="btn" onclick={() => (confirmOpen = false)}>Keep it</button>
+		<button
+			class="btn btn-warning"
+			data-testid="confirm-delete-workspace"
+			onclick={() => void confirmDelete()}
+		>
+			{#if confirming?.kind === 'folder'}
+				Take “{confirming?.label}” off the list
+			{:else}
+				Delete “{confirming?.label}”
+			{/if}
+		</button>
+	{/snippet}
+</ModalDialog>

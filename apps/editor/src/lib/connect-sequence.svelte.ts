@@ -1,11 +1,11 @@
 /**
  * Whether the guided sequence that puts a Workspace on GitHub is on screen.
  *
- * The sequence has two entry points — the navigation bar and the Workspace settings Remote section —
- * and exactly one implementation, which is the whole point of this module. The dialog is mounted once,
- * by the bar; anything else that wants it calls {@link ConnectSequence.start}. Two components each
- * mounting their own copy would be two sequences a scholar could be inside at the same time, and the
- * settings one would be a third `<dialog>` stacked over the two it is already inside.
+ * The bar's own control is the entry point, and there is exactly one implementation, which is the
+ * whole point of this module. The dialog is mounted once, by the bar; anything else that wants it —
+ * a refusal offering the way forward, a link that landed on the page — calls
+ * {@link ConnectSequence.start}. Two components each mounting their own copy would be two sequences
+ * a scholar could be inside at the same time.
  *
  * A module singleton in the shape `editHistorySlot` and `theme` established. Not a context: the bar is
  * mounted outside the layout's `children()`, so a context provided by a route is not in scope for it.

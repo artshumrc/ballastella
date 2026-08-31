@@ -272,6 +272,7 @@ export function assertReviewing(workspaceName: string, mark: ReviewMark | null):
 	if (mark !== null) return;
 	throw new ReviewWorkspaceError(
 		`“${workspaceName}” is one of your own Workspaces rather than a review copy, so it is not ` +
-			`discarded from here. Workspace settings is where a Workspace of your own is deleted.`
+			`discarded from here. The Workspace list on the bar is where a Workspace of your own is ` +
+			`deleted.`
 	);
 }

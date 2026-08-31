@@ -7,16 +7,21 @@ import {
 	assertNotReviewing as refuseInsideReview,
 	assertReviewing as refuseOutsideReview,
 	chooseWorkspaceFolder,
+	copyWorkspaceFiles,
 	openWorkspaceFromGitHub,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
 	exportWorkspaceTar,
-	forgetWorkspaceFolder,
+	forgetFolderWorkspace,
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
 	isFolderWorkspaceSupported,
+	listFolderWorkspaces,
+	openFolderWorkspace,
+	renameFolderWorkspace,
 	listOpfsWorkspaces,
+	migratePreExistingFolderWorkspace,
 	openOpfsWorkspace,
 	openProjectBundle,
 	allocateProjectImport,
@@ -37,8 +42,8 @@ import {
 	readReviewMark,
 	recoverProjectImport,
 	recoverWorkspaceUpdate,
-	rememberedFolderName,
 	reopenWorkspaceFolder,
+	resolveFolderWorkspace,
 	restoreWorkspaceTar,
 	reviewFromRemote,
 	FileSystemAccessProjectStore,
@@ -46,6 +51,8 @@ import {
 	Workspace,
 	workspaceSize,
 	requestPersistentStorage,
+	readPersistentStoragePermission,
+	readStoragePersisted,
 	browserJournalStorage,
 	discardDeletions,
 	discardJournal,
@@ -58,27 +65,36 @@ import {
 	journalledWorkspaces,
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
+	enableRemotePages,
 	browserCredentialStore,
 	clearRemoteBinding,
 	closedWhileReviewing,
 	describeRemote,
 	describeReviewSubject,
 	readRemoteRights,
+	readRemoteSharing,
 	GITHUB_API_ORIGIN,
 	GITHUB_APP,
 	SIGN_IN_STATE_KEY,
-	authorizeUrl,
 	clearGrantRecord,
+	clearRememberedGrant,
 	describeCallbackRefusal,
+	durableCredentialStorage,
 	exchangeAuthorizationCode,
 	isGitHubAppConfigured,
 	isGrantFresh,
 	newSignInState,
 	readGrantRecord,
+	readRememberSignIn,
+	readRememberedGrant,
 	refreshGitHubToken,
 	signInAgainMessage,
+	grantAccessUrl as composeGrantAccessUrl,
+	signInDepartureUrl,
 	verifySignInState,
 	writeGrantRecord,
+	writeRememberSignIn,
+	writeRememberedGrant,
 	GitHubCallbackRefusedError,
 	GitHubSignInError,
 	RemoteStatusChecker,
@@ -86,10 +102,12 @@ import {
 	type CloneReference,
 	type CredentialStorage,
 	type CredentialStore,
+	type DurableCredentialStorage,
 	type GitHubTokenGrant,
 	type SignInCallback,
 	type JournalStorage,
 	type ClosureFile,
+	type FolderWorkspaceRecord,
 	type OpenedBundle,
 	type ProjectImportSource,
 	type ProjectStore,
@@ -98,7 +116,9 @@ import {
 	type RemoteRelationship,
 	type SynchronizationBaseline,
 	type RemoteReference,
+	type RemotePagesOutcome,
 	type RemoteRights,
+	type RemoteSharing,
 	type RemoteStatusState,
 	type RestoreDestination,
 	type ReviewDestination,
@@ -106,7 +126,7 @@ import {
 	type ReviewOrigin,
 	type ReviewReference,
 	type ReviewedProject,
-	type StoragePersistence,
+	type StorageAnswers,
 	type TransferProgressListener,
 	type UpdateDeletionPreview,
 	type WorkspaceBackup,
@@ -117,8 +137,10 @@ import {
 import {
 	EditorSession,
 	folderWorkspaceKey,
+	folderWorkspaceLabel,
 	opfsWorkspaceKey,
 	trackLocalChanges,
+	workspaceKeyLabel,
 	type TransferState
 } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
@@ -155,6 +177,11 @@ const SIGN_IN_RETURN_KEY = 'ballastella.github-sign-in-return';
  * navigation to the app's own resolved root, which normalises a pathname a deployment may well have
  * been reached by (`…/editor/index.html` becomes `…/editor/`). So the string that went out is kept,
  * and the string that went out is what comes back.
+ *
+ * ⚠ **An install-first departure sends no `redirect_uri` at all** — GitHub's install screen takes
+ * none, and comes back to the callback registered on the App. The exchange still names this one,
+ * which is the same address: the App's registered callback *is* where this page is served from, and
+ * a deployment where it is not has a sign-in that cannot complete either way.
  */
 const SIGN_IN_REDIRECT_KEY = 'ballastella.github-sign-in-redirect';
 
@@ -186,6 +213,33 @@ const sealedSignInStorage = (reviewing: () => boolean): CredentialStorage => ({
 	},
 	removeItem: (key) => {
 		if (!reviewing()) signInStorage().removeItem(key);
+	}
+});
+
+/**
+ * Where the renewable half of a sign-in waits past the tab, shut until the author has asked for it.
+ *
+ * ⚠ **The preference is read here rather than branched on at each caller.** Written the other way
+ * this would be an `if (remembering)` beside every write of a grant, which is the shape ADR-0041
+ * forbids above the credential interface — and the shape that goes wrong the first time somebody
+ * adds a sixth call site. Shut, this reads and writes nothing, so the durable record simply never
+ * comes into existence and the default stays exactly what it was.
+ *
+ * ⚠ **Forgetting is not gated on the preference**, because unticking has to be able to take away
+ * what ticking put there. It *is* gated on the review seal, for the reason the grant record beside
+ * it is: putting somebody else's submission down must not sign the reader out of their own account.
+ */
+const rememberedGrantStorage = (
+	asked: () => boolean,
+	reviewing: () => boolean,
+	inner: CredentialStorage
+): CredentialStorage => ({
+	getItem: (key) => (asked() && !reviewing() ? inner.getItem(key) : null),
+	setItem: (key, value) => {
+		if (asked() && !reviewing()) inner.setItem(key, value);
+	},
+	removeItem: (key) => {
+		if (!reviewing()) inner.removeItem(key);
 	}
 });
 
@@ -245,8 +299,7 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
  * ⚠ **Two members, and a Remote is not a third** (ADR-0032). A Workspace bound to a repository is
  * still browser-backed or folder-backed; the binding is orthogonal and lives in a document at the
  * Workspace root. A third member would mean a new case in `#adopt`, the journal keys, the switcher,
- * `reopenable`, `canChooseFolder`, and `discard` — six sites where a mistake in the journal key is
- * silent.
+ * `canChooseFolder`, and `discard` — five sites where a mistake in the journal key is silent.
  *
  * **A value rather than only a type, so the rule is assertable.** A union written out as a type
  * alias cannot be checked against itself — a test naming its two members is a test of what the test
@@ -256,6 +309,30 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
 export const WORKSPACE_BACKINGS = ['browser', 'folder'] as const;
 
 export type WorkspaceBacking = (typeof WORKSPACE_BACKINGS)[number];
+
+/**
+ * One row of the roster: a Workspace this installation has, of either kind (ADR-0042).
+ *
+ * ⚠ **The backing is a property of the *Workspace*, not of the application.** A folder used to be a
+ * mode the whole app was in, which is what made a folder merely remembered from a previous visit
+ * into a state every Project in every Workspace was blocked by. A folder that is not open is simply
+ * not the one that is open, which is what every other row here already means.
+ *
+ * {@link key} is the Workspace key its five durable record families hang off — `opfs:<name>` or
+ * `folder:<reference>` — so it identifies the row without any part of the interface having to hold
+ * an opinion about which kind it is looking at.
+ */
+export type WorkspaceEntry = {
+	readonly key: string;
+	/** The name its author knows it by. A folder's directory name until they give it another. */
+	readonly label: string;
+	readonly kind: WorkspaceBacking;
+	/** The directory's own name, shown beneath the label. `''` for a browser Workspace. */
+	readonly folderName: string;
+	readonly isOpen: boolean;
+	/** Somebody else's work, held in a Workspace built to be thrown away (ADR-0024). */
+	readonly isReviewCopy: boolean;
+};
 
 /**
  * The ordinary Workspace an Import offer named when it was opened (ADR-0037).
@@ -348,7 +425,17 @@ const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 const OWN_WORKSPACE_KEY = 'ballastella.own-workspace';
 
 /**
- * The **folder** the user's own Workspace was in, or `''` when it was browser storage.
+ * Which **folder Workspace** the user's own work is in, by its minted reference, or `''` when it is
+ * browser storage.
+ *
+ * ⚠ **The reference and never the folder's name** (ADR-0042). A name identifies no folder — two may
+ * share one — and the pre-plural slot `reopenWorkspaceFolder` reads holds whichever folder was picked
+ * *last*, which is not "the author's folder Workspace" once there can be more than one: pick a second
+ * folder, open the first from its row, and an exit that reopened through that slot would hand back the
+ * second, under a banner announcing they were back in their own. Where no record could be kept — no
+ * IndexedDB — this holds the folder's name instead, which is the one case where that slot is the only
+ * handle there is and the one where there can be only one folder anyway. A value an earlier build
+ * wrote is such a name and takes the same path.
  *
  * ⚠ **A third key, because a folder Workspace is one of the user's own and has no OPFS name.** The
  * first cut recorded "own" only for browser-backed Workspaces, so a scholar whose Workspace is a
@@ -363,6 +450,44 @@ const OWN_WORKSPACE_KEY = 'ballastella.own-workspace';
  * may be refused.
  */
 const OWN_FOLDER_KEY = 'ballastella.own-folder';
+
+/**
+ * What a browser-storage Workspace is **called**, as against what its directory is named.
+ *
+ * ⚠ **The directory stays exactly where it is when a Workspace is renamed**, for the reason
+ * `Workspace.renameProject` gives about a Project: identity is the directory name, never the display
+ * name, so two Workspaces may share a label, a rename can never collide, and no byte of a scholar's
+ * work moves — which a rename that renamed the directory could not promise, because OPFS has no
+ * directory move and the alternative is copying a pyramid.
+ *
+ * `localStorage` rather than the installation database, because this is a string of a few dozen
+ * bytes read on every listing and IndexedDB would put a round trip in front of the switcher. A
+ * folder Workspace's label is not kept here: it lives in that Workspace's own record beside its
+ * reference (ADR-0042), because a folder that is not open cannot be read at all — there is no grant
+ * — so its name has to be installation-local, while a browser Workspace's directory is always
+ * readable and is the thing the label is *about*.
+ *
+ * Swept when the Workspace is deleted, for the reuse hazard every other record keyed by a Workspace
+ * name carries: left behind, it is a name standing ready for whatever Workspace is made next under
+ * the directory name this one had.
+ */
+const WORKSPACE_LABEL_PREFIX = 'ballastella.workspace-label.';
+
+/** The label an author gave a browser Workspace, or `''` where they have given it none. */
+const rememberedWorkspaceLabel = (name: string): string =>
+	remembered(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`);
+
+function rememberWorkspaceLabel(name: string, label: string): void {
+	write(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`, label);
+}
+
+function forgetWorkspaceLabel(name: string): void {
+	try {
+		localStorage.removeItem(`${WORKSPACE_LABEL_PREFIX}${encodeURIComponent(name)}`);
+	} catch {
+		// A browser refusing storage never kept one to remove.
+	}
+}
 
 /** Read one remembered name. Never throws: private mode has no storage. */
 function remembered(key: string): string {
@@ -388,9 +513,9 @@ function rememberWorkspaceName(name: string): void {
 }
 
 /** Record where "back to my own Workspace" goes: a folder if it was one, otherwise a named one. */
-function rememberOwnWorkspace(name: string, folderName: string): void {
-	if (!folderName) write(OWN_WORKSPACE_KEY, name);
-	write(OWN_FOLDER_KEY, folderName);
+function rememberOwnWorkspace(name: string, folder: string): void {
+	if (!folder) write(OWN_WORKSPACE_KEY, name);
+	write(OWN_FOLDER_KEY, folder);
 }
 
 function write(key: string, value: string): void {
@@ -401,6 +526,42 @@ function write(key: string, value: string): void {
 		// next time. Failing the switch over it would be refusing the feature to keep a bookmark.
 	}
 }
+
+/** The folder a Workspace is being adopted from, as this installation identifies and shows it. */
+interface AdoptedFolder {
+	/** Its minted reference, or `''` where no record could be kept. See {@link folderKeyOf}. */
+	readonly folderReference: string;
+	/** The author's own name for the Workspace, for the sentences that name it. */
+	readonly label: string;
+	/** The directory's own name, shown beneath the label. Never identity. */
+	readonly folderName: string;
+}
+
+/**
+ * How a folder Workspace's five durable record families are keyed.
+ *
+ * Its minted reference (ADR-0042) — or, where this installation could keep no record for it, the
+ * directory's name, which is exactly what the build that allowed one folder used. That fallback is a
+ * browser with no IndexedDB or a store that refused, and it restores the old collision rather than
+ * inventing a new failure: the Workspace opens, its journal is found, and the next visit records a
+ * reference if it can.
+ */
+const folderKeyOf = (folder: { folderReference: string; folderName: string }): string =>
+	folderWorkspaceKey(folder.folderReference || folder.folderName);
+
+/**
+ * The browser-storage Workspace a roster key names, or `null` when it names a folder.
+ *
+ * Derived from the same two constructors the keys are built by, so that no caller can hold a key and
+ * a contradicting opinion about which kind it is — the one way a row could act on the wrong
+ * Workspace.
+ */
+const namedWorkspaceOf = (key: string): string | null =>
+	key.startsWith('opfs:') ? key.slice('opfs:'.length) : null;
+
+/** The folder reference a roster key names. Meaningless for a key {@link namedWorkspaceOf} answers. */
+const folderReferenceOf = (key: string): string =>
+	key.startsWith('folder:') ? key.slice('folder:'.length) : '';
 
 /**
  * Which Workspace is open and the whole of moving between them — across backends, and across the
@@ -425,8 +586,25 @@ export class WorkspaceStorage {
 	/** The live session. Replaced, never repointed, when the Workspace changes. */
 	session = $state<EditorSession>(EditorSession.opfs(rememberedWorkspaceName()));
 	backing = $state<WorkspaceBacking>('browser');
-	/** The folder's name while {@link backing} is `folder`. */
+	/** The folder's name while {@link backing} is `folder`. Shown; never identity. */
 	folderName = $state('');
+	/**
+	 * The open folder Workspace's minted reference, which is what its durable records are keyed by
+	 * (ADR-0042).
+	 *
+	 * `''` while the Workspace is browser-backed, and also for a folder this installation could not
+	 * keep a record for — no IndexedDB, or a store that refused. That folder is keyed by its
+	 * directory's name, exactly as the single-folder build keyed the one folder it allowed.
+	 */
+	folderReference = $state('');
+	/**
+	 * Every folder Workspace this installation has a record of, so a key can be shown as a name.
+	 *
+	 * ⚠ **Not a roster.** Nothing here lists or opens them; what needs this is
+	 * {@link workspaceLabel}, because a minted reference is unreadable and the two places a Workspace
+	 * key reaches the screen would otherwise show one.
+	 */
+	folderWorkspaces = $state<readonly FolderWorkspaceRecord[]>([]);
 	/**
 	 * The named browser-storage Workspace that is open, or was last open.
 	 *
@@ -435,8 +613,16 @@ export class WorkspaceStorage {
 	 * somebody else's work appearing where their own had been.
 	 */
 	workspaceName = $state(rememberedWorkspaceName());
-	/** Every named Workspace in browser storage, for the bar's switcher. */
+	/** Every named Workspace in browser storage, for the roster. */
 	workspaces = $state<string[]>([]);
+	/**
+	 * What their authors call them, for the browser Workspaces that have been renamed.
+	 *
+	 * Keyed by directory name and holding only the ones with a label of their own, so a Workspace
+	 * nobody has renamed answers with its directory name and there is nothing to keep in step. See
+	 * {@link WORKSPACE_LABEL_PREFIX} for why a rename does not move the directory.
+	 */
+	workspaceLabels = $state<Readonly<Record<string, string>>>({});
 	/**
 	 * The mark on the Workspace that is open, or `null` when it is one of the user's own (ADR-0024).
 	 *
@@ -527,6 +713,15 @@ export class WorkspaceStorage {
 	 */
 	signedIn = $state(false);
 	/**
+	 * Whether the author has asked this machine to keep their sign-in past the tab (ADR-0041).
+	 *
+	 * ⚠ **Unticked until somebody ticks it, and installation-local rather than per-Workspace.** The
+	 * beneficiary of the original rule — a scholar on a shared or lab machine — keeps the old
+	 * behaviour untouched, because a durable credential is never a default somebody else chose.
+	 * Read from the database on {@link start}, so the first paint is the safe answer either way.
+	 */
+	rememberSignIn = $state(false);
+	/**
 	 * The Workspace of the user's own to go back to, which is the banner's first exit.
 	 *
 	 * Never a Review Workspace — see {@link OWN_WORKSPACE_KEY}. An exit that led into another review
@@ -534,12 +729,13 @@ export class WorkspaceStorage {
 	 */
 	ownWorkspaceName = $state(rememberedOwnWorkspaceName());
 	/**
-	 * The folder the user's own Workspace is in, or `''` when it is browser storage.
+	 * Which folder Workspace the user's own work is in, or `''` when it is browser storage.
 	 *
 	 * See {@link OWN_FOLDER_KEY}. This is what makes the banner's first exit lead back to a folder
-	 * Workspace rather than into an OPFS one the user has never seen.
+	 * Workspace rather than into an OPFS one the user has never seen, and to *that* folder Workspace
+	 * rather than to whichever one was picked most recently.
 	 */
-	ownFolderName = $state(remembered(OWN_FOLDER_KEY));
+	ownFolder = $state(remembered(OWN_FOLDER_KEY));
 	/**
 	 * A bundle being read, announced across the session swap that finishes it.
 	 *
@@ -554,21 +750,18 @@ export class WorkspaceStorage {
 	 */
 	transfer = $state<TransferState | null>(null);
 	/**
-	 * What the browser said when asked to keep this origin's storage, or `null` before it answered.
+	 * What this browser has answered about keeping this origin's storage, or `null` before it answered.
 	 *
-	 * Recorded rather than acted on: nothing here changes behaviour by it. It is reported in Workspace
-	 * settings because a refusal means everything the user has is evictable under disk pressure
-	 * (ADR-0024), and they are the only one who can do anything about it.
-	 */
-	persistence = $state<StoragePersistence | null>(null);
-	/**
-	 * A folder from a previous visit, named so the offer to reopen it can name it too.
+	 * The browser's half of a {@link StorageDurability}: Workspace Home adds the two things the
+	 * application knows and the browser does not — whether Ballastella is installed, and whether File
+	 * System Access exists — and derives the one sentence a scholar is told (ADR-0042).
 	 *
-	 * Only an offer. Reopening needs `requestPermission()`, which needs transient user activation,
-	 * so it must come from a click or a keypress — called automatically on load it fails silently
-	 * and the app looks as though it has lost the folder (ADR-0012).
+	 * Recorded rather than acted on: nothing here changes behaviour by it. It is *said*, because
+	 * without the grant everything the author has is evictable under disk pressure (ADR-0024), and on
+	 * WebKit it is deleted outright after seven days without a visit (ADR-0001's amendment) — and they
+	 * are the only one who can do anything about either.
 	 */
-	reopenable = $state<string | null>(null);
+	storageAnswers = $state<StorageAnswers | null>(null);
 	/** Whether this browser can put a Workspace in a folder at all. */
 	canChooseFolder = $state(false);
 	/**
@@ -648,12 +841,18 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **The raw store, kept because the handle is the only durable name a folder has.** What the
 	 * session holds is that store wrapped in the local-change index, and a wrapper has no `folder` on
-	 * it; what {@link reopenable} holds is a *name*, which two folders may share and which survives a
-	 * folder being deleted and another made in its place. A Review Workspace opened from a folder has
-	 * to be able to ask for that exact folder again (ADR-0037), and this is what it retains a grant
-	 * from.
+	 * it. A folder's *name* is no substitute: two folders may share one, and it survives the folder
+	 * being deleted and another made in its place. A Review Workspace opened from a folder has to be
+	 * able to ask for that exact folder again (ADR-0037), and this is what it retains a grant from.
 	 */
 	#folderStore: FileSystemAccessProjectStore | null = null;
+	/**
+	 * The load-time pass that gives the pre-plural folder a reference and lists what is recorded.
+	 *
+	 * Awaited before any folder is adopted, so that picking the remembered folder before the pass has
+	 * finished cannot mint a second reference for the very folder it is about to mint one for.
+	 */
+	#foldersRecorded: Promise<void> = Promise.resolve();
 	/**
 	 * The Remote Status checker of the Workspace that is open, or `null` while nothing is bound.
 	 *
@@ -703,6 +902,20 @@ export class WorkspaceStorage {
 	);
 	/** The grant record's storage, sealed by the same question — see {@link sealedSignInStorage}. */
 	readonly #grants: CredentialStorage = sealedSignInStorage(() => this.review !== null);
+	/**
+	 * The installation-local database a sign-in is kept in when the author has asked for one to be.
+	 *
+	 * Opened here so the preference and the remembered half are read from one hydration rather than
+	 * two, and held raw: {@link #remembered} is the sealed view the grant goes through, and the
+	 * preference itself is not a credential and is read and written directly.
+	 */
+	readonly #durable: DurableCredentialStorage = durableCredentialStorage();
+	/** The remembered half of a sign-in, shut until the author asks — see {@link rememberedGrantStorage}. */
+	readonly #remembered: CredentialStorage = rememberedGrantStorage(
+		() => this.rememberSignIn,
+		() => this.review !== null,
+		this.#durable
+	);
 	/**
 	 * Resolves once the arriving Workspace's journalled edits have been put back.
 	 *
@@ -889,7 +1102,7 @@ export class WorkspaceStorage {
 				// only ever runs from something the user did.
 				if (this.review === null) {
 					this.ownWorkspaceName = this.workspaceName;
-					this.ownFolderName = '';
+					this.ownFolder = '';
 				}
 				await this.#replayAndReport();
 				return true;
@@ -905,23 +1118,25 @@ export class WorkspaceStorage {
 				return this.refreshWorkspaces();
 			})
 			.catch(() => undefined);
-		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
-		// waiting on: Chromium answers from its own heuristics and Firefox may not answer at all until a
-		// permission prompt is dealt with, and neither is a reason to hold up opening a Workspace.
+		// The sign-in this machine was asked to keep, put back. Fire and forget: it reaches the broker,
+		// and nothing a scholar is looking at may wait on a network request. It writes nothing at all on
+		// an installation that has never ticked the preference, which is what keeps ADR-0010's "opening
+		// a Project modifies nothing" true of the default.
+		void this.#restoreRememberedSignIn().catch(() => undefined);
+		// What this browser has promised, read before anything is asked of it, so Workspace Home has a
+		// sentence to show on the browsers whose answer is that no grant is reachable at all.
+		void this.#readStorageAnswers();
+		// ADR-0024's latent data-loss fix, and separately: this *asks*, where the read above does not.
+		// Fire and forget, and never awaited by anything the user is waiting on — Chromium answers from
+		// its own heuristics and Firefox does not settle this at all without a user gesture, and neither
+		// is a reason to hold up opening a Workspace. Whatever it changed is read back after it lands,
+		// which is how Chromium's silent grant reaches the screen.
 		void requestPersistentStorage()
-			.then((answer) => {
-				this.persistence = answer;
-			})
+			.then(() => this.#readStorageAnswers())
 			.catch(() => undefined);
-		if (this.canChooseFolder) {
-			// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission*
-			// that needs the gesture.
-			void rememberedFolderName()
-				.then((name) => {
-					this.reopenable = name;
-				})
-				.catch(() => undefined);
-		}
+		// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission* that
+		// needs the gesture, and nothing on this path asks for one.
+		if (this.canChooseFolder) this.#foldersRecorded = this.#recordFolderWorkspaces();
 		return () => {
 			window.removeEventListener('focus', onFocus);
 			this.#statusChecker?.close();
@@ -931,6 +1146,46 @@ export class WorkspaceStorage {
 		};
 	}
 
+	/**
+	 * Read what this browser has promised about keeping the work, asking it for nothing.
+	 *
+	 * Cheap, safe on load, and repeated after anything that could have changed the answer: a
+	 * permission query prompts for nothing, and `persisted()` is a question rather than a request.
+	 */
+	async #readStorageAnswers(): Promise<void> {
+		const [persisted, permission] = await Promise.all([
+			readStoragePersisted(),
+			readPersistentStoragePermission()
+		]);
+		this.storageAnswers = {
+			persisted,
+			permission,
+			// A page the browser will not give `localStorage` to is a session that keeps nothing — the
+			// one form of a private window a browser will admit to, and already the signal
+			// {@link unprotected} is drawn from.
+			ephemeral: this.#journalStorage === null
+		};
+	}
+
+	/**
+	 * Ask this browser to keep this origin's storage, because the author pressed for it.
+	 *
+	 * ⚠ **Called from a user gesture and from nowhere else.** `persist()` is what opens Firefox's
+	 * permission prompt, and Firefox does not settle the promise at all without one — which is why
+	 * the load-time read above asks nothing, and why this exists as a separate act with a button in
+	 * front of it. Whatever the browser decided is read back, so the sentence on screen changes to
+	 * what is now true.
+	 */
+	async askToKeepStorage(): Promise<void> {
+		try {
+			await navigator.storage?.persist?.();
+		} catch {
+			// A browser that has the method and throws from it has decided nothing; the re-read below
+			// reports whatever is actually true rather than inventing a refusal.
+		}
+		await this.#readStorageAnswers();
+	}
+
 	/** Pick a folder. Also the locate-again action for a folder that has gone away (ADR-0008). */
 	async chooseFolder(): Promise<void> {
 		this.problem = '';
@@ -938,51 +1193,83 @@ export class WorkspaceStorage {
 			const store = await chooseWorkspaceFolder();
 			// The picker was closed without choosing. Nothing happened, so nothing is said.
 			if (!store) return;
-			this.#folderStore = store;
-			await this.#adopt(store, 'folder', store.folderName);
-		} catch (cause) {
-			this.problem = describeFolderProblem(cause);
-		}
-	}
-
-	/** Reopen the folder from last visit. Must be called from a user gesture. */
-	async reopenFolder(): Promise<void> {
-		this.problem = '';
-		try {
-			const store = await reopenWorkspaceFolder();
-			if (!store) {
-				this.reopenable = null;
-				return;
-			}
-			this.#folderStore = store;
-			await this.#adopt(store, 'folder', store.folderName);
+			await this.#adoptFolder(store);
 		} catch (cause) {
 			this.problem = describeFolderProblem(cause);
 		}
 	}
 
 	/**
-	 * Go back to browser-managed storage.
+	 * Reopen the folder Workspace the author's own work is in. Must be called from a user gesture.
 	 *
-	 * The folder is untouched and every Project in it stays where it is; so does every Project in
-	 * OPFS, which is why trying the folder option and changing one's mind costs nothing.
+	 * ⚠ **By {@link ownFolder}'s reference, and by the pre-plural slot only where there is no
+	 * reference to go on** (ADR-0042). `reopenWorkspaceFolder` answers with whichever folder was last
+	 * picked, so on an installation with two folder Workspaces it is a different Workspace than the
+	 * one the author left — and the fallback is reached only where no record could be kept, which is
+	 * also where there can be only one folder.
 	 *
-	 * **Whether the handle is dropped depends on which of two buttons this is.** Beside "Choose
-	 * Workspace folder…" it is a deliberate switch, and dropping it is right: continuing to offer a
-	 * folder the user has just moved away from is nagging, and choosing it again brings it back in one
-	 * gesture. Beside "Locate Workspace folder again", when the Workspace cannot be reached, it is the
-	 * escape hatch — a user whose external drive is unplugged clicking it to keep working — and
-	 * dropping the grant there costs them a trip back through the operating system's dialog for a
-	 * folder they never gave up. Same button, two meanings, told apart by whether the Workspace they
-	 * are leaving was reachable.
+	 * A declined grant is a refusal about *this* folder and not a reason to open another, so it lands
+	 * in {@link problem} rather than falling through.
 	 */
-	async useBrowserStorage(): Promise<void> {
+	async #reopenOwnFolder(): Promise<void> {
 		this.problem = '';
-		if (this.session.status !== 'unreachable') {
-			await forgetWorkspaceFolder().catch(() => undefined);
-			this.reopenable = null;
+		try {
+			const store = (await openFolderWorkspace(this.ownFolder)) ?? (await reopenWorkspaceFolder());
+			if (!store) return;
+			await this.#adoptFolder(store);
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
 		}
-		await this.openWorkspace(this.workspaceName);
+	}
+
+	/**
+	 * Adopt a granted folder as the Workspace, under the identity this installation records for it.
+	 *
+	 * Every folder arrives through here, so the reference the journal, the deletions, the manifest,
+	 * the Remote binding and the change index are keyed by is resolved in exactly one place.
+	 */
+	async #adoptFolder(store: FileSystemAccessProjectStore): Promise<void> {
+		const folder = await this.#identify(store);
+		this.#folderStore = store;
+		await this.#adopt(store, folder);
+		await this.#refreshFolderWorkspaces();
+	}
+
+	/**
+	 * Which folder Workspace a granted folder is, by its record rather than by its name.
+	 *
+	 * A folder with no record — no IndexedDB, or a store that refused — is named by its directory, and
+	 * {@link folderKeyOf} says what that costs.
+	 */
+	async #identify(store: FileSystemAccessProjectStore): Promise<AdoptedFolder> {
+		await this.#foldersRecorded;
+		const record = await resolveFolderWorkspace(store.folder).catch(() => null);
+		return {
+			folderReference: record?.reference ?? '',
+			label: record?.label ?? store.folderName,
+			// The folder's *current* name, because a folder that has been renamed is still the folder
+			// the grant names.
+			folderName: store.folderName
+		};
+	}
+
+	/**
+	 * Give the one folder a pre-plural installation could have a reference of its own, once.
+	 *
+	 * On load, before any gesture could pick a folder, because the migration's trigger is the folder
+	 * in the single slot and a folder picked first could share its name without being it.
+	 */
+	async #recordFolderWorkspaces(): Promise<void> {
+		await migratePreExistingFolderWorkspace({
+			journalStorage: this.#journalStorage,
+			metadataStorage: this.#metadataStorage,
+			workspaceKey: folderWorkspaceKey
+		}).catch(() => null);
+		await this.#refreshFolderWorkspaces();
+	}
+
+	async #refreshFolderWorkspaces(): Promise<void> {
+		this.folderWorkspaces = await listFolderWorkspaces().catch(() => this.folderWorkspaces);
 	}
 
 	/**
@@ -1028,6 +1315,13 @@ export class WorkspaceStorage {
 				this.workspaces.map(async (name) => ((await isReviewCopy(name)) ? name : ''))
 			)
 		).filter((name) => name !== '');
+		// Synchronous, out of `localStorage`, and therefore in this pass rather than in one of its own:
+		// a label is a few dozen bytes and there is nothing to wait for.
+		this.workspaceLabels = Object.fromEntries(
+			this.workspaces
+				.map((name) => [name, rememberedWorkspaceLabel(name)] as const)
+				.filter(([, label]) => label !== '')
+		);
 		// Here rather than beside the replay, because "which Workspaces exist" is the answer the
 		// orphan check is *against* — computed before this listing it reported every Workspace but
 		// the open one as orphaned, which is a warning about nothing on every first load.
@@ -1062,7 +1356,7 @@ export class WorkspaceStorage {
 		if (this.isOpen(name)) return;
 		this.problem = '';
 		const opened = await ensureOpfsWorkspace(name);
-		await this.#adopt(openOpfsWorkspace(opened), 'browser', '', opened);
+		await this.#adopt(openOpfsWorkspace(opened), null, opened);
 	}
 
 	/**
@@ -1087,20 +1381,263 @@ export class WorkspaceStorage {
 		// Best-effort: a Workspace that is still gone stays gone, and the fresh session's own listing is
 		// what says so — in the words ADR-0008 wants, rather than as a rejection from a click handler.
 		await ensureOpfsWorkspace(name).catch(() => undefined);
-		await this.#adopt(openOpfsWorkspace(name), 'browser', '', name);
+		await this.#adopt(openOpfsWorkspace(name), null, name);
 		await this.refreshWorkspaces();
 	}
 
-	/** Make a Workspace and switch into it. Answers with the name it really got. */
+	/** Make a browser-storage Workspace and switch into it. Answers with the name it really got. */
 	async createWorkspace(displayName: string): Promise<string> {
 		const name = await createOpfsWorkspace(displayName);
 		await this.openWorkspace(name);
 		return name;
 	}
 
+	/**
+	 * Make a Workspace in a folder the author picks, and switch into it.
+	 *
+	 * **Must be called from a click or a keypress**: the picker needs transient user activation. The
+	 * name the author typed becomes the Workspace's label, over the directory's own name — which is
+	 * what {@link renameEntry} would give it a moment later anyway, and asking twice for one name
+	 * would be asking twice for one name.
+	 *
+	 * `''` when the picker was closed without choosing, which is a cancelled gesture rather than a
+	 * failure and needs no message. A refusal lands in {@link problem}, as every other one does.
+	 */
+	async createFolderWorkspace(displayName: string): Promise<string> {
+		this.problem = '';
+		try {
+			const store = await chooseWorkspaceFolder();
+			if (!store) return '';
+			await this.#adoptFolder(store);
+			const wanted = displayName.trim();
+			if (wanted !== '' && this.folderReference !== '') {
+				await this.renameEntry(folderKeyOf(this), wanted);
+			}
+			return this.name;
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
+			return '';
+		}
+	}
+
+	/**
+	 * Move the open browser Workspace into a folder the author picks, and switch into it.
+	 *
+	 * ⚠ **The only way work that already exists reaches a folder on disk.** {@link restoreFrom} and
+	 * {@link openFromGitHub} both always make a browser Workspace, and a folder Workspace can
+	 * otherwise be made only empty and new — so without this a scholar's existing Projects could
+	 * never become files they can see (ADR-0042).
+	 *
+	 * **Nothing is deleted and nothing is overwritten.** The folder has to be empty, which
+	 * `copyWorkspaceFiles` refuses without; the Workspace this copies *from* is left exactly as it
+	 * was and stays on the roster, so an author who looks in the folder and finds their work there
+	 * deletes the browser copy themselves, from the row it is listed on. A move that removed the
+	 * author's only copy on the strength of a walk that had just finished is the loss ADR-0024 exists
+	 * to rule out.
+	 *
+	 * **Must be called from a click or a keypress**: the picker needs transient user activation.
+	 *
+	 * **Flushed first**, for {@link backUp}'s reason: a debounced rename still in the `Autosave`
+	 * queue is work the author has done, and a copy taken around it arrives in the folder missing the
+	 * last thing they typed.
+	 *
+	 * `''` when the picker was closed without choosing, which is a cancelled gesture rather than a
+	 * failure and needs no message.
+	 *
+	 * @throws Error whose message is for the author to read: a review copy, a Workspace that has not
+	 *   opened, a folder that already holds files, or a folder the browser would not give us.
+	 */
+	async moveIntoFolder(onProgress?: TransferProgressListener): Promise<string> {
+		this.assertNotReviewing('moved into a folder');
+		this.assertRecovered('moved into a folder');
+		this.problem = '';
+		await this.session.flush().catch(() => undefined);
+
+		const moving = this.name;
+		const store = await chooseWorkspaceFolder().catch((cause: unknown) => {
+			throw new Error(describeFolderProblem(cause));
+		});
+		if (!store) return '';
+
+		const copied = await copyWorkspaceFiles({
+			from: this.session.store,
+			to: store,
+			workspaceName: moving,
+			onProgress
+		});
+		await this.#adoptFolder(store);
+		return (
+			`“${moving}” is now in the folder “${store.folderName}”, as ` +
+			`${copied.files} ${copied.files === 1 ? 'file' : 'files'} you can see. ` +
+			`The copy in browser storage is untouched and still on the Workspace list, so look in the ` +
+			`folder first and delete it from there when you are satisfied.`
+		);
+	}
+
 	/** Whether `name` is the browser-storage Workspace **this tab** currently has open. */
 	isOpen(name: string): boolean {
 		return this.backing === 'browser' && name === this.workspaceName;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE ROSTER (ADR-0042)
+	//
+	// Every Workspace this installation has, of either kind, in one list — each one opened, renamed
+	// or deleted from its own row. A folder is a kind of Workspace rather than a mode the
+	// application is in, which is what makes a folder from a previous visit an ordinary row instead
+	// of a state that blocked every Project in every Workspace.
+
+	/**
+	 * Every Workspace there is, browser-backed and folder-backed together.
+	 *
+	 * Browser Workspaces first because they are always openable — a folder costs the browser's own
+	 * permission gesture — and in the order the OPFS listing gives, which is the order the switcher
+	 * has always had.
+	 *
+	 * ⚠ **An open folder with no record of its own still gets a row.** That is a browser with no
+	 * IndexedDB, or a store that refused, so `folderWorkspaces` is empty while a folder Workspace is
+	 * open; without this the roster would say the author is in no Workspace at all. It is keyed by
+	 * the directory's name, exactly as {@link folderKeyOf} keys everything else about it.
+	 */
+	get workspaceEntries(): readonly WorkspaceEntry[] {
+		const browser: WorkspaceEntry[] = this.workspaces.map((name) => ({
+			key: opfsWorkspaceKey(name),
+			label: this.workspaceLabels[name] || name,
+			kind: 'browser',
+			folderName: '',
+			isOpen: this.isOpen(name),
+			isReviewCopy: this.reviewWorkspaces.includes(name)
+		}));
+		const folders: WorkspaceEntry[] = this.folderWorkspaces.map((record) => ({
+			key: folderWorkspaceKey(record.reference),
+			label: record.label,
+			kind: 'folder',
+			folderName: record.folderName,
+			isOpen: this.backing === 'folder' && this.folderReference === record.reference,
+			// A bundle only ever opens into browser storage, so there is no such mark to read here.
+			isReviewCopy: false
+		}));
+		const unrecorded: WorkspaceEntry[] =
+			this.backing === 'folder' && this.folderReference === ''
+				? [
+						{
+							key: folderKeyOf(this),
+							label: this.folderName || 'Workspace folder',
+							kind: 'folder',
+							folderName: this.folderName,
+							isOpen: true,
+							isReviewCopy: false
+						}
+					]
+				: [];
+		return [...browser, ...folders, ...unrecorded];
+	}
+
+	/**
+	 * Open the Workspace a row is about.
+	 *
+	 * **Must be called from a click or a keypress.** Opening a folder Workspace costs one gesture,
+	 * because a browser grants a directory only when the user asks and guessing would be a silent
+	 * switch into somebody else's files (ADR-0042). A browser Workspace needs no permission and this
+	 * is the ordinary switch.
+	 *
+	 * A row whose record has gone — another tab forgot it — says so rather than doing nothing, in
+	 * {@link problem}, which is where every other folder refusal is already reported.
+	 */
+	async openEntry(key: string): Promise<void> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			await this.openWorkspace(named);
+			return;
+		}
+		this.problem = '';
+		try {
+			const store = await openFolderWorkspace(folderReferenceOf(key));
+			if (store === null) {
+				this.problem =
+					'This computer no longer holds a grant for that folder, so it cannot be opened from the ' +
+					'list. Choose it again to put it back.';
+				await this.#refreshFolderWorkspaces();
+				return;
+			}
+			await this.#adoptFolder(store);
+		} catch (cause) {
+			this.problem = describeFolderProblem(cause);
+		}
+	}
+
+	/**
+	 * Give the Workspace a row is about the name its author wants it listed under.
+	 *
+	 * ⚠ **Nothing on disk moves, in either kind.** A browser Workspace's directory keeps the name it
+	 * was made with and a folder keeps the name the operating system gave it; what changes is the
+	 * label the roster shows. This is `renameProject`'s bargain one level up — identity is never the
+	 * display name — and the alternative for a browser Workspace is copying every byte of a Workspace
+	 * that may hold a tile pyramid, on the author's only copy of their work.
+	 *
+	 * Answers whether the new name stuck. A browser that will keep no record is the one case where it
+	 * does not, and the caller says so rather than showing a name the next visit will not have.
+	 */
+	async renameEntry(key: string, label: string): Promise<boolean> {
+		const wanted = label.trim();
+		if (wanted === '') return false;
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			rememberWorkspaceLabel(named, wanted);
+			await this.refreshWorkspaces();
+			return this.workspaceLabels[named] === wanted;
+		}
+		const renamed = await renameFolderWorkspace(folderReferenceOf(key), wanted).catch(() => false);
+		await this.#refreshFolderWorkspaces();
+		return renamed;
+	}
+
+	/**
+	 * What the Workspace a row is about weighs, or `null` when this installation cannot say.
+	 *
+	 * `null` for a folder that is not open: reading it would need the browser's permission, and
+	 * asking for a grant in order to answer a question the author has not yet agreed to act on is a
+	 * prompt for nothing. The confirmation names the Workspace either way.
+	 */
+	async sizeOfEntry(key: string): Promise<WorkspaceSize | null> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) return this.sizeOfWorkspace(named).catch(() => null);
+		return this.backing === 'folder' && folderKeyOf(this) === key
+			? workspaceSize(this.session.store).catch(() => null)
+			: null;
+	}
+
+	/**
+	 * Remove the Workspace a row is about — and, for a folder, remove only this installation's
+	 * record of it.
+	 *
+	 * ⚠ **The two kinds differ in what "delete" can honestly mean, and the interface says so rather
+	 * than pretending they are the same.** A browser Workspace lives in storage this application
+	 * owns, and deleting it takes every Project, Map Image and Alignment with it. A folder is the
+	 * author's own directory, in a place they chose, holding files they may be syncing or committing
+	 * — this application has no business removing it and, without asking for a grant first, no way
+	 * to. So a folder row lets the folder *go from the list*: the row and the hold on the directory,
+	 * and none of the bytes. Choosing the folder again brings it back.
+	 */
+	async deleteEntry(key: string): Promise<void> {
+		const named = namedWorkspaceOf(key);
+		if (named !== null) {
+			await this.deleteWorkspace(named);
+			return;
+		}
+		if (this.backing === 'folder' && folderKeyOf(this) === key) {
+			throw new Error(
+				'This is the Workspace you are in, so it cannot be taken off the list from inside ' +
+					'itself. Open another Workspace first.'
+			);
+		}
+		await forgetFolderWorkspace(folderReferenceOf(key));
+		// Its durable records go with the record that named them, for the reason `#removeWorkspace`
+		// discards a deleted browser Workspace's: left behind they are this installation's claims —
+		// an unreplayed edit, a standing deletion, a Remote binding, a Baseline — about a Workspace
+		// nothing lists any more.
+		await this.#discardWorkspaceRecords(key);
+		await this.#refreshFolderWorkspaces();
 	}
 
 	/**
@@ -1150,32 +1687,39 @@ export class WorkspaceStorage {
 			);
 		}
 		await deleteOpfsWorkspace(name);
-		// Its journalled edits go with it. Without this they survive the Workspace, become orphans
-		// nothing will ever replay, and — if a Workspace of the same name is made later — are put back
-		// into somebody else's work under a name they happened to reuse.
-		//
-		// **And its unfinished deletions, for the same reason and with more force.** The records have
-		// the same key shape and the same reuse hazard, and their effect is *destructive* rather than
-		// additive: a record left behind by a Workspace called "Marking 2026" is a standing instruction
-		// to delete a folder name inside whatever "Marking 2026" is made next. Nothing else sweeps them.
+		await this.#discardWorkspaceRecords(opfsWorkspaceKey(name));
+		// And the name its author gave it, which is keyed by the directory name and would otherwise be
+		// waiting for whatever Workspace is made under that name next.
+		forgetWorkspaceLabel(name);
+	}
+
+	/**
+	 * Throw away every installation-local record keyed by a Workspace that is going.
+	 *
+	 * ⚠ **All five families, and the reason is the same for each: the key is reusable.** Journalled
+	 * edits left behind become orphans nothing will ever replay — and, if a Workspace of the same
+	 * name is made later, are put back into somebody else's work under a name they happened to
+	 * reuse. Unfinished deletions carry the same hazard with more force, because their effect is
+	 * *destructive* rather than additive: a record left by a Workspace called "Marking 2026" is a
+	 * standing instruction to delete a directory inside whatever "Marking 2026" is made next. A
+	 * publish manifest (ADR-0033) is this browser's claim about a repository, standing ready for
+	 * whichever repository the next Workspace of that name is bound to — and a publish is judged by
+	 * it. The Remote relationship with its Baseline (ADR-0038), and the local-change index, are the
+	 * same claim in the direction that matters most: that these files are already shared with a
+	 * repository the author has never seen. Nothing else sweeps any of them.
+	 *
+	 * Keyed rather than named, because a folder Workspace taken off the roster needs exactly this and
+	 * has no name to be keyed by (ADR-0042).
+	 */
+	async #discardWorkspaceRecords(workspaceKey: string): Promise<void> {
 		if (this.#journalStorage) {
-			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
-			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
-			// **And what this machine last saw on that Workspace's Remote** (ADR-0033). The same key shape
-			// and the same reuse hazard: left behind, it is this browser's claim about a repository,
-			// standing ready for whichever repository a Workspace made under that name next is bound to —
-			// and a publish is judged by it.
-			discardPublishManifest(this.#journalStorage, opfsWorkspaceKey(name));
+			discardJournal(this.#journalStorage, workspaceKey);
+			discardDeletions(this.#journalStorage, workspaceKey);
+			discardPublishManifest(this.#journalStorage, workspaceKey);
 		}
-		// **And its Remote relationship and Baseline** (ADR-0038), which carry the same reuse hazard in
-		// the direction that matters most: left behind, they are this installation's claim that a
-		// Workspace called "Marking 2026" belongs to a repository and that its files are already
-		// shared with it — standing ready for whatever "Marking 2026" is made next.
 		if (this.#metadataStorage) {
-			await discardSynchronizationMetadata(this.#metadataStorage, opfsWorkspaceKey(name));
-			// The marks are the third installation-local record keyed by this Workspace, and left behind
-			// they would stand ready for whatever Workspace is next made with the same name.
-			await discardLocalChanges(this.#metadataStorage, opfsWorkspaceKey(name));
+			await discardSynchronizationMetadata(this.#metadataStorage, workspaceKey);
+			await discardLocalChanges(this.#metadataStorage, workspaceKey);
 		}
 	}
 
@@ -1399,7 +1943,7 @@ export class WorkspaceStorage {
 			const folderReference = await retainWorkspaceFolder(folder.folder).catch(() => null);
 			if (folderReference === null) return null;
 			return {
-				workspaceKey: folderWorkspaceKey(this.folderName),
+				workspaceKey: folderKeyOf(this),
 				backing: 'folder',
 				name: this.folderName,
 				folderReference
@@ -1425,7 +1969,7 @@ export class WorkspaceStorage {
 	 * landing than a second review copy or a refusal.
 	 *
 	 * ⚠ **A folder Workspace is gone back *to*, not replaced by an OPFS namesake.** When the user's
-	 * own Workspace is a folder ({@link ownFolderName}), this reopens it — which is why it must be
+	 * own Workspace is a folder ({@link ownFolder}), this reopens it — which is why it must be
 	 * called from a click or a keypress, as both of the banner's exits are: `requestPermission()`
 	 * needs transient user activation (ADR-0012). The first cut recorded "own" only for browser
 	 * backings, so a folder-Workspace user pressing this exit landed in an OPFS Workspace called "My
@@ -1434,7 +1978,7 @@ export class WorkspaceStorage {
 	 *
 	 * A refused or withdrawn grant falls back to the remembered browser Workspace rather than leaving
 	 * the user inside the review copy, and `problem` says why the folder was not reopened — the same
-	 * bargain {@link reopenFolder} already makes everywhere else.
+	 * bargain every other folder gesture makes.
 	 */
 	async leaveReview(): Promise<void> {
 		await this.#leaveReview();
@@ -1448,8 +1992,8 @@ export class WorkspaceStorage {
 	 * no-op.** `#switchTo` returns at once when the destination is already open, and the destination
 	 * *can be the review copy's own name*: a user in browser Workspace "assignment 7" switches to a
 	 * folder — which carries `ownWorkspaceName` across unchanged — deletes the now-unopened OPFS
-	 * "assignment 7" from settings, and opens `assignment 7.project.tar`, whose review copy takes the
-	 * name that has just come free. Pressing Discard with the folder grant refused then left the
+	 * "assignment 7" from its row in the roster, and opens `assignment 7.project.tar`, whose review
+	 * copy takes the name that has just come free. Pressing Discard with the folder grant refused then left the
 	 * review copy open, and the removal that follows deleted a Workspace with a live `EditorSession`
 	 * on it — the failure {@link #removeWorkspace}'s guard exists for, reached from the one caller
 	 * that used to bypass it. So when the name is taken by the Workspace being left, a **new** one
@@ -1462,15 +2006,15 @@ export class WorkspaceStorage {
 		// so without this the reason the folder was not reopened was wiped by the very step that made it
 		// matter, and the docstring above promising it was said was false.
 		let folderProblem = '';
-		if (this.ownFolderName) {
-			await this.reopenFolder();
+		if (this.ownFolder) {
+			await this.#reopenOwnFolder();
 			folderProblem = this.problem;
 			if (this.backing === 'folder') {
 				// ⚠ **`workspaceName` is carried across a folder adopt unchanged, and coming out of a
 				// review copy that is the one thing it must not be.** It is "where a switch back to
-				// browser storage goes", and left pointing at the review copy it would send
-				// {@link useBrowserStorage} back into the Workspace the user has just left — or, after a
-				// discard, recreate the empty directory of one that has just been deleted.
+				// browser storage goes", and left pointing at the review copy it would send the next
+				// switch back into the Workspace the user has just left — or, after a discard, recreate
+				// the empty directory of one that has just been deleted.
 				this.workspaceName = this.ownWorkspaceName;
 				rememberWorkspaceName(this.ownWorkspaceName);
 				return;
@@ -1503,9 +2047,9 @@ export class WorkspaceStorage {
 	 * removal the switcher offered a Workspace whose directory was being deleted — and switching
 	 * *creates*, so one click in that window raced a `getDirectoryHandle({ create: true })` against a
 	 * `removeEntry` on the same directory, leaving the user in a Workspace made of whatever survived.
-	 * Withdrawing it here closes that: `workspaces` is the only thing either the switcher or Workspace
-	 * settings offers, so from the first line of this method there is no control anywhere on screen
-	 * that opens the Workspace being discarded.
+	 * Withdrawing it here closes that: `workspaces` is what the roster is composed from, so from the
+	 * first line of this method there is no control anywhere on screen that opens the Workspace being
+	 * discarded.
 	 *
 	 * Narrower than it sounds and worth being exact about: nothing here reaches a *second tab*, which
 	 * has its own listing and no way to hear about this one, for the reason {@link deleteWorkspace}
@@ -1680,10 +2224,7 @@ export class WorkspaceStorage {
 		let incomplete = '';
 		try {
 			if (reopened.folder === null) await this.#switchTo(origin.name);
-			else {
-				this.#folderStore = reopened.folder;
-				await this.#adopt(reopened.folder, 'folder', reopened.folder.folderName);
-			}
+			else await this.#adoptFolder(reopened.folder);
 			// Open or identify the imported Project, before the copy it came from goes.
 			await this.session.open(imported.directory);
 			this.workspaces = this.workspaces.filter((name) => name !== reviewWorkspace);
@@ -1724,10 +2265,11 @@ export class WorkspaceStorage {
 			if (!existing.includes(origin.name)) refuseReviewDestination(origin, 'gone');
 		}
 		const raw: ProjectStore = folder ?? openOpfsWorkspace(origin.name);
-		// The folder's *current* name, because a folder that has been renamed is still the folder the
-		// grant names — and `folderWorkspaceKey` is built from the name, so it has to be built from this
-		// one.
-		const key = folder === null ? origin.workspaceKey : folderWorkspaceKey(folder.folderName);
+		// The folder's key as it is **now**, not as the origin recorded it. An origin written before
+		// folder Workspaces were keyed by a reference names `folder:<folderName>`, and the records it
+		// names have since moved onto the reference; the grant is what says which folder this is, so
+		// the record behind the grant is what says how it is keyed.
+		const key = folder === null ? origin.workspaceKey : folderKeyOf(await this.#identify(folder));
 		const store = trackLocalChanges(raw, key, this.#metadataStorage);
 
 		let local: readonly string[];
@@ -1940,9 +2482,7 @@ export class WorkspaceStorage {
 
 	/** This Workspace, backing included, as the synchronization metadata keys it. */
 	get #workspaceKey(): string {
-		return this.backing === 'folder'
-			? folderWorkspaceKey(this.folderName)
-			: opfsWorkspaceKey(this.workspaceName);
+		return this.backing === 'folder' ? folderKeyOf(this) : opfsWorkspaceKey(this.workspaceName);
 	}
 
 	/**
@@ -2299,6 +2839,90 @@ export class WorkspaceStorage {
 	}
 
 	/**
+	 * Turn GitHub Pages on for the Remote this Workspace is bound to.
+	 *
+	 * ⚠ **Deliberately not part of {@link bindRemote}.** A Remote is a place the work lives before it
+	 * is a site anybody reads, so this is a separate, later, optional act with a press of its own —
+	 * and it is asked for from exactly one control, on the guided sequence's connected step.
+	 *
+	 * Refusals are answers rather than throws, for the reason `bind-remote.ts` records: the repository
+	 * is correctly connected either way, and what is owed is the sentence naming the two permissions
+	 * GitHub requires and the setting to change by hand. The two things that *are* thrown are the two
+	 * that make the request impossible rather than refused.
+	 */
+	async enablePages(): Promise<RemotePagesOutcome> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository yet, so there is no site to turn on.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Turning the site on for ${describeRemote(binding)} needs you to be signed in to GitHub, ` +
+					`and you are not. Sign in and press it again.`
+			);
+		}
+		return enableRemotePages({ token, remote: binding });
+	}
+
+	/**
+	 * Ask GitHub whether the sign-in now held may publish to the Remote this Workspace has.
+	 *
+	 * ⚠ **Read live and never remembered.** Write access is somebody else's to grant and to take away,
+	 * and the two states this answers — a pull-only relationship stated once, and a publish affordance
+	 * that is absent rather than refusing — are exactly the ones a remembered answer gets wrong
+	 * (ADR-0043). It is the same one `GET /repos/{owner}/{repo}` a bind makes, for the same reason
+	 * `bind-remote.ts` makes it there: before a byte moves.
+	 *
+	 * @throws when there is no Remote or no sign-in to ask with, which are the two states that make
+	 *   the question meaningless rather than refused
+	 */
+	async readRights(): Promise<RemoteRights> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Whether you may publish to ${describeRemote(binding)} is something only GitHub can say, ` +
+					`and asking needs you to be signed in.`
+			);
+		}
+		return readRemoteRights({ token, remote: binding });
+	}
+
+	/**
+	 * Whether the Remote this Workspace publishes to is the signed-in author's alone (ADR-0043).
+	 *
+	 * Read at the moment it decides something — the press of *Publish anyway* — rather than held, for
+	 * {@link readRights}' reason: a collaborator arrives on a repository between two visits, and a
+	 * remembered *solo* is the answer that deletes their afternoon without saying so.
+	 *
+	 * @throws when there is no Remote or no sign-in to ask with
+	 */
+	async readSharing(): Promise<RemoteSharing> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Whose ${describeRemote(binding)} is can only be answered by GitHub, and asking needs you ` +
+					`to be signed in.`
+			);
+		}
+		return readRemoteSharing({ token, remote: binding, identity: this.identity });
+	}
+
+	/**
 	 * Supply a credential for the Remote this Workspace is already bound to.
 	 *
 	 * Validated against that repository rather than merely kept, so a mistyped paste is caught here
@@ -2330,15 +2954,41 @@ export class WorkspaceStorage {
 	#keepPasted(token: string): void {
 		this.#credentials.write(token);
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.#refreshCredential();
 	}
 
-	/** Forget the credential, so this machine can be handed to somebody. */
+	/**
+	 * Forget the credential, so this machine can be handed to somebody.
+	 *
+	 * Including the half kept past the tab: a sign-out that left a refresh token in the database
+	 * would be signed back in by the next visit, which is the opposite of what the button says.
+	 */
 	signOut(): void {
 		this.#credentials.clear();
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.identity = '';
 		this.#refreshCredential();
+	}
+
+	/**
+	 * Record whether this machine keeps the sign-in past the tab, and act on the answer now.
+	 *
+	 * Ticking with a sign-in already held keeps its renewable half straight away, so the choice is
+	 * about the sign-in the author is looking at rather than about the next one. Unticking takes
+	 * that half away in the same gesture: a preference that said *forget me* while a refresh token
+	 * sat in the database would be a promise the next visit breaks.
+	 */
+	setRememberSignIn(remember: boolean): void {
+		this.rememberSignIn = remember;
+		writeRememberSignIn(this.#durable, remember);
+		if (!remember) {
+			clearRememberedGrant(this.#remembered);
+			return;
+		}
+		const grant = readGrantRecord(this.#grants);
+		if (grant !== null) writeRememberedGrant(this.#remembered, grant);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -2363,9 +3013,27 @@ export class WorkspaceStorage {
 	identity = $state('');
 
 	/**
-	 * Send the user to GitHub to authorise, or say why this browser cannot start a sign-in.
+	 * Where this author widens a narrow Installation, for a repository it does not reach.
+	 *
+	 * The App's own grant screen, opened on the account whose Installation has to change. Composed
+	 * here for the same reason the departure address is: the App is this class's to know, and a screen
+	 * that read `GITHUB_APP` for itself would be a second answer to a question already asked once.
+	 */
+	grantAccessUrl(options: { readonly targetId: number }): string {
+		return composeGrantAccessUrl({ app: GITHUB_APP, targetId: options.targetId });
+	}
+
+	/**
+	 * Send the user to GitHub to install and authorise, or say why this browser cannot start a sign-in.
 	 *
 	 * Answers `''` when the redirect is under way, and the sentence to show when it is not.
+	 *
+	 * ⚠ **The default trip is install-first**, which is what {@link signInDepartureUrl} decides: an
+	 * authorize-only trip leaves a first-time author holding a credential against no Installation and
+	 * a list of no repositories, which reads to them as owning nothing rather than as a step nobody
+	 * named. Pass `installed` where an Installation is already known to exist — a sign-in that ran
+	 * out, a listing GitHub refused the credential for, a Workspace already bound — and the plain
+	 * authorize URL is used instead, which is what only-a-fresh-credential wants.
 	 *
 	 * ⚠ **The redirect happens only once the `state` is known to have been kept, and the check is a
 	 * read-back rather than the absence of a throw.** A browser with storage blocked hands back a
@@ -2373,7 +3041,7 @@ export class WorkspaceStorage {
 	 * make them authorise, and refuse them on return for a reason they cannot act on. Refusing here
 	 * costs a sentence and leaves the paste, which needs no storage of that kind, on the same screen.
 	 */
-	beginGitHubSignIn(): string {
+	beginGitHubSignIn(options: { readonly installed?: boolean } = {}): string {
 		const state = newSignInState();
 		// Captured **before** the redirect and kept, because the exchange has to name this same string
 		// and cannot recompute it — see {@link SIGN_IN_REDIRECT_KEY}.
@@ -2398,7 +3066,14 @@ export class WorkspaceStorage {
 				`that path needs none of this.`
 			);
 		}
-		globalThis.location.assign(authorizeUrl({ app: GITHUB_APP, redirectUri, state }));
+		globalThis.location.assign(
+			signInDepartureUrl({
+				app: GITHUB_APP,
+				redirectUri,
+				state,
+				installed: options.installed ?? false
+			})
+		);
 		return '';
 	}
 
@@ -2519,9 +3194,70 @@ export class WorkspaceStorage {
 		return search;
 	}
 
-	/** Hold a grant's token as *the* credential, which is all anything below this class ever sees. */
+	/**
+	 * Put back a sign-in this machine was asked to keep, by spending the half that was kept.
+	 *
+	 * ⚠ **There is nothing to put back but a refresh token.** The access token died with the tab, by
+	 * design, so the only way back to one is the broker's refresh endpoint — which is what keeps a
+	 * stolen database from being a publish: the exchange still has to pass the broker's `Origin`
+	 * allowlist. A refresh that fails is a sign-in that has ended, and what was kept goes with it
+	 * rather than being tried again on every visit for ever.
+	 *
+	 * ⚠ **After `recovered`, because that is when the review mark is known.** `this.review` is `null`
+	 * until the arriving Workspace has been read, so a restore that ran before it would put a
+	 * credential into a tab that turns out to be holding somebody else's submission — the one place
+	 * ADR-0024 says a sign-in may not be reachable from.
+	 */
+	async #restoreRememberedSignIn(): Promise<void> {
+		await this.#durable.settled();
+		this.rememberSignIn = readRememberSignIn(this.#durable);
+		await this.recovered;
+		if (!this.rememberSignIn) return;
+		// ⚠ **This tab already holds a credential**, so there is nothing to put back — but there may
+		// be something to write down. The preference is off until the database answers, and a sign-in
+		// completing in that window therefore wrote no durable record at all: an author who ticked the
+		// box, signed out and signed in again would come back tomorrow to a sign-in prompt. Reconciled
+		// here rather than by making `#keepGrant` wait for the answer, which it cannot — it is
+		// synchronous, because the interface above it is. A record naming anything other than what is
+		// held is a leftover, as {@link ensureCredentialFresh} says, so it is not the thing to keep.
+		if (this.#credentials.read() !== null) {
+			const held = readGrantRecord(this.#grants);
+			if (held !== null && held.token === this.#credentials.read()) {
+				writeRememberedGrant(this.#remembered, held);
+			}
+			return;
+		}
+		const remembered = readRememberedGrant(this.#remembered);
+		if (remembered === null) return;
+		try {
+			const renewed = await refreshGitHubToken({
+				app: GITHUB_APP,
+				refreshToken: remembered.refreshToken
+			});
+			// The session record first, and with nothing between them that can throw, for the reason
+			// {@link completeGitHubSignIn} gives: a credential held with no record beside it reads as a
+			// pasted token, and an eight-hour one would then be carried into a publish that ends partway.
+			writeGrantRecord(this.#grants, renewed);
+			this.#keepGrant(renewed);
+			this.identity = await readGitHubLogin(renewed.token);
+		} catch {
+			// A spent refresh token, a broker that is down, one that was never deployed: the scholar's
+			// remedy is the same in all three and it is the ordinary one — press sign in. Announcing it
+			// on a load nobody started would be a notice about a thing they did not do.
+			clearRememberedGrant(this.#remembered);
+		}
+	}
+
+	/**
+	 * Hold a grant's token as *the* credential, which is all anything below this class ever sees.
+	 *
+	 * The renewable half goes to {@link #remembered} in the same breath, which keeps it past the tab
+	 * only where the author has asked for that and writes nothing at all where they have not. The
+	 * access token is never part of what is kept — {@link writeRememberedGrant} strips it.
+	 */
 	#keepGrant(grant: GitHubTokenGrant): void {
 		this.#credentials.write(grant.token);
+		writeRememberedGrant(this.#remembered, grant);
 		this.#refreshCredential();
 	}
 
@@ -2529,6 +3265,7 @@ export class WorkspaceStorage {
 	#endExpiredSession(): void {
 		this.#credentials.clear();
 		clearGrantRecord(this.#grants);
+		clearRememberedGrant(this.#remembered);
 		this.identity = '';
 		this.#refreshCredential();
 	}
@@ -2626,7 +3363,7 @@ export class WorkspaceStorage {
 	 * "which one" has to be legible even when Ballastella cannot go there itself.
 	 */
 	async #selectOpened(workspaceKey: string, remote: RemoteRelationship): Promise<string> {
-		if (this.backing === 'folder' && folderWorkspaceKey(this.folderName) === workspaceKey) {
+		if (this.backing === 'folder' && folderKeyOf(this) === workspaceKey) {
 			return (
 				`${describeRemote(remote)} is already open: this Workspace folder is the one this ` +
 				`computer keeps for it. Nothing has been downloaded.`
@@ -2697,35 +3434,52 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Which Workspace the bar names.
+	 * Which Workspace the bar names — the label its author knows it by, in either kind.
 	 *
-	 * The folder's own name when there is one, and the named Workspace otherwise — the two backings
-	 * name a Workspace the same way, because in both the directory *is* the Workspace.
+	 * ⚠ **Not the directory's name, which is what this used to be** (ADR-0042). A Workspace of either
+	 * kind may be renamed from its row, and in neither does that move a directory; the name a scholar
+	 * gave it is the one thing on the bar that has to agree with the row they gave it in. The
+	 * directory's own name is still shown, beneath the label, where it says which place this is.
 	 */
 	get name(): string {
-		return this.backing === 'folder' ? this.folderName || 'Workspace folder' : this.workspaceName;
+		if (this.backing === 'folder') {
+			return this.#openFolderRecord()?.label || this.folderName || 'Workspace folder';
+		}
+		return this.workspaceLabels[this.workspaceName] || this.workspaceName;
+	}
+
+	/** This installation's record of the folder Workspace that is open, or `null`. */
+	#openFolderRecord(): FolderWorkspaceRecord | null {
+		if (this.folderReference === '') return null;
+		return (
+			this.folderWorkspaces.find((record) => record.reference === this.folderReference) ?? null
+		);
 	}
 
 	/**
-	 * Whether a folder from a previous visit is remembered but not open right now.
+	 * A Workspace key as the name its author knows it by, never as the key itself.
 	 *
-	 * The state a bookmarked `?p=` lands in: the Project is in the folder, the folder needs a gesture
-	 * to reopen, and browser storage does not have that Project. Said rather than silently treated as
-	 * "no such Project", and said on every route rather than only where the storage question is asked.
+	 * ⚠ **A folder key holds a minted reference, and a reference is not a name** (ADR-0042). The two
+	 * places a key reaches a sentence — the report of edits recovered into another Workspace, and the
+	 * orphaned-journal list — would otherwise print a UUID at the user. The record holds the name;
+	 * {@link workspaceKeyLabel} is the fallback for a browser Workspace and for a key this
+	 * installation has no record for.
 	 */
-	get awaitingFolder(): boolean {
-		return this.backing === 'browser' && this.reopenable !== null;
+	workspaceLabel(key: string): string {
+		const folder = this.folderWorkspaces.find(
+			(record) => folderWorkspaceKey(record.reference) === key
+		);
+		return folder === undefined ? workspaceKeyLabel(key) : folderWorkspaceLabel(folder.label);
 	}
 
 	async #adopt(
 		rawStore: ProjectStore,
-		backing: WorkspaceBacking,
-		folderName: string,
+		folder: AdoptedFolder | null,
 		workspaceName = this.workspaceName
 	): Promise<void> {
+		const backing: WorkspaceBacking = folder === null ? 'browser' : 'folder';
 		// The key the *arriving* Workspace is, backing included — never the one being left.
-		const workspaceKey =
-			backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName);
+		const workspaceKey = folder === null ? opfsWorkspaceKey(workspaceName) : folderKeyOf(folder);
 		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and the
 		// session that follows all hold the *same* managed store and its one change index. A raw store
 		// handed to any of them would author bytes this installation then has no record of, and a
@@ -2776,7 +3530,8 @@ export class WorkspaceStorage {
 		this.#beginRecovery();
 		this.session = arriving;
 		this.backing = backing;
-		this.folderName = folderName;
+		this.folderName = folder?.folderName ?? '';
+		this.folderReference = folder?.folderReference ?? '';
 		this.workspaceName = workspaceName;
 		rememberWorkspaceName(workspaceName);
 		// ⚠ **`own` is not "browser-backed and unmarked".** A folder Workspace is *always* one of the
@@ -2786,17 +3541,16 @@ export class WorkspaceStorage {
 		// {@link OWN_FOLDER_KEY} for what that cost.
 		const own = this.review === null;
 		if (own) {
-			this.ownFolderName = backing === 'folder' ? folderName : '';
+			this.ownFolder = folder ? folder.folderReference || folder.folderName : '';
 			// `workspaceName` is carried across a folder adopt unchanged, so the browser Workspace the
 			// user left is still the fallback when the folder grant cannot be had back.
 			if (backing === 'browser') this.ownWorkspaceName = workspaceName;
-			rememberOwnWorkspace(this.ownWorkspaceName, this.ownFolderName);
+			rememberOwnWorkspace(this.ownWorkspaceName, this.ownFolder);
 		}
 		// The grant belongs to the folder that is open, so a switch into browser storage lets it go —
 		// what remains reachable is the *remembered* folder, which is a different record and a gesture
 		// away. A retained grant a Review Workspace is holding is untouched by this.
-		if (backing === 'browser') this.#folderStore = null;
-		this.reopenable = backing === 'folder' ? folderName : this.reopenable;
+		if (folder === null) this.#folderStore = null;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a
 		// navigation cannot each trigger their own walk of a Workspace with tens of thousands of
@@ -2857,9 +3611,10 @@ export class WorkspaceStorage {
 	 * Which journalled Workspaces are not in browser storage any more.
 	 *
 	 * ⚠ **"Not in the list" is not "gone", which is why this only reports.** A folder Workspace never
-	 * appears in `listOpfsWorkspaces` at all, so every folder key is an orphan by this test; so is a
-	 * browser Workspace on a listing that failed. The report therefore names them and offers
-	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
+	 * appears in `listOpfsWorkspaces` at all — its record is what says it exists — and a browser
+	 * Workspace on a listing that failed is missing without being gone. The report therefore names
+	 * them and offers {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit
+	 * on a guess.
 	 *
 	 * **Both kinds of record, not only the journal.** An unfinished deletion lives in the same 5 MB,
 	 * under a key of the same shape, and would otherwise be invisible here — so a record naming a
@@ -2875,7 +3630,10 @@ export class WorkspaceStorage {
 		const known = [
 			...this.workspaces.map((name) => opfsWorkspaceKey(name)),
 			opfsWorkspaceKey(this.workspaceName),
-			...(this.folderName ? [folderWorkspaceKey(this.folderName)] : [])
+			// Every folder Workspace with a record, not only the one that is open: a Workspace this
+			// installation still holds the way back to is not an orphan, whichever one is on screen.
+			...this.folderWorkspaces.map((folder) => folderWorkspaceKey(folder.reference)),
+			...(this.backing === 'folder' ? [folderKeyOf(this)] : [])
 		];
 		// Deduplicated by hand for the reason `known` is an array: a plain `Set` is ruled out by
 		// `svelte/prefer-svelte-reactivity`, and a `SvelteSet` for a handful of names nothing reads

@@ -33,7 +33,7 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// GITHUB IS REQUIRED BEFORE PUBLISHING IS OFFERED
 	//
-	// An unbound Workspace is directed to the Remote repository control, and a bound Workspace must
+	// An unbound Workspace is directed to the door on the bar, and a bound Workspace must
 	// have a credential before Publish enters the action row. Once offered, Publish remains in the tab
 	// order while planning, uploading, or waiting on a conflict; `aria-disabled` preserves focus in
 	// those states without making an unavailable local-only publish look like an option.
@@ -52,6 +52,7 @@
 		RemotePublishCredentialError,
 		STATIC_HOSTING_LIMIT_BYTES,
 		describeBytes,
+		describeOutboundRemovals,
 		describeRemote,
 		describeTokenProblem,
 		publishedSiteStaleness,
@@ -60,6 +61,7 @@
 		type PublishPlan,
 		type PublishedProject,
 		type PublishedSite,
+		type OutboundDeletionPreview,
 		type RemotePublishPlan
 	} from '@ballastella/core';
 
@@ -75,15 +77,25 @@
 	let {
 		storage,
 		open = $bindable(false),
-		// Both bindable so the navigation bar's Publish control can be `aria-disabled` with a label
+		// Both bindable so the navigation bar's one GitHub control can be `aria-disabled` with a label
 		// that reflects progress while the modal that owns the run is on screen.
 		publishing = $bindable(false),
-		progress = $bindable<PublishProgress | null>(null)
+		progress = $bindable<PublishProgress | null>(null),
+		restoreFocusTo
 	}: {
 		storage: WorkspaceStorage;
 		open?: boolean;
 		publishing?: boolean;
 		progress?: PublishProgress | null;
+		/**
+		 * Where focus goes when this closes, because the control that opened it has gone.
+		 *
+		 * ⚠ **That is the ordinary path here, not the exception.** **Publish…** is behind the door
+		 * (ADR-0041), and the door closes on the press — so by the time this dialog is on screen its
+		 * own trigger has been unmounted, and `focus()` on a detached node is a no-op with no
+		 * complaint. Without this a keyboard user pressing Escape is dropped on `<body>` (WCAG 2.4.3).
+		 */
+		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	const session = $derived(storage.session);
@@ -117,6 +129,21 @@
 	 * decision about the set a later listing found.
 	 */
 	let replacing = $state(false);
+	/**
+	 * What a confirmed *Publish anyway* would take off a **shared** Remote, or `null` (ADR-0043).
+	 *
+	 * ⚠ **The second confirmation exists only where the Remote is not the author's alone.** On a solo
+	 * repository local-wins can only ever discard the author's own work, so arming is one press and
+	 * stays one; on a shared one it deletes a collaborator's, and the outbound direction owes the same
+	 * naming the inbound direction has owed since `UpdateDeletionPreview` — Projects and Map Images
+	 * named, never "3 files will be removed", which is not a question anybody can answer.
+	 *
+	 * Set means the question is on screen and unanswered: {@link replacing} is still `false`, so the
+	 * confirm button still refuses.
+	 */
+	let outbound = $state<OutboundDeletionPreview | null>(null);
+	/** Whether GitHub is being asked whose the repository is, so a second press is not a second ask. */
+	let askingSharing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
 	/** The Project state the current forecast was built from. */
@@ -169,6 +196,8 @@
 		upload = null;
 		uploadProblem = '';
 		replacing = false;
+		outbound = null;
+		askingSharing = false;
 		rightsNotice = '';
 		failure = '';
 		progress = null;
@@ -202,6 +231,9 @@
 		upload = null;
 		uploadProblem = '';
 		replacing = false;
+		// A question asked about one set of files is not a question about the set a later listing
+		// found, so the shared-Remote confirmation is withdrawn with the arming it belongs to.
+		outbound = null;
 		const bound = storage.remote;
 		const credential = storage.credential;
 		if (bound === null || credential === null) return;
@@ -339,13 +371,17 @@
 		uploadProblem = '';
 		connectSequence.signInRefusal = '';
 		connectSequence.leavingForGitHub();
-		uploadProblem = storage.beginGitHubSignIn();
+		// ⚠ **`installed: true`, because this dialog is only ever open over a bound Workspace.** The
+		// binding came from a repository GitHub listed as granted, so the Installation exists and what
+		// is missing is the credential alone — which is what the plain authorize screen issues.
+		uploadProblem = storage.beginGitHubSignIn({ installed: true });
 		if (uploadProblem !== '') connectSequence.notLeavingAfterAll();
 	};
 
 	/** Supply the credential from here, rather than sending the user off to another dialog. */
 	const signIn = async (event: SubmitEvent) => {
 		event.preventDefault();
+		if (signingIn) return;
 		const problem = describeTokenProblem(token);
 		if (problem) {
 			uploadProblem = problem;
@@ -358,7 +394,7 @@
 		try {
 			const rights = await storage.signIn(token.trim());
 			token = '';
-			// Read at the sign-in and said out loud here, as the Remote dialog does: every request the
+			// Read at the sign-in and said out loud here, as the door does: every request the
 			// forecast makes is a GET, so a token that can read and not write plans perfectly and meets
 			// its 403 at the first blob — with the whole website already written into the Workspace.
 			rightsNotice = rights.canPush
@@ -456,6 +492,46 @@
 				? 'Publish anyway, replacing it'
 				: 'Publish'
 	);
+
+	/**
+	 * Arm *Publish anyway* — on a shared Remote, by asking first.
+	 *
+	 * ⚠ **Whose the repository is decides how many presses this takes, and the reading is live.** A
+	 * collaborator arrives between two visits, so a remembered *solo* is the answer that deletes their
+	 * afternoon with nothing said. Where the Remote is the author's alone this arms in one press and
+	 * behaves exactly as it always has; where it is not, the preview goes on screen and
+	 * {@link replacing} stays `false` until it is confirmed.
+	 *
+	 * A question GitHub would not answer is treated as *shared*, for `shared-remote.ts`'s reason: the
+	 * two errors are not equal.
+	 */
+	const askToReplace = async () => {
+		const forecast = upload;
+		const bound = storage.remote;
+		if (askingSharing || replacing || outbound !== null || forecast === null || bound === null)
+			return;
+		askingSharing = true;
+		try {
+			const sharing = await storage.readSharing().catch(() => ({
+				shared: true,
+				known: false,
+				owner: bound.owner,
+				others: []
+			}));
+			if (!sharing.shared) {
+				replacing = true;
+				return;
+			}
+			outbound = describeOutboundRemovals({
+				remote: bound,
+				sharing,
+				removed: forecast.removed,
+				source: forecast.source.keys()
+			});
+		} finally {
+			askingSharing = false;
+		}
+	};
 
 	const run = async () => {
 		const agreed = plan;
@@ -699,7 +775,7 @@
 	{/if}
 {/snippet}
 
-<ModalDialog bind:open wide title="Publish this Workspace">
+<ModalDialog bind:open wide title="Publish this Workspace" {restoreFocusTo}>
 	<!--
 		A receipt, read top to bottom: what the site weighs, what it carries, which Projects a Reader
 		meets first, and last of all where it goes — immediately above the button that sends it there,
@@ -864,8 +940,8 @@
 							<p class="font-medium">This Workspace publishes nowhere yet.</p>
 							<p class="mt-1 text-sm opacity-80">
 								Publishing sends the website to a GitHub repository, and this Workspace is bound to
-								none. Bind one with <strong>Remote repository…</strong> in Workspace settings, and the
-								destination and what sending it would cost appear here.
+								none. Choose one with <strong>Connect to GitHub</strong> on the bar, and the destination
+								and what sending it would cost appear here.
 							</p>
 						</div>
 					</div>
@@ -929,7 +1005,9 @@
 							<form class="mt-3" onsubmit={(event) => void signIn(event)}>
 								<p class="text-sm" data-testid="publish-sign-in-needed">
 									Sign in to publish to <code>{describeRemote(remote)}</code> with a token that has
-									<strong>Contents: Read and write</strong>. Kept only in this tab.
+									<strong>Contents: Read and write</strong> and
+									<strong>Pages: Read and write</strong>, made under the account that owns the
+									repository. Kept only in this tab.
 								</p>
 								<div class="mt-3 flex flex-wrap items-end gap-3">
 									<div class="flex min-w-0 grow basis-72 flex-col gap-1">
@@ -944,11 +1022,15 @@
 											spellcheck="false"
 										/>
 									</div>
+									<!-- `aria-disabled` and a guard in the handler, never `disabled`, for the reason
+									     rule 4 above gives: a control removed from the tab order the instant it is
+									     pressed drops the keyboard user who pressed it. -->
 									<button
 										class="btn btn-sm"
+										class:btn-disabled={signingIn}
+										aria-disabled={signingIn}
 										type="submit"
 										data-testid="publish-sign-in"
-										disabled={signingIn}
 									>
 										{signingIn ? 'Asking GitHub…' : 'Sign in to GitHub'}
 									</button>
@@ -1005,21 +1087,70 @@
 								<p>{conflict.message}</p>
 								<p class="text-sm">
 									{#if conflict.reason === 'remote-changes' || conflict.reason === 'changes-on-both-sides'}
-										<strong>Update from GitHub</strong> is on the navigation bar, beside the Remote status.
+										<strong>Update from GitHub</strong> is on the navigation bar, behind the control that
+										names your repository.
 									{:else}
-										Opening it in a new Workspace is in the Workspace menu at the top left, under
-										<strong>Remote repository…</strong>. It leaves this one exactly as it is.
+										Opening it in a new Workspace is behind the control on the bar that names your
+										repository, under
+										<strong>Open a published Workspace by its address</strong>. It leaves this one
+										exactly as it is.
 									{/if}
 								</p>
 								<button
 									class="btn btn-sm"
-									class:btn-disabled={replacing}
-									aria-disabled={replacing}
+									class:btn-disabled={replacing || askingSharing}
+									aria-disabled={replacing || askingSharing}
 									data-testid="publish-replace"
-									onclick={() => (replacing = true)}
+									onclick={() => {
+										if (!replacing && !askingSharing) void askToReplace();
+									}}
 								>
-									{replacing ? 'Ready to replace it' : 'Publish anyway, replacing it'}
+									{replacing
+										? 'Ready to replace it'
+										: askingSharing
+											? 'Asking GitHub…'
+											: 'Publish anyway, replacing it'}
 								</button>
+							</div>
+						{/if}
+						{#if outbound !== null && !replacing}
+							<!--
+								⚠ **The outbound half of the rule the inbound direction has had since
+								`UpdateDeletionPreview`** (ADR-0043). On a repository that is the author's alone,
+								local-wins can only discard their own work; on a shared one it deletes a
+								colleague's, so what it would remove is **named** — Projects and Map Images, never
+								a file count — and whose the repository is is said first.
+
+								⚠ **A second press rather than a louder first one.** This is the last point at
+								which the answer is still no, and the two-step is the shape everything
+								irreversible here has: `ProjectHub`'s deletion confirmation, and the arming above.
+							-->
+							<div
+								role="alert"
+								class="mt-3 alert alert-vertical items-start alert-warning"
+								data-testid="publish-shared-remote"
+							>
+								<p>{outbound.message}</p>
+								<div class="flex flex-wrap gap-2">
+									<button
+										class="btn btn-sm btn-warning"
+										data-testid="confirm-shared-replace"
+										onclick={() => (replacing = true)}
+									>
+										{outbound.paths.length === 0
+											? 'Yes, publish over their work'
+											: 'Yes, remove them and publish'}
+									</button>
+									<!-- The way out of the question, which is what stops it being a full stop: the
+									     refusal above stands and the ordinary remedies are still on this screen. -->
+									<button
+										class="btn btn-sm"
+										data-testid="cancel-shared-replace"
+										onclick={() => (outbound = null)}
+									>
+										Leave it as it is
+									</button>
+								</div>
 							</div>
 						{/if}
 						<!--

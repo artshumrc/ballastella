@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { credentialStoreContract } from './credential-store-suite.js';
 import {
 	CREDENTIAL_KEY,
 	closedWhileReviewing,
@@ -39,6 +40,21 @@ const refusingStorage = (): CredentialStorage => ({
 	removeItem: () => {
 		throw new DOMException('The operation is insecure.', 'SecurityError');
 	}
+});
+
+// The contract, over the two implementations Node can hold. The durable one over the installation
+// database keeps the same contract from the same suite in `durable-credential-store.browser.test.ts`,
+// where there is a real IndexedDB to keep it in.
+credentialStoreContract('a store over web storage', async () => {
+	const storage = new FakeStorage();
+	return { store: webCredentialStore(storage), keys: async () => [...storage.items.keys()] };
+});
+
+// Memory is what a browser that will not give us storage falls back to, and a fallback that answered
+// the contract differently would be a second behaviour nothing above the interface could see coming.
+credentialStoreContract('a store holding nothing but a variable', async () => {
+	const store = memoryCredentialStore();
+	return { store, keys: async () => (store.read() === null ? [] : [CREDENTIAL_KEY]) };
 });
 
 describe('a credential store over web storage', () => {

@@ -16,14 +16,19 @@
 // suite with no edit to the suite.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE NAME IS THE DIRECTORY, AS IT IS FOR A FOLDER WORKSPACE
+// THE DIRECTORY IS THE IDENTITY, AND SINCE ADR-0042 IT IS NOT NECESSARILY THE NAME
 //
-// A folder Workspace's name is the folder's name; nothing is stored anywhere saying otherwise. A
-// browser-managed one works the same way — the directory in the OPFS root *is* the Workspace and its
-// name *is* the name — so there is no second record to keep in sync, nothing to migrate, and nothing
-// that can disagree with the disk. {@link toWorkspaceName} is what makes a typed name usable as a
-// directory name, and it is deliberately gentle: `Marking 2026` stays `Marking 2026`, because a bar
-// that says "marking-2026" after the user typed "Marking 2026" has renamed their work without asking.
+// The directory in the OPFS root *is* the Workspace, and every durable record of it is keyed by that
+// directory's name. What ADR-0042 added is a **label**: a Workspace may be renamed from its row in
+// the roster, and renaming moves no bytes — OPFS has no directory move, and the alternative is
+// copying a tile pyramid on the author's only copy of their work. That is exactly the bargain
+// `Workspace.renameProject` already strikes one level down, and the label is the app's
+// (`workspace-storage.svelte.ts`), never this module's: nothing here has a second record to keep in
+// sync and nothing here can disagree with the disk.
+//
+// {@link toWorkspaceName} is what makes a typed name usable as a directory name, and it is
+// deliberately gentle: `Marking 2026` stays `Marking 2026`, because a bar that says "marking-2026"
+// after the user typed "Marking 2026" has renamed their work without asking.
 //
 // The Project-level slug (`toDirectoryName`) is narrow because a Project directory is also a `?p=`
 // query value and a path segment inside a Published Site. A Workspace directory is neither: it sits

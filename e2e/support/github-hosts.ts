@@ -48,7 +48,10 @@ import {
 	isGitHubAppConfigured,
 	type GitHubApp
 } from '../../packages/core/src/remote/github-app.js';
-import { GITHUB_AUTHORIZE_URL } from '../../packages/core/src/remote/github-sign-in.js';
+import {
+	GITHUB_APPS_URL,
+	GITHUB_AUTHORIZE_URL
+} from '../../packages/core/src/remote/github-sign-in.js';
 import type { BrowserContext, Page, Route } from './test.js';
 
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
@@ -70,6 +73,14 @@ export type FakeRepository = {
 	readonly files?: Readonly<Record<string, string>>;
 	/** What `GET /repos/{owner}/{repo}` reports about the caller. */
 	readonly push?: boolean;
+	/**
+	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
+	 * a solo one (ADR-0043).
+	 *
+	 * The owner alone by default: every other spec here means a repository nobody else works in, and
+	 * that is the state whose `Publish anyway` behaviour is unchanged.
+	 */
+	readonly contributors?: readonly string[];
 	/** `POST /pages` answers 409 when this is already true, and turns it on when it is not. */
 	readonly pagesEnabled?: boolean;
 	/** Answer 403 to `POST /pages`: a token with `contents: write` and no `pages: write`. */
@@ -118,7 +129,13 @@ export type GitHubHostsOptions = {
 	readonly brokerUnreachable?: boolean;
 	/** How long an issued token lasts. Short values are how a spec reaches expiry without waiting. */
 	readonly tokenLifetimeSeconds?: number;
-	/** The account a completed sign-in is as, reported by `GET /user`. */
+	/**
+	 * The account this credential belongs to, reported by `GET /user`.
+	 *
+	 * ⚠ **Applied whether or not the sign-in surface is served.** Whose a repository is, is a
+	 * comparison between its owner and this — so a spec that seeds a credential rather than acquiring
+	 * one still has to be able to say who the seeded credential is.
+	 */
 	readonly login?: string;
 	/**
 	 * The repositories the author has granted the App access to, as the two installation endpoints
@@ -229,7 +246,7 @@ const notFound = (route: Route): Promise<void> =>
  *   play — see the header
  */
 export async function routeGitHubHosts(
-	target: Pick<Page | BrowserContext, 'route'>,
+	target: Pick<Page, 'route' | 'url'> | Pick<BrowserContext, 'route'>,
 	options: GitHubHostsOptions = {}
 ): Promise<GitHubHosts> {
 	const requests: string[] = [];
@@ -237,6 +254,25 @@ export async function routeGitHubHosts(
 	let rawInFlight = 0;
 	let peakRawInFlight = 0;
 	const fakes = new Map<string, FakeGitHub>();
+
+	/**
+	 * The callback registered on the App, which is where the install screen returns to.
+	 *
+	 * ⚠ **Read at request time, and from the page rather than from a constant.** The install screen
+	 * carries no `redirect_uri`, so the fake has to be told where to send the browser back to — and
+	 * the address a real App registers is the one the editor is served from, which is exactly the
+	 * page the departure left. Composed as origin plus pathname, because that is what
+	 * `WorkspaceStorage` names at the exchange, and the two must match byte for byte.
+	 *
+	 * A `BrowserContext` has no current page, and no service-worker spec drives the install screen.
+	 */
+	const registeredCallback = (): string => {
+		if (!('url' in target)) return '';
+		const at = target.url();
+		if (at === '' || at === 'about:blank') return '';
+		const url = new URL(at);
+		return `${url.origin}${url.pathname}`;
+	};
 
 	// The sign-in surface hangs off the first repository's fake, so a token it issues is one that
 	// repository's API honours — see `GitHubHostsOptions.signIn`.
@@ -255,6 +291,8 @@ export async function routeGitHubHosts(
 						signIn: {
 							brokerOrigin: SIGN_IN_APP.brokerOrigin,
 							clientId: SIGN_IN_APP.clientId,
+							appSlug: SIGN_IN_APP.appSlug,
+							callbackUrl: registeredCallback,
 							login: options.login ?? repository.owner,
 							tokenLifetimeSeconds: options.tokenLifetimeSeconds
 						},
@@ -264,6 +302,8 @@ export async function routeGitHubHosts(
 				: {})
 		});
 		primary ??= fake;
+		if (options.login !== undefined) fake.login = options.login;
+		fake.contributors = [...(repository.contributors ?? [repository.owner])];
 		fake.permissions = { push: repository.push ?? true, admin: false };
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;
@@ -308,6 +348,9 @@ export async function routeGitHubHosts(
 		// so the browser follows it straight back to the callback — which is the whole round trip, with
 		// no page on `github.com` ever being fetched.
 		await target.route(`${GITHUB_AUTHORIZE_URL}*`, forward);
+		// The App's own install screen, which a first-time author departs to instead. Same 302, same
+		// callback, same code — the difference is on the way out, not on the way back.
+		await target.route(`${GITHUB_APPS_URL}/${SIGN_IN_APP.appSlug}/installations/new*`, forward);
 		// The broker's two endpoints, and nothing else on that origin (ADR-0031). Recorded before it
 		// fails when the broker is unreachable, so a spec can tell "tried and could not" from
 		// "never went near it".

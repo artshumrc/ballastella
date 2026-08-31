@@ -285,18 +285,21 @@
 		// The whole-Workspace invitation belongs to the Front Page and the Project's to a Project: a
 		// Reader looking at one piece of work is offered that piece of work.
 		//
-		// ⚠ **The two are labelled apart, and only the Project's says “Open in Ballastella”.** A
+		// ⚠ **The two are labelled apart by what they carry, and neither names what happens next.** A
 		// Project's link raises an offer with two answers behind it — keep this work, or look at it in a
 		// review copy — so naming either one here would be a navbar deciding something the Reader has
-		// not been asked yet. The Front Page's is one operation and says which: a whole Workspace, out
-		// of GitHub, next to the author's own.
+		// not been asked yet. "Edit", "copy" and "import" each promise one of those outcomes, and the
+		// last two collide with Import and Review Workspace, which mean particular things elsewhere.
+		// What is left is the honest half: which of the two this screen would hand over.
 		if (openDirectory === null) {
 			returnLink.current =
-				cloneLink === null ? null : { href: cloneLink, label: 'Open a Workspace from GitHub' };
+				cloneLink === null
+					? null
+					: { href: cloneLink, label: 'Open this Workspace in Ballastella' };
 			return;
 		}
 		returnLink.current =
-			reviewLink === null ? null : { href: reviewLink, label: 'Open in Ballastella' };
+			reviewLink === null ? null : { href: reviewLink, label: 'Open this Project in Ballastella' };
 	});
 
 	/**
@@ -1291,8 +1294,8 @@
 			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
 			this expression and nothing else — because the sentence is *about* the invitation. A site
 			published into a folder, and any site published without them, records no instance or no
-			repository, so the bar carries no "Open a Workspace from GitHub" and this would be telling a
-			Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
+			repository, so the bar carries no "Open this Workspace in Ballastella" and this would be
+			telling a Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
 			drift into a page that offers the link without the sentence or the sentence without the link.
 		-->
 			{#if cloneLink !== null}

@@ -112,8 +112,15 @@
 		offerAbove?: boolean;
 	} = $props();
 
-	/** Nothing to show, and a reason worth naming, rather than a screen that says "Opening…" for ever. */
-	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
+	/**
+	 * Nothing to show, and a reason worth naming, rather than a screen that says "Opening…" for ever.
+	 *
+	 * ⚠ **The Workspace that is open, and no other** (ADR-0042). This once also drew the notice for a
+	 * folder merely *remembered* from a previous visit, which made every Project in every Workspace
+	 * unopenable for anybody who had ever chosen one. A folder that is not open is a row in the
+	 * roster, not a state this screen is in.
+	 */
+	const recovering = $derived(session.status === 'unreachable');
 
 	$effect(() => {
 		pageChrome.showBreadcrumbs('editor-project', [
@@ -1580,8 +1587,8 @@
 	</div>
 
 	<!--
-		ADR-0025's dialog, **outside `project-screen` on purpose**, beside the settings dialog and for
-		the same reason. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
+		ADR-0025's dialog, **outside `project-screen` on purpose**, for the reason every dialog this
+		screen raises is. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
 		merely transparent — so its buttons answer a `querySelectorAll` of visible controls while being
 		unreachable by keyboard. Inside the subtree it made `editor-project-screen.e2e.ts`'s tab walk
 		fail on "Not now" and "Count again"; a modal's whole point is that one tab order cannot cover

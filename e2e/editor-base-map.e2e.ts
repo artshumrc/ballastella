@@ -411,13 +411,11 @@ test.describe('the Base Map pane', () => {
 		await expect(page.getByTestId('edit-project-name')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('app-wordmark')).toBeFocused();
-		// Connecting comes before publishing in the row and in the order, which is the order the two
-		// things happen in: a Workspace has to have somewhere to go before Publish has anywhere to send
-		// it (ADR-0032).
+		// One GitHub control in the row and one in the order (ADR-0041): everything a scholar can do
+		// about GitHub — connecting, publishing, the Update and the check — is behind this one press,
+		// so the bar's main row is the Edit History slot, this, and the theme control.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('connect-to-github')).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(page.getByTestId('publish')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(themePicker(page)).toBeFocused();
 		await tabUntilFocused(page, page.getByTestId('place-search-query'), 'place search');

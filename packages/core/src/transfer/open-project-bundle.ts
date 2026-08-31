@@ -230,7 +230,7 @@ export async function openProjectBundle(
 				'no-project-file',
 				`This file has no ${PROJECT_FILE_NAME} at its root, so it is not a Ballastella Project ` +
 					`bundle. A bundle holds one Project, with ${PROJECT_FILE_NAME} at the top; a whole ` +
-					`Workspace backup is a different file and is opened from Workspace settings.`
+					`Workspace backup is a different file and is opened from Workspace Home.`
 			);
 		}
 		const project = outcome.manifest;

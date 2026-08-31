@@ -374,11 +374,11 @@ function legacyPublishedByEditor(): SiteFiles {
  * Either invitation back to the editor, by the words the bar renders.
  *
  * ⚠ **The two are deliberately different sentences**: a Project offers
- * “Open in Ballastella”, whose offer has Import and Review behind it, and the Front Page offers the
- * whole Workspace out of GitHub. So an absence claim has to name both, or it passes because it was
+ * “Open this Project in Ballastella”, whose offer has Import and Review behind it, and the Front
+ * Page offers the whole Workspace. So an absence claim has to name both, or it passes because it was
  * looking for the wrong one.
  */
-const RETURN_LINK = /^(Open in Ballastella|Open a Workspace from GitHub)$/;
+const RETURN_LINK = /^Open this (Project|Workspace) in Ballastella$/;
 
 /** Wait until the Reader's map has built its stack, so assertions are about a drawn map. */
 async function mapReady(page: Page): Promise<void> {
@@ -979,8 +979,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// ⚠ **The reassurance about opening this Workspace in Ballastella is absent, and that is the
 			// claim**. This fixture records no editor instance and carries no `remote.json` — the state
 			// of a site published into a folder, and of every site published before the binding existed
-			// — so the bar offers no "Open a Workspace from GitHub". A sentence saying what following
-			// that link costs would be describing a control that is nowhere on the screen.
+			// — so the bar offers no "Open this Workspace in Ballastella". A sentence saying what
+			// following that link costs would be describing a control that is nowhere on the screen.
 			// **The other half of this pair is in `leads back to the editor that published it`**, which
 			// asserts the same sentence *present* on a site that does offer the link; neither half means
 			// anything without the other.
@@ -1139,7 +1139,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// On the bar, with the other things that are true on every screen, rather than buried in a
 			// paragraph of prose halfway down the Front Page.
 			const bar = page.getByTestId('navigation-bar');
-			const clone = bar.getByRole('link', { name: 'Open a Workspace from GitHub' });
+			const clone = bar.getByRole('link', { name: 'Open this Workspace in Ballastella' });
 			await expect(clone).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
 
 			// And the sentence that says what following it costs, on the one screen that offers it: a
@@ -1165,7 +1165,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			await expect(bar.getByTestId('all-projects')).toBeVisible();
 
 			// One link, and the offer behind it is where Import and Review are chosen between.
-			const review = bar.getByRole('link', { name: 'Open in Ballastella' });
+			const review = bar.getByRole('link', { name: 'Open this Project in Ballastella' });
 			await expect(review).toHaveAttribute(
 				'href',
 				`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
@@ -1191,16 +1191,14 @@ test.describe('a Published Site a Reader arrives at', () => {
 		const bar = page.getByTestId('navigation-bar');
 
 		await page.goto(served.url);
-		await expect(bar.getByRole('link', { name: 'Open a Workspace from GitHub' })).toHaveAttribute(
-			'href',
-			`${EDITOR_INSTANCE}?clone=ada/atlas`
-		);
+		await expect(
+			bar.getByRole('link', { name: 'Open this Workspace in Ballastella' })
+		).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
 
 		await page.goto(`${served.url}?p=amsterdam-1625`);
-		await expect(bar.getByRole('link', { name: 'Open in Ballastella' })).toHaveAttribute(
-			'href',
-			`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
-		);
+		await expect(
+			bar.getByRole('link', { name: 'Open this Project in Ballastella' })
+		).toHaveAttribute('href', `${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`);
 	});
 
 	/**

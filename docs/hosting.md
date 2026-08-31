@@ -145,23 +145,25 @@ stops working.
 Publishing needs a GitHub credential, and there are two ways for a scholar to give the editor one.
 
 **The paste always works, and needs nothing from you.** A scholar makes a fine-grained personal
-access token on GitHub, pastes it into the Remote dialog, and publishes. No server is involved, no
-configuration, and no account of yours. **If you do nothing at all in this section, this is your
-fork's whole authentication and everything still works** — the publish path, its speed, and where the
-data goes are identical either way.
+access token on GitHub, pastes it behind *Connect to GitHub* on the editor's bar, and publishes. No
+server is involved, no configuration, and no account of yours. **If you do nothing at all in this
+section, this is your fork's whole authentication and everything still works** — the publish path,
+its speed, and where the data goes are identical either way.
 
-**It is the door offered where there is no App, and only there.** The two values below decide which
+**It is the door offered where there is no App, and only there.** The three values below decide which
 of the two a scholar is shown, and they are never shown both: a person asked to choose between two
 credentials has no way to tell which one is meant for them, and one of the two sends them off to
 generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
-token field appears anywhere — the paste is still there, one disclosure deep in Workspace settings,
-worded for somebody who already knows what they are asking for, which is where you go when your App
-installation has broken during a class. Where the two values are empty, *Connect to GitHub* leads
-straight to the paste, with the guidance a fork's author needs, and no sign-in button is shown at
-all.
+token field appears anywhere on the screen a student meets. The one exception is a disclosure on the
+door itself — *Signing in will not work for me* — which starts closed and puts nothing in the page
+until it is pressed. That is the way back in for an instructor whose App installation has broken
+mid-class, and it is worded for somebody who already knows what they are asking for. Where the three
+values are empty, *Connect to GitHub* leads straight to the paste, with the guidance a fork's author
+needs, and no sign-in button is shown at all.
 
-**The nicer front door** is a button: press *Sign in with GitHub*, authorise on GitHub's own screen,
-choose which repositories the app may touch, and come back signed in. This is the one part of
+**The nicer front door** is a button: press *Sign in with GitHub*, install the App and authorise it
+on GitHub's own screen, choose which repositories the app may touch, and come back signed in — one
+trip, because the App asks for user authorisation *during* installation. This is the one part of
 Ballastella that needs a server, and it needs one for a single reason:
 `github.com/login/oauth/access_token` sends no CORS headers, so a browser cannot exchange an
 authorisation code for a token by itself. Every other request — the file list, every blob, the
@@ -194,6 +196,16 @@ own App and its own client ID — and until it has them, the pasted token is the
    `…/editor/index.html` that is what GitHub is asked to match, and a callback registered as
    `…/editor/` will be refused with `redirect_uri_mismatch`. Give it **Contents: Read and write** and
    **Pages: Read and write**, and enable user-to-server tokens with expiry.
+
+   Then tick **Request user authorization (OAuth) during installation**. This is what makes a
+   first-time author's trip one screen instead of two: GitHub installs the App and issues the
+   authorisation code together, and returns to the callback URL above carrying `code` and `state`.
+   Without it, somebody signing in for the first time comes back holding a credential against no
+   installation, and Ballastella can only show them a list of no repositories.
+
+   **Register no Setup URL.** Ballastella never reads `setup_action`, which is undocumented across
+   the whole of GitHub's documentation, and a Setup URL would take the author somewhere the
+   application is not.
 2. Deploy a broker that implements the two endpoints below, holding your App's client **secret**.
    The contract is fixed so the two repositories cannot drift:
 
@@ -209,25 +221,35 @@ own App and its own client ID — and until it has them, the pasted token is the
    no secret.
 3. Edit **one file** —
    [`packages/core/src/remote/github-app.ts`](../packages/core/src/remote/github-app.ts) — and set
-   the two values on `GITHUB_APP`:
+   the three values on `GITHUB_APP`:
 
    ```ts
    export const GITHUB_APP: GitHubApp = {
    	brokerOrigin: 'https://broker.your-institution.edu',
-   	clientId: 'Iv1.your-real-client-id'
+   	clientId: 'Iv1.your-real-client-id',
+   	appSlug: 'your-app-slug'
    };
    ```
 
-   **Neither is a secret.** A client ID is public by design — it travels in the authorize URL, in
-   front of the user. The client secret never leaves your broker.
+   `appSlug` is the last segment of **Public link** on your App's settings page — the address
+   `https://github.com/apps/…` points at. It is *not* the App's display name: GitHub lowercases and
+   hyphenates that to make the slug, and the two can differ. It is what the install screen a
+   first-time author is sent to hangs off, so a wrong one sends them to somebody else's App or to a
+   404.
+
+   **None of the three is a secret.** A client ID is public by design — it travels in the authorize
+   URL, in front of the user — and the slug is a public link GitHub prints for you. The client secret
+   never leaves your broker.
 
 Nothing else in the repository needs to know: `scripts/check-github-broker.mjs` fails `pnpm lint` if
-any module outside that file names your broker's host or your client ID, which is what keeps
-"repoint it in one edit" true rather than merely intended.
+any module outside that file names your broker's host, your client ID, or `github.com/apps/<your
+slug>`, which is what keeps "repoint it in one edit" true rather than merely intended. The slug is
+fenced as that address rather than as a bare word, because an App is usually named after the project
+it belongs to and a fence on the word alone would refuse the project's own package names.
 
 #### Turning it off
 
-Set both values to the empty string. The button disappears entirely — rather than sitting there
+Set all three values to the empty string. The button disappears entirely — rather than sitting there
 leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again, and
 the front door of the guided sequence: *Connect to GitHub* opens on the repository address and the
 token rather than on a sign-in nobody can complete.
@@ -235,8 +257,9 @@ token rather than on a sign-in nobody can complete.
 deliberately different line: a fence with nothing to look for must not print the same success message
 as a fence that looked and found nothing.
 
-Set **both, or neither**. A broker with no client ID has nothing to look a secret up by, and a client
-ID with no broker has nowhere to exchange a code, so `pnpm lint` refuses a half-configured pair.
+Set **all three, or none**. A broker with no client ID has nothing to look a secret up by, a client
+ID with no broker has nowhere to exchange a code, and a missing slug is an install screen nobody can
+be sent to, so `pnpm lint` refuses a part-configured App.
 
 #### What owning the App means you can reach
 
@@ -308,8 +331,10 @@ One repository for the whole Workspace, not one per Project.
 
 ### 2. Bind your Workspace to it
 
-In the editor: **Workspace menu → Remote repository…**. Paste the repository's address, and give the
-editor a credential.
+In the editor: **Connect to GitHub** on the bar. What that opens depends on the instance. Where a
+GitHub App is configured it walks you through signing in and then lists the repositories you have
+given the app access to, and binding is pressing the one you want. Where none is, it asks for the
+repository's address and a token.
 
 **A pasted token always works, on any instance.** Make a fine-grained personal access token on
 GitHub — **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate
@@ -323,25 +348,35 @@ Four things on that form matter:
   cannot see it — and the symptom is a repository that appears not to exist.
 - **Repository access.** Choose *Only select repositories*, and select that one repository.
 - **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
-  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*.
+  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*. Turning your
+  Published Site on is a separate act with its own button, and step 4 says what that additionally
+  needs.
 - **Expiration.** Whatever you are comfortable with. When it expires, publishing says so and you make
   another one.
 
 Copy the token on the screen that follows — that is the only time GitHub shows it — and paste it into
-the dialog.
+the field *Connect to GitHub* asks for it in.
 
-**There may also be a *Sign in with GitHub* button, and its being there does not mean it works.** The
-button appears whenever the instance has App values configured, and a fork inherits the ones it was
-forked from — which name an App that will only ever redirect to the instance those values belong to.
-So on a fork the button is on screen and the attempt fails with a sentence telling you to paste a
-token instead. Only an instance that registered its own GitHub App and deployed a broker can complete
-that sign-in (part 1, step 6). If you do not know which kind of instance you are on, paste a token:
-it is the same publish either way.
+**Where there is a *Sign in with GitHub* button, its being there does not mean it works.** The button
+appears whenever the instance has all three App values filled in, and a fork inherits the ones
+it was forked from — which name an App that will only ever redirect to the instance those values
+belong to. So on such a fork the button is on screen and the attempt fails with a sentence telling
+you to paste a token instead. Only an instance that registered its own GitHub App and deployed a
+broker can complete that sign-in (part 1, step 6). If you do not know which kind of instance you are
+on, paste a token: it is the same publish either way, and where the button is there the paste is
+behind *Signing in will not work for me* on the same screen.
 
-**The credential is forgotten when you close the tab.** It is kept in the browser tab's own storage,
+**A pasted token is forgotten when you close the tab.** It is kept in the browser tab's own storage,
 never in your Workspace — a token in the Workspace would leave your machine inside the next publish,
 or inside an archive you sent a colleague. Reloading the page keeps it; closing the tab, or coming
-back tomorrow, means pasting it again.
+back tomorrow, means pasting it again. There is no way to keep one longer, because a pasted token has
+no renewable half.
+
+**A sign-in is forgotten when you close the tab too, unless the person using it asks otherwise.**
+*Connect to GitHub* carries *Keep me signed in on this computer*, unticked until somebody ticks it, so
+a shared or library machine keeps nothing of a sign-in unless the person at it says otherwise. Where it
+is ticked, this installation keeps the part that renews the sign-in and never the part that publishes,
+in storage no Backup packs and no Publish uploads.
 
 The **binding** is the part that persists. Binding checks that the credential can actually write to
 that repository before it keeps anything, so a mistyped address or a token without the rights is
@@ -352,7 +387,9 @@ a credential.
 
 ### 3. Press Publish
 
-**Publish…**, on the navigation bar. The dialog tells you how many files and how many bytes it is
+**Publish…**, behind the navigation bar's one GitHub control — the one that names your repository.
+Everything about GitHub is behind it: connecting, publishing, **Update from GitHub** and **Check
+Remote Status**. The dialog tells you how many files and how many bytes it is
 about to send, how many Projects the Published Site will carry and how many of those the Front Page
 lists, and warns you about anything that would disappoint a Reader — a Project that references
 images from a Library, for instance, which a Reader with no network will not see.
@@ -377,21 +414,27 @@ workspace/
 You can delete every one of them and each Project directory is still complete and readable, in
 standard formats, with no proprietary index left behind.
 
-### 4. Turn Pages on by hand
+### 4. Let other people see it
 
-**Following the steps above, you will do this yourself.** Binding asks GitHub to turn Pages on for
-you, but binding happens in step 2, when the repository is still the empty one step 1 told you to
-make — and GitHub cannot point Pages at a branch that does not exist yet. So the request is refused,
-and the editor says so in words and tells you what to click. The automatic path is for the case where
-the repository already has a branch: binding a second machine, or re-binding, to a repository you have
-published from before.
+Your repository is where the work lives. Whether anybody may *read* it at a web address is a separate
+question, and nothing answers it for you: connecting turns no site on, and never has anything to say
+about one.
 
-The editor asks GitHub that question only at the moment of binding. Re-opening **Workspace menu →
-Remote repository…** afterwards offers to unbind, not to try Pages again, so there is nothing to press
-a second time — do it on GitHub.
+The editor offers **Let other people see this** on the screen you land on once a repository is
+connected. Press it whenever you like — before your first publish or long after it.
 
-Once your first publish has landed, it is one setting, done once: **Settings → Pages → Source →
-Deploy from a branch**, branch `main`, folder `/ (root)`.
+**It will often be refused, and the refusal is not about anything you did wrong.** GitHub requires
+**Pages: Read and write** *and* **Administration: Read and write** together to turn a site on for
+you, and Ballastella's GitHub App asks for the first and never the second — it will not ask to
+administer your repositories
+([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)), so the pair
+GitHub wants is never complete for a sign-in. A pasted
+token can carry both if you grant them; a sign-in never can. Either way the editor says so and names
+what to click.
+
+Doing it by hand is one setting, done once: **Settings → Pages → Source → Deploy from a branch**,
+branch `main`, folder `/ (root)`. It needs a branch to point at, so if your repository is still the
+empty one step 1 told you to make, publish once first — that is what makes the branch.
 
 Here you *do* want the branch deploy, because the site is already built — what was sent is the
 website. There is nothing to compile.

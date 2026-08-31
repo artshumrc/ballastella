@@ -237,8 +237,13 @@
 
 	The padding is on the rows rather than here, so that a tiered bar's rule runs the full width of the
 	bar instead of stopping short of its edges.
+
+	⚠ **`z-[60]`, above the editor's toast stack at `z-50`.** The stack is offset `mt-20` to clear this
+	bar, and a fixed offset cannot: the eyebrow grows when a disclosure in it opens, and where it does,
+	a message drawn over the bar covers controls and swallows the presses meant for them. Nothing else
+	on either app competes — dialogs and popovers are in the top layer, above both.
 -->
-<header data-testid="navigation-bar" class="border-b border-base-300 bg-base-200">
+<header data-testid="navigation-bar" class="relative z-[60] border-b border-base-300 bg-base-200">
 	{#if status}
 		<!--
 			Eyebrow: who you are and whether your work is kept. Muted and compact (py-1, text-xs)

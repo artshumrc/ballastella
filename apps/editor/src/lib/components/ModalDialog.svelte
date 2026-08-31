@@ -35,7 +35,8 @@
 		children: Snippet;
 		actions: Snippet;
 		/**
-		 * Where focus goes when the element that opened this dialog is **no longer in the document**.
+		 * Where focus goes when the element that opened this dialog **can no longer take it** — because
+		 * it has been unmounted, or because it is inside a dialog that has since closed.
 		 *
 		 * ⚠ **A dialog can outlive its own trigger, and `focus()` on a detached node is a no-op with no
 		 * complaint.** Opening a Project bundle is the case: the button that opened this is inside `{#if
@@ -114,16 +115,41 @@
 		restored = true;
 		// `isConnected` rather than a `try`: a detached element accepts `focus()` and does nothing, so
 		// there is no failure to catch — which is exactly why this went unnoticed.
-		if (trigger?.isConnected) {
+		//
+		// ⚠ **`<body>` is not an opener, and it is what `document.activeElement` answers far more often
+		// than it looks.** Nothing focused at all answers `<body>`; so does a dialog raised by
+		// something other than a press; and so does the vanishing-trigger case above, because Svelte
+		// removes the trigger in the render effect that runs *before* this component's own effect, so
+		// the capture below already reads `<body>` rather than the button. `<body>` is connected and
+		// inside no closed dialog, so it passed as usable — and `focus()` on it does nothing, silently,
+		// leaving {@link restoreFocusTo} unconsulted and the keyboard user exactly where this
+		// restoration exists to stop them being.
+		//
+		// ⚠ **And in the document is not the same as reachable.** A dialog opened from inside another
+		// dialog that has since closed — the Publish dialog, opened from the door, which closes on the
+		// press — has a trigger that is still connected and inside a `<dialog>` nobody can see. Worse
+		// than a no-op: daisyUI's `.modal` keeps a closed dialog laid out, so `focus()` on that button
+		// *succeeds* and a keyboard user is left on a control that is not on the screen. Asking whether
+		// the focus landed cannot tell the two apart; asking where the trigger lives can.
+		const usable =
+			trigger !== null &&
+			trigger !== document.body &&
+			trigger.isConnected &&
+			trigger.closest('dialog:not([open])') === null;
+		if (usable && trigger) {
 			trigger.focus();
 			return;
 		}
-		// **Only when focus has nowhere to be**, which is `<body>`, nothing at all, or still inside the
-		// dialog that has just closed. Anywhere else is somewhere the user chose, and taking it off them
-		// would be a worse failure than the `<body>` this exists to avoid.
+		// **Only when focus has nowhere to be**, which is `<body>`, nothing at all, still inside the
+		// dialog that has just closed, or on the trigger this has just refused. Anywhere else is
+		// somewhere the user chose, and taking it off them would be a worse failure than the `<body>`
+		// this exists to avoid.
 		const focused = document.activeElement;
 		const stranded =
-			focused === null || focused === document.body || (dialog?.contains(focused) ?? false);
+			focused === null ||
+			focused === document.body ||
+			focused === trigger ||
+			(dialog?.contains(focused) ?? false);
 		if (stranded) restoreFocusTo?.()?.focus();
 	}
 

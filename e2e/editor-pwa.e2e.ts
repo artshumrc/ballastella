@@ -1,6 +1,5 @@
 import { expect, test } from './support/test.js';
 
-import { openWorkspaceSettings } from './support/workspace';
 import { type Page } from '@playwright/test';
 
 import {
@@ -1109,7 +1108,7 @@ test.describe('the offer to install', () => {
 		await site.close();
 	});
 
-	test('is made where the folder permission is explained, and says how when the browser will not offer', async ({
+	test('is made on Workspace Home beside the sentence it answers, and says how when the browser will not offer', async ({
 		page
 	}) => {
 		await page.goto(site.url);
@@ -1118,15 +1117,10 @@ test.describe('the offer to install', () => {
 
 		// ADR-0012's reason for the whole slice: installing is the answer both to "why does it keep
 		// asking about my folder?" and to "will this browser keep my Workspace at all?", so the offer
-		// sits beside those two explanations and nowhere else — Workspace settings rather than a
-		// permanently visible hub section, because the offer belongs with the question it answers.
-		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
-		// frame, because a `<dialog>` has to exist before `showModal()` can be called on it. The claim
-		// is that the offer is not *on screen* until the dialog is opened.
-		await expect(page.getByTestId('install-offer')).toBeHidden();
-		await openWorkspaceSettings(page);
-		const settings = page.getByRole('dialog', { name: 'Workspace settings' });
-		await expect(settings.getByTestId('install-offer')).toBeVisible();
+		// sits beside those two explanations and nowhere else. That is Workspace Home now (ADR-0042):
+		// the two sentences it answers are on the screen that *is* this Workspace, so the reason and
+		// the remedy are together and neither is two menus deep.
+		await expect(page.getByTestId('install-offer')).toBeVisible();
 
 		// Headless Chromium does not fire `beforeinstallprompt`, and neither does Firefox or Safari ever.
 		// So the state that most users are in is the one asserted first: a sentence saying where to look,
@@ -1146,9 +1140,8 @@ test.describe('the offer to install', () => {
 		// after `load`, since hydration is a dynamic import. Dispatching before it is attached is a
 		// test that measures nothing, and it failed as "the offer never appeared".
 		//
-		// The offer lives in Workspace settings, so the dialog is opened to see it. The listener is in
-		// the layout and not in the dialog, so it is attached either way.
-		await openWorkspaceSettings(page);
+		// The offer is on Workspace Home, which is the screen this spec has just loaded. The listener is
+		// in the layout rather than in the offer, so it is attached either way.
 		await expect(page.getByTestId('install-state-unavailable')).toBeVisible();
 
 		// The event is synthesised because Chromium's install criteria include engagement heuristics no
@@ -1190,6 +1183,73 @@ test.describe('the offer to install', () => {
 		// One offer per event, by specification, so the button goes with it rather than staying to be
 		// clicked into a no-op.
 		await expect(page.getByTestId('install-app')).toBeHidden();
+	});
+});
+
+test.describe('what the browser has promised about keeping the work', () => {
+	let site: EditorDeployment;
+
+	test.beforeEach(async () => {
+		site = await deployEditor();
+	});
+	test.afterEach(async () => {
+		await site.close();
+	});
+
+	/**
+	 * The real browser's real answer, on the real screen (ADR-0042).
+	 *
+	 * ⚠ **Which of the six a browser is, is not asserted here and cannot be.** A run produces exactly
+	 * one — the engine it is — so a test that named it would be a test of headless Chromium's
+	 * heuristics rather than of this application. The six-way derivation is exhausted at Seam 1 in
+	 * `packages/core`'s `storage-durability.test.ts` over injected capability answers. What only a real
+	 * browser can prove is what this asserts: that the answer arrives at all with no user-agent string
+	 * read anywhere on the path, that it is one line rather than a paragraph, that the truth behind it
+	 * is a working disclosure, and that a backup is offered whatever the browser said.
+	 */
+	test('is one line on Workspace Home, with the truth behind a disclosure and a backup either way', async ({
+		page
+	}) => {
+		await page.goto(site.url);
+		await emptyWorkspace(page);
+		await page.reload();
+
+		const lead = page.getByTestId('durability-lead');
+		await expect(lead).toBeVisible();
+		// One line, not a lecture: the bar for "short" is generous, and a paragraph still fails it.
+		expect((await lead.innerText()).length).toBeLessThan(160);
+
+		const learnMore = page.getByTestId('durability-learn-more');
+		if (await learnMore.isVisible()) {
+			// Every state but WebKit's. The detail is behind the press and reachable by keyboard alone.
+			await expect(page.getByTestId('durability-detail')).toBeHidden();
+			await expect(learnMore).toHaveAttribute('aria-expanded', 'false');
+			await learnMore.focus();
+			await page.keyboard.press('Enter');
+			await expect(learnMore).toHaveAttribute('aria-expanded', 'true');
+		} else {
+			// WebKit: the truth is up front and unhedged, because a scholar who never presses loses
+			// everything they have after seven days (ADR-0001's amendment).
+			await expect(page.getByTestId('durability-detail')).toBeVisible();
+		}
+
+		await expect(page.getByTestId('durability-detail')).toBeVisible();
+		await expect(page.getByTestId('download-backup')).toBeVisible();
+
+		// ⚠ Nothing on this path consults what the browser calls itself. That claim is over source
+		// rather than over a run — `packages/core`'s `storage-durability.test.ts` asserts it of the
+		// derivation, and CONTRIBUTING's grep over `apps/editor/src` covers the modules that feed it —
+		// because a runtime counter here would be measuring MapLibre and the framework as well.
+
+		// The grant, pressed for where this browser offers one. Nothing may ask for it before the
+		// press: `persist()` is what opens Firefox's prompt, and ADR-0012 rules out the nagging.
+		const keep = page.getByTestId('keep-storage');
+		if (await keep.isVisible()) {
+			await keep.click();
+			await expect(page.getByTestId('keep-storage-outcome')).not.toHaveText('');
+		}
+		// And whatever it answered, the line is still there and still one line.
+		await expect(page.getByTestId('durability-lead')).toBeVisible();
 	});
 });
 

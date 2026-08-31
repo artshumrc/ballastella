@@ -3,9 +3,11 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import {
-	closeRemoteSettings,
+	closeTheDoor,
+	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openRemoteSettings,
+	inTheDoor,
+	openTheDoor,
 	readBaseline,
 	readRemoteRelationship,
 	switchToWorkspace
@@ -25,7 +27,7 @@ import {
  *     and the Annotations all really landed, in a store the app reads through its own code;
  *   - only the **owned namespace** arrives, so the publisher's `README.md`, `CNAME` and workflow do
  *     not become the opener's own content and are not published as theirs later (ADR-0033);
- *   - the result is **bound with a Baseline**, which the Remote dialog is the one place that says —
+ *   - the result is **bound with a Baseline**, which the bar's door is the one place that says —
  *     and bound to the repository the *user* chose, never the one the published tree named;
  *   - **opening the same repository again goes back to that Workspace** rather than making a second
  *     synchronized copy of it, which needs real IndexedDB and so is unreachable below this seam;
@@ -167,15 +169,34 @@ async function start(page: Page, repository: Record<string, unknown> = {}) {
 	return github;
 }
 
-/** Fill the Open form and press the button. Does not assert the outcome — each test says its own. */
+/**
+ * Paste an address behind the door and confirm what GitHub says it means.
+ *
+ * ⚠ **The inbound door is a landing of the one door now** (ADR-0041, ADR-0042), in front of the
+ * sign-in rather than behind it: a student opening their instructor's Workspace needs no account. The
+ * address is resolved to a repository first and **confirmed** before a byte moves, because an
+ * ambiguous Pages address has two real answers and a Workspace can run to gigabytes.
+ *
+ * Leaves the door open, because what the Open said is said inside it.
+ */
 async function openFromGitHub(page: Page, repository = REMOTE): Promise<void> {
-	await openRemoteSettings(page);
-	await page.getByTestId('open-repository-field').fill(repository);
-	await page.getByTestId('open-from-github').click();
+	await openTheDoor(page);
+	await page.getByTestId('open-by-address').click();
+	await page.getByTestId('workspace-address-field').fill(repository);
+	await page.getByTestId('find-workspace-address').click();
+	// ⚠ **Waited for by *either* answer**, because the probe is a request: a bare count of the refusal
+	// races the render and reads "no refusal" out of the frame before GitHub has replied.
+	await expect(
+		page.getByTestId('resolved-address').or(page.getByTestId('workspace-address-refused'))
+	).toBeVisible({ timeout: 30_000 });
+	if ((await page.getByTestId('workspace-address-refused').count()) > 0) return;
+	await page.getByTestId('open-resolved-address').click();
 }
 
-const outcome = (page: Page) => page.getByTestId('remote-outcome');
-const problem = (page: Page) => page.getByTestId('remote-problem');
+const outcome = (page: Page) => page.getByTestId('connect-notice');
+const problem = (page: Page) => page.getByTestId('connect-problem');
+/** What a pasted address that names no repository at all is refused with. */
+const addressRefusal = (page: Page) => page.getByTestId('workspace-address-refused');
 
 /** Every file in a named Workspace, read behind the app's back. */
 async function everyByteOf(page: Page, workspace: string): Promise<Record<string, string>> {
@@ -218,7 +239,7 @@ test.describe('opening a published Workspace', () => {
 
 		await expect(outcome(page)).toContainText(`Opened ${REMOTE}`);
 		await expect(outcome(page)).toContainText('“atlas”');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 
 		// Switched to, which the bar is the one place that says.
 		await expectWorkspaceNamed(page, 'atlas');
@@ -244,7 +265,7 @@ test.describe('opening a published Workspace', () => {
 
 		await openFromGitHub(page);
 		await expect(outcome(page)).toContainText('Opened');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
@@ -270,15 +291,16 @@ test.describe('opening a published Workspace', () => {
 
 		await openFromGitHub(page);
 		await expect(outcome(page)).toContainText('Opened');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		await expectWorkspaceNamed(page, 'atlas');
 
-		// The Remote and the Baseline as the app reads them, in the dialog that reports both.
-		await openRemoteSettings(page);
-		await expect(page.getByTestId('bound-remote')).toHaveText(REMOTE);
-		await expect(page.getByTestId('remote-baseline')).toContainText(`last agreed with ${REMOTE}`);
-		await expect(page.getByTestId('remote-baseline')).not.toContainText('Cannot tell');
-		await closeRemoteSettings(page);
+		// The Remote and the Baseline as the app reads them, both from the door — which is where the
+		// evidence sits beside the repository it is about (ADR-0041).
+		await expectRemoteNamed(page, REMOTE);
+		await inTheDoor(page, async () => {
+			await expect(page.getByTestId('remote-baseline')).toContainText(`last agreed with ${REMOTE}`);
+			await expect(page.getByTestId('remote-baseline')).not.toContainText('Cannot tell');
+		});
 
 		// ⚠ And in the installation database, behind the app's back — the point of ADR-0038 is that
 		// this evidence is *outside* the Workspace, so it cannot travel in a Backup or up to a Remote.
@@ -314,7 +336,7 @@ test.describe('opening a published Workspace', () => {
 
 		await expect(outcome(page)).toContainText('Opened');
 		// Still signed out afterwards: this neither needs nor acquires a credential.
-		await expect(page.getByTestId('remote-signed-in')).toHaveCount(0);
+		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
 		// Indexed rather than `toHaveProperty`, which reads a dot in the key as a path separator.
 		const stored = await everyByteOf(page, 'atlas');
 		expect(stored['images/amsterdam-1625/info.json']).toBe('{"width":4096,"height":3072}');
@@ -331,12 +353,14 @@ test.describe('opening a published Workspace', () => {
 		await openFromGitHub(page);
 		await expect(outcome(page)).toContainText('Opened');
 
-		// One request per file, from the raw host, and exactly two API calls: the file list, and the
-		// commit the Baseline records the shared state at. Bounded, on the sixty an anonymous reader
-		// gets per hour.
+		// One request per file, from the raw host, and exactly three API calls: the listing the probe
+		// works out which repository the address means from, the transfer's own listing, and the commit
+		// the Baseline records the shared state at. Bounded, on the sixty an anonymous reader gets per
+		// hour — and the probe's read is what buys the confirmation before gigabytes move.
 		expect(github.rawGets(OWNER, REPOSITORY)).toBe(DOWNLOADED.length);
 		expect(github.rawRequests).toHaveLength(DOWNLOADED.length);
 		expect(github.requests).toEqual([
+			`/repos/${OWNER}/${REPOSITORY}/git/trees/main`,
 			`/repos/${OWNER}/${REPOSITORY}/git/trees/main`,
 			`/repos/${OWNER}/${REPOSITORY}/git/ref/heads/main`
 		]);
@@ -360,16 +384,21 @@ test.describe('opening a published Workspace', () => {
 		});
 
 		// Started from the keyboard alone, which is the half a `click()` cannot show: an Open a scholar
-		// with no pointer cannot begin is one they cannot do.
-		await openRemoteSettings(page);
-		await page.getByTestId('open-repository-field').fill(REMOTE);
-		await page.getByTestId('open-from-github').focus();
+		// with no pointer cannot begin is one they cannot do. Both presses — finding the repository the
+		// address means, and confirming it — are made with Enter.
+		await openTheDoor(page);
+		await page.getByTestId('open-by-address').click();
+		await page.getByTestId('workspace-address-field').fill(REMOTE);
+		await page.getByTestId('find-workspace-address').focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('resolved-address')).toContainText(REMOTE, { timeout: 30_000 });
+		await page.getByTestId('open-resolved-address').focus();
 		await page.keyboard.press('Enter');
 
 		// `role="status"`, so it reaches assistive technology rather than only the screen. And it
 		// settles on what has actually arrived: a line counting the plan rather than the transfer would
 		// read the total from the first moment.
-		const progress = page.getByTestId('open-progress');
+		const progress = page.getByTestId('address-progress');
 		await expect(progress).toHaveText(
 			`${DOWNLOADED.length - 1} of ${DOWNLOADED.length} files downloaded from ${REMOTE}.`,
 			{ timeout: 30_000 }
@@ -379,7 +408,7 @@ test.describe('opening a published Workspace', () => {
 		// order the moment it is pressed, which drops a keyboard user's focus to `<body>` for the
 		// length of a download that runs in minutes (WCAG 2.4.3) — so it is still reachable and still
 		// says it is unavailable.
-		const button = page.getByTestId('open-from-github');
+		const button = page.getByTestId('open-resolved-address');
 		await expect(button).toHaveAttribute('aria-disabled', 'true');
 		// The *native* attribute, read off the element: `toBeDisabled()` counts `aria-disabled` as
 		// disabled too, so `not.toBeDisabled()` beside the line above passes only on a transfer that has
@@ -443,21 +472,21 @@ test.describe('what Open never does', () => {
 
 		await openFromGitHub(page);
 		await expect(outcome(page)).toContainText('Opened');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
-		await openRemoteSettings(page);
-		await expect(outcome(page)).toHaveText('');
+		await openTheDoor(page);
+		await expect(outcome(page)).toHaveCount(0);
 		await expect(problem(page)).toHaveCount(0);
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 
 		// The refusal too, which is the half a stale reading of would send somebody chasing a fault
 		// that has already been fixed.
-		await openFromGitHub(page, 'not a repository');
-		await expect(problem(page)).toBeVisible();
-		await closeRemoteSettings(page);
-		await openRemoteSettings(page);
-		await expect(problem(page)).toHaveCount(0);
+		await openFromGitHub(page, 'https://example.com/not/a/repo');
+		await expect(addressRefusal(page)).toBeVisible();
+		await closeTheDoor(page);
+		await openTheDoor(page);
+		await expect(addressRefusal(page)).toHaveCount(0);
 	});
 
 	test('makes a second synchronized copy of a repository it has already opened', async ({
@@ -472,7 +501,7 @@ test.describe('what Open never does', () => {
 
 		await openFromGitHub(page);
 		await expect(outcome(page)).toContainText('“atlas”');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		const baseline = await readBaseline(page, 'atlas');
 		await page.evaluate(async () => {
 			const workspace = await (await navigator.storage.getDirectory()).getDirectoryHandle('atlas');
@@ -491,7 +520,7 @@ test.describe('what Open never does', () => {
 
 		await expect(outcome(page)).toContainText('Went back to “atlas”');
 		await expect(outcome(page)).toContainText('Nothing has been downloaded');
-		await closeRemoteSettings(page);
+		await closeTheDoor(page);
 		// Back in it, with no second directory and the same stable identity as before.
 		await expectWorkspaceNamed(page, 'atlas');
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
@@ -613,13 +642,15 @@ test.describe('arriving on a link from a Published Site', () => {
 test.describe('refusals, all before a byte is written', () => {
 	test('a truncated file list, with no Workspace made at all', async ({ page }) => {
 		// ⚠ A truncated listing answers **200**, so nothing throws anywhere. Proceeding would hand the
-		// user a Workspace with most of a pyramid silently missing.
+		// user a Workspace with most of a pyramid silently missing — and here it is caught one step
+		// earlier still: the probe that works out which repository an address means reads the same
+		// listing, so a truncated one cannot even be confirmed, let alone downloaded.
 		const github = await start(page, { truncateAfter: 3 });
 
 		await openFromGitHub(page);
 
-		await expect(problem(page)).toContainText('silently missing');
-		await expect(problem(page)).toContainText('Nothing has been downloaded.');
+		await expect(addressRefusal(page)).toContainText('could only list the first');
+		await expect(addressRefusal(page)).toContainText('Nothing has been downloaded.');
 		// Not one byte asked for, and no Workspace to leave behind.
 		expect(github.rawGets(OWNER, REPOSITORY)).toBe(0);
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
@@ -650,8 +681,8 @@ test.describe('refusals, all before a byte is written', () => {
 
 		// A private repository and a missing one are one answer to an anonymous reader, and the
 		// sentence says so rather than asserting the first of the two.
-		await expect(problem(page)).toContainText('no public repository');
-		await expect(problem(page)).toContainText('private');
+		await expect(addressRefusal(page)).toContainText('no public repository');
+		await expect(addressRefusal(page)).toContainText('private');
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 	});
 
@@ -660,12 +691,15 @@ test.describe('refusals, all before a byte is written', () => {
 
 		await openFromGitHub(page, 'https://example.com/not/a/repo');
 
-		await expect(problem(page)).toContainText('is not a repository address');
+		// ⚠ **Refused before any request, and by the address rather than by GitHub.** A host that is
+		// neither github.com nor a Pages address produces no candidate to probe at all, so the sentence
+		// says why and what to paste instead (ADR-0041).
+		await expect(addressRefusal(page)).toContainText('a site on an address of its own');
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 		// ⚠ **Focus stays on the surface that was asked from**, so a keyboard user who reads the
 		// refusal is still where the field they have to correct is. A refusal that dropped focus to
 		// `<body>` would leave them tabbing in from the top of a modal to find it (WCAG 2.4.3).
-		await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-		await expect(page.getByTestId('open-from-github')).toBeFocused();
+		await expect(page.getByTestId('connect-sequence')).toBeVisible();
+		await expect(page.getByTestId('find-workspace-address')).toBeFocused();
 	});
 });

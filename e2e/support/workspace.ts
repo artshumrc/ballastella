@@ -1,9 +1,15 @@
 // Driving the Workspace control on the navigation bar: which Workspace you are in, moving between
-// them, and the settings dialog behind them.
+// them, and what may be done to them from their own rows.
 //
-// One module because the bar is on every screen and every spec that used to reach for the hub's
-// "Where your work is stored" section now goes through here — and because the two-step (menu, then
-// item) is exactly the kind of thing that gets copied slightly differently each time.
+// One module because the bar is on every screen, and because the two-step (menu, then item) is
+// exactly the kind of thing that gets copied slightly differently each time.
+//
+// ⚠ **There is no Workspace settings dialog and no Remote dialog** (ADR-0042). What was in them is
+// on Workspace Home — Backup, Restore, the install offer, the storage warning, the journal orphans
+// and *Move this Workspace into a folder…*, all read straight off the page — or behind the one door,
+// which {@link openTheDoor} reaches. The seven helpers that opened and closed those two dialogs are
+// gone rather than renamed: a spec that wants Backup is on Workspace Home, and a spec that wants
+// anything about GitHub is behind the door.
 
 import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
 
@@ -30,39 +36,41 @@ export async function openWorkspaceMenu(page: Page): Promise<void> {
 	await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
 }
 
-/**
- * Open Workspace settings from the bar.
- *
- * A `<dialog>` opened with `showModal()` (ADR-0016), so everything behind it is inert until it is
- * closed — which is why {@link closeWorkspaceSettings} exists and why the helpers here are paired.
- */
-export async function openWorkspaceSettings(page: Page): Promise<void> {
-	await openWorkspaceMenu(page);
-	await page.getByTestId('open-workspace-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeVisible();
-}
-
-export async function closeWorkspaceSettings(page: Page): Promise<void> {
-	await page.getByTestId('close-workspace-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeHidden();
-}
-
-/** Do something inside Workspace settings, and close it again. */
-export async function inWorkspaceSettings(
-	page: Page,
-	act: () => Promise<void>,
-	options: { closeAfter?: boolean } = {}
-): Promise<void> {
-	await openWorkspaceSettings(page);
-	await act();
-	if (options.closeAfter !== false) await closeWorkspaceSettings(page);
-}
-
 /** Switch to an existing named Workspace. */
 export async function switchToWorkspace(page: Page, name: string): Promise<void> {
 	await openWorkspaceMenu(page);
 	await page.getByTestId('switch-workspace').filter({ hasText: name }).first().click();
 	await expectWorkspaceNamed(page, name);
+}
+
+/**
+ * Rename a Workspace from its own row in the roster (ADR-0042).
+ *
+ * The row's control opens an inline field on the bar, as the creation one does, so this is the same
+ * three steps and is written once here rather than at every call.
+ */
+export async function renameWorkspace(page: Page, from: string, to: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	await page.getByRole('button', { name: `Rename ${from}` }).click();
+	await page.getByTestId('rename-workspace-name').fill(to);
+	await page.getByTestId('save-workspace-name').click();
+	await expect(page.getByTestId('workspace-announcement')).toContainText(to);
+}
+
+/**
+ * Delete a Workspace from its own row, confirming the question that names it.
+ *
+ * ⚠ **Deletion is in the roster and nowhere else** (ADR-0042): a Workspace is deleted from the list
+ * of Workspaces, which is where a person looking for one is looking. It used to be in Workspace
+ * settings, which had no second entry point and was two menus deep.
+ */
+export async function deleteWorkspace(page: Page, name: string): Promise<void> {
+	await openWorkspaceMenu(page);
+	// A browser Workspace, whose row says "Delete". A folder row says "Take … off the list", because
+	// it takes the row and leaves every file where it is — a different act with a different question.
+	await page.getByRole('button', { name: `Delete ${name}` }).click();
+	await expect(page.getByRole('dialog', { name: 'Delete this Workspace?' })).toBeVisible();
+	await page.getByTestId('confirm-delete-workspace').click();
 }
 
 /** Make a Workspace from the bar and switch into it. */
@@ -75,108 +83,173 @@ export async function createWorkspace(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Open Remote settings, which is reached **through Workspace settings**.
+ * Make a Workspace in a folder the browser's picker hands back, and switch into it (ADR-0042).
  *
- * The workspace menu answers one question — which Workspace am I in — so the binding is offered in
- * exactly one place, and that place is the *Where your work lives* group. Two `<dialog>`s stacked in
- * the top layer, which is why {@link closeRemoteSettings} closes both.
- */
-export async function openRemoteSettings(page: Page): Promise<void> {
-	await openWorkspaceSettings(page);
-	await page.getByTestId('open-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeVisible();
-}
-
-/**
- * Open the escape hatch that reaches the pasted token, in the Remote dialog's bind form.
+ * ⚠ **The caller has to have installed a picker**, because a real `showDirectoryPicker` opens an
+ * operating-system dialog no automated browser can answer — `editor-folder-workspace.e2e.ts`'s
+ * `installDirectoryPicker` is the one that does it, and every spec that wants a folder Workspace
+ * either uses it or stubs the picker itself.
  *
- * ⚠ **Every spec that pastes a token needs this, and that is the point.** Where a GitHub App is
- * configured — which this checkout is, and every spec is built with — a scholar is never shown a
- * token field: one door, and it is the sign-in. The paste is not deleted, and
- * these specs are what proves it still works; it is one press away, closed by default, for the
- * instructor whose App installation has broken during a class.
+ * The kind is asked at creation and only where the File System Access API is present, which is what
+ * keeps a browser that has no picker from being told there are two kinds at all.
  */
-export async function revealBindToken(page: Page): Promise<void> {
-	await page.getByTestId('reveal-bind-token').click();
-	await expect(page.getByTestId('remote-token-field')).toBeVisible();
-}
-
-/** The same hatch, in the sign-in section: paste a credential rather than fetch one from GitHub. */
-export async function revealSignInToken(page: Page): Promise<void> {
-	await page.getByTestId('reveal-sign-in-token').click();
-	await expect(page.getByTestId('remote-sign-in-field')).toBeVisible();
-}
-
-/**
- * Close Remote settings **and the Workspace settings it was opened from**, back to the page.
- *
- * Both, because closing only the top one leaves a modal over everything a spec goes on to touch —
- * and a `showModal()` dialog makes the page behind it inert rather than merely obscured.
- */
-export async function closeRemoteSettings(page: Page): Promise<void> {
-	await page.getByTestId('close-remote-settings').click();
-	await expect(page.getByRole('dialog', { name: 'Remote repository' })).toBeHidden();
-	await closeWorkspaceSettings(page);
-}
-
-/**
- * Read something out of the Workspace menu's header block, and close the menu again.
- *
- * The header is where the current Workspace's name, its backing and its Remote are stated together,
- * and it is only on screen while the menu is open — so every assertion about those three facts pays
- * for the two clicks around it, and pays for them once, here.
- */
-async function inWorkspaceHeader(page: Page, act: () => Promise<void>): Promise<void> {
+export async function createFolderWorkspace(page: Page, name: string): Promise<void> {
 	await openWorkspaceMenu(page);
-	await act();
-	await page.keyboard.press('Escape');
-	await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
+	await page.getByTestId('new-workspace').click();
+	await page.getByTestId('new-workspace-name').fill(name);
+	await page.getByTestId('new-workspace-folder').check();
+	await page.getByTestId('create-workspace').click();
+	await expectWorkspaceNamed(page, name);
 }
 
-/** What the menu's header says this Workspace publishes to. */
-export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-remote')).toHaveText(remote);
-	});
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHERE THE WORK IS, READ FROM THE ONE PLACE THAT SAYS SO (ADR-0041)
+//
+// ⚠ **The Workspace menu's header no longer restates the repository, the credential or the Remote
+// Status**, so none of the four assertions below reads it. All three were said in the eyebrow at the
+// same time, and a scholar asking *is my work safe* had five candidates and no way to choose between
+// them. What each fact is now read from is named on its own helper, and each is the surface a
+// scholar would actually be looking at.
+
+/** The bar's one GitHub control, which is the whole relationship behind one press (ADR-0041). */
+export const doorButton = (page: Page) => page.getByTestId('connect-to-github');
+
+/**
+ * Open the door, and wait for whichever of its landings is true.
+ *
+ * A `<dialog>` opened with `showModal()`, so everything behind it is inert until it is closed —
+ * which is why this and {@link closeTheDoor} are paired, and why the two gestures inside it
+ * ({@link checkRemoteStatus}, {@link updateFromGitHub}) close it on the press rather than reporting
+ * from behind it.
+ */
+export async function openTheDoor(page: Page): Promise<void> {
+	await doorButton(page).click();
+	await expect(page.getByTestId('connect-sequence')).toBeVisible();
+}
+
+export async function closeTheDoor(page: Page): Promise<void> {
+	await page.getByTestId('close-connect-sequence').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Do something behind the door, and close it again unless the press closed it itself. */
+export async function inTheDoor(
+	page: Page,
+	act: () => Promise<void>,
+	options: { closeAfter?: boolean } = {}
+): Promise<void> {
+	await openTheDoor(page);
+	await act();
+	if (options.closeAfter !== false) await closeTheDoor(page);
 }
 
 /**
- * What the menu's header says about the Synchronization Baseline (ADR-0038).
+ * Ask GitHub what it holds now, from the one place that asks.
+ *
+ * The door closes on the press, because the answer is the badge's: a `showModal()` dialog makes the
+ * bar inert, and a check whose result is behind the dialog that asked for it is a full stop.
+ */
+export async function checkRemoteStatus(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('check-remote-status').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Bring the Remote's changes in, from the same place, which closes for the same reason. */
+export async function updateFromGitHub(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('update-from-github').click();
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Open the Publish dialog, which is a landing of the door rather than a control beside it. */
+export async function openPublishFromTheDoor(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('connect-publish').click();
+	await expect(page.getByRole('dialog', { name: /Publish/ })).toBeVisible();
+}
+
+/** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
+export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
+	await expect(doorButton(page)).toHaveText(`Connected to ${remote}`);
+}
+
+/**
+ * What the door says about the Synchronization Baseline (ADR-0038).
  *
  * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
  * stating, and saying nothing when the two sides' history is known is what keeps the sentence
  * meaningful when it appears.
  */
 export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('remote-status')).toContainText(sentence);
-	});
-}
-
-/** What the menu's header says about the push credential — "Signed in to GitHub", or not. */
-export async function expectCredential(page: Page, sentence: string): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-credential')).toHaveText(sentence);
+	await inTheDoor(page, async () => {
+		await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
 	});
 }
 
 /**
- * That the menu's header says this Workspace has no Remote at all.
+ * What the door says about the sign-in this computer holds — "Signed in to GitHub", or not.
  *
- * Stated rather than omitted, so a first-time author reads a sentence rather than a gap — and the
- * `workspace-remote` count is asserted with it, because "publishes nowhere" and "names a repository"
- * must not both be true.
+ * ⚠ **Read from the door and nowhere else** (ADR-0041, ADR-0042). Which account is held, and the
+ * choice about keeping it past the tab, were in the Remote dialog; they are on the door now, which
+ * is where every other gesture about a sign-in already was.
+ */
+export async function expectCredential(page: Page, sentence: string): Promise<void> {
+	await inTheDoor(page, async () => {
+		await expect(page.getByTestId('connect-credential')).toContainText(sentence);
+	});
+}
+
+/**
+ * Connect this Workspace to the repository GitHub says the author has granted.
  *
- * `workspace-credential` is counted too, and it is a separate claim rather than a consequence of the
- * markup: the sealed credential store is what a Review Workspace is for (ADR-0033), and a header
- * that named a signed-in identity in one would be reporting a token it must not be able to read.
+ * ⚠ **The door's own path, and the only one there is on a deployment with an App.** Binding used to
+ * mean typing an address and pasting a token into a settings dialog; the sequence picks the
+ * repository out of what GitHub answers, so nothing has to be typed correctly from memory. The
+ * caller is responsible for a held credential — `seedGitHubCredential` where the subject is not the
+ * sign-in itself — and for a `routeGitHubHosts` that grants the repository.
+ *
+ * Leaves the door open, because what a bind said is said inside it.
+ */
+export async function bindThroughTheDoor(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('choose-repository').first().click();
+}
+
+/**
+ * That this Workspace has no Remote at all.
+ *
+ * Read from the door, which offers connecting rather than naming a repository, and from the badge,
+ * which carries no GitHub clause because there is nothing to compare against. Two claims rather than
+ * one: "publishes nowhere" and "names a repository" must not both be true.
  */
 export async function expectNoRemote(page: Page): Promise<void> {
-	await inWorkspaceHeader(page, async () => {
-		await expect(page.getByTestId('workspace-publishes')).toContainText('No Remote yet');
-		await expect(page.getByTestId('workspace-remote')).toHaveCount(0);
-		await expect(page.getByTestId('workspace-credential')).toHaveCount(0);
-	});
+	await expect(doorButton(page)).toHaveText('Connect to GitHub');
+	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+}
+
+/**
+ * That a Review Workspace names no Remote, which is a stronger claim than having none.
+ *
+ * The door is absent rather than offering to connect: a Review Workspace holds somebody else's work
+ * and is never published (ADR-0024), so there is no gesture here to refuse.
+ */
+export async function expectNoRemoteInReview(page: Page): Promise<void> {
+	await expect(doorButton(page)).toHaveCount(0);
+	await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
+}
+
+/**
+ * Open the badge's disclosure, which is where the determination, the reading's time and the Baseline
+ * live (ADR-0041). The gestures are not here: they are behind the door.
+ *
+ * Idempotent, because a check leaves it open: pressing a disclosure that is already expanded would
+ * close the panel the caller is about to reach into.
+ */
+export async function showRemoteStatusDetail(page: Page): Promise<void> {
+	const disclosure = page.getByTestId('remote-status-explain');
+	if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+	await expect(page.getByTestId('remote-status-detail')).toBeVisible();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -189,8 +262,17 @@ export async function expectNoRemote(page: Page): Promise<void> {
 
 /** The installation database and the store the synchronization records live in. */
 const METADATA_DATABASE = 'ballastella';
-const METADATA_DATABASE_VERSION = 2;
+/**
+ * ⚠ **`DATABASE_VERSION` in `installation-database.ts`, and it has to be exactly that.**
+ * A seeder that opens at an older version meets `VersionError` in every spec that ran the app first,
+ * and one that opens at a newer version runs the app's upgrade with this file's idea of the stores.
+ * So when the app bumps it, this bumps with it — and {@link METADATA_STORES} gains the new store.
+ */
+const METADATA_DATABASE_VERSION = 3;
 const METADATA_STORE = 'synchronization';
+
+/** Every object store the app's own upgrade creates, so a seeded database has the shape it expects. */
+const METADATA_STORES = ['workspace', 'synchronization', 'credential'];
 
 /** `SYNCHRONIZATION_FORMAT_VERSION`. A record of any other version reads as no evidence at all. */
 const METADATA_FORMAT_VERSION = 2;
@@ -210,11 +292,11 @@ export async function seedRemoteRelationship(
 	options: { owner: string; repository: string; branch?: string; workspace?: string }
 ): Promise<void> {
 	await page.evaluate(
-		async ([key, record, database, version, store]) => {
+		async ([key, record, database, version, store, stores]) => {
 			const open = indexedDB.open(database as string, version as number);
 			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
 				open.onupgradeneeded = () => {
-					for (const name of ['workspace', store as string]) {
+					for (const name of stores as string[]) {
 						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
 					}
 				};
@@ -240,7 +322,8 @@ export async function seedRemoteRelationship(
 			},
 			METADATA_DATABASE,
 			METADATA_DATABASE_VERSION,
-			METADATA_STORE
+			METADATA_STORE,
+			METADATA_STORES
 		] as const
 	);
 }
@@ -361,11 +444,11 @@ export async function seedBaseline(
 	}
 ): Promise<void> {
 	await page.evaluate(
-		async ([key, record, database, version, store]) => {
+		async ([key, record, database, version, store, stores]) => {
 			const open = indexedDB.open(database as string, version as number);
 			const opened = await new Promise<IDBDatabase>((resolve, reject) => {
 				open.onupgradeneeded = () => {
-					for (const name of ['workspace', store as string]) {
+					for (const name of stores as string[]) {
 						if (!open.result.objectStoreNames.contains(name)) open.result.createObjectStore(name);
 					}
 				};
@@ -398,7 +481,8 @@ export async function seedBaseline(
 			},
 			METADATA_DATABASE,
 			METADATA_DATABASE_VERSION,
-			METADATA_STORE
+			METADATA_STORE,
+			METADATA_STORES
 		] as const
 	);
 }

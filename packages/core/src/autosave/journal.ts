@@ -29,7 +29,7 @@
 //     work, and nothing that has already been written.
 //   - **Not durable.** Clearing site data, a private window closing, or a browser evicting the
 //     origin takes it. `navigator.storage.persist()` (ADR-0024) covers it along with everything
-//     else, and a refusal there is already reported in Workspace settings.
+//     else, and a refusal there is already reported on Workspace Home.
 //
 // ADR-0001 makes the ProjectStore the one home for user bytes, and this is a real exception to it.
 // It is recorded in ADR-0001 rather than left for a future reader to discover.
@@ -89,8 +89,13 @@ import {
  */
 export const JOURNAL_FORMAT_VERSION = 1;
 
-/** Every key this module owns begins with this. Nothing else in the origin may. */
-const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
+/**
+ * Every key this module owns begins with this. Nothing else in the origin may.
+ *
+ * Exported for `rekey-workspace-records.ts` alone, which has to find one Workspace's entries under
+ * every prefix at once. Nothing outside this module writes a key with it.
+ */
+export const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
 
 /**
  * Where a copy a replay **declined to apply** is kept, out of reach of the live journal.
@@ -107,7 +112,7 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
  * {@link HELD_COPIES_PER_PATH}, which is where the room this costs is reasoned about — and so
  * {@link forgetHeldCopy} destroys the one a notice names rather than whatever is at that path now.
  */
-const HELD_KEY_PREFIX = 'ballastella.held.';
+export const HELD_KEY_PREFIX = 'ballastella.held.';
 
 /**
  * How many declined copies of **one file** may be held at once.
@@ -1031,7 +1036,7 @@ export function forgetHeldCopy(
 // folder never reopened — and an instance bound to a Workspace is structurally unable to ask it.
 //
 // What keeps them from weakening the guarantee is that **neither can write an entry**. One lists
-// names; the other deletes wholesale, from a user's explicit gesture in Workspace settings. There is
+// names; the other deletes wholesale, from a user's explicit gesture on Workspace Home. There is
 // no path here that puts bytes at a key, which is the only operation the binding exists to fence.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -5,11 +5,10 @@ import { seedMapLayer } from './support/project-screen';
 import { openLayerRow } from './support/layers';
 import { recordSaveStates } from './support/saved';
 import {
-	closeWorkspaceSettings,
+	deleteWorkspace,
 	createWorkspace,
 	expectWorkspaceNamed,
 	openWorkspaceMenu,
-	openWorkspaceSettings,
 	switchToWorkspace,
 	workspaceButton
 } from './support/workspace';
@@ -133,32 +132,46 @@ test.describe('the Workspace on the bar', () => {
 	test('asks nothing about where work is stored on a first visit', async ({ page }) => {
 		// ADR-0001's own principle is that a folder Workspace is a capability upgrade and **never a
 		// gate**, and the hub asked the question anyway — of everyone, including the majority of
-		// browsers that have no picker to answer it with. Browser storage is the silent default now.
+		// browsers that have no picker to answer it with. Browser storage is the silent default, the
+		// first Workspace exists before anything is asked, and the hub leads with the work.
 		await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
-		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
-		// frame — a `<dialog>` has to exist before `showModal()` can be called on it — so the question
-		// is whether any of this is *on screen*, which is the question the criterion asks.
-		await expect(page.getByText('Where your work lives')).toBeHidden();
-		await expect(page.getByTestId('settings-choose-folder')).toBeHidden();
-		await expect(page.getByTestId('install-offer')).toBeHidden();
+		// ⚠ **The account of where the files are is *below* the lists, and that is the whole of what
+		// "never a gate" means now** (ADR-0042). Backup, the install offer, what the browser promised
+		// and the way into a folder are on this screen rather than two menus deep — but as a quiet
+		// section a scholar reaches when they come looking for it, never as a question standing in
+		// front of the Projects. Asserted as document order, which is the cheapest thing that can
+		// falsify a section drawn above the lists.
+		const home = page.locator('main');
+		expect(
+			await home.evaluate((main) => {
+				const projects = main.querySelector('h2');
+				const keeping = main.querySelector('[data-testid="move-into-folder"]');
+				if (!projects || !keeping) return 'one of them is missing';
+				return projects.compareDocumentPosition(keeping) & Node.DOCUMENT_POSITION_FOLLOWING
+					? 'after the Projects'
+					: 'before the Projects';
+			})
+		).toBe('after the Projects');
 
-		// ⚠ **And the menu does not ask either**. It states what this Workspace
-		// is — the only place its name, its backing and where it publishes appear together —
-		// and every storage decision is behind Workspace settings, so the same choice cannot be offered
-		// in two places that could disagree.
+		// ⚠ **And the menu does not ask at all**. It states what this Workspace is — its name and its
+		// backing — so the same choice cannot be offered in two places that could disagree. The
+		// repository, the credential and the Remote Status are not restated here either (ADR-0041):
+		// the badge answers where the work is and the door names the repository, and a third copy in
+		// prose could only disagree with them.
 		await openWorkspaceMenu(page);
 		await expect(page.getByTestId('workspace-header')).toContainText(DEFAULT_WORKSPACE);
 		await expect(page.getByTestId('workspace-backing')).toHaveText('Kept in this browser');
-		await expect(page.getByTestId('workspace-publishes')).toContainText('No Remote yet');
+		await expect(page.getByTestId('workspace-header')).not.toContainText('GitHub');
 		for (const absent of [
 			'locate-workspace-folder',
 			'use-browser-storage',
 			'reopen-workspace-folder',
 			'choose-workspace-folder',
+			'open-workspace-settings',
 			'open-remote-settings'
 		])
-			await expect(page.getByTestId(absent)).toBeHidden();
+			await expect(page.getByTestId(absent)).toHaveCount(0);
 
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('workspace-switcher-menu')).toBeHidden();
@@ -376,68 +389,35 @@ test.describe('switching Workspaces with work in flight', () => {
 	});
 });
 
-test.describe('Workspace settings', () => {
+test.describe('Workspace Home’s account of this Workspace', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto(HUB);
 		await emptyBrowserStorage(page);
 		await page.reload();
 	});
 
-	test('opens as a modal from the bar, closes on Escape, and restores focus', async ({ page }) => {
-		// ADR-0016 mandates `<dialog>` + `showModal()`, which is what brings the focus trap, Escape,
-		// and focus restoration with it — none of which the checkbox-hack modal has.
-		await openWorkspaceSettings(page);
-
-		const dialog = page.getByRole('dialog', { name: 'Workspace settings' });
-		expect(await dialog.evaluate((node) => (node as HTMLDialogElement).matches(':modal'))).toBe(
-			true
-		);
-
-		await page.keyboard.press('Escape');
-		await expect(dialog).toBeHidden();
-		await expect(workspaceButton(page)).toBeFocused();
-	});
-
-	test('carries the folder offer, the install offer, and what the browser said about keeping storage', async ({
+	/**
+	 * ⚠ **Read straight off Workspace Home, which is the whole of what changed** (ADR-0042).
+	 *
+	 * Two tests came out of this describe with the settings dialog: that the dialog was a real
+	 * `<dialog>` opened with `showModal()`, which was ADR-0016's claim about a dialog that no longer
+	 * exists, and that the folder choice was reachable from settings *and nowhere else*, which is
+	 * the opposite of the arrangement that ships. What survives is the one claim that was never
+	 * about the dialog: that all three of these are present, on one screen, where the questions they
+	 * answer are asked.
+	 */
+	test('carries where the files are, the install offer, and what the browser said about keeping storage', async ({
 		page
 	}) => {
-		await openWorkspaceSettings(page);
-		const dialog = page.getByRole('dialog', { name: 'Workspace settings' });
+		await expect(page.getByTestId('workspace-storage-place')).toHaveText(DEFAULT_WORKSPACE);
+		await expect(page.getByTestId('move-into-folder')).toBeVisible();
+		await expect(page.getByTestId('install-offer')).toBeVisible();
 
-		await expect(dialog.getByTestId('settings-workspace-name')).toHaveText(DEFAULT_WORKSPACE);
-		await expect(dialog.getByTestId('install-offer')).toBeVisible();
-
-		// `navigator.storage.persist()` is what keeps OPFS data from being evicted under disk
-		// pressure (ADR-0024). What the browser answers is its own business —
-		// Chromium decides on heuristics — so what is asserted is that an answer arrives and is
-		// **reported**, in one of the three honest forms, rather than being swallowed.
-		await expect
-			.poll(async () =>
-				(
-					await Promise.all(
-						['persistence-granted', 'persistence-refused', 'persistence-unsupported'].map((id) =>
-							dialog.getByTestId(id).count()
-						)
-					)
-				).reduce((sum, count) => sum + count, 0)
-			)
-			.toBe(1);
-
-		await closeWorkspaceSettings(page);
-	});
-
-	test('the folder choice is here rather than on the hub, and still needs a real gesture', async ({
-		page
-	}) => {
-		// The offer moved; it did not go. Chromium has `showDirectoryPicker`, so the control is present
-		// — clicking it would open an operating-system dialog, which is `editor-folder-workspace.e2e.ts`'s
-		// subject with the picker stubbed. What is asserted here is only that it is reachable from
-		// settings and nowhere else.
-		await expect(page.getByTestId('settings-choose-folder')).toBeHidden();
-
-		await openWorkspaceSettings(page);
-
-		await expect(page.getByTestId('settings-choose-folder')).toBeVisible();
+		// What the browser has promised about keeping the work (ADR-0042). Which of the six it answers
+		// is its own business — Chromium decides on its own heuristics — so what is asserted here is
+		// that an answer arrives and is **reported** as one line, rather than being swallowed. Which
+		// line each browser gets, and what the advice in it says, is `editor-pwa`'s.
+		await expect(page.getByTestId('durability-lead')).toBeVisible();
 	});
 });
 
@@ -455,8 +435,8 @@ test.describe('deleting a Workspace', () => {
 		await createProject(page, 'Boston 1775');
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: 'Delete Marking 2026' }).click();
 
 		const confirm = page.getByRole('dialog', { name: 'Delete this Workspace?' });
 		await expect(confirm).toBeVisible();
@@ -470,7 +450,7 @@ test.describe('deleting a Workspace', () => {
 
 		await page.getByTestId('confirm-delete-workspace').click();
 
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('Marking 2026');
+		await expect(page.getByTestId('workspace-announcement')).toContainText('Marking 2026');
 		expect(await everyPathInBrowserStorage(page)).toEqual([]);
 	});
 
@@ -499,10 +479,8 @@ test.describe('deleting a Workspace', () => {
 			);
 		});
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
-		await page.getByTestId('confirm-delete-workspace').click();
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('Marking 2026');
+		await deleteWorkspace(page, 'Marking 2026');
+		await expect(page.getByTestId('workspace-announcement')).toContainText('Marking 2026');
 
 		expect(
 			await page.evaluate(() =>
@@ -529,8 +507,6 @@ test.describe('deleting a Workspace', () => {
 		});
 		await page.reload();
 
-		await openWorkspaceSettings(page);
-
 		await expect(page.getByTestId('orphaned-journals')).toContainText(
 			'A Workspace nobody has any more'
 		);
@@ -541,10 +517,10 @@ test.describe('deleting a Workspace', () => {
 		// exactly one deletion note and no edits at all — report "Threw away 1 unsaved change": false
 		// in both nouns, and silent about the one of the two that carries a standing instruction to
 		// delete a Project.
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText(
+		await expect(page.getByTestId('discard-outcome')).toContainText(
 			'Threw away 1 unfinished deletion'
 		);
-		await expect(page.getByTestId('workspace-delete-outcome')).not.toContainText('unsaved');
+		await expect(page.getByTestId('discard-outcome')).not.toContainText('unsaved');
 	});
 
 	/**
@@ -571,10 +547,9 @@ test.describe('deleting a Workspace', () => {
 		});
 		await page.reload();
 
-		await openWorkspaceSettings(page);
 		await page.getByTestId('discard-orphaned-journal').click();
 
-		await expect(page.getByTestId('workspace-delete-outcome')).toContainText(
+		await expect(page.getByTestId('discard-outcome')).toContainText(
 			'Threw away 2 unsaved changes and 2 unfinished deletions'
 		);
 
@@ -591,8 +566,8 @@ test.describe('deleting a Workspace', () => {
 		await createProject(page, 'Boston 1775');
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
-		await openWorkspaceSettings(page);
-		await page.getByTestId('delete-workspace').click();
+		await openWorkspaceMenu(page);
+		await page.getByRole('button', { name: 'Delete Marking 2026' }).click();
 		await page.getByRole('button', { name: 'Keep it' }).click();
 
 		expect(await readInWorkspace(page, 'Marking 2026', 'boston-1775/project.json')).not.toBeNull();
@@ -601,20 +576,23 @@ test.describe('deleting a Workspace', () => {
 	test('never offers the Workspace you are inside', async ({ page }) => {
 		// Deleting it out from under a live `EditorSession` leaves an `Autosave` whose next flush
 		// recreates the directory — the store's resolver creates what is not there — so the user would
-		// watch their Workspace come back holding one file.
+		// watch their Workspace come back holding one file. The row that is open carries no delete at
+		// all, and `WorkspaceStorage.deleteEntry` refuses it besides.
 		await createWorkspace(page, 'Marking 2026');
 
-		await openWorkspaceSettings(page);
+		await openWorkspaceMenu(page);
 
 		await expect(page.getByTestId('delete-workspace')).toHaveCount(1);
-		await expect(page.getByTestId('delete-workspace')).toContainText(DEFAULT_WORKSPACE);
-		await expect(page.getByTestId('delete-workspace')).not.toContainText('Marking 2026');
+		await expect(page.getByRole('button', { name: `Delete ${DEFAULT_WORKSPACE}` })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Delete Marking 2026' })).toHaveCount(0);
 	});
 
-	test('lists no Workspace to delete when there is only one', async ({ page }) => {
-		await openWorkspaceSettings(page);
+	test('offers no deletion at all when the only Workspace is the one you are in', async ({
+		page
+	}) => {
+		await openWorkspaceMenu(page);
 
-		await expect(page.getByTestId('no-other-workspaces')).toBeVisible();
+		await expect(page.getByTestId('switch-workspace')).toHaveCount(1);
 		await expect(page.getByTestId('delete-workspace')).toHaveCount(0);
 	});
 });
