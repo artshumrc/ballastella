@@ -502,7 +502,6 @@ test.describe('publishing a Workspace', () => {
 
 		await boston.uncheck();
 		await expect(description).toContainText('All Projects stay published.');
-		await expect(dialog.getByTestId('publish-breakdown')).toBeHidden();
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
 
 		await publish(page, dialog);
