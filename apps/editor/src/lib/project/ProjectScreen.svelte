@@ -1358,7 +1358,6 @@
 					<LayerList
 						{layers}
 						{outcomes}
-						{referencedImageIds}
 						openLayerId={annotations.openLayerId}
 						onopen={(id) => annotations.openLayer(id)}
 						ontypename={(id, name) => session.typeLayerName(id, name)}
@@ -1962,6 +1961,15 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<!-- The Layer's own Align, offered whatever its Alignment says — see `alignLink` above. -->
 			{@render alignLink(layer, 'align-map-image', 'Align')}
+			<span
+				class="text-xs"
+				class:text-warning={referenced}
+				class:text-success={!referenced}
+				data-testid="layer-image-mode"
+				data-image-mode={referenced ? 'referenced' : 'offline-copy'}
+			>
+				{referenced ? 'Remote reference' : 'Local copy'}
+			</span>
 
 			{#if referenced && origin}
 				<!-- Where the tiles come from, on the Layer that fetches them. -->

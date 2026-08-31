@@ -270,12 +270,8 @@ test.describe('the Workspace on the bar', () => {
 		await expectWorkspaceNamed(page, 'Marking 2026 (2)');
 	});
 
-	test('gives focus back to the switcher when the inline form goes, not to the body', async ({
-		page
-	}) => {
-		// The form unmounts with the pressed button still focused, so without a hand-back focus falls to
-		// `<body>` — a keyboard user is returned to the top of the document with no idea whether
-		// anything happened (WCAG 2.4.3).
+	test('gives focus back to the switcher when the Workspace dialog closes', async ({ page }) => {
+		// Closing the dialog must return focus to its menu trigger rather than leaving it on `<body>`.
 		await openWorkspaceMenu(page);
 		await page.getByTestId('new-workspace').click();
 		await page.getByTestId('new-workspace-name').fill('Marking 2026');

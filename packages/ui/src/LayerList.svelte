@@ -24,8 +24,8 @@
 	// Both apps render this stack, and the difference between them is *absence*: a control a consumer
 	// does not want is a callback that consumer does not pass. `ontypename`/`oncommit` carry the rename
 	// pencil, `onmove` the two reorder buttons and the drag handle, `ondelete` the Delete,
-	// `ondragopacity` the opacity slider, `onshow` the visibility toggle, and `referencedImageIds` the
-	// tiles badge. Each is optional; each guard below tests the prop it belongs to and nothing else.
+	// `ondragopacity` the opacity slider and `onshow` the visibility toggle. Each is optional; each
+	// guard below tests the prop it belongs to and nothing else.
 	//
 	// **`oncommit` is the one prop that is not a single control's.** It ends whichever edit was in
 	// flight (ADR-0017 rule 1), and two of them are: leaving the rename field *and* releasing the
@@ -122,9 +122,7 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
-	import Cloud from '@lucide/svelte/icons/cloud';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
-	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import MapIcon from '@lucide/svelte/icons/map';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -140,7 +138,6 @@
 	let {
 		layers,
 		outcomes,
-		referencedImageIds,
 		openLayerId,
 		onopen,
 		ontypename,
@@ -161,21 +158,6 @@
 		layers: readonly Layer[];
 		/** What became of each Layer on the map, keyed by Layer id. */
 		outcomes: Readonly<Record<string, DrawnOutcome>>;
-		/**
-		 * The Workspace Map Images whose tiles are on somebody else's server, by image id.
-		 *
-		 * **Passed in rather than read off the Layer, because ADR-0023 deleted the field that used to
-		 * carry it.** A map Layer names an `imageId` and nothing else; whether that image's tiles are here
-		 * is an observation of the files beside it — `info.json` of ours, or only `remote.json` — which
-		 * only the page holding the store can make. A stored flag was what let a Layer claim the library
-		 * for tiles that had already been copied into the folder.
-		 *
-		 * **Optional, and its absence removes the badge rather than emptying it.** Where a Map
-		 * Image's tiles are held is a fact about the author's publishing decision, and a consumer whose
-		 * user cannot copy a pyramid or repoint a service has no reason to say it — see the note at the
-		 * head of this file on why that is an absent prop rather than a flag.
-		 */
-		referencedImageIds?: ReadonlySet<string>;
 		/**
 		 * Which Layer is open, or `null` for none. At most one, which is what makes it one value.
 		 *
@@ -543,13 +525,13 @@
 	};
 
 	/**
-	 * The wash across the card's header.
+	 * The fill across the card's header.
 	 *
-	 * A hidden Layer takes the drained wash whatever its kind — the tint is what says "this is on the
+	 * A hidden Layer takes the drained fill whatever its kind — the tint is what says "this is on the
 	 * map", so a hidden card keeping it would be the one card whose colour lies.
 	 *
-	 * **Every one of these is an alpha wash over the card's own surface, and `bg-base-200` is not one.**
-	 * The drain was `bg-base-200` first, and in the dark theme `base-200` is exactly the sidebar's own
+	 * The drain is an alpha wash over the card's own surface rather than `bg-base-200`. In the dark theme,
+	 * `base-200` is exactly the sidebar's own
 	 * colour: a *collapsed* hidden card is nothing but its header, so it dissolved back into the column
 	 * — the precise defect this redesign set out to fix, reappearing for hidden Layers only. An ink wash
 	 * is measured from the surface it sits on instead, so it stays a shade off the card in both themes
@@ -562,7 +544,7 @@
 	 * The ink of the kind line — the glyph and the words together, because they are one label.
 	 *
 	 * A hidden Layer's kind line stays at full legibility rather than being dimmed with everything
-	 * else: the drain is carried by the header's wash going neutral and the name going 60%, and a
+	 * else: the drain is carried by the header's fill going neutral and the name going 60%, and a
 	 * label nobody can read is not a subtler signal, only a worse one.
 	 */
 	const kindInk = (layer: Layer): string =>
@@ -664,10 +646,10 @@
 					source would have done the same thing for free and was rejected for the reason above: the
 					name field is *in* the header, so its text could no longer be selected with the mouse.
 
-					The handle is `aria-hidden` because it is pointer-only and redundant: the move-up and
-					move-down buttons inside the open card are the contract, and the drag is the convenience
-					(ADR-0016). It is drawn faintly and comes up to full strength when the card is hovered or
-					holds focus — always present and always operable, never the thing your eye lands on first.
+						The handle is `aria-hidden` because it is pointer-only and redundant: the move-up and
+						move-down buttons inside the open card are the contract, and the drag is the convenience
+						(ADR-0016). It uses the same content colour as the rest of the header, so its affordance
+						remains visible on every kind fill.
 
 					`animate:flip` is what makes a move followable; `overflow-hidden` is what keeps the
 					header's tint clipped to the card, whatever `--radius-box` is set to.
@@ -745,17 +727,17 @@
 				>
 					<!-- The header: what this Layer is, what it is called, whether it is showing, the way in. -->
 					<!--
-						`data-testid`, because the wash is *shared*: the selected Annotation row inside the card
+						`data-testid`, because the fill is *shared*: the selected Annotation row inside the card
 						wears the same `tint`, and the browser suite asserts that by comparing the two computed
 						colours rather than by naming a token twice.
 					-->
 					<div
-						class="flex items-center gap-1.5 py-2 pr-2 pl-1 {headerTint(layer)}"
+						class="flex items-center gap-1.5 py-2 pr-2 pl-1 {headerTint(layer)} {kindInk(layer)}"
 						data-testid="layer-header"
 					>
 						{#if onmove}
 							<span
-								class="cursor-grab leading-none opacity-30 transition-opacity select-none group-focus-within:opacity-70 group-hover:opacity-70"
+								class="cursor-grab leading-none select-none"
 								draggable="true"
 								aria-hidden="true"
 								data-testid="layer-drag-handle"
@@ -881,7 +863,7 @@
 						<button
 							bind:this={disclosureButton[layer.id]}
 							type="button"
-							class="btn btn-square btn-ghost btn-sm"
+							class="flex size-8 shrink-0 cursor-pointer items-center justify-center focus-visible:outline-2 focus-visible:outline-current {kindInk(layer)}"
 							aria-expanded={open}
 							aria-controls={open ? `layer-contents-${layer.id}` : undefined}
 							data-testid="layer-disclosure"
@@ -982,39 +964,6 @@
 											data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span
 										>
 									</label>
-								{/if}
-
-								{#if referencedImageIds}
-									{@const referenced = referencedImageIds.has(layer.imageId)}
-									<!--
-									Whether this Layer's tiles are bytes in this Workspace or a URL somewhere else. Shown
-									here rather than only warned about at publish time, because it is what decides whether
-									a reader needs the network and whether the work survives the host disappearing — and by
-									then it is too late to be the first mention of it.
-
-									**Inside the open card rather than on the closed one.** It is a fact about the Layer
-									and not work to be done, so it does not have to compete with the name for a closed
-									card's one line — and it sits directly above `mapContents`, which is where the library
-									it came from and the button that makes an offline copy already are.
-
-									Read from `referencedImageIds`, which is what the folder says, rather than from the
-									Layer, which no longer claims anything about it (ADR-0023).
-								-->
-									<span
-										class="badge gap-1.5 badge-sm"
-										class:badge-success={!referenced}
-										class:badge-warning={referenced}
-										data-testid="layer-image-mode"
-										data-image-mode={referenced ? 'referenced' : 'offline-copy'}
-									>
-										{#if referenced}
-											<Cloud size={12} aria-hidden="true" />
-											Remote reference
-										{:else}
-											<HardDrive size={12} aria-hidden="true" />
-											Local copy
-										{/if}
-									</span>
 								{/if}
 
 								{@render mapContents?.(layer)}

@@ -92,20 +92,17 @@
 	enough to say which row had been chosen — the fault a scholar reported first — so the selected
 	Annotation is one marked block.
 
-	`KIND_STYLE.annotation.tint` is the same wash the card's header wears, from the one table every
+	`KIND_STYLE.annotation.tint` is the same fill the card's header wears, from the one table every
 	colour in this card comes from (`layer-kind-style.ts`) — so retuning it there moves both together.
-	It is a wash rather than a fill for a reason: over `base-100` the row's text stays on the colour it
-	was already legible on, where a `base-content` slab has to re-solve its own contrast and then
-	repaint the text to win.
 
 	⚠ **The spine is not the rule that was removed.** What was removed was `border-primary` over
 	daisyUI's `menu-active`: two colours making two claims, `primary` being the *app's* action colour
 	reserved for the controls outside the Layer cards, and `menu-active` painting `base-content` —
 	near-black in the light theme — so a blue rule sat against a black slab in a card whose every other
 	control is `info`. Nothing about either colour said "this belongs to the Annotations". This spine is
-	the Annotation Layer's own ink, `--layer-kind-ink-annotation`, the same custom property
-	`KIND_STYLE.annotation.ink` sets text in and `layout.css` computes from `--color-info`; and it is on
-	the selected row only, where the removed rule was drawn on a row that was merely `menu-active`.
+	the Annotation Layer's own content colour, `--color-info-content`, which is paired with its fill by
+	the theme; and it is on the selected row only, where the removed rule was drawn on a row that was
+	merely `menu-active`.
 
 	An inset box shadow rather than `border-l-2`, because a border is layout: two pixels appearing on
 	the left of the selected row would shift its text sideways as the selection moved down the list.
@@ -131,11 +128,12 @@
 <li
 	class={[
 		'group/annotation-row border-b border-base-200 last:border-b-0',
-		open && `${KIND_STYLE.annotation.tint} shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]`,
+		open &&
+			`${KIND_STYLE.annotation.tint} text-info-content shadow-[inset_2px_0_0_var(--color-info-content)]`,
 		dragging === annotation.id && 'opacity-50',
 		over === annotation.id &&
 			dragging !== annotation.id &&
-			'outline-2 -outline-offset-2 outline-[var(--layer-kind-ink-annotation)]'
+			'outline-2 -outline-offset-2 outline-[var(--color-info-content)]'
 	]}
 	data-testid="annotation-row-item"
 	data-drop-target={over === annotation.id && dragging !== annotation.id ? 'true' : 'false'}
@@ -244,11 +242,9 @@
 					⚠ **Nothing writes it.** The number is this row's place in the collection it was handed,
 					so deleting an Annotation renumbers the rest, and so does moving one (ADR-0002).
 
-					The kind's own ink rather than a plain `opacity-60` like the shape word: the number is what
-					the mark on the map is wearing, and the ink is the mix `layout.css` computes from
-					`--color-info`, which the raw token could not stand in for at this size.
-					`layer-kind-contrast.dom.test.ts` measures it on the row's own wash in both themes, so the
-					ratio lives there rather than in a figure here that a retune would falsify.
+					The kind's own content colour rather than a plain `opacity-60` like the shape word: the number
+					is what the mark on the map is wearing, and the theme pairs `info-content` with the row's
+					`info` fill.
 				-->
 			<span
 				class={['shrink-0 text-xs font-semibold tabular-nums', KIND_STYLE.annotation.ink]}

@@ -43,6 +43,7 @@
 		open = $bindable(false),
 		buttonClass = 'btn btn-sm',
 		menuClass = 'menu w-64 p-0',
+		theme,
 		align = 'start',
 		testid,
 		children
@@ -53,6 +54,8 @@
 		open?: boolean;
 		buttonClass?: string;
 		menuClass?: string;
+		/** The daisyUI theme for the popover's own surface, independent of themed menu items. */
+		theme?: string;
 		/**
 		 * Which of the button's edges the menu hangs from.
 		 *
@@ -130,6 +133,7 @@
 	popover="auto"
 	bind:this={popover}
 	data-testid={testid ? `${testid}-menu` : undefined}
+	data-theme={theme}
 	class="menu-popover rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
 	class:menu-popover-end={align === 'end'}
 	aria-label={label}

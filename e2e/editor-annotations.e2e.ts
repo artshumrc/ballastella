@@ -802,17 +802,16 @@ test.describe('drawing', () => {
 		// And only the chosen row wears it: the other one settles back to no background at all.
 		await expect.poll(() => backgroundOf(plain)).toBe('rgba(0, 0, 0, 0)');
 
-		// And it marks the row without repainting what is written on it: `menu-active` swapped the text to
-		// `base-100` because it had to, having made the row near-black.
+		// The selected row uses the content token paired with its info fill; the unselected row keeps the
+		// card's base-content ink.
 		const inkOf = (target: typeof marked) =>
 			target.evaluate((element) => getComputedStyle(element).color);
 		const namesOf = (target: typeof marked) => target.getByTestId('annotation-row-name');
-		expect(await inkOf(namesOf(marked))).toBe(await inkOf(namesOf(plain)));
+		expect(await inkOf(namesOf(marked))).not.toBe(await inkOf(namesOf(plain)));
 
-		// **The spine, and it is the Annotation Layer's own ink rather than a colour named here.** Read by
-		// comparing it with the ordinal on the same row, which is set in `--layer-kind-ink-annotation` from
-		// the one table (`layer-kind-style.ts`): a spine repainted in the app's action colour is what this
-		// catches, and it catches it without this file holding a second copy of what the ink is.
+		// **The spine uses the Annotation Layer's own content colour rather than a colour named here.** Read
+		// it by comparing it with the ordinal on the same row, which comes from the same `info-content`
+		// token in `layer-kind-style.ts`.
 		const ink = await inkOf(marked.getByTestId('annotation-row-ordinal'));
 		const spineOf = (target: typeof marked) =>
 			target.evaluate((element) => getComputedStyle(element).boxShadow);

@@ -437,9 +437,9 @@ describe('the selected row is unmistakable', () => {
 		// reader depends on — the selected row wears the wash and the spine, and an unselected row
 		// wears neither.
 		expect(marked).toHaveClass(KIND_STYLE.annotation.tint);
-		expect(marked).toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
+		expect(marked).toHaveClass('shadow-[inset_2px_0_0_var(--color-info-content)]');
 		expect(plain).not.toHaveClass(KIND_STYLE.annotation.tint);
-		expect(plain).not.toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
+		expect(plain).not.toHaveClass('shadow-[inset_2px_0_0_var(--color-info-content)]');
 
 		// The button is inside the marked element rather than being the marked element: the `<li>` is
 		// what wears the wash, which is what "the whole row" means here.

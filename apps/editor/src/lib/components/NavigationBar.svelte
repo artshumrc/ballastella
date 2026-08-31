@@ -151,7 +151,7 @@
 
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
-	let newNameField = $state<HTMLInputElement | undefined>();
+	let newWorkspaceOpen = $state(false);
 	/**
 	 * Which kind a new Workspace is to be.
 	 *
@@ -163,8 +163,7 @@
 	let newKind = $state<WorkspaceBacking>('browser');
 	/** The row being renamed and the name being typed into it, or `null`. */
 	let renaming = $state<{ key: string; label: string } | null>(null);
-	let renameField = $state<HTMLInputElement | undefined>();
-	let renameReturn: HTMLElement | null = null;
+	let renameOpen = $state(false);
 	/** The row a deletion is being confirmed for, or `null` when nothing is being confirmed. */
 	let confirming = $state<{
 		key: string;
@@ -175,7 +174,7 @@
 	/** Whether the confirmation is showing. Separate from `confirming` so Escape can close it. */
 	let confirmOpen = $state(false);
 	/**
-	 * A hydration-stable id for the inline field's label.
+	 * A hydration-stable id for the Workspace form labels.
 	 *
 	 * Not a literal, for the reason `MenuPopover` documents about its own: a hardcoded id is a
 	 * collision waiting for the second instance on a page, and `for`/`id` is the whole of what ties a
@@ -190,8 +189,29 @@
 	 * pair needs — see `MenuPopover` for why neither may be a literal.
 	 */
 	const renameId = `${newNameId}-rename`;
-	/** The button the inline form was opened from, so focus has somewhere to go back to. */
-	let newNameReturn: HTMLElement | null = null;
+	const newWorkspaceFormId = `${newNameId}-form`;
+	const renameFormId = `${renameId}-form`;
+
+	// Native Escape changes the bound state. Cleanup waits a task so ModalDialog can close its native
+	// dialog and restore focus before the form unmounts.
+	$effect(() => {
+		if (!newWorkspaceOpen) {
+			setTimeout(() => {
+				if (!newWorkspaceOpen) {
+					newName = null;
+					newKind = 'browser';
+				}
+			});
+		}
+	});
+
+	$effect(() => {
+		if (!renameOpen) {
+			setTimeout(() => {
+				if (!renameOpen) renaming = null;
+			});
+		}
+	});
 
 	/**
 	 * What just happened to the Workspace, announced.
@@ -212,17 +232,12 @@
 	}
 
 	/**
-	 * Close the inline form and put focus back where it came from.
+	 * Close the new-Workspace dialog and clear its transient choice.
 	 *
-	 * Without this the form unmounts with the pressed button still focused, and focus falls to
-	 * `<body>` — a keyboard user is returned to the top of the document with no idea whether anything
-	 * happened (WCAG 2.4.3, the rule the hub's own reclaim line is shaped by).
+	 * `ModalDialog` returns focus to the menu trigger, including when this is called after a submit.
 	 */
 	function closeNewWorkspace(): void {
-		newName = null;
-		newKind = 'browser';
-		(newNameReturn ?? menu?.button())?.focus();
-		newNameReturn = null;
+		newWorkspaceOpen = false;
 	}
 
 	/**
@@ -239,18 +254,14 @@
 		announcement = storage.problem || `Switched to the Workspace “${storage.name}”.`;
 	}
 
-	/** Open the inline rename field for a row, remembering where focus has to go back to. */
+	/** Open the rename dialog for a Workspace row. */
 	function startRename(entry: WorkspaceEntry): void {
-		renameReturn = menu?.button() ?? null;
 		renaming = { key: entry.key, label: entry.label };
-		// After the popover has gone, or focus lands on an element about to be hidden.
-		queueMicrotask(() => renameField?.select());
+		renameOpen = true;
 	}
 
 	function closeRename(): void {
-		renaming = null;
-		(renameReturn ?? menu?.button())?.focus();
-		renameReturn = null;
+		renameOpen = false;
 	}
 
 	async function commitRename(event: SubmitEvent): Promise<void> {
@@ -503,11 +514,8 @@
 						data-testid="new-workspace"
 						onclick={() =>
 							fromMenu(() => {
-								// The switcher button, which is where focus is by now and where it goes back to.
-								newNameReturn = menu?.button() ?? null;
 								newName = '';
-								// After the popover has gone, or focus lands on an element about to be hidden.
-								queueMicrotask(() => newNameField?.focus());
+								newWorkspaceOpen = true;
 							})}
 					>
 						<Plus size={16} aria-hidden="true" class="shrink-0" />
@@ -517,83 +525,6 @@
 			</MenuPopover>
 		{/if}
 	</div>
-
-	{#if newName !== null && storage !== null}
-		<!-- Inline on the bar rather than in a dialog: it is one field and one button, and a modal for
-		     that is a modal a user has to dismiss to see the Workspace they just left. -->
-		<form class="flex items-center gap-2" onsubmit={(event) => void createWorkspace(event)}>
-			<label class="text-sm" for={newNameId}>Name</label>
-			<input
-				id={newNameId}
-				class="input input-sm"
-				bind:this={newNameField}
-				bind:value={newName}
-				data-testid="new-workspace-name"
-				onkeydown={(event) => {
-					if (event.key === 'Escape') closeNewWorkspace();
-				}}
-			/>
-			{#if kindsAreVisible}
-				<!--
-					⚠ **Radio inputs, not a `role="tablist"` and not a select** (ADR-0016): two mutually
-					exclusive answers to one question, each with a visible label, is exactly what a radio
-					group is — and it is the only spelling a keyboard and a screen reader both get for free.
-
-					Absent altogether where the browser has no picker, which is what keeps the *kind* from
-					being named to somebody who could never choose it (ADR-0042).
-				-->
-				<fieldset class="flex items-center gap-3" data-testid="new-workspace-kind">
-					<legend class="sr-only">Where the new Workspace lives</legend>
-					<label class="flex items-center gap-1 text-sm">
-						<input
-							type="radio"
-							class="radio radio-sm"
-							value="browser"
-							bind:group={newKind}
-							data-testid="new-workspace-browser"
-						/>
-						In this browser
-					</label>
-					<label class="flex items-center gap-1 text-sm">
-						<input
-							type="radio"
-							class="radio radio-sm"
-							value="folder"
-							bind:group={newKind}
-							data-testid="new-workspace-folder"
-						/>
-						In a folder
-					</label>
-				</fieldset>
-			{/if}
-			<button class="btn btn-primary btn-sm" type="submit" data-testid="create-workspace">
-				Create and switch
-			</button>
-			<button class="btn btn-sm" type="button" onclick={() => closeNewWorkspace()}>Cancel</button>
-		</form>
-	{/if}
-
-	{#if renaming !== null && storage !== null}
-		<!-- The same inline form the creation uses, for the same reason: one field and one button, and
-		     a modal for that is a modal a user has to dismiss to see the list they pressed it in. -->
-		<form class="flex items-center gap-2" onsubmit={(event) => void commitRename(event)}>
-			<label class="text-sm" for={renameId}>New name</label>
-			<input
-				id={renameId}
-				class="input input-sm"
-				bind:this={renameField}
-				bind:value={renaming.label}
-				data-testid="rename-workspace-name"
-				onkeydown={(event) => {
-					if (event.key === 'Escape') closeRename();
-				}}
-			/>
-			<button class="btn btn-primary btn-sm" type="submit" data-testid="save-workspace-name">
-				Rename
-			</button>
-			<button class="btn btn-sm" type="button" onclick={() => closeRename()}>Cancel</button>
-		</form>
-	{/if}
 
 	<!--
 		What just happened to the Workspace. `aria-live` rather than `role="status"`: the save indicator
@@ -822,6 +753,87 @@
 		bind:open={connectSequence.open}
 		onpublish={() => (publishOpen = true)}
 	/>
+{/if}
+
+{#if storage !== null && newName !== null}
+	<ModalDialog bind:open={newWorkspaceOpen} title="Create a Workspace">
+		<form id={newWorkspaceFormId} onsubmit={(event) => void createWorkspace(event)}>
+			<label class="form-control">
+				<span class="label-text">Name</span>
+				<input
+					id={newNameId}
+					class="input w-full"
+					bind:value={newName}
+					data-testid="new-workspace-name"
+				/>
+			</label>
+			{#if kindsAreVisible}
+				<!-- Two mutually exclusive, visibly labelled answers are a radio group. -->
+				<fieldset class="mt-4" data-testid="new-workspace-kind">
+					<legend class="label-text mb-2">Where the new Workspace lives</legend>
+					<label class="flex items-center gap-2">
+						<input
+							type="radio"
+							class="radio radio-sm"
+							value="browser"
+							bind:group={newKind}
+							data-testid="new-workspace-browser"
+						/>
+						In this browser
+					</label>
+					<label class="mt-2 flex items-center gap-2">
+						<input
+							type="radio"
+							class="radio radio-sm"
+							value="folder"
+							bind:group={newKind}
+							data-testid="new-workspace-folder"
+						/>
+						In a folder
+					</label>
+				</fieldset>
+			{/if}
+		</form>
+		{#snippet actions()}
+			<button class="btn" type="button" onclick={closeNewWorkspace}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				type="submit"
+				form={newWorkspaceFormId}
+				data-testid="create-workspace"
+			>
+				Create and switch
+			</button>
+		{/snippet}
+	</ModalDialog>
+{/if}
+
+{#if storage !== null && renaming !== null}
+	<ModalDialog bind:open={renameOpen} title="Rename this Workspace">
+		<form id={renameFormId} onsubmit={(event) => void commitRename(event)}>
+			<label class="form-control">
+				<span class="label-text">New name</span>
+				<input
+					id={renameId}
+					class="input w-full"
+					bind:value={renaming.label}
+					data-testid="rename-workspace-name"
+					onfocus={(event) => event.currentTarget.select()}
+				/>
+			</label>
+		</form>
+		{#snippet actions()}
+			<button class="btn" type="button" onclick={closeRename}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				type="submit"
+				form={renameFormId}
+				data-testid="save-workspace-name"
+			>
+				Rename
+			</button>
+		{/snippet}
+	</ModalDialog>
 {/if}
 
 <!--

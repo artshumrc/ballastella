@@ -29,12 +29,13 @@
 	align="end"
 	testid="theme-toggle"
 	menuClass="menu max-h-[min(32rem,calc(100vh-6rem))] w-72 flex-nowrap overflow-y-auto p-2"
+	theme={theme}
 >
 	{#each THEMES as option (option.name)}
 		<li data-theme={option.name}>
 			<button
 				type="button"
-				class="grid grid-cols-[1fr_auto] gap-x-3 bg-base-100 text-base-content"
+				class="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 bg-base-100 text-base-content"
 				class:menu-active={theme === option.name}
 				aria-current={theme === option.name ? 'true' : undefined}
 				data-testid={`theme-option-${option.name}`}
@@ -46,14 +47,11 @@
 				{:else}
 					<span aria-hidden="true"></span>
 				{/if}
-				<span
-					class="col-span-2 grid grid-cols-4 overflow-hidden rounded-selector"
-					aria-hidden="true"
-				>
-					<span class="h-2 bg-primary"></span>
-					<span class="h-2 bg-secondary"></span>
-					<span class="h-2 bg-accent"></span>
-					<span class="h-2 bg-neutral"></span>
+				<span class="flex items-center gap-1" aria-hidden="true">
+					<span class="size-3 rounded-selector bg-primary"></span>
+					<span class="size-3 rounded-selector bg-secondary"></span>
+					<span class="size-3 rounded-selector bg-accent"></span>
+					<span class="size-3 rounded-selector bg-neutral"></span>
 				</span>
 			</button>
 		</li>

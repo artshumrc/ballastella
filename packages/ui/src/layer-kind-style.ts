@@ -40,25 +40,14 @@
  * exists in the DOM and in no stylesheet. For the same reason a consumer must use these strings
  * whole — `${style.btn}` in a class attribute is fine, `btn-${kind}` is not.
  *
- * The `ink` entries are the kind's hue **mixed half-and-half with the theme's own text colour**, and
- * that is not a decoration: a raw `accent` or `info` cannot carry a 0.65rem label (4.5:1) or an icon
- * (3:1) against the ground it sits on, in either theme. The mix is defined in `layout.css` from the
- * same theme variables, so it still follows the theme; that file has the measured sweep, including why
- * the ratio is a half and not the 60% it started at (ADR-0016, ADR-0020).
- *
- * **No ratio is quoted here on purpose.** The numbers move whenever the palette or the tint moves, and
- * a figure in a comment is one nobody re-measures — `layer-kind-contrast.dom.test.ts` computes every
- * one of them from the shipped stylesheets instead, against the bare card *and* against the tinted
- * header the kind line is actually drawn on, which is the lower of the two.
- *
- * **The tint's strength is a design decision and no test pins its value.** Retune the `/30` below
- * freely; the contrast test is what fails if a retune makes the kind line illegible, and it reads the
- * alpha out of this table rather than being told it.
+ * The headers use the full kind colour. The `ink` entries use each fill token's paired `*-content`
+ * token, so the cards remain legible without hard-coding a colour or relying on a translucent
+ * background.
  */
 export const KIND_STYLE = {
 	map: {
-		tint: 'bg-accent/30',
-		ink: 'text-[var(--layer-kind-ink-map)]',
+		tint: 'bg-accent',
+		ink: 'text-accent-content',
 		toggle: 'toggle-accent',
 		range: 'range-accent',
 		btn: 'btn-accent',
@@ -66,8 +55,8 @@ export const KIND_STYLE = {
 		btnWhenChecked: 'has-[:checked]:btn-accent'
 	},
 	annotation: {
-		tint: 'bg-info/30',
-		ink: 'text-[var(--layer-kind-ink-annotation)]',
+		tint: 'bg-info',
+		ink: 'text-info-content',
 		toggle: 'toggle-info',
 		range: 'range-info',
 		btn: 'btn-info',
