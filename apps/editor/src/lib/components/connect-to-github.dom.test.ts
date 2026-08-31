@@ -606,7 +606,7 @@ describe('making a repository, without leaving the sequence', () => {
 	/**
 	 * ⚠ **Two screens, and the copy says which is which.** `github.com/new` has no such control on it,
 	 * so an instruction to grant access "on the same screen" names a place the thing cannot be done —
-	 * which is the wall this epic was reported from.
+	 * which is the wall an author reported hitting.
 	 */
 	test('never says the grant happens on the screen the repository is made on', async () => {
 		await leaveToCreate(nothing());
@@ -903,8 +903,8 @@ describe('connecting, which is one act', () => {
 	// binding records where this Workspace belongs whether or not this author may publish there.
 	//
 	// ⚠ **One statement, not two.** `bind-remote`'s own `rightsNotice` is the same fact as the
-	// connected step's pull-only sentence, and this epic exists because one question had five answers
-	// on one screen — so the notice is suppressed and the standing statement is what the author reads
+	// connected step's pull-only sentence, and one fact stated twice on one screen is one question with
+	// two answers — so the notice is suppressed and the standing statement is what the author reads
 	// (ADR-0043). It is also the only one of the two that renders on a hydrated Remote, where no bind
 	// happened at all.
 	test('reports that the author cannot publish there, and stays connected', async () => {
@@ -1984,7 +1984,7 @@ describe('every step of the sequence, enumerated', () => {
 		}
 	);
 
-	// ⚠ **The word this Epic exists to stop saying.** The wall an author hit was the App's
+	// ⚠ **The word the interface never says.** The wall an author hit was the App's
 	// Installation — a per-account list of repositories the interface had never mentioned — and the
 	// remedy is not to explain it but to describe what Ballastella can see, in a sentence the author
 	// can act on. `Installation` stays a term the codebase needs and the author never meets.
@@ -2766,8 +2766,8 @@ describe('the way in for an installation that has broken', () => {
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT IS TRUE OF THE SIGN-IN, AND THE ONE CHOICE ABOUT IT (ADR-0041, ADR-0042)
 //
-// Both were in the Remote dialog this Epic deletes, and both are about a sign-in — so they are on
-// the door, which is where every other gesture about one already is. The claim is that the sentence
+// Both are about a sign-in, so both are on the door, which is where every other gesture about one
+// already is. The claim is that the sentence
 // states which of the two rules is *currently* in force, and that the choice is never a default
 // somebody else made.
 describe('the sign-in this computer holds', () => {

@@ -233,9 +233,9 @@ test.describe('binding does not turn Pages on', () => {
 // ⚠ **Three tests came out of this describe with the Remote dialog** (ADR-0042), and all three were
 // about a *pasted* token: that a paste of the wrong shape is refused with no request, that a paste
 // GitHub refuses is not kept, and that a paste can be supplied again for a Workspace that is already
-// bound. There is no token field anywhere on a deployment with an App, and the fork's own paste is
-// the door's `no-app` step — which ticket 17 owns, along with the escape hatch an instructor whose
-// Installation has broken needs. `describeTokenProblem` and the rights read are exhausted at Seam 1
+// bound. There is no token field anywhere on a deployment with an App: the fork's own paste is the
+// door's `no-app` step, and the only other way to one is the escape hatch an instructor whose
+// Installation has broken opens. `describeTokenProblem` and the rights read are exhausted at Seam 1
 // (`credential-store.test.ts`, `bind-remote.test.ts`).
 test.describe('the credential this tab holds', () => {
 	test('survives a reload and is forgotten on signing out', async ({ page }) => {

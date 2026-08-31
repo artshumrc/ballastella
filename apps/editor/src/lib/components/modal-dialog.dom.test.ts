@@ -2,7 +2,7 @@
 //
 // ⚠ **Asserted on `ModalDialog` rather than once per surface, because that is where the behaviour
 // is.** ADR-0016 mandates `<dialog>` + `showModal()`/`close()` and this component is the one
-// implementation of it in the application, so every dialog this Epic added or moved — the door, the
+// implementation of it in the application, so every dialog there is — the door, the
 // Update's deletion question, the roster's delete confirmation, Publish — restores focus by this
 // code and by no other. A copy of this assertion per surface would be four readings of one fact.
 //

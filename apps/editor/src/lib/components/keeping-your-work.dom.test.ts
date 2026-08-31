@@ -583,8 +583,8 @@ describe('what the browser promised about keeping the work', () => {
  * removed from the tab order the instant it is pressed, so the keyboard user who pressed it is
  * dropped on `<body>` for the length of a transfer that may run for minutes — and they cannot even
  * tab back to the progress line, because the control they were on is no longer a stop. Every other
- * busy control in this Epic is already `aria-disabled` with a guarded handler; these three were the
- * ones the pass found still spelled the old way.
+ * busy control in the application is `aria-disabled` with a guarded handler, and these three are the
+ * ones this file holds to it.
  *
  * The refusal has to be in the handler as well as in the attribute: `aria-disabled` is a statement
  * to the accessibility tree and nothing more, so a focusable control still answers `Enter`.

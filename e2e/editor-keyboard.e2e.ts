@@ -10,7 +10,7 @@ import { createWorkspace, seedRemoteRelationship, switchToWorkspace } from './su
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THIS IS ONE SPEC RATHER THAN A CLAIM INSIDE EACH SURFACE'S OWN
  *
- * Every UI slice in this Epic carries its own accessibility acceptance criteria, and those are
+ * Every surface carries its own accessibility assertions, and those are
  * asserted where they belong — focus restoration in `modal-dialog.dom.test.ts`, a busy control
  * keeping its place in `keeping-your-work.dom.test.ts`, disclosure semantics beside the disclosure.
  * This is not a second copy of any of them. It is the one property none of them can see on its own:
