@@ -52,6 +52,7 @@
 		RemotePublishCredentialError,
 		STATIC_HOSTING_LIMIT_BYTES,
 		describeBytes,
+		describeOutboundRemovals,
 		describeRemote,
 		describeTokenProblem,
 		publishedSiteStaleness,
@@ -60,6 +61,7 @@
 		type PublishPlan,
 		type PublishedProject,
 		type PublishedSite,
+		type OutboundDeletionPreview,
 		type RemotePublishPlan
 	} from '@ballastella/core';
 
@@ -127,6 +129,21 @@
 	 * decision about the set a later listing found.
 	 */
 	let replacing = $state(false);
+	/**
+	 * What a confirmed *Publish anyway* would take off a **shared** Remote, or `null` (ADR-0043).
+	 *
+	 * ⚠ **The second confirmation exists only where the Remote is not the author's alone.** On a solo
+	 * repository local-wins can only ever discard the author's own work, so arming is one press and
+	 * stays one; on a shared one it deletes a collaborator's, and the outbound direction owes the same
+	 * naming the inbound direction has owed since `UpdateDeletionPreview` — Projects and Map Images
+	 * named, never "3 files will be removed", which is not a question anybody can answer.
+	 *
+	 * Set means the question is on screen and unanswered: {@link replacing} is still `false`, so the
+	 * confirm button still refuses.
+	 */
+	let outbound = $state<OutboundDeletionPreview | null>(null);
+	/** Whether GitHub is being asked whose the repository is, so a second press is not a second ask. */
+	let askingSharing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
 	/** The Project state the current forecast was built from. */
@@ -179,6 +196,8 @@
 		upload = null;
 		uploadProblem = '';
 		replacing = false;
+		outbound = null;
+		askingSharing = false;
 		rightsNotice = '';
 		failure = '';
 		progress = null;
@@ -212,6 +231,9 @@
 		upload = null;
 		uploadProblem = '';
 		replacing = false;
+		// A question asked about one set of files is not a question about the set a later listing
+		// found, so the shared-Remote confirmation is withdrawn with the arming it belongs to.
+		outbound = null;
 		const bound = storage.remote;
 		const credential = storage.credential;
 		if (bound === null || credential === null) return;
@@ -469,6 +491,46 @@
 				? 'Publish anyway, replacing it'
 				: 'Publish'
 	);
+
+	/**
+	 * Arm *Publish anyway* — on a shared Remote, by asking first.
+	 *
+	 * ⚠ **Whose the repository is decides how many presses this takes, and the reading is live.** A
+	 * collaborator arrives between two visits, so a remembered *solo* is the answer that deletes their
+	 * afternoon with nothing said. Where the Remote is the author's alone this arms in one press and
+	 * behaves exactly as it always has; where it is not, the preview goes on screen and
+	 * {@link replacing} stays `false` until it is confirmed.
+	 *
+	 * A question GitHub would not answer is treated as *shared*, for `shared-remote.ts`'s reason: the
+	 * two errors are not equal.
+	 */
+	const askToReplace = async () => {
+		const forecast = upload;
+		const bound = storage.remote;
+		if (askingSharing || replacing || outbound !== null || forecast === null || bound === null)
+			return;
+		askingSharing = true;
+		try {
+			const sharing = await storage.readSharing().catch(() => ({
+				shared: true,
+				known: false,
+				owner: bound.owner,
+				others: []
+			}));
+			if (!sharing.shared) {
+				replacing = true;
+				return;
+			}
+			outbound = describeOutboundRemovals({
+				remote: bound,
+				sharing,
+				removed: forecast.removed,
+				source: forecast.source.keys()
+			});
+		} finally {
+			askingSharing = false;
+		}
+	};
 
 	const run = async () => {
 		const agreed = plan;
@@ -1027,13 +1089,59 @@
 								</p>
 								<button
 									class="btn btn-sm"
-									class:btn-disabled={replacing}
-									aria-disabled={replacing}
+									class:btn-disabled={replacing || askingSharing}
+									aria-disabled={replacing || askingSharing}
 									data-testid="publish-replace"
-									onclick={() => (replacing = true)}
+									onclick={() => {
+										if (!replacing && !askingSharing) void askToReplace();
+									}}
 								>
-									{replacing ? 'Ready to replace it' : 'Publish anyway, replacing it'}
+									{replacing
+										? 'Ready to replace it'
+										: askingSharing
+											? 'Asking GitHub…'
+											: 'Publish anyway, replacing it'}
 								</button>
+							</div>
+						{/if}
+						{#if outbound !== null && !replacing}
+							<!--
+								⚠ **The outbound half of the rule the inbound direction has had since
+								`UpdateDeletionPreview`** (ADR-0043). On a repository that is the author's alone,
+								local-wins can only discard their own work; on a shared one it deletes a
+								colleague's, so what it would remove is **named** — Projects and Map Images, never
+								a file count — and whose the repository is is said first.
+
+								⚠ **A second press rather than a louder first one.** This is the last point at
+								which the answer is still no, and the two-step is the shape everything
+								irreversible here has: `ProjectHub`'s deletion confirmation, and the arming above.
+							-->
+							<div
+								role="alert"
+								class="mt-3 alert alert-vertical items-start alert-warning"
+								data-testid="publish-shared-remote"
+							>
+								<p>{outbound.message}</p>
+								<div class="flex flex-wrap gap-2">
+									<button
+										class="btn btn-sm btn-warning"
+										data-testid="confirm-shared-replace"
+										onclick={() => (replacing = true)}
+									>
+										{outbound.paths.length === 0
+											? 'Yes, publish over their work'
+											: 'Yes, remove them and publish'}
+									</button>
+									<!-- The way out of the question, which is what stops it being a full stop: the
+									     refusal above stands and the ordinary remedies are still on this screen. -->
+									<button
+										class="btn btn-sm"
+										data-testid="cancel-shared-replace"
+										onclick={() => (outbound = null)}
+									>
+										Leave it as it is
+									</button>
+								</div>
 							</div>
 						{/if}
 						<!--

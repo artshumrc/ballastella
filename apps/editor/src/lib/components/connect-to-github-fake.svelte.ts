@@ -22,6 +22,7 @@ import {
 	type RemoteBindOutcome,
 	type RemotePagesOutcome,
 	type RemoteReference,
+	type RemoteRights,
 	type RemoteStatusState,
 	type SynchronizationBaseline
 } from '@ballastella/core';
@@ -132,6 +133,18 @@ export class FakeStorage {
 		notice: 'Opened ada/atlas into a new Workspace called “atlas”.'
 	};
 	/**
+	 * How many times the push-rights read was made, and what it answers.
+	 *
+	 * ⚠ **The default is `canPush: true`, and the count is what a spec asserts the signed-out case
+	 * with.** Push rights cannot be read without a credential, so "the door says nothing about rights
+	 * while signed out" is a claim about a request that was never made — and an answer that defaulted
+	 * to *cannot publish* would make every existing spec's connected step render the pull-only state.
+	 */
+	rightsReads = 0;
+	/** What `readRights` answers, or throws when it is an `Error`. */
+	rightsAnswer: RemoteRights | Error = { canPush: true };
+
+	/**
 	 * What the freshness check answers: `null` for a sign-in with life in it, an `Error` for one that
 	 * has run out and could not be renewed. The real one clears the credential in that case, so this
 	 * one does too — every screen renders the not-signed-in state, and the sequence's expiry step is a
@@ -177,6 +190,13 @@ export class FakeStorage {
 		this.signedIn = false;
 		this.identity = '';
 		this.credential = null;
+	}
+
+	async readRights(): Promise<RemoteRights> {
+		this.rightsReads += 1;
+		await Promise.resolve();
+		if (this.rightsAnswer instanceof Error) throw this.rightsAnswer;
+		return this.rightsAnswer;
 	}
 
 	async enablePages(): Promise<RemotePagesOutcome> {

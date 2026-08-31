@@ -696,6 +696,17 @@ export {
 	type GrantedRepository,
 	type GrantedInstallation
 } from './remote/github-installations.js';
+// Whether a Remote belongs to somebody else as well, and what a confirmed Publish anyway would take
+// off it (ADR-0043). Collaboration needs nothing built to allow it; what it needs is that the one
+// local-wins escape hatch names the work it would delete when the Remote is not the author's alone.
+export {
+	describeOutboundRemovals,
+	readRemoteSharing,
+	type OutboundDeletionOptions,
+	type OutboundDeletionPreview,
+	type RemoteSharing,
+	type RemoteSharingOptions
+} from './remote/shared-remote.js';
 // Whatever address a student happens to have — a Published Site's, a GitHub one, or
 // `owner/repository` — turned into the repository it means, by asking GitHub which of the
 // candidates is real rather than asking the author a question only GitHub can answer.

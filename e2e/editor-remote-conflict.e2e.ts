@@ -225,6 +225,14 @@ async function start(
 		 * every test here that binds through the Remote dialog's form wants.
 		 */
 		granted?: boolean;
+		/**
+		 * Whose the seeded credential is, as `GET /user` reports it.
+		 *
+		 * Left out it is the repository's own owner, which is the solo Remote every other test here
+		 * means. Naming somebody else is what makes the Remote *shared* (ADR-0043) — the comparison is
+		 * between the repository's owner and this, and it costs no request at all.
+		 */
+		login?: string;
 	} = {}
 ): Promise<GitHubHosts> {
 	const github = await routeGitHubHosts(page, {
@@ -245,7 +253,10 @@ async function start(
 						repositories: [{ owner: OWNER, repository: REPOSITORY, push: true }]
 					}
 				}
-			: {})
+			: {}),
+		// Last, so naming the account is what a test says when it means it — even where the sign-in
+		// surface is served and would otherwise report the repository's owner.
+		...(options.login === undefined ? {} : { login: options.login })
 	});
 	await page.goto('./');
 	await emptyBrowserStorage(page);
@@ -597,6 +608,66 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		// reading `Changes to publish` beside a finished publish is the one moment an author is most
 		// likely to press it again.
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+	});
+
+	// ⚠ **`Publish anyway` is the one control whose blast radius is somebody else's afternoon**
+	// (ADR-0043). On a repository that is the author's alone, local-wins can only ever discard their
+	// own work; on a shared one it deletes a collaborator's, so what it would remove is named — the
+	// Projects and the Map Images, never a file count — and it cannot proceed without that
+	// confirmation. Whose the repository is, and the sentence the preview carries, are Seam 1's
+	// (`shared-remote.test.ts`); what only a browser can settle is that the real dialog asks the real
+	// GitHub, that the confirm button refuses until the question is answered, and that answering it
+	// publishes to a repository the author does not own.
+	test('names what it would remove from a shared Remote, and will not proceed until told', async ({
+		page
+	}) => {
+		const github = await start(page, {
+			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() },
+			// `ada/atlas` is not grace's, so the Remote is shared before anybody has contributed to it.
+			login: 'grace'
+		});
+
+		// A first publish, which is what gives this browser its record of the Remote — and a
+		// collaborator publishing to a repository they do not own, which is story 68 end to end.
+		await confirm(page, await signedIn(page));
+
+		// A whole Project arriving from somebody else's machine. It is inbound source this Workspace
+		// has never taken in, so an ordinary Publish refuses — and a `Publish anyway` would take it
+		// down, which is precisely the afternoon the preview has to name.
+		await github.commitFiles(OWNER, REPOSITORY, {
+			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida 1657"}',
+			'florida-1657/annotations/l1.geojson': '{"type":"FeatureCollection","features":[]}'
+		});
+
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.getByTestId('publish-conflict')).toBeVisible();
+		await dialog.getByTestId('publish-replace').click();
+
+		const preview = dialog.getByTestId('publish-shared-remote');
+		// Whose it is, then what goes: named as a Project rather than as two files, because "2 files
+		// will be removed" is not a question anybody can answer.
+		await expect(preview).toContainText(`${REMOTE} belongs to ${OWNER}, not to you`);
+		await expect(preview).toContainText('the Project florida-1657');
+		// ⚠ **And it has not armed.** The confirm button still refuses while the question stands, so
+		// the press that named the deletion is not also the press that carries it out.
+		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
+			'aria-disabled',
+			'true'
+		);
+		expect(github.files(OWNER, REPOSITORY)).toContain('florida-1657/project.json');
+
+		await dialog.getByTestId('confirm-shared-replace').click();
+		const anyway = dialog.getByRole('button', { name: 'Publish anyway, replacing it' });
+		await expect(anyway).toBeVisible();
+		await anyway.click();
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+			timeout: 120_000
+		});
+
+		expect(github.files(OWNER, REPOSITORY)).not.toContain('florida-1657/project.json');
+		// The mirror is still ADR-0033's: the repository's own files are outside the owned namespace
+		// and a confirmed replace does not reach them.
+		expect(github.fileText(OWNER, REPOSITORY, 'README.md')).toBe('# Atlas\n');
 	});
 });
 

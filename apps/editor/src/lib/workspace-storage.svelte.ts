@@ -68,6 +68,7 @@ import {
 	describeRemote,
 	describeReviewSubject,
 	readRemoteRights,
+	readRemoteSharing,
 	GITHUB_API_ORIGIN,
 	GITHUB_APP,
 	SIGN_IN_STATE_KEY,
@@ -113,6 +114,7 @@ import {
 	type RemoteReference,
 	type RemotePagesOutcome,
 	type RemoteRights,
+	type RemoteSharing,
 	type RemoteStatusState,
 	type RestoreDestination,
 	type ReviewDestination,
@@ -2492,6 +2494,61 @@ export class WorkspaceStorage {
 			);
 		}
 		return enableRemotePages({ token, remote: binding });
+	}
+
+	/**
+	 * Ask GitHub whether the sign-in now held may publish to the Remote this Workspace has.
+	 *
+	 * ⚠ **Read live and never remembered.** Write access is somebody else's to grant and to take away,
+	 * and the two states this answers — a pull-only relationship stated once, and a publish affordance
+	 * that is absent rather than refusing — are exactly the ones a remembered answer gets wrong
+	 * (ADR-0043). It is the same one `GET /repos/{owner}/{repo}` a bind makes, for the same reason
+	 * `bind-remote.ts` makes it there: before a byte moves.
+	 *
+	 * @throws when there is no Remote or no sign-in to ask with, which are the two states that make
+	 *   the question meaningless rather than refused
+	 */
+	async readRights(): Promise<RemoteRights> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Whether you may publish to ${describeRemote(binding)} is something only GitHub can say, ` +
+					`and asking needs you to be signed in.`
+			);
+		}
+		return readRemoteRights({ token, remote: binding });
+	}
+
+	/**
+	 * Whether the Remote this Workspace publishes to is the signed-in author's alone (ADR-0043).
+	 *
+	 * Read at the moment it decides something — the press of *Publish anyway* — rather than held, for
+	 * {@link readRights}' reason: a collaborator arrives on a repository between two visits, and a
+	 * remembered *solo* is the answer that deletes their afternoon without saying so.
+	 *
+	 * @throws when there is no Remote or no sign-in to ask with
+	 */
+	async readSharing(): Promise<RemoteSharing> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Whose ${describeRemote(binding)} is can only be answered by GitHub, and asking needs you ` +
+					`to be signed in.`
+			);
+		}
+		return readRemoteSharing({ token, remote: binding, identity: this.identity });
 	}
 
 	/**

@@ -314,6 +314,17 @@ export interface FakeGitHub {
 	login: string;
 
 	/**
+	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
+	 * a solo one (ADR-0043).
+	 *
+	 * The owner alone by default, which is the solo repository every other spec here means. ⚠ **What
+	 * this cannot settle is whether a collaborator's *listing* surfaces an Installation owned by
+	 * another account** — that is an inference from GitHub's documented enumeration rather than a
+	 * documented sentence, and a fake agreeing with the inference is not evidence for it.
+	 */
+	contributors: string[];
+
+	/**
 	 * Refuse the code-for-token exchange, in GitHub's own shape: `{ error, error_description }`.
 	 *
 	 * ⚠ GitHub answers a refused exchange **in the body**, and historically with a 200, which is why
@@ -458,6 +469,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			reset: Math.floor(Date.now() / 1000) + 3600
 		} as FakeRateLimit,
 		login: options.signIn?.login ?? 'ada',
+		contributors: [options.owner] as string[],
 		refuseExchange: false,
 		refuseRefresh: false
 	};
@@ -782,6 +794,19 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				refs.set(target, commit);
 				return json({ content: { path, sha }, commit: { sha: commit } }, 201);
 			});
+		}
+
+		// `GET /repos/{owner}/{repo}/contributors` — who else has worked here, which is half of whether
+		// a Remote is shared (ADR-0043). Answered unauthenticated, like the reads above and for their
+		// reason: a public repository's contributors are readable with no credential at all, and this
+		// list is the same list whoever asks. What decides sharedness is the comparison the *caller*
+		// makes against `GET /user`, which is authenticated.
+		if (rest[0] === 'contributors' && rest.length === 1 && method === 'GET') {
+			// 204 is GitHub's own answer for a repository with no commits yet, and it is a different
+			// answer from an empty array: `shared-remote.ts` reads a body it cannot parse as
+			// *unanswered*, which is `shared`, while 204 is nobody.
+			if (state.contributors.length === 0) return new Response(null, { status: 204 });
+			return json(state.contributors.map((login) => ({ login })));
 		}
 
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
@@ -1311,6 +1336,12 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		set login(value) {
 			state.login = value;
+		},
+		get contributors() {
+			return state.contributors;
+		},
+		set contributors(value) {
+			state.contributors = value;
 		},
 		get refuseExchange() {
 			return state.refuseExchange;
