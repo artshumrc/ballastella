@@ -845,6 +845,12 @@ describe('connecting, which is one act', () => {
 
 	// The rights refusal is the other outcome the connection stands *with*, and it is deliberate: the
 	// binding records where this Workspace belongs whether or not this author may publish there.
+	//
+	// ⚠ **One statement, not two.** `bind-remote`'s own `rightsNotice` is the same fact as the
+	// connected step's pull-only sentence, and this epic exists because one question had five answers
+	// on one screen — so the notice is suppressed and the standing statement is what the author reads
+	// (ADR-0043). It is also the only one of the two that renders on a hydrated Remote, where no bind
+	// happened at all.
 	test('reports that the author cannot publish there, and stays connected', async () => {
 		const storage = signedIn();
 		storage.bindAnswer = outcome({
@@ -854,7 +860,8 @@ describe('connecting, which is one act', () => {
 		open(storage);
 		await choose();
 
-		expect(text(at('connect-notice'))).toContain('publishing to it will be refused');
+		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
+		expect(absent('connect-notice')).toBe(true);
 		expect(at('connect-connected')).toBeTruthy();
 	});
 
@@ -1498,14 +1505,14 @@ describe('leaving the sequence, and coming back to it', () => {
 	test('leaves no notice from the last time behind it', async () => {
 		const storage = signedIn();
 		const opened = open(storage);
-		storage.bindAnswer = outcome({
-			canPush: false,
-			rightsNotice: 'Nobody may put work into ada/atlas with this sign-in.'
-		});
 		await settle();
 		press('choose-repository');
 		await settle();
-		expect(text(at('connect-notice'))).toContain('Nobody may put work into');
+		// Giving the repository up leaves a sentence behind saying what it did and did not do, which is
+		// as good a notice as any and one the connected step actually produces.
+		press('unbind-remote');
+		await settle();
+		expect(text(at('connect-notice'))).toContain('no longer publishes to ada/atlas');
 
 		press('close-connect-sequence');
 		opened.props.open = true;
@@ -2140,6 +2147,135 @@ describe('the standing state, and the gestures on it', () => {
 		expect(at('enable-pages')).toHaveAttribute('aria-disabled', 'true');
 		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
 		await settle();
+	});
+});
+
+// ⚠ **A Remote may be somebody else's, and the door says only what is known about that** (ADR-0043).
+// Push rights cannot be read without a credential, so there are three states rather than two, and
+// the middle one — signed out — is the one that must claim nothing at all. Every assertion here is
+// about which of the three the door is in and what it renders there; whose the repository is and
+// what a Publish anyway would remove are Seam 1's, in `shared-remote.test.ts`.
+describe('a Remote that may not be the author’s to publish to', () => {
+	/** A Workspace already connected to `ada/atlas`, which is the connected step's whole input. */
+	function connected(): FakeStorage {
+		const storage = signedIn();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		return storage;
+	}
+
+	/** The same Workspace with nobody signed in: a public Remote hydrated on this computer. */
+	function hydrated(): FakeStorage {
+		const storage = new FakeStorage();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		return storage;
+	}
+
+	// ⚠ **Story 72, and the whole of it is the second assertion.** Nothing may be claimed about rights
+	// from an absent credential — not that the author may publish, and not that they may not — and the
+	// only way to hold that is for the question never to be asked.
+	test('says publishing needs a sign-in, and nothing about rights, while signed out', async () => {
+		const storage = hydrated();
+		open(storage);
+		await settle();
+
+		expect(text(at('publish-needs-sign-in'))).toContain('needs you to be signed in to GitHub');
+		expect(absent('pull-only-remote')).toBe(true);
+		expect(storage.rightsReads).toBe(0);
+		expect(said()).not.toContain('write access');
+	});
+
+	test('states the pull-only relationship once GitHub has said so, and offers the way on', async () => {
+		const storage = connected();
+		storage.rightsAnswer = { canPush: false };
+		open(storage);
+		await settle();
+
+		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
+		// Story 71: absent rather than refusing. A control that will certainly turn the author down is
+		// worse than no control, and there is no second path to the publish dialog (ADR-0041).
+		expect(absent('connect-publish')).toBe(true);
+		// Story 74: the way forward is on the same screen as the limitation, and it is the main action.
+		expect(at('publish-to-your-own')).toBeTruthy();
+		expect(absent('publish-needs-sign-in')).toBe(true);
+	});
+
+	test('takes the author to the repository list from the main action', async () => {
+		const storage = connected();
+		storage.rightsAnswer = { canPush: false };
+		const opened = open(storage);
+		await settle();
+
+		press('publish-to-your-own');
+		await settle();
+
+		expect(at('connect-choosing')).toBeTruthy();
+		expect(opened.list).toHaveBeenCalledTimes(1);
+	});
+
+	test('leaves the ordinary state exactly as it was where the author may publish', async () => {
+		const storage = connected();
+		open(storage);
+		await settle();
+
+		expect(at('connect-publish')).toBeTruthy();
+		expect(absent('pull-only-remote')).toBe(true);
+		expect(absent('publish-to-your-own')).toBe(true);
+		expect(storage.rightsReads).toBe(1);
+	});
+
+	// ⚠ **A read that failed is not an answer.** Withdrawing Publish over a network blip would deny a
+	// publish the author is entitled to make, and the publish engine checks the permission itself
+	// before a byte moves — so the ordinary state stands and nothing unprompted is said.
+	test('says nothing and withdraws nothing when the rights could not be read', async () => {
+		const storage = connected();
+		storage.rightsAnswer = new Error('GitHub could not be reached.');
+		open(storage);
+		await settle();
+
+		expect(at('connect-publish')).toBeTruthy();
+		expect(absent('pull-only-remote')).toBe(true);
+		expect(absent('connect-problem')).toBe(true);
+		// ⚠ **Once, and the guard has to be separate from the answer for it to be once.** `rights`
+		// stays `null` after a failure, so an effect guarded on it alone asks again the moment the
+		// request settles — one `GET` per microtask for as long as GitHub is unreachable.
+		expect(storage.rightsReads).toBe(1);
+	});
+
+	// The standing rule of this whole surface: nothing is remembered, because write access is
+	// somebody else's to grant and to take away between two openings of the door.
+	test('asks again on the next opening rather than remembering the answer', async () => {
+		const storage = connected();
+		const opened = open(storage);
+		await settle();
+		expect(storage.rightsReads).toBe(1);
+
+		press('close-connect-sequence');
+		opened.props.open = true;
+		flushSync();
+		await settle();
+
+		expect(storage.rightsReads).toBe(2);
+	});
+
+	// ⚠ **Story 77: the boundary stated up front rather than met as a Conflict.** ADR-0024 refuses to
+	// answer two Alignments of one sheet, so this is a limit rather than a defect — and a limit
+	// discovered at the end of an afternoon is the same sentence one afternoon later.
+	test('states the one thing two people cannot both do, before either of them does it', () => {
+		open(connected());
+
+		const limit = text(at('shared-remote-limit'));
+		expect(limit).toContain('different Projects at the same time');
+		expect(limit).toContain('cannot both do is align the same Map Image');
+		expect(limit).toContain('Conflict');
+	});
+
+	test('states it whether or not anybody may publish there', async () => {
+		const storage = connected();
+		storage.rightsAnswer = { canPush: false };
+		open(storage);
+		await settle();
+
+		expect(at('shared-remote-limit')).toBeTruthy();
 	});
 });
 

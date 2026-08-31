@@ -81,7 +81,8 @@
 		type GrantedRepository,
 		type RemoteBindOutcome,
 		type RemotePagesOutcome,
-		type RemoteReference
+		type RemoteReference,
+		type RemoteRights
 	} from '@ballastella/core';
 
 	import {
@@ -122,10 +123,10 @@
 	 * surface, a Workspace that another tab connected. Every one of those moves this sequence on its own,
 	 * because {@link step} is a reading of the same facts every other screen reads.
 	 *
-	 * The three `$effect`s are all requests or subscriptions rather than values — the listing read, the
-	 * freshness check the moment the sequence opens, and the two window events that notice the author
-	 * coming back from the other tab. Everything else is `$derived`, per the project's standing
-	 * preference.
+	 * The four `$effect`s are all requests or subscriptions rather than values — the listing read, the
+	 * freshness check the moment the sequence opens, the push-rights read on the connected step, and
+	 * the two window events that notice the author coming back from the other tab. Everything else is
+	 * `$derived`, per the project's standing preference.
 	 *
 	 * ⚠ **The one thing remembered is that the account step has been offered, and it is a hint.**
 	 * Whether a stranger has a GitHub account is the single fact here nothing can read: GitHub will
@@ -264,6 +265,25 @@
 	/** What the connection succeeded *with*: rights that cannot publish. */
 	let notices = $state<string[]>([]);
 	/**
+	 * What GitHub says this sign-in may do with the Remote this Workspace has, or `null`.
+	 *
+	 * ⚠ **`null` is "not known", and it is not the same as "may not publish".** A rights read that
+	 * failed, or one that has not happened yet, must leave the ordinary state alone: withdrawing
+	 * **Publish…** over a network blip would deny a publish somebody is entitled to make, and stating
+	 * a pull-only relationship nobody established would be the interface claiming a fact it has not
+	 * got (ADR-0043).
+	 */
+	let rights = $state<RemoteRights | null>(null);
+	/**
+	 * Whether GitHub has been asked about the rights on the Remote now bound.
+	 *
+	 * ⚠ **Separate from {@link rights}, and cleared only where the question changes.** A read that
+	 * failed leaves `rights` at `null` for ever, so an effect guarded on `rights` alone would ask
+	 * again the moment the request settled — one `GET` per microtask, for as long as GitHub is
+	 * unreachable.
+	 */
+	let rightsAsked = $state(false);
+	/**
 	 * What turning the Published Site on answered, or `null` while nobody has asked for it.
 	 *
 	 * ⚠ **`null` is "not asked", and it is the state this must open in.** A Remote is a place the work
@@ -326,6 +346,19 @@
 	const checking = $derived(storage.remoteStatusState.checking);
 	/** Whether an Update is running, which is the only thing that makes its control busy. */
 	const updating = $derived(storage.updateProgress !== null);
+	/**
+	 * Whether the author may publish to the Remote they have: `null` until GitHub has said.
+	 *
+	 * ⚠ **Signed out it is `null` and stays there**, which is the whole of story 72: push rights
+	 * cannot be read without a credential, so the door says publishing needs a sign-in and **nothing
+	 * about rights** (ADR-0043). Claiming either way from an absent credential would be inventing the
+	 * answer.
+	 */
+	const canPush = $derived<boolean | null>(
+		storage.signedIn && rights !== null ? rights.canPush : null
+	);
+	/** Whether the relationship is known to be pull-only, which is the one state that says so. */
+	const pullOnly = $derived(canPush === false);
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
 	const notHereName = $derived(notHere === null ? '' : describeRemote(notHere.remote));
 	const resolvedName = $derived(resolved === null ? '' : describeRemote(resolved.remote));
@@ -621,6 +654,11 @@
 			pages = null;
 			problem = '';
 			copied = false;
+			// Read again on the next open, for the reason nothing else here is remembered: write access
+			// is somebody else's to grant and to take away, and a remembered answer is a second source
+			// of truth free to disagree with GitHub's.
+			rights = null;
+			rightsAsked = false;
 			changing = false;
 			expiry = '';
 			connectSequence.signInRefusal = '';
@@ -702,6 +740,30 @@
 		void storage.ensureCredentialFresh().catch((cause: unknown) => {
 			expiry = cause instanceof Error ? cause.message : String(cause);
 		});
+	});
+
+	/**
+	 * Ask GitHub whether this sign-in may publish to the Remote this Workspace has.
+	 *
+	 * ⚠ **Only where a Remote *and* a credential both exist**, which is what makes the signed-out
+	 * state say nothing about rights rather than say "no". One `GET /repos/{owner}/{repo}` — the same
+	 * one a bind makes — asked when the connected step is reached rather than when a publish is half
+	 * done, for `bind-remote.ts`'s reason.
+	 *
+	 * A refusal is swallowed on purpose. There is nothing for the author to do about it and nothing
+	 * they asked for: the ordinary state stands, `Publish…` stays, and the publish engine's own
+	 * permission check still refuses before a byte moves (`assertPushable`). A refusal rendered here
+	 * would be an unprompted message about a question nobody put.
+	 */
+	$effect(() => {
+		if (!open || bound === null || changing || !storage.signedIn || rightsAsked) return;
+		rightsAsked = true;
+		void storage.readRights().then(
+			(answer) => {
+				rights = answer;
+			},
+			() => {}
+		);
 	});
 
 	/**
@@ -802,6 +864,10 @@
 		expiry = '';
 		listing = null;
 		notices = [];
+		// Whether the person who was signed in may publish says nothing about the next one, and the
+		// signed-out door says nothing about rights at all.
+		rights = null;
+		rightsAsked = false;
 		storage.signOut();
 	}
 
@@ -853,6 +919,8 @@
 		notices = [];
 		const was = boundName;
 		working = true;
+		rights = null;
+		rightsAsked = false;
 		try {
 			await storage.unbindRemote();
 			notices = [
@@ -902,9 +970,24 @@
 		problem = '';
 		notices = [];
 		connecting = remote;
+		// The rights held are about the repository being left behind, so they are dropped before the
+		// bind rather than after it: the connected step must never state a pull-only relationship it
+		// read about a different Remote.
+		rights = null;
+		rightsAsked = false;
 		try {
 			const outcome: RemoteBindOutcome = await storage.bindRemote(remote, pasted);
-			notices = outcome.rightsNotice ? [outcome.rightsNotice] : [];
+			// The bind has just asked GitHub this very question, so the connected step states the answer
+			// without a second request.
+			rights = { canPush: outcome.canPush };
+			rightsAsked = true;
+			// ⚠ **`rightsNotice` is deliberately not rendered beside the pull-only statement.** They are
+			// the same fact, and this epic exists because one question had five answers on one screen.
+			// The connected step's own statement is the one that stays, because it is the one that
+			// renders on a hydrated Remote too — where no bind happened and there is no notice — and
+			// because it carries the way forward core's sentence cannot know about: a repository of the
+			// author's own (ADR-0043).
+			notices = outcome.canPush && outcome.rightsNotice ? [outcome.rightsNotice] : [];
 		} catch (cause) {
 			// ⚠ **One refusal of the several has an operation that answers it**, and this is where the
 			// two part. Everything else is a sentence over the list the author chooses from again; a
@@ -1751,6 +1834,46 @@
 					{baselineSentence}
 				</p>
 				<!--
+					⚠ **What is said about publishing here is only ever what is known** (ADR-0043). Push
+					rights cannot be read without a credential, so signed out this says that publishing needs
+					a sign-in and **nothing whatever about rights** — a scholar who has opened somebody else's
+					public Remote must not be told they may publish to it, nor that they may not.
+				-->
+				{#if !storage.signedIn}
+					<p class="mt-3 max-w-prose text-sm" data-testid="publish-needs-sign-in">
+						Publishing to <code>{boundName}</code> needs you to be signed in to GitHub. Taking changes
+						from it does not.
+					</p>
+				{:else if pullOnly}
+					<!--
+						⚠ **The relationship stated once, rather than discovered at a refusal.** GitHub says this
+						sign-in may read this repository and not write to it, which is an ordinary and permanent
+						state — a read-only collaborator, or somebody else's public Remote opened here. So there
+						is no publish affordance below at all: a control that will certainly refuse is worse than
+						its absence, and the way forward is on the same screen as the limitation.
+					-->
+					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="pull-only-remote">
+							You can take changes from <code>{boundName}</code> into this Workspace, but you cannot
+							publish to it: GitHub does not give this sign-in write access there. Nothing is wrong
+							with your work or your sign-in. If <code>{boundName}</code> is somebody else's, ask them
+							for write access to it — or publish to a repository of your own instead.
+						</p>
+					</div>
+				{/if}
+				<!--
+					⚠ **The one thing collaboration cannot do, said before anybody meets it as a Conflict.**
+					ADR-0024 refuses merges outright — *"there is no honest resolution for two Alignments of
+					one sheet"* — so this is a boundary rather than a bug, and a boundary belongs in what the
+					interface says up front. Met at the end of an afternoon it is the same sentence and one
+					afternoon later.
+				-->
+				<p class="mt-3 max-w-prose text-sm opacity-70" data-testid="shared-remote-limit">
+					If somebody else works in <code>{boundName}</code> too, the two of you can work on different
+					Projects at the same time. What you cannot both do is align the same Map Image: whoever publishes
+					second meets a Conflict, which stops without changing either side.
+				</p>
+				<!--
 					⚠ **A sign-in GitHub declined lands here too, whenever the Workspace is already bound.**
 					The publish dialog's own door is a redirect off the page, so the return leg reopens the
 					sequence over a Workspace with a Remote — which derives this step — and a refusal said
@@ -1815,13 +1938,29 @@
 						The handoff. It is the same Publish dialog there has always been, opened from here
 						rather than reimplemented — the sequence's job ends where publishing begins.
 					-->
-					<button
-						class="btn btn-primary btn-sm"
-						data-testid="connect-publish"
-						onclick={() => publish()}
-					>
-						Publish…
-					</button>
+					{#if !pullOnly}
+						<button
+							class="btn btn-primary btn-sm"
+							data-testid="connect-publish"
+							onclick={() => publish()}
+						>
+							Publish…
+						</button>
+					{:else}
+						<!--
+							⚠ **The main action becomes the way forward, on the same screen as the limitation**
+							(ADR-0043, story 74). It is the control that was already here — choosing a different
+							repository — promoted and relabelled for the one state where it is the only thing that
+							can be done, so there is no second path to the repository list.
+						-->
+						<button
+							class="btn btn-primary btn-sm"
+							data-testid="publish-to-your-own"
+							onclick={() => (changing = true)}
+						>
+							Publish to a repository of your own
+						</button>
+					{/if}
 					<!--
 						The inbound half, and the *only* way Remote work reaches a Workspace.
 
@@ -1872,13 +2011,15 @@
 						author wants a different one — and it is here, on the step they land on, rather than
 						behind Workspace settings.
 					-->
-					<button
-						class="btn btn-sm"
-						data-testid="change-repository"
-						onclick={() => (changing = true)}
-					>
-						Choose a different repository
-					</button>
+					{#if !pullOnly}
+						<button
+							class="btn btn-sm"
+							data-testid="change-repository"
+							onclick={() => (changing = true)}
+						>
+							Choose a different repository
+						</button>
+					{/if}
 					<!--
 						Giving the repository up altogether, which is the other end of the same fact and so
 						belongs on the same step. Only this computer forgets: nothing on GitHub is deleted and

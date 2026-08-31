@@ -73,6 +73,14 @@ export type FakeRepository = {
 	readonly files?: Readonly<Record<string, string>>;
 	/** What `GET /repos/{owner}/{repo}` reports about the caller. */
 	readonly push?: boolean;
+	/**
+	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
+	 * a solo one (ADR-0043).
+	 *
+	 * The owner alone by default: every other spec here means a repository nobody else works in, and
+	 * that is the state whose `Publish anyway` behaviour is unchanged.
+	 */
+	readonly contributors?: readonly string[];
 	/** `POST /pages` answers 409 when this is already true, and turns it on when it is not. */
 	readonly pagesEnabled?: boolean;
 	/** Answer 403 to `POST /pages`: a token with `contents: write` and no `pages: write`. */
@@ -121,7 +129,13 @@ export type GitHubHostsOptions = {
 	readonly brokerUnreachable?: boolean;
 	/** How long an issued token lasts. Short values are how a spec reaches expiry without waiting. */
 	readonly tokenLifetimeSeconds?: number;
-	/** The account a completed sign-in is as, reported by `GET /user`. */
+	/**
+	 * The account this credential belongs to, reported by `GET /user`.
+	 *
+	 * ⚠ **Applied whether or not the sign-in surface is served.** Whose a repository is, is a
+	 * comparison between its owner and this — so a spec that seeds a credential rather than acquiring
+	 * one still has to be able to say who the seeded credential is.
+	 */
 	readonly login?: string;
 	/**
 	 * The repositories the author has granted the App access to, as the two installation endpoints
@@ -288,6 +302,8 @@ export async function routeGitHubHosts(
 				: {})
 		});
 		primary ??= fake;
+		if (options.login !== undefined) fake.login = options.login;
+		fake.contributors = [...(repository.contributors ?? [repository.owner])];
 		fake.permissions = { push: repository.push ?? true, admin: false };
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;

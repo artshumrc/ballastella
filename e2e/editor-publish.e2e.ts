@@ -1344,37 +1344,37 @@ test.describe('publishing to a Remote', () => {
 	/**
 	 * The credential that reaches a repository and cannot push to it.
 	 *
-	 * Every request a forecast makes is a GET, so a `Contents: Read` credential plans cleanly and would
-	 * meet its 403 at the first blob — with the whole website already written into the Workspace.
+	 * ⚠ **This test used to press through to a refusal, and it cannot any more — by design**
+	 * (ADR-0043, story 71). A read-only collaborator is offered no publish affordance at all: the door
+	 * is the only way to the publish dialog (ADR-0041), and the door withdraws **Publish…** once
+	 * GitHub has said this sign-in may not write there. So the claim this test carries is now the
+	 * *absence*, which is the stronger one — a control that will certainly refuse is worse than no
+	 * control — and the engine's own refusal before a byte moves stays asserted at Seam 1, in
+	 * `publish-to-remote.test.ts`'s permission check.
 	 *
-	 * ⚠ **The claim here is the refusal, not the notice.** `publish-no-push` is what the dialog says
-	 * about a credential *it* has just acquired, and on this deployment the credential is not acquired
-	 * on this screen: the rights are read at the sign-in and at the bind, and said out loud there
-	 * (`editor-remote-binding.e2e.ts`, and the sequence's own claim at Seam 1c). What is asserted here
-	 * is that a Workspace arriving with such a credential is refused **before it begins**, which is the
-	 * half no other spec covers.
+	 * What only a browser can settle is that the real `WorkspaceStorage` reads the real rights off the
+	 * bound Remote and the bar's one GitHub control acts on them.
 	 */
-	test('says a token that cannot push cannot push, before anything is written', async ({
-		page
-	}) => {
+	test('offers no way to publish at all where the sign-in may not push', async ({ page }) => {
 		const github = await start(page, {
 			hosts: { repositories: [{ owner: OWNER, name: REPOSITORY, push: false }] }
 		});
 		const before = github.head(OWNER, REPOSITORY);
 
-		const dialog = await signedIn(page);
+		await seedGitHubCredential(page, TOKEN);
+		await page.reload();
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await openTheDoor(page);
 
-		// ⚠ **Refused before it begins, not merely warned about**.
-		// Publishing reads the account's permission before it lists a tree, so there is no forecast to
-		// show and no button to press through: pressing on would write the whole website into the
-		// Workspace and then meet the same refusal, which is minutes of work for a transfer that
-		// cannot complete.
-		await expect(dialog.getByTestId('publish-budget')).toBeHidden();
-		await expect(dialog.getByTestId('publish-upload-problem')).toContainText('cannot push to it');
-		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveAttribute(
-			'aria-disabled',
-			'true'
-		);
+		// The relationship stated once, where the author is standing, rather than discovered at a
+		// refusal after the whole website has been written into the Workspace.
+		await expect(page.getByTestId('pull-only-remote')).toContainText('you cannot publish to it');
+		await expect(page.getByTestId('connect-publish')).toHaveCount(0);
+		// Story 74: the way forward is on the same screen as the limitation.
+		await expect(page.getByTestId('publish-to-your-own')).toBeVisible();
+		// Update from GitHub is untouched: taking changes from a repository needs no write access, and
+		// this is exactly the relationship the pull-only sentence describes.
+		await expect(page.getByTestId('update-from-github')).toBeVisible();
 		expect(github.head(OWNER, REPOSITORY)).toBe(before);
 	});
 
