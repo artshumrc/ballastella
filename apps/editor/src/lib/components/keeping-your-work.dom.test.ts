@@ -104,6 +104,46 @@ function reviewing(): FakeStorage {
 	return storage;
 }
 
+/**
+ * A browser whose capability answers add up to `kind`.
+ *
+ * ⚠ **Built from capabilities, never from a name.** These are the same five inputs the real
+ * `WorkspaceStorage` supplies, and which of the six they mean is `deriveStorageDurability`'s to
+ * decide — exhausted at Seam 1 in `packages/core`'s `storage-durability.test.ts`. What this file
+ * asserts is the *sentence*: that each state has one of its own, that only one of them is up front,
+ * and that the advice in it is true for the browser it is about.
+ */
+function browser(kind: StorageDurability['kind']): FakeStorage {
+	const storage = new FakeStorage();
+	storage.canChooseFolder = true;
+	switch (kind) {
+		case 'granted':
+			storage.storageAnswers = { persisted: true, permission: 'granted', ephemeral: false };
+			break;
+		// Firefox-shaped: a permission to give, and no File System Access.
+		case 'can-ask':
+			storage.canChooseFolder = false;
+			storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
+			break;
+		// Chromium-shaped: a permission that exists, File System Access, and not installed.
+		case 'install-to-keep':
+			storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
+			break;
+		// WebKit: the `persistent-storage` permission name is not known at all.
+		case 'seven-day':
+			storage.canChooseFolder = false;
+			storage.storageAnswers = { persisted: false, permission: undefined, ephemeral: false };
+			break;
+		case 'ephemeral':
+			storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: true };
+			break;
+		case 'unknown':
+			storage.storageAnswers = { persisted: undefined, permission: undefined, ephemeral: false };
+			break;
+	}
+	return storage;
+}
+
 describe('backing up and restoring', () => {
 	test('names the file the Backup was written to, and what it holds', async () => {
 		open(new FakeStorage());
@@ -328,46 +368,6 @@ describe('unsaved changes with nowhere to go', () => {
 });
 
 describe('what the browser promised about keeping the work', () => {
-	/**
-	 * A browser whose capability answers add up to `kind`.
-	 *
-	 * ⚠ **Built from capabilities, never from a name.** These are the same five inputs the real
-	 * `WorkspaceStorage` supplies, and which of the six they mean is `deriveStorageDurability`'s to
-	 * decide — exhausted at Seam 1 in `packages/core`'s `storage-durability.test.ts`. What this file
-	 * asserts is the *sentence*: that each state has one of its own, that only one of them is up front,
-	 * and that the advice in it is true for the browser it is about.
-	 */
-	function browser(kind: StorageDurability['kind']): FakeStorage {
-		const storage = new FakeStorage();
-		storage.canChooseFolder = true;
-		switch (kind) {
-			case 'granted':
-				storage.storageAnswers = { persisted: true, permission: 'granted', ephemeral: false };
-				break;
-			// Firefox-shaped: a permission to give, and no File System Access.
-			case 'can-ask':
-				storage.canChooseFolder = false;
-				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
-				break;
-			// Chromium-shaped: a permission that exists, File System Access, and not installed.
-			case 'install-to-keep':
-				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: false };
-				break;
-			// WebKit: the `persistent-storage` permission name is not known at all.
-			case 'seven-day':
-				storage.canChooseFolder = false;
-				storage.storageAnswers = { persisted: false, permission: undefined, ephemeral: false };
-				break;
-			case 'ephemeral':
-				storage.storageAnswers = { persisted: false, permission: 'prompt', ephemeral: true };
-				break;
-			case 'unknown':
-				storage.storageAnswers = { persisted: undefined, permission: undefined, ephemeral: false };
-				break;
-		}
-		return storage;
-	}
-
 	const KINDS: StorageDurability['kind'][] = [
 		'granted',
 		'can-ask',
@@ -573,5 +573,65 @@ describe('what the browser promised about keeping the work', () => {
 		open(browser('install-to-keep'));
 
 		expect(at('install-offer')).toBeTruthy();
+	});
+});
+
+/**
+ * A control that is busy keeps its place in the tab order (user story 130, WCAG 2.4.3).
+ *
+ * ⚠ **`disabled` is the wrong spelling and the reason is not stylistic.** A `disabled` button is
+ * removed from the tab order the instant it is pressed, so the keyboard user who pressed it is
+ * dropped on `<body>` for the length of a transfer that may run for minutes — and they cannot even
+ * tab back to the progress line, because the control they were on is no longer a stop. Every other
+ * busy control in this Epic is already `aria-disabled` with a guarded handler; these three were the
+ * ones the pass found still spelled the old way.
+ *
+ * The refusal has to be in the handler as well as in the attribute: `aria-disabled` is a statement
+ * to the accessibility tree and nothing more, so a focusable control still answers `Enter`.
+ */
+describe('a transfer under way, with the keyboard still in the tab order', () => {
+	/** The three controls a transfer makes busy, and the press that starts one. */
+	const busyControls = ['back-up-workspace', 'restore-workspace', 'move-into-folder'] as const;
+
+	test('every control a transfer makes busy stays focusable rather than disabled', () => {
+		const storage = open(new FakeStorage());
+		// Never settled, so *busy* is the state on screen rather than a frame between two renders.
+		storage.progressSteps = 7;
+		press('back-up-workspace');
+
+		for (const testId of busyControls) {
+			const control = at(testId) as HTMLButtonElement;
+			expect(control.disabled).toBe(false);
+			expect(control.getAttribute('aria-disabled')).toBe('true');
+			control.focus();
+			expect(document.activeElement).toBe(control);
+		}
+	});
+
+	test('pressing one again while it is busy starts nothing', () => {
+		const storage = open(new FakeStorage());
+		storage.progressSteps = 7;
+
+		press('back-up-workspace');
+		expect(storage.transfers).toBe(1);
+
+		for (const testId of busyControls) press(testId);
+		expect(storage.transfers).toBe(1);
+	});
+
+	// The Backup offered inside the storage warning is the same act by a second control, and its own
+	// copy of it — so it is the same claim in the one state that renders it.
+	test('the Backup inside the storage warning is busy the same way', () => {
+		const storage = open(browser('seven-day'));
+		storage.progressSteps = 7;
+
+		press('download-backup');
+		expect(storage.transfers).toBe(1);
+
+		const control = at('download-backup') as HTMLButtonElement;
+		expect(control.disabled).toBe(false);
+		expect(control.getAttribute('aria-disabled')).toBe('true');
+		press('download-backup');
+		expect(storage.transfers).toBe(1);
 	});
 });

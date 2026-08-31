@@ -108,8 +108,17 @@ export class FakeStorage {
 		return this.discardAnswer;
 	}
 
+	/**
+	 * How many transfers have been started, which is how "a second press starts nothing" is read.
+	 *
+	 * Counted on the way in rather than on the way out: what a busy control has to be shown not to do
+	 * is *begin* a second one, and a call not yet recorded looks exactly like a call that was refused.
+	 */
+	transfers = 0;
+
 	/** One progress report per file, so the line a scholar watches is a reading of the transfer. */
 	async #report(onProgress?: TransferProgressListener): Promise<void> {
+		this.transfers += 1;
 		for (let file = 1; file <= this.progressSteps; file += 1) {
 			onProgress?.({
 				files: file,
