@@ -6,7 +6,9 @@ import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import {
+	backUpWorkspace,
 	closeTheDoor,
+	closeWorkspaceDialog,
 	seedGitHubCredential,
 	seedRemoteRelationship,
 	expectCredential,
@@ -678,12 +680,11 @@ test.describe('a sign-in kept past the tab', () => {
 		const held = await grantRecord(page);
 		expect(held?.refreshToken).toBeTruthy();
 
-		// Backup is on Workspace Home, which is the screen this test is standing on (ADR-0042).
-		const downloading = page.waitForEvent('download');
-		await page.getByTestId('back-up-workspace').click();
-		const archive = await readFile(await (await downloading).path());
+		// Backup is in the Workspace's own dialog, beside its name (ADR-0042).
+		const archive = await readFile(await (await backUpWorkspace(page)).path());
 		expect(archive.includes(held?.refreshToken ?? '')).toBe(false);
 		expect(archive.includes(held?.token ?? '')).toBe(false);
+		await closeWorkspaceDialog(page);
 
 		// Bound on the strength of the credential already held, which is what the sign-in door exists
 		// to make possible: nothing is typed and nothing is pasted.
@@ -885,7 +886,7 @@ test.describe('the guided sequence, wired to the real thing', () => {
 						element.tagName.toLowerCase()
 				)
 		);
-		expect([...new Set(saysGitHub)].sort()).toEqual(['connect-to-github', 'review-remote']);
+		expect([...new Set(saysGitHub)].sort()).toEqual(['connect-to-github']);
 		await expect(page.locator('dialog[open]')).toHaveCount(0);
 
 		// One control, in the bar, on Workspace Home — before any Project is open.

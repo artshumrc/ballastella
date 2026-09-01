@@ -1,4 +1,5 @@
 import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
+import { openBaseMapOptions, drawSwitch } from './support/base-map-options.js';
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
@@ -1092,9 +1093,6 @@ test.describe('the Alignment on disk', () => {
  * workspace where the wrong Base Map is discovered, and that is the assertion.
  */
 test.describe('drawing the Base Map while aligning', () => {
-	const drawSwitch = (page: Page, label: string) =>
-		page.getByRole('checkbox', { name: new RegExp(`^${label} —`) });
-
 	/**
 	 * The Project's recorded Base Map appearance, out of OPFS.
 	 *
@@ -1126,18 +1124,10 @@ test.describe('drawing the Base Map while aligning', () => {
 	 */
 	const WITHOUT_STREETS = { streets: false, relief: false, muted: false };
 
-	test('the switches are on the alignment workspace, with no navigation', async ({ page }) => {
-		await start(page);
-
-		// Present beside the pane, on the page the author is already on. `getByRole` rather than a
-		// testid, because "can a user find and operate this" is the question and the accessible name
-		// is what answers it.
-		await expect(drawSwitch(page, 'Streets')).toBeVisible();
-	});
-
 	test('operating one records it in the Project and leaves the pane live', async ({ page }) => {
 		await start(page);
 
+		await openBaseMapOptions(page);
 		await drawSwitch(page, 'Streets').click();
 
 		// The choice is the Project's (ADR-0020), written through the same
@@ -1159,6 +1149,7 @@ test.describe('drawing the Base Map while aligning', () => {
 
 	test('the choice survives a reload, and the workspace opens on it', async ({ page }) => {
 		await start(page);
+		await openBaseMapOptions(page);
 		await drawSwitch(page, 'Streets').click();
 		await expect.poll(() => storedAppearance(page)).toEqual(WITHOUT_STREETS);
 
@@ -1166,6 +1157,7 @@ test.describe('drawing the Base Map while aligning', () => {
 
 		// Reopened from `project.json` rather than from anything held in the page, which is what makes
 		// it the author's setting rather than one that lasts as long as the tab.
+		await openBaseMapOptions(page);
 		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
 	});
 });

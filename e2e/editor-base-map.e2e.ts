@@ -275,8 +275,8 @@ test.describe('the Base Map pane', () => {
 	}) => {
 		// ADR-0026's last fallback, asserted where the catalog itself is asserted. The seeded Project has
 		// an empty `layers`, so there is nothing on the earth to frame on and the deployment's own
-		// initial view is what a scholar meets — a brand-new Project opens somewhere deliberate rather
-		// than at 0°, 0°. `e2e/editor-opening-view.e2e.ts` owns the other end of the chain.
+		// initial view is what a scholar meets. `e2e/editor-opening-view.e2e.ts` owns the other end of
+		// the chain.
 		await openPane(page);
 
 		const at = await page.evaluate(() => ({
@@ -284,11 +284,12 @@ test.describe('the Base Map pane', () => {
 			lat: window.ballastellaBaseMap!.getCenter().lat,
 			zoom: window.ballastellaBaseMap!.getZoom()
 		}));
-		// Central Amsterdam at zoom 13, inside the bundled extract's bounds. Read out of the catalog by
-		// the app; written out here, because a fit that quietly replaced it would still be *a* view.
-		expect(at.lng).toBeCloseTo(4.9041, 4);
-		expect(at.lat).toBeCloseTo(52.3676, 4);
-		expect(at.zoom).toBeCloseTo(13, 4);
+		// The whole world, which is what the catalog offers a Project with nothing placed on the earth.
+		// Read out of the catalog by the app; written out here, because a fit that quietly replaced it
+		// would still be *a* view.
+		expect(at.lng).toBeCloseTo(0, 4);
+		expect(at.lat).toBeCloseTo(20, 4);
+		expect(at.zoom).toBeCloseTo(1, 4);
 	});
 
 	test('pans by dragging and zooms by wheel', async ({ page }) => {
@@ -1376,8 +1377,8 @@ test.describe('finding a place', () => {
 		const service = await routePlaceLookup(context);
 		await openPane(page);
 
-		// Amsterdam, where this deployment's catalog opens — so the move below is unmistakable.
-		expect((await centre(page)).lng).toBeCloseTo(4.9041, 2);
+		// The whole world, where this deployment's catalog opens — so the move below is unmistakable.
+		expect((await centre(page)).lng).toBeCloseTo(0, 2);
 
 		await findPlace(page, AMBIGUOUS_QUERY);
 
