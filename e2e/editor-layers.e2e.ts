@@ -1303,7 +1303,16 @@ test.describe('showing and hiding a Layer', () => {
 		// The Annotation Layer is on top, the map Layer below it.
 		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
 		await rows(page).nth(1).getByTestId('layer-visible').uncheck();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		// Polled on the file rather than on the save indicator: the indicator already read "Saved
+		// locally" from the Layer added above, so it answers before the second uncheck is written and
+		// the reload below can beat it to disk.
+		await expect
+			.poll(async () =>
+				(await projectJson(page, directory)).layers.map(
+					(layer: { visible: boolean }) => layer.visible
+				)
+			)
+			.toEqual([false, false]);
 
 		await page.reload();
 		await expect(rows(page)).toHaveCount(2);
