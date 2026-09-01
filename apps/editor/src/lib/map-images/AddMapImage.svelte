@@ -311,7 +311,7 @@
 							choosing on.
 						-->
 						<button
-							class="btn h-auto grow flex-col items-start gap-0 btn-ghost py-2"
+							class="btn h-auto grow flex-col items-start gap-0 btn-outline py-2"
 							type="button"
 							data-testid="workspace-map"
 							data-image-id={map.imageId}

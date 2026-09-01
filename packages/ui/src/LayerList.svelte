@@ -819,7 +819,7 @@
 							-->
 							<button
 								type="button"
-								class="btn btn-square btn-ghost btn-xs"
+								class="btn btn-square btn-outline btn-xs"
 								data-testid="layer-rename"
 								onclick={() => void renameByButton(layer.id)}
 							>
@@ -1041,7 +1041,7 @@
 											have to meet is a Delete that reads as ordinary.
 										-->
 										<button
-											class="btn gap-1 btn-ghost btn-xs"
+											class="btn gap-1 btn-outline btn-xs"
 											data-testid="layer-delete"
 											onclick={() => void deleteByButton(layer.id, index)}
 										>

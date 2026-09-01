@@ -249,7 +249,7 @@
 		-->
 		<button
 			type="button"
-			class="btn btn-ghost btn-xs"
+			class="btn btn-outline btn-xs"
 			aria-expanded={detailShown}
 			aria-controls="remote-status-detail"
 			data-testid="remote-status-explain"

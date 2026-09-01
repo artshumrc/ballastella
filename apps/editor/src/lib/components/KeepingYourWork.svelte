@@ -302,7 +302,7 @@
 					</p>
 					<button
 						type="button"
-						class="btn btn-ghost btn-xs"
+						class="btn btn-outline btn-xs"
 						aria-controls="durability-detail"
 						aria-expanded={durabilityShown}
 						data-testid="durability-learn-more"

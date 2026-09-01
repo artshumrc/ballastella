@@ -127,7 +127,7 @@
 		</button>
 		{#if job.described || job.error}
 			<button
-				class="btn btn-ghost"
+				class="btn btn-outline"
 				type="button"
 				data-testid="remote-reset"
 				onclick={() => job.reset()}
@@ -259,7 +259,7 @@
 					{#each job.items as item (item.uri)}
 						<li>
 							<button
-								class="btn w-full justify-start btn-ghost btn-sm"
+								class="btn w-full justify-start btn-outline btn-sm"
 								type="button"
 								data-testid="remote-item"
 								disabled={busy}
