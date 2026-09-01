@@ -26,6 +26,8 @@ import {
 	addAnnotation,
 	findAnnotation,
 	newAnnotation,
+	isLabel as annotationIsLabel,
+	resolveStyle,
 	styleForNewAnnotation,
 	styleForNewLabel,
 	removeAnnotation,
@@ -803,6 +805,53 @@ export class AnnotationEditing {
 		if (!annotation) return;
 		await this.commitAnnotations(setLineStyle(collection, id, line), {
 			label: undoLabel('restyling', annotation)
+		});
+	}
+
+	/** Apply the selected Annotation's effective style to every compatible Annotation in its Layer. */
+	async applySelectedStyleToLayer(): Promise<void> {
+		const collection = this.#activeCollection;
+		const source = this.#selectedAnnotation;
+		if (!collection || !source) return;
+
+		const resolved = resolveStyle(source.properties);
+		const styleFor = (annotation: Annotation): Record<string, unknown> => {
+			const geometry = annotation.geometry?.type;
+			const label = annotationIsLabel(annotation);
+			if (label || geometry === 'Point') {
+				return {
+					'marker-color': resolved['marker-color'],
+					'marker-size': resolved['marker-size'] ?? 'medium',
+					...(label ? { fill: resolved.fill, 'fill-opacity': resolved['fill-opacity'] } : {})
+				};
+			}
+			if (geometry === 'Polygon') {
+				return {
+					fill: resolved.fill,
+					'fill-opacity': resolved['fill-opacity'],
+					stroke: resolved.stroke,
+					'stroke-opacity': resolved['stroke-opacity'],
+					'stroke-width': resolved['stroke-width'],
+					'stroke-dasharray': resolved['stroke-dasharray']
+				};
+			}
+			if (geometry === 'LineString') {
+				return {
+					stroke: resolved.stroke,
+					'stroke-opacity': resolved['stroke-opacity'],
+					'stroke-width': resolved['stroke-width'],
+					'stroke-dasharray': resolved['stroke-dasharray']
+				};
+			}
+			return {};
+		};
+
+		let next = collection;
+		for (const annotation of collection.annotations) {
+			next = setStyle(next, annotation.id, styleFor(annotation));
+		}
+		await this.commitAnnotations(next, {
+			label: undoLabel('applying the style of', source) + ' to the Layer'
 		});
 	}
 }

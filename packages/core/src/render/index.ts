@@ -22,6 +22,20 @@ export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js
 // Where an Annotation sits on the screen, which is what the leader points at.
 export { annotationMarkBox, type ScreenBox } from './annotation-mark.js';
 export { distortionRamp, themeColour } from './distortion-ramp.js';
+// The needle a Control Point and a Pin are both drawn as. Exported for the *other* renderer — the
+// align view's DOM markers — which is the whole point of the module: one drawing, two mechanisms.
+export {
+	NEEDLE_GRID,
+	NEEDLE_HALO_PIXELS,
+	NEEDLE_HEAD,
+	NEEDLE_HEAD_PATH,
+	NEEDLE_PART,
+	NEEDLE_PIXELS,
+	NEEDLE_SHAFT,
+	NEEDLE_SHAFT_PATH,
+	needleOrdinal,
+	needleSvg
+} from './needle.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
 // Shaded relief and computed contour lines for the topographic Base Map. It adds `maplibre-contour`
 // to this package's dependencies, which both apps already needed to draw that entry at all.

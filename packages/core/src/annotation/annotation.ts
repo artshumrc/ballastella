@@ -395,12 +395,10 @@ export function findAnnotation(
 }
 
 /**
- * A new Annotation, **carrying no style properties at all**.
+ * Build an Annotation while preserving the distinction between absent and explicit style properties.
  *
- * That absence is a criterion rather than an omission: precedence means a Layer's `defaultStyle`
- * reaches an Annotation that says nothing, so an Annotation created with default styling must have
- * nothing in its `properties` — otherwise restyling a Layer in bulk stops working the moment
- * anything is drawn into it, and every file is several times larger for no gain (ADR-0009).
+ * An Annotation created without a style carries no style properties, while callers that choose a
+ * style pass it explicitly. That keeps the file honest about what the Annotation owns (ADR-0009).
  */
 export function newAnnotation(fields: {
 	id: string;
@@ -441,8 +439,8 @@ const INHERITED_STYLE_NAMES = [
  * This is what replaced a Layer's `defaultStyle` (ADR-0009, as amended). A scholar who makes every
  * conjectural route in a Layer dashed does it by drawing one dashed and then drawing; nothing is
  * named "default", nothing is inherited, and the file says plainly what each Annotation is drawn
- * with. The cost is recorded in the ADR: style repeats per feature, and there is no longer a way to
- * restyle a whole Layer in one action.
+ * with. The cost is recorded in the ADR: style repeats per feature, and a Layer-wide restyle writes
+ * those properties onto each compatible Annotation.
  *
  * **Style only** — `title`, `description`, and anything unknown the last Annotation carried stay
  * with it. Copying a stranger's prose onto the next shape a user draws would be a content bug

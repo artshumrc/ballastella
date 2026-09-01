@@ -14,6 +14,7 @@
 // the image pane (ADR-0005): a pane hands in its own two converters and gets back its own
 // coordinates, so neither pane can be handed the other's numbers.
 
+import { needleOrdinal, needleSvg } from '@ballastella/core/render';
 import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
 
 /**
@@ -75,6 +76,20 @@ const NUDGE_PIXELS = 1;
 
 /** How far a shifted arrow-key press moves a point, for crossing a pane quickly. */
 const NUDGE_PIXELS_FAST = 20;
+
+/**
+ * Which part of a point's element sits on the coordinate it claims.
+ *
+ * A Control Point is drawn as a needle (`needle.ts`) — a round head carrying the ordinal, on a
+ * slender shaft — so the place it names is the foot of the shaft at the bottom of the element, and
+ * anchoring by the middle would put the claim half a head above the pixel the user clicked. Every
+ * other kind is a symbol drawn around its own coordinate, so it stays centred.
+ *
+ * `bottom` is what an Annotation's Pin is anchored by too, which is not a coincidence: the two are
+ * one drawing rendered twice, here in the DOM and as a signed distance field on the Base Map.
+ */
+const anchorFor = (kind: OverlayPointKind): 'center' | 'bottom' =>
+	kind === 'control-point' ? 'bottom' : 'center';
 
 export type OverlayPoint<TPoint> = {
 	/**
@@ -153,6 +168,13 @@ interface Handle<TPoint> {
 	 * captured the first one would keep calling into a stale closure.
 	 */
 	current: OverlayPoint<TPoint>;
+	/**
+	 * Where the ordinal is written, for a kind that draws it inside a shape of its own.
+	 *
+	 * A Control Point's element holds an `<svg>` — the needle — so its number cannot be the element's
+	 * `textContent`: assigning that would delete the drawing. Every other kind is text in a box.
+	 */
+	readonly ordinalSlot?: SVGTextElement | null;
 	/**
 	 * Whether a move is in progress — a pointer drag or a held arrow key.
 	 *
@@ -237,8 +259,12 @@ export function createOverlayPointLayer<TPoint>(
 			// The ordinal is *in the element*, as text, so it is visible without hovering and is read
 			// out as part of the point's name. ADR-0022 wants "look at point 7" to work over a
 			// student's shoulder and in a written comment, which a tooltip does not serve.
-			element.textContent =
-				point.ordinal === undefined ? (point.glyph ?? '') : String(point.ordinal);
+			//
+			// Into the needle's own `<text>` where there is one — writing the element's `textContent`
+			// would take the drawing with it.
+			const written = point.ordinal === undefined ? (point.glyph ?? '') : String(point.ordinal);
+			if (handle.ordinalSlot) handle.ordinalSlot.textContent = written;
+			else element.textContent = written;
 			element.setAttribute('aria-label', point.label);
 			if (point.kind === 'control-point') {
 				// The selected state is what links the two panes, so it has to be announced and not merely
@@ -268,9 +294,15 @@ export function createOverlayPointLayer<TPoint>(
 	const create = (point: OverlayPoint<TPoint>): Handle<TPoint> => {
 		const interactive = INTERACTIVE_KINDS.has(point.kind);
 		const element = document.createElement(interactive ? 'button' : 'div');
+		// The needle, built from the one definition the Pin on the Base Map is also drawn from. The
+		// element is left to size itself around it, so what a Control Point measures is the drawing
+		// rather than a number in a stylesheet that has to agree with one.
+		const needle = point.kind === 'control-point' ? needleSvg(document) : null;
+		if (needle) element.append(needle);
 		const handle: Handle<TPoint> = {
-			marker: new Marker({ element, anchor: 'center' }),
+			marker: new Marker({ element, anchor: anchorFor(point.kind) }),
 			element,
+			ordinalSlot: needle && needleOrdinal(needle),
 			current: point,
 			moving: false
 		};
@@ -329,8 +361,8 @@ export function createOverlayPointLayer<TPoint>(
 		});
 
 		// Painted before it is added, so MapLibre measures an element that already has its size. The
-		// `center` anchor is applied from the element's own dimensions, and an unstyled element has
-		// none — the point would then be offset by half its own width and height for good.
+		// anchor is applied from the element's own dimensions, and an unstyled element has none — the
+		// point would then be offset by half its own width and height for good.
 		paint(handle, point);
 		handle.marker.setLngLat(toLngLat(point.point)).addTo(map);
 		return handle;

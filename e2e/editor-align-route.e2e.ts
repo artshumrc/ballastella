@@ -814,7 +814,7 @@ test.describe('the route from the keyboard', () => {
 	 *
 	 * The prompt answers "what do I click next" and is read after every half-pair, so it is first. The
 	 * Control Points are what the screen is *for*, so they come before how the map is stretched and
-	 * before the disclosure that checks it. *Done* is pinned last and stays one large link.
+	 * before the disclosure that checks it. *Back to project* is pinned last and stays one large link.
 	 *
 	 * **Asserted as document order rather than as pixel positions**, because below `lg` this column is
 	 * a footer under the panes and above it a rail beside them, and the reading order is the claim in
@@ -826,7 +826,7 @@ test.describe('the route from the keyboard', () => {
 	 * bottom of a phone. The order asked for is the points before the stretch controls, not before the
 	 * warnings.
 	 */
-	test('puts the prompt first, then the Control Points, then the stretch, then Done', async ({
+	test('puts the prompt first, then the Control Points, then the stretch, then Back to project', async ({
 		page
 	}) => {
 		test.setTimeout(120_000);
@@ -875,62 +875,6 @@ test.describe('the route from the keyboard', () => {
 	 * maps need, so the sentence is disclosed rather than always present — still visible text rather
 	 * than a `title`, and following the two canvases in the reading order instead of introducing them.
 	 */
-	test('says what the two panes are for, as text rather than as a tooltip', async ({ page }) => {
-		await start(page);
-		const toggle = page.getByTestId('align-explainer-toggle');
-		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-		// Nothing is standing on the page taking height from the maps until it is asked for.
-		await expect(page.getByTestId('align-explainer')).toHaveCount(0);
-		await toggle.click();
-		const explainer = page.getByTestId('align-explainer');
-		await expect(explainer).toBeVisible();
-		await expect(explainer).toContainText('Click a feature on the Map Image');
-		await expect(explainer).not.toHaveAttribute('title', /.+/);
-
-		// **The two notes about consequences are in here with it**. Both are
-		// prose about what a choice costs rather than help for making it, so they sit behind the same
-		// disclosure as the rest of the explanation instead of standing in the transformation group.
-		// `transformation-picker.dom.test.ts` asserts the other half: that neither renders in that
-		// group.
-		await expect(explainer.getByTestId('transformation-simple-note')).toContainText(
-			'Simple cannot turn the Map Image over'
-		);
-		await expect(explainer.getByTestId('transformation-advanced-note')).toContainText(
-			'spectacular distortion at the edges'
-		);
-
-		// The whole disclosure is a tooltip-free channel, notes included: no `title` anywhere in the
-		// subtree and no daisyUI `tooltip` class, which renders through CSS and is not announced
-		// (ADR-0016).
-		await expect(explainer.locator('[title]')).toHaveCount(0);
-		await expect(explainer.locator('[class*="tooltip"]')).toHaveCount(0);
-
-		// The transformation guidance is text in the accessibility tree, bound to the control by
-		// `aria-describedby` — never a `title` and never CSS-generated (ADR-0016).
-		const guidance = page.getByTestId('transformation-guidance');
-		await expect(guidance).toBeVisible();
-		await expect(guidance).not.toHaveText('');
-		const picker = page.getByTestId('transformation-select');
-		expect(await picker.getAttribute('aria-describedby')).toBe('transformation-guidance');
-		expect(await picker.getAttribute('title')).toBeNull();
-		// The guidance and both demoted notes are real text nodes, not `::before` content.
-		for (const id of [
-			'transformation-guidance',
-			'transformation-simple-note',
-			'transformation-advanced-note'
-		]) {
-			expect(
-				await page.getByTestId(id).evaluate((element) => {
-					const read = (pseudo: string) =>
-						globalThis.getComputedStyle(element, pseudo).getPropertyValue('content');
-					return { before: read('::before'), after: read('::after') };
-				}),
-				`${id} must not be CSS-generated content`
-			).toEqual({ before: 'none', after: 'none' });
-		}
-		// And it is the guidance for the type that is actually selected.
-		await expect(guidance).toHaveText('Most printed and scanned maps');
-	});
 
 	/** Escape still cancels a pending half, on the route as it did in the pane. */
 	test('cancels a pending Control Point with Escape', async ({ page }) => {

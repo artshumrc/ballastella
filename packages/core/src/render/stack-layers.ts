@@ -286,12 +286,33 @@ const selected = (whenSelected: number, otherwise: number): unknown[] => [
  * visibility problem the scholar has whether or not it is selected.
  *
  * ⚠ **Never a change of hue.** `stroke` and `marker-color` are the scholar's own choices, and a
- * selection that recoloured an Annotation would be showing them somebody else's map.
+ * selection that recoloured an Annotation would be showing them somebody else's map. A selected pin
+ * is therefore a wider white ring rather than a differently coloured one — see
+ * {@link PIN_HALO_COLOR}, the one mark whose ring is ours.
  */
 const SELECTED_HALO_WIDTH = 6;
 const SELECTED_HALO_OPACITY = 0.3;
-/** The pin's own ring, in the same `stroke` colour, at rest and selected. */
+/** The pin's own ring at rest: the white hairline a Control Point wears, and for the same reason. */
+const PIN_HALO = 1;
+
+/** How wide that ring goes while the pin is the selected Annotation. */
 const SELECTED_HALO = 3;
+
+/**
+ * The pin's ring colour: white, and a literal.
+ *
+ * **The one place a mark's outline is not the scholar's own `stroke`** — see the halo note above,
+ * which holds for every geometry with an outline of its own. A pin has none: its whole surface is
+ * `marker-color`, so the ring is the only thing separating a dark pin from dark ground and a pale
+ * one from a scanned sheet, and at one pixel it is doing that job rather than expressing a choice.
+ * White is not a theme token and cannot drift with one, which is what made an accent colour here
+ * unaffordable; it is also what a Control Point's needle wears in every flavour (`layout.css`), and
+ * the two are one drawing.
+ *
+ * ⚠ A consequence worth knowing: **`stroke` no longer changes anything about a Pin.** It is still
+ * carried in the file untouched, and it is still what a line or a shape is drawn in.
+ */
+const PIN_HALO_COLOR = '#ffffff';
 
 /**
  * A feature's `title` with every space, tab and newline taken out — an expression, evaluated per
@@ -416,7 +437,8 @@ function annotationLayers(
 
 	// **A pin, drawn as a symbol rather than a circle.** A circle reads as an area — a region, a
 	// radius — and a Point Annotation is "this place, here". The image is an SDF so that each pin
-	// takes its own `marker-color` through `icon-color`; see `pin-icon.ts` for why a PNG cannot.
+	// takes its own `marker-color` through `icon-color`; see `pin-icon.ts` for why a PNG cannot, and
+	// for why the symbol is a needle.
 	//
 	// `icon-anchor: 'bottom'` because the *tip* is what points at the coordinate; a centred pin marks
 	// a spot half its own height north of the place it means. `icon-allow-overlap` because two
@@ -459,11 +481,11 @@ function annotationLayers(
 				// mark on the map: it is there or it is not, and whether the Layer is showing is the
 				// visibility toggle's job.
 				//
-				// The ring the pin's own `stroke` used to draw as a circle outline. Kept, because a pin
-				// whose colour matches the ground under it is otherwise invisible.
-				'icon-halo-color': ['get', 'stroke'],
+				// The ring around the whole needle — see {@link PIN_HALO_COLOR} for why it is white and
+				// not the pin's own `stroke`.
+				'icon-halo-color': PIN_HALO_COLOR,
 				// Heavier while this pin is the selected Annotation — see {@link SELECTED_HALO}.
-				'icon-halo-width': selected(SELECTED_HALO, 1)
+				'icon-halo-width': selected(SELECTED_HALO, PIN_HALO)
 			}
 		}
 	};

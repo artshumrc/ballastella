@@ -30,7 +30,7 @@
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
 	import { BaseMapOptions, LeaderLine, type Box } from '@ballastella/ui';
-	import Check from '@lucide/svelte/icons/check';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
@@ -99,6 +99,16 @@
 
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
+	type CoordinateDraft = {
+		readonly id: string;
+		resourceX: string;
+		resourceY: string;
+		longitude: string;
+		latitude: string;
+	};
+	let coordinateDraft = $state<CoordinateDraft | null>(null);
+	let coordinateError = $state('');
+	let coordinateInput = $state<HTMLInputElement | null>(null);
 	/**
 	 * What the user's answer to a concurrent edit did, or `''` (ADR-0023).
 	 *
@@ -241,6 +251,8 @@
 		concurrentEditOutcome = '';
 		restoring = false;
 		failure = '';
+		coordinateDraft = null;
+		coordinateError = '';
 		maskStatus = null;
 		maskPreview = null;
 		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
@@ -463,20 +475,41 @@
 	);
 
 	/**
+	 * Half the square handed to the leader as the selected half's box, in pixels.
+	 *
+	 * `leaderPath` aims at the centre of the box it is given and stops half its longest side clear —
+	 * so this is what decides how far short of the needle's end the line ends, and it is here rather
+	 * than in the stylesheet because the element's own rectangle is not the place being pointed at.
+	 */
+	const TIP_BOX = 12;
+
+	/**
 	 * The selected pair's Base Map half, drawn by `overlay-points.ts` outside this component's tree.
 	 *
 	 * Measured here rather than in `LeaderLine`, which takes a box: a Control Point really is a DOM
 	 * marker, so its box is its own rectangle, whereas an Annotation is painted into a canvas and its
 	 * box has to be projected. One prop, two ways of arriving at it.
+	 *
+	 * ⚠ **Not the element's rectangle.** A Control Point is drawn as a needle standing on the
+	 * coordinate, so its rectangle reaches a head's height *above* the place it names, and a line
+	 * aimed at the centre of that rectangle would point at empty map. The square below is centred on
+	 * the foot of the needle, which is the pixel the Alignment holds.
 	 */
-	const selectedMark = (): Box | null =>
-		selectedOrdinal === null || !baseMapFrame
-			? null
-			: (baseMapFrame
-					.querySelector(
-						`[data-testid="pane-overlay-point-control-point"][data-ordinal="${selectedOrdinal}"]`
-					)
-					?.getBoundingClientRect() ?? null);
+	const selectedMark = (): Box | null => {
+		if (selectedOrdinal === null || !baseMapFrame) return null;
+		const half = baseMapFrame.querySelector(
+			`[data-testid="pane-overlay-point-control-point"][data-ordinal="${selectedOrdinal}"]`
+		);
+		if (!half) return null;
+		const box = half.getBoundingClientRect();
+		const tip = { x: (box.left + box.right) / 2, y: box.bottom };
+		return {
+			left: tip.x - TIP_BOX,
+			right: tip.x + TIP_BOX,
+			top: tip.y - TIP_BOX,
+			bottom: tip.y + TIP_BOX
+		};
+	};
 
 	/** Its row in the docked column. */
 	const selectedRow = (): Element | null =>
@@ -730,6 +763,80 @@
 		if (!point) return;
 		asStep(`Undo delete of Control Point ${point.ordinal}`, current, () => current.remove(id));
 	};
+
+	const startCoordinateEdit = (point: ControlPoint): void => {
+		coordinateDraft = {
+			id: point.id,
+			resourceX: String(point.resource.x),
+			resourceY: String(point.resource.y),
+			longitude: String(point.geo.lng),
+			latitude: String(point.geo.lat)
+		};
+		coordinateError = '';
+		requestAnimationFrame(() => coordinateInput?.focus());
+	};
+
+	const setCoordinate = (
+		field: 'resourceX' | 'resourceY' | 'longitude' | 'latitude',
+		value: string
+	): void => {
+		if (!coordinateDraft) return;
+		coordinateDraft[field] = value;
+		coordinateError = '';
+	};
+
+	const parseCoordinate = (value: string): number | null => {
+		const trimmed = value.trim();
+		if (trimmed === '') return null;
+		const parsed = Number(trimmed);
+		return Number.isFinite(parsed) ? parsed : null;
+	};
+
+	const saveCoordinateEdit = (): void => {
+		const draft = coordinateDraft;
+		const current = pairing;
+		if (!draft || !current) return;
+		const resourceX = parseCoordinate(draft.resourceX);
+		const resourceY = parseCoordinate(draft.resourceY);
+		const longitude = parseCoordinate(draft.longitude);
+		const latitude = parseCoordinate(draft.latitude);
+		if (resourceX === null || resourceY === null || longitude === null || latitude === null) {
+			coordinateError = 'Enter a number for every coordinate.';
+			return;
+		}
+		const { width, height } = current.alignment.image;
+		if (resourceX < 0 || resourceX > width || resourceY < 0 || resourceY > height) {
+			coordinateError = `Map Image coordinates must be within 0–${width} by 0–${height} pixels.`;
+			return;
+		}
+		if (latitude < -90 || latitude > 90) {
+			coordinateError = 'Latitude must be between -90 and 90.';
+			return;
+		}
+		const point = current.controlPoints.find((one) => one.id === draft.id);
+		if (!point) {
+			coordinateDraft = null;
+			return;
+		}
+		asStep(`Undo edit of Control Point ${point.ordinal}`, current, () => {
+			current.moveResource(point.id, { x: resourceX, y: resourceY });
+			current.moveGeo(point.id, { lng: longitude, lat: latitude });
+		});
+		coordinateDraft = null;
+	};
+
+	const cancelCoordinateEdit = (): void => {
+		const id = coordinateDraft?.id;
+		coordinateDraft = null;
+		coordinateError = '';
+		requestAnimationFrame(() =>
+			controlPointColumn
+				?.querySelector<HTMLButtonElement>(
+					`[data-testid="control-point-coordinates"][data-control-point-id="${id}"]`
+				)
+				?.focus()
+		);
+	};
 </script>
 
 <!--
@@ -740,7 +847,13 @@
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape' || !pairing) return;
+		if (event.key !== 'Escape') return;
+		if (coordinateDraft) {
+			cancelCoordinateEdit();
+			event.preventDefault();
+			return;
+		}
+		if (!pairing) return;
 		if (pairing.cancelPending()) event.preventDefault();
 	}}
 />
@@ -1124,71 +1237,6 @@
 			</div>
 
 			<!--
-				What this screen is, in words, behind a disclosure.
-
-				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
-				*for*, and "Map Image" beside "Base Map" does not tell a screen-reader user that clicking
-				one and then the other is the gesture. Visible text and not a tooltip (ADR-0016).
-
-				Closed by default and under the prompt rather than above it: the prompt is the sentence that
-				says what to click next, and a scholar who has placed a Control Point before does not need
-				to be told what the two panes are again.
-
-				**Everything this screen explains without being asked is in here**: one sentence about the
-				gesture, the limit of Simple, and what the advanced transformations cost. Text, never a
-				tooltip and never CSS-generated content (ADR-0016) — the align spec asserts the absence of
-				both.
-			-->
-			<div>
-				<button
-					type="button"
-					class="btn btn-outline btn-sm"
-					aria-expanded={explaining}
-					aria-controls={explaining ? 'align-explainer' : undefined}
-					data-testid="align-explainer-toggle"
-					onclick={() => (explaining = !explaining)}
-				>
-					How this works
-				</button>
-
-				{#if explaining}
-					<div
-						id="align-explainer"
-						class="mt-2 flex max-w-prose flex-col gap-2 text-sm opacity-70"
-						data-testid="align-explainer"
-					>
-						<p>
-							Click a feature on the Map Image and then the same place on the earth to make a
-							Control Point pair; with enough pairs the Map Image is drawn over the Base Map.
-						</p>
-
-						<!--
-							**The one place the fold warning cannot help.** A similarity has no reflection to fit,
-							so a least-squares solve over two swapped Control Points comes back unmirrored rather
-							than folded and `detectFold` correctly reports nothing. That is right mathematics and
-							not a defect — but it is a *silence*, and a student who has learnt to trust "this
-							Alignment is mirrored" under Standard will read the same silence here as "no mistake".
-
-							Not folded into Simple's own guidance text, because that string is ADR-0013's table and
-							is asserted verbatim; this is a note about the consequence of the choice, like the one
-							below it.
-						-->
-						<p data-testid="transformation-simple-note">
-							Simple cannot turn the Map Image over, so it is the one choice where the "this
-							Alignment is mirrored" warning cannot appear. Under Simple, two swapped Control Points
-							show up as a badly placed Map Image rather than as a warning.
-						</p>
-
-						<p data-testid="transformation-advanced-note">
-							Higher-order transformations bend the map more freely, and need many well-spread
-							Control Points. With few or clustered points they produce spectacular distortion at
-							the edges.
-						</p>
-					</div>
-				{/if}
-			</div>
-
-			<!--
 		An Alignment that changed somewhere else while it was open here (ADR-0023).
 
 		ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
@@ -1381,10 +1429,103 @@
 										data-ordinal={point.ordinal}>{point.ordinal}</span
 									>
 								</button>
-								<code class="min-w-0 flex-1 truncate opacity-70" title={pointReadout(point)}>
-									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
-									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
-								</code>
+								{#if coordinateDraft?.id === point.id}
+									<form
+										class="min-w-0 flex-1"
+										data-testid="control-point-coordinate-editor"
+										onsubmit={(event) => {
+											event.preventDefault();
+											saveCoordinateEdit();
+										}}
+									>
+										<div class="grid grid-cols-2 gap-1">
+											<p class="col-span-2 text-xs font-medium">Map Image pixels (x, y)</p>
+											<label class="sr-only" for="control-point-{point.id}-resource-x">
+												Map Image x coordinate
+											</label>
+											<input
+												bind:this={coordinateInput}
+												id="control-point-{point.id}-resource-x"
+												type="text"
+												inputmode="decimal"
+												class="input w-full input-sm"
+												aria-invalid={coordinateError !== ''}
+												aria-describedby={coordinateError === '' ? undefined : 'coordinate-error'}
+												value={coordinateDraft.resourceX}
+												oninput={(event) => setCoordinate('resourceX', event.currentTarget.value)}
+											/>
+											<label class="sr-only" for="control-point-{point.id}-resource-y">
+												Map Image y coordinate
+											</label>
+											<input
+												id="control-point-{point.id}-resource-y"
+												type="text"
+												inputmode="decimal"
+												class="input w-full input-sm"
+												aria-invalid={coordinateError !== ''}
+												aria-describedby={coordinateError === '' ? undefined : 'coordinate-error'}
+												value={coordinateDraft.resourceY}
+												oninput={(event) => setCoordinate('resourceY', event.currentTarget.value)}
+											/>
+											<p class="col-span-2 mt-1 text-xs font-medium">
+												Geographic coordinates (longitude, latitude)
+											</p>
+											<label class="sr-only" for="control-point-{point.id}-longitude">
+												Longitude
+											</label>
+											<input
+												id="control-point-{point.id}-longitude"
+												type="text"
+												inputmode="decimal"
+												class="input w-full input-sm"
+												aria-invalid={coordinateError !== ''}
+												aria-describedby={coordinateError === '' ? undefined : 'coordinate-error'}
+												value={coordinateDraft.longitude}
+												oninput={(event) => setCoordinate('longitude', event.currentTarget.value)}
+											/>
+											<label class="sr-only" for="control-point-{point.id}-latitude">Latitude</label
+											>
+											<input
+												id="control-point-{point.id}-latitude"
+												type="text"
+												inputmode="decimal"
+												class="input w-full input-sm"
+												aria-invalid={coordinateError !== ''}
+												aria-describedby={coordinateError === '' ? undefined : 'coordinate-error'}
+												value={coordinateDraft.latitude}
+												oninput={(event) => setCoordinate('latitude', event.currentTarget.value)}
+											/>
+										</div>
+										{#if coordinateError}
+											<p id="coordinate-error" class="mt-1 text-xs text-error" role="alert">
+												{coordinateError}
+											</p>
+										{/if}
+										<div class="mt-1 flex gap-1">
+											<button class="btn btn-primary btn-xs" type="submit">Save</button>
+											<button
+												class="btn btn-ghost btn-xs"
+												type="button"
+												onclick={cancelCoordinateEdit}
+											>
+												Cancel
+											</button>
+										</div>
+									</form>
+								{:else}
+									<button
+										type="button"
+										class="min-w-0 flex-1 truncate text-left font-mono opacity-70 hover:underline"
+										title={pointReadout(point)}
+										aria-label={`Edit Control Point ${point.ordinal} coordinates`}
+										data-testid="control-point-coordinates"
+										data-control-point-id={point.id}
+										onclick={() => startCoordinateEdit(point)}
+									>
+										{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
+										{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
+									</button>
+								{/if}
 								<!--
 								**A glyph that looks like a button and looks destructive** (ADR-0016's icon
 								amendment). This is the one place on this screen where a mis-click destroys work.
@@ -1516,12 +1657,12 @@
 			{/if}
 
 			<a
-				class="btn mt-auto w-full shrink-0 btn-lg btn-primary"
+				class="btn mt-auto w-full shrink-0 btn-lg btn-success"
 				href="{resolve('/')}?p={encodeURIComponent(projectDirectory)}"
 				data-testid="alignment-done"
 			>
-				<Check class="size-5" aria-hidden="true" />
-				Done
+				<ArrowLeft class="size-5" aria-hidden="true" />
+				Back to project
 			</a>
 		</div>
 

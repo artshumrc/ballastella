@@ -69,7 +69,13 @@ test('the rename pencil follows its header’s ink rather than base-content', ()
 	flushSync();
 
 	const pencil = document.querySelector<HTMLElement>('[data-testid="layer-rename"]');
-	for (const cls of ['text-current', 'bg-transparent', 'hover:bg-current/20']) {
+	for (const cls of [
+		'bg-transparent',
+		'btn-ghost',
+		'text-current',
+		'hover:bg-current/20',
+		'focus-visible:outline-current'
+	]) {
 		expect(pencil, cls).toHaveClass(cls);
 	}
 });

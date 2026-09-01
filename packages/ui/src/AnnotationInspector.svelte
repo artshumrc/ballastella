@@ -37,6 +37,7 @@
 
 	import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 	import { annotationName, shapeWord } from './annotation-name.js';
+	import { HEADER_ICON_BUTTON_CLASS } from './header-icon-button.js';
 	import { KIND_STYLE } from './layer-kind-style.js';
 	import { iconForAnnotation } from './shape-icons.js';
 
@@ -223,7 +224,7 @@
 
 		<button
 			type="button"
-			class="btn btn-square shrink-0 btn-outline btn-xs"
+			class="shrink-0 {HEADER_ICON_BUTTON_CLASS}"
 			data-testid="annotation-inspector-close"
 			onclick={() => onclose()}
 		>
