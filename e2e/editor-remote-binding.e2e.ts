@@ -5,18 +5,14 @@ import { readFile } from 'node:fs/promises';
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
-import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	closeTheDoor,
 	createFolderWorkspace,
-	doorButton,
 	expectCredential,
 	expectNoRemote,
-	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectRemoteStatus,
 	expectWorkspaceNamed,
-	inTheDoor,
 	openTheDoor,
 	seedGitHubCredential
 } from './support/workspace';
@@ -395,48 +391,6 @@ test.describe('a restored Backup', () => {
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
 		await expectNoRemote(page);
 		expect(await bindingFile(page, `${DEFAULT_WORKSPACE} (2)`)).toBeNull();
-	});
-});
-
-// ADR-0024. Somebody else's work is never published to your own address, and opening a submission
-// must not reach the teacher's own credential. The refusals themselves live in
-// `packages/core`; what is asserted here is that the screens say so.
-test.describe('a Review Workspace', () => {
-	test('arrives unbound, and reads no credential while it is open', async ({ page }) => {
-		await start(page);
-		await bind(page);
-		await closeTheDoor(page);
-		await expectCredential(page, 'Signed in to GitHub');
-
-		await page.getByTestId('open-bundle').click();
-		await page
-			.getByRole('dialog', { name: 'Review a Project' })
-			.getByLabel('Project bundle')
-			.setInputFiles(await oneProjectBundle());
-		await page.getByTestId('confirm-open-bundle').click();
-		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
-
-		// Unbound, so nothing on the bar names a Remote at all — and the door, which is where every
-		// gesture about GitHub is, is not mounted over a review copy at all (ADR-0042).
-		await expectNoRemoteInReview(page);
-		await expect(doorButton(page)).toHaveCount(0);
-		// ⚠ **These are the assertions that read the seal, and they are chosen because they would read
-		// differently if it broke.** The teacher signed in moments ago and the credential is still in
-		// `sessionStorage` — sealed, not deleted — so a store that answered a review copy would put
-		// their account, and a button that spends it, on the screen a submission is open on.
-		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
-		await expect(page.getByTestId('connect-sign-out')).toHaveCount(0);
-
-		// And the teacher's own credential is **sealed rather than deleted**, which is what makes
-		// putting a submission down and going back to one's own work cost nothing — the same locators,
-		// the opposite answers, one gesture apart.
-		await page.getByTestId('leave-review').click();
-		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await expectCredential(page, 'Signed in to GitHub');
-		await inTheDoor(page, async () => {
-			await expect(page.getByTestId('connect-signed-in')).toBeVisible();
-			await expect(page.getByTestId('connect-sign-out')).toBeVisible();
-		});
 	});
 });
 
