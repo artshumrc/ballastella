@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
-import { FORKED_CATALOG } from './fixture-catalogs';
+import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
 import { resolveBaseMap } from './resolve';
 import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID } from './style';
+import { TERRAIN_CONTOUR_SOURCE_ID, TERRAIN_DEM_SOURCE_ID } from './terrain';
 import type { BaseMapEntry } from './entry';
 
 const entry = (id: string, catalog = BASE_MAP_CATALOG): BaseMapEntry => {
@@ -107,6 +109,47 @@ describe('baseMapStyle', () => {
 		expect(physical).toContain('places_locality');
 	});
 
+	it('draws both boundary layers by default, and they are the ids `borders.ts` names', () => {
+		// ⚠ **This is the assertion that keeps the border control honest.** Every value it offers is a
+		// filter over two layer ids, so a `@protomaps/basemaps` upgrade that renamed either one would
+		// leave all three choices drawing the same map with nothing failing. The ids come from the
+		// installed package here, not from a fixture, so the rename fails the build instead.
+		const drawn = layerIds('streets');
+
+		expect(drawn).toContain(NATIONAL_BOUNDARY_LAYER);
+		expect(drawn).toContain(SUBNATIONAL_BOUNDARY_LAYER);
+	});
+
+	it('drops the divisions inside a nation for national, and both for none', () => {
+		const national = baseMapStyle(entry('streets'), { theme: 'light', borders: 'national' }).layers;
+		const none = baseMapStyle(entry('streets'), { theme: 'light', borders: 'none' }).layers;
+
+		expect(national.map((layer) => layer.id)).toContain(NATIONAL_BOUNDARY_LAYER);
+		expect(national.map((layer) => layer.id)).not.toContain(SUBNATIONAL_BOUNDARY_LAYER);
+		expect(none.map((layer) => layer.id)).not.toContain(NATIONAL_BOUNDARY_LAYER);
+		expect(none.map((layer) => layer.id)).not.toContain(SUBNATIONAL_BOUNDARY_LAYER);
+	});
+
+	it('takes nothing but the boundaries away, and reads the same one archive doing it', () => {
+		// The zero-extra-data claim, restated for this control: hiding borders is a shorter layer list
+		// over identical tiles, so it costs no request and cannot make a map go blank.
+		const all = baseMapStyle(entry('streets'), { theme: 'light', borders: 'all' });
+		const none = baseMapStyle(entry('streets'), { theme: 'light', borders: 'none' });
+		const removed = all.layers
+			.map((layer) => layer.id)
+			.filter((id) => !none.layers.some((layer) => layer.id === id));
+
+		expect(removed).toEqual([NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER]);
+		expect(none.sources).toEqual(all.sources);
+	});
+
+	it('hides borders on any Base Map, because the boundaries are in the tiles and not in the entry', () => {
+		for (const id of ['streets', 'physical', 'muted']) {
+			const none = baseMapStyle(entry(id), { theme: 'light', borders: 'none' }).layers;
+			expect(none.map((layer) => layer.id)).not.toContain(NATIONAL_BOUNDARY_LAYER);
+		}
+	});
+
 	it('gives the streets variant labels, which is what makes it a streets-and-labels map', () => {
 		expect(layerIds('streets')).toContain('roads_labels_major');
 	});
@@ -186,6 +229,106 @@ describe('baseMapStyle', () => {
 		const source = baseMapStyle(entry('streets'), { theme: 'light' }).sources[BASE_MAP_SOURCE_ID];
 
 		expect(source && 'attribution' in source ? source.attribution : '').toContain('OpenStreetMap');
+	});
+});
+
+describe('a topographic Base Map', () => {
+	// The registered protocol URLs the app hands in. Their shape does not matter here — this module
+	// puts them in a source and never parses one — and standing in for them is what keeps
+	// `maplibre-contour`, its worker, and its network out of a unit test.
+	const terrainTiles = { dem: 'dem-protocol://shared', contours: 'contour-protocol://lines' };
+	const topographic = () => entry('ordnance-relief', FORKED_CATALOG);
+	const options = { theme: 'light' as const, catalog: FORKED_CATALOG, terrainTiles };
+
+	it('draws relief and contours from one elevation dataset, described by the catalog', () => {
+		const sources = baseMapStyle(topographic(), options).sources;
+
+		expect(sources[TERRAIN_DEM_SOURCE_ID]).toMatchObject({
+			type: 'raster-dem',
+			tiles: [terrainTiles.dem],
+			// Every one of these is the fork's, not this repository's: an entry pointed at a DEM in a
+			// different encoding, ending at a different zoom, is the case ADR-0020 exists for.
+			encoding: 'mapbox',
+			maxzoom: 11
+		});
+		expect(sources[TERRAIN_CONTOUR_SOURCE_ID]).toMatchObject({
+			type: 'vector',
+			tiles: [terrainTiles.contours],
+			maxzoom: 11
+		});
+	});
+
+	it('carries the elevation attribution, which is a second obligation from a second dataset', () => {
+		const dem = baseMapStyle(topographic(), options).sources[TERRAIN_DEM_SOURCE_ID];
+
+		expect(dem && 'attribution' in dem ? dem.attribution : '').toBe(
+			'Somebody else&rsquo;s elevations'
+		);
+	});
+
+	it('shades beneath the water and rules its contours beneath the labels', () => {
+		// The order is the whole of whether this looks like a map: shading over the sea makes the
+		// water read as land, and contours over the place names makes them unreadable. Asserted by
+		// position rather than by presence, because both failures still contain every layer.
+		const layers = baseMapStyle(topographic(), options).layers;
+		const ids = layers.map((layer) => layer.id);
+		// The contour labels are themselves symbols, so the layer this stack must sit above is the
+		// first symbol that is not part of it.
+		const firstPlaceName = layers.findIndex(
+			(layer) => layer.type === 'symbol' && !layer.id.startsWith('terrain_')
+		);
+
+		expect(ids.indexOf('terrain_hillshade')).toBeGreaterThan(ids.indexOf('earth'));
+		expect(ids.indexOf('terrain_hillshade')).toBeLessThan(ids.indexOf('water'));
+		expect(ids.indexOf('terrain_contours')).toBeGreaterThan(ids.indexOf('water'));
+		expect(ids.indexOf('terrain_contour_labels')).toBe(firstPlaceName - 1);
+	});
+
+	it('drops the built environment, as any terrain variant does', () => {
+		const ids = baseMapStyle(topographic(), options).layers.map((layer) => layer.id);
+
+		expect(ids.some((id) => id.startsWith('roads_'))).toBe(false);
+		expect(ids).toContain('water');
+	});
+
+	it('draws terrain without relief where the deployment has provisioned no elevation dataset', () => {
+		// A fork editing the catalog must not be able to produce a blank pane. The entry loses its
+		// relief and keeps its map.
+		const style = baseMapStyle(entry('ordnance-relief', CATALOG_WITHOUT_TERRAIN), {
+			theme: 'light',
+			catalog: CATALOG_WITHOUT_TERRAIN,
+			terrainTiles
+		});
+
+		expect(Object.keys(style.sources)).toEqual([BASE_MAP_SOURCE_ID]);
+		expect(style.layers.map((layer) => layer.id)).toContain('water');
+		expect(style.layers.some((layer) => layer.id.startsWith('terrain_'))).toBe(false);
+	});
+
+	it('draws no relief where the caller registered no protocols to serve it', () => {
+		const style = baseMapStyle(topographic(), { theme: 'light', catalog: FORKED_CATALOG });
+
+		expect(Object.keys(style.sources)).toEqual([BASE_MAP_SOURCE_ID]);
+		expect(style.layers.some((layer) => layer.id.startsWith('terrain_'))).toBe(false);
+	});
+
+	it('draws no relief over the offline cache, whose promise the DEM cannot keep', () => {
+		// The cache holds tiles from the vector archive. The DEM is a second host and a live request,
+		// so shading a Project that was called available offline would make the claim false at
+		// exactly the moment somebody relies on it (ADR-0025).
+		const style = baseMapStyle(topographic(), {
+			...options,
+			cachedTiles: { maxZoom: 14, tileTemplate: 'workspace://{z}/{x}/{y}.mvt' }
+		});
+
+		expect(Object.keys(style.sources)).toEqual([BASE_MAP_SOURCE_ID]);
+		expect(style.layers.some((layer) => layer.id.startsWith('terrain_'))).toBe(false);
+	});
+
+	it('leaves every other entry without a second source', () => {
+		const streets = baseMapStyle(entry('parish-roads', FORKED_CATALOG), options);
+
+		expect(Object.keys(streets.sources)).toEqual([BASE_MAP_SOURCE_ID]);
 	});
 });
 

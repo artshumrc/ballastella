@@ -35,6 +35,7 @@
 	import {
 		BASE_MAP_CATALOG,
 		baseMapArchiveHost,
+		DEFAULT_BASE_MAP_BORDERS,
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
 		canSolve,
@@ -60,6 +61,7 @@
 		AnnotationInspector,
 		ANNOTATION_INSPECTOR_ID,
 		BaseMapSwitcher,
+		BorderSwitcher,
 		KIND_STYLE,
 		LayerList,
 		LeaderLine,
@@ -153,6 +155,7 @@
 		session.openProject ? resolveBaseMap(session.openProject.baseMap) : null
 	);
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
+	const borders = $derived(session.openProject?.borders ?? DEFAULT_BASE_MAP_BORDERS);
 
 	/**
 	 * Whether the Base Map's own source is drawing, as the pane reports it.
@@ -1229,6 +1232,7 @@
 						bind:this={baseMapPane}
 						selectedAnnotationId={annotations.selectedAnnotationId}
 						entryId={resolution.entry.id}
+						{borders}
 						{cachedBaseMap}
 						layers={drawn}
 						annotationDragPreview={annotations.dragPreview}
@@ -1960,7 +1964,7 @@
 
 		<div class="flex flex-wrap items-center gap-2">
 			<!-- The Layer's own Align, offered whatever its Alignment says — see `alignLink` above. -->
-			{@render alignLink(layer, 'align-map-image', 'Align')}
+			{@render alignLink(layer, 'align-map-image', 'Align to base map')}
 			<span
 				class="text-xs"
 				class:text-warning={referenced}
@@ -1968,7 +1972,7 @@
 				data-testid="layer-image-mode"
 				data-image-mode={referenced ? 'referenced' : 'offline-copy'}
 			>
-				{referenced ? 'Remote reference' : 'Local copy'}
+				{referenced ? 'Source: External IIIF' : 'Source: Local'}
 			</span>
 
 			{#if referenced && origin}
@@ -2080,6 +2084,20 @@
 			fullWidth={false}
 			class="select-sm"
 			onSelect={(id) => session.chooseBaseMap(id)}
+		/>
+
+		<!--
+			Beside the switcher rather than inside it: every catalog entry reads the same `boundaries`
+			source-layer, so the boundary set is orthogonal to which Base Map was chosen. It writes the
+			Project, because whether a modern national border belongs over this work is the author's
+			argument and has to travel to the Published Site.
+		-->
+		<BorderSwitcher
+			{borders}
+			labelSrOnly={true}
+			fullWidth={false}
+			class="select-sm"
+			onSelect={(choice) => void session.chooseBorders(choice)}
 		/>
 
 		<!--

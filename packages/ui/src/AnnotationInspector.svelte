@@ -202,7 +202,7 @@
 	-->
 	<header
 		class="flex shrink-0 items-start gap-2 border-b border-base-300 {KIND_STYLE.annotation
-			.tint} px-3 py-2"
+			.tint} {KIND_STYLE.annotation.ink} px-3 py-2"
 		data-testid="annotation-inspector-header"
 	>
 		<span

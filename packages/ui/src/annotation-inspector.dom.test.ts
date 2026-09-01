@@ -113,6 +113,7 @@ describe('the Inspector says which Annotation it is about', () => {
 	test('the header draws the ordinal, the glyph and the shape word', () => {
 		inspect({ annotation: annotation({ id: 'a-3', type: 'Polygon' }), index: 2 });
 
+		expect(one('annotation-inspector-header')).toHaveClass('bg-info', 'text-info-content');
 		expect(one('annotation-inspector-ordinal')).toHaveTextContent('3');
 		// The glyph is never alone with meaning (ADR-0016): the word is what a screen reader reads, and
 		// the icon beside it is decorative rather than the only channel.

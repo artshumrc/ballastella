@@ -63,6 +63,9 @@ catalogs:
     happy-dom:
       specifier: ^20.0.0
       version: 20.11.2
+    maplibre-contour:
+      specifier: ^0.1.0
+      version: 0.1.0
     maplibre-gl:
       specifier: ^5.24.0
       version: 5.24.0
@@ -319,6 +322,9 @@ importers:
       dompurify:
         specifier: 'catalog:'
         version: 3.4.13
+      maplibre-contour:
+        specifier: 'catalog:'
+        version: 0.1.0
       maplibre-gl:
         specifier: 'catalog:'
         version: 5.24.0
@@ -1481,6 +1487,9 @@ packages:
   manifesto.js@4.3.5:
     resolution: {integrity: sha512-BupIjlVpvrIjOIwEgBWmlYs9yoYNmMiDy7XjrhaRcVZ1eiP1ycPZGKGcI7sSGC3idY59ybVeol9GEYQ695qcBw==}
     engines: {node: '>=8.9.1', npm: '>=3.10.8'}
+
+  maplibre-contour@0.1.0:
+    resolution: {integrity: sha512-H8muT7JWYE4oLbFv7L2RSbIM1NOu5JxjA9P/TQqhODDnRChE8ENoDkQIWOKgfcKNU77ypLk2ggGoh4/pt4UPLA==}
 
   maplibre-gl@5.24.0:
     resolution: {integrity: sha512-ALyFxgtd5R+65UqZ/++lOqwWcC0SNho9c27fYSyLmG7AfnAul2o46F05aDJGPbFU57wos9dgcIySHs0Xe6ia3A==}
@@ -3137,6 +3146,8 @@ snapshots:
       isomorphic-unfetch: 3.1.0
     transitivePeerDependencies:
       - encoding
+
+  maplibre-contour@0.1.0: {}
 
   maplibre-gl@5.24.0:
     dependencies:

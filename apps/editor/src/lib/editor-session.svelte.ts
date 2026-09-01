@@ -96,6 +96,7 @@ import {
 	type BaseMapCacheSize,
 	type Bytes,
 	type StorePath,
+	type BaseMapBorders,
 	type CachedTileSource,
 	type FetchFn,
 	type FetchTilesOptions,
@@ -3796,6 +3797,20 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || !this.openProject) return;
 		this.openProject = { ...this.openProject, baseMap: id };
+		await this.#write(directory);
+	}
+
+	/**
+	 * Record which administrative boundaries this Project's Base Map draws.
+	 *
+	 * A discrete choice like {@link chooseBaseMap}, written now rather than debounced, and one field
+	 * of the same `project.json` — the boundary set is the author's argument about the work, so it
+	 * travels to the Published Site with everything else.
+	 */
+	async chooseBorders(borders: BaseMapBorders): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+		this.openProject = { ...this.openProject, borders };
 		await this.#write(directory);
 	}
 

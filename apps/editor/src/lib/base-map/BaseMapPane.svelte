@@ -31,8 +31,10 @@
 		openingViewFit,
 		resolveBaseMap,
 		setGeometry,
+		DEFAULT_BASE_MAP_BORDERS,
 		type Alignment,
 		type Annotation,
+		type BaseMapBorders,
 		type DistortionView,
 		type FetchFn,
 		type MapImageSource,
@@ -51,6 +53,7 @@
 		isDrawnMap,
 		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
+		registerTerrainProtocols,
 		showAlignment,
 		updateAlignment,
 		type DrawnLayer,
@@ -76,6 +79,7 @@
 
 	let {
 		entryId,
+		borders = DEFAULT_BASE_MAP_BORDERS,
 		cachedBaseMap = null,
 		overlayPoints = [],
 		alignment = null,
@@ -98,6 +102,11 @@
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
+		/**
+		 * Which administrative boundaries the geography draws. The Project's, owned and persisted by
+		 * the page exactly as {@link entryId} is — this pane only paints what it is handed.
+		 */
+		borders?: BaseMapBorders;
 		/**
 		 * Draw the Base Map from the Workspace's own tile cache instead of from the entry's archive
 		 * (ADR-0025), or `null` to read the archive as usual.
@@ -302,8 +311,12 @@
 	 * What the map is painted from, as one string. The cache is in it because switching between the
 	 * archive and the Workspace's tiles is a different *source*, which only `setStyle` can change.
 	 */
-	const paintKey = (id: string, currentTheme: string, cachedTo: number | null): string =>
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}`;
+	const paintKey = (
+		id: string,
+		currentTheme: string,
+		cachedTo: number | null,
+		drawnBorders: BaseMapBorders
+	): string => `${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}`;
 
 	const styleFor = (id: string): StyleSpecification =>
 		baseMapStyle(resolveBaseMap(id).entry, {
@@ -311,7 +324,14 @@
 			resolveAsset: resolveDeploymentAsset,
 			cachedTiles: cachedBaseMap
 				? { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
-				: undefined
+				: undefined,
+			// Registered lazily: the protocols spawn a worker, and a deployment with no elevation
+			// dataset — or a Project the author reads from the offline cache — never needs one.
+			terrainTiles:
+				BASE_MAP_CATALOG.terrain && !cachedBaseMap
+					? registerTerrainProtocols(BASE_MAP_CATALOG.terrain)
+					: undefined,
+			borders
 		});
 
 	/**
@@ -456,7 +476,7 @@
 			onclickpoint?.({ lng: centre.lng, lat: centre.lat });
 		});
 
-		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
+		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
 		map = created;
 		const unexpose = exposeBaseMapToBrowserTests(created);
 
@@ -486,7 +506,7 @@
 	});
 
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
+		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

@@ -192,6 +192,13 @@ catalog:
   maplibre-gl: ^5.24.0
   pmtiles: ^4.4.1
 
+  # Contour lines for the topographic Base Map, computed in a worker from the same DEM tiles the
+  # hillshade reads. It is here rather than left out because the alternative is a second tileset:
+  # nobody publishes keyless global contour vectors, and rasterised contours cannot be recoloured
+  # per flavor. Registers its own MapLibre protocols, so like `pmtiles` it is imported only from
+  # `@ballastella/core/render` and never from the Node-safe barrel.
+  maplibre-contour: ^0.1.0
+
   # NOTE: `terra-draw` is deliberately **not** here, and it has been declined three times over —
   # for the Control Point pairing, for the Resource Mask, and for Annotation drawing. ADR-0005 says
   # all drawing goes through it, so the ADR and the code disagree; that is an open question for a
