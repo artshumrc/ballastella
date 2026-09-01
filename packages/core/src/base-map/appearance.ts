@@ -83,21 +83,11 @@ export function isDefaultAppearance(appearance: BaseMapAppearance): boolean {
 }
 
 /**
- * The author's appearance from a parsed `project.json`.
- *
- * Tolerant per-property in the way `readBaseMapBorderStyle` is: a document whose `relief` is a
- * string still yields the `streets` beside it, and every unusable value means the default rather
- * than an error. Nothing here throws — this comes off somebody's disk, where an older fork, a hand
- * edit, or a half-finished migration may have left it in any shape.
- */
-export function readBaseMapAppearance(document: unknown): BaseMapAppearance {
-	if (typeof document !== 'object' || document === null) return DEFAULT_BASE_MAP_APPEARANCE;
-	const raw = (document as Record<string, unknown>)[PROJECT_BASE_MAP_APPEARANCE_KEY];
-	return appearanceFrom(raw) ?? DEFAULT_BASE_MAP_APPEARANCE;
-}
-
-/**
  * An appearance out of an arbitrary value, or `null` when it carries nothing usable at all.
+ *
+ * Tolerant per-property in the way `readBaseMapBorderStyle` is: a record whose `relief` is a string
+ * still yields the `streets` beside it. Nothing here throws — this comes off somebody's disk, where
+ * an older fork, a hand edit, or a half-finished migration may have left it in any shape.
  *
  * The `null` is what separates "this Reader has chosen nothing" from "this Reader has switched
  * everything off", which are different states and are stored in the same string bag —

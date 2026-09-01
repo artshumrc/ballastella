@@ -6,7 +6,6 @@ export {
 	appearanceFrom,
 	baseMapFlavorName,
 	isDefaultAppearance,
-	readBaseMapAppearance,
 	type BaseMapAppearance
 } from './appearance';
 // Which administrative boundaries a Project draws. A filter over layers the same archive already
@@ -47,7 +46,12 @@ export {
 	terrainSources,
 	type TerrainTileTemplates
 } from './terrain';
-export { PROJECT_BASE_MAP_KEY, readBaseMapId } from './project';
+export {
+	PROJECT_BASE_MAP_KEY,
+	readBaseMapChoice,
+	readBaseMapId,
+	type BaseMapChoice
+} from './project';
 // A Reader's own choice on one Published Site, kept in `localStorage` and **never** in Project data
 // (ADR-0020). Keyed per site, because several scholars' sites share an origin.
 export {

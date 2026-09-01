@@ -10,7 +10,6 @@
 	import {
 		describeBytes,
 		parseRemoteReference,
-		unusedMapImages,
 		type ProjectSummary,
 		type WorkspaceMapImage
 	} from '@ballastella/core';
@@ -426,11 +425,10 @@
 	});
 
 	const mapImagesBytes = $derived(session.mapImages.reduce((sum, map) => sum + map.bytes, 0));
-	// Core's figure, not a second one derived here. This is the sentence the reclaim total exists
-	// for — "of which 340 MB is used by no Project" — and publishing's hosting warning states the
-	// same number from `unusedMapImageBytes`; two reductions spelling it out separately is how one
-	// screen ends up quoting two totals for one Workspace.
-	const unused = $derived(unusedMapImages(session.mapImages));
+	const localMapImages = $derived(
+		session.mapImages.filter((map) => map.tiles === 'in-workspace').length
+	);
+	const externalMapImages = $derived(session.mapImages.length - localMapImages);
 
 	/**
 	 * The ADR-0011 shim each card's picture reads its tile through (ADR-0030).
@@ -756,10 +754,13 @@ What else the Hub says about a Project: whether this build can read it.
 	class="mt-8 xl:grid xl:grid-cols-[minmax(0,var(--workspace-home-measure))_minmax(0,1fr)] xl:gap-8"
 >
 	<section>
-		<div class="flex flex-wrap items-baseline justify-between gap-4">
-			<div class="flex flex-wrap items-baseline gap-3">
-				<h2 class="text-2xl font-semibold">Projects</h2>
-				<!--
+		<!-- Keep the first list rule level with the Map Images rule: its heading is followed by two
+			rows of metadata, while this side has only the heading on the ordinary path. -->
+		<div class="xl:min-h-[5.75rem]">
+			<div class="flex flex-wrap items-baseline justify-between gap-4">
+				<div class="flex flex-wrap items-baseline gap-3">
+					<h2 class="text-2xl font-semibold">Projects</h2>
+					<!--
 					The count is beside the heading rather than inside it. Every spec that arrives at this
 					screen does so through `heading, { name: 'Projects' }`, and a number in the accessible
 					name would break all of them for a fact that is not part of the name — so the figure is
@@ -769,79 +770,79 @@ What else the Hub says about a Project: whether this build can read it.
 					The separator is `&nbsp;` because Svelte trims the whitespace at the start of an
 					element's content, and without it the count is announced as “3Projects”.
 				-->
-				{#if session.status === 'ready'}
-					<span class="text-sm opacity-70" data-testid="projects-count">
-						{session.projects.length}<span class="sr-only"
-							>&nbsp;{session.projects.length === 1 ? 'Project' : 'Projects'}</span
+					{#if session.status === 'ready'}
+						<span class="text-sm opacity-70" data-testid="projects-count">
+							{session.projects.length}<span class="sr-only"
+								>&nbsp;{session.projects.length === 1 ? 'Project' : 'Projects'}</span
+							>
+						</span>
+					{/if}
+				</div>
+				<div class="flex flex-wrap gap-2">
+					<button class="btn gap-2 btn-success" onclick={startCreating}>
+						<Plus class="size-4" aria-hidden="true" />
+						New Project
+					</button>
+					{#if false && review === null}
+						<MenuPopover
+							bind:this={importMenu}
+							label="Import Existing Project"
+							buttonClass="btn"
+							testid="import-existing-project"
 						>
-					</span>
-				{/if}
+							<li>
+								<button
+									data-testid="import-project"
+									class="font-semibold"
+									onclick={() => fromImportMenu(startImporting)}
+								>
+									Load a Project File
+								</button>
+							</li>
+							<li>
+								<button
+									data-testid="open-bundle"
+									class="font-semibold"
+									onclick={() => fromImportMenu(startOpeningBundle)}
+								>
+									<div>
+										Review a Project
+										<span class="block text-xs font-normal opacity-70">
+											Load a project archive file (.tar) in an isolated workspace
+										</span>
+									</div>
+								</button>
+							</li>
+							<li>
+								<button
+									data-testid="review-remote"
+									class="font-semibold"
+									onclick={() => fromImportMenu(startReviewingRemote)}
+								>
+									<div>
+										Review from GitHub
+										<span class="block text-xs font-normal opacity-70">
+											Load a project from a GitHub repository in an isolated workspace
+										</span>
+									</div>
+								</button>
+							</li>
+						</MenuPopover>
+					{/if}
+				</div>
 			</div>
-			<div class="flex flex-wrap gap-2">
-				<button class="btn gap-2 btn-success" onclick={startCreating}>
-					<Plus class="size-4" aria-hidden="true" />
-					New Project
-				</button>
-				{#if false && review === null}
-					<MenuPopover
-						bind:this={importMenu}
-						label="Import Existing Project"
-						buttonClass="btn"
-						testid="import-existing-project"
-					>
-						<li>
-							<button
-								data-testid="import-project"
-								class="font-semibold"
-								onclick={() => fromImportMenu(startImporting)}
-							>
-								Load a Project File
-							</button>
-						</li>
-						<li>
-							<button
-								data-testid="open-bundle"
-								class="font-semibold"
-								onclick={() => fromImportMenu(startOpeningBundle)}
-							>
-								<div>
-									Review a Project
-									<span class="block text-xs font-normal opacity-70">
-										Load a project archive file (.tar) in an isolated workspace
-									</span>
-								</div>
-							</button>
-						</li>
-						<li>
-							<button
-								data-testid="review-remote"
-								class="font-semibold"
-								onclick={() => fromImportMenu(startReviewingRemote)}
-							>
-								<div>
-									Review from GitHub
-									<span class="block text-xs font-normal opacity-70">
-										Load a project from a GitHub repository in an isolated workspace
-									</span>
-								</div>
-							</button>
-						</li>
-					</MenuPopover>
-				{/if}
-			</div>
-		</div>
 
-		<!-- ADR-0024: a Review Workspace is never published. The control and its dialog are on the
+			<!-- ADR-0024: a Review Workspace is never published. The control and its dialog are on the
 	     navigation bar, where they are on every screen — so what is left here is the sentence
 	     explaining the absence, which the bar has nowhere to put. -->
-		{#if review !== null}
-			<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
-				A review copy is not published and not backed up: it holds somebody else's work and is meant
-				to be discarded. Go back to your own Workspace to publish yours.
-			</p>
-		{/if}
+			{#if review !== null}
+				<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
+					A review copy is not published and not backed up: it holds somebody else's work and is
+					meant to be discarded. Go back to your own Workspace to publish yours.
+				</p>
+			{/if}
 
-		<!--
+			<!--
 		Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
 		first text is not reliably announced.
 
@@ -850,17 +851,17 @@ What else the Hub says about a Project: whether this build can read it.
 		so it is on screen *here too*. Two `status` roles make `getByRole('status')` a strict-mode
 		violation, which is a hint that a screen-reader user would have to disambiguate as well.
 	-->
-		<p
-			aria-live="polite"
-			aria-atomic="true"
-			class="mt-2 text-sm opacity-80"
-			data-transfer={transfer?.kind ?? ''}
-		>
-			{transferMessage}
-		</p>
+			<p
+				aria-live="polite"
+				aria-atomic="true"
+				class="mt-2 text-sm opacity-80"
+				data-transfer={transfer?.kind ?? ''}
+			>
+				{transferMessage}
+			</p>
 
-		{#if importNotice}
-			<!--
+			{#if importNotice}
+				<!--
 			What the Import did: the display name it was allocated, and the Workspace it went into.
 			Both are said because neither is certain in advance — a taken name takes an `(imported)`
 			suffix — and an author who cannot see which Project arrived cannot find it in the list.
@@ -873,19 +874,19 @@ What else the Hub says about a Project: whether this build can read it.
 			`aria-live="polite"` rather than `role="status"`, this page's settled convention: the
 			transfer line above and the save indicator on the bar already account for that role here.
 		-->
-			<p
-				bind:this={importNoticeLine}
-				tabindex="-1"
-				aria-live="polite"
-				class="mt-4 text-sm opacity-80"
-				data-testid="import-notice"
-			>
-				{importNotice}
-			</p>
-		{/if}
+				<p
+					bind:this={importNoticeLine}
+					tabindex="-1"
+					aria-live="polite"
+					class="mt-4 text-sm opacity-80"
+					data-testid="import-notice"
+				>
+					{importNotice}
+				</p>
+			{/if}
 
-		{#if bundleNotice}
-			<!--
+			{#if bundleNotice}
+				<!--
 			What opening a bundle did, in the reader's own words: which review copy it made, and — when
 			the bundle named the same Alignment twice — what was deliberately not written. Beside the
 			list rather than over it, because nothing went wrong; the review copy is on screen and this
@@ -894,37 +895,38 @@ What else the Hub says about a Project: whether this build can read it.
 			`aria-live="polite"` and not `role="status"`, this page's settled convention: the transfer
 			line above and the save indicator on the bar already account for the status role here.
 		-->
-			<p
-				bind:this={bundleNoticeLine}
-				tabindex="-1"
-				aria-live="polite"
-				class="mt-4 text-sm opacity-80"
-				data-testid="bundle-notice"
-			>
-				{bundleNotice}
-			</p>
-		{/if}
+				<p
+					bind:this={bundleNoticeLine}
+					tabindex="-1"
+					aria-live="polite"
+					class="mt-4 text-sm opacity-80"
+					data-testid="bundle-notice"
+				>
+					{bundleNotice}
+				</p>
+			{/if}
 
-		{#if session.transferError}
-			<!-- An export that failed — another tab deleted the Project, a folder grant lapsed. This used to
+			{#if session.transferError}
+				<!-- An export that failed — another tab deleted the Project, a folder grant lapsed. This used to
 		     be rendered *only* inside the import dialog, so a failed export blanked the status line and
 		     said nothing at all: on the path ADR-0001 makes the only way out, indistinguishable from a
 		     click that did not register. Now that the dialog on this page is about a *different*
 		     Workspace, there is no branch left for it to hide behind. -->
-			<div role="alert" class="mt-4 alert flex-col items-start alert-error">
-				<p>{session.transferError}</p>
-			</div>
-		{/if}
+				<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+					<p>{session.transferError}</p>
+				</div>
+			{/if}
 
-		{#if session.projectProblem?.kind === 'reserved-name'}
-			<!-- ADR-0023: `images/`, `alignments/`, and `base-map/` belong to the Workspace, so a Project
+			{#if session.projectProblem?.kind === 'reserved-name'}
+				<!-- ADR-0023: `images/`, `alignments/`, and `base-map/` belong to the Workspace, so a Project
 		     cannot have one of those folder names. Here rather than in the dialog, which has already
 		     closed by the time `createProject` answers, and beside the list rather than over it: the
 		     Workspace is fine and every other Project stays visible. -->
-			<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
-				<p data-testid="reserved-name">{session.projectProblem.message}</p>
-			</div>
-		{/if}
+				<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
+					<p data-testid="reserved-name">{session.projectProblem.message}</p>
+				</div>
+			{/if}
+		</div>
 
 		{#if session.status === 'unreachable'}
 			<!--
@@ -953,7 +955,7 @@ What else the Hub says about a Project: whether this build can read it.
 			and what a Reader must not be offered is what the viewer does not pass.
 		-->
 			<ProjectCardList
-				class="mt-6 workspace-home-column"
+				class="mt-4 workspace-home-column"
 				heading="h3"
 				projects={listed}
 				{facts}
@@ -967,20 +969,23 @@ What else the Hub says about a Project: whether this build can read it.
      because a list of nothing under a "not reachable" banner reads as "your maps are gone". -->
 	{#if session.status !== 'unreachable'}
 		<section class="mt-10 xl:mt-0 xl:border-l xl:border-rule xl:pl-8">
-			<div class="flex flex-wrap items-baseline gap-3">
-				<h2 class="text-2xl font-semibold">Map Images</h2>
-				<!-- Beside the heading rather than in it, for the reason the Projects count gives above. -->
-				{#if !(session.mapImagesLoading && session.mapImages.length === 0)}
-					<span class="text-sm opacity-70" data-testid="map-images-count">
-						{session.mapImages.length}<span class="sr-only"
-							>&nbsp;{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}</span
+			<h2 class="text-2xl font-semibold">Map Images</h2>
+			{#if !(session.mapImagesLoading && session.mapImages.length === 0)}
+				<dl
+					class="mt-4 grid max-w-max grid-cols-[auto_auto] gap-x-4 gap-y-1 text-sm"
+					data-testid="map-images-stats"
+				>
+					<dt class="font-medium">Total</dt>
+					<dd data-testid="map-images-total">
+						{session.mapImages.length}
+						<span class="opacity-70"
+							>({localMapImages} local, {externalMapImages} IIIF external)</span
 						>
-					</span>
-				{/if}
-			</div>
-			<p class="mt-1 text-sm opacity-70">
-				Every Map Image in this Workspace across all its projects.
-			</p>
+					</dd>
+					<dt class="font-medium">Size on disk</dt>
+					<dd data-testid="map-images-size">{describeBytes(mapImagesBytes)}</dd>
+				</dl>
+			{/if}
 
 			<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
 		     same moment as its first text is not reliably announced.
@@ -1024,14 +1029,6 @@ What else the Hub says about a Project: whether this build can read it.
 					showDirectory={false}
 					itemTestid="map-image"
 				/>
-				<p class="mt-3 text-sm opacity-70" data-testid="map-images-total">
-					{session.mapImages.length}
-					{session.mapImages.length === 1 ? 'Map Image' : 'Map Images'}, {describeBytes(
-						mapImagesBytes
-					)} in all{unused.maps.length > 0
-						? `, of which ${describeBytes(unused.bytes)} is used by no Project`
-						: ''}.
-				</p>
 			{/if}
 		</section>
 	{/if}

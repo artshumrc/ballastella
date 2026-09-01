@@ -567,8 +567,7 @@
 
 <section aria-labelledby="layer-stack-heading">
 	<div class="flex flex-wrap items-baseline justify-between gap-4">
-		<h2 id="layer-stack-heading" class="text-lg font-semibold">Layers in this Project</h2>
-		<p class="text-sm opacity-70">The top of this list draws over everything below it.</p>
+		<h2 id="layer-stack-heading" class="text-lg font-semibold w-full text-center">Layers in this Project</h2>
 	</div>
 
 	<div

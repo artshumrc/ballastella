@@ -278,47 +278,18 @@ describe('which Projects draw a map, in the words the list uses', () => {
 	});
 });
 
-describe('what the Workspace holds in total', () => {
-	// The reclaim figure is the sentence the list exists for — "of which 50 kB is used by no
-	// Project" — and it is core's `unusedMapImages`, not a second reduction over the same list.
-	test('counts the maps, weighs them, and says how much of it nothing draws', () => {
+describe('the Map Images heading', () => {
+	test('counts the maps and weighs them', () => {
 		hub({
 			mapImages: [
 				map('shared', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] }),
-				map('solo', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] }),
+				map('solo', { tiles: 'referenced', library: 'Harvard Library' }),
 				map('orphan')
 			]
 		});
 
-		expect(text(at('map-images-total'))).toBe(
-			'3 Map Images, 150 kB in all, of which 50 kB is used by no Project.'
-		);
-	});
-
-	// No reclaim clause when there is nothing to reclaim: a "0 kB is used by no Project" would read
-	// as an invitation to go looking for something that is not there.
-	test('says nothing about reclaiming when every map is in use', () => {
-		hub({
-			mapImages: [
-				map('shared', { usedBy: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }] })
-			]
-		});
-
-		expect(text(at('map-images-total'))).toBe('1 Map Image, 50 kB in all.');
-	});
-
-	// A map a Project this build cannot read might draw is not reclaimable, so it must not be
-	// counted in the figure that invites the user to delete something.
-	test('does not offer a map an unreadable Project might draw as reclaimable', () => {
-		hub({
-			mapImages: [
-				map('orphan', {
-					mightBeUsedBy: [{ directory: 'from-the-future', name: 'Tomorrow' }]
-				})
-			]
-		});
-
-		expect(text(at('map-images-total'))).toBe('1 Map Image, 50 kB in all.');
+		expect(text(at('map-images-total'))).toBe('3 (2 local, 1 IIIF external)');
+		expect(text(at('map-images-size'))).toBe('150 kB');
 	});
 });
 
@@ -330,8 +301,8 @@ test('a Workspace with no Map Images says so', () => {
 
 	expect(cards()).toHaveLength(0);
 	expect(text(at('no-map-images'))).toBe('No Map Images yet.');
-	// And no total, because there is no total to state.
-	expect(document.querySelector('[data-testid="map-images-total"]')).toBeNull();
+	expect(text(at('map-images-total'))).toBe('0 (0 local, 0 IIIF external)');
+	expect(text(at('map-images-size'))).toBe('0 bytes');
 });
 
 describe('each list under a heading carrying its own count', () => {
@@ -351,7 +322,7 @@ describe('each list under a heading carrying its own count', () => {
 			'Map Images'
 		]);
 		expect(text(at('projects-count'))).toBe('3 Projects');
-		expect(text(at('map-images-count'))).toBe('2 Map Images');
+		expect(text(at('map-images-total'))).toBe('2 (2 local, 0 IIIF external)');
 	});
 
 	// "1 Projects" is the sort of thing a scholar reads as a bug in the tool.
@@ -359,7 +330,7 @@ describe('each list under a heading carrying its own count', () => {
 		hub({ projects: [project('amsterdam-1625')], mapImages: [map('shared')] });
 
 		expect(text(at('projects-count'))).toBe('1 Project');
-		expect(text(at('map-images-count'))).toBe('1 Map Image');
+		expect(text(at('map-images-total'))).toBe('1 (1 local, 0 IIIF external)');
 	});
 
 	// A count of nothing is not a count of nothing *yet*: while the walk is still weighing `images/`
@@ -367,7 +338,7 @@ describe('each list under a heading carrying its own count', () => {
 	test('states no Map Image count while the Workspace is still being weighed', () => {
 		hub({ mapImages: [], mapImagesLoading: true });
 
-		expect(document.querySelector('[data-testid="map-images-count"]')).toBeNull();
+		expect(document.querySelector('[data-testid="map-images-stats"]')).toBeNull();
 	});
 });
 

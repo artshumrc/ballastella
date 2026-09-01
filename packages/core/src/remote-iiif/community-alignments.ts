@@ -52,8 +52,7 @@ export const COMMUNITY_ALIGNMENT_HOST = 'annotations.allmaps.org';
  * decision: whoever changes what is asked has to change what the user is told, in the same file.
  */
 export const COMMUNITY_ALIGNMENT_DISCLOSURE =
-	`Checking ${COMMUNITY_ALIGNMENT_HOST} for existing georeferences of this image. ` +
-	`That sends a hash of its address to the Allmaps community service. You can turn this off.`;
+	`Check ${COMMUNITY_ALIGNMENT_HOST} for existing georeferences of this image.`
 
 /**
  * Most Alignments this will offer from one lookup.

@@ -6,9 +6,9 @@ import {
 	baseMapFlavorName,
 	DEFAULT_BASE_MAP_APPEARANCE,
 	isDefaultAppearance,
-	readBaseMapAppearance,
 	type BaseMapAppearance
 } from './appearance';
+import { readBaseMapChoice } from './project';
 
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -48,9 +48,9 @@ describe('the Base Map appearance', () => {
 	describe('reading it off a document', () => {
 		it('takes each switch on its own, so one unusable value does not lose the others', () => {
 			expect(
-				readBaseMapAppearance({
+				readBaseMapChoice({
 					baseMapAppearance: { streets: false, relief: 'yes', muted: true }
-				})
+				}).appearance
 			).toEqual({ streets: false, relief: false, muted: true });
 		});
 
@@ -61,7 +61,7 @@ describe('the Base Map appearance', () => {
 			['a document that is not one', null]
 		])('reads %s as the default rather than throwing', (_description, document) => {
 			// These come off someone's disk, where an old fork or a hand edit may have left anything.
-			expect(readBaseMapAppearance(document)).toEqual(DEFAULT_BASE_MAP_APPEARANCE);
+			expect(readBaseMapChoice(document).appearance).toEqual(DEFAULT_BASE_MAP_APPEARANCE);
 		});
 
 		it('separates “switched everything off” from “said nothing”', () => {

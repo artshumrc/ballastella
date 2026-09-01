@@ -541,15 +541,14 @@ test.describe('the Workspace’s Map Images', () => {
 		expect(await everyPath(page)).toEqual(before);
 	});
 
-	test('deletes a map no Project uses, with its remote.json and its Alignment, and the total drops', async ({
+	test('deletes a map no Project uses, with its remote.json and its Alignment, and the heading facts drop', async ({
 		page
 	}) => {
 		const total = page.getByTestId('map-images-total');
-		// Three pyramids of 50 kB and one referenced map, whose `remote.json` is a few hundred bytes
-		// because its tiles are on somebody else's disk — which is the point of the figure.
-		await expect(total).toContainText('4 Map Images');
-		await expect(total).toContainText('150 kB in all');
-		await expect(total).toContainText('50 kB is used by no Project');
+		// Three pyramids of 50 kB and one referenced map, whose `remote.json` is a few hundred bytes.
+		await expect(total).toContainText('4');
+		await expect(total).toContainText('(3 local, 1 IIIF external)');
+		await expect(page.getByTestId('map-images-size')).toHaveText('150 kB');
 
 		await entry(page, 'A map nobody kept')
 			.getByRole('button', { name: /^Delete/ })
@@ -557,8 +556,9 @@ test.describe('the Workspace’s Map Images', () => {
 		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 
 		await expect(page.getByTestId('map-image')).toHaveCount(3);
-		await expect(total).toContainText('3 Map Images');
-		await expect(total).toContainText('100 kB in all');
+		await expect(total).toContainText('3');
+		await expect(total).toContainText('(2 local, 1 IIIF external)');
+		await expect(page.getByTestId('map-images-size')).toHaveText('100 kB');
 		// Announced, not merely rendered — so the region's own `aria-live` is asserted
 		// beside its text. Without that this claim sat on a `data-testid` and was vacuous: a `<p>` with
 		// the live attribute stripped would have passed it while announcing nothing. `aria-live` rather

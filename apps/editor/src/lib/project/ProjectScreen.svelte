@@ -2136,6 +2136,7 @@
 			bind:this={baseMapOptionsMenu}
 			entryId={resolution!.entry.id}
 			catalog={BASE_MAP_CATALOG}
+			showChevron={true}
 			{appearance}
 			{borders}
 			onAppearance={(chosen) => void session.chooseBaseMapAppearance(chosen)}
