@@ -607,5 +607,4 @@ describe('a transfer under way, with the keyboard still in the tab order', () =>
 		for (const testId of busyControls) press(testId);
 		expect(storage.transfers).toBe(1);
 	});
-
 });

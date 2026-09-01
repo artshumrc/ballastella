@@ -51,8 +51,7 @@ export const COMMUNITY_ALIGNMENT_HOST = 'annotations.allmaps.org';
  * Held here rather than written into a component, because the sentence and the request are one
  * decision: whoever changes what is asked has to change what the user is told, in the same file.
  */
-export const COMMUNITY_ALIGNMENT_DISCLOSURE =
-	`Check ${COMMUNITY_ALIGNMENT_HOST} for existing georeferences of this image.`
+export const COMMUNITY_ALIGNMENT_DISCLOSURE = `Check ${COMMUNITY_ALIGNMENT_HOST} for existing georeferences of this image.`;
 
 /**
  * Most Alignments this will offer from one lookup.

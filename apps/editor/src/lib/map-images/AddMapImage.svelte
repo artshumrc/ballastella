@@ -191,8 +191,8 @@
 
 <ModalDialog bind:open title="Add a Map Image" wide>
 	<p class="max-w-prose text-sm">
-		Map images can be added from a file on your computer or from the web. 
-		The same image can be reused across project: align once, use multiple times.
+		Map images can be added from a file on your computer or from the web. The same image can be
+		reused across project: align once, use multiple times.
 	</p>
 
 	<!--
@@ -252,7 +252,9 @@
 		another Project applies here the moment the Layer appears.
 	-->
 	<section class="mt-8 border-t border-base-300 pt-6" aria-labelledby="add-from-workspace-heading">
-		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">Select an existing Map Image from your Workspace</h3>
+		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">
+			Select an existing Map Image from your Workspace
+		</h3>
 
 		{#if session.addMapError}
 			<div role="alert" class="mt-3 alert max-w-prose alert-warning">
