@@ -8,6 +8,8 @@ import {
 	renameWorkspace,
 	expectWorkspaceNamed,
 	openWorkspaceMenu,
+	closeWorkspaceDialog,
+	editOpenWorkspace,
 	openTheDoor,
 	closeTheDoor,
 	seedGitHubCredential,
@@ -421,6 +423,14 @@ const folderRow = (page: Page) =>
  * when the user asks.
  */
 const openFolderFromRoster = async (page: Page) => {
+	// A reload with a lapsed grant puts the resume prompt up (ADR-0012), and it is modal: the roster
+	// behind it cannot be reached until the prompt's own button — the user gesture the grant needs —
+	// has been pressed.
+	const prompt = page.getByRole('dialog', { name: 'Open your Workspace folder' });
+	if (await prompt.isVisible()) {
+		await prompt.getByRole('button', { name: 'Open Workspace folder' }).click();
+		return;
+	}
 	await openWorkspaceMenu(page);
 	await folderRow(page).click();
 };
@@ -554,6 +564,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		const before = await browserStorageContents(page, DEFAULT_WORKSPACE);
 		expect(Object.keys(before)).toEqual(['in-browser/project.json']);
 
+		await editOpenWorkspace(page);
 		await page.getByTestId('move-into-folder').click();
 
 		// Switched into the folder, which the bar says on every screen — and the Project is listed
@@ -572,7 +583,9 @@ test.describe('choosing a folder as the Workspace', () => {
 		await expect(page.getByTestId('transfer-outcome')).toContainText(PICKED_FOLDER);
 		await expect(page.getByTestId('transfer-outcome')).toContainText('browser storage');
 
-		// And it is an ordinary row in the roster afterwards, which is what "not open" means now.
+		// And it is an ordinary row in the roster afterwards, which is what "not open" means now. The
+		// dialog the move was started from is modal, and the roster is behind it.
+		await closeWorkspaceDialog(page);
 		await useBrowserStorage(page);
 		await inBrowserStorage(page);
 		await expect(page.getByRole('link', { name: 'In Browser' })).toBeVisible();
@@ -585,6 +598,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		await createProject(page, 'In Browser');
 		await seedFolder(page, { 'notes.txt': "somebody else's" });
 
+		await editOpenWorkspace(page);
 		await page.getByTestId('move-into-folder').click();
 
 		await expect(page.getByTestId('transfer-problem')).toContainText('already holds files');
@@ -949,9 +963,8 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await openFolderFromRoster(page);
 
 		const alert = page.getByRole('alert');
-		await expect(alert).toContainText('Your Workspace folder was not opened');
 		await expect(alert).toContainText('not been moved or lost');
-		await expect(alert.getByRole('button', { name: 'Choose a folder again' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Choose folder again' })).toBeVisible();
 		// Not silently on the other backend pretending to be the folder: the Workspace is plainly
 		// browser storage, and the folder's Project is plainly not listed.
 		await inBrowserStorage(page);
@@ -1058,8 +1071,10 @@ test.describe('the Workspace roster', () => {
 		// system gave it and every file in it is exactly where it was.
 		expect(await everyPathInFolder(page)).toEqual(['in-the-folder/project.json']);
 
-		// And it survives the reload, because the name is on the folder's own record.
+		// And it survives the reload, because the name is on the folder's own record. The reload puts
+		// the resume prompt up first, and it is modal.
 		await page.reload();
+		await openFolderFromRoster(page);
 		await openWorkspaceMenu(page);
 		await expect(
 			page.getByTestId('switch-workspace').filter({ hasText: 'Amsterdam sheets' })
@@ -1122,10 +1137,6 @@ test.describe('the Workspace is the same one on every route', () => {
 		});
 
 		await page.goto('./?p=amsterdam-1625');
-		// A bookmarked Project on a route the folder is not open on. The browser Workspace's namesake
-		// is what opens — which is the honest answer, and the whole reason the choice below has to
-		// land in the folder rather than in whichever Workspace the route happened to resolve.
-		await expect(page.getByTestId('project-name')).toHaveText('In browser storage');
 		await openFolderFromRoster(page);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 

@@ -28,10 +28,17 @@ export async function expectWorkspaceNamed(page: Page, name: string): Promise<vo
 	await expect(workspaceButton(page)).toHaveText(name);
 }
 
-/** Open the Workspace menu on the bar. */
+/**
+ * Open the Workspace menu on the bar, if it is not already open.
+ *
+ * Some of what the menu opens hands it back afterwards — a rename returns to the roster it was
+ * started from — so a caller that wants the menu cannot know whether pressing the button would open
+ * it or be swallowed by the open one.
+ */
 export async function openWorkspaceMenu(page: Page): Promise<void> {
-	await workspaceButton(page).click();
-	await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
+	const menu = page.getByTestId('workspace-switcher-menu');
+	if (!(await menu.isVisible())) await workspaceButton(page).click();
+	await expect(menu).toBeVisible();
 }
 
 /** Open the editing dialog for a Workspace row in the roster. */
