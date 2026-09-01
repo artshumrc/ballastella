@@ -95,7 +95,7 @@ function shippedArchives() {
 	const bindings = new Map(
 		[...source.matchAll(/^const\s+(\w+)\s*=\s*'([^']+)';/gm)].map((match) => [match[1], match[2]])
 	);
-	return [...source.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\w+))\s*,/gm)].map(
+	return [...source.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\w+))\s*,?$/gm)].map(
 		(match) => match[1] ?? bindings.get(match[2]) ?? match[2]
 	);
 }
