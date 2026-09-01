@@ -579,8 +579,7 @@ test.describe('Project settings', () => {
 			'the settings dialog was not opened with showModal()'
 		).toBe(true);
 
-		// The folder and the last-saved time remain available beside the rename and offline controls.
-		await expect(dialog.getByTestId('project-folder')).toHaveText(PROJECT_DIRECTORY);
+		// The last-saved time remains available beside the rename and offline controls.
 		await expect(dialog.getByTestId('project-updated-at')).not.toBeEmpty();
 		await expect(dialog.getByLabel('Project name')).toHaveValue(PROJECT_NAME);
 

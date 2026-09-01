@@ -97,6 +97,7 @@ import {
 	type Bytes,
 	type StorePath,
 	type BaseMapBorders,
+	type BaseMapBorderStyle,
 	type CachedTileSource,
 	type FetchFn,
 	type FetchTilesOptions,
@@ -3811,6 +3812,44 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || !this.openProject) return;
 		this.openProject = { ...this.openProject, borders };
+		await this.#write(directory);
+	}
+
+	/**
+	 * Record how this Project draws the boundaries it draws.
+	 *
+	 * A patch rather than a whole style, because the three properties are chosen by three separate
+	 * controls and each of them may be set back to automatic on its own: passing `{ color: null }`
+	 * means "derive the colour again" and says nothing about the width beside it.
+	 *
+	 * `debounce` for the width, which is a dragged slider (ADR-0017 rule 1); the colour and the dash
+	 * pattern are single deliberate choices and are written at once, exactly as the Annotation Style
+	 * face treats the same three controls.
+	 */
+	async chooseBorderStyle(
+		patch: Partial<BaseMapBorderStyle>,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+		this.openProject = {
+			...this.openProject,
+			borderStyle: { ...this.openProject.borderStyle, ...patch }
+		};
+		await this.#write(directory, options.debounce ? { debounce: true } : undefined);
+	}
+
+	/**
+	 * The border width drag is over (ADR-0017 rule 1).
+	 *
+	 * {@link commitProjectName}'s rule against the same file: a no-op unless a write is pending, so
+	 * releasing a slider that moved nothing does not stamp a fresh `updatedAt` on last year's
+	 * Project.
+	 */
+	async commitBorderStyle(): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+		if (!this.#autosave.hasPendingWrite(projectFilePath(directory))) return;
 		await this.#write(directory);
 	}
 

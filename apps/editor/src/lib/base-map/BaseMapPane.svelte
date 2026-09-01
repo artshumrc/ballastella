@@ -31,10 +31,12 @@
 		openingViewFit,
 		resolveBaseMap,
 		setGeometry,
+		DEFAULT_BASE_MAP_BORDER_STYLE,
 		DEFAULT_BASE_MAP_BORDERS,
 		type Alignment,
 		type Annotation,
 		type BaseMapBorders,
+		type BaseMapBorderStyle,
 		type DistortionView,
 		type FetchFn,
 		type MapImageSource,
@@ -80,6 +82,7 @@
 	let {
 		entryId,
 		borders = DEFAULT_BASE_MAP_BORDERS,
+		borderStyle = DEFAULT_BASE_MAP_BORDER_STYLE,
 		cachedBaseMap = null,
 		overlayPoints = [],
 		alignment = null,
@@ -107,6 +110,8 @@
 		 * the page exactly as {@link entryId} is — this pane only paints what it is handed.
 		 */
 		borders?: BaseMapBorders;
+		/** How those boundaries are drawn. The Project's, handed over with the level beside it. */
+		borderStyle?: BaseMapBorderStyle;
 		/**
 		 * Draw the Base Map from the Workspace's own tile cache instead of from the entry's archive
 		 * (ADR-0025), or `null` to read the archive as usual.
@@ -315,8 +320,13 @@
 		id: string,
 		currentTheme: string,
 		cachedTo: number | null,
-		drawnBorders: BaseMapBorders
-	): string => `${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}`;
+		drawnBorders: BaseMapBorders,
+		drawnStyle: BaseMapBorderStyle
+	): string =>
+		// The styling is in the key as its three values rather than as an object, because this is
+		// compared as a string: a repaint that missed a colour change would leave the map asserting a
+		// border the settings dialog says has been changed.
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	const styleFor = (id: string): StyleSpecification =>
 		baseMapStyle(resolveBaseMap(id).entry, {
@@ -331,7 +341,8 @@
 				BASE_MAP_CATALOG.terrain && !cachedBaseMap
 					? registerTerrainProtocols(BASE_MAP_CATALOG.terrain)
 					: undefined,
-			borders
+			borders,
+			borderStyle
 		});
 
 	/**
@@ -476,7 +487,13 @@
 			onclickpoint?.({ lng: centre.lng, lat: centre.lat });
 		});
 
-		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
+		painted = paintKey(
+			entryId,
+			theme.current,
+			cachedBaseMap?.maxZoom ?? null,
+			borders,
+			borderStyle
+		);
 		map = created;
 		const unexpose = exposeBaseMapToBrowserTests(created);
 
@@ -506,7 +523,13 @@
 	});
 
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
+		const wanted = paintKey(
+			entryId,
+			theme.current,
+			cachedBaseMap?.maxZoom ?? null,
+			borders,
+			borderStyle
+		);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

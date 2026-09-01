@@ -1,7 +1,16 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { layers, namedFlavor, type Flavor } from '@protomaps/basemaps';
 
-import { bordersInclude, DEFAULT_BASE_MAP_BORDERS, type BaseMapBorders } from './borders';
+import {
+	borderColorIsLegible,
+	bordersInclude,
+	DEFAULT_BASE_MAP_BORDER_STYLE,
+	DEFAULT_BASE_MAP_BORDERS,
+	NATIONAL_BOUNDARY_LAYER,
+	strengthenedBorder,
+	type BaseMapBorders,
+	type BaseMapBorderStyle
+} from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import type { BaseMapCatalog, BaseMapEmphasis, BaseMapEntry, BaseMapTerrain } from './entry';
 import {
@@ -62,6 +71,12 @@ export type BaseMapStyleOptions = {
 	 * entry. Defaults to `all`, which is what every Project drew before the field existed.
 	 */
 	readonly borders?: BaseMapBorders;
+	/**
+	 * How those boundaries are drawn — the author's colour, dash pattern and width, out of
+	 * `project.json` beside the level. Every property of it may be unchosen, and an unchosen one is
+	 * derived from the flavor, so omitting this argument draws the same map as passing the default.
+	 */
+	readonly borderStyle?: BaseMapBorderStyle;
 	/**
 	 * The registered `maplibre-contour` protocol URLs a `relief-and-contours` entry draws from.
 	 *
@@ -129,13 +144,61 @@ export function baseMapStyle(
 			...(terrain === null ? {} : terrainSources(terrain.data, terrain.tiles))
 		},
 		layers: withRelief(
-			emphasisedLayers(
-				layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }),
-				entry.emphasis
-			).filter((layer) => bordersInclude(options.borders ?? DEFAULT_BASE_MAP_BORDERS, layer.id)),
+			emphasisedLayers(layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }), entry.emphasis)
+				.filter((layer) => bordersInclude(options.borders ?? DEFAULT_BASE_MAP_BORDERS, layer.id))
+				.map((layer) =>
+					strengthenedBorder(layer, flavor, options.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE)
+				),
 			terrain === null ? null : flavor
 		)
 	};
+}
+
+/**
+ * What a Project's borders are drawn with when the author has chosen nothing.
+ *
+ * The editor's Borders section needs this to seed its custom controls: a scholar switching from
+ * automatic to chosen must find the pickers holding what is currently on the map, or the switch
+ * itself changes the drawing. It resolves the flavor exactly as {@link baseMapStyle} does — same
+ * entry, same theme, same emphasis — rather than re-deriving it, which is what keeps the seeded
+ * values honest when a variant repaints its landcover.
+ */
+export function automaticBorderStyle(entry: BaseMapEntry, theme: Theme): BaseMapBorderStyle {
+	const flavor = emphasisedFlavor(namedFlavor(entry.flavor[themeScheme(theme)]), entry.emphasis);
+	const drawn = strengthenedBorder(
+		{
+			id: NATIONAL_BOUNDARY_LAYER,
+			type: 'line',
+			source: BASE_MAP_SOURCE_ID,
+			'source-layer': 'boundaries'
+		},
+		flavor
+	);
+	const paint = ('paint' in drawn ? drawn.paint : {}) as Record<string, unknown>;
+	return {
+		color: typeof paint['line-color'] === 'string' ? paint['line-color'] : null,
+		// Upstream's own pattern is solid at low zoom and dashed from z4, which is not one of the
+		// three positions the control has. Dashed is what it is for most of the range a scholar looks
+		// at, and it is what `lineStyleOf` classifies any unfamiliar tuple as.
+		lineStyle: 'dashed',
+		width: typeof paint['line-width'] === 'number' ? paint['line-width'] : null
+	};
+}
+
+/**
+ * The themes a chosen border colour would be illegible in, for the editor's warning.
+ *
+ * Both grounds are checked rather than the one on screen, because the Project travels: a Reader on
+ * the Published Site chooses their own theme (`reader-preference.ts`), so a colour legible only in
+ * the theme the author happened to be using is a border half of them cannot see.
+ */
+export function bordersIllegibleThemes(
+	entry: BaseMapEntry,
+	colour: string
+): readonly ('light' | 'dark')[] {
+	return (['light', 'dark'] as const).filter(
+		(scheme) => !borderColorIsLegible(colour, namedFlavor(entry.flavor[scheme]).earth)
+	);
 }
 
 /**
