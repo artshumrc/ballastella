@@ -12,6 +12,7 @@ import {
 	routeBaseMapArchive,
 	type EditorDeployment
 } from './support/editor-deployment';
+import { baseMapOptionsButton } from './support/base-map-options.js';
 import { alignFromLayer, openLayerRow } from './support/layers';
 import {
 	addMapImageButton,
@@ -941,20 +942,11 @@ test.describe('a working session that reaches other people’s servers', () => {
 		await makePair(page, [0.4, 0.4]);
 		await waitForStored(page, imageId, 1);
 
-		// And the Base Map this deployment's catalog marks as needing the network — chosen from its
-		// metadata rather than by id, because ADR-0020 makes the catalog a fork's to replace and a test
-		// naming an entry would be one more thing a fork had to change.
+		// And the Base Map, whose archive this deployment's catalog fetches from another host. Driven by
+		// opening the Project rather than by naming an entry: ADR-0020 makes the catalog a fork's to
+		// replace, and a test that named one would be one more thing a fork had to change.
 		await page.goto(`${site.url}?p=${project}`);
-		const switcher = page.getByRole('combobox', { name: 'Base Map' });
-		// Located rather than read out of an `evaluateAll`, which does not auto-wait: straight after
-		// `goto` that ran against the options the client had not rendered yet, found none, and failed
-		// claiming the catalog offers no such entry. On a slower machine it would have failed; on a
-		// faster one it would have passed. A locator retries until the catalog is on the page.
-		const remote = switcher.locator('option[data-needs-network="true"]');
-		await expect(remote, 'this catalog offers no Base Map that needs the network').not.toHaveCount(
-			0
-		);
-		await switcher.selectOption(await remote.first().getAttribute('value'));
+		await expect(baseMapOptionsButton(page)).toBeVisible();
 		await expect.poll(() => remoteArchiveRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(0);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1207,9 +1199,7 @@ test.describe('what the browser has promised about keeping the work', () => {
 	 * read anywhere on the path, that it is one line rather than a paragraph, that the truth behind it
 	 * is a working disclosure.
 	 */
-	test('is one line on Workspace Home, with the truth behind a disclosure', async ({
-		page
-	}) => {
+	test('is one line on Workspace Home, with the truth behind a disclosure', async ({ page }) => {
 		await page.goto(site.url);
 		await emptyWorkspace(page);
 		await page.reload();

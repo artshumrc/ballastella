@@ -1,3 +1,14 @@
+// How the Base Map is drawn — streets, relief, muted colours — as three switches over one archive.
+// Project data beside the borders, and a Reader may override it for themselves without editing it.
+export {
+	DEFAULT_BASE_MAP_APPEARANCE,
+	PROJECT_BASE_MAP_APPEARANCE_KEY,
+	appearanceFrom,
+	baseMapFlavorName,
+	isDefaultAppearance,
+	readBaseMapAppearance,
+	type BaseMapAppearance
+} from './appearance';
 // Which administrative boundaries a Project draws. A filter over layers the same archive already
 // carries, so it costs no request — see the note at the top of `borders.ts`.
 export {
@@ -22,14 +33,8 @@ export {
 	type BaseMapBorderStyle
 } from './borders';
 export { BASE_MAP_CATALOG } from './catalog';
-export type {
-	BaseMapCatalog,
-	BaseMapEmphasis,
-	BaseMapEntry,
-	BaseMapFlavorName,
-	BaseMapTerrain
-} from './entry';
-// Shaded relief and contour lines, the one emphasis that reads a second dataset. The layers are
+export type { BaseMapCatalog, BaseMapEntry, BaseMapFlavorName, BaseMapTerrain } from './entry';
+// Shaded relief and contour lines, the one appearance switch that reads a second dataset. The layers are
 // here; the protocols that feed them are in `@ballastella/core/render`.
 export {
 	CONTOUR_LAYER,
@@ -50,7 +55,8 @@ export {
 	baseMapPreferenceKey,
 	readBaseMapPreference,
 	writeBaseMapPreference,
-	type PreferenceStorage
+	type PreferenceStorage,
+	type ReaderBaseMapPreference
 } from './reader-preference';
 export {
 	baseMapArchiveHost,

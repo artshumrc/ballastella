@@ -7,33 +7,25 @@ const FORK: BaseMapCatalog = {
 			id: 'harbour-charts',
 			label: 'Harbour charts',
 			needsNetwork: false,
-			archive: 'tiles/harbours.pmtiles',
-			emphasis: 'water-and-terrain',
-			flavor: { light: 'white', dark: 'black' }
+			archive: 'tiles/harbours.pmtiles'
 		},
 		{
 			id: 'parish-roads',
 			label: 'Parish roads',
 			needsNetwork: false,
-			archive: 'tiles/harbours.pmtiles',
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
+			archive: 'tiles/harbours.pmtiles'
 		},
 		{
 			id: 'satellite',
 			label: 'Satellite',
 			needsNetwork: true,
-			archive: 'https://tiles.example.invalid/satellite.pmtiles',
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
+			archive: 'https://tiles.example.invalid/satellite.pmtiles'
 		},
 		{
 			id: 'ordnance-relief',
 			label: 'Ordnance relief',
 			needsNetwork: true,
-			archive: 'https://tiles.example.invalid/satellite.pmtiles',
-			emphasis: 'relief-and-contours',
-			flavor: { light: 'light', dark: 'dark' }
+			archive: 'https://tiles.example.invalid/satellite.pmtiles'
 		}
 	],
 	defaultId: 'parish-roads',
@@ -45,7 +37,7 @@ const FORK: BaseMapCatalog = {
 
 /**
  * A catalog with nothing whatsoever in common with the real one — different ids, labels,
- * archives, flavors, view, asset paths, and elevation dataset.
+ * archives, view, asset paths, and elevation dataset.
  *
  * It exists to assert the forkability property ADR-0020 rests on: everything the app does with
  * Base Maps is a function of the catalog it is given, so replacing the catalog module changes
@@ -64,8 +56,8 @@ export const FORKED_CATALOG: BaseMapCatalog = {
 
 /**
  * The same fork with no elevation dataset provisioned, which is the ordinary state of a deployment
- * that has its own vector tiles and no DEM. Its `relief-and-contours` entry must still draw — a
- * catalog is a fork's to edit, and no edit to it may produce a blank pane.
+ * that has its own vector tiles and no DEM. A Project asking for relief must still draw over it —
+ * a catalog is a fork's to edit, and no edit to it may produce a blank pane.
  */
 export const CATALOG_WITHOUT_TERRAIN: BaseMapCatalog = FORK;
 

@@ -36,6 +36,7 @@
 		BASE_MAP_CATALOG,
 		baseMapArchiveHost,
 		automaticBorderStyle,
+		DEFAULT_BASE_MAP_APPEARANCE,
 		bordersIllegibleThemes,
 		DEFAULT_BASE_MAP_BORDER_STYLE,
 		DEFAULT_BASE_MAP_BORDERS,
@@ -63,8 +64,7 @@
 	import {
 		AnnotationInspector,
 		ANNOTATION_INSPECTOR_ID,
-		BaseMapSwitcher,
-		BorderSwitcher,
+		BaseMapOptions,
 		KIND_STYLE,
 		LayerList,
 		LeaderLine,
@@ -160,6 +160,9 @@
 		session.openProject ? resolveBaseMap(session.openProject.baseMap) : null
 	);
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
+	const appearance = $derived(
+		session.openProject?.baseMapAppearance ?? DEFAULT_BASE_MAP_APPEARANCE
+	);
 	const borders = $derived(session.openProject?.borders ?? DEFAULT_BASE_MAP_BORDERS);
 	const borderStyle = $derived(session.openProject?.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE);
 
@@ -167,13 +170,15 @@
 	 * Whether the Base Map's own source is drawing, as the pane reports it.
 	 *
 	 * `null` until the pane has said anything, so the notice below appears when the archive has
-	 * actually failed and not in the moment before it has been asked for. It is reset when the
-	 * chosen Base Map changes, because a stale "could not be loaded" attached to an entry the
-	 * scholar has since switched away from is a worse lie than saying nothing.
+	 * actually failed and not in the moment before it has been asked for. It is reset when the Base
+	 * Map changes — the tiles, or how they are drawn — because either rebuilds the style and asks
+	 * the archive again, and a stale "could not be loaded" left over that answer is a worse lie than
+	 * saying nothing.
 	 */
 	let baseMapStatus = $state<'drawing' | 'unavailable' | null>(null);
 	$effect(() => {
 		void resolution?.entry.id;
+		void appearance;
 		baseMapStatus = null;
 	});
 
@@ -538,6 +543,14 @@
 
 	/** The Base Map pane, for the one thing this screen asks of its camera. */
 	let baseMapPane = $state<BaseMapPane | undefined>();
+
+	/**
+	 * The Base Map Options panel, held so the Escape handler below can ask whether it was open.
+	 *
+	 * Escape dismisses a popover natively **and keeps propagating**, so without this an Escape meant
+	 * for the panel would also abandon a part-drawn shape the user cannot see behind it.
+	 */
+	let baseMapOptionsMenu = $state<ReturnType<typeof BaseMapOptions> | undefined>();
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// The leader
@@ -1078,6 +1091,11 @@
 		// this handler's to know — and the row in the sidebar is deliberately outside it, so Escape with
 		// the row itself focused still deselects.
 		if (document.querySelector('dialog[open]') !== null) return;
+		// And an Escape that only closed the Base Map Options panel is not an Escape for the drawing
+		// behind it. Asked of the element rather than of a flag, for the reason `MenuPopover.isOpen`
+		// documents: the `toggle` event lands and Svelte flushes on its own schedule, so a flag would
+		// still say "open" for the *next* Escape and decline the cancel the user actually asked for.
+		if (baseMapOptionsMenu?.isOpen() === true) return;
 		const inspector = document.getElementById(ANNOTATION_INSPECTOR_ID);
 		if (inspector !== null && event.target instanceof Node && inspector.contains(event.target))
 			return;
@@ -1238,6 +1256,7 @@
 						bind:this={baseMapPane}
 						selectedAnnotationId={annotations.selectedAnnotationId}
 						entryId={resolution.entry.id}
+						{appearance}
 						{borders}
 						{borderStyle}
 						{cachedBaseMap}
@@ -1712,10 +1731,10 @@
 				<BorderStyleFields
 					{borders}
 					style={borderStyle}
-					automatic={automaticBorderStyle(resolution.entry, theme.current)}
+					automatic={automaticBorderStyle(appearance, theme.current)}
 					illegibleIn={borderStyle.color === null
 						? []
-						: bordersIllegibleThemes(resolution.entry, borderStyle.color)}
+						: bordersIllegibleThemes(appearance, borderStyle.color)}
 					onchange={(patch, options) => void session.chooseBorderStyle(patch, options ?? {})}
 					oncommit={() => void session.commitBorderStyle()}
 				/>
@@ -2101,33 +2120,27 @@
 {/snippet}
 
 <!--
-	The Project's map controls are in the pane rather than in page chrome so all three actions that
-	work on the map are available without spending a row of its height.
+	The Project's map controls are in the pane rather than in page chrome, so what works on the map is
+	reachable without spending a row of its height. Two buttons beside the place search, which is what
+	fits one line at every pane width — everything about the Base Map is behind the first of them.
 -->
 {#snippet mapControls()}
 	<div class="flex flex-wrap items-center gap-2">
-		<!-- The one Base Map switcher in the app that writes this Project's author default (ADR-0020). -->
-		<BaseMapSwitcher
+		<!--
+			Everything about the Base Map behind one button (ADR-0020): which tiles, where the deployment
+			offers a choice; how they are drawn; and which borders this Project asserts. All three write
+			`project.json`, because all three are the author's and travel to the Published Site — and the
+			row they used to sit in abreast was wider than the pane at most widths.
+		-->
+		<BaseMapOptions
+			bind:this={baseMapOptionsMenu}
 			entryId={resolution!.entry.id}
 			catalog={BASE_MAP_CATALOG}
-			labelSrOnly={true}
-			fullWidth={false}
-			class="select-sm"
-			onSelect={(id) => session.chooseBaseMap(id)}
-		/>
-
-		<!--
-			Beside the switcher rather than inside it: every catalog entry reads the same `boundaries`
-			source-layer, so the boundary set is orthogonal to which Base Map was chosen. It writes the
-			Project, because whether a modern national border belongs over this work is the author's
-			argument and has to travel to the Published Site.
-		-->
-		<BorderSwitcher
+			{appearance}
 			{borders}
-			labelSrOnly={true}
-			fullWidth={false}
-			class="select-sm"
-			onSelect={(choice) => void session.chooseBorders(choice)}
+			onAppearance={(chosen) => void session.chooseBaseMapAppearance(chosen)}
+			onSelectEntry={(id) => session.chooseBaseMap(id)}
+			onBorders={(choice) => void session.chooseBorders(choice)}
 		/>
 
 		<!--

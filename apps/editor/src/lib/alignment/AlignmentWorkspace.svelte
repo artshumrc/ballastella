@@ -19,6 +19,7 @@
 		detectFold,
 		imagePaneSourceFor,
 		type Alignment,
+		type BaseMapAppearance,
 		type ControlPoint,
 		type DistortionView,
 		type FetchFn,
@@ -28,7 +29,7 @@
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
-	import { BaseMapSwitcher, LeaderLine, type Box } from '@ballastella/ui';
+	import { BaseMapOptions, LeaderLine, type Box } from '@ballastella/ui';
 	import Check from '@lucide/svelte/icons/check';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { resolve } from '$app/paths';
@@ -52,6 +53,7 @@
 		mapName,
 		fetchTile,
 		baseMapId,
+		baseMapAppearance,
 		projectDirectory
 	}: {
 		session: EditorSession;
@@ -63,6 +65,8 @@
 		fetchTile: FetchFn;
 		/** The Base Map to show beneath, chosen by the author (ADR-0020). */
 		baseMapId: string;
+		/** How that Base Map is drawn. The Project's, exactly as {@link baseMapId} is. */
+		baseMapAppearance: BaseMapAppearance;
 		/** The Project this Alignment was opened from. */
 		projectDirectory: string;
 	} = $props();
@@ -950,34 +954,29 @@
 				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
 			>
 				<!--
-					The Base Map heading and the choice of Base Map, together.
+					The Base Map heading and the Base Map's own options, together.
 
-					**Here because this is where the wrong one is discovered.** The deployment default is a
-					regional extract (ADR-0020), so an author aligning a sheet of anywhere outside its bounds
-					zooms in and watches the earth go blank — and the switcher lived only on the Layers pane,
-					behind a button labelled with a Layer count, which says nothing about Base Maps. The
-					control belongs beside the pane whose emptiness sends you looking for it — which is also
-					why it stayed out of the sidebar when everything else about the Alignment moved into one.
+					**Here because this is where the wrong one is discovered.** An author aligning a sheet of
+					somewhere the Base Map does not cover — or covers in roads where they need a coastline —
+					zooms in and finds out while aligning, and the control lived only on the Layers pane behind
+					a button labelled with a Layer count, which says nothing about Base Maps. It belongs beside
+					the pane whose emptiness sends you looking for it, which is also why it stayed out of the
+					sidebar when everything else about the Alignment moved into one.
 
-					It writes through `session.chooseBaseMap`, the same one every other switcher calls, so the
-					choice is the Project's author default (ADR-0020) rather than a third copy of that state.
+					It writes through the same `session` methods the Project screen's panel calls, so what an
+					author changes here is the Project's own setting (ADR-0020) rather than a third copy of it.
+					No borders section: the boundaries a work asserts are decided where the work is composed,
+					not while a sheet is being placed.
 				-->
 				<div class="mb-2 flex flex-wrap items-center justify-evenly lg:flex-nowrap">
 					<h4 id="base-map-pane-heading" class="text-sm font-semibold">Base Map</h4>
-					<!--
-						The switcher's own label is `sr-only` here, and only here: the heading to its left already
-						says "Base Map", so on screen it was the word twice and a line of height for the second one.
-						The `<select>` keeps its accessible name.
-					-->
-					<div class="w-80 max-w-full">
-						<BaseMapSwitcher
-							entryId={baseMapId}
-							catalog={BASE_MAP_CATALOG}
-							class="w-full"
-							labelSrOnly
-							onSelect={(id) => session.chooseBaseMap(id)}
-						/>
-					</div>
+					<BaseMapOptions
+						entryId={baseMapId}
+						catalog={BASE_MAP_CATALOG}
+						appearance={baseMapAppearance}
+						onAppearance={(chosen) => void session.chooseBaseMapAppearance(chosen)}
+						onSelectEntry={(id) => session.chooseBaseMap(id)}
+					/>
 					<!--
 						How much of the sheet is drawn over the earth — in this pane's header, in the room the
 						repeated label gave back, so it costs the map no height at all.
@@ -1023,6 +1022,7 @@
 					class="h-[45dvh] overflow-hidden rounded-box border border-base-300 lg:h-auto lg:min-h-64 lg:grow"
 				>
 					<BaseMapPane
+						appearance={baseMapAppearance}
 						bind:this={baseMapPane}
 						entryId={baseMapId}
 						overlayPoints={basePoints}

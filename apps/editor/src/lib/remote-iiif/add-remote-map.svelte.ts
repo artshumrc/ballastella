@@ -96,6 +96,8 @@ export class AddRemoteMap {
 	described = $state<DescribedResource | null>(null);
 	/** The canvas the user has picked, by its URI. `''` for a bare image service. */
 	selectedCanvas = $state('');
+	/** The IIIF resource URL that began this lookup, retained while opening Collection items. */
+	sourceUrl = $state('');
 
 	/** The accepted image service, once it has been read and probed. */
 	service = $state<RemoteImageService | null>(null);
@@ -161,6 +163,7 @@ export class AddRemoteMap {
 		this.resource = null;
 		this.described = null;
 		this.selectedCanvas = '';
+		this.sourceUrl = '';
 		this.service = null;
 		this.community = null;
 		this.importIndex = -1;
@@ -174,7 +177,7 @@ export class AddRemoteMap {
 	 * case here: it arrives as a list of items to open, and opening one is another call to this same
 	 * method, which is what makes "one URL from a library is enough" true.
 	 */
-	async read(url: string = this.url): Promise<void> {
+	async read(url: string = this.url, fromCollection = false): Promise<void> {
 		this.error = '';
 		// Cleared here rather than in `reset`: the next lookup is the point at which what happened to
 		// the *last* add stops being the news on this page.
@@ -188,6 +191,7 @@ export class AddRemoteMap {
 		try {
 			const resource = await readRemoteIiifResource(url, { fetch: this.#fetch() });
 			this.url = url;
+			this.sourceUrl = fromCollection && this.sourceUrl !== '' ? this.sourceUrl : resource.url;
 			this.resource = resource;
 			this.described = describeRemoteResource(resource.parsed, resource.document);
 			this.step = 'choosing';
@@ -350,6 +354,7 @@ export class AddRemoteMap {
 			)?.label;
 			const added = await this.#session().addReferencedMap({
 				service,
+				source: this.sourceUrl || described?.uri || service.uri,
 				label: canvasLabel || described?.label || '',
 				partOf: described?.kind === 'image' ? '' : (described?.uri ?? ''),
 				canvas: this.selectedCanvas,

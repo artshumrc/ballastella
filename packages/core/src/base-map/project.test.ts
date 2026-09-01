@@ -18,8 +18,8 @@ const savedWith = (id: string | null) =>
 
 describe('the Base Map field of project.json', () => {
 	it('records the author choice as an id, and nothing that could be an address', () => {
-		const entry = BASE_MAP_CATALOG.entries[1];
-		if (entry === undefined) throw new Error('the catalog needs a second entry for this test');
+		const entry = BASE_MAP_CATALOG.entries[0];
+		if (entry === undefined) throw new Error('the catalog needs an entry for this test');
 
 		const written = decode(savedWith(entry.id));
 
@@ -66,9 +66,11 @@ describe('the Base Map field of project.json', () => {
 	});
 
 	it('reopens a Project onto the Base Map the author chose', () => {
-		const reopened = resolveBaseMap(parseProjectFile(savedWith('physical')).baseMap);
+		const chosen = BASE_MAP_CATALOG.entries[0];
+		if (chosen === undefined) throw new Error('the catalog needs an entry for this test');
+		const reopened = resolveBaseMap(parseProjectFile(savedWith(chosen.id)).baseMap);
 
-		expect(reopened.entry.id).toBe('physical');
+		expect(reopened.entry.id).toBe(chosen.id);
 		expect(reopened.fellBack).toBe(false);
 	});
 

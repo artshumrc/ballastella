@@ -126,6 +126,11 @@ export interface WorkspaceMapImage {
 	readonly imageId: string;
 	/** What the user calls it, or `''` when neither record says. */
 	readonly label: string;
+	/** Where a referenced Map Image came from, or `null` for a local upload. */
+	readonly provenance: {
+		readonly source: string;
+		readonly canvasLabel: string;
+	} | null;
 	readonly tiles: TileLocation;
 	/**
 	 * The Library serving the tiles, named by its address, and `''` when they are in this Workspace.
@@ -323,6 +328,9 @@ export async function listWorkspaceMapImages(store: ProjectStore): Promise<Works
 			return {
 				imageId,
 				label: named || remote?.label || '',
+				provenance: remote
+					? { source: remote.source, canvasLabel: remote.canvas ? remote.label : '' }
+					: null,
 				tiles,
 				// A copied map's tiles are here, so it names no Library even though it still
 				// records where it came from.

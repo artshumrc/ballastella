@@ -4,6 +4,12 @@ import { type Locator, type Page } from '@playwright/test';
 import { start as startAlignment } from './support/alignment-workspace.js';
 import { unavailableNotice } from './support/base-map-notice.js';
 import {
+	baseMapOptionsButton,
+	borderOption,
+	drawSwitch,
+	openBaseMapOptions
+} from './support/base-map-options.js';
+import {
 	baseMapTileDirectory,
 	baseMapTileSourcePath,
 	cachedBaseMapTiles,
@@ -66,11 +72,11 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 		...fields
 	});
 
-/** The deployment catalog, as an author reads it in the switcher. */
-const CATALOG_OPTIONS = [
-	{ value: 'streets', text: 'Streets' },
-	{ value: 'physical', text: 'Physical geography' },
-	{ value: 'muted', text: 'Muted, high contrast' }
+/** How the Base Map is drawn: three switches over one archive, in the order they are rendered. */
+const APPEARANCE_SWITCHES = [
+	'Streets — roads, buildings and places',
+	'Topography — shaded relief and contour lines',
+	'High contrast — muted colours, so annotations stay legible'
 ];
 
 // By role, not by label: MapLibre gives the canvas the accessible name "Base Map" too, which is
@@ -226,7 +232,7 @@ test.describe('the Base Map pane', () => {
 		// The map controls share the floating top-left row, which leaves no page-chrome bar between the
 		// navigation and the map. Zoom therefore remains on the bottom of the left edge.
 		const search = await page.getByTestId('base-map-place-search').boundingBox();
-		const baseMapSwitcher = await switcher(page).boundingBox();
+		const options = await baseMapOptionsButton(page).boundingBox();
 		const fit = await page.getByTestId('fit-to-project').boundingBox();
 		const zoom = await bottomLeft.boundingBox();
 		const navigation = await page.getByTestId('navigation-bar').boundingBox();
@@ -234,10 +240,15 @@ test.describe('the Base Map pane', () => {
 		// The navigation bar's existing bottom border separates it from the Project workspace; an idle
 		// announcement must not reserve another line between them.
 		expect(project!.y - (navigation!.y + navigation!.height)).toBeLessThanOrEqual(1);
+		// Everything about the Base Map is one button of known width, so the floating row is the search,
+		// that button and the frame button on one line at every pane width — which is what the panel
+		// replaced: five controls abreast wrapped differently on each, putting the same control
+		// somewhere new on every screen. The row still clears the zoom control at the pane's bottom
+		// edge, which is what keeps the map's own furniture reachable.
 		expect(
-			Math.abs(search!.y + search!.height / 2 - (baseMapSwitcher!.y + baseMapSwitcher!.height / 2))
+			Math.abs(search!.y + search!.height / 2 - (options!.y + options!.height / 2))
 		).toBeLessThan(2);
-		expect(Math.abs(search!.y + search!.height / 2 - (fit!.y + fit!.height / 2))).toBeLessThan(2);
+		expect(fit!.y + fit!.height).toBeLessThan(zoom!.y);
 		expect(search!.y + search!.height).toBeLessThan(zoom!.y);
 
 		const start = await page.evaluate(() => ({
@@ -329,7 +340,7 @@ test.describe('the Base Map pane', () => {
 		}
 	});
 
-	test('offers content-distinct variants that share one archive', async ({ page }) => {
+	test('draws content-distinct maps from one archive', async ({ page }) => {
 		const archiveUrls = new Set<string>();
 		page.on('request', (request) => {
 			const url = request.url();
@@ -337,6 +348,13 @@ test.describe('the Base Map pane', () => {
 		});
 
 		await openPane(page);
+		await openBaseMapOptions(page);
+		// Framed on the extract this suite's archive fixture actually covers. The catalog opens a new
+		// Project on the whole world (ADR-0026), where there is no built environment to see at all —
+		// and what is under test here is which layers are drawn, not where.
+		await page.evaluate(() =>
+			window.ballastellaBaseMap?.jumpTo({ center: [4.9041, 52.3676], zoom: 14 })
+		);
 
 		// Streets: the built environment is on screen.
 		await expect
@@ -345,9 +363,9 @@ test.describe('the Base Map pane', () => {
 			})
 			.toBe(true);
 
-		await switcher(page).selectOption('physical');
+		await drawSwitch(page, 'Streets').click();
 
-		// Physical geography: it is gone, and water and terrain are what is left.
+		// Streets off: it is gone, and water and terrain are what is left.
 		await expect
 			.poll(async () => (await renderedLayerIds(page)).some((id) => id.startsWith('roads_')), {
 				timeout: 30_000
@@ -356,41 +374,46 @@ test.describe('the Base Map pane', () => {
 		await expect.poll(() => styleLayerIds(page)).toContain('water');
 
 		// The whole zero-extra-data claim, asserted by request interception rather than by eye:
-		// switching variants issued no request to a second archive.
+		// changing what is drawn issued no request to a second archive.
 		expect([...archiveUrls]).toHaveLength(1);
 	});
 
-	test('offers the deployment catalog through a native select without network disclaimers', async ({
+	test('puts everything about the Base Map behind one button, and no list of one', async ({
 		page
 	}) => {
 		await openPane(page);
 
-		const select = switcher(page);
-		await expect(select).toHaveJSProperty('tagName', 'SELECT');
-		const box = await select.boundingBox();
-		if (box === null) throw new Error('the Base Map selector is not laid out');
-		// The widest label is well below this threshold; a full-width selector used to be 20rem.
-		expect(box.width).toBeLessThan(250);
+		// Nothing is on the map until the panel is opened, which is the point of it.
+		await expect(page.getByTestId('base-map-appearance')).toBeHidden();
+		await expect(baseMapOptionsButton(page)).toHaveAttribute('aria-expanded', 'false');
 
-		const options = await select.locator('option').evaluateAll((elements) =>
-			elements.map((element) => ({
-				value: (element as HTMLOptionElement).value,
-				text: (element as HTMLOptionElement).textContent?.trim() ?? ''
-			}))
-		);
-		expect(options).toEqual(CATALOG_OPTIONS);
+		await openBaseMapOptions(page);
+
+		// A `<select>` with a single option is a control that looks like a choice and is not one. This
+		// deployment reads one archive, so the panel offers no tile sources at all — what an author
+		// decides here is how the map is drawn and which borders it asserts.
+		await expect(switcher(page)).toHaveCount(0);
+
+		const switches = page.getByTestId('base-map-appearance').getByRole('checkbox');
+		await expect(switches).toHaveCount(3);
+		expect(
+			await switches.evaluateAll((elements) =>
+				elements.map((element) => (element as HTMLInputElement).getAttribute('aria-label'))
+			)
+		).toEqual(APPEARANCE_SWITCHES);
+		// And the borders beside them, as three radios rather than a second dropdown inside a popover.
+		await expect(page.getByTestId('border-switcher').getByRole('radio')).toHaveCount(3);
 	});
 
-	test('puts the switcher within keyboard reach, and the muted Base Map renders', async ({
+	test('puts the switches within keyboard reach, and the muted Base Map renders', async ({
 		page
 	}) => {
 		await openPane(page);
 
 		// The floating controls follow the persistent chrome in document order. MapLibre's focusable
-		// canvas is rightly between them, so traverse it instead of treating it as an omission. Choosing
-		// *within* a focused `<select>` is the browser's own arrow-key handling — which is exactly why
-		// ADR-0016 mandates a native `<select>` here — and headless Chromium does not run its native
-		// popup, so this asserts the reach and the element, and leaves the popup to the platform.
+		// canvas is rightly between them, so traverse it instead of treating it as an omission. The
+		// switches are native checkboxes, so `Space` operating one is the platform's and is left to it;
+		// what is asserted here is the reach, in the order they are painted.
 		//
 		// The bar is an eyebrow above a main row, and the tab order is that reading order: the eyebrow
 		// first — which Workspace you are in, and whether your work is kept — and then the main row,
@@ -421,14 +444,32 @@ test.describe('the Base Map pane', () => {
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('place-search-submit')).toBeFocused();
 		await page.keyboard.press('Tab');
-		await expect(switcher(page)).toBeFocused();
-
-		// The muted entry has to be genuinely selectable, not merely listed.
-		await switcher(page).selectOption('muted');
-		await expect(switcher(page)).toHaveValue('muted');
-		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
+		await expect(baseMapOptionsButton(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('fit-to-project')).toBeFocused();
+
+		// And the panel opens from the keyboard, on the button the order just reached — `Enter` is the
+		// platform's own, which is the whole reason ADR-0016 mandates a `<button>` with `popovertarget`
+		// rather than a div that listens for clicks.
+		await baseMapOptionsButton(page).focus();
+		await page.keyboard.press('Enter');
+		await expect(baseMapOptionsButton(page)).toHaveAttribute('aria-expanded', 'true');
+		await page.keyboard.press('Tab');
+		await expect(drawSwitch(page, 'Streets')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(drawSwitch(page, 'Topography')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(drawSwitch(page, 'High contrast')).toBeFocused();
+
+		// The muted palette has to be genuinely reachable from the keyboard, not merely rendered.
+		await page.keyboard.press('Space');
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
+		// One Tab reaches the borders, and it lands on the **checked** radio rather than the first —
+		// a radio group is one tab stop and the browser enters it at the current choice, which is why
+		// the group is a group at all. `all` is what a Project draws having said nothing.
+		await page.keyboard.press('Tab');
+		await expect(borderOption(page, 'all')).toBeFocused();
 	});
 });
 
@@ -478,9 +519,9 @@ test.describe('a Base Map archive that does not answer', () => {
 		// repository green. This is the side that would drift, because it is the side with three other
 		// notices around it to be tempted into rewording.
 		//
-		// “Streets” because this Project seeds no author default and the catalog's `defaultId` is that
-		// entry; `support/base-map-notice.ts` says why the expectation is a function.
-		await expect(notice.locator('p')).toHaveText(unavailableNotice('Streets', ARCHIVE_HOST));
+		// The label is the catalog entry's — this deployment reads one archive and names it once;
+		// `support/base-map-notice.ts` says why the expectation is a function.
+		await expect(notice.locator('p')).toHaveText(unavailableNotice('Worldwide', ARCHIVE_HOST));
 
 		// Announced, not merely drawn. `role="alert"` rather than a live region, because this element
 		// is *inserted* when its text first exists and an `aria-live` region is announced on a text
@@ -488,7 +529,7 @@ test.describe('a Base Map archive that does not answer', () => {
 		await expect(notice).toHaveAttribute('role', 'alert');
 
 		// And the rest of the screen still works: the failure is a notice, not a broken page.
-		await expect(switcher(page)).toBeVisible();
+		await expect(baseMapOptionsButton(page)).toBeVisible();
 		expect(crashes.map((error) => error.message)).toEqual([]);
 	});
 
@@ -552,16 +593,14 @@ test.describe('a Base Map archive that does not answer', () => {
 			.toBe(0);
 	});
 
-	test('is withdrawn when the author switches to a Base Map it has not asked yet', async ({
+	test('is withdrawn when the author redraws a Base Map it has not asked yet', async ({
 		page,
 		context
 	}) => {
 		// The other half of the pair, and the half the viewer already drove: `ProjectScreen` clears what
-		// it knows when the chosen entry changes, because a switch asks a fresh question and the answer
-		// to the old one is not an answer to it. The notice carries the **new** entry's label —
-		// `unavailableNotice` composes it from whichever entry is resolved — so an unreset flag does not
-		// merely linger, it accuses a Base Map that has not failed. Deleting that effect left the whole
-		// repository green until this test.
+		// it knows when the Base Map changes — the tiles, or how they are drawn — because either
+		// rebuilds the style and asks the archive again, so the answer to the old question is not an
+		// answer to this one. Deleting that effect left the whole repository green until this test.
 		//
 		// `hang()` is what makes it decidable: after the switch the tile ranges are neither answered nor
 		// refused, so nothing but the reset can clear the flag. A fixture that answered would clear it
@@ -572,16 +611,17 @@ test.describe('a Base Map archive that does not answer', () => {
 
 		const notice = page.getByTestId('base-map-unavailable');
 		await expect(notice).toBeVisible({ timeout: 45_000 });
-		await expect(notice).toContainText('Streets');
+		await expect(notice).toContainText('Worldwide');
 
 		archive.hang();
-		await switcher(page).selectOption('muted');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
 
-		// Nothing is said about “Muted, high contrast” until it has answered for itself.
+		// Nothing is said about the redrawn map until it has answered for itself.
 		await expect(notice).toHaveCount(0);
 		await page.waitForTimeout(3_000);
 		await expect(notice).toHaveCount(0);
-		await expect(switcher(page)).toHaveValue('muted');
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	});
 
@@ -645,12 +685,13 @@ test.describe('the author’s default', () => {
 				Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
 		});
 
-		await switcher(page).selectOption('physical');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'Streets').click();
 
 		await expect(indicator).toHaveAttribute('data-save-state', 'unsaved');
 		await expect(indicator).toHaveText('Unsaved changes');
 		// And the file really is unchanged, rather than half-written.
-		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBeNull();
+		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMapAppearance).toBeUndefined();
 	});
 });
 
@@ -666,8 +707,8 @@ test.describe('the Project the pane opens', () => {
 		await page.goto(HUB);
 
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		// No pane, because no Project was named — and therefore no Base Map to choose.
-		await expect(switcher(page)).toHaveCount(0);
+		// No pane, because no Project was named — and therefore no Base Map to draw.
+		await expect(baseMapOptionsButton(page)).toHaveCount(0);
 		await expect(page.getByRole('listitem')).toHaveCount(0);
 		expect(await workspaceEntries(page)).toEqual([]);
 	});
@@ -686,8 +727,8 @@ test.describe('the Project the pane opens', () => {
 
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('could not be read');
-		// No switcher, because there is no document to record a choice in.
-		await expect(switcher(page)).toHaveCount(0);
+		// No controls, because there is no document to record a choice in.
+		await expect(baseMapOptionsButton(page)).toHaveCount(0);
 		expect(await readProjectFile(page)).toBe(damaged);
 	});
 
@@ -696,7 +737,7 @@ test.describe('the Project the pane opens', () => {
 		// wholesale, which is exactly the silent destruction the refusal exists to prevent — and its
 		// message promises "It has been left untouched."
 		const fromTheFuture =
-			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":"physical"}';
+			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":"a-fork\u2019s-own"}';
 		await page.goto(HUB);
 		await emptyWorkspace(page);
 		await seedProject(page, fromTheFuture);
@@ -706,7 +747,7 @@ test.describe('the Project the pane opens', () => {
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('newer version of Ballastella');
 		await expect(alert).toContainText('left untouched');
-		await expect(switcher(page)).toHaveCount(0);
+		await expect(baseMapOptionsButton(page)).toHaveCount(0);
 		expect(await readProjectFile(page)).toBe(fromTheFuture);
 	});
 

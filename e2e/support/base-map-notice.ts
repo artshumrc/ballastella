@@ -16,8 +16,9 @@
  *
  * So: one expected string, built here, asserted with `toHaveText` (never `toContainText`) on both
  * sides. A **function** rather than a constant because the two specs legitimately render different
- * Base Maps — the editor seeds no author default and gets “Streets”, the viewer asks for “Physical
- * geography” — and a constant would have forced one of them to stop asserting the label.
+ * Base Maps — the editor gets this deployment's own entry, and the viewer whatever entry a published
+ * fixture's catalog carries — and a constant would have forced one of them to stop asserting the
+ * label.
  *
  * ⚠ **What this pins is "both render the same text", not "both call core".** An application that
  * inlined this sentence *verbatim* still passes, and that is the right boundary for a browser test:

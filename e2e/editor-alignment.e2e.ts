@@ -1040,28 +1040,30 @@ test.describe('the Alignment on disk', () => {
 });
 
 /**
- * Choosing the Base Map from the pane you are aligning onto.
+ * Choosing how the Base Map is drawn from the pane you are aligning onto.
  *
- * **This is a reachability test, and that is the point of it.** The switcher's *behaviour* was
- * already covered — `editor-base-map.e2e.ts` drives it thoroughly — but every one of those tests
- * arrives by `page.goto('./base-map/?p=…')`, and so does every test of the Layers pane. A control
- * that no test ever has to *find* can stop being findable without a single assertion going red,
- * which is exactly what happened: the deployment default is a regional extract (ADR-0020), an
- * author aligning a sheet from anywhere else zoomed in and watched the Base Map go blank, and the
- * only way to change it was a URL typed by hand or a button labelled with a Layer count.
+ * **This is a reachability test, and that is the point of it.** The controls' *behaviour* is already
+ * covered — `editor-base-map.e2e.ts` drives them thoroughly — but every one of those tests arrives
+ * by `page.goto('./base-map/?p=…')`, and so does every test of the Layers pane. A control that no
+ * test ever has to *find* can stop being findable without a single assertion going red, which is
+ * exactly what happened once: an author aligning a sheet had no way to change the Base Map but a
+ * URL typed by hand or a button labelled with a Layer count.
  *
- * So this test never navigates. It reaches the switcher the way a scholar does — from the
- * workspace where the wrong Base Map is discovered — and that is the assertion.
+ * The detail an author needs *under a sheet* is not the detail they publish with — roads help place
+ * a street plan and get in the way of a coastline, and it is while aligning that you find out
+ * which. So this test never navigates. It reaches the switches the way a scholar does, from the
+ * workspace where the wrong Base Map is discovered, and that is the assertion.
  */
-test.describe('choosing the Base Map while aligning', () => {
-	const switcher = (page: Page) => page.getByRole('combobox', { name: 'Base Map' });
+test.describe('drawing the Base Map while aligning', () => {
+	const drawSwitch = (page: Page, label: string) =>
+		page.getByRole('checkbox', { name: new RegExp(`^${label} —`) });
 
 	/**
-	 * The Project's recorded Base Map, out of OPFS.
+	 * The Project's recorded Base Map appearance, out of OPFS.
 	 *
-	 * Polled rather than read once: `chooseBaseMap` writes asynchronously, so the `<select>` shows
-	 * the new value before the bytes land — and reading in that window would fail as "the choice was
-	 * not recorded", which is the opposite of what happened.
+	 * Polled rather than read once: `chooseBaseMapAppearance` writes asynchronously, so the switch
+	 * shows its new state before the bytes land — and reading in that window would fail as "the
+	 * choice was not recorded", which is the opposite of what happened.
 	 *
 	 * **And through `readStoredJsonOrNull`, which retries, because the app writes atomically** — a temp
 	 * file, then `move()` over the destination (ADR-0017 rule 4). A read landing inside *that* window
@@ -1070,41 +1072,40 @@ test.describe('choosing the Base Map while aligning', () => {
 	 * was the last remaining failure in the ten consecutive runs measured on `main`, with
 	 * `NotReadableError: The requested file could not be read`.
 	 */
-	const storedBaseMap = async (page: Page): Promise<unknown> =>
-		(await readStoredJsonOrNull<{ baseMap?: unknown }>(page, 'amsterdam-1625/project.json'))
-			?.baseMap ?? null;
+	const storedAppearance = async (page: Page): Promise<unknown> =>
+		(
+			await readStoredJsonOrNull<{ baseMapAppearance?: unknown }>(
+				page,
+				'amsterdam-1625/project.json'
+			)
+		)?.baseMapAppearance ?? null;
 
 	/**
-	 * A non-streets entry, deliberately, so this test exercises changing the author's choice.
+	 * Switching the streets off, deliberately: it is the change an author aligning a coastline makes,
+	 * and it is a departure from the default, so a control that did nothing would be visible.
 	 *
-	 * What is under test here is that the control is reachable and that operating it records the
-	 * author's choice; all three catalog entries use the same archive, which is routed by this suite
-	 * so the test does not depend on a third party's bucket.
-	 *
-	 * The `routeBaseMapArchive` hook at the top of this file supplies the archive bytes used by the
-	 * application.
+	 * The `routeBaseMapArchive` hook at the top of this file supplies the archive bytes, so no test
+	 * here depends on a third party's bucket.
 	 */
-	const OFFLINE_ENTRY = 'physical';
+	const WITHOUT_STREETS = { streets: false, relief: false, muted: false };
 
-	test('the switcher is on the alignment workspace, with no navigation', async ({ page }) => {
+	test('the switches are on the alignment workspace, with no navigation', async ({ page }) => {
 		await start(page);
 
 		// Present beside the pane, on the page the author is already on. `getByRole` rather than a
 		// testid, because "can a user find and operate this" is the question and the accessible name
 		// is what answers it.
-		await expect(switcher(page)).toBeVisible();
+		await expect(drawSwitch(page, 'Streets')).toBeVisible();
 	});
 
-	test('choosing one records it as the Project default and leaves the pane live', async ({
-		page
-	}) => {
+	test('operating one records it in the Project and leaves the pane live', async ({ page }) => {
 		await start(page);
 
-		await switcher(page).selectOption(OFFLINE_ENTRY);
+		await drawSwitch(page, 'Streets').click();
 
-		// The choice is the author's default for the Project (ADR-0020), written through the same
-		// `chooseBaseMap` every other switcher calls — so it is one piece of state, not a third copy.
-		await expect.poll(() => storedBaseMap(page)).toBe(OFFLINE_ENTRY);
+		// The choice is the Project's (ADR-0020), written through the same
+		// `chooseBaseMapAppearance` the Project screen calls — one piece of state, not a third copy.
+		await expect.poll(() => storedAppearance(page)).toEqual(WITHOUT_STREETS);
 
 		// And the pane in front of the author is still a live map afterwards. `setStyle` tears down
 		// every layer this workspace put on it (see `BaseMapPane`), so a repaint that left the pane
@@ -1121,13 +1122,13 @@ test.describe('choosing the Base Map while aligning', () => {
 
 	test('the choice survives a reload, and the workspace opens on it', async ({ page }) => {
 		await start(page);
-		await switcher(page).selectOption(OFFLINE_ENTRY);
-		await expect.poll(() => storedBaseMap(page)).toBe(OFFLINE_ENTRY);
+		await drawSwitch(page, 'Streets').click();
+		await expect.poll(() => storedAppearance(page)).toEqual(WITHOUT_STREETS);
 
 		await page.reload();
 
 		// Reopened from `project.json` rather than from anything held in the page, which is what makes
-		// it the author's default rather than a setting that lasts as long as the tab.
-		await expect(switcher(page)).toHaveValue(OFFLINE_ENTRY);
+		// it the author's setting rather than one that lasts as long as the tab.
+		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
 	});
 });

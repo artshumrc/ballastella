@@ -40,10 +40,12 @@
 		DEFAULT_BASE_MAP_BORDERS,
 		applyOpeningFit,
 		baseMapStyle,
+		DEFAULT_BASE_MAP_APPEARANCE,
 		defaultEntry,
 		isAbsoluteUrl,
 		keepAskingForMissingTiles,
 		type Annotation,
+		type BaseMapAppearance,
 		type BaseMapBorders,
 		type BaseMapBorderStyle,
 		type BaseMapCatalog,
@@ -80,6 +82,7 @@
 
 	let {
 		entryId,
+		appearance = DEFAULT_BASE_MAP_APPEARANCE,
 		borders = DEFAULT_BASE_MAP_BORDERS,
 		borderStyle = DEFAULT_BASE_MAP_BORDER_STYLE,
 		catalog,
@@ -99,12 +102,20 @@
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
 		/**
+		 * How the geography is drawn: streets, relief, muted colours.
+		 *
+		 * **The author's, unless this Reader has overridden it for themselves** — which they may, and
+		 * the page owns that resolution (`reader-preference.ts`). Contrast the borders below, which
+		 * have no second source at all.
+		 */
+		appearance?: BaseMapAppearance;
+		/**
 		 * Which administrative boundaries the geography draws.
 		 *
-		 * **The author's, out of the published `project.json`, and not the Reader's.** A Base Map is a
-		 * Reader's preference on this site (`reader-preference.ts`); which borders are drawn over a work
-		 * is the author's argument about it, so this site offers no control for it and this prop has no
-		 * second source.
+		 * **The author's, out of the published `project.json`, and not the Reader's.** How the Base Map
+		 * is drawn is a Reader's preference on this site (`reader-preference.ts`); which borders are
+		 * drawn over a work is the author's argument about it, so this site offers no control for it and
+		 * this prop has no second source.
 		 */
 		borders?: BaseMapBorders;
 		/** How those boundaries are drawn. The Project's, handed over with the level beside it. */
@@ -291,13 +302,14 @@
 		id: string,
 		currentTheme: string,
 		cachedTo: number | null,
+		drawn: BaseMapAppearance,
 		drawnBorders: BaseMapBorders,
 		drawnStyle: BaseMapBorderStyle
 	): string =>
-		// The styling is in the key as its three values rather than as an object, because this is
-		// compared as a string: a repaint that missed a colour change would leave the map asserting a
-		// border the settings dialog says has been changed.
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
+		// The appearance and the styling are in the key as their own values rather than as objects,
+		// because this is compared as a string: a repaint that missed a colour change would leave the
+		// map asserting a border the settings dialog says has been changed.
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.muted}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	/**
 	 * The style for one catalog entry at the current theme.
@@ -322,6 +334,7 @@
 		if (cachedBaseMap) {
 			const cached = baseMapStyle(entry, {
 				theme: theme.current,
+				appearance,
 				catalog,
 				resolveAsset: resolveSiteAsset,
 				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() },
@@ -357,12 +370,17 @@
 		}
 		const style = baseMapStyle(entry, {
 			theme: theme.current,
+			appearance,
 			catalog,
 			resolveAsset: resolveSiteAsset,
 			// Registered lazily: the protocols spawn a worker, and a site whose catalog names no
-			// elevation dataset never needs one. The cached branch above passes none at all — relief
-			// is a live request, and a site's own tiles are the offline promise (ADR-0025).
-			terrainTiles: catalog.terrain ? registerTerrainProtocols(catalog.terrain) : undefined,
+			// elevation dataset — or a Reader who has switched the relief off — never needs one. The
+			// cached branch above passes none at all: relief is a live request, and a site's own tiles
+			// are the offline promise (ADR-0025).
+			terrainTiles:
+				catalog.terrain && appearance.relief
+					? registerTerrainProtocols(catalog.terrain)
+					: undefined,
 			borders,
 			borderStyle
 		});
@@ -538,6 +556,7 @@
 			entryId,
 			theme.current,
 			cachedBaseMap?.maxZoom ?? null,
+			appearance,
 			borders,
 			borderStyle
 		);
@@ -569,6 +588,7 @@
 			entryId,
 			theme.current,
 			cachedBaseMap?.maxZoom ?? null,
+			appearance,
 			borders,
 			borderStyle
 		);

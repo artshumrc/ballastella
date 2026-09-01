@@ -2,6 +2,7 @@ import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { gradientPng } from './support/alignment-workspace.js';
+import { drawSwitch, openBaseMapOptions } from './support/base-map-options.js';
 import {
 	PROJECT_DIRECTORY,
 	PROJECT_NAME,
@@ -331,8 +332,8 @@ test.describe('the navigation bar', () => {
 			await expect(bar.getByTestId('theme-toggle')).toHaveCount(1);
 			await expect(bar.getByTestId('undo-slot')).toHaveCount(1);
 			await expect(bar.getByTestId('save-slot')).toHaveCount(1);
-			// Base Map selection remains on the Project screen rather than moving into the global bar.
-			await expect(bar.getByRole('combobox', { name: 'Base Map' })).toHaveCount(0);
+			// The Base Map controls stay on the Project screen rather than moving into the global bar.
+			await expect(bar.getByTestId('base-map-options')).toHaveCount(0);
 		};
 
 		await freshWorkspace(page);
@@ -541,12 +542,13 @@ test.describe('what the app says when something is wrong', () => {
 			FileSystemWritableFileStream.prototype.close = () =>
 				Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
 		});
-		// **The Base Map switcher rather than the name field**, because only a write the app awaits
-		// produces a reason at all: `chooseBaseMap` is a discrete choice and is written now, while
-		// typing a name is debounced and its failure surfaces inside the autosave timer, where
+		// **A Base Map switch rather than the name field**, because only a write the app awaits
+		// produces a reason at all: `chooseBaseMapAppearance` is a discrete choice and is written now,
+		// while typing a name is debounced and its failure surfaces inside the autosave timer, where
 		// `EditorSession.#write` is not the thing that catches it. That gap is real and is a separate
 		// claim; what is asserted here is that the reason, once there is one, is announced.
-		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'Streets').click();
 
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'unsaved');
 		const reason = page.getByTestId('save-error');

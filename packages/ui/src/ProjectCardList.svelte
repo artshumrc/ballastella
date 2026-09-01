@@ -32,6 +32,7 @@
 		facts,
 		details,
 		actions,
+		showDirectory = true,
 		class: listClass,
 		testid,
 		itemTestid
@@ -71,6 +72,8 @@
 		 * why a Reader's Front Page is not the author's list with a gap where the buttons were.
 		 */
 		actions?: Snippet<[Item]>;
+		/** Whether the row exposes its internal directory name. */
+		showDirectory?: boolean;
 		/** Where the list sits on its own page, in the consumer's terms — its measure and its margin. */
 		class?: string;
 		/** A handle for the list as a whole, for a consumer whose tests address it. */
@@ -101,10 +104,15 @@
 					{#if project.href}<a class="link" href={project.href}>{project.name}</a
 						>{:else}{project.name}{/if}
 				</svelte:element>
-				<p class="text-sm break-words opacity-70">
-					{#if facts}{@render facts(project)} ·
-					{/if}folder <code>{project.directory}</code>
-				</p>
+				{#if facts || showDirectory}
+					<p class="text-sm break-words opacity-70">
+						{#if facts}{@render facts(project)}{/if}
+						{#if facts && showDirectory}
+							·
+						{/if}
+						{#if showDirectory}folder <code>{project.directory}</code>{/if}
+					</p>
+				{/if}
 				{#if details}{@render details(project)}{/if}
 			</div>
 			{#if actions}

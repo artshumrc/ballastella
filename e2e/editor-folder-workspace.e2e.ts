@@ -1,6 +1,7 @@
 import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
+import { drawSwitch, openBaseMapOptions } from './support/base-map-options.js';
 import { projectNameField } from './support/project-screen';
 import {
 	createFolderWorkspace,
@@ -931,7 +932,9 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 		await createProject(page, 'Amsterdam 1625');
 	});
 
-	test('holds a folder Project route for a gesture that restores its Workspace', async ({ page }) => {
+	test('holds a folder Project route for a gesture that restores its Workspace', async ({
+		page
+	}) => {
 		// The grant has lapsed, so resuming needs `requestPermission()` — which needs transient user
 		// activation. The remembered folder remains the route's destination until that gesture happens;
 		// resolving `?p=` in browser storage would falsely say this Project is missing.
@@ -1153,13 +1156,14 @@ test.describe('the Workspace is the same one on every route', () => {
 		await openFolderFromRoster(page);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 
-		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'Streets').click();
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
 		// The folder's copy carries the choice.
 		expect(JSON.parse(await readInFolder(page, 'amsterdam-1625/project.json'))).toMatchObject({
 			name: 'Amsterdam 1625',
-			baseMap: 'physical'
+			baseMapAppearance: { streets: false }
 		});
 		// And browser storage's namesake is untouched, `updatedAt` included.
 		const untouched = await page.evaluate(async () => {
@@ -1169,9 +1173,9 @@ test.describe('the Workspace is the same one on every route', () => {
 		});
 		expect(JSON.parse(untouched)).toMatchObject({
 			name: 'In browser storage',
-			updatedAt: '2020-01-01T00:00:00.000Z',
-			baseMap: null
+			updatedAt: '2020-01-01T00:00:00.000Z'
 		});
+		expect(JSON.parse(untouched)).not.toHaveProperty('baseMapAppearance');
 	});
 
 	/**
@@ -1679,7 +1683,7 @@ test.describe('synchronizing a folder Workspace', () => {
 						defaultStyle: {}
 					}
 				],
-				baseMap: 'physical'
+				baseMap: null
 			},
 			null,
 			'\t'
@@ -1695,7 +1699,7 @@ test.describe('synchronizing a folder Workspace', () => {
 				name: 'Delft',
 				updatedAt: '2026-02-03T04:05:06.000Z',
 				layers: [],
-				baseMap: 'physical'
+				baseMap: null
 			},
 			null,
 			'\t'

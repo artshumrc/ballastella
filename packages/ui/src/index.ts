@@ -32,6 +32,8 @@ export { default as AnnotationList } from './AnnotationList.svelte';
 export { default as AnnotationRow } from './AnnotationRow.svelte';
 export { default as AppBar } from './AppBar.svelte';
 export { default as BallastellaMark } from './BallastellaMark.svelte';
+export { default as BaseMapAppearanceToggles } from './BaseMapAppearanceToggles.svelte';
+export { default as BaseMapOptions } from './BaseMapOptions.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
 export { default as BorderSwitcher } from './BorderSwitcher.svelte';
 export { default as LayerList } from './LayerList.svelte';

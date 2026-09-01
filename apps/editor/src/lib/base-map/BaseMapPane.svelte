@@ -29,12 +29,14 @@
 		BASE_MAP_SOURCE_ID,
 		baseMapStyle,
 		openingViewFit,
+		DEFAULT_BASE_MAP_APPEARANCE,
 		resolveBaseMap,
 		setGeometry,
 		DEFAULT_BASE_MAP_BORDER_STYLE,
 		DEFAULT_BASE_MAP_BORDERS,
 		type Alignment,
 		type Annotation,
+		type BaseMapAppearance,
 		type BaseMapBorders,
 		type BaseMapBorderStyle,
 		type DistortionView,
@@ -81,6 +83,7 @@
 
 	let {
 		entryId,
+		appearance = DEFAULT_BASE_MAP_APPEARANCE,
 		borders = DEFAULT_BASE_MAP_BORDERS,
 		borderStyle = DEFAULT_BASE_MAP_BORDER_STYLE,
 		cachedBaseMap = null,
@@ -105,6 +108,11 @@
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
+		/**
+		 * How the geography is drawn: streets, relief, muted colours. The Project's, owned and
+		 * persisted by the page exactly as {@link entryId} is.
+		 */
+		appearance?: BaseMapAppearance;
 		/**
 		 * Which administrative boundaries the geography draws. The Project's, owned and persisted by
 		 * the page exactly as {@link entryId} is — this pane only paints what it is handed.
@@ -320,25 +328,28 @@
 		id: string,
 		currentTheme: string,
 		cachedTo: number | null,
+		drawn: BaseMapAppearance,
 		drawnBorders: BaseMapBorders,
 		drawnStyle: BaseMapBorderStyle
 	): string =>
-		// The styling is in the key as its three values rather than as an object, because this is
-		// compared as a string: a repaint that missed a colour change would leave the map asserting a
-		// border the settings dialog says has been changed.
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
+		// The appearance and the styling are in the key as their own values rather than as objects,
+		// because this is compared as a string: a repaint that missed a colour change would leave the
+		// map asserting a border the settings dialog says has been changed.
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.muted}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	const styleFor = (id: string): StyleSpecification =>
 		baseMapStyle(resolveBaseMap(id).entry, {
 			theme: theme.current,
+			appearance,
 			resolveAsset: resolveDeploymentAsset,
 			cachedTiles: cachedBaseMap
 				? { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
 				: undefined,
 			// Registered lazily: the protocols spawn a worker, and a deployment with no elevation
-			// dataset — or a Project the author reads from the offline cache — never needs one.
+			// dataset — or a Project the author reads from the offline cache, or one drawing no
+			// relief — never needs one.
 			terrainTiles:
-				BASE_MAP_CATALOG.terrain && !cachedBaseMap
+				BASE_MAP_CATALOG.terrain && appearance.relief && !cachedBaseMap
 					? registerTerrainProtocols(BASE_MAP_CATALOG.terrain)
 					: undefined,
 			borders,
@@ -491,6 +502,7 @@
 			entryId,
 			theme.current,
 			cachedBaseMap?.maxZoom ?? null,
+			appearance,
 			borders,
 			borderStyle
 		);
@@ -527,6 +539,7 @@
 			entryId,
 			theme.current,
 			cachedBaseMap?.maxZoom ?? null,
+			appearance,
 			borders,
 			borderStyle
 		);

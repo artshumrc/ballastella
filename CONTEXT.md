@@ -79,8 +79,8 @@ The institution whose server a referenced map image's tiles stay on — the thin
 _Avoid_: repository, host, provider, source
 
 **Base Map**:
-The modern reference map of the world that map images are aligned onto and annotations are placed over. One of several the user can switch between.
-_Avoid_: map, background, tiles
+The modern reference map of the world that map images are aligned onto and annotations are placed over. Drawn from one set of tiles, with three independent switches over how it looks — streets, topography, high contrast — which the author sets and a reader may override for themselves. A deployment offering more than one set of tiles also lets them be switched between.
+_Avoid_: map, background, tiles, variant
 
 **Map Snapshot**:
 A clean illustration of a Project's current geographic view: the Base Map and the Map Images and Annotations in visible Layers as they are presently configured and framed, without the application's controls, authoring aids, or embedded attribution. The scholar supplies attribution where the illustration is used. Authors and Readers can download one as an ordinary PNG once everything needed to draw that frame is available; it carries no coordinates or other GIS data.

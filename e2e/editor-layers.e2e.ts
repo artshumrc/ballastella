@@ -637,28 +637,30 @@ type HeaderForeground = {
 const headerForegrounds = (page: Page, theme: string): Promise<HeaderForeground[]> =>
 	page.evaluate((nextTheme) => {
 		document.documentElement.dataset.theme = nextTheme;
-		return [...document.querySelectorAll<HTMLElement>('[data-testid="layer-row"]')].flatMap((row) => {
-			const kind = row.querySelector<HTMLElement>('[data-testid="layer-kind"]');
-			if (!kind) return [];
-			const ink = getComputedStyle(kind).color;
-			const controls: [string, HTMLElement | null][] = [
-				['name', row.querySelector<HTMLElement>('[data-testid="layer-name-text"]')],
-				['handle', row.querySelector<HTMLElement>('[data-testid="layer-drag-handle"]')],
-				['disclosure', row.querySelector<HTMLElement>('[data-testid="layer-disclosure"]')]
-			];
-			return controls.flatMap(([control, element]) =>
-				element
-					? [
-						{
-							control,
-							opacity: getComputedStyle(element).opacity,
-							color: getComputedStyle(element).color,
-							ink
-						}
-					]
-					: []
-			);
-		});
+		return [...document.querySelectorAll<HTMLElement>('[data-testid="layer-row"]')].flatMap(
+			(row) => {
+				const kind = row.querySelector<HTMLElement>('[data-testid="layer-kind"]');
+				if (!kind) return [];
+				const ink = getComputedStyle(kind).color;
+				const controls: [string, HTMLElement | null][] = [
+					['name', row.querySelector<HTMLElement>('[data-testid="layer-name-text"]')],
+					['handle', row.querySelector<HTMLElement>('[data-testid="layer-drag-handle"]')],
+					['disclosure', row.querySelector<HTMLElement>('[data-testid="layer-disclosure"]')]
+				];
+				return controls.flatMap(([control, element]) =>
+					element
+						? [
+								{
+									control,
+									opacity: getComputedStyle(element).opacity,
+									color: getComputedStyle(element).color,
+									ink
+								}
+							]
+						: []
+				);
+			}
+		);
 	}, theme);
 
 test('Layer header controls use each kind’s paired content token in Carto Light and Bumblebee', async ({

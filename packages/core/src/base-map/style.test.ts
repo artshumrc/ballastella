@@ -4,9 +4,10 @@ import { ANNOTATION_COLORS } from '../annotation/annotation';
 import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
-import { resolveBaseMap } from './resolve';
+import { defaultEntry, resolveBaseMap } from './resolve';
 import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID, bordersIllegibleThemes } from './style';
 import { TERRAIN_CONTOUR_SOURCE_ID, TERRAIN_DEM_SOURCE_ID } from './terrain';
+import { DEFAULT_BASE_MAP_APPEARANCE, type BaseMapAppearance } from './appearance';
 import type { BaseMapEntry } from './entry';
 
 const entry = (id: string, catalog = BASE_MAP_CATALOG): BaseMapEntry => {
@@ -15,15 +16,26 @@ const entry = (id: string, catalog = BASE_MAP_CATALOG): BaseMapEntry => {
 	return found;
 };
 
-const layerIds = (id: string, theme: 'light' | 'dark' = 'light'): string[] =>
-	baseMapStyle(entry(id), { theme }).layers.map((layer) => layer.id);
+/** This deployment's tiles. There is one set of them; how they are drawn is the appearance. */
+const tiles = defaultEntry(BASE_MAP_CATALOG);
+
+/** The default appearance with some switches moved, so each test names only what it is about. */
+const look = (patch: Partial<BaseMapAppearance> = {}): BaseMapAppearance => ({
+	...DEFAULT_BASE_MAP_APPEARANCE,
+	...patch
+});
+
+const layerIds = (
+	appearance: BaseMapAppearance = look(),
+	theme: 'light' | 'dark' = 'light'
+): string[] => baseMapStyle(tiles, { theme, appearance }).layers.map((layer) => layer.id);
 
 const paint = (styleLayers: { id: string; paint?: unknown }[], id: string): unknown =>
 	styleLayers.find((layer) => layer.id === id)?.paint;
 
 describe('baseMapStyle', () => {
 	it('reads its tiles through the pmtiles protocol, from one archive', () => {
-		const style = baseMapStyle(entry('streets'), { theme: 'light' });
+		const style = baseMapStyle(tiles, { theme: 'light' });
 		const source = style.sources[BASE_MAP_SOURCE_ID];
 
 		expect(Object.keys(style.sources)).toEqual([BASE_MAP_SOURCE_ID]);
@@ -35,7 +47,7 @@ describe('baseMapStyle', () => {
 		// ADR-0025: the cached case is a `tiles` template under our own protocol, with no archive
 		// anywhere in it — and the ODbL obligation does not lapse because no request leaves the
 		// machine, so the source carries the very same attribution string the networked one does.
-		const cached = baseMapStyle(entry('streets'), {
+		const cached = baseMapStyle(tiles, {
 			theme: 'light',
 			cachedTiles: { maxZoom: 14, tileTemplate: 'ballastella-base-map://tiles/{z}/{x}/{y}' }
 		});
@@ -57,7 +69,7 @@ describe('baseMapStyle', () => {
 	it('caps the cached source at the zoom the cache was filled to', () => {
 		// Without this MapLibre asks for tiles the cache has none of, every one of them comes back
 		// empty, and the map goes blank at exactly the zoom the user was told works offline.
-		const cached = baseMapStyle(entry('streets'), {
+		const cached = baseMapStyle(tiles, {
 			theme: 'light',
 			cachedTiles: { maxZoom: 11, tileTemplate: 'x://{z}/{x}/{y}' }
 		});
@@ -68,9 +80,10 @@ describe('baseMapStyle', () => {
 	it('keeps the glyphs, the sprite, and every layer when reading the cache', () => {
 		// The cache changes where the *tiles* come from and nothing else: the same style documents over
 		// one vector dataset is ADR-0020's zero-extra-bytes claim, and it has to survive caching.
-		const networked = baseMapStyle(entry('muted'), { theme: 'dark' });
-		const cached = baseMapStyle(entry('muted'), {
+		const networked = baseMapStyle(tiles, { theme: 'dark', appearance: look({ muted: true }) });
+		const cached = baseMapStyle(tiles, {
 			theme: 'dark',
+			appearance: look({ muted: true }),
 			cachedTiles: { maxZoom: 14, tileTemplate: 'x://{z}/{x}/{y}' }
 		});
 		expect(cached.layers.map((layer) => layer.id)).toEqual(
@@ -80,34 +93,37 @@ describe('baseMapStyle', () => {
 		expect(cached.sprite).toBe(networked.sprite);
 	});
 
-	it('builds the streets and physical variants over the very same archive URL', () => {
-		const streets = baseMapStyle(entry('streets'), { theme: 'light' });
-		const physical = baseMapStyle(entry('physical'), { theme: 'light' });
-
-		const url = (style: typeof streets): string => {
-			const source = style.sources[BASE_MAP_SOURCE_ID];
+	it('builds every appearance over the very same archive URL', () => {
+		// The zero-extra-data claim, and the reason the switches are switches: turning the streets off
+		// or the colours down is a different style document over identical tiles, never a different
+		// dataset. The relief is the one exception, and it has a source of its own that says so.
+		const url = (appearance: BaseMapAppearance): string => {
+			const source = baseMapStyle(tiles, { theme: 'light', appearance }).sources[
+				BASE_MAP_SOURCE_ID
+			];
 			return source && 'url' in source ? (source.url ?? '') : '';
 		};
 
-		expect(url(streets)).toBe(url(physical));
+		expect(url(look({ streets: false }))).toBe(url(look()));
+		expect(url(look({ muted: true }))).toBe(url(look()));
 	});
 
-	it('drops the built environment from the physical variant and keeps it in streets', () => {
-		const streets = layerIds('streets');
-		const physical = layerIds('physical');
+	it('drops the built environment when the streets are switched off', () => {
+		const streets = layerIds(look());
+		const bare = layerIds(look({ streets: false }));
 
 		expect(streets.some((id) => id.startsWith('roads_'))).toBe(true);
 		expect(streets).toContain('buildings');
-		expect(physical.some((id) => id.startsWith('roads_'))).toBe(false);
-		expect(physical).not.toContain('buildings');
+		expect(bare.some((id) => id.startsWith('roads_'))).toBe(false);
+		expect(bare).not.toContain('buildings');
 	});
 
-	it('keeps water, landcover, and place labels in the physical variant', () => {
-		const physical = layerIds('physical');
+	it('keeps water, landcover, and place labels with the streets switched off', () => {
+		const bare = layerIds(look({ streets: false }));
 
-		expect(physical).toContain('water');
-		expect(physical).toContain('landcover');
-		expect(physical).toContain('places_locality');
+		expect(bare).toContain('water');
+		expect(bare).toContain('landcover');
+		expect(bare).toContain('places_locality');
 	});
 
 	it('draws both boundary layers by default, and they are the ids `borders.ts` names', () => {
@@ -115,7 +131,7 @@ describe('baseMapStyle', () => {
 		// filter over two layer ids, so a `@protomaps/basemaps` upgrade that renamed either one would
 		// leave all three choices drawing the same map with nothing failing. The ids come from the
 		// installed package here, not from a fixture, so the rename fails the build instead.
-		const drawn = layerIds('streets');
+		const drawn = layerIds();
 
 		expect(drawn).toContain(NATIONAL_BOUNDARY_LAYER);
 		expect(drawn).toContain(SUBNATIONAL_BOUNDARY_LAYER);
@@ -124,7 +140,7 @@ describe('baseMapStyle', () => {
 	it('draws the boundary lines heavier than the hairlines upstream ships', () => {
 		// End-to-end over the real `@protomaps/basemaps` output rather than a fabricated layer: an
 		// upgrade that changed upstream's widths would otherwise leave this passing against a fixture.
-		const drawn = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
+		const drawn = baseMapStyle(tiles, { theme: 'light' }).layers;
 		const national = paint(drawn, NATIONAL_BOUNDARY_LAYER) as Record<string, unknown>;
 		const subnational = paint(drawn, SUBNATIONAL_BOUNDARY_LAYER) as Record<string, unknown>;
 
@@ -135,8 +151,8 @@ describe('baseMapStyle', () => {
 	it('repaints the boundary lines in both themes, and never the same colour in each', () => {
 		// ADR-0016: a border legible on the pale map and invisible on the dark one is the failure the
 		// theme argument exists to prevent, and a hardcoded colour is exactly how it happens.
-		const light = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
-		const dark = baseMapStyle(entry('streets'), { theme: 'dark' }).layers;
+		const light = baseMapStyle(tiles, { theme: 'light' }).layers;
+		const dark = baseMapStyle(tiles, { theme: 'dark' }).layers;
 		const colour = (styleLayers: typeof light): unknown =>
 			(paint(styleLayers, NATIONAL_BOUNDARY_LAYER) as Record<string, unknown>)['line-color'];
 
@@ -151,7 +167,7 @@ describe('baseMapStyle', () => {
 		const both: string[] = [];
 		const oneOnly: string[] = [];
 		for (const colour of ANNOTATION_COLORS) {
-			const failing = bordersIllegibleThemes(entry('streets'), colour.value);
+			const failing = bordersIllegibleThemes(look(), colour.value);
 			(failing.length === 0 ? both : oneOnly).push(colour.name);
 		}
 
@@ -162,13 +178,13 @@ describe('baseMapStyle', () => {
 	it('names the theme a colour actually fails in, rather than both every time', () => {
 		// White is invisible on the pale ground and perfectly legible on the dark one, and the warning
 		// has to say which — an author on a dark screen is otherwise told their visible line is wrong.
-		expect(bordersIllegibleThemes(entry('streets'), '#ffffff')).toEqual(['light']);
-		expect(bordersIllegibleThemes(entry('streets'), '#000000')).toEqual(['dark']);
+		expect(bordersIllegibleThemes(look(), '#ffffff')).toEqual(['light']);
+		expect(bordersIllegibleThemes(look(), '#000000')).toEqual(['dark']);
 	});
 
 	it('drops the divisions inside a nation for national, and both for none', () => {
-		const national = baseMapStyle(entry('streets'), { theme: 'light', borders: 'national' }).layers;
-		const none = baseMapStyle(entry('streets'), { theme: 'light', borders: 'none' }).layers;
+		const national = baseMapStyle(tiles, { theme: 'light', borders: 'national' }).layers;
+		const none = baseMapStyle(tiles, { theme: 'light', borders: 'none' }).layers;
 
 		expect(national.map((layer) => layer.id)).toContain(NATIONAL_BOUNDARY_LAYER);
 		expect(national.map((layer) => layer.id)).not.toContain(SUBNATIONAL_BOUNDARY_LAYER);
@@ -179,8 +195,8 @@ describe('baseMapStyle', () => {
 	it('takes nothing but the boundaries away, and reads the same one archive doing it', () => {
 		// The zero-extra-data claim, restated for this control: hiding borders is a shorter layer list
 		// over identical tiles, so it costs no request and cannot make a map go blank.
-		const all = baseMapStyle(entry('streets'), { theme: 'light', borders: 'all' });
-		const none = baseMapStyle(entry('streets'), { theme: 'light', borders: 'none' });
+		const all = baseMapStyle(tiles, { theme: 'light', borders: 'all' });
+		const none = baseMapStyle(tiles, { theme: 'light', borders: 'none' });
 		const removed = all.layers
 			.map((layer) => layer.id)
 			.filter((id) => !none.layers.some((layer) => layer.id === id));
@@ -189,38 +205,69 @@ describe('baseMapStyle', () => {
 		expect(none.sources).toEqual(all.sources);
 	});
 
-	it('hides borders on any Base Map, because the boundaries are in the tiles and not in the entry', () => {
-		for (const id of ['streets', 'physical', 'muted']) {
-			const none = baseMapStyle(entry(id), { theme: 'light', borders: 'none' }).layers;
+	it('hides borders under any appearance, because the boundaries are in the tiles', () => {
+		for (const appearance of [look(), look({ streets: false }), look({ muted: true })]) {
+			const none = baseMapStyle(tiles, { theme: 'light', appearance, borders: 'none' }).layers;
 			expect(none.map((layer) => layer.id)).not.toContain(NATIONAL_BOUNDARY_LAYER);
 		}
 	});
 
-	it('gives the streets variant labels, which is what makes it a streets-and-labels map', () => {
-		expect(layerIds('streets')).toContain('roads_labels_major');
+	it('gives the streets their labels, which is what makes them a street map', () => {
+		expect(layerIds()).toContain('roads_labels_major');
 	});
 
-	it('repaints the natural world in the physical variant, over identical tiles', () => {
-		const streets = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
-		const physical = baseMapStyle(entry('physical'), { theme: 'light' }).layers;
+	it('repaints the natural world with the streets off, over identical tiles', () => {
+		const streets = baseMapStyle(tiles, { theme: 'light' }).layers;
+		const bare = baseMapStyle(tiles, {
+			theme: 'light',
+			appearance: look({ streets: false })
+		}).layers;
 
-		expect(paint(physical, 'landuse_park')).not.toEqual(paint(streets, 'landuse_park'));
+		expect(paint(bare, 'landuse_park')).not.toEqual(paint(streets, 'landuse_park'));
 	});
 
-	it('changes every colour with the theme, from the entry the author chose', () => {
-		const light = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
-		const dark = baseMapStyle(entry('streets'), { theme: 'dark' }).layers;
+	it('changes every colour with the theme', () => {
+		const light = baseMapStyle(tiles, { theme: 'light' }).layers;
+		const dark = baseMapStyle(tiles, { theme: 'dark' }).layers;
 
 		expect(paint(dark, 'background')).not.toEqual(paint(light, 'background'));
 		expect(paint(dark, 'water')).not.toEqual(paint(light, 'water'));
 	});
 
-	it('selects the muted flavor for the muted entry, and its sprite with it', () => {
-		const muted = baseMapStyle(entry('muted'), { theme: 'light' });
-		const streets = baseMapStyle(entry('streets'), { theme: 'light' });
+	it('selects the muted flavor when high contrast is on, and its sprite with it', () => {
+		const muted = baseMapStyle(tiles, { theme: 'light', appearance: look({ muted: true }) });
+		const ordinary = baseMapStyle(tiles, { theme: 'light' });
 
-		expect(muted.sprite).not.toBe(streets.sprite);
-		expect(paint(muted.layers, 'water')).not.toEqual(paint(streets.layers, 'water'));
+		expect(muted.sprite).not.toBe(ordinary.sprite);
+		expect(paint(muted.layers, 'water')).not.toEqual(paint(ordinary.layers, 'water'));
+	});
+
+	it('keeps the three switches independent, so every combination is a different map', () => {
+		// ⚠ **The assertion the named variants could not make.** Four entries covered four of these
+		// eight, and the ones they left out — contours under a road network, a muted palette with the
+		// relief still shaded — were the combinations scholars asked for. A regression letting one
+		// switch swallow another would still draw a map; only counting them catches it.
+		const drawn = new Set<string>();
+		for (const streets of [true, false]) {
+			for (const relief of [true, false]) {
+				for (const muted of [true, false]) {
+					const style = baseMapStyle(tiles, {
+						theme: 'light',
+						appearance: { streets, relief, muted },
+						terrainTiles: { dem: 'dem://x', contours: 'contour://x' }
+					});
+					drawn.add(
+						JSON.stringify([
+							style.sprite,
+							style.layers.map((layer) => layer.id),
+							paint(style.layers, 'landuse_park')
+						])
+					);
+				}
+			}
+		}
+
+		expect(drawn.size).toBe(8);
 	});
 
 	it('resolves relative asset paths through the caller, leaving placeholders intact', () => {
@@ -231,7 +278,7 @@ describe('baseMapStyle', () => {
 		const source = style.sources[BASE_MAP_SOURCE_ID];
 
 		expect(style.glyphs).toBe('https://example.test/site/base-map/fonts/{fontstack}/{range}.pbf');
-		expect(style.sprite).toBe('https://example.test/site/base-map/sprites/white');
+		expect(style.sprite).toBe('https://example.test/site/base-map/sprites/light');
 		expect(source && 'url' in source ? source.url : '').toBe(
 			'pmtiles://https://example.test/site/tiles/harbours.pmtiles'
 		);
@@ -241,13 +288,11 @@ describe('baseMapStyle', () => {
 		// Every shipped entry reads `REMOTE_ARCHIVE`, so this asserts against the catalog rather than a
 		// fixture: it is the real archive URL a deployment would repoint (ADR-0020), and `resolveAsset`
 		// prefixing it would produce a style that fetches nothing.
-		const remote = entry('streets');
-
-		expect(remote.archive).toMatch(/^https:\/\//);
-		expect(archiveUrl(remote, (path) => `https://example.test/${path}`)).toBe(remote.archive);
+		expect(tiles.archive).toMatch(/^https:\/\//);
+		expect(archiveUrl(tiles, (path) => `https://example.test/${path}`)).toBe(tiles.archive);
 	});
 
-	it('takes glyphs from the catalog alone, so no entry or theme can be without them', () => {
+	it('takes glyphs from the catalog alone, so no appearance or theme can be without them', () => {
 		// A Label's words are shaped from the Base Map's typefaces, and the stack omits the
 		// Label bucket where the style carries none (`styleHasGlyphs` in `render/stack-layers.ts`) — which
 		// is the state of a Published Site written before ADR-0025. **The editor never reaches that
@@ -256,7 +301,7 @@ describe('baseMapStyle', () => {
 		// code path and no entry-or-theme combination that can miss it. Looping the catalog × both themes
 		// would call that one path N×2 times and prove no more than this does.
 		const asked: string[] = [];
-		const style = baseMapStyle(entry('streets'), {
+		const style = baseMapStyle(tiles, {
 			theme: 'light',
 			// The editor's own `resolveDeploymentAsset` shape: concatenation onto a prefix, chosen because
 			// `new URL()` would percent-encode the braces and MapLibre's plain-string substitution would
@@ -276,7 +321,7 @@ describe('baseMapStyle', () => {
 	});
 
 	it('carries the tile attribution, which ODbL makes an obligation', () => {
-		const source = baseMapStyle(entry('streets'), { theme: 'light' }).sources[BASE_MAP_SOURCE_ID];
+		const source = baseMapStyle(tiles, { theme: 'light' }).sources[BASE_MAP_SOURCE_ID];
 
 		expect(source && 'attribution' in source ? source.attribution : '').toContain('OpenStreetMap');
 	});
@@ -287,8 +332,10 @@ describe('a topographic Base Map', () => {
 	// puts them in a source and never parses one — and standing in for them is what keeps
 	// `maplibre-contour`, its worker, and its network out of a unit test.
 	const terrainTiles = { dem: 'dem-protocol://shared', contours: 'contour-protocol://lines' };
+	// The fork's own tiles under the topographic look a scholar reaches for: relief on, streets off.
 	const topographic = () => entry('ordnance-relief', FORKED_CATALOG);
-	const options = { theme: 'light' as const, catalog: FORKED_CATALOG, terrainTiles };
+	const appearance = look({ streets: false, relief: true });
+	const options = { theme: 'light' as const, catalog: FORKED_CATALOG, appearance, terrainTiles };
 
 	it('draws relief and contours from one elevation dataset, described by the catalog', () => {
 		const sources = baseMapStyle(topographic(), options).sources;
@@ -334,19 +381,29 @@ describe('a topographic Base Map', () => {
 		expect(ids.indexOf('terrain_contour_labels')).toBe(firstPlaceName - 1);
 	});
 
-	it('drops the built environment, as any terrain variant does', () => {
-		const ids = baseMapStyle(topographic(), options).layers.map((layer) => layer.id);
+	it('drops the built environment when the streets are off, and keeps it when they are on', () => {
+		// **The combination the named variants could not offer**: contour lines under a road network.
+		// Relief and streets are independent switches, so a topographic map is not implicitly a
+		// physical one.
+		const bare = baseMapStyle(topographic(), options).layers.map((layer) => layer.id);
+		const withStreets = baseMapStyle(topographic(), {
+			...options,
+			appearance: look({ relief: true })
+		}).layers.map((layer) => layer.id);
 
-		expect(ids.some((id) => id.startsWith('roads_'))).toBe(false);
-		expect(ids).toContain('water');
+		expect(bare.some((id) => id.startsWith('roads_'))).toBe(false);
+		expect(bare).toContain('water');
+		expect(withStreets.some((id) => id.startsWith('roads_'))).toBe(true);
+		expect(withStreets).toContain('terrain_contours');
 	});
 
 	it('draws terrain without relief where the deployment has provisioned no elevation dataset', () => {
-		// A fork editing the catalog must not be able to produce a blank pane. The entry loses its
-		// relief and keeps its map.
+		// A fork editing the catalog must not be able to produce a blank pane. The map loses its
+		// relief and keeps everything else.
 		const style = baseMapStyle(entry('ordnance-relief', CATALOG_WITHOUT_TERRAIN), {
 			theme: 'light',
 			catalog: CATALOG_WITHOUT_TERRAIN,
+			appearance,
 			terrainTiles
 		});
 
@@ -356,7 +413,11 @@ describe('a topographic Base Map', () => {
 	});
 
 	it('draws no relief where the caller registered no protocols to serve it', () => {
-		const style = baseMapStyle(topographic(), { theme: 'light', catalog: FORKED_CATALOG });
+		const style = baseMapStyle(topographic(), {
+			theme: 'light',
+			catalog: FORKED_CATALOG,
+			appearance
+		});
 
 		expect(Object.keys(style.sources)).toEqual([BASE_MAP_SOURCE_ID]);
 		expect(style.layers.some((layer) => layer.id.startsWith('terrain_'))).toBe(false);
@@ -375,8 +436,11 @@ describe('a topographic Base Map', () => {
 		expect(style.layers.some((layer) => layer.id.startsWith('terrain_'))).toBe(false);
 	});
 
-	it('leaves every other entry without a second source', () => {
-		const streets = baseMapStyle(entry('parish-roads', FORKED_CATALOG), options);
+	it('leaves a map drawing no relief without a second source', () => {
+		const streets = baseMapStyle(entry('parish-roads', FORKED_CATALOG), {
+			...options,
+			appearance: look()
+		});
 
 		expect(Object.keys(streets.sources)).toEqual([BASE_MAP_SOURCE_ID]);
 	});
@@ -394,16 +458,20 @@ describe('baseMapStyle over a forked catalog', () => {
 
 		expect(source && 'url' in source ? source.url : '').toBe('pmtiles://tiles/harbours.pmtiles');
 		expect(style.glyphs).toBe('typefaces/{fontstack}/{range}.pbf');
-		expect(style.sprite).toBe('icons/white');
+		expect(style.sprite).toBe('icons/light');
 		expect(source && 'attribution' in source ? source.attribution : '').toBe(
 			'Somebody else entirely'
 		);
 	});
 
-	it('honours a forked entry emphasis and a flavor that carries no landcover struct', () => {
-		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), options);
+	it('honours a flavor that carries no landcover struct, over a forked archive', () => {
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			...options,
+			appearance: look({ streets: false, muted: true })
+		});
 
-		// `white` has no landcover colours to borrow, so the emphasis is the layer selection.
+		// `grayscale` has no landcover colours to borrow, so the map is its layer selection alone.
+		expect(style.sprite).toBe('icons/grayscale');
 		expect(style.layers.some((layer) => layer.id.startsWith('roads_'))).toBe(false);
 		expect(style.layers.some((layer) => layer.id === 'water')).toBe(true);
 	});

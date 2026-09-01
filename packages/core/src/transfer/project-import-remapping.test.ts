@@ -378,7 +378,11 @@ describe('remapProjectImport', () => {
 		const record = parseReferencedImage(files.get('images/fresh-2/remote.json') as Bytes, {
 			imageId: 'fresh-2'
 		});
-		expect(record).toEqual({ ...REMOTE_JSON, imageId: 'fresh-2' });
+		expect(record).toEqual({
+			...REMOTE_JSON,
+			imageId: 'fresh-2',
+			source: REMOTE_JSON.partOf
+		});
 
 		const bytes = files.get(alignmentPath('fresh-2')) as Bytes;
 		expect(JSON.parse(decode(bytes)).target.source.id).toBe(LIBRARY_SERVICE);

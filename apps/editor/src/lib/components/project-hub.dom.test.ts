@@ -44,6 +44,7 @@ const map = (imageId: string, over: Partial<WorkspaceMapImage> = {}): WorkspaceM
 	files: 4,
 	usedBy: [],
 	mightBeUsedBy: [],
+	provenance: null,
 	...over
 });
 
@@ -104,9 +105,7 @@ describe('what a Map Image card says about the map', () => {
 		// Singular, because "1 files" is the sort of thing a scholar reads as a bug in the tool.
 		expect(text(cards()[1])).toContain('in 1 file');
 		expect(text(cards()[1])).not.toContain('1 files');
-		// The folder name is on the card too: it is the Workspace's own identity for the map, and
-		// what `?p=` and a Published Site's paths are built from.
-		expect(text(cards()[0])).toContain('folder shared');
+		expect(text(cards()[0])).not.toContain('folder shared');
 	});
 
 	// A map whose records carry no label at all still has to be identifiable and deletable, so the
@@ -146,6 +145,49 @@ describe('what a Map Image card says about the map', () => {
 		hub({ mapImages: [map('remote-one', { tiles: 'referenced' })] });
 
 		expect(text(cards()[0])).toContain('Tiles on a Library’s server');
+	});
+
+	test('expands a referenced Map Image’s stored provenance', () => {
+		hub({
+			mapImages: [
+				map('remote-one', {
+					provenance: { source: 'https://library.example/iiif/collection', canvasLabel: 'Plan 2' }
+				})
+			]
+		});
+
+		const button = [...cards()[0].querySelectorAll('button')].find(
+			(button) => text(button) === 'Provenance'
+		);
+		expect(button).toHaveAttribute('aria-expanded', 'false');
+		expect(document.querySelector('[data-testid="map-image-provenance"]')).toBeNull();
+
+		button?.click();
+		flushSync();
+
+		expect(button).toHaveAccessibleName('Hide provenance');
+		expect(text(at('map-image-provenance'))).toContain('Source');
+		expect(text(at('map-image-provenance'))).toContain('https://library.example/iiif/collection');
+		expect(text(at('map-image-provenance'))).toContain('Canvas Plan 2');
+	});
+
+	test('does not turn an invalid provenance value into a link', () => {
+		hub({
+			mapImages: [
+				map('remote-one', {
+					provenance: { source: 'javascript:alert(1)', canvasLabel: '' }
+				})
+			]
+		});
+
+		[...cards()[0].querySelectorAll('button')]
+			.find((button) => text(button) === 'Provenance')
+			?.click();
+		flushSync();
+
+		const provenance = at('map-image-provenance');
+		expect(text(provenance)).toContain('javascript:alert(1)');
+		expect([...provenance.querySelectorAll('a')]).toEqual([]);
 	});
 });
 
@@ -371,9 +413,7 @@ describe('a row’s actions, and the one that is destructive', () => {
 	// pinned here is the class carrying it and the text arriving unmangled.
 	test('renders a Project’s description, keeping the breaks its author typed', () => {
 		hub({
-			projects: [
-				project('amsterdam-1625', { description: 'Blaeu, 1649.\n\nSheets 1–4 only.' })
-			]
+			projects: [project('amsterdam-1625', { description: 'Blaeu, 1649.\n\nSheets 1–4 only.' })]
 		});
 
 		const described = at('project-description');

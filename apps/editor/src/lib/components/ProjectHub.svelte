@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import Copy from '@lucide/svelte/icons/copy';
 	import MapIcon from '@lucide/svelte/icons/map';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -413,6 +414,8 @@
 
 	/** What just happened to a Map Image, for the live region. `''` when nothing has. */
 	let mapImageMessage = $state('');
+	/** The Map Image rows whose provenance is expanded. */
+	let provenanceShown = new SvelteSet<string>();
 
 	// Walked when the hub appears and again whenever the Project list changes, because the Project
 	// documents are where used-by is read from — a Project deleted here can be the last one that drew a
@@ -447,6 +450,15 @@
 	/** How many files a map is, beside what it weighs: 3 files and 31 000 files are different news. */
 	const fileCount = (map: WorkspaceMapImage): string =>
 		`${map.files} ${map.files === 1 ? 'file' : 'files'}`;
+
+	const externalUrl = (value: string): string | null => {
+		try {
+			const url = new URL(value);
+			return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+		} catch {
+			return null;
+		}
+	};
 
 	/**
 	 * Which Projects draw a map, what refining it moves, and plainly when none do.
@@ -513,6 +525,11 @@
 		mapImageMessage = '';
 		session.dismissMapImageError();
 		deletingMap = map;
+	};
+
+	const toggleProvenance = (imageId: string) => {
+		if (provenanceShown.has(imageId)) provenanceShown.delete(imageId);
+		else provenanceShown.add(imageId);
 	};
 
 	/** The Projects the list believes draw the map being confirmed, in one sentence, or `''`. */
@@ -626,7 +643,7 @@ What else the Hub says about a Project: whether this build can read it.
 	     it is the one to copy or open in a new tab; a link here would put two of them on every row
 	     under two different accessible names, which is what a screen reader reads out as a list of
 	     destinations. -->
-	<button class="btn btn-primary btn-sm gap-2" onclick={() => goto(project.href)}>
+	<button class="btn gap-2 btn-primary btn-sm" onclick={() => goto(project.href)}>
 		<MapIcon class="size-4" aria-hidden="true" />
 		Open<span class="sr-only"> {project.name}</span>
 	</button>
@@ -638,12 +655,12 @@ What else the Hub says about a Project: whether this build can read it.
 	     there — there is no manifest to write back — but Export is inside it, and a Project from a
 	     newer version is the one a user most needs to get out of a browser they cannot see into;
 	     export never parses `project.json` (ADR-0010). -->
-	<button class="btn btn-outline btn-sm gap-2" onclick={() => startEditing(project)}>
+	<button class="btn gap-2 btn-outline btn-sm" onclick={() => startEditing(project)}>
 		<Pencil class="size-4" aria-hidden="true" />
 		Edit<span class="sr-only"> {project.name}</span>
 	</button>
 	<button
-		class="btn btn-ghost btn-sm gap-2"
+		class="btn gap-2 btn-ghost btn-sm"
 		onclick={() => session.duplicateProject(project.directory)}
 		disabled={project.problem !== null}
 	>
@@ -684,10 +701,41 @@ What else the Hub says about a Project: whether this build can read it.
 	<p class="text-sm opacity-70" data-testid="used-by" data-used-by-count={entry.map.usedBy.length}>
 		{usedBy(entry.map)}
 	</p>
+	{#if entry.map.provenance && provenanceShown.has(entry.map.imageId)}
+		<dl class="mt-2 grid gap-x-4 text-sm" data-testid="map-image-provenance">
+			<dt class="font-medium">Source</dt>
+			<dd>
+				{#if externalUrl(entry.map.provenance.source)}
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a
+						class="link break-all"
+						href={externalUrl(entry.map.provenance.source)}
+						rel="noreferrer noopener"
+						target="_blank">{entry.map.provenance.source}</a
+					>
+				{:else}
+					<span class="break-all">{entry.map.provenance.source}</span>
+				{/if}
+			</dd>
+			{#if entry.map.provenance.canvasLabel}
+				<dt class="font-medium">Canvas</dt>
+				<dd>{entry.map.provenance.canvasLabel}</dd>
+			{/if}
+		</dl>
+	{/if}
 {/snippet}
 
 <!-- Delete is the last control in the row and the only one in `error`. -->
 {#snippet mapActions(entry: ListedMapImage)}
+	{#if entry.map.provenance}
+		<button
+			class="btn btn-ghost btn-sm"
+			aria-expanded={provenanceShown.has(entry.map.imageId)}
+			onclick={() => toggleProvenance(entry.map.imageId)}
+		>
+			{provenanceShown.has(entry.map.imageId) ? 'Hide provenance' : 'Provenance'}
+		</button>
+	{/if}
 	<button class="btn btn-outline btn-error btn-sm" onclick={() => askToDelete(entry.map)}>
 		Delete<span class="sr-only"> {entry.name}</span>
 	</button>
@@ -738,7 +786,7 @@ What else the Hub says about a Project: whether this build can read it.
 				{/if}
 			</div>
 			<div class="flex flex-wrap gap-2">
-				<button class="btn btn-success gap-2" onclick={startCreating}>
+				<button class="btn gap-2 btn-success" onclick={startCreating}>
 					<Plus class="size-4" aria-hidden="true" />
 					New Project
 				</button>
@@ -750,28 +798,40 @@ What else the Hub says about a Project: whether this build can read it.
 						testid="import-existing-project"
 					>
 						<li>
-							<button data-testid="import-project" class="font-semibold" onclick={() => fromImportMenu(startImporting)}>
+							<button
+								data-testid="import-project"
+								class="font-semibold"
+								onclick={() => fromImportMenu(startImporting)}
+							>
 								Load a Project File
 							</button>
 						</li>
 						<li>
-							<button data-testid="open-bundle" class="font-semibold" onclick={() => fromImportMenu(startOpeningBundle)}>
+							<button
+								data-testid="open-bundle"
+								class="font-semibold"
+								onclick={() => fromImportMenu(startOpeningBundle)}
+							>
 								<div>
 									Review a Project
-									<span class="text-xs opacity-70 block font-normal">
+									<span class="block text-xs font-normal opacity-70">
 										Load a project archive file (.tar) in an isolated workspace
 									</span>
-								</div>  
+								</div>
 							</button>
 						</li>
 						<li>
-							<button data-testid="review-remote" class="font-semibold" onclick={() => fromImportMenu(startReviewingRemote)}>
+							<button
+								data-testid="review-remote"
+								class="font-semibold"
+								onclick={() => fromImportMenu(startReviewingRemote)}
+							>
 								<div>
 									Review from GitHub
-									<span class="text-xs opacity-70 block font-normal">
+									<span class="block text-xs font-normal opacity-70">
 										Load a project from a GitHub repository in an isolated workspace
 									</span>
-								</div>  
+								</div>
 							</button>
 						</li>
 					</MenuPopover>
@@ -969,6 +1029,7 @@ What else the Hub says about a Project: whether this build can read it.
 					facts={mapFacts}
 					details={mapDetails}
 					actions={mapActions}
+					showDirectory={false}
 					itemTestid="map-image"
 				/>
 				<p class="mt-3 text-sm opacity-70" data-testid="map-images-total">
@@ -1031,8 +1092,7 @@ What else the Hub says about a Project: whether this build can read it.
 			class="textarea w-full"
 			rows="3"
 			bind:value={newDescription}
-			placeholder="What this Project is, for whoever opens it next."
-		></textarea>
+			placeholder="What this Project is, for whoever opens it next."></textarea>
 	</label>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (creating = false)}>Cancel</button>
@@ -1060,8 +1120,7 @@ What else the Hub says about a Project: whether this build can read it.
 			rows="3"
 			bind:value={editedDescription}
 			disabled={unwritable}
-			placeholder="What this Project is, for whoever opens it next."
-		></textarea>
+			placeholder="What this Project is, for whoever opens it next."></textarea>
 	</label>
 	<p class="mt-3 text-sm opacity-70">
 		{#if unwritable}
@@ -1088,7 +1147,7 @@ What else the Hub says about a Project: whether this build can read it.
 			Export Project
 		</button>
 		<button
-			class="btn btn-outline btn-error btn-sm ms-auto"
+			class="btn ms-auto btn-outline btn-error btn-sm"
 			onclick={() => editing && askToDeleteProject(editing)}
 		>
 			Delete Project…

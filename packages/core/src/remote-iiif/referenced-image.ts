@@ -166,6 +166,8 @@ export type ReferencedImage = {
 	readonly imageId: string;
 	/** The canonical remote image service URI. */
 	readonly service: string;
+	/** The IIIF resource URL the scholar first pasted to reach this Map Image. */
+	readonly source: string;
 	/** What the library calls this image, for the Layer's starting name. `''` when unlabelled. */
 	readonly label: string;
 	/** The Manifest or Collection the user browsed to reach it, if any. */
@@ -195,13 +197,16 @@ export type ReferencedImage = {
 /** Everything a caller must say to record a referenced image. `id`s are never invented here. */
 export type ReferencedImageFields = Omit<
 	ReferencedImage,
-	'label' | 'partOf' | 'canvas' | 'rights' | 'attribution'
+	'source' | 'label' | 'partOf' | 'canvas' | 'rights' | 'attribution'
 > &
-	Partial<Pick<ReferencedImage, 'label' | 'partOf' | 'canvas' | 'rights' | 'attribution'>>;
+	Partial<
+		Pick<ReferencedImage, 'source' | 'label' | 'partOf' | 'canvas' | 'rights' | 'attribution'>
+	>;
 
 export const referencedImage = (fields: ReferencedImageFields): ReferencedImage => ({
 	imageId: fields.imageId,
 	service: canonicalServiceUri(fields.service),
+	source: fields.source || fields.partOf || fields.service,
 	label: fields.label ?? '',
 	partOf: fields.partOf ?? '',
 	canvas: fields.canvas ?? '',
@@ -216,6 +221,7 @@ export const referencedImage = (fields: ReferencedImageFields): ReferencedImage 
 export const serialiseReferencedImage = (image: ReferencedImage): Bytes =>
 	serialiseJson({
 		service: image.service,
+		source: image.source,
 		label: image.label,
 		partOf: image.partOf,
 		canvas: image.canvas,
@@ -291,6 +297,7 @@ export function parseReferencedImage(
 	return referencedImage({
 		imageId,
 		service,
+		source: text(record['source']),
 		label: text(record['label']),
 		partOf: text(record['partOf']),
 		canvas: text(record['canvas']),
