@@ -1,6 +1,6 @@
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
