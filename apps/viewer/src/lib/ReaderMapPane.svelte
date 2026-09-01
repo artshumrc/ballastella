@@ -447,6 +447,7 @@
 			style: styleFor(entryId),
 			center: [...catalog.initialView.center],
 			zoom: catalog.initialView.zoom,
+			maxPitch: 0,
 			// ODbL makes the attribution a licence condition, so it is not folded behind an "i". On a
 			// Published Site it is also the Reader's only account of whose modern map they are looking at.
 			attributionControl: { compact: false },

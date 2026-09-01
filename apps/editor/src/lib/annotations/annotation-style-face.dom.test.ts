@@ -246,6 +246,15 @@ describe('an Annotation may be one of nine colours and no other', () => {
 		expect(committed).toHaveBeenCalled();
 	});
 
+	test('offers applying the effective style to the whole Layer', async () => {
+		const apply = vi.fn();
+		editor({ geometry: POINT, onapplytoall: apply });
+
+		await press(one('annotation-apply-style-to-layer')!);
+
+		expect(apply).toHaveBeenCalledOnce();
+	});
+
 	test('a colour from outside the palette is reported, not rounded to the nearest of the nine', async () => {
 		// simplestyle allows any `#RRGGBB` and ADR-0009 validates the format rather than the value, so a
 		// file from QGIS can carry one. Rounding it would silently rewrite a scholar's map.

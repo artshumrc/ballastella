@@ -1,13 +1,26 @@
 // The pin a Point Annotation is drawn as.
 //
-// **A pin, not a circle.** A circle on a map reads as an area — a region, a catchment, a radius —
-// and a Point Annotation is none of those: it is "this place, here". The teardrop is the one shape
-// that says so without a legend, and its tip is the thing being pointed at, which is why the symbol
-// is anchored at the bottom rather than centred on the coordinate.
+// **The shape itself is `needle.ts`, and this file is one of its two renderers.** What is here is
+// the signed distance field a MapLibre symbol layer needs; the align view draws the same paths in
+// the DOM. Any change to how the needle *looks* belongs there, not here.
 //
-// **It is the same drawing as the sidebar's glyph** (`shape-icons.ts` → Lucide's `map-pin`), on the
+// **A needle, not a circle and not a teardrop.** A circle on a map reads as an area — a region, a
+// catchment, a radius — and a Point Annotation is none of those: it is "this place, here". A
+// teardrop says that much, but it says it bluntly: the widest part of the shape is over the ground
+// it means, and where exactly the claim lands is a matter of a few pixels' judgement. A needle — a
+// round head on a slender shaft — stands on the coordinate and holds the body of the mark clear of
+// the detail underneath, which is what a scholar placing a Pin on a building is trying to see. The
+// foot of the shaft is the claim, which is why the symbol is anchored at its bottom rather than
+// centred on the coordinate.
+//
+// It is *the* Control Point drawing, not one matched to it by hand: both come from `needle.ts`. What
+// tells the two apart is the ordinal a Control Point wears and the colour — a Control Point takes the
+// theme's, a Pin takes the scholar's `marker-color`.
+//
+// **It is the same drawing as the sidebar's glyph** (`shape-icons.ts` → `MapNeedle.svelte`), on the
 // same 24×24 grid, so the button that draws a pin, the row that lists one, and the mark on the map
-// are recognisably one thing.
+// are recognisably one thing. The glyph is stroked and this is the filled silhouette of it, which is
+// the relationship a Lucide icon and this file have always had.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY A SIGNED DISTANCE FIELD, AND NOT A PNG
@@ -28,25 +41,16 @@
 // The rasterising needs a canvas and therefore a browser; the transform is arithmetic and is tested
 // in Node.
 
+import { NEEDLE_GRID, NEEDLE_HEAD_PATH, NEEDLE_SHAFT_PATH } from './needle.js';
+
 /** The image id both apps register the pin under. */
 export const PIN_IMAGE_ID = 'ballastella-pin';
-
-/**
- * The pin, as two subpaths on Lucide's 24×24 grid: the teardrop, and the hole in it.
- *
- * Filled with the even-odd rule, so the second subpath is a hole rather than a disc drawn on top —
- * which is what lets the Base Map show through the pin's eye and keeps the shape legible over dark
- * ground.
- */
-const PIN_PATH =
-	'M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0Z' +
-	'M15 10a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z';
 
 /** How far, in pixels of the rasterised image, the field carries usable distance either side of the edge. */
 const SPREAD = 8;
 
-/** The rasterised size. 96 px for a 24-unit drawing: 4× so the mask has edge detail to measure. */
-const SIZE = 96;
+/** The rasterised size. 4× the drawing's own grid, so the mask has edge detail to measure. */
+const SIZE = NEEDLE_GRID * 4;
 
 /**
  * How many image pixels there are per CSS pixel — handed to `addImage` as `pixelRatio`.
@@ -189,11 +193,15 @@ export function pinImage(): { width: number; height: number; data: Uint8ClampedA
 		| null;
 	if (context === null || typeof Path2D !== 'function') return null;
 
-	const scale = SIZE / 24;
+	const scale = SIZE / NEEDLE_GRID;
 	context.clearRect(0, 0, SIZE, SIZE);
 	context.setTransform(scale, 0, 0, scale, 0, 0);
 	context.fillStyle = '#ffffff';
-	context.fill(new Path2D(PIN_PATH), 'evenodd');
+	// Two fills rather than one path of two subpaths: they overlap where the shaft enters the head,
+	// which is a hole under the even-odd rule and a coin toss on winding under the nonzero one. Two
+	// fills onto the same mask are a union either way.
+	context.fill(new Path2D(NEEDLE_HEAD_PATH));
+	context.fill(new Path2D(NEEDLE_SHAFT_PATH));
 	context.setTransform(1, 0, 0, 1, 0, 0);
 
 	const pixels = context.getImageData(0, 0, SIZE, SIZE).data;

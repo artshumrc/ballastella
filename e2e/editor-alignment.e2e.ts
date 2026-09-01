@@ -483,9 +483,7 @@ test.describe('Control Point pairing', () => {
 		expect(await storedAlignment(page, imageId)).toBe(starter);
 	});
 
-	test('dragging a half moves the pair and writes exactly once, on pointer-up', async ({
-		page
-	}) => {
+	test('dragging a half or editing its coordinates moves the pair', async ({ page }) => {
 		const imageId = await start(page);
 		await makePair(page, 0.4, 0.4);
 		// The pair's own write has to have landed before the counter is reset, or it lands inside the
@@ -524,6 +522,35 @@ test.describe('Control Point pairing', () => {
 		const after = await half.boundingBox();
 		expect(after).not.toBeNull();
 		expect(Math.abs((after?.x ?? 0) - before.x)).toBeGreaterThan(20);
+
+		const row = rows(page).first();
+		await row.getByTestId('control-point-coordinates').click();
+		const editor = row.getByTestId('control-point-coordinate-editor');
+		await expect(editor).toBeVisible();
+		await editor.getByLabel('Map Image x coordinate').fill('123.5');
+		await editor.getByLabel('Map Image y coordinate').fill('234.25');
+		await editor.getByLabel('Longitude').fill('-71.1234');
+		await editor.getByLabel('Latitude').fill('42.5');
+		await editor.getByRole('button', { name: 'Save' }).click();
+		await expect(editor).toHaveCount(0);
+
+		await expect
+			.poll(async () => {
+				const written = await storedAlignment(page, imageId);
+				if (written === null) return null;
+				const feature = JSON.parse(written).body.features[0];
+				return {
+					resource: feature.properties.resourceCoords,
+					geo: feature.geometry.coordinates
+				};
+			})
+			.toStrictEqual({ resource: [123.5, 234.25], geo: [-71.1234, 42.5] });
+
+		await row.getByTestId('control-point-coordinates').click();
+		await editor.getByLabel('Latitude').fill('91');
+		await editor.getByRole('button', { name: 'Save' }).click();
+		await expect(editor).toContainText('Latitude must be between -90 and 90.');
+		await editor.getByRole('button', { name: 'Cancel' }).click();
 	});
 
 	test('selecting either half highlights its partner in the other pane', async ({ page }) => {
@@ -536,8 +563,17 @@ test.describe('Control Point pairing', () => {
 		// a set of twenty points comprehensible" — and `data-selected` is a test attribute: an earlier
 		// version of this test asserted only that and `aria-pressed`, so the class that does the drawing
 		// could have been dropped two lines away in `overlay-points.ts` and this stayed green.
+		//
+		// Read as the `fill` of the needle's own paths, because that is what carries the colour: the
+		// mark is an `<svg>` from `core/src/render/needle.ts` — the same drawing the Base Map's Pins are
+		// rasterised from — inside a transparent button, so the element's own `background-color` is
+		// `rgba(0, 0, 0, 0)` whether the pair is selected or not.
 		const background = (point: Locator) =>
-			point.evaluate((element) => getComputedStyle(element).backgroundColor);
+			point.evaluate((element) => {
+				const body = element.querySelector('.needle-body');
+				if (body === null) throw new Error('the Control Point is not drawing a needle');
+				return getComputedStyle(body).fill;
+			});
 
 		// Clear the selection completing the second pair left behind, so what follows is about the
 		// click under test rather than about which pair was made last.
@@ -613,9 +649,10 @@ test.describe('Control Point pairing', () => {
 			geo
 		);
 		const target = { x: pane.x + projected.x, y: pane.y + projected.y };
-		// The line stops at the edge of the 24 px Control Point marker (`layout.css`) and two pixels
-		// clear of it — along its own direction, which is what the stub is read for. The stub sets the
-		// direction; the file sets the place.
+		// The line stops 12 px short of the needle's foot — `TIP_BOX` in `AlignmentWorkspace.svelte`, the
+		// square handed to the leader around the coordinate — and two pixels clear of that, along its
+		// own direction, which is what the stub is read for. The stub sets the direction; the file sets
+		// the place.
 		const run = Math.hypot(
 			target.x - (stub as { x: number }).x,
 			target.y - (stub as { y: number }).y

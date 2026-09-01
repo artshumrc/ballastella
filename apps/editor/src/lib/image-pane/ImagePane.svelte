@@ -162,9 +162,9 @@
 			// clamps how far out the view can go, and on a small pyramid that makes the coarsest
 			// levels unreachable.
 			minZoom: projection.mapZoomFromTileZoom(projection.minTileZoom),
-			// Two levels past full resolution, so a Control Point can be placed on a feature
+			// Four levels past full resolution, so a Control Point can be placed on a feature
 			// smaller than a pixel of the scan.
-			maxZoom: projection.fullResolutionMapZoom + 2,
+			maxZoom: projection.fullResolutionMapZoom + 4,
 			renderWorldCopies: false,
 			// There is no north in image pixel space.
 			dragRotate: false,

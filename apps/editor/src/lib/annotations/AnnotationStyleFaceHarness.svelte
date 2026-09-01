@@ -23,7 +23,8 @@
 		geometry,
 		properties: initialProperties = {},
 		onstyle,
-		oncommit
+		oncommit,
+		onapplytoall
 	}: {
 		id?: string;
 		geometry: AnnotationGeometry;
@@ -31,6 +32,7 @@
 		/** Reported as well as applied, so a test can assert what the face asked for. */
 		onstyle?: (style: Record<string, unknown>, options?: { debounce?: boolean }) => void;
 		oncommit?: () => void;
+		onapplytoall?: () => void;
 	} = $props();
 
 	// Seeded once, then the harness's own: after the first render the properties are whatever the
@@ -49,4 +51,5 @@
 	}}
 	onlinestyle={() => {}}
 	oncommit={() => oncommit?.()}
+	onapplytoall={() => onapplytoall?.()}
 />

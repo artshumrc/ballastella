@@ -132,6 +132,7 @@
 	import type { DrawnOutcome } from '@ballastella/core/render';
 
 	import { ANNOTATION_DRAG_TYPE } from './annotation-drag.js';
+	import { HEADER_ICON_BUTTON_CLASS } from './header-icon-button.js';
 
 	import { KIND_STYLE } from './layer-kind-style';
 
@@ -832,7 +833,7 @@
 							-->
 							<button
 								type="button"
-								class="btn btn-square bg-transparent btn-ghost text-current btn-xs hover:bg-current/20 focus-visible:outline-current"
+								class="shrink-0 {HEADER_ICON_BUTTON_CLASS}"
 								data-testid="layer-rename"
 								onclick={() => void renameByButton(layer.id)}
 							>

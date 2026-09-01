@@ -133,23 +133,67 @@
 
 /* A Control Point: a numbered, grabbable, focusable target. The ordinal is *inside* it as
    text, because ADR-0022 wants "look at point 7" to work over a student's shoulder — which a
-   tooltip does not serve. */
+   tooltip does not serve.
+
+   **This rule does not draw the shape.** The needle is `packages/core/src/render/needle.ts`, and
+   `overlay-points.ts` puts it in the element as an `<svg>`; an Annotation's Pin on the Base Map is
+   the same paths rasterised into a signed distance field. Held apart, the two drifted three times —
+   matched by proportion they came out at different widths, matched by width at different lengths —
+   because a CSS box and an SDF have no shared number to be wrong about. What is left here is what
+   the drawing cannot know: the theme's colours, the states, and the cursor.
+
+   The element sizes itself around the `<svg>`, whose width and height come from `needle.ts`, so
+   nothing here says how big a Control Point is either.
+
+   ⚠ **The element's own box is never transformed.** `transform` is what MapLibre writes a
+   `Marker`'s position into, so anything this rule wrote there would move the handle away from the
+   point it names — the failure `.pane-overlay-point-annotation-vertex` records at length. */
 .pane-overlay-point-control-point {
 	pointer-events: auto;
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 24px;
+	display: block;
+	width: max-content;
+	height: max-content;
 	padding: 0;
-	border: 2px solid var(--color-base-100);
-	background: var(--color-primary);
-	color: var(--color-primary-content);
-	font-size: 12px;
-	font-weight: 700;
-	line-height: 1;
-	font-variant-numeric: tabular-nums;
+	border: none;
+	/* Square, so the focus ring is a box around the needle rather than the base rule's circle. */
+	border-radius: 0;
+	background: none;
+	/* No strut under the drawing: an inline `<svg>` sits on a text baseline, and the descender space
+	   below it would be counted into the element MapLibre anchors by its bottom edge — which is the
+	   foot of the needle, and therefore the coordinate. */
+	line-height: 0;
 	cursor: grab;
-	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
+}
+
+/* The needle's white hairline, drawn under the filled paths.
+
+   `non-scaling-stroke` is what makes it one pixel at every size rather than one grid unit: the same
+   claim `NEEDLE_HALO_PIXELS` makes for the Pin's `icon-halo-width`, which is also in screen pixels.
+   Stroked at twice the width, because half of every stroke is inside the shape and covered by the
+   fill on top of it. */
+.pane-overlay-point-control-point .needle-halo {
+	fill: none;
+	stroke: oklch(1 0 0);
+	stroke-width: 2;
+	vector-effect: non-scaling-stroke;
+}
+
+/* The mark itself, in the theme's colour — which is the one thing a Pin does differently: it takes
+   the scholar's `marker-color`, and a Control Point is the application's own mark. */
+.pane-overlay-point-control-point .needle-body {
+	fill: var(--color-primary);
+	stroke: none;
+}
+
+/* The ordinal, centred on the head by `needle.ts` rather than by a number here. */
+.pane-overlay-point-control-point .needle-ordinal {
+	fill: var(--color-primary-content);
+	/* In grid units, so it scales with the drawing: 8 of 24 is 11 px at the size the needle is drawn
+	   at, which is a two-digit ordinal comfortably inside a 13-unit head. */
+	font-size: 8px;
+	font-weight: 700;
+	font-family: inherit;
+	font-variant-numeric: tabular-nums;
 }
 
 .pane-overlay-point-control-point:active {
@@ -309,6 +353,30 @@
 	z-index: 2;
 }
 
+/* A Control Point wears its highlight on the drawing, because its own box is a transparent
+   rectangle around an `<svg>`: the generic rule above would fill that rectangle instead, and the
+   halo would be a square floating around the needle. */
+.pane-overlay-point-control-point.pane-overlay-point-selected {
+	background: none;
+	box-shadow: none;
+}
+
+.pane-overlay-point-control-point.pane-overlay-point-selected .needle-body {
+	fill: var(--color-secondary);
+}
+
+.pane-overlay-point-control-point.pane-overlay-point-selected .needle-ordinal {
+	fill: var(--color-secondary-content);
+}
+
+/* The aura, in the same colour, so a selected pair reads at a glance across two panes. On the halo
+   rather than the body: a wider stroke on the shape itself would fatten the needle, and what has to
+   grow is the ring around it. */
+.pane-overlay-point-control-point.pane-overlay-point-selected .needle-halo {
+	stroke: var(--color-secondary);
+	stroke-width: 8;
+}
+
 /* The half that has been clicked but not yet matched. Dashed and hollow, because "the tool is
    waiting for your second click" has to be visible without being mistaken for a finished pair
    (ADR-0022 contract 1) — without it the user does not know the app is waiting, and the second
@@ -318,6 +386,22 @@
 	background: var(--color-base-100);
 	color: var(--color-warning);
 	animation: pane-overlay-point-waiting 1.4s ease-in-out infinite;
+}
+
+/* The same waiting state on a needle: hollow, outlined in the warning colour, and pulsing from the
+   rule above. **Hollow rather than dashed** — the drawing is a filled silhouette, and a dash pattern
+   run around a head and a shaft as two separate paths breaks at the join. Hollow plus the pulse is
+   still "the tool is waiting for your second click" and is still not a finished pair. */
+.pane-overlay-point-control-point.pane-overlay-point-pending {
+	border: none;
+	background: none;
+}
+
+.pane-overlay-point-control-point.pane-overlay-point-pending .needle-body {
+	fill: var(--color-base-100);
+	stroke: var(--color-warning);
+	stroke-width: 2;
+	vector-effect: non-scaling-stroke;
 }
 
 @keyframes pane-overlay-point-waiting {

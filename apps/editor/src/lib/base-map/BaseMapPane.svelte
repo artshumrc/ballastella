@@ -409,6 +409,7 @@
 			style: styleFor(entryId),
 			center: [...BASE_MAP_CATALOG.initialView.center],
 			zoom: BASE_MAP_CATALOG.initialView.zoom,
+			maxPitch: 0,
 			// ODbL makes the attribution a licence condition, so it is not folded behind an "i".
 			attributionControl: { compact: false },
 			// MapLibre puts this on the canvas as its accessible name. A WebGL canvas announces

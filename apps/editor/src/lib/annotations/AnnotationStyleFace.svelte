@@ -35,12 +35,15 @@
 		annotation,
 		onstyle,
 		onlinestyle,
-		oncommit
+		oncommit,
+		onapplytoall
 	}: {
 		annotation: Annotation;
 		/** A style property set, by its exact simplestyle name, or `undefined` to clear it. */
 		onstyle: (style: Record<string, unknown>, options?: { debounce?: boolean }) => void;
 		onlinestyle: (line: LineStyle) => void;
+		/** Apply this Annotation's effective style to every compatible Annotation in its Layer. */
+		onapplytoall: () => void;
 		/**
 		 * The change is over — a swatch chosen, or a slider released (ADR-0017 rule 1).
 		 *
@@ -359,4 +362,15 @@
 			</label>
 		</fieldset>
 	{/if}
+
+	<div class="border-t border-base-300 pt-3">
+		<button
+			type="button"
+			class="btn btn-block btn-sm"
+			data-testid="annotation-apply-style-to-layer"
+			onclick={() => onapplytoall()}
+		>
+			Apply to all Annotations in this Layer
+		</button>
+	</div>
 </fieldset>

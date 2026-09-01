@@ -10,12 +10,13 @@
 // {@link TOOL_ICONS} stays editor-side; only the table is shared.
 
 import { isLabel, type Annotation } from '@ballastella/core';
-import MapPin from '@lucide/svelte/icons/map-pin';
 import MousePointer2 from '@lucide/svelte/icons/mouse-pointer-2';
 import Pentagon from '@lucide/svelte/icons/pentagon';
 import Spline from '@lucide/svelte/icons/spline';
 import Shapes from '@lucide/svelte/icons/shapes';
 import Type from '@lucide/svelte/icons/type';
+
+import MapNeedle from './MapNeedle.svelte';
 
 /**
  * The tools this table has a glyph for.
@@ -28,7 +29,9 @@ type ToolName = 'select' | 'point' | 'line' | 'polygon' | 'text';
 
 export const TOOL_ICONS = {
 	select: MousePointer2,
-	point: MapPin,
+	// Ours, not Lucide's `map-pin`: the mark on the map is a needle, and the glyph is the same
+	// drawing (`MapNeedle.svelte`, `pin-icon.ts`).
+	point: MapNeedle,
 	line: Spline,
 	polygon: Pentagon,
 	// The Label. Named `text` because that is what the editor's tool union will spell it, while the word

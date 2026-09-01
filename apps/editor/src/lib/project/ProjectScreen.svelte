@@ -2116,6 +2116,7 @@
 		onstyle={(style, options) => void annotations.styleSelected(style, options)}
 		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
 		oncommit={() => void annotations.commitAnnotationEdit()}
+		onapplytoall={() => void annotations.applySelectedStyleToLayer()}
 	/>
 {/snippet}
 

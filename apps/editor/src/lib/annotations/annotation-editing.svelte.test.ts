@@ -795,6 +795,78 @@ describe('the style controls write simplestyle names exactly', () => {
 		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
 	});
 
+	it('applies each effective style property to every compatible geometry in the Layer', async () => {
+		const layer = layerNamed('one');
+		const source = {
+			id: 'source',
+			geometry: {
+				type: 'Polygon',
+				coordinates: [
+					[
+						[0, 0],
+						[1, 0],
+						[0, 1],
+						[0, 0]
+					]
+				]
+			},
+			properties: {
+				'marker-color': '#d32f2f',
+				fill: '#1976d2',
+				'fill-opacity': 0.25,
+				stroke: '#388e3c',
+				'stroke-opacity': 0.5,
+				'stroke-width': 4,
+				'stroke-dasharray': [8, 4]
+			}
+		} as unknown as Annotation;
+		const point = pin('point');
+		const label = newAnnotation({
+			id: 'label',
+			geometry: { type: 'Point', coordinates: [2, 2] },
+			style: { 'marker-symbol': 'label' }
+		});
+		const line = newAnnotation({
+			id: 'line',
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[0, 0],
+					[1, 1]
+				]
+			}
+		});
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [source, point, label, line] });
+		it_.annotations.openLayer(layer.id);
+		it_.annotations.selectAnnotation(source.id);
+
+		await it_.annotations.applySelectedStyleToLayer();
+
+		const annotations = written(it_).annotations;
+		expect(annotations[0]!.properties).toMatchObject(source.properties);
+		expect(annotations[1]!.properties).toMatchObject({
+			'marker-color': '#d32f2f',
+			'marker-size': 'medium'
+		});
+		expect(annotations[1]!.properties).not.toHaveProperty('fill');
+		expect(annotations[2]!.properties).toMatchObject({
+			'marker-color': '#d32f2f',
+			'marker-size': 'medium',
+			fill: '#1976d2',
+			'fill-opacity': 0.25,
+			'marker-symbol': 'label'
+		});
+		expect(annotations[3]!.properties).toMatchObject({
+			stroke: '#388e3c',
+			'stroke-opacity': 0.5,
+			'stroke-width': 4,
+			'stroke-dasharray': [8, 4]
+		});
+		expect(annotations[3]!.properties).not.toHaveProperty('fill');
+		expect(it_.session.writes).toHaveLength(1);
+	});
+
 	it('writes a fill colour and opacity for a shape', async () => {
 		const it_ = drawing('polygon');
 		await draw(it_, [
