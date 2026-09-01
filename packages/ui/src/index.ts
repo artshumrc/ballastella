@@ -33,6 +33,7 @@ export { default as AnnotationRow } from './AnnotationRow.svelte';
 export { default as AppBar } from './AppBar.svelte';
 export { default as BallastellaMark } from './BallastellaMark.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
+export { default as BorderSwitcher } from './BorderSwitcher.svelte';
 export { default as LayerList } from './LayerList.svelte';
 export { default as LeaderLine } from './LeaderLine.svelte';
 // The rectangle `LeaderLine` takes for either end of the line, so a consumer can name what it hands in.

@@ -1422,6 +1422,7 @@
 										bind:this={readerMapPane}
 										selectedAnnotationId={openAnnotationId}
 										entryId={baseMap.entry.id}
+										borders={openProject.file.borders}
 										{catalog}
 										{bundledBaseMapAvailable}
 										{cachedBaseMap}

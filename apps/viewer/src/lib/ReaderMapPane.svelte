@@ -36,12 +36,14 @@
 	import {
 		ANNOTATION_ID_PROPERTY,
 		BASE_MAP_SOURCE_ID,
+		DEFAULT_BASE_MAP_BORDERS,
 		applyOpeningFit,
 		baseMapStyle,
 		defaultEntry,
 		isAbsoluteUrl,
 		keepAskingForMissingTiles,
 		type Annotation,
+		type BaseMapBorders,
 		type BaseMapCatalog,
 		type FetchFn,
 		type OpeningViewFit
@@ -55,6 +57,7 @@
 		isDrawnMap,
 		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
+		registerTerrainProtocols,
 		themeColour,
 		type DrawnLayer,
 		type DrawnOutcome,
@@ -75,6 +78,7 @@
 
 	let {
 		entryId,
+		borders = DEFAULT_BASE_MAP_BORDERS,
 		catalog,
 		bundledBaseMapAvailable,
 		cachedBaseMap = null,
@@ -91,6 +95,15 @@
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
+		/**
+		 * Which administrative boundaries the geography draws.
+		 *
+		 * **The author's, out of the published `project.json`, and not the Reader's.** A Base Map is a
+		 * Reader's preference on this site (`reader-preference.ts`); which borders are drawn over a work
+		 * is the author's argument about it, so this site offers no control for it and this prop has no
+		 * second source.
+		 */
+		borders?: BaseMapBorders;
 		/**
 		 * The catalog that travelled with this Published Site, **not this build's** (ADR-0020).
 		 *
@@ -269,8 +282,12 @@
 	/** What the map is currently painted with. A plain `let`: nothing may re-run when it changes. */
 	let painted = '';
 
-	const paintKey = (id: string, currentTheme: string, cachedTo: number | null): string =>
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}`;
+	const paintKey = (
+		id: string,
+		currentTheme: string,
+		cachedTo: number | null,
+		drawnBorders: BaseMapBorders
+	): string => `${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}`;
 
 	/**
 	 * The style for one catalog entry at the current theme.
@@ -297,7 +314,8 @@
 				theme: theme.current,
 				catalog,
 				resolveAsset: resolveSiteAsset,
-				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
+				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() },
+				borders
 			});
 			if (bundledBaseMapAvailable) return cached;
 			// The same absence as the network branch below, and with the same consequence for a Label —
@@ -329,7 +347,12 @@
 		const style = baseMapStyle(entry, {
 			theme: theme.current,
 			catalog,
-			resolveAsset: resolveSiteAsset
+			resolveAsset: resolveSiteAsset,
+			// Registered lazily: the protocols spawn a worker, and a site whose catalog names no
+			// elevation dataset never needs one. The cached branch above passes none at all — relief
+			// is a live request, and a site's own tiles are the offline promise (ADR-0025).
+			terrainTiles: catalog.terrain ? registerTerrainProtocols(catalog.terrain) : undefined,
+			borders
 		});
 		if (bundledBaseMapAvailable) return style;
 		// This site omitted its local glyphs and sprites, and this entry's archive is somebody else's,
@@ -499,7 +522,7 @@
 			if (hit) onclickannotation?.(hit);
 		});
 
-		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
+		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
 		map = created;
 
 		return () => {
@@ -524,7 +547,7 @@
 	});
 
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
+		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

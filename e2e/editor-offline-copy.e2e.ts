@@ -245,6 +245,7 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
  */
 async function expectReferencedLayer(page: Page, at: number | Locator = 0): Promise<Locator> {
 	const row = await openLayerRow(page, at);
+	await expect(row.getByTestId('layer-image-mode')).toHaveText('Source: External IIIF');
 	await expect(row.getByTestId('referenced-image-host')).toBeVisible();
 	return row;
 }
@@ -252,6 +253,7 @@ async function expectReferencedLayer(page: Page, at: number | Locator = 0): Prom
 /** The same, for a map whose tiles are now in the Workspace: the source URI in place of a host. */
 async function expectOfflineCopyLayer(page: Page, at: number | Locator = 0): Promise<Locator> {
 	const row = await openLayerRow(page, at);
+	await expect(row.getByTestId('layer-image-mode')).toHaveText('Source: Local');
 	await expect(row.getByTestId('offline-copy-source')).toBeVisible();
 	return row;
 }

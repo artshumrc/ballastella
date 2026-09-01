@@ -50,8 +50,18 @@ const deploymentCheck = process.argv.includes('--deployment');
 /** Entry ids, as written in the catalog. */
 const entryIds = [...catalogSource.matchAll(/^\s*id: '([^']+)'/gm)].map((match) => match[1]);
 
-/** Archive locations, which are addresses and must never appear outside the catalog either. */
-const archives = [...catalogSource.matchAll(/'([^']*\.pmtiles)'/g)].map((match) => match[1]);
+/**
+ * Addresses, which must never appear outside the catalog either: the pmtiles archives, and the
+ * raster DEM template the topographic entry's relief and contours are both drawn from. The DEM is
+ * matched by its tile placeholders rather than by a file extension, because it addresses a tile
+ * pyramid and not a file.
+ */
+const archives = [
+	...[...catalogSource.matchAll(/'([^']*\.pmtiles)'/g)].map((match) => match[1]),
+	...[...catalogSource.matchAll(/'([^']*\{z\}[^']*\{x\}[^']*\{y\}[^']*)'/g)].map(
+		(match) => match[1]
+	)
+];
 
 if (entryIds.length === 0) {
 	console.error(`\nNo entry ids found in ${catalogModule}. This check cannot do its job.\n`);
@@ -78,6 +88,17 @@ const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\
 );
 
 /**
+ * The elevation dataset, held to the same rule as an archive.
+ *
+ * It is a separate line because it is a separate host, and a fence that checked only `archive:`
+ * would pass a deployment that had provisioned its own vector tiles and left the relief pointed at
+ * somebody else's bucket — which is the whole failure, one dataset later.
+ */
+const terrainTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))\s*,/gm)].map(
+	(match) => match[1] ?? archiveBindings.get(match[2]) ?? match[2]
+);
+
+/**
  * Archives no deployment may ship: someone else's, whoever else's.
  *
  * Compared by host, so a path change on the same bucket does not slip past.
@@ -94,8 +115,17 @@ const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\
  * describes moved is worse than no fence: it is a green light nobody asked for. The rule this set
  * encodes is *the deployment controls its own archive*, and a host belongs here whenever it does
  * not — which is every host until somebody provisions one.
+ *
+ * `s3.amazonaws.com` is the AWS Open Data bucket the Tilezen Terrain Tiles sit in, read by the
+ * topographic entry for both its shading and its contour lines. Free to read and keyless, and still
+ * nobody's promise to this deployment — the same kind of dependency as the two above, listed here
+ * for the same reason.
  */
-const UNCONTROLLED_HOSTS = new Set(['demo-bucket.protomaps.com', 'data.source.coop']);
+const UNCONTROLLED_HOSTS = new Set([
+	'demo-bucket.protomaps.com',
+	'data.source.coop',
+	's3.amazonaws.com'
+]);
 const hostOf = (archive) => {
 	try {
 		return new URL(archive).host;
@@ -112,12 +142,15 @@ const hostOf = (archive) => {
 let failed = false;
 
 if (deploymentCheck) {
-	const uncontrolled = entryArchives.filter((archive) => UNCONTROLLED_HOSTS.has(hostOf(archive)));
+	const uncontrolled = [...entryArchives, ...terrainTiles].filter((archive) =>
+		UNCONTROLLED_HOSTS.has(hostOf(archive))
+	);
 	if (uncontrolled.length > 0) {
 		console.error(
 			`\n${catalogModule}: ${entryIds.join(', ')} still read ${[...new Set(uncontrolled)].join(', ')}.\n\n` +
-				'This URL is accepted only for educational development and evaluation. Before a production\n' +
-				'deployment, point REMOTE_ARCHIVE at a PMTiles archive that deployment controls (ADR-0025).\n'
+				'These URLs are accepted only for educational development and evaluation. Before a\n' +
+				'production deployment, point REMOTE_ARCHIVE at a PMTiles archive that deployment controls,\n' +
+				"and the catalog's `terrain` at an elevation dataset it controls (ADR-0025).\n"
 		);
 		failed = true;
 	}

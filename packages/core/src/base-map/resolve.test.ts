@@ -74,7 +74,8 @@ describe('baseMapOptions', () => {
 		expect(baseMapOptions(FORKED_CATALOG).map((option) => option.id)).toEqual([
 			'harbour-charts',
 			'parish-roads',
-			'satellite'
+			'satellite',
+			'ordnance-relief'
 		]);
 	});
 

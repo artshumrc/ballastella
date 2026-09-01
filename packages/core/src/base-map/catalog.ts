@@ -45,6 +45,30 @@ import type { BaseMapCatalog } from './entry';
  */
 const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 
+/**
+ * The elevation dataset behind the topographic Base Map: Tilezen's Terrain Tiles on AWS Open Data,
+ * in `terrarium` encoding.
+ *
+ * **Why a second dataset exists here at all.** The vector archive above is OpenStreetMap, and
+ * OpenStreetMap does not carry elevation. Every other entry in this catalog is a style document
+ * over one set of tiles, which is the economy ADR-0005 rests on; a topographic map is the one
+ * variant that cannot be. Both the shading and the contour lines are drawn from *this* raster, so
+ * it is one extra dataset and not two — `registerTerrainProtocols` traces the isolines out of the
+ * DEM tiles the hillshade is already reading.
+ *
+ * **Provenance and terms.** Assembled by the Tilezen project from SRTM, ETOPO1, NED, and national
+ * surveys, each under its own terms; the attribution below points at the list, which is the form
+ * the licences ask for. Hosting is AWS Open Data — free to read, no key, no account, and, exactly
+ * like the archive above, somebody else's bandwidth with no promise to this deployment.
+ * `pnpm check:deployment` refuses this host for that reason: production points these constants at
+ * tiles the deployment controls, and doing so is a change to this file and nothing else (ADR-0020).
+ *
+ * `maxZoom` is 15 because that is where this dataset's pyramid ends. It is not a display limit —
+ * MapLibre overzooms past it and the relief stays on screen — but naming a zoom the tiles do not
+ * reach makes the mountains vanish at exactly the zoom somebody leaned in to read them.
+ */
+const TERRAIN_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
 	entries: [
 		{
@@ -64,6 +88,17 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 			flavor: { light: 'light', dark: 'dark' }
 		},
 		{
+			// Relief and contours are the one variant that cannot be had for free — see TERRAIN_DEM —
+			// and the one an author placing a route, a battlefield, or a settlement needs, because
+			// on every other entry here the terrain those things were chosen for is flat colour.
+			id: 'topographic',
+			label: 'Topographic',
+			needsNetwork: true,
+			archive: REMOTE_ARCHIVE,
+			emphasis: 'relief-and-contours',
+			flavor: { light: 'light', dark: 'dark' }
+		},
+		{
 			// A low-vision Reader must be able to pick a muted Base Map so that annotations stay
 			// legible over it. `e2e/viewer-reader.e2e.ts` asserts that selection in the published
 			// viewer, and it cannot pass without an entry here — so this is not a nicety. It is
@@ -77,9 +112,19 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 		}
 	],
 	defaultId: 'streets',
-	// The deliberate fallback for a Project with nothing placed on the earth (ADR-0026).
-	initialView: { center: [4.9041, 52.3676], zoom: 13 },
+	// The deliberate fallback for a Project with nothing placed on the earth (ADR-0026). A whole
+	// world rather than one city: nothing has been placed yet, so no city is the right guess, and
+	// zoomed out is the view an author can pan and zoom out of towards anywhere.
+	initialView: { center: [0, 20], zoom: 1 },
 	glyphs: 'base-map/fonts/{fontstack}/{range}.pbf',
+	terrain: {
+		tiles: TERRAIN_DEM,
+		encoding: 'terrarium',
+		maxZoom: 15,
+		attribution:
+			'<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">' +
+			'Terrain Tiles</a>'
+	},
 	sprite: 'base-map/sprites/{flavor}',
 	attribution:
 		'<a href="https://openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a> · ' +

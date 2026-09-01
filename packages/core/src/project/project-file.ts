@@ -1,3 +1,9 @@
+import {
+	DEFAULT_BASE_MAP_BORDERS,
+	PROJECT_BORDERS_KEY,
+	readBaseMapBorders,
+	type BaseMapBorders
+} from '../base-map/borders.js';
 import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
 import {
@@ -95,6 +101,14 @@ export interface ProjectFile {
 	 * chosen. `resolveBaseMap` turns that into the deployment default.
 	 */
 	readonly baseMap: string | null;
+	/**
+	 * Which administrative boundaries the Base Map draws (`borders.ts`).
+	 *
+	 * Never `null`: unlike `baseMap`, where "the author has not chosen" is a state `resolveBaseMap`
+	 * turns into a deployment default, every unusable value here means the documented default and
+	 * `readBaseMapBorders` has already applied it. So a caller has a value it can draw with.
+	 */
+	readonly borders: BaseMapBorders;
 	/**
 	 * The address this Project's Map Images have been stamped for, or `null` (ADR-0004).
 	 *
@@ -262,6 +276,10 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
+	// The same removal for the same reason: `readBaseMapBorders` reads this key off the raw document,
+	// so leaving it here would have one field both modelled and carried, and `serialiseProjectFile`
+	// would write the carried copy over the edit that had just been made.
+	delete unknownFields[PROJECT_BORDERS_KEY];
 	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
 	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
 	// thing — the user adding a Map Image to a Project — so the field means nothing to any build
@@ -304,6 +322,8 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
 		// differently depending on which code path reached the file.
 		baseMap: readBaseMapId(raw),
+		// Total rather than nullable, and tolerant of every other shape — see `readBaseMapBorders`.
+		borders: readBaseMapBorders(raw),
 		// Anything that is not a usable address reads as unstamped rather than as an error, which is
 		// the same tolerance every other field here gets: a `project.json` is a document somebody
 		// else's build may have written, and one bad field must not make a Project unopenable.
@@ -330,6 +350,7 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		updatedAt,
 		layers,
 		baseMap,
+		borders,
 		canonicalUrl,
 		onFrontPage,
 		importProvenance
@@ -358,6 +379,10 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			updatedAt,
 			layers: serialiseLayers(layers),
 			baseMap,
+			// Written only when the author moved off the default, for the reason the three fields below
+			// give: absence *is* `all`, so every Project written before this field existed keeps its exact
+			// bytes and a Workspace kept in git gains no diff on the day the app is updated.
+			...(borders === DEFAULT_BASE_MAP_BORDERS ? {} : { [PROJECT_BORDERS_KEY]: borders }),
 			// Omitted entirely when there is none, rather than written as `null`. An unstamped Project's
 			// bytes are then exactly what they were before this field existed — which is what keeps the
 			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
@@ -394,6 +419,7 @@ export function newProjectFile(name: string, updatedAt: Date, description = ''):
 		updatedAt: updatedAt.toISOString(),
 		layers: [],
 		baseMap: null,
+		borders: DEFAULT_BASE_MAP_BORDERS,
 		canonicalUrl: null,
 		onFrontPage: true,
 		unknownFields: {}

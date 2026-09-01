@@ -1347,6 +1347,42 @@ describe('typing an Annotation’s words costs one write, not one per keystroke 
 	});
 });
 
+describe('the boundary choice, which is the Project’s and not the deployment’s', () => {
+	/**
+	 * The store is the assertion, and it has to be: a boundary choice that changed only the pane would
+	 * look right for the rest of the session and be gone on reopen. What travels to a Published Site is
+	 * the bytes.
+	 */
+	it('writes the author’s choice into project.json, at once rather than on a timer', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorders('national');
+
+		// No `flush()`: a discrete choice is written now, the same rule `chooseBaseMap` follows.
+		const written = new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));
+		expect(JSON.parse(written).borders).toBe('national');
+		expect(opened.openProject?.borders).toBe('national');
+	});
+
+	it('leaves no such field behind for a Project drawing every boundary', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+		const read = async () => new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));
+
+		expect(await read()).not.toContain('borders');
+
+		await opened.chooseBorders('none');
+		expect(await read()).toContain('borders');
+
+		// Undoing the choice takes the field back out rather than writing `"borders": "all"`, so a
+		// Project drawing every boundary carries no trace of the field — see `serialiseProjectFile`.
+		// (`updatedAt` is stamped by every write, so the bytes are not identical and are not the claim.)
+		await opened.chooseBorders('all');
+		expect(await read()).not.toContain('borders');
+	});
+});
+
 // ── The local-change index, installed around whichever store the Workspace is ─────────────────
 
 describe('tracking a Workspace’s own changes', () => {

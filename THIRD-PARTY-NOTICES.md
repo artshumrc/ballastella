@@ -40,6 +40,7 @@ dependency at a time.
 | `@maplibre/maplibre-gl-style-spec` | ISC         | The `StyleSpecification` type, across the `core` boundary |
 | `pmtiles`                        | BSD-3-Clause  | Single-file tile archive for the offline base map |
 | `@protomaps/basemaps`            | BSD-3-Clause  | Base map style documents                        |
+| `maplibre-contour`               | BSD-3-Clause  | Contour lines for the topographic base map, traced from the elevation tiles the shading already reads |
 | `marked`                         | MIT           | Markdown → HTML, the first stage of the Annotation `description` pipeline (ADR-0009) |
 | `dompurify`                      | Apache-2.0 or MPL-2.0 | HTML → sanitised HTML, the second stage, and the security boundary |
 | `modern-tar`                     | MIT           | Backup, handoff and review archives, ADR-0001's only way in and out (ADR-0024) |
@@ -98,6 +99,14 @@ Every catalog entry currently reads a remote archive from Protomaps' public demo
 than shipping tile data. Its data carries the same ODbL obligation, met the same way; its hosting
 carries no published terms and is accepted only for educational development and evaluation. See
 [`apps/editor/static/base-map/PROVENANCE.md`](apps/editor/static/base-map/PROVENANCE.md).
+
+The topographic entry reads a **second** dataset, because OpenStreetMap carries no elevation: the
+Tilezen [Terrain Tiles](https://github.com/tilezen/joerd/blob/master/docs/attribution.md) on AWS
+Open Data, assembled from SRTM, ETOPO1, NED and national surveys, each under its own terms. Its
+attribution is carried the same way and for the same reason — on the source, in the control
+MapLibre renders uncompacted — and the entry's shading and its contour lines are two readings of
+that one dataset rather than two datasets. Its hosting is accepted on the same footing as the
+archive above: keyless, free to read, and nobody's promise to this deployment.
 
 The central-Amsterdam ODbL/public-domain/BSD-3-Clause extract is retained only as the browser-test
 fixture `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; it is not application output.

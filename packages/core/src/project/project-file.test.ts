@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseImportProvenance } from './import-provenance.js';
+import { readBaseMapBorders } from '../base-map/borders.js';
 import { readBaseMapId } from '../base-map/project.js';
 import {
 	CURRENT_FORMAT_VERSION,
@@ -90,6 +91,7 @@ describe('project.json', () => {
 
 		expect(Object.keys(opened).toSorted()).toEqual([
 			'baseMap',
+			'borders',
 			'canonicalUrl',
 			'description',
 			'formatVersion',
@@ -187,6 +189,82 @@ describe('the Base Map field', () => {
  * Workspace, and would gain a diff moving it after `canonicalUrl` the first time anything was
  * edited.
  */
+describe('the boundary choice', () => {
+	const withBorders = (borders?: unknown) =>
+		encode({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: [],
+			baseMap: null,
+			...(borders === undefined ? {} : { borders })
+		});
+
+	// One reader, not two — the rule `readBaseMapId` is written to enforce, applied to the second
+	// field in this file that a style document is built from.
+	it('reads the field through `readBaseMapBorders` and nowhere else', () => {
+		const bytes = withBorders('national');
+
+		expect(parseProjectFile(bytes).borders).toBe(
+			readBaseMapBorders(JSON.parse(decode(bytes)) as unknown)
+		);
+	});
+
+	// The upgrade case. Every `project.json` in existence was written before this field, and every one
+	// of them drew both boundary layers; reading their absence as anything else would change what a
+	// published map asserts on the day the app is updated.
+	it('reads a Project with no such field as drawing every boundary', () => {
+		expect(parseProjectFile(withBorders()).borders).toBe('all');
+	});
+
+	it('reads the author’s choice when the file carries one', () => {
+		expect(parseProjectFile(withBorders('none')).borders).toBe('none');
+		expect(parseProjectFile(withBorders('national')).borders).toBe('national');
+	});
+
+	it.each([
+		['a value this build has never heard of', 'continental'],
+		['the empty string', ''],
+		['a number', 7],
+		['null', null]
+	])('falls back to the default for %s, rather than drawing nothing', (_description, value) => {
+		expect(parseProjectFile(withBorders(value)).borders).toBe('all');
+	});
+
+	it('is a new Project’s default, so a new map draws what it always did', () => {
+		expect(newProjectFile('Amsterdam 1625', new Date(0)).borders).toBe('all');
+	});
+
+	// Written as *absence* at the default, exactly as `onFrontPage` and `canonicalUrl` are: a Project
+	// drawing every boundary keeps the bytes it had before this field existed, so a Workspace kept in
+	// git gains no diff on the day of the upgrade.
+	it('writes nothing at all for a Project drawing every boundary', () => {
+		const every = newProjectFile('Amsterdam 1625', new Date(0));
+
+		expect(decode(serialiseProjectFile(every))).not.toContain('borders');
+		expect(JSON.parse(decode(serialiseProjectFile({ ...every, borders: 'none' }))).borders).toBe(
+			'none'
+		);
+	});
+
+	// The bytes, not the model: reading a Project that hides its borders and writing it straight back
+	// must produce the same file, or every such Project gains a diff the moment anything opens it.
+	it('re-serialises a Project that hides its borders to the very same bytes', () => {
+		const bytes = serialiseProjectFile({
+			...newProjectFile('Amsterdam 1625', new Date(0)),
+			borders: 'national'
+		});
+
+		expect(serialiseProjectFile(parseProjectFile(bytes))).toEqual(bytes);
+	});
+
+	// Modelled *and* carried would mean the carried copy is spread over the edit that had just been
+	// made, so choosing a boundary set would appear to work and write the old value.
+	it('does not also lodge the choice in unknownFields', () => {
+		expect(parseProjectFile(withBorders('none')).unknownFields).toEqual({});
+	});
+});
+
 describe('the deleted tombstone (ADR-0023)', () => {
 	const withTombstone = encode({
 		formatVersion: 1,
@@ -485,6 +563,7 @@ describe('Import Provenance (ADR-0037)', () => {
 
 		expect(Object.keys(parsed).toSorted()).toEqual([
 			'baseMap',
+			'borders',
 			'canonicalUrl',
 			'description',
 			'formatVersion',

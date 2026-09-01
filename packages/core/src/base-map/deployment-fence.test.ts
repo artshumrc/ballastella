@@ -99,6 +99,15 @@ function runCheck(
 
 const DEMO = 'https://demo-bucket.protomaps.com/v4.pmtiles';
 const CONTROLLED = 'https://tiles.example.edu/planet.pmtiles';
+const OPEN_DATA_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const CONTROLLED_DEM = 'https://tiles.example.edu/elevation/{z}/{x}/{y}.png';
+
+/** The same catalog with an elevation dataset, which the topographic entry reads. */
+const catalogWithTerrain = (archive: string, tiles: string) =>
+	catalogNaming(archive).replace(
+		"\tdefaultId: 'streets'",
+		`\tterrain: {\n\t\ttiles: '${tiles}',\n\t\tencoding: 'terrarium',\n\t\tmaxZoom: 15\n\t},\n\tdefaultId: 'streets'`
+	);
 
 describe('the deployment fence', () => {
 	it('refuses a catalog reading the demo bucket, and names the remedy', () => {
@@ -139,6 +148,36 @@ describe('the deployment fence', () => {
 
 		expect(run.status).toBe(0);
 		expect(run.output).not.toContain('demo-bucket');
+	});
+
+	it('refuses an elevation dataset on somebody else\u2019s bucket, however good the archive', () => {
+		// The failure this catches is one dataset later than the one above: a deployment that
+		// provisioned its own vector tiles, added a topographic entry, and left the relief and its
+		// contour lines pointed at AWS Open Data. A fence reading only `archive:` would call that
+		// deployment fit to ship.
+		const run = runCheck(catalogWithTerrain(CONTROLLED, OPEN_DATA_DEM), { deployment: true });
+
+		expect(run.status).not.toBe(0);
+		expect(run.output).toContain('s3.amazonaws.com');
+		expect(run.output).toContain('elevation dataset it controls');
+	});
+
+	it('accepts a catalog whose archive and elevation dataset are both its own', () => {
+		const run = runCheck(catalogWithTerrain(CONTROLLED, CONTROLLED_DEM), { deployment: true });
+
+		expect(run.status).toBe(0);
+	});
+
+	it('keeps the elevation dataset inside the catalog, like every other address', () => {
+		// A DEM url is a tile template rather than a file, so the containment scan cannot find it by
+		// extension the way it finds a `.pmtiles`. It is still an address, and naming it in a module
+		// is still the edit a fork must not have to make.
+		const run = runCheck(catalogWithTerrain(CONTROLLED, CONTROLLED_DEM), {
+			extraFiles: { 'apps/viewer/src/leak.ts': `export const dem = '${CONTROLLED_DEM}';\n` }
+		});
+
+		expect(run.status).not.toBe(0);
+		expect(run.output).toContain('apps/viewer/src/leak.ts');
 	});
 
 	it('still runs the ADR-0020 containment scan in deployment mode', () => {

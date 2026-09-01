@@ -1,5 +1,37 @@
+// Which administrative boundaries a Project draws. A filter over layers the same archive already
+// carries, so it costs no request — see the note at the top of `borders.ts`.
+export {
+	BASE_MAP_BORDERS,
+	DEFAULT_BASE_MAP_BORDERS,
+	NATIONAL_BOUNDARY_LAYER,
+	PROJECT_BORDERS_KEY,
+	SUBNATIONAL_BOUNDARY_LAYER,
+	bordersInclude,
+	isBaseMapBorders,
+	readBaseMapBorders,
+	type BaseMapBorders
+} from './borders';
 export { BASE_MAP_CATALOG } from './catalog';
-export type { BaseMapCatalog, BaseMapEmphasis, BaseMapEntry, BaseMapFlavorName } from './entry';
+export type {
+	BaseMapCatalog,
+	BaseMapEmphasis,
+	BaseMapEntry,
+	BaseMapFlavorName,
+	BaseMapTerrain
+} from './entry';
+// Shaded relief and contour lines, the one emphasis that reads a second dataset. The layers are
+// here; the protocols that feed them are in `@ballastella/core/render`.
+export {
+	CONTOUR_LAYER,
+	CONTOUR_THRESHOLDS,
+	CONTOUR_TILE_OPTIONS,
+	TERRAIN_CONTOUR_SOURCE_ID,
+	TERRAIN_DEM_SOURCE_ID,
+	contourLayers,
+	hillshadeLayer,
+	terrainSources,
+	type TerrainTileTemplates
+} from './terrain';
 export { PROJECT_BASE_MAP_KEY, readBaseMapId } from './project';
 // A Reader's own choice on one Published Site, kept in `localStorage` and **never** in Project data
 // (ADR-0020). Keyed per site, because several scholars' sites share an origin.
