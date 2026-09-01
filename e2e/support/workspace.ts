@@ -38,6 +38,10 @@ export async function expectWorkspaceNamed(page: Page, name: string): Promise<vo
 export async function openWorkspaceMenu(page: Page): Promise<void> {
 	const menu = page.getByTestId('workspace-switcher-menu');
 	if (await menu.isVisible()) return;
+	// The Workspace dialog is modal and sits over the bar, and several of the things it does — a
+	// rename, a Backup — end by closing it. `close()` having been called is not the frame it stops
+	// taking clicks on, and on a loaded machine that gap is wide enough to swallow this press.
+	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeHidden();
 	await workspaceButton(page).click();
 	await expect(menu).toBeVisible();
 }
