@@ -80,6 +80,13 @@ test('is one button, named in words rather than by an icon', () => {
 	expect(document.querySelector('[title]')).toBeNull();
 });
 
+test('can show a down chevron after the button label', () => {
+	const button = render({ showChevron: true });
+
+	expect(button.querySelector('svg')).not.toBeNull();
+	expect(button).toHaveAccessibleName('Base Map Options');
+});
+
 test('holds the three appearance switches', () => {
 	render();
 

@@ -20,6 +20,7 @@
 		type BaseMapBorders,
 		type BaseMapCatalog
 	} from '@ballastella/core';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 
 	import BaseMapAppearanceToggles from './BaseMapAppearanceToggles.svelte';
 	import BaseMapSwitcher from './BaseMapSwitcher.svelte';
@@ -34,7 +35,8 @@
 		onSelectEntry,
 		borders,
 		onBorders,
-		buttonClass = 'btn btn-sm'
+		buttonClass = 'btn btn-sm',
+		showChevron = false
 	}: {
 		entryId: string;
 		catalog: BaseMapCatalog;
@@ -51,6 +53,7 @@
 		borders?: BaseMapBorders;
 		onBorders?: (borders: BaseMapBorders) => void;
 		buttonClass?: string;
+		showChevron?: boolean;
 	} = $props();
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
@@ -83,6 +86,11 @@
 	testid="base-map-options"
 	menuClass="flex w-64 flex-col gap-4 p-3"
 >
+	{#snippet buttonSuffix()}
+		{#if showChevron}
+			<ChevronDown class="size-4" aria-hidden="true" />
+		{/if}
+	{/snippet}
 	<!--
 		`<li>`s because `MenuPopover` renders its children inside a `<ul>`, and a `<fieldset>` loose in
 		a list is markup a screen reader has to guess at. They carry no daisyUI `menu` styling — this is

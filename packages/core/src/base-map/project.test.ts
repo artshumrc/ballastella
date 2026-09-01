@@ -31,7 +31,7 @@ describe('the Base Map field of project.json', () => {
 	});
 
 	it('leaves every other field of the document alone', () => {
-		const written = JSON.parse(decode(savedWith('physical')));
+		const written = JSON.parse(decode(savedWith('regional-extract')));
 
 		expect(written).toMatchObject({
 			formatVersion: 1,
@@ -42,7 +42,7 @@ describe('the Base Map field of project.json', () => {
 	});
 
 	it('reads back what it wrote', () => {
-		expect(parseProjectFile(savedWith('muted')).baseMap).toBe('muted');
+		expect(parseProjectFile(savedWith('regional-extract')).baseMap).toBe('regional-extract');
 	});
 
 	it('reads a Project that has recorded no choice as no choice', () => {
@@ -112,14 +112,73 @@ describe('the Base Map field of project.json', () => {
 		await store.write('amsterdam-1625/project.json', savedWith(null));
 
 		const opened = await workspace.readProject('amsterdam-1625');
-		await workspace.writeProject('amsterdam-1625', { ...opened, baseMap: 'physical' });
+		await workspace.writeProject('amsterdam-1625', { ...opened, baseMap: 'regional-extract' });
 
 		const written = await workspace.readProject('amsterdam-1625');
-		expect(written.baseMap).toBe('physical');
+		expect(written.baseMap).toBe('regional-extract');
 		expect(written.updatedAt).toBe(saved.toISOString());
 		// And nothing else was lost on the way.
 		expect(written.name).toBe('Amsterdam 1625');
 		expect(written.formatVersion).toBe(1);
 		expect(written.layers).toEqual([]);
+	});
+});
+
+/**
+ * The four ids the catalog retired, and why they are translated rather than reported.
+ *
+ * Streets, Physical geography, Topographic and Muted were catalog entries over one archive until
+ * they became three orthogonal switches. Every `project.json` written before that names one of them,
+ * and to `resolveBaseMap` it is indistinguishable from a fork's id this deployment cannot serve — so
+ * an author who had changed nothing was told their Base Map was unavailable and shown a fallback that
+ * was, in fact, the same map. The meaning survived the rename; only the name did not.
+ */
+describe('a Base Map id the catalog has retired', () => {
+	const savedAs = (id: string, rest: Record<string, unknown> = {}) =>
+		new TextEncoder().encode(JSON.stringify({ formatVersion: 1, baseMap: id, ...rest }));
+
+	it.each([
+		['streets', { streets: true, relief: false, muted: false }],
+		['physical', { streets: false, relief: false, muted: false }],
+		['topographic', { streets: true, relief: true, muted: false }],
+		['muted', { streets: true, relief: false, muted: true }]
+	])('reads “%s” as the appearance it drew, over the deployment default', (id, appearance) => {
+		const project = parseProjectFile(savedAs(id));
+
+		expect(project.baseMapAppearance).toEqual(appearance);
+		// No id left to fail resolution, so no notice: the tiles never went anywhere.
+		expect(project.baseMap).toBeNull();
+		expect(resolveBaseMap(project.baseMap).fellBack).toBe(false);
+	});
+
+	it('lets an appearance the author has since written stand over the retired id', () => {
+		// A Project edited after the switches arrived carries both fields, and the one the author
+		// touched last is the one they meant. Reading the two independently would put the retired
+		// entry's look back over it.
+		const project = parseProjectFile(
+			savedAs('topographic', { baseMapAppearance: { streets: false, relief: false, muted: true } })
+		);
+
+		expect(project.baseMapAppearance).toEqual({ streets: false, relief: false, muted: true });
+	});
+
+	it('drops the retired id from the document on the next ordinary save', () => {
+		// The translation is a read; this is what makes it stick. `serialiseProjectFile` writes the
+		// parsed model, so a Project that is opened and saved records no choice — the shape this file
+		// already writes for one — and gains the appearance the retired id meant, without a migration
+		// pass over the Workspace.
+		const written = JSON.parse(decode(serialiseProjectFile(parseProjectFile(savedAs('physical')))));
+
+		expect(written.baseMap).toBeNull();
+		expect(written.baseMapAppearance).toEqual({ streets: false, relief: false, muted: false });
+	});
+
+	it('still reports an id that is somebody else’s rather than retired', () => {
+		// ADR-0020's requirement, which the translation above must not quietly widen into “ignore
+		// every id that does not resolve”: a fork's Base Map is genuinely absent here, and drawing a
+		// plausible-looking substitute in silence is the failure this deployment is written to avoid.
+		expect(resolveBaseMap(parseProjectFile(savedAs('ordnance-survey-1888')).baseMap).fellBack).toBe(
+			true
+		);
 	});
 });

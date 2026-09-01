@@ -48,6 +48,7 @@
 		theme,
 		align = 'start',
 		testid,
+		buttonSuffix,
 		children
 	}: {
 		/** The button's visible text. Visible words, never an icon with a tooltip. */
@@ -72,6 +73,8 @@
 		align?: 'start' | 'end';
 		/** Test id for the button; the popover gets `<testid>-menu`. */
 		testid?: string;
+		/** Optional content rendered after the button's visible label. */
+		buttonSuffix?: Snippet;
 		/** The menu's items, rendered inside its `<ul>`. Each should be a `<li>` with a control. */
 		children: Snippet;
 	} = $props();
@@ -132,6 +135,7 @@
 	style="anchor-name: --{id}"
 >
 	{label}
+	{#if buttonSuffix}{@render buttonSuffix()}{/if}
 </button>
 
 <div

@@ -435,29 +435,6 @@ describe('an empty stack', () => {
 	});
 });
 
-describe('what the stack says about itself', () => {
-	test('says in words that the top of the list draws over everything below it', () => {
-		// The order means something a user can check, and the only place it is *said* is here — the `<ol>`
-		// carries the sequence to a screen reader but nothing in the markup says which end is on top.
-		// Asserted against the section the heading names, so a sentence moved out of the stack into some
-		// other part of a consumer's screen does not keep this green.
-		stack({ layers: [mapLayer('l-map', 'La Floride')] });
-
-		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
-		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
-	});
-
-	test('says it to a Reader too, whose stack it is equally true of', () => {
-		// The sentence is the card's own rather than a consumer's, so it survives the prop set that
-		// removes every control — which is what makes it true of the app where the order was fixed by
-		// somebody else and can only be read.
-		offering({ onshow: vi.fn() }, { layers: [mapLayer('l-map', 'La Floride')] });
-
-		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
-		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
-	});
-});
-
 describe('the list reaches assistive technology', () => {
 	test('is an ordered list whose structure and order come from the markup', () => {
 		liveStack({

@@ -300,7 +300,7 @@
 
 {#if host.unsupported}
 	<main class="mx-auto max-w-4xl p-8">
-		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<h1 class="sr-only">Ballastella Editor</h1>
 		<!-- OPFS is missing only in a non-secure context, and the raw DOM failure for that
 		     diagnoses nothing. -->
 		<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
@@ -310,12 +310,12 @@
 	</main>
 {:else if storage === null || session === null}
 	<main class="mx-auto max-w-4xl p-8">
-		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<h1 class="sr-only">Ballastella Editor</h1>
 		<p class="mt-8">Starting…</p>
 	</main>
 {:else if storage.resumeFolder}
 	<main class="mx-auto max-w-4xl p-8">
-		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<h1 class="sr-only">Ballastella Editor</h1>
 	</main>
 {:else if storage.unavailable}
 	<!--
@@ -328,7 +328,7 @@
 		question.
 	-->
 	<main class="mx-auto max-w-4xl p-8">
-		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<h1 class="sr-only">Ballastella Editor</h1>
 		<WorkspaceRecovery {storage} />
 	</main>
 {:else if openDirectory === null}
@@ -340,7 +340,7 @@
 		than the single `max-w-4xl` column it was while the two lists were stacked.
 	-->
 	<main class="mx-auto max-w-[90rem] p-8">
-		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
+		<h1 class="sr-only">Ballastella Editor</h1>
 		<!--
 			**Where the work is stored is not asked here.** Browser storage is the silent default and the
 			first Workspace exists before anything is asked — which is what ADR-0001 always implied and

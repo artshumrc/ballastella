@@ -252,11 +252,7 @@
 		another Project applies here the moment the Layer appears.
 	-->
 	<section class="mt-8 border-t border-base-300 pt-6" aria-labelledby="add-from-workspace-heading">
-		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">Already in this Workspace</h3>
-		<p class="mt-1 max-w-prose text-sm opacity-70">
-			Nothing is copied and nothing is prepared again. If the map has already been placed on the
-			earth — in this Project or any other — it is drawn as soon as it is added.
-		</p>
+		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">Select an existing Map Image from your Workspace</h3>
 
 		{#if session.addMapError}
 			<div role="alert" class="mt-3 alert max-w-prose alert-warning">

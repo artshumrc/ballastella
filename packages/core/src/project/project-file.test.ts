@@ -161,8 +161,8 @@ describe('the Base Map field', () => {
 	// plausible-looking but *wrong* map (ADR-0020), so a shape that means "no choice" has to
 	// mean it everywhere.
 	it.each([
-		['an id', '"physical"', 'physical'],
-		['surrounding whitespace trimmed off an id', '" physical "', 'physical'],
+		['an id', '"regional-extract"', 'regional-extract'],
+		['surrounding whitespace trimmed off an id', '" regional-extract "', 'regional-extract'],
 		['whitespace alone as no choice', '"  "', null],
 		['an empty string as no choice', '""', null],
 		['a non-string as no choice', '7', null],

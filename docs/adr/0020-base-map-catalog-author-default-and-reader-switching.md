@@ -22,6 +22,15 @@
 > and how they are drawn — because a project moving between deployments should keep the second even
 > where the first resolves to something entirely different. The `localStorage` preference holds both,
 > each overridable on its own.
+>
+> **The four retired ids are translated on read, and they are the only ids that are.** `streets`,
+> `physical`, `topographic` and `muted` name appearances rather than tiles now, so `readBaseMapChoice`
+> reads each as no recorded entry plus the appearance it drew, and `serialiseProjectFile` drops the
+> dead field on the project's next ordinary save. This is deliberately not a general amnesty for ids
+> that do not resolve: telling an author their base map is unavailable while showing them the same map
+> is a false alarm, but *silencing* the fallback notice would give up the guarantee this ADR exists to
+> make. An id this deployment cannot serve because it belongs to somebody else's catalog is still
+> reported.
 
 - The **catalog** of available base maps is deployment configuration, and ships inside the viewer bundle at publish time.
 - **`project.json` records the author's default** base map, by **stable id** — never by URL.

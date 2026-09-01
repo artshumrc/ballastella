@@ -2,7 +2,6 @@ import {
 	DEFAULT_BASE_MAP_APPEARANCE,
 	isDefaultAppearance,
 	PROJECT_BASE_MAP_APPEARANCE_KEY,
-	readBaseMapAppearance,
 	type BaseMapAppearance
 } from '../base-map/appearance.js';
 import {
@@ -16,7 +15,7 @@ import {
 	type BaseMapBorders,
 	type BaseMapBorderStyle
 } from '../base-map/borders.js';
-import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
+import { PROJECT_BASE_MAP_KEY, readBaseMapChoice } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
 import {
 	IMPORT_PROVENANCE_KEY,
@@ -108,16 +107,17 @@ export interface ProjectFile {
 	/**
 	 * The author's default Base Map, by stable id and never by URL (ADR-0020).
 	 *
-	 * Normalised by `readBaseMapId`, the one reader of this field: anything that cannot be an id
+	 * Normalised by `readBaseMapChoice`, the one reader of this field: anything that cannot be an id
 	 * — a non-string, an empty string, whitespace alone — is `null`, meaning the author has not
-	 * chosen. `resolveBaseMap` turns that into the deployment default.
+	 * chosen, and so is an id the catalog retired. `resolveBaseMap` turns that into the deployment
+	 * default.
 	 */
 	readonly baseMap: string | null;
 	/**
 	 * How that Base Map is drawn: streets, relief, muted colours (`appearance.ts`).
 	 *
 	 * Never `null`, and total like `borders` below and for the same reason: every unusable value
-	 * means the documented default and `readBaseMapAppearance` has already applied it, so a caller
+	 * means the documented default and `readBaseMapChoice` has already applied it, so a caller
 	 * always has something to draw with.
 	 *
 	 * **Separate from `baseMap`, which names the tiles.** These three switches are style documents
@@ -315,7 +315,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// And the styling beside it, read off the raw document by `readBaseMapBorderStyle` for the same
 	// reason and with the same consequence if it were left carried.
 	delete unknownFields[PROJECT_BORDER_STYLE_KEY];
-	// And the appearance, read off the raw document by `readBaseMapAppearance`. Same rule, same
+	// And the appearance, read off the raw document by `readBaseMapChoice`. Same rule, same
 	// consequence: a field both modelled and carried is written back from the carried copy.
 	delete unknownFields[PROJECT_BASE_MAP_APPEARANCE_KEY];
 	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
@@ -340,6 +340,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	}
 
 	const provenance = parseImportProvenance(importProvenance);
+	const baseMapChoice = readBaseMapChoice(raw);
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
 		throw new ProjectFileUnreadableError('formatVersion is missing or is not an integer');
@@ -356,11 +357,12 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// Tolerant by design and never throwing — see `parseLayers`. A Layer list that refused to
 		// parse would turn one bad field into a Project that cannot be opened at all.
 		layers: parseLayers(layers),
-		// Through `readBaseMapId` rather than inline, so there is exactly one implementation of
+		// Through `readBaseMapChoice` rather than inline, so there is exactly one implementation of
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
-		// differently depending on which code path reached the file.
-		baseMap: readBaseMapId(raw),
-		baseMapAppearance: readBaseMapAppearance(raw),
+		// differently depending on which code path reached the file. Both fields come from the one
+		// call because a retired id is an appearance rather than a set of tiles.
+		baseMap: baseMapChoice.id,
+		baseMapAppearance: baseMapChoice.appearance,
 		// Total rather than nullable, and tolerant of every other shape — see `readBaseMapBorders`.
 		borders: readBaseMapBorders(raw),
 		// Per-property tolerance rather than per-object — see `readBaseMapBorderStyle`: a bad `width`
