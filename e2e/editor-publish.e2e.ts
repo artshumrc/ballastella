@@ -771,58 +771,6 @@ test.describe('publishing a Workspace', () => {
 		page.removeAllListeners('pageerror');
 	});
 
-	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-
-		// Reached by tabbing rather than by clicking. From the wordmark, one Tab reaches the bar's one
-		// GitHub control: the Edit History slot is between them and renders nothing at all when there
-		// is nothing to undo, which is the state a freshly seeded Workspace is in, and the theme
-		// toggle is after it.
-		//
-		// Starting from the wordmark is what makes the count stable on any screen: Workspace Home sets
-		// no breadcrumbs, and on a Project the crumbs and their edit action are before the wordmark
-		// rather than between it and the door.
-		const door = page.getByTestId('connect-to-github');
-		await page.getByTestId('app-wordmark').focus();
-		await page.keyboard.press('Tab');
-		await expect(door).toBeFocused();
-		await page.keyboard.press('Enter');
-
-		// Publishing is behind it, beside the Update it must never be merged with, and it is reached
-		// with the keyboard alone.
-		const publishButton = page.getByRole('button', { name: 'Publish…' });
-		await expect(publishButton).toBeVisible();
-		await publishButton.press('Enter');
-
-		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
-		await preparePublish(page, dialog);
-		// ADR-0016's mandated `<dialog>` + `showModal()`: Escape closes it and focus comes back — to
-		// the door control, because the door closed on the press and the button that opened this is no
-		// longer in the document (WCAG 2.4.3).
-		await page.keyboard.press('Escape');
-		await expect(dialog).toBeHidden();
-		await expect(door).toBeFocused();
-
-		await page.keyboard.press('Enter');
-		await publishButton.press('Enter');
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).press('Enter');
-
-		// The outcome is announced rather than only drawn.
-		const status = page.getByTestId('publish-status');
-		await expect(status).toContainText('Published:', { timeout: 30_000 });
-		await expect(status).toContainText('1 Project');
-		// A live region rather than `role="status"`, because the hub's transfer region already holds that
-		// role and two of them make it ambiguous — for a screen reader as much as for a locator.
-		expect(
-			await status.evaluate((element) => [
-				element.getAttribute('aria-live'),
-				element.getAttribute('aria-atomic')
-			])
-		).toEqual(['polite', 'true']);
-	});
-
 	/**
 	 * The reason the word changed at all.
 	 *

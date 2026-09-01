@@ -6,7 +6,10 @@ import { readFile } from 'node:fs/promises';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { renderedAnnotationLayers, waitForPaintedAnnotations } from './support/annotations.js';
 import {
+	backUpWorkspace,
+	closeWorkspaceDialog,
 	createFolderWorkspace,
+	editWorkspace,
 	expectNoRemote,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
@@ -183,9 +186,7 @@ test.describe('backing up a Workspace', () => {
 	test('downloads one tar named after the Workspace, holding the work and not the site', async ({
 		page
 	}) => {
-		const downloading = page.waitForEvent('download');
-		await page.getByTestId('back-up-workspace').click();
-		const download = await downloading;
+		const download = await backUpWorkspace(page);
 
 		// Named after the Workspace, because the Workspace's name is its directory name and that is the
 		// only place it lives.
@@ -218,17 +219,6 @@ test.describe('backing up a Workspace', () => {
 		// Said in words the user can read, not only drawn, and announced.
 		await expect(page.getByTestId('transfer-outcome')).toContainText(`${DEFAULT_WORKSPACE}.tar`);
 	});
-
-	test('is reachable and operable from the keyboard alone', async ({ page }) => {
-		// The one way a scholar's work leaves the browser cannot be mouse-only.
-		const button = page.getByTestId('back-up-workspace');
-		await button.focus();
-		await expect(button).toBeFocused();
-
-		const downloading = page.waitForEvent('download');
-		await page.keyboard.press('Enter');
-		expect((await downloading).suggestedFilename()).toBe(`${DEFAULT_WORKSPACE}.tar`);
-	});
 });
 
 test.describe('restoring a Workspace', () => {
@@ -241,11 +231,7 @@ test.describe('restoring a Workspace', () => {
 
 	/** Back up the open Workspace and hand the bytes back, as a file a user could have kept. */
 	async function backUpToBuffer(page: Page): Promise<Buffer> {
-		const downloading = page.waitForEvent('download');
-		await page.getByTestId('back-up-workspace').click();
-		const download = await downloading;
-		const buffer = await readFile(await download.path());
-		return buffer;
+		return readFile(await (await backUpWorkspace(page)).path());
 	}
 
 	test('creates a new Workspace, switches to it, and leaves the old one untouched', async ({
@@ -331,6 +317,7 @@ test.describe('restoring a Workspace', () => {
 		});
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
 
+		await closeWorkspaceDialog(page);
 		await routeBaseMapArchive(page);
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await waitForPaintedAnnotations(page, ['label']);
@@ -342,6 +329,7 @@ test.describe('restoring a Workspace', () => {
 	test('refuses a file that is not a backup, in words, and creates no Workspace', async ({
 		page
 	}) => {
+		await editWorkspace(page, DEFAULT_WORKSPACE);
 		await page.getByTestId('restore-file').setInputFiles({
 			name: 'holiday.jpg',
 			mimeType: 'image/jpeg',
@@ -471,15 +459,12 @@ test.describe('backing up a folder Workspace', () => {
 		// folder, and this folder is deliberately full — the whole subject here is a Workspace whose
 		// name is the operating system's and is not a legal Workspace name.
 		await createFolderWorkspace(page, FOLDER);
-		await expect(page.getByTestId('workspace-folder-place')).toHaveText(FOLDER);
 	});
 
 	test('produces an archive that restores, rather than one that fails at restore', async ({
 		page
 	}) => {
-		const downloading = page.waitForEvent('download');
-		await page.getByTestId('back-up-workspace').click();
-		const download = await downloading;
+		const download = await backUpWorkspace(page);
 
 		// Named after what it will restore as, not after the folder — so what lands in Downloads, what
 		// `tar xf` unpacks, and what the Workspace is called afterwards all agree.

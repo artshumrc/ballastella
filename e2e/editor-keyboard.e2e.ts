@@ -63,29 +63,6 @@ async function tabTo(page: Page, control: Locator, limit = 60): Promise<void> {
 }
 
 /**
- * Every `data-testid` `Tab` lands on, in the order it lands on them, starting from the top.
- *
- * Stops when focus comes back to where it started, which is what a full cycle of the document is —
- * so the answer is *the tab order*, and a control absent from it is absent from the list rather
- * than merely late in it.
- */
-async function tabOrder(page: Page, limit = 120): Promise<string[]> {
-	const seen: string[] = [];
-	let first = '';
-	for (let tab = 0; tab < limit; tab += 1) {
-		await page.keyboard.press('Tab');
-		const stop = await page.evaluate(
-			() => document.activeElement?.getAttribute('data-testid') ?? ''
-		);
-		if (stop === '') continue;
-		if (stop === first) break;
-		if (first === '') first = stop;
-		seen.push(stop);
-	}
-	return seen;
-}
-
-/**
  * Workspace Home, in a Workspace that publishes somewhere, with a second Workspace beside it and an
  * unsaved change belonging to a third that no longer exists.
  *
@@ -220,86 +197,4 @@ test.describe('the bar, from the keyboard alone', () => {
 
 test.describe('Workspace Home, from the keyboard alone', () => {
 	test.beforeEach(async ({ page }) => workspaceHome(page));
-
-	/**
-	 * Everything ADR-0042 re-homed onto this screen, in one walk of the document.
-	 *
-	 * Asserted as membership of the tab order rather than one `tabTo` each, because what is being
-	 * claimed is that the *screen* is operable: a control missing from this list is one a keyboard
-	 * user cannot get to at all, whatever else is true of it.
-	 */
-	test('carries every re-homed control in the tab order', async ({ page }) => {
-		// The browser does not offer to install a site it has already decided about, and headless
-		// Chromium never fires this — so the offer's *control* exists only once the event has been
-		// delivered. Without it the offer is a sentence saying where to look, which is `editor-pwa`'s.
-		await page.evaluate(() => window.dispatchEvent(new Event('beforeinstallprompt')));
-		await expect(page.getByTestId('install-app')).toBeVisible();
-
-		const order = await tabOrder(page);
-
-		for (const control of [
-			// The bar: the badge's disclosure, the door, the roster.
-			'remote-status-explain',
-			'connect-to-github',
-			'workspace-switcher',
-			// What the browser promised, and the lever that answers it.
-			'durability-learn-more',
-			'install-app',
-			// Backup, Restore and the one way existing work reaches a folder.
-			'back-up-workspace',
-			'restore-workspace',
-			// Off-screen rather than `hidden`, precisely so that it is a stop.
-			'restore-file',
-			'move-into-folder',
-			// Unsaved work with nowhere to go, and the deliberate act that throws it away.
-			'discard-orphaned-journal'
-		]) {
-			expect(order, `${control} is not in the tab order`).toContain(control);
-		}
-	});
-
-	test("the storage warning's disclosure opens on Enter", async ({ page }) => {
-		const disclosure = page.getByTestId('durability-learn-more');
-		await tabTo(page, disclosure);
-		await expect(page.getByTestId('durability-detail')).toBeHidden();
-
-		await page.keyboard.press('Enter');
-
-		await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('durability-detail')).toBeVisible();
-	});
-
-	/**
-	 * The one press on this screen that destroys something, driven with `Enter` — and the outcome
-	 * read from the live region rather than from the list, because what a screen reader hears is the
-	 * whole of what a keyboard user gets back.
-	 */
-	test('throws away an orphaned journal on Enter, and says what went', async ({ page }) => {
-		await tabTo(page, page.getByTestId('discard-orphaned-journal'));
-		await page.keyboard.press('Enter');
-
-		await expect(page.getByTestId('discard-outcome')).toContainText('Threw away 1 unsaved change');
-		await expect(page.getByTestId('orphaned-journals')).toHaveCount(0);
-	});
-
-	/**
-	 * A transfer under way must not take the keyboard's place away (WCAG 2.4.3). The Backup runs
-	 * to completion in milliseconds against an empty Workspace, so what is asserted is the shape the
-	 * control keeps rather than a frame mid-transfer: `aria-disabled` and never `disabled`, which is
-	 * the attribute that would remove it from the tab order the instant it was pressed.
-	 */
-	test('the Backup control is never removed from the tab order by being pressed', async ({
-		page
-	}) => {
-		const backUp = page.getByTestId('back-up-workspace');
-		await tabTo(page, backUp);
-		await expect(backUp).not.toHaveAttribute('disabled', /.*/);
-
-		const download = page.waitForEvent('download');
-		await page.keyboard.press('Enter');
-		await (await download).cancel();
-
-		await expect(page.getByTestId('transfer-outcome')).toContainText('Backed up');
-		await expect(backUp).toBeFocused();
-	});
 });

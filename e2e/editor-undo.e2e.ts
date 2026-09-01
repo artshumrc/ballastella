@@ -180,7 +180,7 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
 	page
 		.getByTestId('control-point-row')
 		.nth(ordinal - 1)
-		.locator('code')
+		.getByTestId('control-point-coordinates')
 		.innerText();
 
 /**

@@ -12,6 +12,7 @@ import { DEFAULT_WORKSPACE, expect, type Locator, test, type Page } from './supp
 import {
 	createWorkspace,
 	backUpWorkspace,
+	closeWorkspaceDialog,
 	openWorkspaceMenu,
 	switchToWorkspace
 } from './support/workspace.js';
@@ -558,7 +559,8 @@ test.describe('an Import that did not finish', () => {
 		// the author's own maps beside the Import's, one directory along.
 		await expect(page.getByTestId('map-image')).toHaveCount(1);
 		// Nor is any of it in a Backup — a second walk of the same Workspace.
-		const saved = await backUpWorkspace(page, DEFAULT_WORKSPACE);
+		const saved = await backUpWorkspace(page);
+		await closeWorkspaceDialog(page);
 		const { unpackTar } = await import('modern-tar');
 		const entries = await unpackTar(new Uint8Array(await readFile(await saved.path())), {
 			strict: true

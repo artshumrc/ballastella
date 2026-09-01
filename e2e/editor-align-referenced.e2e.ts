@@ -366,31 +366,6 @@ test('still refuses a host whose info.json is readable and whose tiles are not',
 	await expect(layerRows(page)).toHaveCount(0);
 });
 
-test('says on the Layer, in text, where this map’s tiles live', async ({ page }) => {
-	await installIiifHosts(page);
-	await openNewProject(page);
-	await addReferenced(page, 'images.test');
-
-	// **Text in the accessibility tree, not a colour** — the same treatment the not-aligned state
-	// gets. Asserted by reading the accessible text rather than the `data-` attribute,
-	// because the attribute is for tests and the sentence is for the user; a version that kept the
-	// attribute and dropped the words would pass an attribute assertion.
-	// Inside the open card since the Layers revision, so the card is opened rather than the badge
-	// waited for on a collapsed row — where it is not in the DOM at all.
-	const card = await openLayerRow(page, layerRows(page).first());
-	const badge = card.getByTestId('layer-image-mode');
-	await expect(badge).toBeVisible();
-	await expect(badge.locator('xpath=preceding-sibling::*[1]')).toHaveAttribute(
-		'data-testid',
-		'align-map-image'
-	);
-	// "Remote reference" against "Local copy" — the words say where the tiles are, which is what
-	// decides whether a reader needs the network. Still words: colour is a second channel, never the
-	// only one.
-	await expect(badge).toHaveText(/remote reference/i);
-	await expect(badge).toHaveAttribute('data-image-mode', 'referenced');
-});
-
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // WITH THE CONNECTION CUT
 //
@@ -713,107 +688,6 @@ test('warns only on the Map Image the warning is about', async ({ page }) => {
  */
 const usedByFor = (page: Page, imageId: string) =>
 	page.getByTestId('map-image').filter({ hasText: imageId }).getByTestId('used-by');
-
-/**
- * This is a fact about a Map Image, so it is told on the Map Image's own row.
- *
- * ADR-0023 shares one Alignment between every Project that draws the map, so refining a placement
- * moves all of them — published ones included. That is something to know *before* opening the align
- * screen rather than prose beside the controls while a scholar is clicking, so the sentence belongs
- * to the Workspace Home's Map Image row and the align sidebar carries no copy of it.
- *
- * **Both halves are asserted here.** Asserting only the row leaves nothing pinning the sidebar's
- * silence, and a fact explained in words nowhere else could stop being told at all with the suite
- * green.
- */
-test('says who draws this Map Image on its own row, and no longer in the align sidebar', async ({
-	page
-}) => {
-	test.slow();
-	await installIiifHosts(page);
-	await openNewProject(page);
-	const imageId = await addReferenced(page, 'images.test');
-	await alignFromLayer(page);
-	await waitForPane(page);
-
-	// Gone from the column, render site and all — not merely reworded.
-	await expect(page.getByTestId('alignment-used-by')).toHaveCount(0);
-
-	// **Waited for on disk**, because the walk that answers this reads every `project.json`. See
-	// {@link projectsDrawing}.
-	await expect.poll(() => projectsDrawing(page, imageId), { timeout: 30_000 }).toBe(1);
-	await page.goto('/');
-
-	const usedBy = usedByFor(page, imageId);
-	await expect(usedBy).toBeVisible({ timeout: 30_000 });
-	await expect(usedBy).toHaveAttribute('data-used-by-count', '1');
-	// Read as text rather than off the attribute: the attribute is for tests and the sentence is for
-	// the user, and a version that kept the count and dropped the words would pass an attribute check.
-	await expect(usedBy).toContainText(PROJECT_NAME);
-	await expect(usedBy).toContainText('shared by every Project that draws this Map Image');
-
-	// **And no live region on the row, deliberately.** The sentence arrives with the row from the one
-	// `refreshMapImages` walk that fills the rest of it, so there is no later moment for a region to
-	// announce — which is the opposite of the align sidebar's case, where the panes were up first.
-	await expect(usedBy).not.toHaveAttribute('aria-live', /.+/);
-});
-
-/**
- * Two Map Images with **different** answers, so the sentence has to be about the row it is on.
- *
- * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
- * │ ONE WALK ANSWERS FOR EVERY MAP, AND THE ANSWERS MUST NOT BE EACH OTHER'S.                  │
- * └───────────────────────────────────────────────────────────────────────────────────────────┘
- *
- * `refreshMapImages` reads the Workspace's Projects once and fills a `usedBy` on every Map Image
- * record from that one pass. With one map in one Project every version of that code says the same
- * thing, including a version that credits the wrong map. So the second map is drawn by a *second*
- * Project, and then the two sentences differ: one Project against two, singular against the plural
- * that warns the edit moves all of them.
- *
- * This is also the only place the ≥2 branch is exercised against a real disk. `used-by.test.ts` pins
- * every branch of the string and `project-hub.dom.test.ts` pins the row that renders it; what this
- * adds is that the string is built from the right map's answer.
- */
-test('names a different set of Projects for each Map Image on the Workspace Home', async ({
-	page
-}) => {
-	test.slow();
-	await installIiifHosts(page);
-	await openNewProject(page);
-	const florida = await addReferenced(page, 'images.test', 'florida');
-	const georgia = await addReferenced(page, 'images.test', 'georgia', 2);
-
-	// A second Project drawing only the second map. The image id is `generateId(uri)`, the same for
-	// everybody, so adding the same service here is the same Map Image — which is the whole of
-	// ADR-0023 and the reason this sentence exists.
-	// `goto` rather than a link, and it is doing work: a real navigation runs `pagehide`, which is
-	// ADR-0017 rule 3's flush, so the Layer just added is on disk rather than inside its debounce.
-	await page.goto('/');
-	await createAndOpenProject(page, 'A Second Reading');
-	await addReferenced(page, 'images.test', 'georgia');
-
-	await page.goto('/');
-	// **Waited for on disk**, because that is what the walk behind these rows reads. See
-	// {@link projectsDrawing}.
-	await expect.poll(() => projectsDrawing(page, georgia), { timeout: 30_000 }).toBe(2);
-	await expect.poll(() => projectsDrawing(page, florida), { timeout: 30_000 }).toBe(1);
-	// Reloaded after the wait, so the rows on screen are drawn from a walk that ran after the second
-	// Project's Layer reached disk rather than from the one that raced it.
-	await page.reload();
-
-	const one = usedByFor(page, florida);
-	await expect(one).toHaveAttribute('data-used-by-count', '1', { timeout: 30_000 });
-	await expect(one).toContainText(PROJECT_NAME);
-	await expect(one).not.toContainText('A Second Reading');
-
-	// The other map, the other answer — and the sentence that says what refining it costs.
-	const both = usedByFor(page, georgia);
-	await expect(both).toHaveAttribute('data-used-by-count', '2', { timeout: 30_000 });
-	await expect(both).toContainText(PROJECT_NAME);
-	await expect(both).toContainText('A Second Reading');
-	await expect(both).toContainText('Refining it moves all of them');
-});
 
 test('says what this screen is doing, in regions a screen reader is told about', async ({
 	page

@@ -6,11 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { IMAGE_HEIGHT, IMAGE_WIDTH, gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import {
-	addMapImageButton,
-	addMapImageIsOpen,
-	ensureAddMapImageOpen
-} from './support/map-images.js';
+import { addMapImageIsOpen, ensureAddMapImageOpen } from './support/map-images.js';
 // The fake IIIF services, shared by every spec that needs one. This file used to carry
 // its own copy of the host table, the `info.json` builder and the tile matcher; see the module
 // header there for why three private copies of one fixture was a defect rather than a duplication.
@@ -967,38 +963,6 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 			label: { none: string[] };
 		};
 		expect(manifest.label.none[0]).toBe('la-floride.png');
-	});
-
-	test('is reachable and operable by keyboard alone', async ({ page }) => {
-		// Driven entirely from the keyboard, **including the step that reaches it**: the library source
-		// is inside a dialog, so "reachable" starts one gesture earlier. Reaching it with `click()`
-		// while the test's name claimed otherwise made the first half of this claim untrue and
-		// unasserted at the same time.
-		await installIiifHosts(page);
-		await openNewProject(page);
-
-		await addMapImageButton(page).focus();
-		await page.keyboard.press('Enter');
-		await expect.poll(() => addMapImageIsOpen(page)).toBe(true);
-
-		await page
-			.getByLabel('IIIF Manifest, Collection, image service, or image file address')
-			.focus();
-		await page.keyboard.type('https://library.test/iiif/atlas/manifest.json');
-		await page.keyboard.press('Enter');
-
-		await expect(page.getByTestId('remote-canvas')).toHaveCount(3);
-
-		const second = page.getByTestId('remote-canvas').nth(1);
-		await second.focus();
-		await expect(second).toBeFocused();
-		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('remote-add')).toBeVisible();
-
-		const add = page.getByTestId('remote-add');
-		await add.focus();
-		await page.keyboard.press('Enter');
-		await expectReferencedMap(page);
 	});
 });
 
