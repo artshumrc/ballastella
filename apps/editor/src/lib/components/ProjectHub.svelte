@@ -468,10 +468,10 @@
 	const usedBy = (map: WorkspaceMapImage): string => {
 		const names = map.usedBy.map((project) => project.name).join(', ');
 		const unreadable = map.mightBeUsedBy.map((project) => project.name).join(', ');
-		if (!unreadable) return `Projects that use this image: ${names || 'None'}`;
+		if (!unreadable) return `Projects that use this image: ${names || 'None'}.`;
 		const label = names
-			? `Projects that use this image: ${names}`
-			: 'Projects that use this image: none';
+			? `Projects that use this image: ${names}.`
+			: 'Projects that use this image: none that this version can confirm.';
 		const pronoun = map.mightBeUsedBy.length === 1 ? 'It' : 'They';
 		return `${label} ${pronoun} may also be drawn by ${unreadable}, made with a newer version of Ballastella.`;
 	};
