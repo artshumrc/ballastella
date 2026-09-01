@@ -16,7 +16,6 @@
 	} from '@ballastella/core';
 	import { MenuPopover, ProjectCardList } from '@ballastella/ui';
 
-	import { describeAlignmentUsers } from '../alignment/used-by.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import MapThumbnail from '../map-images/MapThumbnail.svelte';
 	import { useWorkspaceHost, type ImportTarget } from '../workspace-storage.svelte.js';
@@ -461,29 +460,22 @@
 	};
 
 	/**
-	 * Which Projects draw a map, what refining it moves, and plainly when none do.
+	 * Which Projects draw a map, and plainly when none do.
 	 *
-	 * ⚠ **The sentence itself is `alignment/used-by.ts`, and this is its only render site.**
-	 * One Alignment belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so
-	 * "refining it moves all of them" is a fact about *this map* that a scholar needs before they
-	 * open the align screen rather than while they are clicking in it. `describeAlignmentUsers` has a
-	 * test naming every branch, which is why the composition here is only the two branches it is
-	 * silent about.
-	 *
-	 * **It is silent when no readable Project draws the map, and this list is not.** A Map Image can
-	 * sit in the Workspace's pool with nothing drawing it — that is exactly what the reclaim figure
-	 * below is for — so the empty answer is said here in words. A Project this build cannot read is
-	 * named separately and in its own words: it is not folded into the users, which would claim
-	 * something unknown, and it is emphatically not left out, because a map whose only user is a
-	 * Project from next year's build must not be described as one nothing uses.
+	 * A Project this build cannot read is named separately and in its own words: it is not folded
+	 * into the list, which would claim something unknown, and it is emphatically not left out,
+	 * because a map whose only user is a Project from next year's build must not be described as one
+	 * nothing uses.
 	 */
 	const usedBy = (map: WorkspaceMapImage): string => {
-		const shared = describeAlignmentUsers(map);
-		if (shared) return shared;
+		const names = map.usedBy.map((project) => project.name).join(', ');
 		const unreadable = map.mightBeUsedBy.map((project) => project.name).join(', ');
-		return unreadable
-			? `No Project this version can read uses this map. It may be drawn by ${unreadable}, made with a newer version of Ballastella.`
-			: 'No Project uses this map.';
+		if (!unreadable) return `Projects that use this image: ${names || 'None'}`;
+		const label = names
+			? `Projects that use this image: ${names}`
+			: 'Projects that use this image: none';
+		const pronoun = map.mightBeUsedBy.length === 1 ? 'It' : 'They';
+		return `${label} ${pronoun} may also be drawn by ${unreadable}, made with a newer version of Ballastella.`;
 	};
 
 	/** A Map Image as the shared row takes it: the record, its name, and the folder it is kept in. */
@@ -689,7 +681,7 @@ What else the Hub says about a Project: whether this build can read it.
 {/snippet}
 
 <!--
-	Who draws this Map Image, and so what refining its Alignment moves (ADR-0023).
+	Which Projects draw this Map Image.
 
 	**Not a live region.** `usedBy` is a field of the same `WorkspaceMapImage` record as the bytes and
 	the file count, filled by the one `refreshMapImages` walk, and the list renders nothing until that

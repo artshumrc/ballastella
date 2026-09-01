@@ -412,12 +412,13 @@ test.describe('the Workspace’s Map Images', () => {
 		// The Library comes out of the map's own `remote.json`, which nothing but a real read supplies.
 		await expect(entry(page, 'Plan de Paris')).toContainText('Tiles on iiif.bnf.example');
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Tiles in this Workspace');
-		// And used-by is the walk over both Projects' `project.json`, in directory order — said in the
-		// sentence `alignment/used-by.ts` composes, which this row renders as the align screen does.
+		// And used-by is the walk over both Projects' `project.json`, in directory order.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
-			'2 Projects do: Amsterdam 1625, Boston 1775'
+			'Projects that use this image: Amsterdam 1625, Boston 1775.'
 		);
-		await expect(entry(page, 'A map nobody kept')).toContainText('No Project uses this map.');
+		await expect(entry(page, 'A map nobody kept')).toContainText(
+			'Projects that use this image: None.'
+		);
 	});
 
 	test('deleting a Project keeps the Workspace’s Map Images, and the dialog says so', async ({
@@ -438,7 +439,7 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
 		// The shared map is still there, still listed, and now drawn by one Project instead of two.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
-			'Right now that is Amsterdam 1625.'
+			'Projects that use this image: Amsterdam 1625.'
 		);
 		const remaining = await everyPath(page);
 		expect(remaining).toContain('images/shared/info.json');
@@ -474,7 +475,9 @@ test.describe('the Workspace’s Map Images', () => {
 		// Project drawing that map deleted in another tab, or by a colleague's sync — core did not
 		// refuse, and one click destroyed a pyramid with no confirmation at all. The confirmation was
 		// skipped in exactly the case where it was the only thing standing there.
-		await expect(entry(page, 'Bonner’s Boston')).toContainText('Right now that is Amsterdam 1625.');
+		await expect(entry(page, 'Bonner’s Boston')).toContainText(
+			'Projects that use this image: Amsterdam 1625.'
+		);
 
 		// Behind the app's back, so what is on screen is genuinely stale rather than merely re-rendered.
 		await page.evaluate(async () => {
@@ -522,7 +525,9 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(
 			page.getByText('Made with a newer version of Ballastella.', { exact: true })
 		).toBeVisible();
-		await expect(entry(page, 'A map nobody kept')).not.toContainText('No Project uses this map.');
+		await expect(entry(page, 'A map nobody kept')).not.toContainText(
+			'Projects that use this image: None.'
+		);
 		await expect(entry(page, 'A map nobody kept')).toContainText('from-the-future');
 
 		const before = await everyPath(page);

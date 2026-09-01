@@ -192,12 +192,7 @@ describe('what a Map Image card says about the map', () => {
 });
 
 describe('which Projects draw a map, in the words the list uses', () => {
-	// ⚠ **The sentence is `alignment/used-by.ts`'s, and this row is where it renders.** One Alignment
-	// belongs to a Map Image and is shared by every Project drawing it (ADR-0023), so what refining it
-	// moves is a fact about *this map* — read here, before the align screen, rather than beside the
-	// controls while a scholar is clicking. `used-by.test.ts` names every branch of the sentence; what
-	// is asserted here is that this row renders it, and the two branches it is silent about.
-	test('names them, says what refining moves, and says plainly when none do', () => {
+	test('lists them by name, and says plainly when none do', () => {
 		hub({
 			mapImages: [
 				map('shared', {
@@ -217,16 +212,11 @@ describe('which Projects draw a map, in the words the list uses', () => {
 
 		const usedBy = [...document.querySelectorAll('[data-testid="used-by"]')].map(text);
 		expect(usedBy).toEqual([
-			// The plural branch, and the reason the sentence is worth this much: two Projects are named,
-			// counted, and told that refining the Alignment here moves both.
-			'One Alignment, shared by every Project that draws this Map Image — and 2 Projects do: ' +
-				'Amsterdam 1625, Boston 1775. Refining it moves all of them.',
-			'One Alignment, shared by every Project that draws this Map Image. Right now that is ' +
-				'Amsterdam 1625.',
-			// `describeAlignmentUsers` is silent about a map nothing readable draws, and this list is
-			// not: a Map Image can sit in the pool with nothing drawing it, which is what the reclaim
-			// figure below is for, so the empty answer is the row's own words.
-			'No Project uses this map.'
+			'Projects that use this image: Amsterdam 1625, Boston 1775.',
+			'Projects that use this image: Amsterdam 1625.',
+			// A Map Image can sit in the pool with nothing drawing it, which is what the reclaim figure
+			// below is for, so the empty answer is said here in words.
+			'Projects that use this image: None.'
 		]);
 	});
 
@@ -246,10 +236,10 @@ describe('which Projects draw a map, in the words the list uses', () => {
 		});
 
 		const sentence = text(at('used-by'));
-		expect(sentence).not.toContain('No Project uses this map.');
+		expect(sentence).not.toContain('Projects that use this image: None.');
 		expect(sentence).toBe(
-			'No Project this version can read uses this map. It may be drawn by from-the-future, made ' +
-				'with a newer version of Ballastella.'
+			'Projects that use this image: none that this version can confirm. It may also be drawn by ' +
+				'from-the-future, made with a newer version of Ballastella.'
 		);
 	});
 
@@ -269,9 +259,8 @@ describe('which Projects draw a map, in the words the list uses', () => {
 		});
 
 		expect(text(at('used-by'))).toBe(
-			'One Alignment, shared by every Project that draws this Map Image. Right now that is ' +
-				'Amsterdam 1625. They may also be drawn by Tomorrow, Later Still, made with a newer ' +
-				'version of Ballastella, which this one cannot read.'
+			'Projects that use this image: Amsterdam 1625. They may also be drawn by Tomorrow, Later ' +
+				'Still, made with a newer version of Ballastella.'
 		);
 	});
 
