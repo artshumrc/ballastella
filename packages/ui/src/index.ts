@@ -42,6 +42,8 @@ export { default as LeaderLine } from './LeaderLine.svelte';
 export type { Box } from './leader-line';
 export { default as MapCommentary } from './MapCommentary.svelte';
 export { default as MapNotice } from './MapNotice.svelte';
+// Downloading the map on screen as a Map Snapshot, from either application's map-control row.
+export { default as MapSnapshotButton } from './MapSnapshotButton.svelte';
 export { default as MenuPopover } from './MenuPopover.svelte';
 export { default as ProjectCardList } from './ProjectCardList.svelte';
 export { default as ThemePicker } from './ThemePicker.svelte';

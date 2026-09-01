@@ -234,22 +234,29 @@ test.describe('the Base Map pane', () => {
 		const search = await page.getByTestId('base-map-place-search').boundingBox();
 		const options = await baseMapOptionsButton(page).boundingBox();
 		const fit = await page.getByTestId('fit-to-project').boundingBox();
+		const snapshot = await page.getByTestId('download-map-snapshot').boundingBox();
 		const zoom = await bottomLeft.boundingBox();
 		const navigation = await page.getByTestId('navigation-bar').boundingBox();
 		const project = await page.getByTestId('project-screen').boundingBox();
 		// The navigation bar's existing bottom border separates it from the Project workspace; an idle
 		// announcement must not reserve another line between them.
 		expect(project!.y - (navigation!.y + navigation!.height)).toBeLessThanOrEqual(1);
-		// Everything about the Base Map is one button of known width, so the floating row is the search,
-		// that button and the frame button on one line at every pane width — which is what the panel
-		// replaced: five controls abreast wrapped differently on each, putting the same control
-		// somewhere new on every screen. The row still clears the zoom control at the pane's bottom
-		// edge, which is what keeps the map's own furniture reachable.
+		// Everything about the Base Map is one button of known width, which is what the panel replaced:
+		// five controls abreast wrapped differently on each pane width, putting the same control
+		// somewhere new on every screen. The search and that button share a line, and the row still
+		// clears the zoom control at the pane's bottom edge, which is what keeps the map's own
+		// furniture reachable.
 		expect(
 			Math.abs(search!.y + search!.height / 2 - (options!.y + options!.height / 2))
 		).toBeLessThan(2);
 		expect(fit!.y + fit!.height).toBeLessThan(zoom!.y);
 		expect(search!.y + search!.height).toBeLessThan(zoom!.y);
+		// The snapshot control comes after the frame button and wraps with the row rather than pushing
+		// it over the zoom control at the pane's bottom edge. Same line or the next one — the row is a
+		// wrapping flex and which it is depends on the pane's width, so what is asserted is that it is
+		// never above the button it follows and never over the map's own furniture.
+		expect(snapshot!.y).toBeGreaterThanOrEqual(fit!.y);
+		expect(snapshot!.y + snapshot!.height).toBeLessThan(zoom!.y);
 
 		const start = await page.evaluate(() => ({
 			center: window.ballastellaBaseMap?.getCenter(),
@@ -389,6 +396,12 @@ test.describe('the Base Map pane', () => {
 	}) => {
 		await openPane(page);
 
+		// The snapshot control is the last stop in the row and is `disabled` until the frame it would
+		// capture is complete — a disabled button is not a tab stop, so the order below is only
+		// stable once it has settled. Waited for rather than skipped: leaving the tab order until
+		// there is something to download is the behaviour, and this is where it is asserted.
+		await expect(page.getByTestId('download-map-snapshot')).toBeEnabled({ timeout: 30_000 });
+
 		// The floating controls follow the persistent chrome in document order. MapLibre's focusable
 		// canvas is rightly between them, so traverse it instead of treating it as an omission. The
 		// switches are native checkboxes, so `Space` operating one is the platform's and is left to it;
@@ -426,6 +439,8 @@ test.describe('the Base Map pane', () => {
 		await expect(baseMapOptionsButton(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('fit-to-project')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('download-map-snapshot')).toBeFocused();
 
 		// And the panel opens from the keyboard, on the button the order just reached — `Enter` is the
 		// platform's own, which is the whole reason ADR-0016 mandates a `<button>` with `popovertarget`

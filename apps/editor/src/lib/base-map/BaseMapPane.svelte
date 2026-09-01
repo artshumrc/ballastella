@@ -52,6 +52,7 @@
 		annotationLayerIds,
 		annotationMarkBox,
 		cachedBaseMapTileTemplate,
+		captureMapFrame,
 		createWarpedMapLayer,
 		drawLayerStack,
 		isDrawnMap,
@@ -101,6 +102,8 @@
 		onwarped,
 		onstack,
 		onbasemapstatus,
+		onsnapshotready,
+		overlayDocked = false,
 		selectedAnnotationId = null,
 		annotationDragPreview = null,
 		controls,
@@ -292,12 +295,27 @@
 		selectedAnnotationId?: string | null;
 		annotationDragPreview?: AnnotationDragPreview | null;
 		/**
+		 * Whether the frame on screen is complete enough to be captured — see {@link captureSnapshot}.
+		 *
+		 * A callback rather than a bound value because the answer arrives from two asynchronous
+		 * sources at once, and the page's only use for it is to enable a control.
+		 */
+		onsnapshotready?: (ready: boolean) => void;
+		/**
 		 * Page-owned controls placed beside the place search over the map.
 		 *
 		 * The Project screen uses this for its Base Map choice and its explicit framing action. They
 		 * belong to the Project, not to every consumer of this pane.
 		 */
 		controls?: Snippet;
+		/**
+		 * Whether {@link overlay} is docked into the pane's top-right corner above `lg`.
+		 *
+		 * The pane cannot see it: the overlay is the page's snippet, positioned by the page's own
+		 * element, and it is drawn *above* this pane's control row. So the page says, and the row stops
+		 * short of that column while it is there — see the row's own note for the measurement.
+		 */
+		overlayDocked?: boolean;
 		/**
 		 * What the page draws *over* this pane, inside the pane's own positioned container.
 		 *
@@ -1137,7 +1155,17 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
-		const preview = annotationDragPreview;
+		paintAnnotations(built, annotationDragPreview);
+	});
+
+	/**
+	 * Push every Annotation Layer's features into the sources already on the map.
+	 *
+	 * A function rather than only the body of the effect above, because {@link captureSnapshot} needs
+	 * the same write with `preview` set to `null`: a Map Snapshot carries the Annotation as it is
+	 * saved, not the one halfway through a drag.
+	 */
+	const paintAnnotations = (built: StackRender, preview: AnnotationDragPreview | null): void => {
 		for (const stacked of layers) {
 			if (!isDrawnMap(stacked)) {
 				const annotations = stacked.annotations ?? { annotations: [] };
@@ -1149,7 +1177,7 @@
 				);
 			}
 		}
-	});
+	};
 
 	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
 	$effect(() => {
@@ -1164,6 +1192,86 @@
 			if (isDrawnMap(stacked)) built.setOpacity(stacked.layer.id, stacked.layer.opacity);
 		}
 	});
+
+	/**
+	 * Resolve once MapLibre has nothing left to draw.
+	 *
+	 * `loaded()` first, because `idle` is an event and an event that has already fired is one a late
+	 * listener never hears — which for a map that settled before anybody asked is every time.
+	 */
+	const whenMapIdle = (target: MapLibreMap): Promise<void> =>
+		new Promise((resolve) => {
+			if (target.loaded()) {
+				resolve();
+				return;
+			}
+			target.once('idle', () => resolve());
+		});
+
+	/**
+	 * Tell the page when the frame on screen is complete, so it can offer a Map Snapshot of it.
+	 *
+	 * **Both halves, because neither is the whole answer.** MapLibre's own idleness covers the Base
+	 * Map and the Annotation layers; a warped Map Image is drawn by a custom layer with a tile cache
+	 * of its own, so the stack is asked as well (`whenTilesSettled`). The second idle is what puts
+	 * those tiles on screen: they arrive after the map has already fallen quiet once.
+	 *
+	 * Not ready again the moment anything about the stack or the map changes — that is what the
+	 * teardown says — and the effect then works its way back to ready for the replacement frame.
+	 */
+	$effect(() => {
+		const current = map;
+		const built = stack;
+		if (!current) return;
+		let live = true;
+		void (async () => {
+			await whenMapIdle(current);
+			await built?.whenTilesSettled();
+			await whenMapIdle(current);
+			if (live) onsnapshotready?.(true);
+		})();
+		return () => {
+			live = false;
+			onsnapshotready?.(false);
+		};
+	});
+
+	/**
+	 * The map as it is on screen, as a PNG — a Map Snapshot of this Project's current view.
+	 *
+	 * **Exported rather than driven by a prop**, for the reason {@link frameOnPlace} is: the control
+	 * that asks for it is the page's, in the page's own control row, and what it needs back is one
+	 * value once rather than a stream of state.
+	 *
+	 * The captured frame is the *clean* one — the Annotations as they are saved, with nothing
+	 * selected — because a Map Snapshot is the composition rather than the moment of authoring it.
+	 * Both are written straight onto the layers already on the map and put back in the `finally`, so
+	 * no Project data is touched and the Author's selection and half-finished drag are still there
+	 * afterwards. What is drawn over the pane in the DOM — the Inspector, leader lines, Control
+	 * Points, the map's own controls — is outside the framebuffer and needs no undoing.
+	 *
+	 * The wait is what makes the clean state the one captured: `setData` is parsed off the main
+	 * thread and a feature state lands on the next render, so capturing immediately would still
+	 * catch the preview.
+	 */
+	export async function captureSnapshot(): Promise<Blob> {
+		const current = map;
+		if (!current) throw new Error('There is no Base Map on screen to capture.');
+		const built = stack;
+		if (built) {
+			paintAnnotations(built, null);
+			built.setSelectedAnnotation(null);
+		}
+		try {
+			await whenMapIdle(current);
+			return await captureMapFrame(current);
+		} finally {
+			if (built) {
+				paintAnnotations(built, annotationDragPreview);
+				built.setSelectedAnnotation(selectedAnnotationId ?? null);
+			}
+		}
+	}
 
 	/**
 	 * Read the distortion view without registering it as a dependency of the effect that owns the
@@ -1259,6 +1367,18 @@
 	Project screen supplies its own Base Map controls. This search navigates and places nothing;
 	placing lives on the Annotation Layer surface, where there is always a Layer to draw into.
 
+	⚠ **While something is docked over the pane's top-right corner, the block stops short of it — that
+	is the conditional `max-width`.** The Annotation Inspector docks `right-2` at `w-80` above `lg` and
+	sits a layer above this block, so a control the row puts under that column is covered: the pointer
+	reaches the Inspector rather than the button. Measured on the Project screen at 1280 wide with an
+	Annotation selected: the row's last control spanned 982–1168 against an Inspector starting at 952,
+	and `elementFromPoint` at the button's centre answered with the Inspector's heading. So the row
+	wraps before it gets there, and only while it has to — applied unconditionally it costs the row a
+	second line at every ordinary desktop width, which is the single line ADR-0020's panel exists to
+	buy. The `max()` floor is the place search's own width: the alignment screen renders this pane in a
+	column narrower than the Inspector's, where an unfloored subtraction resolves negative and
+	collapses the search to nothing.
+
 	⚠ **`z-[6]` puts this block with the map's other controls, and the number is load-bearing.** One
 	stacking context holds the leader at 5, MapLibre's four control corners at 6 (`packages/ui`'s
 	`layout.css` has the rule and the reason), and the Annotation Inspector at 7. This block is pane
@@ -1270,7 +1390,11 @@
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
-	<div class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+	<div
+		class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2 {overlayDocked
+			? 'lg:max-w-[max(18rem,calc(100%-21.5rem))]'
+			: ''}"
+	>
 		<div class="w-72 max-w-full">
 			<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
 		</div>
