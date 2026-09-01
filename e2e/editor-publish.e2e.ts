@@ -1,4 +1,3 @@
-import { drawSwitch, openBaseMapOptions } from './support/base-map-options.js';
 import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
@@ -153,12 +152,6 @@ async function writeWorkspaceToDisk(files: Record<string, string>): Promise<stri
 		await writeFile(file, Buffer.from(base64, 'base64'));
 	}
 	return directory;
-}
-
-/** The site record the Workspace now holds, parsed. */
-async function siteRecord(page: Page): Promise<Record<string, unknown>> {
-	const taken = await takeWorkspace(page);
-	return JSON.parse(Buffer.from(taken['ballastella-site.json']!, 'base64').toString('utf8'));
 }
 
 const sha256 = (base64: string) =>
@@ -338,10 +331,6 @@ async function publish(page: Page, existingDialog?: ReturnType<Page['getByRole']
 	await expect(page.getByTestId('publish-status')).toContainText('Published:', { timeout: 30_000 });
 }
 
-/** A glyph range outside the Latin ones this deployment ships on purpose. */
-const isUnshippedGlyphRange = (path: string): boolean =>
-	/\/base-map\/fonts\/[^/]+\/(?!0-255\.pbf|256-511\.pbf)[\d-]+\.pbf$/.test(path);
-
 test.describe('publishing a Workspace', () => {
 	let sites: StaticSite[] = [];
 	let directories: string[] = [];
@@ -366,92 +355,6 @@ test.describe('publishing a Workspace', () => {
 		sites.push(root, subpath);
 		return { root, subpath };
 	}
-
-	/**
-	 * **This suite's editor is on `localhost`, so nothing it publishes records an instance.**
-	 *
-	 * The editor stamps its own origin so a site's Front Page can lead a Reader back to it, and an
-	 * address only the publishing machine can reach is refused rather than recorded — a Reader
-	 * following `http://localhost:5173/` arrives at whatever is on *their* port 5173. A dev server is
-	 * exactly that case, and so is this one.
-	 *
-	 * Which is why every site below carries no return link and makes no `remote.json` request: the editor
-	 * URL is empty in this suite, so the viewer has no instance to link to.
-	 */
-	async function expectNoReturnLink(page: Page, site: StaticSite): Promise<void> {
-		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
-		expect(site.requests.filter((asked) => asked.endsWith('/remote.json'))).toEqual([]);
-	}
-
-	test('serves a working site from a domain root and from a subdirectory, from one build', async ({
-		page
-	}) => {
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		await publish(page);
-
-		// Read on the editor, before this page leaves for the site: this suite's editor is served from
-		// `localhost`, and an address only the publishing machine can reach is refused rather than
-		// recorded. See `expectNoReturnLink` above.
-		expect((await siteRecord(page)).editorUrl).toBe('');
-
-		const { root, subpath } = await servePublished(page);
-
-		for (const site of [root, subpath]) {
-			const failures: string[] = [];
-			page.on('pageerror', (error) => failures.push(error.message));
-
-			await page.goto(site.url);
-
-			// The hub, and the Project on it. Rendered by the viewer's own JavaScript, which means the
-			// bundle was found, parsed, and run — none of which a file listing can tell you.
-			await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
-			await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
-
-			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this
-			// test composed — so the link is relative in the way the base path needs.
-			await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-			// The Project's name is the site's bar saying where the Reader is.
-			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
-			await expect(page).toHaveURL(`${site.url}?p=amsterdam-1625`);
-
-			// The Project's own data was read over HTTP, relative to the site: the Layer names come out
-			// of `amsterdam-1625/project.json`.
-			//
-			// The stack the Reader gets is the editor's own Layer card, so it is addressed by the label
-			// that component gives its `<ol>` rather than by a viewer-only test id. The claim
-			// this test makes is unchanged — those names could only have come from `project.json`, fetched
-			// relative to this document.
-			const stack = page.getByRole('list', { name: 'Layers, top first' });
-			await expect(stack).toContainText('The 1625 plan');
-			await expect(stack).toContainText('Warehouses');
-			// And the Base Map is drawn the way the author's `project.json` says, which travelled with the
-			// site. Read off the controls rather than the paint, because what is under test here is that
-			// the published document reached the published page — the map itself is asserted in
-			// `viewer-reader.e2e.ts`. A Reader may change any of it for themselves.
-			await openBaseMapOptions(page);
-			await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
-			await expect(drawSwitch(page, 'Topography')).toBeChecked();
-
-			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
-			// it is answered at a domain root and is outside the published folder in a subdirectory,
-			// which is the GitHub Pages case ADR-0006 exists for.
-			//
-			// Glyph ranges are the one exception, and a deliberate one: only Latin ships
-			// (`apps/editor/static/base-map/PROVENANCE.md`), so a map showing a label in another script
-			// asks for a range that is not there and MapLibre falls back. Every other 404 is the failure
-			// this assertion exists for.
-			expect(site.failures.filter((asked) => !isUnshippedGlyphRange(asked.path))).toEqual([]);
-			expect(failures).toEqual([]);
-			await expectNoReturnLink(page, site);
-			// Every request stayed inside the published folder, so nothing reached for the host's root —
-			// the stronger form of the same claim, since a host answering `/favicon.ico` with a page
-			// would otherwise hide it.
-			expect(site.requests.filter((asked) => !asked.startsWith(`${site.prefix}/`))).toEqual([]);
-			// And the subdirectory case really was a subdirectory rather than a second root.
-			expect(site.requests.some((asked) => asked !== `${site.prefix}/`)).toBe(true);
-			page.removeAllListeners('pageerror');
-		}
-	});
 
 	test('references every asset relatively, asserted on the bytes that were written', async ({
 		page

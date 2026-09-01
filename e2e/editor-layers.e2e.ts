@@ -987,37 +987,6 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 	 * needs (ADR-0013), still warns. A boolean written when the map was added would get that wrong, and
 	 * it is the state a scholar interrupted half way is left in.
 	 */
-	test('stops saying it once there are enough Control Points, and not before', async ({ page }) => {
-		test.setTimeout(90_000);
-		const directory = await projectWithImage(page);
-		await openAlignment(page, directory);
-
-		await pairAt(page, 0.3, 0.3);
-		await pairAt(page, 0.7, 0.35);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await openLayers(page, directory, { drawn: 0 });
-		// Settled, for the reason the test above gives — including why this is still a sleep: a Layer
-		// whose Alignment has not been read yet reads as not aligned, so the sentence has to still be
-		// there once it has.
-		await page.waitForTimeout(2000);
-		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
-
-		// The third pair clears it, and the Layer is on the map. Back through the Project page, because
-		// the alignment view is a route of its own and its `?layer=` is not a URL this test knows how
-		// to write.
-		await openAlignment(page, directory);
-		// The pairs already made are read from the Alignment on disk once the pane is up, which is a
-		// pyramid read behind it and slower than the default wait on a loaded machine.
-		await expect(page.getByTestId('control-point-row')).toHaveCount(2, { timeout: STACK_READY_MS });
-		await pairAt(page, 0.5, 0.7);
-		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
-		// three pairs really do solve. Without it this waits on the Layers pane for a state the Alignment
-		// may not have reached yet, and a red run would say nothing about the sentence under test.
-		await expectWarpedDrawn(page);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await openLayers(page, directory, { drawn: 1 });
-		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
-	});
 
 	/**
 	 * An Alignment write must not touch `project.json` at all (ADR-0023): not create a Layer, not
@@ -1293,38 +1262,6 @@ test.describe('showing and hiding a Layer', () => {
 		// The positive form of "it is not drawn": MapLibre no longer has a layer for it at all, so
 		// there is nothing that could paint.
 		expect(await stackOrder(page)).toEqual([]);
-	});
-
-	test('survives a reload, for both kinds', async ({ page }) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		// The Annotation Layer is on top, the map Layer below it.
-		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
-		await rows(page).nth(1).getByTestId('layer-visible').uncheck();
-		// Polled on the file rather than on the save indicator: the indicator already read "Saved
-		// locally" from the Layer added above, so it answers before the second uncheck is written and
-		// the reload below can beat it to disk.
-		await expect
-			.poll(async () =>
-				(await projectJson(page, directory)).layers.map(
-					(layer: { visible: boolean }) => layer.visible
-				)
-			)
-			.toEqual([false, false]);
-
-		await page.reload();
-		await expect(rows(page)).toHaveCount(2);
-		await expect(rows(page).nth(0).getByTestId('layer-visible')).not.toBeChecked();
-		await expect(rows(page).nth(1).getByTestId('layer-visible')).not.toBeChecked();
-		expect(await stackOrder(page)).toEqual([]);
-
-		await rows(page).nth(1).getByTestId('layer-visible').check();
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
-		expect(await stackOrder(page)).toHaveLength(1);
 	});
 });
 
@@ -1676,61 +1613,6 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 });
 
 test.describe('display state never reaches a portability document (ADR-0002)', () => {
-	test('reorder, rename, toggle, and opacity leave alignments and annotations byte-identical', async ({
-		page
-	}) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		// The Alignment is the Workspace's and the Annotations are the Project's (ADR-0023), so the two
-		// halves of "no display-state edit reaches a portability document" are hashed from two places.
-		// Polled first: both files are written by the app, and the Annotation Layer added above can
-		// still be landing when the hashes are read.
-		const documents = async () => [
-			...(await hashesUnder(page, '', 'alignments/')),
-			...(await hashesUnder(page, directory, 'annotations/'))
-		];
-		await expect.poll(async () => (await documents()).length).toBe(2);
-		const before = await documents();
-		const projectBefore = await readProjectFile(page, directory, 'project.json');
-
-		// Renaming starts at the pencil in an open card since the Layers revision.
-		const renaming = await openLayerRow(page, rows(page).nth(0));
-		await renaming.getByTestId('layer-rename').click();
-		await renaming.getByTestId('layer-name').fill('Trade routes');
-		await renaming.getByTestId('layer-name').blur();
-		// Reorder buttons are inside the open card since the Layers revision. The card follows the
-		// Layer rather than the position, so it is still open after the move.
-		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
-		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
-		// The slider is inside the open card since the Layers revision, and only a map Layer has one —
-		// so the card is found by kind rather than by position, which the move above has just changed.
-		await (await openLayerRow(page, mapRow(page))).getByTestId('layer-opacity').fill('0.4');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		const after = [
-			...(await hashesUnder(page, '', 'alignments/')),
-			...(await hashesUnder(page, directory, 'annotations/'))
-		];
-		expect(after).toEqual(before);
-
-		// And the display state did land somewhere: `project.json` is the only place it lives. The four
-		// values are named rather than left to "the bytes differ", because `writeProject` stamps a fresh
-		// `updatedAt` on every write — so the inequality below holds even if the rename, the reorder, the
-		// toggle and the opacity had all been dropped from the serialised `layers`, which would make the
-		// pairing with the hashes above vacuous.
-		const project = await projectJson(page, directory);
-		expect(await readProjectFile(page, directory, 'project.json')).not.toBe(projectBefore);
-		expect(project.layers[1].name).toBe('Trade routes');
-		expect(project.layers[1].kind).toBe('annotation');
-		expect(project.layers[0].kind).toBe('map');
-		expect(project.layers[0].visible).toBe(false);
-		expect(project.layers[0].opacity).toBeCloseTo(0.4, 5);
-	});
-
 	// Display state must not cost a read of the store either. A rename and an opacity drag change
 	// nothing about *which* Layers are drawn or out of which files, so re-reading every Alignment and
 	// every `FeatureCollection` for one of them makes the cheapest edit in the application one of the

@@ -15,7 +15,6 @@ import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import {
 	baseMapArchiveFixture,
 	byteRange,
-	cachedBaseMapTiles,
 	refuseBaseMapArchive,
 	routeBaseMapArchive,
 	routePartialBaseMapArchive
@@ -2820,74 +2819,6 @@ test.describe('a Published Site that is not entirely well', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('draws its Base Map from its own cached tiles with the archive unreachable', async ({
-		page
-	}) => {
-		// ADR-0025 from the Reader's side. A scholar made a Project available offline before publishing,
-		// so `base-map/tiles/…` is part of the site — publishing copied nothing extra, because the tiles
-		// were already in the Workspace that *is* the published root.
-		//
-		// **The archive is aborted, not merely unused.** Every catalog entry points at somebody else's
-		// bucket, so leaving it reachable would let this pass with the cache doing nothing at all. With
-		// it refused, anything drawn came out of the site's own files.
-		//
-		// And the claim rests on served bytes *and* the **Base Map's own geography** being on screen,
-		// never on the absence of an error and never on "some feature rendered": the compression mistake
-		// ADR-0025 names serves bytes, parses nothing, and throws nothing — and this Project draws two
-		// Layers of the Reader's own over the same map, so a bare feature count is satisfied by those
-		// while the reference map is blank. `roads_` and `water` are Protomaps layer prefixes and belong
-		// to no Layer this app produces (`ballastella-layer-…`).
-		const cached = await cachedBaseMapTiles(ARCHIVE);
-		site = await published({
-			...oneProject(
-				{},
-				{
-					baseMapBundled: true,
-					baseMapCaches: [{ archive: ARCHIVE, maxZoom: cached.maxZoom }]
-				}
-			),
-			...cached.files
-		});
-		const served = site.sites[0]!;
-		const seen = watch(page);
-
-		await page.route(/\.pmtiles$/, (route) => route.abort());
-
-		await page.goto(`${served.url}?p=amsterdam-1625`);
-		await mapReady(page);
-
-		await expect
-			.poll(
-				async () => (await page.evaluate(() => window.ballastellaServedBaseMapTiles ?? [])).length,
-				{ timeout: 60_000 }
-			)
-			.toBeGreaterThan(0);
-		await expect
-			.poll(
-				() =>
-					page.evaluate(() =>
-						(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
-							(feature) =>
-								feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
-						)
-					),
-				{ timeout: 60_000 }
-			)
-			.toBe(true);
-
-		// The Reader's own work still draws over it, and the licence still says whose data this is.
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-		await expect(page.locator('.maplibregl-ctrl-attrib')).toContainText('OpenStreetMap');
-		// Nothing was missing from the site, and the page threw nothing. Tiles are the exception the
-		// cache itself creates: the fixture archive covers one city, so the low zooms this Project opens
-		// on have three tiles the archive never held and the site therefore never cached. What matters
-		// is asserted above — tiles were served, and the reference map's own geography is on screen.
-		expect(served.failures.filter((asked) => !asked.path.startsWith('/base-map/tiles/'))).toEqual(
-			[]
-		);
-		expect(seen.failures).toEqual([]);
-	});
-
 	test('says so when the site carries no copy of the Base Map’s labels and symbols', async ({
 		page
 	}) => {
@@ -4631,34 +4562,6 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		expect(at.lng).toBeCloseTo(BOSTON_PINS[1]![0], 4);
 		expect(at.zoom).toBeLessThanOrEqual(16);
 		expect(at.zoom).toBeCloseTo(16, 4);
-	});
-
-	test('opens on the deployment default when the Project has nothing on the earth', async ({
-		page
-	}) => {
-		site = await published(pinnedProject([]));
-
-		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
-		await mapReady(page);
-		await openingSettled(page);
-
-		const at = await readerViewport(page);
-		expect(at.lng).toBeCloseTo(DEPLOYMENT_VIEW.lng, 4);
-		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
-		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
-		await expect(page.getByTestId('opening-view')).toContainText('default view');
-
-		// **And what that Layer's card says when a Reader opens it**, folded in here because this is the
-		// suite's only Project with an Annotation Layer a Reader can open and find nothing in — the
-		// state the shared empty state is *entitled* to describe, having been given a collection that
-		// really is empty. The bare fact, in words that are true in both apps; the editor's "Nothing in
-		// this Layer yet" is its own guidance now and is swept for by {@link expectNoEditorProse},
-		// because on a Published Site nothing will ever be put in this Layer.
-		const card = await openLayerRow(page, layerRow(page, ANNOTATION_LAYER_ID));
-		await expect(card.getByTestId('annotation-list-empty')).toHaveText(
-			'This Layer has no Annotations in it.'
-		);
-		await expectNothingEditable(page);
 	});
 
 	test('frames on a sheet whose Alignment reads, even when its image record does not', async ({

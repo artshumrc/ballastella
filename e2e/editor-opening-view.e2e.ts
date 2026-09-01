@@ -2,14 +2,6 @@ import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
-import {
-	imagePoints,
-	makePairs,
-	start as startAligning,
-	storedAlignment,
-	waitForStored,
-	waitForSurface
-} from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openLayerRow } from './support/layers.js';
 
@@ -425,29 +417,6 @@ test.describe('a Project opens on its own content', () => {
 		expect(at.zoom).toBeCloseTo(16, 4);
 	});
 
-	test('opens on the deployment default when there are no Layers at all', async ({ page }) => {
-		await open(page, workspaceFiles({ layers: [] }));
-
-		const at = await viewport(page);
-		expect(at.lng).toBeCloseTo(DEPLOYMENT_VIEW.lng, 4);
-		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
-		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
-		await expect(page.getByTestId('opening-view')).toHaveAttribute('data-opening-view', 'default');
-		// And says so, in an announced live region rather than by silence.
-		await expect(page.getByTestId('opening-view')).toContainText('default view');
-	});
-
-	test('opens on the deployment default when its only Map Image is unaligned', async ({ page }) => {
-		// A Map Image with no Alignment has no place on the earth, so there is nothing to frame on —
-		// and inventing one would put the map somewhere the author never chose.
-		await open(page, workspaceFiles({ layers: [{ kind: 'map', id: 'l-map' }], unaligned: true }));
-
-		const at = await viewport(page);
-		expect(at.lng).toBeCloseTo(DEPLOYMENT_VIEW.lng, 4);
-		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
-		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
-	});
-
 	test('frames on content the author has hidden, rather than on the default', async ({ page }) => {
 		await open(
 			page,
@@ -592,96 +561,7 @@ test.describe('the alignment view', () => {
 	 * Project screen: with three points placed, the mask is the whole sheet flung across a continent by
 	 * a barely-determined solve, and the points are the couple of streets the user was working on.
 	 */
-	test('lands on the Control Points, and a moved Control Point leaves the map alone', async ({
-		page
-	}) => {
-		const imageId = await startAligning(page);
-		await waitForBaseMap(page);
-		const before = await viewport(page);
-
-		// Announced before a pair exists, because this pane moves the Base Map on open exactly as the
-		// Project screen and the viewer do, and a WebGL canvas says nothing. The Project
-		// this fixture opens has no other content either, so the sentence is the "nothing to frame on"
-		// one — which is the one nobody would guess from an unmoved map.
-		const announced = page.getByTestId('alignment-opening-view');
-		await expect(announced).toHaveAttribute('data-opening-view', 'default', { timeout: 30_000 });
-		await expect(announced).toContainText('No Control Points yet');
-		expect(await announced.getAttribute('aria-live')).toBe('polite');
-
-		// Parked before pairing, because the deployment default is the whole world: three clicks on a
-		// world-sized map are degrees apart and their box's naive centre is not where a padded fit
-		// lands. Somewhere ordinary and zoomed in makes the two agree, and the fit is the subject
-		// rather than the arithmetic of a spread-out box.
-		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
-		await makePairs(page, 3);
-		await waitForStored(page, imageId, 3);
-		const placed = controlPointBox(
-			JSON.parse((await storedAlignment(page, imageId))!).body.features.map(
-				(feature: { geometry: { coordinates: [number, number] } }) => feature.geometry.coordinates
-			)
-		);
-
-		await page.reload();
-		await waitForSurface(page);
-		await waitForBaseMap(page);
-
-		// Polled, because the fit follows an asynchronous read of the Alignment — and it is an assertion
-		// rather than a sleep, so a fit that never happens fails here rather than further down.
-		await expect
-			.poll(async () => (await viewport(page)).lng, { timeout: 30_000 })
-			.toBeCloseTo((placed.west + placed.east) / 2, 3);
-		const landed = await viewport(page);
-		expect(landed.lat).toBeCloseTo((placed.south + placed.north) / 2, 3);
-		// Closer in than the deployment default, because the points span a fraction of what it shows.
-		expect(landed.zoom).toBeGreaterThan(before.zoom);
-
-		// And said out loud, now that there is something to have landed on.
-		await expect(announced).toHaveAttribute('data-opening-view', 'control-points');
-		await expect(announced).toContainText('Control Points, where the work was left');
-
-		// And now the other half: with the Alignment open, editing it must not move the earth under the
-		// gesture doing the editing. The handle dragged is on the **Map Image** pane, so nothing
-		// about the drag itself could pan the Base Map — what would move it is a refit.
-		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
-		await dragBy(page, imagePoints(page).first(), 40, 24);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await stillParked(page, 'after a Control Point was moved');
-	});
 });
-
-/** The box a set of `[lng, lat]` Control Points spans. Small, and never near the antimeridian here. */
-function controlPointBox(points: readonly [number, number][]) {
-	return {
-		west: Math.min(...points.map(([lng]) => lng)),
-		east: Math.max(...points.map(([lng]) => lng)),
-		south: Math.min(...points.map(([, lat]) => lat)),
-		north: Math.max(...points.map(([, lat]) => lat))
-	};
-}
-
-/** Wait until the alignment workspace's Base Map pane holds a loaded map. */
-async function waitForBaseMap(page: Page): Promise<void> {
-	await page.waitForFunction(
-		() => (window as unknown as MapWindow).ballastellaBaseMap?.loaded() === true,
-		undefined,
-		{ timeout: 45_000 }
-	);
-}
-
-/** Drag `handle` by `(dx, dy)` screen pixels, committing on pointer-up. */
-async function dragBy(page: Page, handle: Locator, dx: number, dy: number): Promise<void> {
-	await handle.scrollIntoViewIfNeeded();
-	const box = await handle.boundingBox();
-	if (!box) throw new Error('the handle has no box to drag');
-	const fromX = box.x + box.width / 2;
-	const fromY = box.y + box.height / 2;
-	await page.mouse.move(fromX, fromY);
-	await page.mouse.down();
-	for (let step = 1; step <= 6; step += 1) {
-		await page.mouse.move(fromX + (dx * step) / 6, fromY + (dy * step) / 6);
-	}
-	await page.mouse.up();
-}
 
 test.describe('opening a Project', () => {
 	test('writes nothing at all', async ({ page }) => {

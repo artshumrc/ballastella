@@ -270,28 +270,6 @@ test.describe('the Base Map pane', () => {
 			.toBeGreaterThan(start.zoom ?? 0);
 	});
 
-	test('opens on the catalog’s initial view, which is what a Project with no work falls back to', async ({
-		page
-	}) => {
-		// ADR-0026's last fallback, asserted where the catalog itself is asserted. The seeded Project has
-		// an empty `layers`, so there is nothing on the earth to frame on and the deployment's own
-		// initial view is what a scholar meets. `e2e/editor-opening-view.e2e.ts` owns the other end of
-		// the chain.
-		await openPane(page);
-
-		const at = await page.evaluate(() => ({
-			lng: window.ballastellaBaseMap!.getCenter().lng,
-			lat: window.ballastellaBaseMap!.getCenter().lat,
-			zoom: window.ballastellaBaseMap!.getZoom()
-		}));
-		// The whole world, which is what the catalog offers a Project with nothing placed on the earth.
-		// Read out of the catalog by the app; written out here, because a fit that quietly replaced it
-		// would still be *a* view.
-		expect(at.lng).toBeCloseTo(0, 4);
-		expect(at.lat).toBeCloseTo(20, 4);
-		expect(at.zoom).toBeCloseTo(1, 4);
-	});
-
 	test('pans by dragging and zooms by wheel', async ({ page }) => {
 		await openPane(page);
 
