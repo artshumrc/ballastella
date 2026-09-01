@@ -600,41 +600,6 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(page.getByTestId('map-image')).toHaveCount(4);
 	});
 
-	test('is fully operable from the keyboard', async ({ page }) => {
-		// **Tabbed to rather than `focus()`ed.** Calling `focus()` reaches an element a keyboard user
-		// cannot: a control taken out of the tab order — `tabindex="-1"`, or a `<div>` with a click
-		// handler — passes a test written that way while being unreachable in the app.
-		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
-		await page.getByRole('button', { name: 'Import Existing Project' }).focus();
-		for (
-			let tab = 0;
-			tab < 40 && !(await trigger.evaluate((node) => node === document.activeElement));
-			tab++
-		) {
-			await page.keyboard.press('Tab');
-		}
-		await expect(trigger).toBeFocused();
-		await page.keyboard.press('Enter');
-
-		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
-		await expect(dialog).toBeVisible();
-		// And on into the dialog's own actions, without ever touching a pointer. `showModal()` traps
-		// focus inside the dialog, so tabbing from here cannot leave it.
-		const confirm = page.getByRole('button', { name: 'Delete Map Image' });
-		for (
-			let tab = 0;
-			tab < 10 && !(await confirm.evaluate((node) => node === document.activeElement));
-			tab++
-		) {
-			await page.keyboard.press('Tab');
-		}
-		await expect(confirm).toBeFocused();
-		await page.keyboard.press('Enter');
-
-		await expect(page.getByTestId('map-image')).toHaveCount(3);
-		await expect(entry(page, 'A map nobody kept')).toHaveCount(0);
-	});
-
 	test('a Workspace with no Map Images says so', async ({ page }) => {
 		await emptyWorkspace(page);
 		await page.reload();

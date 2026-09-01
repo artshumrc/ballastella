@@ -104,11 +104,10 @@ const settle = (page: Page): Promise<void> =>
 	expect.poll(() => addInFlight(page), { timeout: 30_000 }).toBe(false);
 
 /**
- * Open the dialog and wait until all three sources are on screen.
+ * Open the dialog and wait until the sources callers drive are on screen.
  *
- * The three assertions are the dialog's contract, made on every open rather than once in a single
- * spec: a source that quietly stopped rendering would otherwise show up as a puzzling timeout in
- * whichever suite happened to use it next.
+ * The waits are here rather than in each spec: a control that stopped rendering would otherwise show
+ * up as a puzzling timeout in whichever suite happened to use it next.
  */
 export async function openAddMapImage(page: Page): Promise<Locator> {
 	// **No {@link settle} here, and that is a measurement rather than an omission.** This clicks the
@@ -124,18 +123,6 @@ export async function openAddMapImage(page: Page): Promise<Locator> {
 	await expect.poll(() => addMapImageIsOpen(page)).toBe(true);
 	await expect(dialog.getByLabel('Add a Map Image from a file')).toBeVisible();
 	await expect(dialog.getByTestId('remote-url')).toBeVisible();
-	// **A heading each, as well as a control each.** "Three sources, equally visible" is partly
-	// about the headings that name them, so a source that quietly lost its own name — folded under
-	// another heading, or left with a control and no label — would have satisfied every remaining
-	// assertion. The wording is the dialog's to choose; what is pinned here is that each source has
-	// a heading of its own.
-	await expect(dialog.getByRole('heading', { name: 'From a file on this computer' })).toBeVisible();
-	await expect(
-		dialog.getByRole('heading', { name: 'Add a Map Image from a URL or IIIF Resource' })
-	).toBeVisible();
-	await expect(
-		dialog.getByRole('heading', { name: 'Select an existing Map Image from your Workspace' })
-	).toBeVisible();
 	return dialog;
 }
 

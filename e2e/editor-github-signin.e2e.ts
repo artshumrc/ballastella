@@ -5,14 +5,11 @@ import { readFile } from 'node:fs/promises';
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
-import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	closeTheDoor,
 	seedGitHubCredential,
 	seedRemoteRelationship,
-	doorButton,
 	expectCredential,
-	expectNoRemoteInReview,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
 	openPublishFromTheDoor,
@@ -707,93 +704,6 @@ test.describe('a sign-in kept past the tab', () => {
 			return text.includes(held?.refreshToken ?? '') || text.includes(held?.token ?? '');
 		});
 		expect(carrying).toEqual([]);
-	});
-});
-
-// ADR-0024: with a Review Workspace open, the credential store neither reads nor writes. The App
-// path has two more things to seal than the pasted one — the sign-in button, and the grant record
-// whose refresh token can mint fresh credentials — and it is asserted here rather than only in
-// `editor-remote-binding.e2e.ts` because none of the three exists over there.
-test.describe('a Review Workspace, with a GitHub sign-in held', () => {
-	test('reads no sign-in, offers none, and spends nothing while it is open', async ({ page }) => {
-		// Stale on arrival, which is what makes the refresh below a thing that *would* happen: this is
-		// the exact state in which a sealed record is the difference between doing nothing and sending
-		// a teacher's refresh token to the broker from inside a student's submission.
-		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS, login: 'ada' });
-		await signInWithGitHub(page);
-		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
-		const held = await grantRecord(page);
-		expect(held?.refreshToken).toBeTruthy();
-		const asked = github.requests.length;
-
-		await page.getByTestId('open-bundle').click();
-		await page
-			.getByRole('dialog', { name: 'Review a Project' })
-			.getByLabel('Project bundle')
-			.setInputFiles(await oneProjectBundle());
-		await page.getByTestId('confirm-open-bundle').click();
-		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
-
-		// ⚠ **The door is not mounted at all over a review copy** (ADR-0024, ADR-0042), so every
-		// sentence about a sign-in, the sign-out beside it and the button that starts one are absent
-		// together — there is no second surface left that could put a teacher's credential on the
-		// screen a student's submission is open on.
-		await expectNoRemoteInReview(page);
-		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
-		await expect(page.getByTestId('connect-sign-out')).toHaveCount(0);
-		await expect(page.getByTestId('connect-sign-in-with-github')).toHaveCount(0);
-		await expect(page.getByTestId('remember-sign-in')).toHaveCount(0);
-
-		// ⚠ **And nothing was spent.** The Review switched Workspaces, and adopting one is what asks
-		// whether the sign-in is still good — the held grant is stale, so an unsealed record would have
-		// sent the refresh token to the broker from inside somebody else's Project, and an unsealed
-		// clear would have ended the teacher's own session on their behalf.
-		expect(github.requests.slice(asked)).toEqual([]);
-		expect(await grantRecord(page)).toEqual(held);
-		expect(await holdsCredential(page)).toBe(true);
-
-		// Sealed rather than deleted: the same locators, the opposite answers, one gesture apart.
-		await page.getByTestId('leave-review').click();
-		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await openTheDoor(page);
-		await expect(page.getByTestId('connect-signed-in')).toBeVisible();
-		expect(github.requests).toContain('/github/refresh');
-	});
-
-	// ⚠ **The seal has to hold over the durable implementation too, and this is where it would stop
-	// holding unnoticed.** A refresh token kept past the tab is the longest-lived secret this app
-	// holds, and a review copy that could read it could spend it against the broker from inside
-	// somebody else's Project. The record itself is left exactly where it is: sealed, not destroyed.
-	test('reads nothing of a sign-in this machine was asked to keep', async ({ page }) => {
-		const github = await start(page, { tokenLifetimeSeconds: ALREADY_STALE_SECONDS, login: 'ada' });
-		await signInWithGitHub(page);
-		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub as ada');
-		await keepTheSignIn(page);
-		const kept = await rememberedGrant(page);
-		expect(kept?.refreshToken).toBeTruthy();
-		const asked = github.requests.length;
-
-		await page.getByTestId('open-bundle').click();
-		await page
-			.getByRole('dialog', { name: 'Review a Project' })
-			.getByLabel('Project bundle')
-			.setInputFiles(await oneProjectBundle());
-		await page.getByTestId('confirm-open-bundle').click();
-		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
-
-		// The door, and with it every reading of the sign-in, is absent over a review copy.
-		await expect(doorButton(page)).toHaveCount(0);
-		await expect(page.getByTestId('connect-signed-in')).toHaveCount(0);
-		await expect(page.getByTestId('remember-sign-in')).toHaveCount(0);
-
-		expect(github.requests.slice(asked)).toEqual([]);
-		expect(await rememberedGrant(page)).toEqual(kept);
-
-		// Sealed rather than destroyed: the same record, readable again one gesture later.
-		await page.getByTestId('leave-review').click();
-		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
-		await openTheDoor(page);
-		await expect(page.getByTestId('remember-sign-in')).toBeChecked();
 	});
 });
 

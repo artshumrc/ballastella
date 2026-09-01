@@ -9,7 +9,7 @@
 // this Workspace into a folder…*. GitHub remains behind the one door, which {@link openTheDoor}
 // reaches.
 
-import { DEFAULT_WORKSPACE, expect, type Page } from './test.js';
+import { DEFAULT_WORKSPACE, type Download, expect, type Page } from './test.js';
 
 /** The Workspace control on the bar. Its button carries the Workspace's name. */
 export const workspaceButton = (page: Page) => page.getByTestId('workspace-switcher');
@@ -46,6 +46,25 @@ export async function switchToWorkspace(page: Page, name: string): Promise<void>
 	await openWorkspaceMenu(page);
 	await page.getByTestId('switch-workspace').filter({ hasText: name }).first().click();
 	await expectWorkspaceNamed(page, name);
+}
+
+/**
+ * Take a Backup, and hand back the download.
+ *
+ * The dialog it lives in is closed again before returning. It is modal, so anything the caller does
+ * next on the bar — creating a Workspace, switching to one — is intercepted while it is open.
+ */
+export async function backUpWorkspace(
+	page: Page,
+	name: string = DEFAULT_WORKSPACE
+): Promise<Download> {
+	await editWorkspace(page, name);
+	const download = page.waitForEvent('download');
+	await page.getByTestId('back-up-workspace').click();
+	const saved = await download;
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeHidden();
+	return saved;
 }
 
 /**

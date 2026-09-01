@@ -143,6 +143,7 @@ export { expect };
 export type { ExternalAllowance } from './network-fence.js';
 export type {
 	BrowserContext,
+	Download,
 	Locator,
 	Page,
 	Request,
