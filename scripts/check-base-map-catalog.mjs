@@ -76,6 +76,10 @@ if (entryIds.length === 0) {
  * file — including the comment on `REMOTE_ARCHIVE` that explains why the URL is unsuitable. A
  * deployment that correctly repointed the constant but kept the explanation was wrongly blocked,
  * and the remedy on offer was "delete the paragraph saying why".
+ *
+ * The trailing comma is optional. `archive` is the last property of the only entry, so whether it
+ * carries one is the formatter's business — and requiring it once left this fence reading no
+ * archive at all, which passes a borrowed host silently.
  */
 const archiveBindings = new Map(
 	[...catalogSource.matchAll(/^const\s+(\w+)\s*=\s*'([^']+)';/gm)].map((match) => [
@@ -83,7 +87,7 @@ const archiveBindings = new Map(
 		match[2]
 	])
 );
-const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\w+))\s*,/gm)].map(
+const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\w+))\s*,?$/gm)].map(
 	(match) => match[1] ?? archiveBindings.get(match[2]) ?? match[2]
 );
 
@@ -94,7 +98,7 @@ const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\
  * would pass a deployment that had provisioned its own vector tiles and left the relief pointed at
  * somebody else's bucket — which is the whole failure, one dataset later.
  */
-const terrainTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))\s*,/gm)].map(
+const terrainTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))\s*,?$/gm)].map(
 	(match) => match[1] ?? archiveBindings.get(match[2]) ?? match[2]
 );
 
