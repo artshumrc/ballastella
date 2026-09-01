@@ -125,15 +125,17 @@ export async function openAddMapImage(page: Page): Promise<Locator> {
 	await expect(dialog.getByLabel('Add a Map Image from a file')).toBeVisible();
 	await expect(dialog.getByTestId('remote-url')).toBeVisible();
 	// **A heading each, as well as a control each.** "Three sources, equally visible" is partly
-	// about the headings that name them: `editor-remote-iiif.e2e.ts` used to pin "Add a Map
-	// Image from a library" and stopped when the flow moved in here, so a source that quietly lost
-	// its own name — folded under another heading, or left with a control and no label — would
-	// have satisfied every remaining assertion.
+	// about the headings that name them, so a source that quietly lost its own name — folded under
+	// another heading, or left with a control and no label — would have satisfied every remaining
+	// assertion. The wording is the dialog's to choose; what is pinned here is that each source has
+	// a heading of its own.
 	await expect(dialog.getByRole('heading', { name: 'From a file on this computer' })).toBeVisible();
 	await expect(
-		dialog.getByRole('heading', { name: 'Add a Map Image from a library' })
+		dialog.getByRole('heading', { name: 'Add a Map Image from a URL or IIIF Resource' })
 	).toBeVisible();
-	await expect(dialog.getByRole('heading', { name: 'Already in this Workspace' })).toBeVisible();
+	await expect(
+		dialog.getByRole('heading', { name: 'Select an existing Map Image from your Workspace' })
+	).toBeVisible();
 	return dialog;
 }
 
