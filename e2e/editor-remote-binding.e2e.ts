@@ -7,6 +7,7 @@ import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
 import {
 	closeTheDoor,
+	backUpWorkspace,
 	createFolderWorkspace,
 	expectCredential,
 	expectNoRemote,
@@ -373,11 +374,9 @@ test.describe('a restored Backup', () => {
 		await closeTheDoor(page);
 		await expectRemoteNamed(page, REMOTE);
 
-		// Backup and Restore are on Workspace Home, which is the screen this test is standing on
-		// (ADR-0042).
-		const downloading = page.waitForEvent('download');
-		await page.getByTestId('back-up-workspace').click();
-		const backup = await readFile(await (await downloading).path());
+		// Backup and Restore are in the Workspace's own dialog, beside its name (ADR-0042), and the
+		// Restore below is in there with it.
+		const backup = await readFile(await (await backUpWorkspace(page)).path());
 
 		await page.getByTestId('restore-file').setInputFiles({
 			name: `${DEFAULT_WORKSPACE}.tar`,
