@@ -9,8 +9,8 @@
 	// seeing at once, and each showing the stroke it means rather than naming it. Real
 	// `<input type="radio">`s under the labels, which is where the arrow-key navigation and the group
 	// semantics come from for free (ADR-0016); `has-[:checked]` is what tints the chosen one, in the
-	// Annotation Layer's own colour from `layer-kind-style.ts` — this only ever draws inside an
-	// Annotation card, and a card's controls are the card's colour.
+	// colour of the thing being styled from `layer-kind-style.ts` — an Annotation's card, or the Base
+	// Map, whose borders offer the same three strokes in Project settings.
 	//
 	// The three stroke glyphs are ours (`../icons/Line*.svelte`) because the icon set has no
 	// solid/dashed/dotted trio; they are drawn on its grid so they sit beside its icons without
@@ -37,6 +37,7 @@
 		testid,
 		label = 'Line style',
 		caption = undefined,
+		kind = 'annotation',
 		onchoose
 	}: {
 		value: LineStyle;
@@ -51,6 +52,11 @@
 		 * Defaults to `label`. Same split, and same reason, as `ColorPicker`'s.
 		 */
 		caption?: string;
+		/**
+		 * Which of the two kinds of thing is being styled, and therefore which colour the pressed
+		 * button wears. An Annotation unless said otherwise, which is where this started.
+		 */
+		kind?: 'annotation' | 'map';
 		onchoose: (style: LineStyle) => void;
 	} = $props();
 
@@ -69,7 +75,7 @@
 			{#each LINE_STYLES as style (style)}
 				{@const Icon = ICONS[style]}
 				<label
-					class="btn join-item gap-1 btn-sm {KIND_STYLE.annotation.btnWhenChecked}"
+					class="btn join-item gap-1 btn-sm {KIND_STYLE[kind].btnWhenChecked}"
 					data-testid="{testid}-{style}"
 				>
 					<input

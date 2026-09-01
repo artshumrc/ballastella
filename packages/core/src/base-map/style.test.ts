@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { ANNOTATION_COLORS } from '../annotation/annotation';
 import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
 import { resolveBaseMap } from './resolve';
-import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID } from './style';
+import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID, bordersIllegibleThemes } from './style';
 import { TERRAIN_CONTOUR_SOURCE_ID, TERRAIN_DEM_SOURCE_ID } from './terrain';
 import type { BaseMapEntry } from './entry';
 
@@ -120,6 +121,51 @@ describe('baseMapStyle', () => {
 		expect(drawn).toContain(SUBNATIONAL_BOUNDARY_LAYER);
 	});
 
+	it('draws the boundary lines heavier than the hairlines upstream ships', () => {
+		// End-to-end over the real `@protomaps/basemaps` output rather than a fabricated layer: an
+		// upgrade that changed upstream's widths would otherwise leave this passing against a fixture.
+		const drawn = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
+		const national = paint(drawn, NATIONAL_BOUNDARY_LAYER) as Record<string, unknown>;
+		const subnational = paint(drawn, SUBNATIONAL_BOUNDARY_LAYER) as Record<string, unknown>;
+
+		expect(national['line-width'] as number).toBeGreaterThan(0.7);
+		expect(subnational['line-width'] as number).toBeGreaterThan(0.4);
+	});
+
+	it('repaints the boundary lines in both themes, and never the same colour in each', () => {
+		// ADR-0016: a border legible on the pale map and invisible on the dark one is the failure the
+		// theme argument exists to prevent, and a hardcoded colour is exactly how it happens.
+		const light = baseMapStyle(entry('streets'), { theme: 'light' }).layers;
+		const dark = baseMapStyle(entry('streets'), { theme: 'dark' }).layers;
+		const colour = (styleLayers: typeof light): unknown =>
+			(paint(styleLayers, NATIONAL_BOUNDARY_LAYER) as Record<string, unknown>)['line-color'];
+
+		expect(colour(light)).not.toBe(colour(dark));
+	});
+
+	// ⚠ **This is the measurement that justifies the warning's threshold**, and the reason it is a
+	// test rather than a comment: a chosen colour is one colour for both grounds, and the warning is
+	// only worth reading if it separates the palette rather than firing on all of it. Three of the
+	// nine clear both themes; the six that fail are the ones an author needs told.
+	it('warns about the palette colours that cannot be seen on one of the two grounds', () => {
+		const both: string[] = [];
+		const oneOnly: string[] = [];
+		for (const colour of ANNOTATION_COLORS) {
+			const failing = bordersIllegibleThemes(entry('streets'), colour.value);
+			(failing.length === 0 ? both : oneOnly).push(colour.name);
+		}
+
+		expect(both).toEqual(['Red', 'Green', 'Blue']);
+		expect(oneOnly).toEqual(['Black', 'Grey', 'White', 'Orange', 'Yellow', 'Purple']);
+	});
+
+	it('names the theme a colour actually fails in, rather than both every time', () => {
+		// White is invisible on the pale ground and perfectly legible on the dark one, and the warning
+		// has to say which — an author on a dark screen is otherwise told their visible line is wrong.
+		expect(bordersIllegibleThemes(entry('streets'), '#ffffff')).toEqual(['light']);
+		expect(bordersIllegibleThemes(entry('streets'), '#000000')).toEqual(['dark']);
+	});
+
 	it('drops the divisions inside a nation for national, and both for none', () => {
 		const national = baseMapStyle(entry('streets'), { theme: 'light', borders: 'national' }).layers;
 		const none = baseMapStyle(entry('streets'), { theme: 'light', borders: 'none' }).layers;
@@ -192,8 +238,12 @@ describe('baseMapStyle', () => {
 	});
 
 	it('leaves an already-absolute remote archive alone', () => {
-		const remote = entry('streets-worldwide');
+		// Every shipped entry reads `REMOTE_ARCHIVE`, so this asserts against the catalog rather than a
+		// fixture: it is the real archive URL a deployment would repoint (ADR-0020), and `resolveAsset`
+		// prefixing it would produce a style that fetches nothing.
+		const remote = entry('streets');
 
+		expect(remote.archive).toMatch(/^https:\/\//);
 		expect(archiveUrl(remote, (path) => `https://example.test/${path}`)).toBe(remote.archive);
 	});
 

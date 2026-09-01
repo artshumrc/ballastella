@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseImportProvenance } from './import-provenance.js';
-import { readBaseMapBorders } from '../base-map/borders.js';
+import { readBaseMapBorderStyle, readBaseMapBorders } from '../base-map/borders.js';
 import { readBaseMapId } from '../base-map/project.js';
 import {
 	CURRENT_FORMAT_VERSION,
@@ -91,6 +91,7 @@ describe('project.json', () => {
 
 		expect(Object.keys(opened).toSorted()).toEqual([
 			'baseMap',
+			'borderStyle',
 			'borders',
 			'canonicalUrl',
 			'description',
@@ -262,6 +263,88 @@ describe('the boundary choice', () => {
 	// made, so choosing a boundary set would appear to work and write the old value.
 	it('does not also lodge the choice in unknownFields', () => {
 		expect(parseProjectFile(withBorders('none')).unknownFields).toEqual({});
+	});
+});
+
+describe('the border styling', () => {
+	const withStyle = (borderStyle?: unknown) =>
+		encode({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: [],
+			baseMap: null,
+			...(borderStyle === undefined ? {} : { borderStyle })
+		});
+
+	// One reader, for the reason the boundary level above has one.
+	it('reads the field through `readBaseMapBorderStyle` and nowhere else', () => {
+		const bytes = withStyle({ color: '#c1272d', width: 3 });
+
+		expect(parseProjectFile(bytes).borderStyle).toEqual(
+			readBaseMapBorderStyle(JSON.parse(decode(bytes)) as unknown)
+		);
+	});
+
+	// The upgrade case, and the one that matters most: every `project.json` in existence was written
+	// before this field, and each must keep drawing what it drew.
+	it('reads a Project with no such field as having chosen nothing', () => {
+		expect(parseProjectFile(withStyle()).borderStyle).toEqual({
+			color: null,
+			lineStyle: null,
+			width: null
+		});
+	});
+
+	it('is a new Project’s default, so a new map draws the derived line', () => {
+		expect(newProjectFile('Amsterdam 1625', new Date(0)).borderStyle).toEqual({
+			color: null,
+			lineStyle: null,
+			width: null
+		});
+	});
+
+	it('writes nothing at all for a Project that styled nothing', () => {
+		const plain = newProjectFile('Amsterdam 1625', new Date(0));
+
+		expect(decode(serialiseProjectFile(plain))).not.toContain('borderStyle');
+	});
+
+	// Only the properties the author chose. An automatic one written as `null` would put a key in
+	// every Project that had ever opened the settings dialog.
+	it('writes only the properties the author chose', () => {
+		const styled = serialiseProjectFile({
+			...newProjectFile('Amsterdam 1625', new Date(0)),
+			borderStyle: { color: '#c1272d', lineStyle: null, width: null }
+		});
+
+		expect(JSON.parse(decode(styled)).borderStyle).toEqual({ color: '#c1272d' });
+	});
+
+	it('re-serialises a Project that styles its borders to the very same bytes', () => {
+		const bytes = serialiseProjectFile({
+			...newProjectFile('Amsterdam 1625', new Date(0)),
+			borderStyle: { color: '#c1272d', lineStyle: 'dotted', width: 2.5 }
+		});
+
+		expect(serialiseProjectFile(parseProjectFile(bytes))).toEqual(bytes);
+	});
+
+	it('does not also lodge the styling in unknownFields', () => {
+		expect(parseProjectFile(withStyle({ color: '#c1272d' })).unknownFields).toEqual({});
+	});
+
+	// The two fields are independent on purpose: hiding the borders must not discard how they were
+	// styled, or an author toggling the level to compare loses their work.
+	it('keeps the styling through a Project that hides its borders', () => {
+		const bytes = serialiseProjectFile({
+			...newProjectFile('Amsterdam 1625', new Date(0)),
+			borders: 'none',
+			borderStyle: { color: '#c1272d', lineStyle: null, width: null }
+		});
+
+		expect(parseProjectFile(bytes).borderStyle.color).toBe('#c1272d');
+		expect(parseProjectFile(bytes).borders).toBe('none');
 	});
 });
 
@@ -563,6 +646,7 @@ describe('Import Provenance (ADR-0037)', () => {
 
 		expect(Object.keys(parsed).toSorted()).toEqual([
 			'baseMap',
+			'borderStyle',
 			'borders',
 			'canonicalUrl',
 			'description',

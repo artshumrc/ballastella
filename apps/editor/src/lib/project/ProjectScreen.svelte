@@ -35,6 +35,9 @@
 	import {
 		BASE_MAP_CATALOG,
 		baseMapArchiveHost,
+		automaticBorderStyle,
+		bordersIllegibleThemes,
+		DEFAULT_BASE_MAP_BORDER_STYLE,
 		DEFAULT_BASE_MAP_BORDERS,
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
@@ -79,6 +82,7 @@
 	import AnnotationTextFace from '$lib/annotations/AnnotationTextFace.svelte';
 	import { AnnotationEditing } from '$lib/annotations/annotation-editing.svelte.js';
 	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
+	import BorderStyleFields from '$lib/base-map/BorderStyleFields.svelte';
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
 	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
@@ -89,6 +93,7 @@
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 
+	import { theme } from '$lib/theme.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 
 	import { describeImportEvidence, describeImportProvenance } from './import-provenance-text.js';
@@ -156,6 +161,7 @@
 	);
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
 	const borders = $derived(session.openProject?.borders ?? DEFAULT_BASE_MAP_BORDERS);
+	const borderStyle = $derived(session.openProject?.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE);
 
 	/**
 	 * Whether the Base Map's own source is drawing, as the pane reports it.
@@ -1233,6 +1239,7 @@
 						selectedAnnotationId={annotations.selectedAnnotationId}
 						entryId={resolution.entry.id}
 						{borders}
+						{borderStyle}
 						{cachedBaseMap}
 						layers={drawn}
 						annotationDragPreview={annotations.dragPreview}
@@ -1607,7 +1614,7 @@
 	<AddMapImage {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
 
 	<!--
-		Project settings: the Project's name, folder, last-saved time, and the secondary Base Map
+		Project settings: the Project's name, last-saved time, and the secondary Base Map
 		offline action. A dialog rather than a page keeps those occasional tasks out of the map
 		workspace.
 	-->
@@ -1636,10 +1643,6 @@
 				</label>
 
 				<dl class="flex w-full flex-col gap-3 text-sm">
-					<div class="flex flex-col gap-1">
-						<dt class="text-sm font-semibold opacity-70">Folder</dt>
-						<dd><code data-testid="project-folder">{session.openDirectory}</code></dd>
-					</div>
 					<div class="flex flex-col gap-1">
 						<dt class="text-sm font-semibold opacity-70">Last saved</dt>
 						<dd>
@@ -1690,6 +1693,33 @@
 					</ol>
 				</section>
 			{/if}
+
+			<!--
+				How this Project draws its borders (`BorderStyleFields`).
+
+				**Here rather than beside the level switcher in the map controls.** The level is a claim
+				an author toggles while looking at the map — is a modern national line part of this
+				argument — and it belongs where the map is. How the line is *drawn* is settled once and
+				then left alone, which is what this dialog is for, and three pickers in the pane's control
+				row would cost a band of the map's height for a decision made twice.
+			-->
+			<section class="flex flex-col items-start gap-3 pt-6" data-testid="border-settings">
+				<h3 class="font-serif text-lg">Borders</h3>
+				<p class="max-w-prose text-sm opacity-70">
+					How this Project draws administrative boundaries. Which boundaries it draws — none,
+					national, or every division inside them — is chosen on the map itself.
+				</p>
+				<BorderStyleFields
+					{borders}
+					style={borderStyle}
+					automatic={automaticBorderStyle(resolution.entry, theme.current)}
+					illegibleIn={borderStyle.color === null
+						? []
+						: bordersIllegibleThemes(resolution.entry, borderStyle.color)}
+					onchange={(patch, options) => void session.chooseBorderStyle(patch, options ?? {})}
+					oncommit={() => void session.commitBorderStyle()}
+				/>
+			</section>
 
 			<section class="flex flex-col items-start gap-3 pt-6">
 				<h3 class="font-serif text-lg">Base Map offline</h3>

@@ -1383,6 +1383,96 @@ describe('the boundary choice, which is the Project’s and not the deployment�
 	});
 });
 
+describe('how the borders are drawn, which travels with the Project', () => {
+	const read = async (store: ImagesGoAway) =>
+		new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));
+
+	it('writes a chosen colour into project.json at once, because a swatch is one choice', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorderStyle({ color: '#c1272d' });
+
+		// No `flush()`: undebounced, the same rule `chooseBorders` follows.
+		expect(JSON.parse(await read(store)).borderStyle).toEqual({ color: '#c1272d' });
+	});
+
+	it('writes only what the author chose, so an automatic property leaves no key', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorderStyle({ width: 3 });
+
+		expect(JSON.parse(await read(store)).borderStyle).toEqual({ width: 3 });
+	});
+
+	it('is a patch, so setting one property does not clear the one beside it', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorderStyle({ color: '#c1272d' });
+		await opened.chooseBorderStyle({ width: 3 });
+
+		expect(JSON.parse(await read(store)).borderStyle).toEqual({ color: '#c1272d', width: 3 });
+	});
+
+	it('takes the field back out when every property is handed back to the derivation', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorderStyle({ color: '#c1272d', lineStyle: 'dotted', width: 3 });
+		expect(await read(store)).toContain('borderStyle');
+
+		await opened.chooseBorderStyle({ color: null, lineStyle: null, width: null });
+
+		// Absence rather than three nulls, so a Project that has been styled and unstyled carries no
+		// trace of the field — see `serialiseProjectFile`.
+		expect(await read(store)).not.toContain('borderStyle');
+	});
+
+	// ADR-0017 rule 1: the drag writes on a timer and the release writes now.
+	it('debounces a dragged width and writes it on the release', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+		const written: StorePath[] = [];
+		store.afterWrite = (path) => written.push(path);
+
+		await opened.chooseBorderStyle({ width: 2 }, { debounce: true });
+		expect(written).toEqual([]);
+
+		await opened.commitBorderStyle();
+
+		expect(written).toEqual([projectFilePath(DIRECTORY)]);
+		expect(JSON.parse(await read(store)).borderStyle).toEqual({ width: 2 });
+	});
+
+	// ADR-0010: merely looking at last year's Project must not stamp a fresh `updatedAt` on it.
+	it('writes nothing on a release that followed no change', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+		const written: StorePath[] = [];
+		store.afterWrite = (path) => written.push(path);
+
+		await opened.commitBorderStyle();
+
+		expect(written).toEqual([]);
+	});
+
+	// The two fields are independent on purpose: an author toggling the level to compare must not lose
+	// how they styled the line.
+	it('keeps the styling when the boundary level is turned off', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBorderStyle({ color: '#c1272d' });
+		await opened.chooseBorders('none');
+
+		const document = JSON.parse(await read(store));
+		expect(document.borderStyle).toEqual({ color: '#c1272d' });
+		expect(document.borders).toBe('none');
+	});
+});
+
 // ── The local-change index, installed around whichever store the Workspace is ─────────────────
 
 describe('tracking a Workspace’s own changes', () => {

@@ -178,9 +178,9 @@
 								{crumb.label}
 							</a>
 						{:else}
-							<div class="flex min-w-0 items-center gap-1">
+							<div class="breadcrumb-current flex min-w-0 items-center gap-1">
 								<h1
-									class="min-w-0 truncate text-base font-bold"
+									class="min-w-0 truncate text-base font-bold hover:underline"
 									data-testid={crumb.testid ?? 'page-heading'}
 									aria-current="page"
 								>
@@ -310,3 +310,10 @@
 		</div>
 	{/if}
 </header>
+
+<style>
+	/* daisyUI underlines a hovered direct breadcrumb child; the action is adjacent, not part of the name. */
+	.breadcrumb-current:hover {
+		text-decoration-line: none;
+	}
+</style>

@@ -1,8 +1,13 @@
 import {
+	DEFAULT_BASE_MAP_BORDER_STYLE,
 	DEFAULT_BASE_MAP_BORDERS,
+	isDefaultBorderStyle,
+	PROJECT_BORDER_STYLE_KEY,
 	PROJECT_BORDERS_KEY,
+	readBaseMapBorderStyle,
 	readBaseMapBorders,
-	type BaseMapBorders
+	type BaseMapBorders,
+	type BaseMapBorderStyle
 } from '../base-map/borders.js';
 import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
@@ -109,6 +114,14 @@ export interface ProjectFile {
 	 * `readBaseMapBorders` has already applied it. So a caller has a value it can draw with.
 	 */
 	readonly borders: BaseMapBorders;
+	/**
+	 * How those boundaries are drawn (`borders.ts`).
+	 *
+	 * Total like `borders` and for the same reason, but total over a record whose every property may
+	 * be `null`: "the author chose no colour" is a state the renderer derives a colour for, so the
+	 * caller always has something to draw with and never has to ask whether the field was present.
+	 */
+	readonly borderStyle: BaseMapBorderStyle;
 	/**
 	 * The address this Project's Map Images have been stamped for, or `null` (ADR-0004).
 	 *
@@ -280,6 +293,9 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// so leaving it here would have one field both modelled and carried, and `serialiseProjectFile`
 	// would write the carried copy over the edit that had just been made.
 	delete unknownFields[PROJECT_BORDERS_KEY];
+	// And the styling beside it, read off the raw document by `readBaseMapBorderStyle` for the same
+	// reason and with the same consequence if it were left carried.
+	delete unknownFields[PROJECT_BORDER_STYLE_KEY];
 	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
 	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
 	// thing — the user adding a Map Image to a Project — so the field means nothing to any build
@@ -324,6 +340,9 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		baseMap: readBaseMapId(raw),
 		// Total rather than nullable, and tolerant of every other shape — see `readBaseMapBorders`.
 		borders: readBaseMapBorders(raw),
+		// Per-property tolerance rather than per-object — see `readBaseMapBorderStyle`: a bad `width`
+		// must not cost the author the colour written next to it.
+		borderStyle: readBaseMapBorderStyle(raw),
 		// Anything that is not a usable address reads as unstamped rather than as an error, which is
 		// the same tolerance every other field here gets: a `project.json` is a document somebody
 		// else's build may have written, and one bad field must not make a Project unopenable.
@@ -351,6 +370,7 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		layers,
 		baseMap,
 		borders,
+		borderStyle,
 		canonicalUrl,
 		onFrontPage,
 		importProvenance
@@ -383,6 +403,18 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// give: absence *is* `all`, so every Project written before this field existed keeps its exact
 			// bytes and a Workspace kept in git gains no diff on the day the app is updated.
 			...(borders === DEFAULT_BASE_MAP_BORDERS ? {} : { [PROJECT_BORDERS_KEY]: borders }),
+			// Written only when the author styled the borders at all, and then only the properties they
+			// chose — for the reason the field above gives. An automatic property written as `null` would
+			// put a key in every Project that had ever opened the settings dialog.
+			...(isDefaultBorderStyle(borderStyle)
+				? {}
+				: {
+						[PROJECT_BORDER_STYLE_KEY]: {
+							...(borderStyle.color === null ? {} : { color: borderStyle.color }),
+							...(borderStyle.lineStyle === null ? {} : { lineStyle: borderStyle.lineStyle }),
+							...(borderStyle.width === null ? {} : { width: borderStyle.width })
+						}
+					}),
 			// Omitted entirely when there is none, rather than written as `null`. An unstamped Project's
 			// bytes are then exactly what they were before this field existed — which is what keeps the
 			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
@@ -420,6 +452,7 @@ export function newProjectFile(name: string, updatedAt: Date, description = ''):
 		layers: [],
 		baseMap: null,
 		borders: DEFAULT_BASE_MAP_BORDERS,
+		borderStyle: DEFAULT_BASE_MAP_BORDER_STYLE,
 		canonicalUrl: null,
 		onFrontPage: true,
 		unknownFields: {}

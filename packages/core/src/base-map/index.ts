@@ -2,14 +2,24 @@
 // carries, so it costs no request — see the note at the top of `borders.ts`.
 export {
 	BASE_MAP_BORDERS,
+	DEFAULT_BASE_MAP_BORDER_STYLE,
 	DEFAULT_BASE_MAP_BORDERS,
+	MAX_BORDER_WIDTH,
+	MIN_BORDER_WIDTH,
 	NATIONAL_BOUNDARY_LAYER,
+	PROJECT_BORDER_STYLE_KEY,
 	PROJECT_BORDERS_KEY,
 	SUBNATIONAL_BOUNDARY_LAYER,
+	borderColorIsLegible,
 	bordersInclude,
 	isBaseMapBorders,
+	isDefaultBorderStyle,
+	readBaseMapBorderStyle,
 	readBaseMapBorders,
-	type BaseMapBorders
+	strengthenedBorder,
+	subnationalWidth,
+	type BaseMapBorders,
+	type BaseMapBorderStyle
 } from './borders';
 export { BASE_MAP_CATALOG } from './catalog';
 export type {
@@ -95,6 +105,8 @@ export {
 } from './offline-cache';
 export {
 	archiveUrl,
+	automaticBorderStyle,
+	bordersIllegibleThemes,
 	baseMapStyle,
 	isAbsoluteUrl,
 	BASE_MAP_SOURCE_ID,

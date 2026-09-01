@@ -36,6 +36,7 @@
 	import {
 		ANNOTATION_ID_PROPERTY,
 		BASE_MAP_SOURCE_ID,
+		DEFAULT_BASE_MAP_BORDER_STYLE,
 		DEFAULT_BASE_MAP_BORDERS,
 		applyOpeningFit,
 		baseMapStyle,
@@ -44,6 +45,7 @@
 		keepAskingForMissingTiles,
 		type Annotation,
 		type BaseMapBorders,
+		type BaseMapBorderStyle,
 		type BaseMapCatalog,
 		type FetchFn,
 		type OpeningViewFit
@@ -79,6 +81,7 @@
 	let {
 		entryId,
 		borders = DEFAULT_BASE_MAP_BORDERS,
+		borderStyle = DEFAULT_BASE_MAP_BORDER_STYLE,
 		catalog,
 		bundledBaseMapAvailable,
 		cachedBaseMap = null,
@@ -104,6 +107,8 @@
 		 * second source.
 		 */
 		borders?: BaseMapBorders;
+		/** How those boundaries are drawn. The Project's, handed over with the level beside it. */
+		borderStyle?: BaseMapBorderStyle;
 		/**
 		 * The catalog that travelled with this Published Site, **not this build's** (ADR-0020).
 		 *
@@ -286,8 +291,13 @@
 		id: string,
 		currentTheme: string,
 		cachedTo: number | null,
-		drawnBorders: BaseMapBorders
-	): string => `${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}`;
+		drawnBorders: BaseMapBorders,
+		drawnStyle: BaseMapBorderStyle
+	): string =>
+		// The styling is in the key as its three values rather than as an object, because this is
+		// compared as a string: a repaint that missed a colour change would leave the map asserting a
+		// border the settings dialog says has been changed.
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	/**
 	 * The style for one catalog entry at the current theme.
@@ -315,7 +325,8 @@
 				catalog,
 				resolveAsset: resolveSiteAsset,
 				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() },
-				borders
+				borders,
+				borderStyle
 			});
 			if (bundledBaseMapAvailable) return cached;
 			// The same absence as the network branch below, and with the same consequence for a Label —
@@ -352,7 +363,8 @@
 			// elevation dataset never needs one. The cached branch above passes none at all — relief
 			// is a live request, and a site's own tiles are the offline promise (ADR-0025).
 			terrainTiles: catalog.terrain ? registerTerrainProtocols(catalog.terrain) : undefined,
-			borders
+			borders,
+			borderStyle
 		});
 		if (bundledBaseMapAvailable) return style;
 		// This site omitted its local glyphs and sprites, and this entry's archive is somebody else's,
@@ -522,7 +534,13 @@
 			if (hit) onclickannotation?.(hit);
 		});
 
-		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
+		painted = paintKey(
+			entryId,
+			theme.current,
+			cachedBaseMap?.maxZoom ?? null,
+			borders,
+			borderStyle
+		);
 		map = created;
 
 		return () => {
@@ -547,7 +565,13 @@
 	});
 
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null, borders);
+		const wanted = paintKey(
+			entryId,
+			theme.current,
+			cachedBaseMap?.maxZoom ?? null,
+			borders,
+			borderStyle
+		);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

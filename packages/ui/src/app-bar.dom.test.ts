@@ -149,6 +149,10 @@ test('renders a current-page action beside its breadcrumb label', () => {
 
 	const button = testid('edit-project-name')!;
 	expect(button).toHaveAccessibleName('Edit Project name');
+	// daisyUI decorates a hovered direct breadcrumb child, so only the heading opts into the name's
+	// hover treatment; the adjacent action must stay outside it.
+	expect(testid('page-heading')).toHaveClass('hover:underline');
+	expect(button.parentElement).toHaveClass('breadcrumb-current');
 	button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	expect(edit).toHaveBeenCalledTimes(1);
 });

@@ -1423,6 +1423,7 @@
 										selectedAnnotationId={openAnnotationId}
 										entryId={baseMap.entry.id}
 										borders={openProject.file.borders}
+										borderStyle={openProject.file.borderStyle}
 										{catalog}
 										{bundledBaseMapAvailable}
 										{cachedBaseMap}
