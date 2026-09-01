@@ -154,7 +154,7 @@
 		{#if currentTier !== 'advanced'}
 			<button
 				type="button"
-				class="btn btn-ghost btn-sm"
+				class="btn btn-outline btn-sm"
 				aria-expanded={advancedShown}
 				aria-controls="transformation-type"
 				data-testid="transformation-advanced"

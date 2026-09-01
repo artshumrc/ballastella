@@ -660,7 +660,7 @@ What else the Hub says about a Project: whether this build can read it.
 		Edit<span class="sr-only"> {project.name}</span>
 	</button>
 	<button
-		class="btn gap-2 btn-ghost btn-sm"
+		class="btn gap-2 btn-outline btn-sm"
 		onclick={() => session.duplicateProject(project.directory)}
 		disabled={project.problem !== null}
 	>
@@ -729,7 +729,7 @@ What else the Hub says about a Project: whether this build can read it.
 {#snippet mapActions(entry: ListedMapImage)}
 	{#if entry.map.provenance}
 		<button
-			class="btn btn-ghost btn-sm"
+			class="btn btn-outline btn-sm"
 			aria-expanded={provenanceShown.has(entry.map.imageId)}
 			onclick={() => toggleProvenance(entry.map.imageId)}
 		>

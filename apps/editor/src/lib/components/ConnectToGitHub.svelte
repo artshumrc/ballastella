@@ -2178,7 +2178,7 @@
 				<div class="mt-3">
 					<button
 						type="button"
-						class="btn btn-ghost btn-xs"
+						class="btn btn-outline btn-xs"
 						aria-expanded={otherWayIn}
 						aria-controls={otherWayInId}
 						data-testid="connect-other-way-in"

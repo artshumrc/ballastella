@@ -850,7 +850,7 @@
 
 							{#if editingMask}
 								<button
-									class="btn btn-ghost btn-sm"
+									class="btn btn-outline btn-sm"
 									data-testid="mask-reset"
 									onclick={() => {
 										const current = pairing;
@@ -1142,7 +1142,7 @@
 			<div>
 				<button
 					type="button"
-					class="btn btn-ghost btn-sm"
+					class="btn btn-outline btn-sm"
 					aria-expanded={explaining}
 					aria-controls={explaining ? 'align-explainer' : undefined}
 					data-testid="align-explainer-toggle"
@@ -1266,7 +1266,7 @@
 							Put their version back instead
 						</button>
 						<button
-							class="btn btn-ghost btn-sm"
+							class="btn btn-outline btn-sm"
 							data-testid="dismiss-changed-elsewhere"
 							onclick={() => {
 								session.dismissAlignmentChangedElsewhere();

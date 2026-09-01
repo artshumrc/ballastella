@@ -46,7 +46,7 @@
 <div>
 	<button
 		type="button"
-		class="btn btn-ghost btn-xs"
+		class="btn btn-outline btn-xs"
 		aria-expanded={showing}
 		aria-controls={showing ? 'map-image-details' : undefined}
 		data-testid="map-image-details-toggle"

@@ -223,7 +223,7 @@
 
 		<button
 			type="button"
-			class="btn btn-square shrink-0 btn-ghost btn-xs"
+			class="btn btn-square shrink-0 btn-outline btn-xs"
 			data-testid="annotation-inspector-close"
 			onclick={() => onclose()}
 		>
