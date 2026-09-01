@@ -49,22 +49,40 @@ export async function switchToWorkspace(page: Page, name: string): Promise<void>
 }
 
 /**
+ * Open the editing dialog for the Workspace that is **open**, whatever it is called.
+ *
+ * By row rather than by name: two Workspaces may share a display name — a folder and a browser one,
+ * or a restored copy beside its original — and `aria-current` is the only thing that tells the open
+ * one from its namesake.
+ */
+export async function editOpenWorkspace(page: Page): Promise<void> {
+	await openWorkspaceMenu(page);
+	await page
+		.locator('li')
+		.filter({ has: page.locator('[data-testid="switch-workspace"][aria-current="true"]') })
+		.getByTestId('rename-workspace')
+		.click();
+	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeVisible();
+}
+
+/**
  * Take a Backup, and hand back the download.
  *
- * The dialog it lives in is closed again before returning. It is modal, so anything the caller does
- * next on the bar — creating a Workspace, switching to one — is intercepted while it is open.
+ * The dialog is left open: what the transfer says afterwards is said inside it. A caller that goes
+ * on to use the bar has to {@link closeWorkspaceDialog} first, because the dialog is modal and
+ * intercepts everything behind it.
  */
-export async function backUpWorkspace(
-	page: Page,
-	name: string = DEFAULT_WORKSPACE
-): Promise<Download> {
-	await editWorkspace(page, name);
+export async function backUpWorkspace(page: Page): Promise<Download> {
+	await editOpenWorkspace(page);
 	const download = page.waitForEvent('download');
 	await page.getByTestId('back-up-workspace').click();
-	const saved = await download;
+	return download;
+}
+
+/** Close the Workspace dialog, so the bar behind it can be reached again. */
+export async function closeWorkspaceDialog(page: Page): Promise<void> {
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeHidden();
-	return saved;
 }
 
 /**

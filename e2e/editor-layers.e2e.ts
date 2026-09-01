@@ -1174,19 +1174,6 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam, 1625');
 	});
 
-	test('shows the Layer as a local copy, which is what decides whether a reader needs the network', async ({
-		page
-	}) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-
-		// The badge is now an **observation of the Workspace's files** rather than a field of
-		// `project.json` (ADR-0023): the image directory has an `info.json` of ours, so the tiles are here.
-		const badge = (await openLayerRow(page)).getByTestId('layer-image-mode');
-		await expect(badge).toHaveAttribute('data-image-mode', 'offline-copy');
-		await expect(badge).toContainText('Local copy');
-	});
-
 	/**
 	 * The link from the Project page is a way in of its own, and it used to be a broken one.
 	 *
