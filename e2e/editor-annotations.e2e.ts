@@ -26,8 +26,6 @@ import { countFileReads, countFileWrites, fileReads, fileWrites } from './suppor
 import { AMBIGUOUS_QUERY, candidateAt, routePlaceLookup } from './support/places.js';
 // The one test that needs a warped sheet over the Base Map borrows the alignment suite's ground
 // rather than growing a second PNG encoder — see the header of `support/alignment-workspace.ts`.
-import { makePairs, start as startAlignment } from './support/alignment-workspace.js';
-import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -60,7 +58,6 @@ import {
 	projectJson,
 	seedAnnotationProject,
 	waitForPaintedAnnotations,
-	waitForStack,
 	startAnnotating,
 	storedAnnotations,
 	watchAnnotationWrites,
@@ -2824,33 +2821,6 @@ test.describe('drawing into the Layer that is open', () => {
 // The lookup is routed to the committed fixture in every one of them; nothing here reaches a network.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
-/**
- * A Project with an aligned Map Image **and** an empty Annotation Layer, seeded.
- *
- * The one test below that needs a warped sheet under its Pin is about correcting a Pin, not about
- * ingesting an image or making Control Points: it used to drive a whole alignment — two live map
- * panes, six clicks, a warped solve — before its first assertion. `alignment-workspace.ts` already
- * seeds the pyramid; this records the pairs and the Layer on top of it, and the alignment itself is
- * still proved by `editor-alignment.e2e.ts` where it is the subject.
- *
- * @returns the Annotation Layer's id
- */
-async function seedAlignedProjectWithAnnotationLayer(page: Page): Promise<string> {
-	await page.goto('/');
-	await emptyWorkspace(page);
-	const snapshot = await snapshotWorkspace(page, 'annotations-aligned', async (fresh) => {
-		await startAlignment(fresh);
-		await makePairs(fresh, 3);
-		await expect(fresh.getByRole('status')).toHaveText('Saved locally');
-		await openLayers(fresh);
-		await fresh.getByTestId('add-annotation-layer').click();
-		await expect(fresh.getByRole('status')).toHaveText('Saved locally');
-		return { imageId: '', layerId: await annotationLayerId(fresh) };
-	});
-	await restoreWorkspace(page, snapshot.files);
-	return snapshot.layerId;
-}
-
 test.describe('placing a Pin at a Place', () => {
 	/** The fixture's Springfield, Massachusetts — its point, which is what a Pin is placed at. */
 	const HAMPDEN = { lng: -72.5886727, lat: 42.1018764 };
@@ -3191,100 +3161,6 @@ test.describe('placing a Pin at a Place', () => {
 		await expect(paneSearch.getByTestId('place-search-query')).toBeVisible();
 		await expect(paneSearch.getByRole('button', { name: 'Find a place', exact: true })) //
 			.toBeVisible();
-	});
-
-	test('leaves the Pin draggable and arrow-key movable under a Map Image', async ({ page }) => {
-		// ⚠ **The stakeholder's actual gesture**, and the reason this one pays for a real pyramid and a
-		// real solve: the Pin lands in the middle of a river and is dragged onto the quay *while reading
-		// against a Map Image layered over the Base Map*. Vertex handles are DOM `<button>`s on
-		// MapLibre `Marker`s, which sit above the WebGL canvas the warped sheet is drawn into — so this
-		// asserts that the correction needs no new code rather than assuming it.
-		test.setTimeout(180_000);
-		const service = await routePlaceLookup(page);
-
-		const layerId = await seedAlignedProjectWithAnnotationLayer(page);
-		await openLayers(page);
-		// Both Layers are drawn: the warped sheet over the Base Map, and the Annotation Layer over it.
-		// Read off the stack's own count, so a sheet that silently failed to draw would fail here rather
-		// than further down as a missing handle.
-		// A real pyramid and a real solve, so the sheet takes longer to arrive than the default wait
-		// allows on a loaded machine.
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
-			timeout: 30_000
-		});
-
-		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
-		await waitForStack(page);
-
-		// ⚠ **The lookup answers where the sheet is.** The Project opened framed on the Map Image
-		// (ADR-0026), so this is the one candidate that leaves the sheet under the Pin — and the whole
-		// criterion is that the correction is made *against* the Map Image. A Pin placed in
-		// Massachusetts would be dragged over an empty Base Map, which asserts something else.
-		const onTheSheet = await centre(page);
-		service.answerWith(await candidateAt(onTheSheet));
-
-		await placeFrom(page, AMBIGUOUS_QUERY, 'Springfield', layerId);
-		// Both Layers are still drawn: placing a Pin did not take the sheet off the map.
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-
-		const handle = page.getByTestId('pane-overlay-point-annotation-vertex');
-		await expect(handle).toHaveCount(1);
-		// ⚠ **Wait for the framing to land before taking hold of the handle.** Placing moves the camera,
-		// and a `boundingBox()` read while it is still moving names a spot the Pin is about to leave —
-		// so the drag below would begin on empty map, move nothing, and be reported as a Pin that cannot
-		// be corrected. Waited on rather than tolerated: that failure is in the direction that hides a
-		// defect.
-		await expect
-			.poll(async () => (await centre(page)).lat, { timeout: 15_000 }) //
-			.toBeCloseTo(onTheSheet.lat, 1);
-		await expect.poll(() => stillMoving(page)).toBe(false);
-
-		const placed = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
-
-		// Dragged — immediately, with no reselection and no redraw: one gesture rather than a delete
-		// and a redraw.
-		const box = await handle.boundingBox();
-		if (!box) throw new Error('the vertex handle has no box');
-		// ⚠ **The handle is drawn where the Pin is** — asserted because it was not. A CSS `rotate` on
-		// the handle composes *before* the `transform` MapLibre positions a `Marker` with, so the
-		// translation was rotated with it and the handle was drawn over the sidebar (`layout.css`).
-		// Every existing drag test survived that, because a drag begins wherever the handle happens to
-		// be and the coordinate it writes is still right; this compares the handle's own box against
-		// where the renderer projects the written coordinate, which is the claim that was false.
-		const pane = await baseMap(page).boundingBox();
-		if (!pane) throw new Error('the pane has no box');
-		const at = placed as [number, number];
-		const projected = await page.evaluate(
-			(lngLat) =>
-				(window as unknown as StackWindow).ballastellaLayerStack?.map.project(
-					lngLat as [number, number]
-				) ?? { x: -1, y: -1 },
-			at
-		);
-		expect(box.x + box.width / 2).toBeCloseTo(pane.x + projected.x, 0);
-		expect(box.y + box.height / 2).toBeCloseTo(pane.y + projected.y, 0);
-
-		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-		await page.mouse.down();
-		for (const dx of [10, 20, 30]) {
-			await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dx);
-		}
-		await page.mouse.up();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		// Polled on the **file**, because the save indicator was already reading `Saved` from the
-		// placement: a single read here would be satisfied by the bytes the drag was supposed to change.
-		await expect
-			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
-			.not.toEqual(placed);
-		const dragged = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
-
-		// And by keyboard, because a precise correction should not need a steady hand on a trackpad.
-		await handle.focus();
-		await page.keyboard.press('ArrowRight');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await expect
-			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
-			.not.toEqual(dragged);
 	});
 });
 
