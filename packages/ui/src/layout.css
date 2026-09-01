@@ -85,9 +85,37 @@
 @theme {
 	--color-rule: color-mix(in oklab, var(--color-base-content) 14%, transparent);
 	--color-rule-strong: color-mix(in oklab, var(--color-base-content) 28%, transparent);
+	--default-border-width: var(--border);
 	--font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
 	--font-serif: 'Bluu Next', Georgia, serif;
 	--font-mono: var(--font-sans);
+}
+
+/* Tailwind's directional border utilities have their own 1px fallback rather than using the theme's
+   default width. Keep the bare directional forms aligned with daisyUI; explicit widths such as
+   `border-l-2` remain available for components that intentionally need them. */
+@utility border-x {
+	border-inline-width: var(--border);
+}
+
+@utility border-y {
+	border-block-width: var(--border);
+}
+
+@utility border-t {
+	border-top-width: var(--border);
+}
+
+@utility border-r {
+	border-right-width: var(--border);
+}
+
+@utility border-b {
+	border-bottom-width: var(--border);
+}
+
+@utility border-l {
+	border-left-width: var(--border);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
