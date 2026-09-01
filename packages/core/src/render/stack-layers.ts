@@ -152,6 +152,23 @@ export interface StackRender {
 	 */
 	setSelectedAnnotation(annotationId: string | null): void;
 	/**
+	 * Resolve once every warped Map Image in the stack has the tiles this frame asked for.
+	 *
+	 * **The half of "the map has settled" that MapLibre cannot answer.** A warped Map Image is drawn
+	 * by a custom layer with its own tile cache, so `Map#idle` can be true while a Map Image is still
+	 * a hole. Anything that has to act on a *complete* frame — capturing a Map Snapshot is the case
+	 * this exists for — needs both.
+	 *
+	 * Only the Layers on the map, which is only the visible ones: a hidden Layer is not in the stack
+	 * at all, so it cannot delay this. Resolves immediately when nothing is outstanding, and for a
+	 * stack with no Map Images there is nothing to wait for.
+	 *
+	 * The renderer's own promise rather than its `allrequestedtilesloaded` event, because an event
+	 * that already fired is an event a late listener never hears — which for a cached frame is every
+	 * time.
+	 */
+	whenTilesSettled(): Promise<void>;
+	/**
 	 * Take the whole stack off the map. Survivable after a `setStyle` has already removed it.
 	 *
 	 * @param options.mapIsGone the **map itself** has been removed, not just its style. Then its layers
@@ -788,6 +805,13 @@ export function drawLayerStack(options: {
 		setSelectedAnnotation(annotationId) {
 			selectedAnnotationId = annotationId;
 			paintSelection();
+		},
+		async whenTilesSettled() {
+			await Promise.all(
+				Object.values(warped).map(
+					(layer) => layer.renderer?.tileCache.allRequestedTilesLoaded() ?? Promise.resolve()
+				)
+			);
 		},
 		destroy({ mapIsGone = false } = {}) {
 			unexpose();

@@ -57,6 +57,7 @@
 		type Place
 	} from '@ballastella/core';
 	import {
+		mapSnapshotFileName,
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile
@@ -70,6 +71,7 @@
 		LeaderLine,
 		MapCommentary,
 		MapNotice,
+		MapSnapshotButton,
 		pageChrome,
 		type Box
 	} from '@ballastella/ui';
@@ -92,6 +94,7 @@
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
+	import { saveFile } from '$lib/save-file';
 
 	import { theme } from '$lib/theme.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
@@ -543,6 +546,45 @@
 
 	/** The Base Map pane, for the one thing this screen asks of its camera. */
 	let baseMapPane = $state<BaseMapPane | undefined>();
+
+	/**
+	 * The Annotation Inspector's docked box, while it is in the document.
+	 *
+	 * **The element rather than `annotations.selectedAnnotation`**, because the pane's control row
+	 * has to stop short of this column for as long as the column is *drawn* — and the panel has a
+	 * 220 ms out transition, so the selection is already null while it is still on screen and still
+	 * taking the pointer. A `bind:this` is cleared when the element is destroyed, which is after the
+	 * transition rather than at the top of it.
+	 */
+	let inspectorDock = $state<HTMLDivElement | undefined>();
+
+	/** Whether the pane says the frame on screen is complete enough to be captured. */
+	let snapshotFrameReady = $state(false);
+
+	/** Whether a Map Snapshot is being encoded, which is what keeps a second press from starting one. */
+	let capturingSnapshot = $state(false);
+
+	/**
+	 * Download the map on screen as a Map Snapshot.
+	 *
+	 * The pane owns the picture and this owns the file: the Blob reaches `saveFile` as a stream
+	 * because that is the shape it takes, and nothing is written into the Workspace on the way — a
+	 * Map Snapshot is an illustration the scholar keeps, not part of the Project.
+	 */
+	async function downloadMapSnapshot(): Promise<void> {
+		const pane = baseMapPane;
+		if (!pane || capturingSnapshot) return;
+		capturingSnapshot = true;
+		try {
+			const snapshot = await pane.captureSnapshot();
+			await saveFile(mapSnapshotFileName(openDirectory), snapshot.stream());
+		} catch {
+			// Nothing is said about a failure yet; the control simply returns to ready so the Author
+			// can press it again.
+		} finally {
+			capturingSnapshot = false;
+		}
+	}
 
 	/**
 	 * The Base Map Options panel, held so the Escape handler below can ask whether it was open.
@@ -1268,6 +1310,8 @@
 						onbasemapstatus={(status) => {
 							baseMapStatus = status;
 						}}
+						onsnapshotready={(ready) => (snapshotFrameReady = ready)}
+						overlayDocked={inspectorDock !== undefined}
 						onclickpoint={(point) => void annotations.placePoint(point)}
 						onclickannotation={(hit) => {
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
@@ -2158,6 +2202,16 @@
 			<Scan size={16} aria-hidden="true" />
 			Frame project
 		</button>
+
+		<!--
+			The composed view, as an image the scholar can put in a figure. In the row rather than in
+			page chrome for the reason everything else here is: it acts on the map, and a bar above the
+			map would cost the map a line of its height at every width.
+		-->
+		<MapSnapshotButton
+			ready={snapshotFrameReady && !capturingSnapshot}
+			onclick={() => void downloadMapSnapshot()}
+		/>
 	</div>
 
 	<!--
@@ -2258,6 +2312,7 @@
 {#snippet mapOverlay()}
 	{#if annotations.selectedAnnotation}
 		<div
+			bind:this={inspectorDock}
 			class="absolute top-auto right-2 bottom-[6.25rem] left-2 z-[7] flex max-h-[60%] flex-col lg:top-2 lg:bottom-auto lg:left-auto lg:max-h-[calc(100%-3rem)] lg:w-80 lg:max-w-[calc(100%-1rem)]"
 		>
 			<AnnotationInspector
