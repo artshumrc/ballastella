@@ -4512,7 +4512,7 @@ const BOSTON_PINS: readonly [number, number][] = [
 ];
 const BOSTON_CENTRE = { lng: -71.0657, lat: 42.35615 };
 /** The deployment default, which is what a Project with nothing on the earth must open on. */
-const DEPLOYMENT_VIEW = { lng: 4.9041, lat: 52.3676, zoom: 13 };
+const DEPLOYMENT_VIEW = { lng: 0, lat: 20, zoom: 1 };
 
 /**
  * The fixture sheet moved to Boston, for the one test that is about a *map* Layer's place on the earth.

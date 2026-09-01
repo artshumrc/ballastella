@@ -37,7 +37,13 @@ export async function expectWorkspaceNamed(page: Page, name: string): Promise<vo
  */
 export async function openWorkspaceMenu(page: Page): Promise<void> {
 	const menu = page.getByTestId('workspace-switcher-menu');
-	if (!(await menu.isVisible())) await workspaceButton(page).click();
+	if (await menu.isVisible()) return;
+	// A modal that is on its way out still intercepts the press — the roster is behind whatever
+	// dialog the caller was last in, and `close()` returning is not the frame it stops taking clicks
+	// on. Waited for rather than clicked through, so a caller that really did leave one open fails
+	// saying so instead of timing out on the button.
+	await expect(page.locator('dialog[open].modal')).toHaveCount(0);
+	await workspaceButton(page).click();
 	await expect(menu).toBeVisible();
 }
 
