@@ -78,6 +78,18 @@ const text = (element: Element | null | undefined): string =>
 
 const said = (): string => text(document.body);
 
+const filter = (): HTMLInputElement => {
+	const found = document.querySelector<HTMLInputElement>('[data-testid="repository-filter"]');
+	if (!found) throw new Error('the repository filter is not rendered');
+	return found;
+};
+
+const filterBy = (value: string): void => {
+	filter().value = value;
+	filter().dispatchEvent(new Event('input', { bubbles: true }));
+	flushSync();
+};
+
 describe('the repositories a person may put their map in', () => {
 	// An absent repository has to read as access not granted rather than as a repository that is not
 	// there, and only the list itself can say so.
@@ -103,6 +115,33 @@ describe('the repositories a person may put their map in', () => {
 		flushSync();
 
 		expect(onchoose).toHaveBeenCalledWith(publishable);
+	});
+
+	test('filters repositories by their full name without changing their order', () => {
+		choice([publishable, readOnly]);
+
+		filterBy('SHARED');
+
+		expect(rows()).toHaveLength(1);
+		expect(rows()[0]).toHaveTextContent('grace/shared-maps');
+	});
+
+	test('says when the filter matches no repository', () => {
+		choice([publishable]);
+
+		filterBy('not-a-repository');
+
+		expect(rows()).toHaveLength(0);
+		expect(said()).toContain('No repositories match “not-a-repository”.');
+	});
+
+	test('keeps the repository rows in their own bounded scroller', () => {
+		choice([publishable]);
+
+		expect(document.querySelector('[data-testid="repository-list"]')).toHaveClass(
+			'max-h-64',
+			'overflow-y-auto'
+		);
 	});
 });
 

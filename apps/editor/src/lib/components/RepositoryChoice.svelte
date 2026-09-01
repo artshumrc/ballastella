@@ -62,6 +62,14 @@
 		)
 	);
 
+	let filter = $state('');
+
+	const matching = $derived(
+		ordered.filter((repository) =>
+			describeRemote(repository).toLowerCase().includes(filter.trim().toLowerCase())
+		)
+	);
+
 	const chooseable = (repository: GrantedRepository): boolean =>
 		repository.canPublish && !repository.isPrivate;
 
@@ -114,42 +122,62 @@
 			step.
 		</p>
 	{:else}
-		<ul class="mt-3 flex flex-col gap-2" aria-label="Repositories you have given access to">
-			{#each ordered as repository (describeRemote(repository))}
-				{@const reason = why(repository)}
-				{@const unselectable = reason !== ''}
-				<li data-testid="granted-repository">
-					<button
-						class="btn btn-block w-full justify-start text-left"
-						class:btn-disabled={unselectable}
-						aria-disabled={unselectable}
-						data-testid="choose-repository"
-						onclick={() => choose(repository)}
-					>
-						<span class="font-mono">{describeRemote(repository)}</span>
-						{#if newly.has(describeRemote(repository))}
-							<span class="badge badge-sm badge-primary" data-testid="newly-granted">New</span>
-						{/if}
-						<!--
-							The mark is on every row, including the ones that are fine. A mark that appeared only
-							on the bad rows would leave the good ones saying nothing, and a person cannot tell
-							"checked and fine" from "not checked" by absence.
-						-->
-						<span class="text-sm font-normal opacity-70" data-testid="publish-mark">
+		<label class="mt-3 block max-w-prose">
+			<span class="sr-only">Search repositories</span>
+			<input
+				type="search"
+				class="input-bordered input w-full"
+				placeholder="Search repositories"
+				autocomplete="off"
+				bind:value={filter}
+				data-testid="repository-filter"
+			/>
+		</label>
+
+		{#if matching.length === 0}
+			<p class="mt-3 max-w-prose text-sm opacity-70" data-testid="repository-filter-empty">
+				No repositories match “{filter.trim()}”.
+			</p>
+		{:else}
+			<div class="mt-3 max-h-64 overflow-y-auto" data-testid="repository-list">
+				<ul class="flex flex-col gap-2" aria-label="Repositories you have given access to">
+					{#each matching as repository (describeRemote(repository))}
+						{@const reason = why(repository)}
+						{@const unselectable = reason !== ''}
+						<li data-testid="granted-repository">
+							<button
+								class="btn btn-block w-full justify-start text-left"
+								class:btn-disabled={unselectable}
+								aria-disabled={unselectable}
+								data-testid="choose-repository"
+								onclick={() => choose(repository)}
+							>
+								<span class="font-mono">{describeRemote(repository)}</span>
+								{#if newly.has(describeRemote(repository))}
+									<span class="badge badge-sm badge-primary" data-testid="newly-granted">New</span>
+								{/if}
+								<!--
+									The mark is on every row, including the ones that are fine. A mark that appeared only
+									on the bad rows would leave the good ones saying nothing, and a person cannot tell
+									"checked and fine" from "not checked" by absence.
+								-->
+								<span class="text-sm font-normal opacity-70" data-testid="publish-mark">
+									{#if unselectable}
+										Cannot be published to
+									{:else}
+										Can be published to
+									{/if}
+								</span>
+							</button>
 							{#if unselectable}
-								Cannot be published to
-							{:else}
-								Can be published to
+								<p class="mt-1 max-w-prose text-sm opacity-70" data-testid="unselectable-reason">
+									{reason}
+								</p>
 							{/if}
-						</span>
-					</button>
-					{#if unselectable}
-						<p class="mt-1 max-w-prose text-sm opacity-70" data-testid="unselectable-reason">
-							{reason}
-						</p>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 	{/if}
 </section>
