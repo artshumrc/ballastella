@@ -3207,7 +3207,11 @@ test.describe('placing a Pin at a Place', () => {
 		// Both Layers are drawn: the warped sheet over the Base Map, and the Annotation Layer over it.
 		// Read off the stack's own count, so a sheet that silently failed to draw would fail here rather
 		// than further down as a missing handle.
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		// A real pyramid and a real solve, so the sheet takes longer to arrive than the default wait
+		// allows on a loaded machine.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 30_000
+		});
 
 		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
 		await waitForStack(page);

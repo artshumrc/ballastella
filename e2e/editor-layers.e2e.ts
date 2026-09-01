@@ -1006,7 +1006,9 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 		// the alignment view is a route of its own and its `?layer=` is not a URL this test knows how
 		// to write.
 		await openAlignment(page, directory);
-		await expect(page.getByTestId('control-point-row')).toHaveCount(2);
+		// The pairs already made are read from the Alignment on disk once the pane is up, which is a
+		// pyramid read behind it and slower than the default wait on a loaded machine.
+		await expect(page.getByTestId('control-point-row')).toHaveCount(2, { timeout: STACK_READY_MS });
 		await pairAt(page, 0.5, 0.7);
 		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
 		// three pairs really do solve. Without it this waits on the Layers pane for a state the Alignment
@@ -1683,14 +1685,16 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await expect(rows(page)).toHaveCount(2);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
-		const before = [
-			// The Alignment is the Workspace's and the Annotations are the Project's (ADR-0023), so the two
-			// halves of "no display-state edit reaches a portability document" are hashed from two places.
+		// The Alignment is the Workspace's and the Annotations are the Project's (ADR-0023), so the two
+		// halves of "no display-state edit reaches a portability document" are hashed from two places.
+		// Polled first: both files are written by the app, and the Annotation Layer added above can
+		// still be landing when the hashes are read.
+		const documents = async () => [
 			...(await hashesUnder(page, '', 'alignments/')),
 			...(await hashesUnder(page, directory, 'annotations/'))
 		];
-		// The claim is only worth making if there is something to hash.
-		expect(before).toHaveLength(2);
+		await expect.poll(async () => (await documents()).length).toBe(2);
+		const before = await documents();
 		const projectBefore = await readProjectFile(page, directory, 'project.json');
 
 		// Renaming starts at the pencil in an open card since the Layers revision.
