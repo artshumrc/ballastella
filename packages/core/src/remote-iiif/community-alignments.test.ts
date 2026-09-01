@@ -214,12 +214,13 @@ describe('what the lookup finds', () => {
 });
 
 describe('the disclosure', () => {
-	it('names the host it contacts, and says the setting exists', () => {
+	it('names the host it contacts, and what it is asked for', () => {
 		// ADR-0015 asks for a one-line note at the point of use. Held beside the request rather than in
 		// a component, so whoever changes what is asked has to change what the user is told in the same
-		// file.
+		// file. The other half of the ADR — that the setting is reachable there — is the toggle this
+		// sentence labels, and is asserted in `editor-remote-iiif.e2e.ts`.
 		expect(COMMUNITY_ALIGNMENT_HOST).toBe('annotations.allmaps.org');
 		expect(COMMUNITY_ALIGNMENT_DISCLOSURE).toContain('annotations.allmaps.org');
-		expect(COMMUNITY_ALIGNMENT_DISCLOSURE).toContain('turn this off');
+		expect(COMMUNITY_ALIGNMENT_DISCLOSURE).toContain('existing georeferences');
 	});
 });

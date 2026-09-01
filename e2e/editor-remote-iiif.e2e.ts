@@ -875,7 +875,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		// On by default, and it says so at the point of use.
 		const toggle = page.getByTestId('community-lookup-toggle');
 		await expect(toggle).toBeChecked();
-		await expect(page.getByText(/Checking annotations\.allmaps\.org/)).toBeVisible();
+		await expect(page.getByText(/Check annotations\.allmaps\.org/)).toBeVisible();
 
 		await toggle.uncheck();
 		await expect(page.getByText(/Not checking Allmaps/)).toBeVisible();
