@@ -50,6 +50,30 @@ test('Layer cards use each kind’s theme fill and content tokens', () => {
 	expect(kinds[1]).toHaveClass('text-info-content');
 });
 
+test('the rename pencil follows its header’s ink rather than base-content', () => {
+	mounted = mount(LayerList, {
+		target: document.body,
+		props: {
+			layers: [layer('map', 0)],
+			outcomes: {},
+			openLayerId: 'l0',
+			onopen: vi.fn(),
+			ontypename: vi.fn(),
+			oncommit: vi.fn(),
+			onshow: vi.fn(),
+			ondragopacity: vi.fn(),
+			onmove: vi.fn(),
+			ondelete: vi.fn()
+		}
+	});
+	flushSync();
+
+	const pencil = document.querySelector<HTMLElement>('[data-testid="layer-rename"]');
+	for (const cls of ['text-current', 'bg-transparent', 'hover:bg-current/20']) {
+		expect(pencil, cls).toHaveClass(cls);
+	}
+});
+
 test('both apps define Layer fill and content tokens in every custom theme', () => {
 	for (const app of ['editor', 'viewer']) {
 		const css = readFileSync(path.join(here, `../../../apps/${app}/src/routes/layout.css`), 'utf8');
@@ -62,7 +86,9 @@ test('both apps define Layer fill and content tokens in every custom theme', () 
 				'--color-info',
 				'--color-info-content'
 			]) {
-				expect(body, `apps/${app}: ${token}`).toMatch(new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i'));
+				expect(body, `apps/${app}: ${token}`).toMatch(
+					new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i')
+				);
 			}
 		}
 	}

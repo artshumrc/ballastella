@@ -567,7 +567,9 @@
 
 <section aria-labelledby="layer-stack-heading">
 	<div class="flex flex-wrap items-baseline justify-between gap-4">
-		<h2 id="layer-stack-heading" class="text-lg font-semibold w-full text-center">Layers in this Project</h2>
+		<h2 id="layer-stack-heading" class="w-full text-center text-lg font-semibold">
+			Layers in this Project
+		</h2>
 	</div>
 
 	<div
@@ -784,7 +786,7 @@
 								-->
 								<input
 									bind:this={nameField}
-									class="input mt-0.5 w-full input-xs"
+									class="input mt-0.5 w-full bg-base-100 text-base-content input-xs"
 									value={layer.name}
 									aria-label="Name of Layer {index + 1} of {layers.length}"
 									data-testid="layer-name"
@@ -815,10 +817,22 @@
 								**This is the only way into the name field**, so `canRename` is the single guard behind
 								both halves of that row of the contract: without the callbacks there is no pencil, and
 								with no pencil `renaming` is never set and the name is never anything but text.
+
+								**It is drawn in the header's own ink, not in daisyUI's.** An uncoloured button takes
+								`base-content` for its glyph and a `base-200`-ish fill when hovered, pressed or
+								focused, and none of those know they are sitting on the kind's tint: in Carto light
+								the resting pencil was a near-black glyph on dark teal at 1.3:1. All four overrides
+								are load-bearing, because daisyUI states the resting and the interacted colours
+								separately: `text-current` fixes the glyph, and `bg-transparent` with
+								`hover:bg-current/20` fixes the fill, which would otherwise go pale under an ink
+								`text-current` has just made pale — measured at 0.91 lightness beneath a 0.98
+								glyph. A wash of the ink over the tint is legible wherever the header's own pair is,
+								so this holds in any theme rather than in the two shipped ones, and it follows the
+								drained ink a hidden Layer takes.
 							-->
 							<button
 								type="button"
-								class="btn btn-square btn-outline btn-xs"
+								class="btn btn-square bg-transparent btn-ghost text-current btn-xs hover:bg-current/20 focus-visible:outline-current"
 								data-testid="layer-rename"
 								onclick={() => void renameByButton(layer.id)}
 							>
@@ -862,7 +876,9 @@
 						<button
 							bind:this={disclosureButton[layer.id]}
 							type="button"
-							class="flex size-8 shrink-0 cursor-pointer items-center justify-center focus-visible:outline-2 focus-visible:outline-current {kindInk(layer)}"
+							class="flex size-8 shrink-0 cursor-pointer items-center justify-center focus-visible:outline-2 focus-visible:outline-current {kindInk(
+								layer
+							)}"
 							aria-expanded={open}
 							aria-controls={open ? `layer-contents-${layer.id}` : undefined}
 							data-testid="layer-disclosure"

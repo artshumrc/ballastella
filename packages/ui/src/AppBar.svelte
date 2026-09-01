@@ -189,7 +189,7 @@
 								{#if crumb.action}
 									<button
 										type="button"
-										class="btn shrink-0 btn-outline btn-xs"
+										class="btn shrink-0 btn-ghost btn-xs"
 										data-testid={crumb.action.testid}
 										aria-label={crumb.action.label}
 										onclick={crumb.action.onClick}
