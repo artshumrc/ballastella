@@ -1,4 +1,11 @@
 import {
+	DEFAULT_BASE_MAP_APPEARANCE,
+	isDefaultAppearance,
+	PROJECT_BASE_MAP_APPEARANCE_KEY,
+	readBaseMapAppearance,
+	type BaseMapAppearance
+} from '../base-map/appearance.js';
+import {
 	DEFAULT_BASE_MAP_BORDER_STYLE,
 	DEFAULT_BASE_MAP_BORDERS,
 	isDefaultBorderStyle,
@@ -106,6 +113,18 @@ export interface ProjectFile {
 	 * chosen. `resolveBaseMap` turns that into the deployment default.
 	 */
 	readonly baseMap: string | null;
+	/**
+	 * How that Base Map is drawn: streets, relief, muted colours (`appearance.ts`).
+	 *
+	 * Never `null`, and total like `borders` below and for the same reason: every unusable value
+	 * means the documented default and `readBaseMapAppearance` has already applied it, so a caller
+	 * always has something to draw with.
+	 *
+	 * **Separate from `baseMap`, which names the tiles.** These three switches are style documents
+	 * over whichever archive that id resolves to, so they survive a Project moving to a deployment
+	 * whose catalog is entirely different — which is the whole of ADR-0020 applied one level down.
+	 */
+	readonly baseMapAppearance: BaseMapAppearance;
 	/**
 	 * Which administrative boundaries the Base Map draws (`borders.ts`).
 	 *
@@ -296,6 +315,9 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// And the styling beside it, read off the raw document by `readBaseMapBorderStyle` for the same
 	// reason and with the same consequence if it were left carried.
 	delete unknownFields[PROJECT_BORDER_STYLE_KEY];
+	// And the appearance, read off the raw document by `readBaseMapAppearance`. Same rule, same
+	// consequence: a field both modelled and carried is written back from the carried copy.
+	delete unknownFields[PROJECT_BASE_MAP_APPEARANCE_KEY];
 	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
 	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
 	// thing — the user adding a Map Image to a Project — so the field means nothing to any build
@@ -338,6 +360,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
 		// differently depending on which code path reached the file.
 		baseMap: readBaseMapId(raw),
+		baseMapAppearance: readBaseMapAppearance(raw),
 		// Total rather than nullable, and tolerant of every other shape — see `readBaseMapBorders`.
 		borders: readBaseMapBorders(raw),
 		// Per-property tolerance rather than per-object — see `readBaseMapBorderStyle`: a bad `width`
@@ -369,6 +392,7 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 		updatedAt,
 		layers,
 		baseMap,
+		baseMapAppearance,
 		borders,
 		borderStyle,
 		canonicalUrl,
@@ -399,6 +423,10 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			updatedAt,
 			layers: serialiseLayers(layers),
 			baseMap,
+			// Written only when the author moved off the default, for the reason the fields below give.
+			...(isDefaultAppearance(baseMapAppearance)
+				? {}
+				: { [PROJECT_BASE_MAP_APPEARANCE_KEY]: { ...baseMapAppearance } }),
 			// Written only when the author moved off the default, for the reason the three fields below
 			// give: absence *is* `all`, so every Project written before this field existed keeps its exact
 			// bytes and a Workspace kept in git gains no diff on the day the app is updated.
@@ -451,6 +479,7 @@ export function newProjectFile(name: string, updatedAt: Date, description = ''):
 		updatedAt: updatedAt.toISOString(),
 		layers: [],
 		baseMap: null,
+		baseMapAppearance: DEFAULT_BASE_MAP_APPEARANCE,
 		borders: DEFAULT_BASE_MAP_BORDERS,
 		borderStyle: DEFAULT_BASE_MAP_BORDER_STYLE,
 		canonicalUrl: null,

@@ -6,9 +6,22 @@ import {
 	baseMapPreferenceKey,
 	readBaseMapPreference,
 	writeBaseMapPreference,
-	type PreferenceStorage
+	type PreferenceStorage,
+	type ReaderBaseMapPreference
 } from './reader-preference';
 import { resolveBaseMap } from './resolve';
+
+/** Nothing chosen — what every degradation in this module has to come back to. */
+const NOTHING: ReaderBaseMapPreference = { entryId: null, appearance: null };
+
+/** A stored record, as the module writes one. */
+const stored = (preference: Partial<ReaderBaseMapPreference>): string =>
+	JSON.stringify({
+		...(preference.entryId ? { entryId: preference.entryId } : {}),
+		...(preference.appearance ? { appearance: preference.appearance } : {})
+	});
+
+const MUTED = { streets: true, relief: false, muted: true };
 
 /** A `localStorage` in a `Map`, with the two ways a real one fails. */
 function storage(
@@ -71,45 +84,81 @@ describe('a Reader’s Base Map preference', () => {
 	});
 
 	describe('reading', () => {
-		it('returns the id this Reader chose here', () => {
-			const held = storage({ [baseMapPreferenceKey('https://x.example/atlas/')]: 'muted' });
+		it('returns the appearance this Reader chose here', () => {
+			const held = storage({
+				[baseMapPreferenceKey('https://x.example/atlas/')]: stored({ appearance: MUTED })
+			});
 
-			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toBe('muted');
+			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toEqual({
+				entryId: null,
+				appearance: MUTED
+			});
+		});
+
+		it('keeps the two halves independent, so muting the colours chooses no tile source', () => {
+			const held = storage({
+				[baseMapPreferenceKey('https://x.example/')]: stored({ entryId: 'harbour-charts' })
+			});
+
+			expect(readBaseMapPreference(held, 'https://x.example/')).toEqual({
+				entryId: 'harbour-charts',
+				appearance: null
+			});
+		});
+
+		it('reads a Reader who switched everything off as a choice, not as silence', () => {
+			// The distinction the whole `null` half of this module exists for: "nothing on" is a map
+			// this Reader asked for, and falling back to the author's would put the streets back.
+			const off = { streets: false, relief: false, muted: false };
+			const held = storage({
+				[baseMapPreferenceKey('https://x.example/')]: stored({ appearance: off })
+			});
+
+			expect(readBaseMapPreference(held, 'https://x.example/')?.appearance).toEqual(off);
 		});
 
 		it('does not see the preference stored for a different site on the same origin', () => {
-			const held = storage({ [baseMapPreferenceKey('https://x.example/tracy/')]: 'muted' });
+			const held = storage({
+				[baseMapPreferenceKey('https://x.example/tracy/')]: stored({ appearance: MUTED })
+			});
 
-			expect(readBaseMapPreference(held, 'https://x.example/sam/')).toBeNull();
+			expect(readBaseMapPreference(held, 'https://x.example/sam/')).toEqual(NOTHING);
 		});
 
 		it.each([
 			['no key at all', {}],
 			['an empty value', { value: '' }],
-			['whitespace alone', { value: '   ' }]
-		])('reads %s as no preference, so the author’s default governs', (_description, held) => {
+			['whitespace alone', { value: '   ' }],
+			['a record with none of the fields in it', { value: '{"colour":"blue"}' }],
+			['a bare id, as an older build wrote', { value: 'muted' }],
+			['an appearance whose switches are strings', { value: '{"appearance":{"muted":"yes"}}' }]
+		])('reads %s as no preference, so the author’s setting governs', (_description, held) => {
 			const key = baseMapPreferenceKey('https://x.example/atlas/');
 			const bag = storage('value' in held ? { [key]: held.value as string } : {});
 
-			expect(readBaseMapPreference(bag, 'https://x.example/atlas/')).toBeNull();
+			expect(readBaseMapPreference(bag, 'https://x.example/atlas/')).toEqual(NOTHING);
 		});
 
 		it('reads no preference when there is no storage at all', () => {
-			// Prerendering, and a browser with site data blocked. `null` rather than a throw: the author's
-			// default is a working answer, and a page that would not render is not.
-			expect(readBaseMapPreference(null, 'https://x.example/atlas/')).toBeNull();
-			expect(readBaseMapPreference(undefined, 'https://x.example/atlas/')).toBeNull();
+			// Prerendering, and a browser with site data blocked. Nothing chosen rather than a throw: the
+			// author's setting is a working answer, and a page that would not render is not.
+			expect(readBaseMapPreference(null, 'https://x.example/atlas/')).toEqual(NOTHING);
+			expect(readBaseMapPreference(undefined, 'https://x.example/atlas/')).toEqual(NOTHING);
 		});
 
 		it('reads no preference when storage itself throws', () => {
 			// Safari in private browsing throws from `localStorage` on *access*, not only on write.
-			expect(readBaseMapPreference(storage({}, { read: true }), 'https://x.example/')).toBeNull();
+			expect(readBaseMapPreference(storage({}, { read: true }), 'https://x.example/')).toEqual(
+				NOTHING
+			);
 		});
 
-		it('trims a value edited by hand', () => {
-			const held = storage({ [baseMapPreferenceKey('https://x.example/')]: ' muted \n' });
+		it('trims an id edited by hand', () => {
+			const held = storage({
+				[baseMapPreferenceKey('https://x.example/')]: '{"entryId":"  harbour-charts  "}'
+			});
 
-			expect(readBaseMapPreference(held, 'https://x.example/')).toBe('muted');
+			expect(readBaseMapPreference(held, 'https://x.example/')?.entryId).toBe('harbour-charts');
 		});
 	});
 
@@ -117,17 +166,23 @@ describe('a Reader’s Base Map preference', () => {
 		it('remembers the choice under this site’s key and nothing else', () => {
 			const held = storage();
 
-			expect(writeBaseMapPreference(held, 'https://x.example/atlas/', 'muted')).toBe(true);
-			expect(held.entries()).toEqual({
-				[baseMapPreferenceKey('https://x.example/atlas/')]: 'muted'
-			});
+			expect(
+				writeBaseMapPreference(held, 'https://x.example/atlas/', {
+					entryId: null,
+					appearance: MUTED
+				})
+			).toBe(true);
+			expect(Object.keys(held.entries())).toEqual([
+				baseMapPreferenceKey('https://x.example/atlas/')
+			]);
 		});
 
-		it('is restored on return', () => {
+		it('is restored on return, both halves of it', () => {
 			const held = storage();
-			writeBaseMapPreference(held, 'https://x.example/atlas/', 'physical');
+			const chosen = { entryId: 'harbour-charts', appearance: MUTED };
+			writeBaseMapPreference(held, 'https://x.example/atlas/', chosen);
 
-			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toBe('physical');
+			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toEqual(chosen);
 		});
 
 		it('reports failure rather than throwing when storage refuses', () => {
@@ -135,12 +190,15 @@ describe('a Reader’s Base Map preference', () => {
 			// worked — the Base Map changed, this visit. Surfacing an error would report the failure of
 			// something they did not ask for.
 			expect(
-				writeBaseMapPreference(storage({}, { write: true }), 'https://x.example/', 'muted')
+				writeBaseMapPreference(storage({}, { write: true }), 'https://x.example/', {
+					entryId: null,
+					appearance: MUTED
+				})
 			).toBe(false);
 		});
 
 		it('reports failure when there is no storage', () => {
-			expect(writeBaseMapPreference(null, 'https://x.example/', 'muted')).toBe(false);
+			expect(writeBaseMapPreference(null, 'https://x.example/', NOTHING)).toBe(false);
 		});
 	});
 
@@ -165,7 +223,7 @@ describe('a Reader’s Base Map preference', () => {
 			// is a type error, and passing something that merely *has* `getItem`/`setItem` still cannot
 			// write a file. The runtime half is that neither call reaches for a global store either — a
 			// double with no `getItem` at all is simply not consulted.
-			expect(readBaseMapPreference({} as never, 'https://x.example/')).toBeNull();
+			expect(readBaseMapPreference({} as never, 'https://x.example/')).toEqual(NOTHING);
 		});
 
 		it('does not validate the id, because resolveBaseMap already falls back visibly', () => {
@@ -173,12 +231,14 @@ describe('a Reader’s Base Map preference', () => {
 			// whether the id came from a Project or from a Reader's own storage. A second check here
 			// would be a second answer that can disagree.
 			const held = storage({
-				[baseMapPreferenceKey('https://x.example/')]: 'a-base-map-from-another-deployment'
+				[baseMapPreferenceKey('https://x.example/')]: JSON.stringify({
+					entryId: 'a-base-map-from-another-deployment'
+				})
 			});
-			const stored = readBaseMapPreference(held, 'https://x.example/');
+			const chosen = readBaseMapPreference(held, 'https://x.example/');
 
-			expect(stored).toBe('a-base-map-from-another-deployment');
-			const resolution = resolveBaseMap(stored, BASE_MAP_CATALOG);
+			expect(chosen.entryId).toBe('a-base-map-from-another-deployment');
+			const resolution = resolveBaseMap(chosen.entryId, BASE_MAP_CATALOG);
 			expect(resolution.fellBack).toBe(true);
 			expect(resolution.entry.id).toBe(BASE_MAP_CATALOG.defaultId);
 		});

@@ -33,25 +33,19 @@ const CATALOG: BaseMapCatalog = {
 			id: 'harbour-charts',
 			label: 'Harbour charts',
 			needsNetwork: false,
-			archive: 'tiles/harbours.pmtiles',
-			emphasis: 'water-and-terrain',
-			flavor: { light: 'white', dark: 'black' }
+			archive: 'tiles/harbours.pmtiles'
 		},
 		{
 			id: 'parish-roads',
 			label: 'Parish roads',
 			needsNetwork: false,
-			archive: 'tiles/harbours.pmtiles',
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
+			archive: 'tiles/harbours.pmtiles'
 		},
 		{
 			id: 'satellite',
 			label: 'Satellite',
 			needsNetwork: true,
-			archive: 'https://tiles.example.invalid/satellite.pmtiles',
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
+			archive: 'https://tiles.example.invalid/satellite.pmtiles'
 		}
 	],
 	defaultId: 'parish-roads',
@@ -75,6 +69,9 @@ const render = (props: {
 	flushSync();
 	return document.querySelector('select')!;
 };
+
+/** A deployment reading one archive, which is what this repository ships. */
+const ONE_ENTRY: BaseMapCatalog = { ...CATALOG, entries: CATALOG.entries.slice(0, 1) };
 
 afterEach(() => {
 	if (mounted) unmount(mounted);
@@ -199,4 +196,19 @@ test('can use its intrinsic width instead of filling a compact toolbar', () => {
 
 	expect(select).toHaveClass('w-fit');
 	expect(select).not.toHaveClass('w-full');
+});
+
+test('renders nothing at all for a deployment that offers one set of tiles', () => {
+	// A `<select>` with a single option is not a choice; it is a control that looks like one. What
+	// this deployment's Reader actually chooses is how the map is *drawn*, which is
+	// `BaseMapAppearanceToggles` — so the switcher gets out of the way rather than sitting beside it
+	// asserting a decision nobody made.
+	mounted = mount(BaseMapSwitcher, {
+		target: document.body,
+		props: { entryId: 'harbour-charts', catalog: ONE_ENTRY, onSelect: () => {} }
+	});
+	flushSync();
+
+	expect(document.querySelector('select')).toBeNull();
+	expect(document.querySelector('label')).toBeNull();
 });

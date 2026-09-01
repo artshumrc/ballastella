@@ -1,40 +1,22 @@
-import type { ThemeScheme } from '../theme';
-
 /**
  * A named Protomaps flavor. A `Flavor` is a struct of colours per layer class — `water`,
  * `wood_a`, `scrub_a`, `glacier`, `sand`, `beach`, `buildings`, `highway`, `railway`, and
  * many more — which is why two content-distinct Base Maps are two style documents over one
  * pmtiles archive and cost no extra data (ADR-0005).
  *
- * `@protomaps/basemaps` exports exactly these five.
+ * `@protomaps/basemaps` exports exactly these five. Which of them a map is drawn in is the
+ * author's `BaseMapAppearance` — see `appearance.ts` — and never a property of an entry: the
+ * palette is a choice about the work, and an entry is an address.
  */
 export type BaseMapFlavorName = 'light' | 'dark' | 'grayscale' | 'white' | 'black';
 
 /**
- * Which layer classes a variant emphasises.
- *
- * - `streets-and-labels` — the whole layer set: roads, buildings, and labels over muted terrain.
- * - `water-and-terrain` — roads, buildings, and address labels are dropped, and woodland, scrub,
- *   sand, beach, and glacier take the flavor's saturated landcover colours.
- * - `relief-and-contours` — the same land as `water-and-terrain`, with shaded relief and contour
- *   lines drawn over it. **The only emphasis that reads a second dataset**: the vector archive
- *   carries no elevation, so this one needs the catalog's {@link BaseMapCatalog.terrain}. Without
- *   it the variant falls back to plain terrain rather than failing, because a catalog is a fork's
- *   to edit and half a topographic map beats a blank pane.
- *
- * These deliberately do not share names with any entry id. An emphasis is internal vocabulary an
- * entry selects; an id is a public identifier a Project records, and
- * `scripts/check-base-map-catalog.mjs` can only tell them apart if they read differently.
- */
-export type BaseMapEmphasis = 'streets-and-labels' | 'water-and-terrain' | 'relief-and-contours';
-
-/**
- * The elevation dataset a `relief-and-contours` variant reads, and the second address in this
+ * The elevation dataset a Base Map drawn with relief reads, and the second address in this
  * file — so, like an archive, deployment configuration and never Project data (ADR-0020).
  *
  * Relief and contours are computed from the *same* DEM tiles: MapLibre shades the raster directly,
  * and `maplibre-contour` traces isolines out of it in a worker. One dataset, two renderings, which
- * is the same economy `emphasis` buys over the vector archive.
+ * is the same economy `BaseMapAppearance` buys over the vector archive.
  */
 export type BaseMapTerrain = {
 	/** Raster DEM tile template carrying `{z}`, `{x}`, and `{y}`. Absolute, or deployment-relative. */
@@ -52,7 +34,12 @@ export type BaseMapTerrain = {
 };
 
 /**
- * One Base Map offered by this deployment.
+ * One set of tiles this deployment can draw a Base Map from.
+ *
+ * **An address and a name, and nothing about how the map looks.** How it looks is three switches
+ * the author sets (`appearance.ts`), applied to whichever of these is being read — so a deployment
+ * with one archive has one entry here, and a deployment with a regional extract beside a worldwide
+ * one has two, which is the only thing there is ever more than one of.
  *
  * The catalog of these is **deployment configuration, not Project data** (ADR-0020).
  * `project.json` records `baseMap: "<id>"` and nothing else — never an `archive`, never a
@@ -75,9 +62,6 @@ export type BaseMapEntry = {
 	 * the point — that is the zero-extra-data claim.
 	 */
 	readonly archive: string;
-	readonly emphasis: BaseMapEmphasis;
-	/** The flavor per theme, so one theme signal drives the map as well as the UI (ADR-0016). */
-	readonly flavor: Readonly<Record<ThemeScheme, BaseMapFlavorName>>;
 };
 
 /**
@@ -105,7 +89,7 @@ export type BaseMapCatalog = {
 	/**
 	 * The elevation dataset, if this deployment has one. Optional because it is a second host to
 	 * provision: a fork with no DEM to point at still gets every other entry, and a
-	 * `relief-and-contours` entry degrades to terrain colours rather than disappearing.
+	 * Project asking for relief degrades to terrain colours rather than disappearing.
 	 */
 	readonly terrain?: BaseMapTerrain;
 	/**

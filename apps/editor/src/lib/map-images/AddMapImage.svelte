@@ -191,9 +191,8 @@
 
 <ModalDialog bind:open title="Add a Map Image" wide>
 	<p class="max-w-prose text-sm">
-		A Map Image belongs to this Workspace, not to one Project: prepared or aligned once, it can be
-		drawn by any number of Projects. Whichever of these three you use, it appears as a Layer in this
-		Project straight away.
+		Map images can be added from a file on your computer or from the web. 
+		The same image can be reused across project: align once, use multiple times.
 	</p>
 
 	<!--
@@ -209,10 +208,6 @@
 	-->
 	<section class="mt-6" aria-labelledby="add-from-file-heading">
 		<h3 id="add-from-file-heading" class="text-lg font-semibold">From a file on this computer</h3>
-		<p class="mt-1 max-w-prose text-sm opacity-70">
-			A scan or a photograph. It is converted to a IIIF pyramid and written into this Workspace as
-			you watch; you can carry on working while it runs, and you can stop it.
-		</p>
 		<label class="mt-3 block">
 			<span class="mb-1 block text-sm">Add a Map Image from a file</span>
 			<input

@@ -91,6 +91,7 @@ describe('project.json', () => {
 
 		expect(Object.keys(opened).toSorted()).toEqual([
 			'baseMap',
+			'baseMapAppearance',
 			'borderStyle',
 			'borders',
 			'canonicalUrl',
@@ -646,6 +647,7 @@ describe('Import Provenance (ADR-0037)', () => {
 
 		expect(Object.keys(parsed).toSorted()).toEqual([
 			'baseMap',
+			'baseMapAppearance',
 			'borderStyle',
 			'borders',
 			'canonicalUrl',

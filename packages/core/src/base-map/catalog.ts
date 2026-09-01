@@ -46,13 +46,13 @@ import type { BaseMapCatalog } from './entry';
 const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 
 /**
- * The elevation dataset behind the topographic Base Map: Tilezen's Terrain Tiles on AWS Open Data,
- * in `terrarium` encoding.
+ * The elevation dataset behind shaded relief and contour lines: Tilezen's Terrain Tiles on AWS Open
+ * Data, in `terrarium` encoding.
  *
  * **Why a second dataset exists here at all.** The vector archive above is OpenStreetMap, and
- * OpenStreetMap does not carry elevation. Every other entry in this catalog is a style document
- * over one set of tiles, which is the economy ADR-0005 rests on; a topographic map is the one
- * variant that cannot be. Both the shading and the contour lines are drawn from *this* raster, so
+ * OpenStreetMap does not carry elevation. Everything else a Base Map can be told to draw is a style
+ * document over one set of tiles, which is the economy ADR-0005 rests on; relief is the one thing
+ * that cannot be. Both the shading and the contour lines are drawn from *this* raster, so
  * it is one extra dataset and not two — `registerTerrainProtocols` traces the isolines out of the
  * DEM tiles the hillshade is already reading.
  *
@@ -70,48 +70,21 @@ const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmti
 const TERRAIN_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
+	// One archive, one entry. What the map *looks like* — streets, relief, muted colours — is three
+	// switches the author sets per Project (`appearance.ts`), not a row here: they are style
+	// documents over these same tiles, and enumerating their combinations would be eight entries
+	// saying one thing. A deployment that really does have a second set of tiles — a regional
+	// extract bundled for offline work beside a worldwide archive — adds it here and the switcher
+	// appears on its own.
 	entries: [
 		{
-			id: 'streets',
-			label: 'Streets',
+			id: 'planet',
+			label: 'Worldwide',
 			needsNetwork: true,
-			archive: REMOTE_ARCHIVE,
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'light', dark: 'dark' }
-		},
-		{
-			id: 'physical',
-			label: 'Physical geography',
-			needsNetwork: true,
-			archive: REMOTE_ARCHIVE,
-			emphasis: 'water-and-terrain',
-			flavor: { light: 'light', dark: 'dark' }
-		},
-		{
-			// Relief and contours are the one variant that cannot be had for free — see TERRAIN_DEM —
-			// and the one an author placing a route, a battlefield, or a settlement needs, because
-			// on every other entry here the terrain those things were chosen for is flat colour.
-			id: 'topographic',
-			label: 'Topographic',
-			needsNetwork: true,
-			archive: REMOTE_ARCHIVE,
-			emphasis: 'relief-and-contours',
-			flavor: { light: 'light', dark: 'dark' }
-		},
-		{
-			// A low-vision Reader must be able to pick a muted Base Map so that annotations stay
-			// legible over it. `e2e/viewer-reader.e2e.ts` asserts that selection in the published
-			// viewer, and it cannot pass without an entry here — so this is not a nicety. It is
-			// one more style document over the same archive and costs nothing.
-			id: 'muted',
-			label: 'Muted, high contrast',
-			needsNetwork: true,
-			archive: REMOTE_ARCHIVE,
-			emphasis: 'streets-and-labels',
-			flavor: { light: 'grayscale', dark: 'black' }
+			archive: REMOTE_ARCHIVE
 		}
 	],
-	defaultId: 'streets',
+	defaultId: 'planet',
 	// The deliberate fallback for a Project with nothing placed on the earth (ADR-0026). A whole
 	// world rather than one city: nothing has been placed yet, so no city is the right guess, and
 	// zoomed out is the view an author can pan and zoom out of towards anywhere.

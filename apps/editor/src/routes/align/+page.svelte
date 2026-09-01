@@ -19,7 +19,7 @@
 
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { resolveBaseMap, type MapLayer } from '@ballastella/core';
+	import { DEFAULT_BASE_MAP_APPEARANCE, resolveBaseMap, type MapLayer } from '@ballastella/core';
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
 	import { pageChrome } from '@ballastella/ui';
@@ -235,6 +235,7 @@
 				mapName={layer.name}
 				{fetchTile}
 				baseMapId={resolution.entry.id}
+				baseMapAppearance={session.openProject?.baseMapAppearance ?? DEFAULT_BASE_MAP_APPEARANCE}
 				projectDirectory={openDirectory}
 			/>
 		{/if}

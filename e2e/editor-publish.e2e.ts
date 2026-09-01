@@ -1,3 +1,4 @@
+import { drawSwitch, openBaseMapOptions } from './support/base-map-options.js';
 import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
@@ -196,7 +197,8 @@ const projectFiles = (
 					defaultStyle: {}
 				}
 			],
-			baseMap: 'physical'
+			baseMap: null,
+			baseMapAppearance: { streets: false, relief: true, muted: false }
 		},
 		null,
 		'\t'
@@ -418,13 +420,13 @@ test.describe('publishing a Workspace', () => {
 			const stack = page.getByRole('list', { name: 'Layers, top first' });
 			await expect(stack).toContainText('The 1625 plan');
 			await expect(stack).toContainText('Warehouses');
-			// And the Base Map the author chose is the one shown first, resolved against the catalog that
-			// travelled with the site rather than against this build's (ADR-0020). The switcher's
-			// *selected* value, because the choice is a Reader's to change.
-			await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
-			await expect(
-				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
-			).toHaveText('Physical geography');
+			// And the Base Map is drawn the way the author's `project.json` says, which travelled with the
+			// site. Read off the controls rather than the paint, because what is under test here is that
+			// the published document reached the published page — the map itself is asserted in
+			// `viewer-reader.e2e.ts`. A Reader may change any of it for themselves.
+			await openBaseMapOptions(page);
+			await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
+			await expect(drawSwitch(page, 'Topography')).toBeChecked();
 
 			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
 			// it is answered at a domain root and is outside the published folder in a subdirectory,

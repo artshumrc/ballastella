@@ -323,6 +323,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 			unknown
 		>;
 		expect(record.service).toBe(service('images.test', 'florida'));
+		expect(record.source).toBe('https://library.test/iiif/atlas/manifest.json');
 		expect(record.label).toBe('Chart of the Florida coast');
 		expect(record.partOf).toBe('https://library.test/iiif/atlas/manifest.json');
 		expect(record.canvas).toBe('https://library.test/iiif/atlas/canvas/2');

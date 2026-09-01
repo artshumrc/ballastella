@@ -249,6 +249,7 @@ describe('the record beside a referenced image', () => {
 		expect(new TextDecoder().decode(serialiseReferencedImage(record()))).toBe(
 			`{
 \t"service": "${SERVICE}",
+\t"source": "https://www.loc.gov/item/2022594752/manifest.json",
 \t"label": "A new map of Florida",
 \t"partOf": "https://www.loc.gov/item/2022594752/manifest.json",
 \t"canvas": "https://www.loc.gov/item/2022594752/canvas/1",

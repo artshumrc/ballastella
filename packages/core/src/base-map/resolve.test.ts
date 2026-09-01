@@ -99,30 +99,10 @@ describe('the deployment catalog', () => {
 		const archives = new Set(BASE_MAP_CATALOG.entries.map((entry) => entry.archive));
 
 		expect(BASE_MAP_CATALOG.entries.every((entry) => entry.needsNetwork)).toBe(true);
-		// Several looks still use one dataset, without shipping that dataset. **The count is half the
-		// assertion**: `every()` and `archives.size === 1` are both true of a one-entry catalog, so
-		// dropping this line would let "three looks over one dataset" pass vacuously.
-		const looks = new Set(
-			BASE_MAP_CATALOG.entries.map(
-				(entry) => `${entry.emphasis}/${entry.flavor.light}/${entry.flavor.dark}`
-			)
-		);
-		expect(looks.size).toBeGreaterThanOrEqual(3);
+		// One dataset, and every look this deployment offers is a style document over it — which is
+		// now `appearance.ts`'s business rather than a row per look here. `style.test.ts` counts the
+		// eight it draws.
 		expect(archives.size).toBe(1);
-	});
-
-	it('offers content-distinct variants rather than only recolourings', () => {
-		const emphases = new Set(BASE_MAP_CATALOG.entries.map((entry) => entry.emphasis));
-
-		expect(emphases.size).toBeGreaterThan(1);
-	});
-
-	it('carries a muted or high-contrast entry, so annotations can be kept legible', () => {
-		const muted = BASE_MAP_CATALOG.entries.filter((entry) =>
-			['grayscale', 'white', 'black'].includes(entry.flavor.light)
-		);
-
-		expect(muted.length).toBeGreaterThan(0);
 	});
 
 	it('marks at least one entry as needing network, so the marking is exercised', () => {

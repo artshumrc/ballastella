@@ -85,8 +85,8 @@
 	 * is nothing left in this panel to look at — so the surface closes exactly as it does when a file
 	 * is picked, and the progress is on the new Layer's card.
 	 */
-	const look = async (url?: string) => {
-		await job.read(url);
+	const look = async (url?: string, fromCollection = false) => {
+		await job.read(url, fromCollection);
 		if (job.downloaded !== '') {
 			job.downloaded = '';
 			onadded?.({ layer: null, notice: '' });
@@ -105,19 +105,19 @@
 </script>
 
 <section class="mt-10" aria-labelledby="add-remote-heading">
-	<h3 id="add-remote-heading" class="text-lg font-semibold">Add a Map Image from a library</h3>
+	<h3 id="add-remote-heading" class="text-lg font-semibold">Add a Map Image from the Web</h3>
 
 	<form class="mt-4 flex max-w-2xl flex-wrap items-end gap-2" onsubmit={submit}>
 		<label class="floating-label grow">
-			<span>IIIF Manifest, Collection, image service, or image file address</span>
+			<span>Image URL or IIIF Resource</span>
 			<input
 				class="input w-full"
 				type="url"
 				inputmode="url"
 				autocomplete="off"
 				spellcheck="false"
-				placeholder="https://…"
 				data-testid="remote-url"
+				placeholder="Image URL or IIIF Resource"
 				bind:value={job.url}
 				disabled={busy}
 			/>
@@ -263,7 +263,7 @@
 								type="button"
 								data-testid="remote-item"
 								disabled={busy}
-								onclick={() => look(item.uri)}
+								onclick={() => look(item.uri, true)}
 							>
 								{item.label}
 								<span class="opacity-60">({item.kind})</span>

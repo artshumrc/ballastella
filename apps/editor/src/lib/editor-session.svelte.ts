@@ -96,6 +96,7 @@ import {
 	type BaseMapCacheSize,
 	type Bytes,
 	type StorePath,
+	type BaseMapAppearance,
 	type BaseMapBorders,
 	type BaseMapBorderStyle,
 	type CachedTileSource,
@@ -2111,6 +2112,7 @@ export class EditorSession {
 	 */
 	async addReferencedMap(fields: {
 		service: RemoteImageService;
+		source?: string;
 		label: string;
 		partOf: string;
 		canvas: string;
@@ -2125,6 +2127,7 @@ export class EditorSession {
 		const record = referencedImage({
 			imageId: service.imageId,
 			service: service.uri,
+			source: fields.source || fields.partOf || service.uri,
 			label: fields.label,
 			partOf: fields.partOf,
 			canvas: fields.canvas,
@@ -3798,6 +3801,20 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || !this.openProject) return;
 		this.openProject = { ...this.openProject, baseMap: id };
+		await this.#write(directory);
+	}
+
+	/**
+	 * Record how this Project draws its Base Map: streets, relief, muted colours.
+	 *
+	 * A discrete choice like {@link chooseBaseMap}, written now rather than debounced. The whole
+	 * appearance rather than a patch, because the control hands back a whole one — three switches
+	 * with no interdependence are simplest read as one value.
+	 */
+	async chooseBaseMapAppearance(baseMapAppearance: BaseMapAppearance): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+		this.openProject = { ...this.openProject, baseMapAppearance };
 		await this.#write(directory);
 	}
 

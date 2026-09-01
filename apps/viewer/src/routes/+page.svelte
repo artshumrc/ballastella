@@ -58,6 +58,7 @@
 	import { page } from '$app/state';
 	import {
 		BASE_MAP_CATALOG,
+		DEFAULT_BASE_MAP_APPEARANCE,
 		PUBLISHED_SITE_RECORD_NAME,
 		PathNotFoundError,
 		ProjectFormatTooNewError,
@@ -87,6 +88,7 @@
 		type AnnotationLayer,
 		type Layer,
 		type MapLayer,
+		type ReaderBaseMapPreference,
 		type OpeningViewFit,
 		type OpeningViewOutcome,
 		type ProjectFile,
@@ -100,7 +102,7 @@
 		AnnotationDescription,
 		AnnotationInspector,
 		AnnotationList,
-		BaseMapSwitcher,
+		BaseMapOptions,
 		LayerList,
 		LeaderLine,
 		MapCommentary,
@@ -754,12 +756,13 @@
 	const catalog = $derived(site?.baseMap ?? BASE_MAP_CATALOG);
 
 	/**
-	 * This Reader's own choice, or `null` — read once per site rather than watched.
+	 * This Reader's own choices — which tiles, and how they are drawn — read once per site rather
+	 * than watched.
 	 *
-	 * `null` until the Reader chooses, so the **author's default governs first contact**, which is the
-	 * moment that carries the argument.
+	 * Both halves are `null` until the Reader chooses that half, so the **author's framing governs
+	 * first contact**, which is the moment that carries the argument.
 	 */
-	let chosen = $state<string | null>(null);
+	let chosen = $state.raw<ReaderBaseMapPreference>({ entryId: null, appearance: null });
 	$effect(() => {
 		if (!hydrated) return;
 		chosen = readBaseMapPreference(readerStorage(), sitePrefix());
@@ -785,7 +788,20 @@
 	 * The Base Map actually shown: this Reader's choice if they have one, else the author's default, and
 	 * in both cases resolved against the catalog so an id this site cannot serve falls back **visibly**.
 	 */
-	const baseMap = $derived(resolveBaseMap(chosen ?? openProject?.file.baseMap ?? null, catalog));
+	const baseMap = $derived(
+		resolveBaseMap(chosen.entryId ?? openProject?.file.baseMap ?? null, catalog)
+	);
+
+	/**
+	 * How the Base Map is drawn: this Reader's own switches if they have set any, else the author's.
+	 *
+	 * All-or-nothing rather than merged per switch, and deliberately: a Reader who muted the palette
+	 * has said what they want the map to be, and quietly keeping the author's relief inside their
+	 * choice would make the control they used report something they did not choose.
+	 */
+	const baseMapAppearance = $derived(
+		chosen.appearance ?? openProject?.file.baseMapAppearance ?? DEFAULT_BASE_MAP_APPEARANCE
+	);
 	const baseMapNotice = $derived(baseMapFallbackNotice(baseMap));
 
 	/**
@@ -949,10 +965,10 @@
 	 */
 	const showingTheMap = $derived(openProject !== null && unwarpedLayerId === null);
 
-	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
-	function chooseBaseMap(id: string): void {
-		chosen = id;
-		writeBaseMapPreference(readerStorage(), sitePrefix(), id);
+	/** Remember the Reader's choices for this site, and for no other (ADR-0020). Never Project data. */
+	function chooseForThisReader(preference: ReaderBaseMapPreference): void {
+		chosen = preference;
+		writeBaseMapPreference(readerStorage(), sitePrefix(), preference);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1422,6 +1438,7 @@
 										bind:this={readerMapPane}
 										selectedAnnotationId={openAnnotationId}
 										entryId={baseMap.entry.id}
+										appearance={baseMapAppearance}
 										borders={openProject.file.borders}
 										borderStyle={openProject.file.borderStyle}
 										{catalog}
@@ -1541,13 +1558,17 @@
 {/snippet}
 
 {#snippet mapControls()}
-	<BaseMapSwitcher
+	<!--
+		This Reader's own view of the geography, never the author's file (ADR-0020) — which is why no
+		`onBorders` is passed and the panel carries no borders section: which boundaries a work draws is
+		the author's argument about it, and a Reader changing it would be editing the argument.
+	-->
+	<BaseMapOptions
 		entryId={baseMap.entry.id}
 		{catalog}
-		labelSrOnly={true}
-		fullWidth={false}
-		class="select-sm"
-		onSelect={(id) => chooseBaseMap(id)}
+		appearance={baseMapAppearance}
+		onAppearance={(appearance) => chooseForThisReader({ ...chosen, appearance })}
+		onSelectEntry={(entryId) => chooseForThisReader({ ...chosen, entryId })}
 	/>
 	<button
 		type="button"

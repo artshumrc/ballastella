@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { unavailableNotice } from './support/base-map-notice.js';
+import {
+	baseMapOptionsButton,
+	drawSwitch,
+	openBaseMapOptions
+} from './support/base-map-options.js';
 import { openLayerRow } from './support/layers.js';
 import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import {
@@ -1280,7 +1285,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 		// one: the row a Reader opened above is the row the slider belongs to.
 		const opacity = page.getByTestId('layer-opacity');
 		await opacity.fill('0.35');
-		await page.getByTestId('base-map-switcher').selectOption({ index: 1 });
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
 		await page.getByRole('button', { name: 'Theme', exact: true }).click();
 		await page.getByTestId('theme-option-synthwave').click();
 		await expect(page.getByTestId('layer-view-status')).toContainText('%');
@@ -1300,9 +1306,10 @@ test.describe('a Published Site a Reader arrives at', () => {
 		//
 		// The one key allowed is the Base Map choice this test just made, asserted by its value as well as
 		// its name so that "the preference" means the preference rather than anything of that shape.
-		const chosenBaseMap = await page.getByTestId('base-map-switcher').inputValue();
 		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
-			[`ballastella.baseMap:${site.sites[0]!.url}`]: chosenBaseMap
+			[`ballastella.baseMap:${site.sites[0]!.url}`]: JSON.stringify({
+				appearance: { streets: true, relief: false, muted: true }
+			})
 		});
 
 		// And the Project's own bytes on disk are untouched — the stronger form of the same claim, since a
@@ -1805,7 +1812,7 @@ test.describe('a Published Site draws the author’s Labels', () => {
 	/** The Workspace this section publishes: one Annotation Layer of Labels, and one ordinary Pin. */
 	const labelledProject = (): SiteFiles =>
 		oneProject({
-			baseMap: 'physical',
+			baseMap: null,
 			annotations: [
 				labelFeature('small'),
 				labelFeature('medium'),
@@ -2116,21 +2123,35 @@ test.describe('the Base Map a Reader sees', () => {
 			)
 		);
 
-	test('starts at the author’s default, not at the deployment’s', async ({ page }) => {
+	test('starts on the author’s Base Map, not on the deployment’s default', async ({ page }) => {
 		// The framing of the work is the author's, and first contact is the moment that carries it. The
-		// fixture names a Base Map that is deliberately **not** the catalog default.
-		site = await published(oneProject({ baseMap: 'physical' }));
+		// fixture asks for a map drawn **unlike** the default, so neither switch can be passing by
+		// coincidence.
+		//
+		// ⚠ **The relief stays off, and that is the network fence rather than a gap.** Shaded relief
+		// reads the catalog's elevation dataset, which is a second host this suite may not reach; that
+		// the switch reaches the style at all is asserted at Seam 1 (`style.test.ts`).
+		site = await published(
+			oneProject({
+				projectOverrides: { baseMapAppearance: { streets: false, relief: false, muted: true } }
+			})
+		);
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
+		await openBaseMapOptions(page);
 
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
-		const catalog = await options(page);
-		expect(catalog.find((entry) => entry.value === 'physical')?.value).toBe('physical');
-		// The default the *deployment* would have chosen is a different entry, so this cannot be passing by
-		// coincidence.
-		expect(catalog[0]?.value).not.toBe('physical');
+		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+		// And it is the map rather than the controls: the built environment really is off it.
+		expect(
+			await page.evaluate(() =>
+				window
+					.ballastellaReaderMap!.map.getStyle()
+					.layers.some((layer) => String(layer.id).startsWith('roads_'))
+			)
+		).toBe(false);
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2143,15 +2164,22 @@ test.describe('the Base Map a Reader sees', () => {
 		// exactly what the record says, and none of the entries the viewer was built with.
 		//
 		// The archive is the site's own bundled one, reached relatively, so the map still draws.
+		// Two entries, because that is the state in which a *switcher* exists at all: one archive is one
+		// set of tiles and no choice, and this deployment ships exactly that. Only the first is really
+		// there, which is why it is the default.
 		const travelled = {
 			entries: [
 				{
 					id: 'a-deployment-of-its-own',
 					label: 'Somebody else’s Base Map',
 					needsNetwork: false,
-					archive: 'base-map/amsterdam-centre.pmtiles',
-					emphasis: 'streets-and-labels',
-					flavor: { light: 'light', dark: 'dark' }
+					archive: 'base-map/amsterdam-centre.pmtiles'
+				},
+				{
+					id: 'and-a-second-of-its-own',
+					label: 'Somebody else’s other Base Map',
+					needsNetwork: true,
+					archive: 'https://tiles.example.invalid/somebody-elses.pmtiles'
 				}
 			],
 			defaultId: 'a-deployment-of-its-own',
@@ -2166,8 +2194,14 @@ test.describe('the Base Map a Reader sees', () => {
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
+		await openBaseMapOptions(page);
 		expect(await options(page)).toEqual([
-			{ value: 'a-deployment-of-its-own', text: 'Somebody else’s Base Map', needsNetwork: false }
+			{ value: 'a-deployment-of-its-own', text: 'Somebody else’s Base Map', needsNetwork: false },
+			{
+				value: 'and-a-second-of-its-own',
+				text: 'Somebody else’s other Base Map',
+				needsNetwork: true
+			}
 		]);
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue('a-deployment-of-its-own');
 		// And it is a working map rather than a named one: the stack drew on it.
@@ -2176,20 +2210,22 @@ test.describe('the Base Map a Reader sees', () => {
 	});
 
 	test('switching persists in localStorage and is restored on return', async ({ page }) => {
-		site = await published(oneProject({ baseMap: 'physical' }));
+		site = await published(oneProject());
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
-		await page.getByTestId('base-map-switcher').selectOption('muted');
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 
 		// Reloaded, so the choice has to have come out of storage rather than out of memory.
 		await page.reload();
 		await mapReady(page);
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await openBaseMapOptions(page);
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 
-		// Under a key named after this site, and holding the id and nothing else.
+		// Under a key named after this site, and holding this Reader's choices and nothing else.
 		expect(
 			await page.evaluate(() =>
 				Object.fromEntries(
@@ -2198,7 +2234,11 @@ test.describe('the Base Map a Reader sees', () => {
 					)
 				)
 			)
-		).toEqual({ [`ballastella.baseMap:${site!.sites[0]!.url}`]: 'muted' });
+		).toEqual({
+			[`ballastella.baseMap:${site!.sites[0]!.url}`]: JSON.stringify({
+				appearance: { streets: true, relief: false, muted: true }
+			})
+		});
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2216,7 +2256,7 @@ test.describe('the Base Map a Reader sees', () => {
 		//
 		// Both paths are the **same directory**, reached through two symlinks, so nothing here can become
 		// a test of two builds and the two sites cannot drift apart.
-		const directory = await writePublishedSite(oneProject({ baseMap: 'physical' }));
+		const directory = await writePublishedSite(oneProject());
 		const origin = await mkdtemp(path.join(tmpdir(), 'ballastella-origin-'));
 		await symlink(directory, path.join(origin, 'tracy'), 'dir');
 		await symlink(directory, path.join(origin, 'sam'), 'dir');
@@ -2233,24 +2273,30 @@ test.describe('the Base Map a Reader sees', () => {
 
 		await page.goto(tracy);
 		await mapReady(page);
-		await page.getByTestId('base-map-switcher').selectOption('muted');
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 
-		// The second site starts at the author's default rather than at the stranger's choice, and then
+		// The second site starts at the author's own map rather than at the stranger's choice, and then
 		// takes a different one of its own.
 		await page.goto(sam);
 		await mapReady(page);
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
-		await page.getByTestId('base-map-switcher').selectOption('streets');
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('streets');
+		await openBaseMapOptions(page);
+		await expect(drawSwitch(page, 'High contrast')).not.toBeChecked();
+		await drawSwitch(page, 'Streets').click();
+		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
 
 		// Each site still has its own choice on return, which is the criterion.
 		await page.goto(tracy);
 		await mapReady(page);
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await openBaseMapOptions(page);
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+		await expect(drawSwitch(page, 'Streets')).toBeChecked();
 		await page.goto(sam);
 		await mapReady(page);
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('streets');
+		await openBaseMapOptions(page);
+		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
+		await expect(drawSwitch(page, 'High contrast')).not.toBeChecked();
 
 		// And in one origin's storage there are two keys, named after the two paths — the shape the
 		// behaviour above rests on, asserted directly so that a regression names itself.
@@ -2263,8 +2309,12 @@ test.describe('the Base Map a Reader sees', () => {
 				)
 			)
 		).toEqual({
-			[`ballastella.baseMap:${server.url}tracy/`]: 'muted',
-			[`ballastella.baseMap:${server.url}sam/`]: 'streets'
+			[`ballastella.baseMap:${server.url}tracy/`]: JSON.stringify({
+				appearance: { streets: true, relief: false, muted: true }
+			}),
+			[`ballastella.baseMap:${server.url}sam/`]: JSON.stringify({
+				appearance: { streets: false, relief: false, muted: false }
+			})
 		});
 		expect(seen.failures).toEqual([]);
 	});
@@ -2280,12 +2330,43 @@ test.describe('the Base Map a Reader sees', () => {
 		//
 		// A tooltip would still not do — daisyUI renders those via CSS `::before`, which no screen
 		// reader announces — so nothing here may move into one.
-		site = await published(oneProject());
+		//
+		// The site carries a catalog of two, because a switcher exists only where there is a choice of
+		// tiles to make: this deployment reads one archive and renders none.
+		site = await published(
+			oneProject(
+				{},
+				{
+					baseMap: {
+						entries: [
+							{
+								id: 'a-deployment-of-its-own',
+								label: 'Somebody else’s Base Map',
+								needsNetwork: false,
+								archive: 'base-map/amsterdam-centre.pmtiles'
+							},
+							{
+								id: 'and-a-second-of-its-own',
+								label: 'Somebody else’s other Base Map',
+								needsNetwork: true,
+								archive: 'https://tiles.example.invalid/somebody-elses.pmtiles'
+							}
+						],
+						defaultId: 'a-deployment-of-its-own',
+						initialView: { center: [4.9041, 52.3676], zoom: 13 },
+						glyphs: 'base-map/fonts/{fontstack}/{range}.pbf',
+						sprite: 'base-map/sprites/{flavor}',
+						attribution: '© OpenStreetMap'
+					}
+				}
+			)
+		);
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
+		await openBaseMapOptions(page);
 		const catalog = await options(page);
 		const remote = catalog.filter((entry) => entry.needsNetwork);
 		expect(
@@ -2297,33 +2378,47 @@ test.describe('the Base Map a Reader sees', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('a low-contrast-sensitive Reader can select a muted, high-contrast Base Map', async ({
+	test('a low-contrast-sensitive Reader can mute the Base Map, and keep the author’s map', async ({
 		page
 	}) => {
-		// The other half of this is the catalog entry itself (ADR-0020). Asserted on the *painted style*
-		// rather than on the `<select>`, because a choice that changed the control and not the map would
-		// satisfy the letter of it only.
-		site = await published(oneProject());
+		// Asserted on the *painted style* rather than on the control, because a choice that changed the
+		// switch and not the map would satisfy the letter of it only.
+		//
+		// ⚠ **The author's Project drops the built environment, and the Reader keeps it dropped.** This
+		// is the combination the named variants could not offer: muting the palette used to mean
+		// choosing a different entry, and the only muted entry was a street map — so a Reader who
+		// needed the contrast was handed back the roads the author had taken off the work.
+		site = await published(
+			oneProject({
+				projectOverrides: { baseMapAppearance: { streets: false, relief: false, muted: false } }
+			})
+		);
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
-		const muted = (await options(page)).find((entry) => /muted|contrast/i.test(entry.text));
-		expect(muted, 'the catalog offers a muted or high-contrast Base Map').toBeDefined();
-
-		// **Before the switch**, and the Base Map the Reader starts on has to be a different one, or the
-		// comparison below would be asking whether selecting an option changes the option.
-		await expect(page.getByTestId('base-map-switcher')).not.toHaveValue(muted!.value);
+		// **Before the switch**, or the comparison below would be asking whether operating a control
+		// changes the control.
+		await openBaseMapOptions(page);
+		await expect(drawSwitch(page, 'High contrast')).not.toBeChecked();
 		const before = await paint(page);
 
-		await page.getByTestId('base-map-switcher').selectOption(muted!.value);
+		await drawSwitch(page, 'High contrast').click();
 
-		// The style was repainted, and its layers now carry the muted flavor's own colours rather than the
-		// default's. Compared against the paint before the switch, so this cannot pass on a style that
-		// never changed.
+		// The style was repainted, and its layers now carry the muted flavor's own colours rather than
+		// the default's. Compared against the paint before, so this cannot pass on a style that never
+		// changed.
 		await expect.poll(() => paint(page)).not.toBe(before);
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue(muted!.value);
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+		await expect(drawSwitch(page, 'Streets')).not.toBeChecked();
+		expect(
+			await page.evaluate(() =>
+				window
+					.ballastellaReaderMap!.map.getStyle()
+					.layers.some((layer) => String(layer.id).startsWith('roads_'))
+			)
+		).toBe(false);
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2656,9 +2751,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			{ kind: 'insert', text: '' },
 			{ kind: 'change', text: expect.stringContaining('not available here') }
 		]);
-		// A working map, not a blank pane: the switcher settled on something the site can serve.
-		const chosen = await page.getByTestId('base-map-switcher').inputValue();
-		expect(chosen).not.toBe('a-base-map-from-another-deployment');
+		// A working map, not a blank pane: the site fell back to tiles it can actually serve.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 		expect(seen.failures).toEqual([]);
 	});
@@ -2682,7 +2775,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			});
 		});
 		site = await published(
-			oneProject({ baseMap: 'physical', annotations: everyKind() }, { baseMapAssetsBundled: true })
+			oneProject({ annotations: everyKind() }, { baseMapAssetsBundled: true })
 		);
 		const served = site.sites[0]!;
 		const seen = watch(page);
@@ -2700,10 +2793,11 @@ test.describe('a Published Site that is not entirely well', () => {
 		// This one *does* come and go, so it is absent outright: `MapNotice` gives the two shapes the two
 		// mechanisms, and `packages/ui/src/map-notice.dom.test.ts` holds the rule.
 		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
-		const options = page.getByTestId('base-map-switcher').locator('option');
-		await expect(options).toHaveCount(4);
-		for (const option of await options.allTextContents())
-			expect(option).not.toContain('needs network');
+		// No list of tile sources: this deployment reads one archive, so the panel offers none and what
+		// a Reader decides is how the map is drawn.
+		await openBaseMapOptions(page);
+		await expect(page.getByTestId('base-map-switcher')).toHaveCount(0);
+		await expect(page.getByTestId('base-map-appearance')).toBeVisible();
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 		expect(networkArchiveRequests).toBeGreaterThan(0);
 		expect(
@@ -2746,7 +2840,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		const cached = await cachedBaseMapTiles(ARCHIVE);
 		site = await published({
 			...oneProject(
-				{ baseMap: 'physical' },
+				{},
 				{
 					baseMapBundled: true,
 					baseMapCaches: [{ archive: ARCHIVE, maxZoom: cached.maxZoom }]
@@ -2807,10 +2901,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// drawn, and the Pin, the Line and the Shape beside it must — an assertion about the Label alone
 		// would pass on a site that drew nothing at all.
 		site = await published(
-			oneProject(
-				{ baseMap: 'physical', annotations: everyKind() },
-				{ baseMapAssetsBundled: false }
-			),
+			oneProject({ annotations: everyKind() }, { baseMapAssetsBundled: false }),
 			{ withoutBaseMap: true }
 		);
 		const served = site.sites[0]!;
@@ -2872,15 +2963,15 @@ test.describe('a Published Site that is not entirely well', () => {
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 
 	/**
-	 * The whole sentence, for the entry these tests ask for and the host this deployment's catalog
-	 * names. `support/base-map-notice.ts` builds it, and `editor-base-map.e2e.ts` asserts the same
+	 * The whole sentence, for the entry these sites were published with and the host this
+	 * deployment's catalog names. `support/base-map-notice.ts` builds it, and `editor-base-map.e2e.ts` asserts the same
 	 * function's output against the editor — which is what makes "one outage, one sentence, two
 	 * applications" a contract rather than an intention. Its header says why it is a function.
 	 *
 	 * The three things it carries, in the order the questions arrive: **it is not you**, **your work
 	 * is safe**, **here is what would fix it**.
 	 */
-	const UNAVAILABLE_NOTICE = unavailableNotice('Physical geography', ARCHIVE_HOST);
+	const UNAVAILABLE_NOTICE = unavailableNotice('Worldwide', ARCHIVE_HOST);
 
 	test('says so when the Base Map’s archive answers nothing, and keeps drawing the work', async ({
 		page
@@ -2891,7 +2982,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.unroute(/\.pmtiles$/);
 		await refuseBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const served = site.sites[0]!;
 		const seen = watch(page);
 
@@ -2975,8 +3066,8 @@ test.describe('a Published Site that is not entirely well', () => {
 			)
 		).toBe(false);
 
-		// A notice, not a broken page: the switcher still works and nothing threw.
-		await expect(page.getByTestId('base-map-switcher')).toBeVisible();
+		// A notice, not a broken page: the controls are still there and nothing threw.
+		await expect(baseMapOptionsButton(page)).toBeVisible();
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2998,7 +3089,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.unroute(/\.pmtiles$/);
 		await refuseBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
@@ -3068,7 +3159,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.unroute(/\.pmtiles$/);
 		await refuseBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
@@ -3132,7 +3223,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			route.fulfill({ status: 404, body: 'not here' })
 		);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
@@ -3187,7 +3278,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.unroute(/\.pmtiles$/);
 		await refuseBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
+		site = await published(oneProject({}, { baseMapAssetsBundled: false }), {
 			withoutBaseMap: true
 		});
 		const seen = watch(page);
@@ -3249,7 +3340,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.unroute(/\.pmtiles$/);
 		await refuseBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
+		site = await published(oneProject({}, { baseMapAssetsBundled: false }), {
 			withoutBaseMap: true
 		});
 		const seen = watch(page);
@@ -3325,7 +3416,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	}) => {
 		const archive = await routePartialBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
@@ -3378,7 +3469,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// until the viewport wants tiles it does not hold.
 		const archive = await routePartialBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
@@ -3461,23 +3552,24 @@ test.describe('a Published Site that is not entirely well', () => {
 		// way, which is why this was untested.
 		const archive = await routePartialBaseMapArchive(page);
 
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		site = await published(oneProject({}, { baseMapAssetsBundled: true }));
 		const seen = watch(page);
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		const notice = page.getByTestId('base-map-unavailable');
 		await expect(notice).toBeVisible({ timeout: 45_000 });
-		await expect(notice.locator('p')).toContainText('Physical geography');
+		await expect(notice.locator('p')).toContainText('Worldwide');
 
 		archive.hang();
-		await page.getByTestId('base-map-switcher').selectOption('muted');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
 
-		// Nothing is said about “Muted, high contrast” until it has answered for itself.
+		// Nothing is said about the redrawn map until it has answered for itself.
 		await expect(notice).toHaveCount(0);
 		await page.waitForTimeout(3_000);
 		await expect(notice).toHaveCount(0);
-		// And the switch really happened rather than the notice having gone for some other reason.
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		// And the redraw really happened rather than the notice having gone for some other reason.
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 		// **The Layer stack is deliberately not asserted drawn here**, and the reason is the fixture:
 		// a style whose source never settles never finishes loading, and `whenStyleLoaded` gives the
 		// wait up rather than holding a Reader for ever — so `data-drawn` is `0`, correctly. That the
@@ -3936,8 +4028,10 @@ test.describe('a Reader on a phone', () => {
 		}
 
 		// The controls are operable at this width, not merely present.
-		await page.getByTestId('base-map-switcher').selectOption('muted');
-		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await openBaseMapOptions(page);
+		await drawSwitch(page, 'High contrast').click();
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+		await baseMapOptionsButton(page).click();
 		await layerVisible(page, MAP_LAYER_ID).uncheck();
 		await expect(page.getByTestId('layer-view-status')).toContainText('hidden');
 		const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
@@ -4287,7 +4381,7 @@ test.describe('a Reader using a keyboard', () => {
 			throw new Error(`could not reach ${await locator.evaluate((element) => element.outerHTML)}`);
 		};
 
-		await tabTo(page.getByTestId('base-map-switcher'));
+		await tabTo(baseMapOptionsButton(page));
 		await tabTo(layerVisible(page, ANNOTATION_LAYER_ID));
 		// Space toggles a checkbox — the platform's own behaviour, which is the whole reason ADR-0016
 		// mandates a native one.

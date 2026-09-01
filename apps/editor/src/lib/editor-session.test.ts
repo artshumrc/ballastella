@@ -1383,6 +1383,41 @@ describe('the boundary choice, which is the Project’s and not the deployment�
 	});
 });
 
+describe('how the Base Map is drawn, which travels with the Project', () => {
+	const read = async (store: ImagesGoAway) =>
+		new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));
+
+	it('writes the three switches into project.json at once, not on a timer', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		await opened.chooseBaseMapAppearance({ streets: false, relief: true, muted: false });
+
+		// No `flush()`: a discrete choice is written now, the same rule `chooseBorders` follows.
+		expect(JSON.parse(await read(store)).baseMapAppearance).toEqual({
+			streets: false,
+			relief: true,
+			muted: false
+		});
+		expect(opened.openProject?.baseMapAppearance.relief).toBe(true);
+	});
+
+	it('leaves no such field behind for a Project drawn the ordinary way', async () => {
+		const store = new ImagesGoAway();
+		const opened = await openOn(store);
+
+		expect(await read(store)).not.toContain('baseMapAppearance');
+
+		await opened.chooseBaseMapAppearance({ streets: true, relief: true, muted: false });
+		expect(await read(store)).toContain('baseMapAppearance');
+
+		// Switching back takes the field out rather than writing the default into it, so a Project
+		// drawn the ordinary way carries no trace of it — see `serialiseProjectFile`.
+		await opened.chooseBaseMapAppearance({ streets: true, relief: false, muted: false });
+		expect(await read(store)).not.toContain('baseMapAppearance');
+	});
+});
+
 describe('how the borders are drawn, which travels with the Project', () => {
 	const read = async (store: ImagesGoAway) =>
 		new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));

@@ -11,8 +11,13 @@ import {
 	type BaseMapBorders,
 	type BaseMapBorderStyle
 } from './borders';
+import {
+	baseMapFlavorName,
+	DEFAULT_BASE_MAP_APPEARANCE,
+	type BaseMapAppearance
+} from './appearance';
 import { BASE_MAP_CATALOG } from './catalog';
-import type { BaseMapCatalog, BaseMapEmphasis, BaseMapEntry, BaseMapTerrain } from './entry';
+import type { BaseMapCatalog, BaseMapEntry, BaseMapTerrain } from './entry';
 import {
 	contourLayers,
 	hillshadeLayer,
@@ -32,13 +37,24 @@ export const BASE_MAP_SOURCE_ID = 'protomaps';
 const LABEL_LANGUAGE = 'en';
 
 /**
- * Layer id prefixes a water-and-terrain variant drops. Built environment only: the point is that
- * the same tiles can say something different, not that some tiles are missing.
+ * Layer id prefixes a map without `streets` drops. Built environment only: the point is that the
+ * same tiles can say something different, not that some tiles are missing.
  */
 const BUILT_ENVIRONMENT_PREFIXES = ['roads_', 'buildings', 'address_label', 'pois'] as const;
 
 export type BaseMapStyleOptions = {
 	readonly theme: Theme;
+	/**
+	 * How the map is drawn — the author's three switches out of `project.json` (`appearance.ts`),
+	 * or a Reader's own override of them.
+	 *
+	 * **An argument rather than a property of the entry**, for the reason `borders` below is one:
+	 * every entry reads the same archive the same way, so the palette and the layer selection are
+	 * orthogonal to which tiles are being read and would multiply the catalog if they lived in it.
+	 * Omitted, this draws {@link DEFAULT_BASE_MAP_APPEARANCE} — the road network in the ordinary
+	 * palette, which is what every Project drew before the field existed.
+	 */
+	readonly appearance?: BaseMapAppearance;
 	readonly catalog?: BaseMapCatalog;
 	/**
 	 * Turns a deployment-relative asset path into a URL, and is the seam ADR-0006 needs: the
@@ -78,14 +94,14 @@ export type BaseMapStyleOptions = {
 	 */
 	readonly borderStyle?: BaseMapBorderStyle;
 	/**
-	 * The registered `maplibre-contour` protocol URLs a `relief-and-contours` entry draws from.
+	 * The registered `maplibre-contour` protocol URLs an appearance with `relief` draws from.
 	 *
 	 * Passed in for the reason `cachedTiles.tileTemplate` is: the library that mints these
 	 * registers MapLibre protocols and spawns a worker, and this module is evaluated in Node during
 	 * both apps' prerender. The caller hands over `registerTerrainProtocols(catalog.terrain)`.
 	 *
 	 * Omitted — no terrain in the catalog, or a Base Map being read from the offline cache — a
-	 * topographic entry draws its terrain colours without relief or contours.
+	 * Project asking for relief draws its terrain colours without it.
 	 */
 	readonly terrainTiles?: TerrainTileTemplates;
 };
@@ -109,9 +125,10 @@ export function baseMapStyle(
 ): StyleSpecification {
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	const resolveAsset = options.resolveAsset ?? identity;
-	const flavorName = entry.flavor[themeScheme(options.theme)];
-	const flavor = emphasisedFlavor(namedFlavor(flavorName), entry.emphasis);
-	const terrain = reliefFor(entry, catalog, options);
+	const appearance = options.appearance ?? DEFAULT_BASE_MAP_APPEARANCE;
+	const flavorName = baseMapFlavorName(appearance, themeScheme(options.theme));
+	const flavor = appearanceFlavor(namedFlavor(flavorName), appearance);
+	const terrain = reliefFor(appearance, catalog, options);
 
 	return {
 		version: 8,
@@ -144,7 +161,7 @@ export function baseMapStyle(
 			...(terrain === null ? {} : terrainSources(terrain.data, terrain.tiles))
 		},
 		layers: withRelief(
-			emphasisedLayers(layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }), entry.emphasis)
+			appearanceLayers(layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }), appearance)
 				.filter((layer) => bordersInclude(options.borders ?? DEFAULT_BASE_MAP_BORDERS, layer.id))
 				.map((layer) =>
 					strengthenedBorder(layer, flavor, options.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE)
@@ -160,11 +177,17 @@ export function baseMapStyle(
  * The editor's Borders section needs this to seed its custom controls: a scholar switching from
  * automatic to chosen must find the pickers holding what is currently on the map, or the switch
  * itself changes the drawing. It resolves the flavor exactly as {@link baseMapStyle} does — same
- * entry, same theme, same emphasis — rather than re-deriving it, which is what keeps the seeded
- * values honest when a variant repaints its landcover.
+ * appearance, same theme — rather than re-deriving it, which is what keeps the seeded
+ * values honest when an appearance repaints its landcover.
  */
-export function automaticBorderStyle(entry: BaseMapEntry, theme: Theme): BaseMapBorderStyle {
-	const flavor = emphasisedFlavor(namedFlavor(entry.flavor[themeScheme(theme)]), entry.emphasis);
+export function automaticBorderStyle(
+	appearance: BaseMapAppearance,
+	theme: Theme
+): BaseMapBorderStyle {
+	const flavor = appearanceFlavor(
+		namedFlavor(baseMapFlavorName(appearance, themeScheme(theme))),
+		appearance
+	);
 	const drawn = strengthenedBorder(
 		{
 			id: NATIONAL_BOUNDARY_LAYER,
@@ -193,11 +216,12 @@ export function automaticBorderStyle(entry: BaseMapEntry, theme: Theme): BaseMap
  * the theme the author happened to be using is a border half of them cannot see.
  */
 export function bordersIllegibleThemes(
-	entry: BaseMapEntry,
+	appearance: BaseMapAppearance,
 	colour: string
 ): readonly ('light' | 'dark')[] {
 	return (['light', 'dark'] as const).filter(
-		(scheme) => !borderColorIsLegible(colour, namedFlavor(entry.flavor[scheme]).earth)
+		(scheme) =>
+			!borderColorIsLegible(colour, namedFlavor(baseMapFlavorName(appearance, scheme)).earth)
 	);
 }
 
@@ -206,9 +230,9 @@ export function bordersIllegibleThemes(
  *
  * Three things have to hold, and two of them fail silently, which is why this is a named function
  * rather than a condition inside the style: the deployment must have provisioned a DEM at all, and
- * the caller must have registered the protocols that serve it. With either missing a topographic
- * entry still draws — as terrain colours without relief — because editing the catalog is a fork's
- * privilege and must not be able to produce a blank pane.
+ * the caller must have registered the protocols that serve it. With either missing the map still
+ * draws — as terrain colours without relief — because editing the catalog is a fork's privilege and
+ * must not be able to produce a blank pane.
  *
  * A Base Map read from the offline cache draws no relief either, and that is the point rather than
  * a limitation. The cache holds tiles from the vector archive; the DEM is a second host and a live
@@ -216,11 +240,11 @@ export function bordersIllegibleThemes(
  * the claim false at exactly the moment somebody relies on it (ADR-0025).
  */
 function reliefFor(
-	entry: BaseMapEntry,
+	appearance: BaseMapAppearance,
 	catalog: BaseMapCatalog,
 	options: BaseMapStyleOptions
 ): { readonly data: BaseMapTerrain; readonly tiles: TerrainTileTemplates } | null {
-	if (entry.emphasis !== 'relief-and-contours') return null;
+	if (!appearance.relief) return null;
 	if (options.cachedTiles !== undefined) return null;
 	if (catalog.terrain === undefined || options.terrainTiles === undefined) return null;
 	return { data: catalog.terrain, tiles: options.terrainTiles };
@@ -233,7 +257,7 @@ function reliefFor(
  * The two anchors are found by what a layer *is* — the first water fill, the first symbol — rather
  * than by upstream's layer ids, because those ids are `@protomaps/basemaps`' to rename and the
  * failure would be relief quietly painted over the sea. A stack with neither anchor takes the
- * relief at the end; `emphasis` and `borders` between them can remove a great deal.
+ * relief at the end; the appearance and `borders` between them can remove a great deal.
  */
 function withRelief(all: LayerSpecification[], flavor: Flavor | null): LayerSpecification[] {
 	if (flavor === null) return all;
@@ -262,32 +286,33 @@ export function archiveUrl(
 	return isAbsoluteUrl(entry.archive) ? entry.archive : resolveAsset(entry.archive);
 }
 
-function emphasisedLayers(
+function appearanceLayers(
 	all: LayerSpecification[],
-	emphasis: BaseMapEmphasis
+	appearance: BaseMapAppearance
 ): LayerSpecification[] {
-	if (emphasis === 'streets-and-labels') return all;
+	if (appearance.streets) return all;
 	return all.filter(
 		(layer) => !BUILT_ENVIRONMENT_PREFIXES.some((prefix) => layer.id.startsWith(prefix))
 	);
 }
 
 /**
- * A water-and-terrain variant repaints woodland, scrub, sand, beach, glacier, and park in the
- * flavor's own `landcover` colours, which are the saturated ones Protomaps uses at low zoom where
- * the natural world is the subject. Deriving them from the flavor rather than picking a palette
- * here is what keeps light and dark coherent, and keeps this from becoming a third theme.
+ * With `streets` off, woodland, scrub, sand, beach, glacier, and park are repainted in the flavor's
+ * own `landcover` colours — the saturated ones Protomaps uses at low zoom where the natural world
+ * is the subject. Deriving them from the flavor rather than picking a palette here is what keeps
+ * light and dark coherent, and keeps this from becoming a third theme.
  *
  * `grayscale`, `white`, and `black` carry no `landcover` struct — they are deliberately
- * unsaturated — so such a variant over one of those is distinguished by its layer selection
- * alone. That is a reasonable outcome rather than a gap: a muted flavor asked for muted.
+ * unsaturated — so a muted map with `streets` off is distinguished by its layer selection alone.
+ * That is a reasonable outcome rather than a gap: a muted palette asked for muted.
  */
-function emphasisedFlavor(flavor: Flavor, emphasis: BaseMapEmphasis): Flavor {
+function appearanceFlavor(flavor: Flavor, appearance: BaseMapAppearance): Flavor {
 	const landcover = flavor.landcover;
-	if (emphasis === 'streets-and-labels' || landcover === undefined) return flavor;
+	if (appearance.streets || landcover === undefined) return flavor;
 
 	// `water` is deliberately not touched: it is already the flavor's most saturated colour, and
-	// the physical variant's job is to bring the *land* up to it rather than to invent a palette.
+	// dropping the built environment is about bringing the *land* up to it rather than inventing a
+	// palette.
 	return {
 		...flavor,
 		wood_a: landcover.forest,

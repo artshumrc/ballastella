@@ -142,6 +142,33 @@ describe('listWorkspaceMapImages', () => {
 		expect(maps[1]?.files).toBe(1);
 	});
 
+	it('keeps a referenced Map Image’s source and Canvas label as provenance', async () => {
+		const store = new MemoryProjectStore();
+		await store.write(
+			referencedImagePath('bbb2'),
+			serialiseReferencedImage(
+				referencedImage({
+					imageId: 'bbb2',
+					service: 'https://iiif.library.example/iiif/3/plan-1625',
+					source: 'https://library.example/iiif/collection',
+					label: 'Plan de Paris',
+					partOf: 'https://library.example/iiif/manifest.json',
+					canvas: 'https://library.example/iiif/canvas/1',
+					width: 4000,
+					height: 3000,
+					tileSize: 256
+				})
+			)
+		);
+
+		const [map] = await listWorkspaceMapImages(store);
+
+		expect(map?.provenance).toEqual({
+			source: 'https://library.example/iiif/collection',
+			canvasLabel: 'Plan de Paris'
+		});
+	});
+
 	// The Alignment goes with the map when it is deleted, so it is in what the user is told the
 	// deletion reclaims. A map nobody has placed yet has none, which is the ordinary first state.
 	it('counts the Alignment among the files deleting the map would take', async () => {
