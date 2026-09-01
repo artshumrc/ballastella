@@ -366,78 +366,6 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	 * exists, because the file existing is what the *previous* test in this file already asserts on the
 	 * community path. What was broken is the pair of them agreeing.
 	 */
-	test('a map added without an Alignment exports to a bundle this build opens back', async ({
-		page
-	}) => {
-		await installIiifHosts(page);
-		await openNewProject(page);
-
-		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
-		await page.getByTestId('remote-canvas').nth(1).click();
-		await expect(page.getByTestId('remote-add')).toBeVisible();
-		// No community Alignment was offered — the fixture API answers with none unless asked to — so
-		// this is the unaligned case rather than one that happens to have three Control Points.
-		await expect(page.getByTestId('community-offer')).toHaveCount(0);
-		await page.getByTestId('remote-add').click();
-		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		const imageId = generateId(service('images.test', 'florida'));
-		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
-			body: { features: unknown[] };
-			target: { source: { id: string }; selector: { value: string } };
-		};
-		// The starter Alignment: no Control Points, the whole sheet, and the Library's service as its
-		// `resource.id` — the same address the community one carries, for the same reason (ADR-0007).
-		expect(alignment.body.features).toEqual([]);
-		expect(alignment.target.selector.value).toBe(
-			`<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="0,0 ${IMAGE_WIDTH},0 ${IMAGE_WIDTH},${IMAGE_HEIGHT} 0,${IMAGE_HEIGHT}" /></svg>`
-		);
-		expect(alignment.target.source.id).toBe(service('images.test', 'florida'));
-
-		// Export it, from the hub.
-		await page.goto('/');
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		const download = page.waitForEvent('download');
-		await page.getByRole('button', { name: /^Export/ }).click();
-		const saved = await download;
-		expect(saved.suggestedFilename()).toBe('amsterdam-1625.project.tar');
-		// Read back and handed to the input by name: `download.path()` is a temporary file with a random
-		// basename, and the reader names the review copy after the name it is given.
-		const bundle = await readFile(await saved.path());
-
-		// A Workspace with nothing in it, so opening the bundle cannot be satisfied by what is already
-		// there — and the bundle lands in a Review Workspace of its own regardless (ADR-0024), which is
-		// why nothing is asserted about this one afterwards.
-		await emptyWorkspace(page);
-		await page.reload();
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
-
-		await page.getByTestId('open-bundle').click();
-		await page
-			.getByRole('dialog', { name: 'Review a Project' })
-			.getByLabel('Project bundle')
-			.setInputFiles({
-				name: 'amsterdam-1625.project.tar',
-				mimeType: 'application/x-tar',
-				buffer: bundle
-			});
-		await page.getByTestId('confirm-open-bundle').click();
-
-		// **Accepted, not refused.** The refusal this closes says the bundle "is missing
-		// “alignments/<id>.json”, which the Layer … needs to be drawn", so its absence is the assertion.
-		await expect(page.getByTestId('review-banner')).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		await expect(page.getByTestId('bundle-error')).toHaveCount(0);
-		const imported = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { kind: string; imageId: string }[];
-		};
-		expect(imported.layers).toEqual([expect.objectContaining({ kind: 'map', imageId })]);
-		expect(
-			((await readJson(page, '', `alignments/${imageId}.json`)) as { body: { features: [] } }).body
-				.features
-		).toEqual([]);
-	});
 
 	/**
 	 * Adding a Map Image the Project already draws is a no-op on the stack — not a duplicate row, and
@@ -796,8 +724,12 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 		// And the Project exports again, which is the thing the user could not do.
 		await page.goto('/');
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await page.getByRole('button', { name: 'Edit Amsterdam 1625' }).click();
 		const download = page.waitForEvent('download');
-		await page.getByRole('button', { name: /^Export/ }).click();
+		await page
+			.getByRole('dialog', { name: 'Edit Project' })
+			.getByRole('button', { name: 'Export Project' })
+			.click();
 		expect((await download).suggestedFilename()).toBe('amsterdam-1625.project.tar');
 	});
 

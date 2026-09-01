@@ -41,7 +41,7 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  */
 
 /** The deployment default, which is what a Project with nothing on the earth must open on. */
-const DEPLOYMENT_VIEW = { lng: 4.9041, lat: 52.3676, zoom: 13 };
+const DEPLOYMENT_VIEW = { lng: 0, lat: 20, zoom: 1 };
 
 /** The subset of MapLibre's `Map` these tests ask questions of. All real `maplibre-gl` methods. */
 type BaseMapHandle = {
@@ -608,6 +608,11 @@ test.describe('the alignment view', () => {
 		await expect(announced).toContainText('No Control Points yet');
 		expect(await announced.getAttribute('aria-live')).toBe('polite');
 
+		// Parked before pairing, because the deployment default is the whole world: three clicks on a
+		// world-sized map are degrees apart and their box's naive centre is not where a padded fit
+		// lands. Somewhere ordinary and zoomed in makes the two agree, and the fit is the subject
+		// rather than the arithmetic of a spread-out box.
+		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
 		await makePairs(page, 3);
 		await waitForStored(page, imageId, 3);
 		const placed = controlPointBox(

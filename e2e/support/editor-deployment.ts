@@ -39,6 +39,16 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const editorBuild = path.join(repoRoot, 'apps/editor/build');
 const baseMapFixture = path.join(repoRoot, 'e2e/fixtures/base-map/amsterdam-centre.pmtiles');
 
+/**
+ * A flat terrarium tile, standing in for the elevation dataset the catalog names.
+ *
+ * Relief and contours are drawn from a second dataset on somebody else's bucket (ADR-0025), so a
+ * Base Map that draws at all reaches for it — which the network fence refuses, in every spec that
+ * paints a map rather than only in the ones about terrain. One flat tile is enough: nothing here
+ * asserts what the hills look like, only that the map is drawn without going to AWS for it.
+ */
+const terrainFixture = path.join(repoRoot, 'e2e/fixtures/base-map/terrain-tile.png');
+
 /** Media types by extension. A `.js` served as `text/plain` is a module the browser will not run. */
 const MEDIA_TYPES: Record<string, string> = {
 	'.css': 'text/css; charset=utf-8',
@@ -202,6 +212,19 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
 			body: served.body
 		});
 	});
+	await routeTerrainTiles(target);
+}
+
+/** Answer the elevation dataset's tiles from a fixture, so drawing relief needs no network. */
+export async function routeTerrainTiles(target: Pick<Page, 'route'>): Promise<void> {
+	const tile = await readFile(terrainFixture);
+	await target.route(/elevation-tiles-prod\/terrarium\//, (route) =>
+		route.fulfill({
+			status: 200,
+			headers: { 'content-type': 'image/png', 'access-control-allow-origin': '*' },
+			body: tile
+		})
+	);
 }
 
 /**
