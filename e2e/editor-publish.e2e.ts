@@ -338,6 +338,10 @@ async function publish(page: Page, existingDialog?: ReturnType<Page['getByRole']
 	await expect(page.getByTestId('publish-status')).toContainText('Published:', { timeout: 30_000 });
 }
 
+/** A glyph range outside the Latin ones this deployment ships on purpose. */
+const isUnshippedGlyphRange = (path: string): boolean =>
+	/\/base-map\/fonts\/[^/]+\/(?!0-255\.pbf|256-511\.pbf)[\d-]+\.pbf$/.test(path);
+
 test.describe('publishing a Workspace', () => {
 	let sites: StaticSite[] = [];
 	let directories: string[] = [];
@@ -431,7 +435,12 @@ test.describe('publishing a Workspace', () => {
 			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
 			// it is answered at a domain root and is outside the published folder in a subdirectory,
 			// which is the GitHub Pages case ADR-0006 exists for.
-			expect(site.failures).toEqual([]);
+			//
+			// Glyph ranges are the one exception, and a deliberate one: only Latin ships
+			// (`apps/editor/static/base-map/PROVENANCE.md`), so a map showing a label in another script
+			// asks for a range that is not there and MapLibre falls back. Every other 404 is the failure
+			// this assertion exists for.
+			expect(site.failures.filter((asked) => !isUnshippedGlyphRange(asked.path))).toEqual([]);
 			expect(failures).toEqual([]);
 			await expectNoReturnLink(page, site);
 			// Every request stayed inside the published folder, so nothing reached for the host's root —
