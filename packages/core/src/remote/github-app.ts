@@ -84,7 +84,7 @@ export type GitHubApp = {
 export const GITHUB_APP: GitHubApp = {
 	brokerOrigin: 'https://github-broker.darthcrimson.org',
 	clientId: 'Iv23liRxexPEW2AKFG12',
-	appSlug: 'ballastella'
+	appSlug: 'aws-lambda-broker'
 };
 
 /**
