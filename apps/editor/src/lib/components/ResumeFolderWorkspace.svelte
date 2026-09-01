@@ -17,7 +17,9 @@
 	{/if}
 	{#snippet actions()}
 		{#if storage.problem}
-			<button class="btn btn-primary" onclick={() => storage.chooseFolder()}>Choose folder again</button>
+			<button class="btn btn-primary" onclick={() => storage.chooseFolder()}
+				>Choose folder again</button
+			>
 		{:else}
 			<button class="btn btn-primary" onclick={() => storage.resumeFolderWorkspace()}>
 				Open Workspace folder

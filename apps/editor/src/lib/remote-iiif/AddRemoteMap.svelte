@@ -105,7 +105,9 @@
 </script>
 
 <section class="mt-10" aria-labelledby="add-remote-heading">
-	<h3 id="add-remote-heading" class="text-lg font-semibold">Add a Map Image from a URL or IIIF Resource</h3>
+	<h3 id="add-remote-heading" class="text-lg font-semibold">
+		Add a Map Image from a URL or IIIF Resource
+	</h3>
 
 	<form class="mt-4 flex max-w-2xl flex-wrap items-end gap-2" onsubmit={submit}>
 		<label class="floating-label grow">

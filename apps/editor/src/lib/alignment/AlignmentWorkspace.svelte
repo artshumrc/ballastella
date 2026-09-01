@@ -175,14 +175,6 @@
 	let checking = $state(false);
 
 	/**
-	 * Whether "How this works" is open.
-	 *
-	 * Closed by default and persisted nowhere, the same contract {@link checking} has and for ADR-0002's
-	 * reason: which explanations are open is a working view.
-	 */
-	let explaining = $state(false);
-
-	/**
 	 * Open or close the disclosure, and **put the drawing back as it was when it closes**.
 	 *
 	 * Without the second half, switching the overlay on and then closing the disclosure leaves the

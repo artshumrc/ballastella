@@ -633,6 +633,9 @@ What else the Hub says about a Project: whether this build can read it.
 	     it is the one to copy or open in a new tab; a link here would put two of them on every row
 	     under two different accessible names, which is what a screen reader reads out as a list of
 	     destinations. -->
+	<!-- `project.href` is already resolved where `listed` is built; the rule only recognises
+	     `resolve()` written out at the call. -->
+	<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 	<button class="btn gap-2 btn-primary btn-sm" onclick={() => goto(project.href)}>
 		<MapIcon class="size-4" aria-hidden="true" />
 		Open<span class="sr-only"> {project.name}</span>
@@ -696,13 +699,16 @@ What else the Hub says about a Project: whether this build can read it.
 			<dt class="font-medium">Source</dt>
 			<dd>
 				{#if externalUrl(entry.map.provenance.source)}
-					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<!-- `resolve()` is for this app's own routes; a provenance source is somebody
+					     else's host, so the rule is disabled for the one case it does not cover. -->
+					<!-- eslint-disable svelte/no-navigation-without-resolve -->
 					<a
 						class="link break-all"
 						href={externalUrl(entry.map.provenance.source)}
 						rel="noreferrer noopener"
 						target="_blank">{entry.map.provenance.source}</a
 					>
+					<!-- eslint-enable svelte/no-navigation-without-resolve -->
 				{:else}
 					<span class="break-all">{entry.map.provenance.source}</span>
 				{/if}
@@ -783,6 +789,9 @@ What else the Hub says about a Project: whether this build can read it.
 						<Plus class="size-4" aria-hidden="true" />
 						New Project
 					</button>
+					<!-- Import is withheld from the hub while the flow is being reworked; the guard is
+					     kept rather than the markup deleted so it can be turned back on in one edit. -->
+					<!-- eslint-disable-next-line no-constant-binary-expression -->
 					{#if false && review === null}
 						<MenuPopover
 							bind:this={importMenu}
