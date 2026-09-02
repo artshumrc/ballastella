@@ -73,13 +73,6 @@ export class FakeStorage {
 	 */
 	rememberSignIn = $state(false);
 	credential = $state<string | null>(null);
-	/**
-	 * A `remote.json` nothing on this machine corroborates, waiting to be answered.
-	 *
-	 * A signal for the reason `remote` is one: the question is a *landing* derived from the world, so
-	 * answering it has to move the sequence without anything remembering that it was answered.
-	 */
-	legacyRemote = $state<{ owner: string; repository: string; branch: string } | null>(null);
 	/** What this Workspace and GitHub last agreed on, which the connected step states in words. */
 	baseline = $state<SynchronizationBaseline | null>(null);
 	/** The determination the badge carries, read here only for whether a check is running. */
@@ -126,8 +119,6 @@ export class FakeStorage {
 	updates = 0;
 	/** What `unbindRemote` answers, or throws when it is an `Error`. */
 	unbindAnswer: Error | null = null;
-	/** What `acceptLegacyRemote` answers, or throws when it is an `Error`. */
-	legacyAnswer: Error | null = null;
 	/**
 	 * Every repository {@link openFromGitHub} was asked for, in order.
 	 *
@@ -228,20 +219,6 @@ export class FakeStorage {
 		if (this.unbindAnswer !== null) throw this.unbindAnswer;
 		this.remote = null;
 		this.baseline = null;
-	}
-
-	/** Lift the uncorroborated binding, exactly as the real one does: bound, and no Baseline. */
-	async acceptLegacyRemote(): Promise<void> {
-		const lifted = this.legacyRemote;
-		await Promise.resolve();
-		if (this.legacyAnswer !== null) throw this.legacyAnswer;
-		if (lifted === null) return;
-		this.legacyRemote = null;
-		this.remote = lifted;
-	}
-
-	declineLegacyRemote(): void {
-		this.legacyRemote = null;
 	}
 
 	async checkRemoteStatus(): Promise<void> {

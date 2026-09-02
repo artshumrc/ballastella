@@ -1767,7 +1767,7 @@ describe('every refusal names what to do next', () => {
 
 // ⚠ **Two claims about *every* branch, enumerated rather than sampled.** No step of this sequence may
 // be a dead end, and no step may say GitHub's own word for the per-account list. Both are properties
-// of the whole union, so a thirteenth step added without them is the regression worth catching —
+// of the whole union, so a fourteenth step added without them is the regression worth catching —
 // which is why `CONNECT_STEPS` is a list the component exports and this table is keyed by it. A step
 // added to the union and not to the table does not compile.
 describe('every step of the sequence, enumerated', () => {
@@ -1801,15 +1801,6 @@ describe('every step of the sequence, enumerated', () => {
 	const COULD_NOT_BE_READ = 'GitHub could not be reached, so your repositories could not be read.';
 
 	const reach: Record<Step, { readonly shows: string; readonly go: () => Promise<Arrived> }> = {
-		legacy: {
-			shows: 'connect-legacy',
-			go: async () => {
-				const storage = new FakeStorage();
-				storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-				open(storage);
-				return {};
-			}
-		},
 		'by-address': {
 			shows: 'connect-by-address',
 			go: async () => {
@@ -2388,83 +2379,6 @@ describe('a Remote that may not be the author’s to publish to', () => {
 	});
 });
 
-// ⚠ **A `remote.json` this installation cannot corroborate is a question, asked once when it is
-// true** (ADR-0038, ADR-0041). The binding is a file inside the published tree, so a fork, a
-// colleague's copied folder and a restored Backup all carry one naming somebody else's repository.
-// It always was a question; what changes is that it is asked where every other way to a Remote
-// already is, rather than filed where questions go unread.
-describe('a repository the Workspace’s own files name', () => {
-	/** A Workspace carrying an uncorroborated `remote.json`, which is not a Remote. */
-	function asked(): FakeStorage {
-		const storage = new FakeStorage();
-		storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		return storage;
-	}
-
-	test('is asked about, by name, ahead of every step of the path', () => {
-		open(asked());
-
-		expect(at('connect-legacy')).toBeTruthy();
-		expect(text(at('legacy-remote'))).toBe('ada/atlas');
-		expect(text(at('legacy-remote-offer'))).toContain('no record of ever having published there');
-		expect(absent('connect-needs-account')).toBe(true);
-		expect(absent('connect-sign-in')).toBe(true);
-	});
-
-	test('is not asked about at all when there is nothing to ask about', () => {
-		open(new FakeStorage());
-
-		expect(absent('connect-legacy')).toBe(true);
-		expect(absent('legacy-remote-offer')).toBe(true);
-	});
-
-	// Nothing is spent on GitHub for a step the author may never reach: accepting connects the
-	// Workspace without a listing at all.
-	test('asks GitHub nothing while the question stands', async () => {
-		const storage = asked();
-		storage.signedIn = true;
-		storage.identity = 'ada';
-		storage.credential = 'a-credential-this-component-never-renders';
-		const opened = open(storage);
-		await settle();
-
-		expect(opened.list).not.toHaveBeenCalled();
-	});
-
-	// ⚠ **Bound, and with no Baseline invented for it.** There is no evidence about what this machine
-	// shared with that repository, and an empty Baseline would claim the Remote holds nothing — the
-	// reading that licenses overwriting all of it.
-	test('accepting connects the Workspace and says nothing is known about it yet', async () => {
-		const opened = open(asked());
-
-		press('accept-legacy-remote');
-		await settle();
-
-		expect(opened.storage.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
-		expect(at('connect-connected')).toBeTruthy();
-		expect(text(at('connect-notice'))).toContain('no record of what is there yet');
-		expect(text(at('remote-baseline'))).toContain('Cannot tell what has changed');
-	});
-
-	test('declining leaves the Workspace unbound, on the ordinary path to a repository', async () => {
-		const opened = open(asked());
-
-		press('decline-legacy-remote');
-		await settle();
-
-		expect(opened.storage.remote).toBeNull();
-		expect(opened.storage.legacyRemote).toBeNull();
-		expect(text(at('connect-notice'))).toContain('Left unbound');
-		expect(at('connect-needs-account')).toBeTruthy();
-	});
-
-	test('uses `disabled` on neither answer', () => {
-		open(asked());
-
-		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
-	});
-});
-
 describe('reaching every step without sight and without a pointer', () => {
 	// One region, in the document from the first frame, whose words change with the step — a region
 	// inserted at the moment its text first exists is not reliably announced (ADR-0016).
@@ -2480,17 +2394,6 @@ describe('reaching every step without sight and without a pointer', () => {
 		await settle();
 		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
 		expect(opened.storage.bindCalls).toHaveLength(1);
-	});
-
-	// The question a Workspace's own files raise is announced as the question it is, rather than as a
-	// numbered step of a path it stands in front of.
-	test('announces the question a Workspace’s own files raise', () => {
-		const storage = new FakeStorage();
-		storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		open(storage);
-
-		expect(text(at('connect-step'))).toContain('ada/atlas');
-		expect(text(at('connect-step'))).toContain('Say whether it is yours');
 	});
 
 	// `disabled` takes a control out of the tab order, so a keyboard user reaching the sequence
@@ -2530,14 +2433,6 @@ describe('the words the sequence uses', () => {
 			() => {
 				const storage = signedIn();
 				storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-				return open(storage);
-			}
-		],
-		[
-			'the question about a repository the files name',
-			() => {
-				const storage = new FakeStorage();
-				storage.legacyRemote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 				return open(storage);
 			}
 		]

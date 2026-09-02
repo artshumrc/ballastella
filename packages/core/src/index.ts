@@ -527,19 +527,9 @@ export {
 	type SharedStateRecorder,
 	type WorkspacePublished
 } from './remote/synchronization-publish.js';
-// What this machine last saw on the Remote. Local only and keyed per Workspace, because it is
-// evidence about a Remote rather than a fact about a Workspace — see the module header.
-export {
-	PUBLISH_MANIFEST_FORMAT_VERSION,
-	PUBLISH_MANIFEST_KEY_PREFIX,
-	PublishManifests,
-	discardPublishManifest,
-	publishManifestKey,
-	type PublishManifest
-} from './remote/publish-manifest.js';
-// Installation-local synchronization evidence, superseding the v1 `localStorage` manifest above
-// (ADR-0038). The relationship and the Baseline are what *this machine* believes about a Remote, so
-// neither travels in a Workspace, a Backup, a Project Bundle or a published tree.
+// Installation-local synchronization evidence. The relationship and the Baseline are what *this
+// machine* believes about a Remote, so neither travels in a Workspace, a Backup, a Project Bundle or
+// a published tree.
 export {
 	SYNCHRONIZATION_FORMAT_VERSION,
 	SYNCHRONIZATION_KEY_PREFIX,
@@ -615,13 +605,6 @@ export {
 	IndexedDbMetadataStorage,
 	browserMetadataStorage
 } from './store/indexeddb-metadata-storage.js';
-// Deciding, once per Workspace, what its v1 evidence means — before any synchronization action is
-// offered for it.
-export {
-	confirmLegacyRemote,
-	migrateSynchronizationMetadata,
-	type SynchronizationMigration
-} from './remote/migrate-synchronization.js';
 // Downloading a published Workspace back out of a public repository (ADR-0031, ADR-0032). It needs
 // no credential at all, which is what lets a student with no GitHub account seed a Workspace from
 // their instructor's Remote.

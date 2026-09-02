@@ -12,7 +12,6 @@ import {
 	expectCredential,
 	expectNoRemote,
 	expectRemoteNamed,
-	expectRemoteStatus,
 	expectWorkspaceNamed,
 	openTheDoor,
 	seedGitHubCredential
@@ -72,25 +71,6 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 			request.onblocked = () => resolve();
 		});
 	});
-}
-
-/** Put a v1 `remote.json` in the Workspace, as an older build of Ballastella left one. */
-async function seedBindingFile(page: Page, owner: string, repository: string): Promise<void> {
-	await page.evaluate(
-		async ([workspace, text]) => {
-			const directory = await (
-				await navigator.storage.getDirectory()
-			).getDirectoryHandle(workspace!, { create: true });
-			const file = await directory.getFileHandle('remote.json', { create: true });
-			const writable = await file.createWritable();
-			await writable.write(text!);
-			await writable.close();
-		},
-		[
-			DEFAULT_WORKSPACE,
-			`${JSON.stringify({ formatVersion: 1, owner, repository, branch: 'main' }, null, '\t')}\n`
-		]
-	);
 }
 
 /** Start on a clean hub with a GitHub that has one public repository in it. */
@@ -390,112 +370,5 @@ test.describe('a restored Backup', () => {
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
 		await expectNoRemote(page);
 		expect(await bindingFile(page, `${DEFAULT_WORKSPACE} (2)`)).toBeNull();
-	});
-});
-
-/**
- * A v1 Workspace's Remote, lifted out of the Workspace and into this installation (ADR-0038).
- *
- * What only a browser can show is the *decision*: a binding this installation
- * can corroborate is lifted with its evidence and says so; one it cannot is named and asked about,
- * and declining leaves the Workspace unbound; and once the relationship is installation-local, a
- * `remote.json` arriving inside copied or forked repository content cannot redirect it.
- *
- * The storage rules themselves — a Baseline for another repository, a corrupt record, a refused write
- * — are `synchronization-metadata.test.ts`'s, where the assertion is the record rather than a screen.
- */
-test.describe('a Workspace bound by an older build', () => {
-	/** The v1 publish manifest, exactly as `PublishManifests.write` left one. */
-	async function seedPublishManifest(page: Page, commit: string): Promise<void> {
-		await page.evaluate(
-			([key, value]) => localStorage.setItem(key!, value!),
-			[
-				`ballastella.publish-manifest.${encodeURIComponent(`opfs:${DEFAULT_WORKSPACE}`)}`,
-				JSON.stringify({
-					formatVersion: 1,
-					at: '2026-08-01T09:00:00.000Z',
-					owner: OWNER,
-					repository: REPOSITORY,
-					branch: 'main',
-					commit,
-					files: { 'amsterdam-1625/project.json': 'aaaa' }
-				})
-			]
-		);
-	}
-
-	// Prior successful Publish evidence is not discarded. The manifest is installation-local, so it is
-	// proof *this browser* published there — and that is enough.
-	test('is lifted with its Baseline when this browser’s own publish evidence agrees', async ({
-		page
-	}) => {
-		await start(page);
-		await seedBindingFile(page, OWNER, REPOSITORY);
-		await seedPublishManifest(page, 'c0ffeec0ffee');
-		await page.reload();
-
-		// Bound with no question asked, and with real evidence behind it.
-		await expectRemoteNamed(page, REMOTE);
-		await openTheDoor(page);
-		await expect(page.getByTestId('legacy-remote-offer')).toHaveCount(0);
-		await expect(page.getByTestId('remote-baseline')).toContainText('at commit');
-		await expect(page.getByTestId('remote-baseline')).toContainText('c0ffeec0ffee');
-		await closeTheDoor(page);
-		// Which is the visible difference from the confirmed case below.
-		await expectRemoteStatus(page, '');
-	});
-
-	// A binding with nothing corroborating it is asked about, and confirming it binds without
-	// fabricating a Baseline — so the status is `Cannot tell` rather than "up to date".
-	test('is asked about when nothing corroborates it, and copied content cannot redirect it', async ({
-		page
-	}) => {
-		await start(page);
-		await seedBindingFile(page, OWNER, REPOSITORY);
-		await page.reload();
-
-		// Unbound until it is answered. A file inside the published tree is not evidence about this
-		// browser, so nothing offers to publish anywhere yet.
-		await expectNoRemote(page);
-		// ⚠ **The question is the door's landing, asked once because it is true** (ADR-0041), and it
-		// stands in front of every step of the path to a repository: there is nothing to connect and
-		// nothing to sign in for until somebody says whether that repository is theirs.
-		await openTheDoor(page);
-		await expect(page.getByTestId('legacy-remote-offer')).toContainText(REMOTE);
-		await expect(page.getByTestId('connect-sign-in')).toHaveCount(0);
-		// And there is no second surface it could be answered on by accident: the question is the door's
-		// landing, and the dialogs that used to describe a Remote are gone (ADR-0042).
-		await expect(page.getByTestId('repository-choice')).toHaveCount(0);
-		await closeTheDoor(page);
-
-		// Declining writes nothing at all.
-		await openTheDoor(page);
-		await page.getByTestId('decline-legacy-remote').click();
-		await expect(page.getByTestId('connect-notice')).toContainText('Left unbound');
-		await closeTheDoor(page);
-		await expectNoRemote(page);
-
-		// The question is asked again on the next visit, and confirming it names the repository.
-		await page.reload();
-		await openTheDoor(page);
-		await expect(page.getByTestId('legacy-remote')).toHaveText(REMOTE);
-		await page.getByTestId('accept-legacy-remote').click();
-		// ⚠ **Bound, and `Cannot tell`.** Confirmation lifts the relationship and nothing else: an
-		// invented empty Baseline would claim the Remote holds nothing, which is the reading that
-		// licenses overwriting all of it.
-		await expect(page.getByTestId('remote-baseline')).toContainText('Cannot tell');
-		await closeTheDoor(page);
-		await expectRemoteNamed(page, REMOTE);
-
-		// ⚠ **Copied or forked repository content cannot redirect the selected repository**.
-		// A fork carries a `remote.json` naming the repository it was forked *from*; the relationship is
-		// installation-local now, so it is never consulted again.
-		await seedBindingFile(page, 'someone-else', 'fork');
-		await page.reload();
-		await expectRemoteNamed(page, REMOTE);
-		await openTheDoor(page);
-		await expect(page.getByTestId('legacy-remote-offer')).toHaveCount(0);
-		await expect(page.getByTestId('remote-baseline')).toContainText('Cannot tell');
-		await closeTheDoor(page);
 	});
 });
