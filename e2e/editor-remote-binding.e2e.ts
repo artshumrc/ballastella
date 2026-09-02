@@ -144,10 +144,32 @@ async function topLevelFiles(page: Page, workspace = DEFAULT_WORKSPACE): Promise
 }
 
 test.describe('binding a Workspace to a repository', () => {
+	// ⚠ **Driven against a *private* repository, because that is the row that used to be a dead end**
+	// (ADR-0044). A private repository was present-and-unselectable until this Epic, which left a
+	// scholar under embargo with one honest option: keep the work on the laptop. It is chosen exactly
+	// as a public one is now, and what being private costs is a sentence beside the row rather than a
+	// fence in front of it. The note's wording and the press being reported are
+	// `repository-choice.dom.test.ts`'s at Seam 1c, and the sync itself `private-remote.test.ts`'s at
+	// Seam 1; what only a browser shows is that the row a scholar actually meets is pressable.
 	test('is done from the one door, and survives a reload', async ({ page }) => {
-		await start(page);
+		await start(page, {
+			repositories: [{ owner: OWNER, name: REPOSITORY, private: true }],
+			grants: {
+				installationId: 1,
+				account: OWNER,
+				repositories: [{ owner: OWNER, repository: REPOSITORY, push: true, private: true }]
+			}
+		});
 
-		await bind(page);
+		await openTheDoor(page);
+		const row = page.getByTestId('granted-repository').first();
+		await expect(row.getByTestId('repository-note')).toContainText('paid GitHub plan', {
+			timeout: 30_000
+		});
+		await expect(row.getByTestId('choose-repository')).not.toHaveAttribute('aria-disabled', 'true');
+		await row.getByTestId('choose-repository').click();
+		await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByTestId('connect-sequence')).toBeHidden();
 		await leaveSync(page);
 
 		// ⚠ **The relationship is installation-local and is written nowhere in the Workspace**

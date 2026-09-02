@@ -93,6 +93,9 @@ export type RemoteStatusRefusal =
  * ⚠ **A refusal is never a status.** A failed check must not be reported as `In sync` — nor as
  * `Cannot tell`, which is a *successful* determination about missing evidence. {@link
  * RemoteStatusChecker} keeps the last determination visible and puts this beside it.
+ *
+ * The one exception is {@link anonymousDetermination}, and it is an exception because the evidence
+ * really is missing rather than the reading having failed.
  */
 export class RemoteStatusUnavailableError extends Error {
 	readonly refusal: RemoteStatusRefusal;
@@ -102,6 +105,25 @@ export class RemoteStatusUnavailableError extends Error {
 		this.name = 'RemoteStatusUnavailableError';
 		this.refusal = refusal;
 	}
+}
+
+/**
+ * The determination a *signed-out* check's refusal comes to, or `null` where it is no determination.
+ *
+ * ⚠ **`'cannot-tell'` for the two refusals that mean "not readable from here", and this is the one
+ * place a refusal becomes a status** (ADR-0044). GitHub answers 404 to every anonymous read of a
+ * private repository, so a signed-out check of one cannot tell a private Remote from a deleted one —
+ * and neither of those is *agreement*. Left to fail, the check would put a sentence beside whatever
+ * determination was last reached, and for a Workspace that had synced and then been made private
+ * that last determination is `In sync`: the badge would name the repository and claim agreement it
+ * had no evidence for, which is the exact failure the badge Ticket exists to prevent.
+ *
+ * Every other refusal answers `null` and stays a refusal. A truncated listing, a spent budget and a
+ * GitHub that could not be reached are facts about the *reading*, and a Workspace whose Baseline is
+ * good is entitled to keep the determination it had.
+ */
+export function anonymousDetermination(refusal: RemoteStatusRefusal): SourceStatus | null {
+	return refusal === 'no-repository' || refusal === 'not-public' ? 'cannot-tell' : null;
 }
 
 export interface RemoteInventoryOptions {

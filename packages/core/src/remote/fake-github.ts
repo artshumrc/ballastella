@@ -293,18 +293,19 @@ export interface FakeGitHub {
 	grant(repository: FakeGrantedRepository): void;
 
 	/**
-	 * Answer 404 on `raw.githubusercontent.com` to any read carrying no credential.
+	 * Make this a private repository: every read carrying no credential answers 404.
 	 *
-	 * Private repositories are out of scope and nothing here refuses one, which is the whole reason
-	 * this knob exists: a check that reads a file from the raw host without a credential does not
-	 * *fail* on a private repository, it reads "there is no such file" and passes. That is how the
-	 * bind-time subset refusal was silently inert on exactly the repository whose owner is most likely
-	 * to have two machines.
+	 * ⚠ **404 and never 401**, on the API host and the raw host alike, because that is what GitHub
+	 * does: it will not admit that a repository the caller cannot see exists at all. So an anonymous
+	 * reader cannot tell a private repository from a typo, which is why the sentences it produces
+	 * offer a sign-in rather than asserting the address is wrong — and why a check that reads a file
+	 * from the raw host without a credential does not *fail* on a private repository, it reads "there
+	 * is no such file" and passes.
 	 *
-	 * ⚠ **Default `false`, and that matters as much as the knob.** A public repository's bytes are
-	 * read here with no credential at all, so the ordinary raw host must not so much as *look* at an
-	 * `Authorization` header — a fake that demanded one everywhere would hide a get sending a token
-	 * it has no business sending.
+	 * ⚠ **Default `false`, and that matters as much as the knob.** A public repository's metadata,
+	 * file list and bytes are all read with no credential at all, so the ordinary fake must not so
+	 * much as *look* at an `Authorization` header — one that demanded it everywhere would hide a get
+	 * sending a token it has no business sending.
 	 */
 	privateRepository: boolean;
 
@@ -746,6 +747,13 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		if (scope !== 'repos' || owner !== options.owner || repository !== options.repository) {
 			return notFound(`${url.pathname} is not a path this fake implements.`);
 		}
+
+		// ⚠ **A private repository answers 404 to every anonymous read of it**, exactly as the raw host
+		// does — the metadata, the ref, the tree, all of it. GitHub does not distinguish a repository
+		// somebody may not see from one that is not there, so nothing built on an anonymous read can
+		// report a private repository as private; a signed-out check that got past this would be
+		// comparing against an empty tree and calling the difference a fact.
+		if (state.privateRepository && !credentialed) return notFound();
 
 		/**
 		 * A credential is demanded of writes and of nothing else, which is what GitHub does.

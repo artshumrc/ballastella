@@ -58,6 +58,7 @@ import {
 	newAnnotationLayer,
 	newMapLayer,
 	offlineCoverage,
+	anonymousDetermination,
 	emptyCollection,
 	openDecodeAndCropSource,
 	parseAlignment,
@@ -73,6 +74,8 @@ import {
 	readPublishedSite,
 	readImageLabel,
 	readRemoteInventory,
+	RemoteStatusUnavailableError,
+	type InventoryEntry,
 	updateFromGitHub,
 	readContestedAlignments,
 	type AlignmentChoice,
@@ -2816,9 +2819,31 @@ export class EditorSession {
 			};
 		}
 		if (!options.mayRequest) return { outcome: 'not-attempted' };
+		let listed: readonly InventoryEntry[];
+		try {
+			listed = await readRemoteInventory({ remote: options.remote, token: options.token });
+		} catch (cause) {
+			// ⚠ **A signed-out check that cannot read the Remote at all is `Cannot tell`, never the
+			// determination it last reached** (ADR-0044). GitHub answers 404 to every anonymous read of
+			// a private repository, so from here a private Remote and a deleted one are one answer — and
+			// a Workspace that synced and was then made private would otherwise go on showing `In sync`
+			// with a sentence beside it, claiming agreement nothing had checked. Every other refusal is
+			// a fact about the reading and stays one.
+			const determination =
+				options.token === null && cause instanceof RemoteStatusUnavailableError
+					? anonymousDetermination(cause.refusal)
+					: null;
+			if (determination === null) throw cause;
+			return {
+				outcome: 'determined',
+				status: determination,
+				publishedSiteStale: [],
+				requested: true
+			};
+		}
 		const found = await checkSourceStatus({
 			changes,
-			remote: await readRemoteInventory({ remote: options.remote, token: options.token }),
+			remote: listed,
 			baseline
 		});
 		return {
@@ -2840,10 +2865,12 @@ export class EditorSession {
 	 * The write index is flushed for the other direction: `clearShared` below narrows the record on
 	 * disk, and marks still only in memory would survive it.
 	 *
-	 * ⚠ **No credential is passed and none is taken.** Inbound synchronization reads a public
-	 * repository anonymously; an author who cannot push to their instructor's Remote can still receive
-	 * from it, and consulting the credential store here would make the flow behave differently for
-	 * whoever happened to be signed in.
+	 * ⚠ **The credential is the caller's, and `null` is the ordinary case.** Inbound synchronization
+	 * reads a public repository anonymously — an author who cannot push to their instructor's Remote
+	 * can still receive from it. What a credential is *needed* for is a private repository, which
+	 * GitHub answers 404 about to every anonymous reader (ADR-0044); nothing here consults the
+	 * credential store itself, so which of the two gets this is stays the caller's statement rather
+	 * than a fact about whoever happened to be signed in.
 	 *
 	 * The evidence is recorded in this order: the Baseline first, and the index narrowed only if it
 	 * was kept. A refused Baseline write leaves `Cannot tell` beside a *successful* Update — never an
@@ -2855,6 +2882,8 @@ export class EditorSession {
 	 */
 	async updateFromRemote(options: {
 		remote: RemoteRepository;
+		/** The credential to read with, or `null` to read a public repository anonymously. */
+		token: string | null;
 		onProgress?: (progress: { files: number; totalFiles: number }) => void;
 		/** What the author answered about each contested Alignment, by path (ADR-0046). */
 		alignmentChoices?: ReadonlyMap<string, AlignmentChoice>;
@@ -2864,6 +2893,7 @@ export class EditorSession {
 
 		const update = await updateFromGitHub(this.#store, {
 			remote: options.remote,
+			token: options.token,
 			baseline: (await this.#synchronization?.readBaseline(options.remote)) ?? null,
 			estimateStorage: () => navigator.storage.estimate(),
 			workspace: this.#workspaceKey,

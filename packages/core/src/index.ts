@@ -567,6 +567,7 @@ export {
 	RemoteStatusChecker,
 	RemoteStatusUnavailableError,
 	UNCHECKED_REMOTE_STATUS,
+	anonymousDetermination,
 	readRemoteInventory,
 	type RemoteInventoryOptions,
 	type RemoteStatusCheckerOptions,

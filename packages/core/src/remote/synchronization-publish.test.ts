@@ -324,6 +324,7 @@ describe('a Sync that made Conflict Copies', () => {
 
 		const got = await updateFromGitHub(kit.store, {
 			remote: REMOTE,
+			token: null,
 			baseline: await kit.metadata.readBaseline(REMOTE),
 			fetch: kit.github.fetch,
 			mintLayerId: () => 'copy-1'

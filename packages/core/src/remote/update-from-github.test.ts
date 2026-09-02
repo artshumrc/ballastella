@@ -145,7 +145,8 @@ const update = (
 	fake: FakeGitHub,
 	baseline: SynchronizationBaseline | null,
 	options: Partial<Parameters<typeof updateFromGitHub>[1]> = {}
-) => updateFromGitHub(store, { remote: REMOTE, baseline, fetch: fake.fetch, ...options });
+) =>
+	updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch: fake.fetch, ...options });
 
 /** The refusal an Update raised, having asserted it raised one at all. */
 async function refusal(run: Promise<unknown>): Promise<UpdateRefusedError> {
@@ -323,7 +324,7 @@ describe('updateFromGitHub', () => {
 			return fake.fetch(input, init);
 		};
 
-		const result = await updateFromGitHub(store, { remote: REMOTE, baseline, fetch });
+		const result = await updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch });
 
 		expect(result.added).toEqual(['delft/project.json']);
 		expect(credentialed).toEqual([]);
@@ -341,6 +342,7 @@ describe('updateFromGitHub', () => {
 		const seen: { files: number; totalFiles: number; path: string | null }[] = [];
 		await updateFromGitHub(store, {
 			remote: REMOTE,
+			token: null,
 			baseline,
 			fetch: fake.fetch,
 			onProgress: ({ files, totalFiles, path }) => seen.push({ files, totalFiles, path })
@@ -493,6 +495,7 @@ describe('updateFromGitHub', () => {
 		const refused = await refusal(
 			updateFromGitHub(store, {
 				remote: REMOTE,
+				token: null,
 				baseline,
 				fetch: rawAnswer(fake, 'images/map-1/0/0/1.jpg', () => new Response('', { status: 404 }))
 			})
@@ -518,6 +521,7 @@ describe('updateFromGitHub', () => {
 		const refused = await refusal(
 			updateFromGitHub(store, {
 				remote: REMOTE,
+				token: null,
 				baseline,
 				fetch: rawAnswer(
 					fake,
@@ -565,7 +569,9 @@ describe('updateFromGitHub', () => {
 				? Promise.resolve(new Response('{"message":"Not Found"}', { status: 404 }))
 				: fake.fetch(input, init);
 
-		const refused = await refusal(updateFromGitHub(store, { remote: REMOTE, baseline, fetch }));
+		const refused = await refusal(
+			updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch })
+		);
 
 		expect(refused.refusal).toBe('no-repository');
 		expect(await snapshot(store)).toEqual(before);

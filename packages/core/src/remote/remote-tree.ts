@@ -1,4 +1,5 @@
-// One unauthenticated file listing of a public repository, for the two operations that read one.
+// One file listing of a repository, for the operations that read one — anonymously for a public
+// repository, and as the signed-in author for a private one.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A MODULE AND NOT A FUNCTION IN EACH READER
@@ -9,6 +10,21 @@
 // the two readings could disagree about what a repository holds while both stayed green: the
 // `iiif-hosts` divergence, and the reason `projectDirectories` is exported rather than
 // restated. So the reading lives here and the *wording* does not.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// TWO PAIRS OF FUNCTIONS RATHER THAN ONE PAIR WITH AN OPTIONAL TOKEN
+//
+// {@link readRemoteTree} and {@link readRemoteHeadCommit} take no credential and can send no header,
+// and that is a property of their signatures rather than of what a caller happens to pass. The
+// signed-out door (`workspace-address.ts`) and the Review (`review-from-remote.ts`) call those, and
+// an optional `Authorization` on one shared function is one refactor away from making an account a
+// prerequisite for the operations that need none (ADR-0031, ADR-0043) — silently, because the flow
+// would go on working for everybody who had already signed in.
+//
+// {@link readSignedInRemoteTree} and {@link readSignedInRemoteHeadCommit} require one, and a private
+// repository is the whole reason they exist: GitHub answers 404 to an anonymous read of one, so the
+// only way to get from it is signed in (ADR-0044). What both pairs share is {@link githubGet}'s
+// *reading* of the response, which is the part that must not be written twice.
 //
 // ⚠ **The refusals carry a kind and nothing else that a user reads.** A get's truncation message
 // says a Workspace would arrive with a pyramid missing and that nothing has been downloaded; a
@@ -103,12 +119,27 @@ export class RemoteTreeRefusedError extends Error {
  */
 export const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
-/** An anonymous GET of the git database, with every status this module has a refusal for. */
-async function anonymousGet(fetchFn: FetchFn | undefined, url: string): Promise<Response> {
+/**
+ * A GET of the git database, with every status this module has a refusal for.
+ *
+ * The `Authorization` header is **omitted rather than sent empty** for an anonymous read, as the
+ * publish engine's own API wrapper omits it: GitHub answers 401 to a `Bearer` with nothing after it,
+ * where it answers a public repository's tree to a request carrying no header at all.
+ */
+async function githubGet(
+	fetchFn: FetchFn | undefined,
+	url: string,
+	token: string | null
+): Promise<Response> {
 	const request = fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
 	let response: Response;
 	try {
-		response = await request(url, { headers: { Accept: 'application/vnd.github+json' } });
+		response = await request(url, {
+			headers: {
+				Accept: 'application/vnd.github+json',
+				...(token === null ? {} : { Authorization: `Bearer ${token}` })
+			}
+		});
 	} catch (cause) {
 		throw new RemoteTreeRefusedError(
 			'unreachable',
@@ -135,6 +166,11 @@ async function anonymousGet(fetchFn: FetchFn | undefined, url: string): Promise<
 			reset !== null && reset > 0 ? new Date(reset * 1000) : null
 		);
 	}
+	// ⚠ **A private repository is nowhere in this branch, and cannot be.** GitHub answers 404 rather
+	// than 401 to a read of a repository the caller may not see, so `'no-repository'` above covers a
+	// missing repository *and* a private one — which is why the sentences its callers write offer a
+	// sign-in instead of asserting the address is wrong. A 401 or 403 here is a credential GitHub will
+	// not act on, or a permission it does not carry.
 	if (response.status === 401 || response.status === 403) {
 		throw new RemoteTreeRefusedError('not-public');
 	}
@@ -146,6 +182,9 @@ async function anonymousGet(fetchFn: FetchFn | undefined, url: string): Promise<
 
 /**
  * The commit a public branch stands at, from one unauthenticated ref read.
+ *
+ * ⚠ **No `Authorization` header, and none may be added *here*** — see {@link readRemoteTree}. A
+ * private repository's branch is {@link readSignedInRemoteHeadCommit}'s.
  *
  * **The evidence an Import's provenance records**: a repository, a Project directory
  * and a branch say which Project was copied, and only the commit says which *state* of it. The tree
@@ -164,6 +203,31 @@ export async function readRemoteHeadCommit(
 	remote: RemoteTreeReference,
 	fetchFn: FetchFn | undefined
 ): Promise<string> {
+	return headCommitOf(remote, fetchFn, null);
+}
+
+/**
+ * The same, read as the signed-in author — the only way to read a private repository's branch.
+ *
+ * The token is required rather than nullable, for the reason this module's header gives: with one
+ * shared nullable parameter the signed-out door would be one edit away from sending a credential.
+ *
+ * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a branch that is not
+ *   there
+ */
+export async function readSignedInRemoteHeadCommit(
+	remote: RemoteTreeReference,
+	token: string,
+	fetchFn: FetchFn | undefined
+): Promise<string> {
+	return headCommitOf(remote, fetchFn, token);
+}
+
+async function headCommitOf(
+	remote: RemoteTreeReference,
+	fetchFn: FetchFn | undefined,
+	token: string | null
+): Promise<string> {
 	// ⚠ The branch is spelled **per segment** here, unlike `/git/trees/{ref}`: this path continues
 	// after `heads/`, so a branch of `feature/x` is two segments of it and an encoded slash is a ref
 	// GitHub does not have.
@@ -171,7 +235,7 @@ export async function readRemoteHeadCommit(
 		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
 		`/git/ref/heads/${urlPath(remote.branch)}`;
 
-	const response = await anonymousGet(fetchFn, url);
+	const response = await githubGet(fetchFn, url, token);
 	const body = (await response.json().catch(() => ({}))) as { object?: { sha?: unknown } };
 	const sha = body.object?.sha;
 	// An answer that is this endpoint's shape but carries no SHA is refused rather than recorded as an
@@ -200,7 +264,7 @@ export async function readRemoteCommitDate(
 		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
 		`/git/commits/${urlPath(commit)}`;
 	try {
-		const response = await anonymousGet(fetchFn, url);
+		const response = await githubGet(fetchFn, url, null);
 		const body = (await response.json()) as {
 			committer?: { date?: unknown };
 			author?: { date?: unknown };
@@ -217,17 +281,40 @@ export async function readRemoteCommitDate(
 /**
  * Every file the branch's tip holds, from one unauthenticated tree listing.
  *
- * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,
- * which is what lets a student with no GitHub account seed a Workspace from their instructor's
- * Remote (ADR-0031): a get and a Review are both unauthenticated. Sending a credential here would make
- * an account a prerequisite for the operations that need none, and it would do it silently — the flow
- * would go on working for everybody who had already signed in.
+ * ⚠ **No `Authorization` header, and none may be added *here*.** Reading a public repository is
+ * anonymous, which is what lets a student with no GitHub account seed a Workspace from their
+ * instructor's Remote (ADR-0031): the signed-out door and a Review both read this way. A private
+ * repository is {@link readSignedInRemoteTree}'s, and the two are separate functions so that
+ * widening one cannot widen the other.
  *
  * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a truncated listing
  */
 export async function readRemoteTree(
 	remote: RemoteTreeReference,
 	fetchFn: FetchFn | undefined
+): Promise<RemoteBlob[]> {
+	return treeOf(remote, fetchFn, null);
+}
+
+/**
+ * The same, read as the signed-in author — the only way to list a private repository.
+ *
+ * The token is required rather than nullable, for the reason this module's header gives.
+ *
+ * @throws RemoteTreeRefusedError for a repository that cannot be read, and for a truncated listing
+ */
+export async function readSignedInRemoteTree(
+	remote: RemoteTreeReference,
+	token: string,
+	fetchFn: FetchFn | undefined
+): Promise<RemoteBlob[]> {
+	return treeOf(remote, fetchFn, token);
+}
+
+async function treeOf(
+	remote: RemoteTreeReference,
+	fetchFn: FetchFn | undefined,
+	token: string | null
 ): Promise<RemoteBlob[]> {
 	// ⚠ The branch is **one** encoded path parameter here, unlike on the raw host. `/git/trees/{ref}`
 	// takes a single segment, so a branch of `feature/x` spelled per segment would ask for
@@ -237,7 +324,7 @@ export async function readRemoteTree(
 		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
 		`/git/trees/${encodeURIComponent(remote.branch)}?recursive=1`;
 
-	const response = await anonymousGet(fetchFn, url);
+	const response = await githubGet(fetchFn, url, token);
 
 	const body = (await response.json().catch(() => ({}))) as {
 		tree?: unknown;

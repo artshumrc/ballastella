@@ -131,6 +131,7 @@ async function remoteWithChanges(): Promise<FakeGitHub> {
 const getChanges = (store: ProjectStore, fake: FakeGitHub, base: SynchronizationBaseline) =>
 	updateFromGitHub(store, {
 		remote: REMOTE,
+		token: null,
 		baseline: base,
 		fetch: fake.fetch,
 		workspace: 'Atlas'
@@ -337,6 +338,7 @@ describe('before it will start at all', () => {
 		const refused = await refusal(
 			updateFromGitHub(store, {
 				remote: REMOTE,
+				token: null,
 				baseline: await baseline(),
 				fetch: (await remoteWithChanges()).fetch,
 				estimateStorage: async () => ({ quota: 1_000_000, usage: 999_950 })

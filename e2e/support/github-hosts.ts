@@ -74,6 +74,14 @@ export type FakeRepository = {
 	/** What `GET /repos/{owner}/{repo}` reports about the caller. */
 	readonly push?: boolean;
 	/**
+	 * Make it private: every read carrying no credential answers 404, on both hosts.
+	 *
+	 * ⚠ **404 and never 401**, because that is what GitHub does — it will not admit that a repository
+	 * the caller cannot see exists at all (ADR-0044). Set it beside a `grants` entry marked
+	 * `private`, so what the chooser is told and what the API answers cannot disagree.
+	 */
+	readonly private?: boolean;
+	/**
 	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
 	 * a solo one (ADR-0043).
 	 *
@@ -305,6 +313,7 @@ export async function routeGitHubHosts(
 		if (options.login !== undefined) fake.login = options.login;
 		fake.contributors = [...(repository.contributors ?? [repository.owner])];
 		fake.permissions = { push: repository.push ?? true, admin: false };
+		fake.privateRepository = repository.private ?? false;
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;
 		fake.rejectCredential = options.rejectCredential ?? false;

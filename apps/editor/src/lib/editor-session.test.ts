@@ -2416,7 +2416,7 @@ describe('an Edit History and the writes it did not make', () => {
 		});
 		const restore = anonymously(github);
 		try {
-			const { update } = await session.updateFromRemote({ remote });
+			const { update } = await session.updateFromRemote({ remote, token: null });
 			expect(update.added).toContain('delft/project.json');
 		} finally {
 			restore();
@@ -2426,5 +2426,88 @@ describe('an Edit History and the writes it did not make', () => {
 		expect(session.historyFor(DIRECTORY).redoable).toBeNull();
 		expect(session.historyFor(MAP).undoable).toBeNull();
 		expect(session.historyFor(MAP).redoable).toBeNull();
+	});
+});
+
+/**
+ * The Remote Status a signed-out session can honestly reach about a private repository (ADR-0044).
+ *
+ * ⚠ **The failing case is the one that reads as agreement.** GitHub answers 404 to every anonymous
+ * read of a private repository, so a Workspace that synced and was then made private would go on
+ * showing the determination it last reached — `In sync`, with the repository's name in it — beside a
+ * sentence saying the check did not complete. That is a badge claiming a fact nothing checked. The
+ * refusal-to-determination mapping itself is `remote-status.ts`'s at Seam 1; what this asserts is
+ * that the session reaches it, and that the signed-in check it must not be confused with still works.
+ */
+describe('checking a private Remote', () => {
+	const REMOTE = { owner: 'ada', repository: 'atlas', branch: 'main' };
+	const TOKEN = 'ghp_a-token';
+	const WORKSPACE = 'opfs:Amsterdam';
+
+	/** A Workspace whose whole content the Baseline records as shared, and its private repository. */
+	async function synced(): Promise<{ session: EditorSession; github: FakeGitHub }> {
+		const store = new MemoryProjectStore();
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')))
+		);
+		const held = new Map<string, Bytes>();
+		for (const path of await store.list('')) held.set(path, await store.read(path));
+		const shared = new Map<string, string>();
+		for (const [path, bytes] of held) shared.set(path, await gitBlobSha(bytes));
+
+		const metadataStorage = new FakeMetadataStorage();
+		await new SynchronizationMetadata(metadataStorage, WORKSPACE).writeBaseline({
+			remote: REMOTE,
+			commit: 'shared',
+			files: shared
+		});
+		const github = await createFakeGitHub({
+			owner: REMOTE.owner,
+			repository: REMOTE.repository,
+			tree: Object.fromEntries(held)
+		});
+		github.privateRepository = true;
+		return {
+			// Managed, because an unmanaged store has nothing tracking its own changes and answers
+			// `Cannot tell` without a request — which would pass this test for the wrong reason.
+			session: new EditorSession(trackLocalChanges(store, WORKSPACE, metadataStorage), {
+				metadataStorage,
+				workspaceKey: WORKSPACE
+			}),
+			github
+		};
+	}
+
+	it('is Cannot tell while signed out, rather than the agreement it last found', async () => {
+		const { session, github } = await synced();
+		const restore = anonymously(github);
+		try {
+			const signedIn = await session.checkRemoteStatus({
+				remote: REMOTE,
+				token: TOKEN,
+				mayRequest: true
+			});
+			expect(signedIn).toEqual({
+				outcome: 'determined',
+				status: 'in-sync',
+				publishedSiteStale: [],
+				requested: true
+			});
+
+			const signedOut = await session.checkRemoteStatus({
+				remote: REMOTE,
+				token: null,
+				mayRequest: true
+			});
+			expect(signedOut).toEqual({
+				outcome: 'determined',
+				status: 'cannot-tell',
+				publishedSiteStale: [],
+				requested: true
+			});
+		} finally {
+			restore();
+		}
 	});
 });

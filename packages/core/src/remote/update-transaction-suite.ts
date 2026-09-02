@@ -152,6 +152,7 @@ export function describeUpdateTransaction(name: string, open: UpdateBacking): vo
 
 			const result = await updateFromGitHub(store, {
 				remote: REMOTE,
+				token: null,
 				baseline: await baseline(),
 				fetch: fake.fetch
 			});
