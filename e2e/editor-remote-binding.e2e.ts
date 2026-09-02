@@ -182,7 +182,7 @@ test.describe('binding a Workspace to a repository', () => {
 		await expectRemoteNamed(page, REMOTE);
 	});
 
-	test('states the Remote and the sign-in on the door', async ({ page }) => {
+	test('keeps the Remote and the sign-in after connecting', async ({ page }) => {
 		await start(page);
 
 		await bind(page);

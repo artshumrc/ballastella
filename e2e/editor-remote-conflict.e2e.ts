@@ -268,7 +268,7 @@ test.describe('connecting to a Remote that already carries Projects', () => {
 		await expect(dialog.getByTestId('to-send-removals')).toHaveCount(0);
 
 		await page.keyboard.press('Escape');
-		await expect(doorButton(page)).toHaveText(`Sync with ${REMOTE}`);
+		await expect(doorButton(page)).toHaveText('Sync');
 	});
 
 	test('goes ahead when the Remote’s Projects are all here', async ({ page }) => {
@@ -291,7 +291,7 @@ test.describe('connecting to a Remote that already carries Projects', () => {
 		await bind(page);
 
 		await page.keyboard.press('Escape');
-		await expect(doorButton(page)).toHaveText(`Sync with ${REMOTE}`);
+		await expect(doorButton(page)).toHaveText('Sync');
 	});
 });
 

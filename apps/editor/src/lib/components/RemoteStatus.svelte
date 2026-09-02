@@ -295,7 +295,7 @@
 	{/if}
 
 	<!--
-		What an Update is doing.
+		What the getting half of a Sync is doing.
 
 		Polite and `aria-atomic`, for the reason the determination above is: "412 of 900 files" on its
 		own says nothing about what is being counted, and a screen reader hearing the count change
@@ -312,7 +312,7 @@
 			class="text-xs text-base-content opacity-70"
 			data-testid="update-progress"
 		>
-			Updating from GitHub: {update.files} of {update.totalFiles}
+			Getting from GitHub: {update.files} of {update.totalFiles}
 			{update.totalFiles === 1 ? 'file' : 'files'}.
 		</p>
 	{/if}
