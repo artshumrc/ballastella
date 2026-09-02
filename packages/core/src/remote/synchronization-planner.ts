@@ -32,9 +32,9 @@
 // with `B` absent throughout where there is no Baseline at all — see below.
 //
 // The Workspace's status is that table aggregated: no Baseline is Cannot tell, then any conflict
-// wins, then outbound *and* inbound together is Changes on both sides, then whichever of the two is
-// present alone, and otherwise Up to date. `converged` is Up to date on purpose — the two sides
-// agree about the bytes and only the Baseline is behind.
+// wins, then outbound *and* inbound together is Changes both ways, then whichever of the two is
+// present alone, and otherwise In sync. `converged` is In sync on purpose — the two sides agree
+// about the bytes and only the Baseline is behind.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE COMBINATION CAN BE BROKEN WHEN NO SINGLE PATH IS
@@ -48,7 +48,7 @@
 //
 // ⚠ **A Remote that cannot be read is an operation failure, never a verdict.** A `project.json` that
 // will not parse, one from a newer format version, or one whose bytes were never supplied is not
-// `Up to date` and not `Conflict`: those two are claims about scholarship, and this is a claim about
+// `In sync` and not `Conflict`: those two are claims about scholarship, and this is a claim about
 // the transfer. {@link GraphVerdict} keeps them apart.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -99,15 +99,20 @@ export type PathComparison =
 /**
  * The Workspace's Remote Status, as a stable value.
  *
- * ⚠ **These are not labels.** `remote-status.ts` owns the words a user reads — "Up to date", "Cannot
+ * ⚠ **These are not labels.** `remote-status.ts` owns the words a user reads — "In sync", "Cannot
  * tell" — and projects them from exactly these six. Nothing here should grow a sentence about a
  * status.
+ *
+ * ⚠ **They are the scholar's directions, not Git's graph.** `ahead` and `behind` describe a commit
+ * history nobody here is looking at, and *connected* reports that a repository was named rather than
+ * that any work reached it (ADR-0044). What a Workspace has is something to send, something to get,
+ * both, or neither.
  */
 export type SourceStatus =
-	| 'up-to-date'
-	| 'changes-to-publish'
-	| 'update-available'
-	| 'changes-on-both-sides'
+	| 'in-sync'
+	| 'changes-to-send'
+	| 'changes-to-get'
+	| 'changes-both-ways'
 	| 'conflict'
 	| 'cannot-tell';
 
@@ -405,10 +410,10 @@ function aggregate(comparison: SourceComparison): SourceStatus {
 	if (bucket(comparison, 'conflict').length > 0) return 'conflict';
 	const outbound = bucket(comparison, 'outbound').length > 0;
 	const inbound = bucket(comparison, 'inbound').length > 0;
-	if (outbound && inbound) return 'changes-on-both-sides';
-	if (outbound) return 'changes-to-publish';
-	if (inbound) return 'update-available';
-	return 'up-to-date';
+	if (outbound && inbound) return 'changes-both-ways';
+	if (outbound) return 'changes-to-send';
+	if (inbound) return 'changes-to-get';
+	return 'in-sync';
 }
 
 /**

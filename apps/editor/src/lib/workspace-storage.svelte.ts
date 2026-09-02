@@ -2221,7 +2221,7 @@ export class WorkspaceStorage {
 		// Import wrote through the managed store `#reopenReviewOrigin` opened, and its marks are on a
 		// debounce; the session that follows opens the same Workspace key and loads the record off disk,
 		// so marks still in memory would be read as absent and then overwritten. The imported Project
-		// would be missing from the index entirely and a bound Workspace would report `Up to date` over
+		// would be missing from the index entirely and a bound Workspace would report `In sync` over
 		// a Project GitHub has never seen.
 		if (reopened.into.store instanceof ManagedProjectStore) {
 			await reopened.into.store.flushChanges();
@@ -3457,7 +3457,7 @@ export class WorkspaceStorage {
 		// ⚠ **Before anything else is given the store**, so the Import recovery, the review mark and the
 		// session that follows all hold the *same* managed store and its one change index. A raw store
 		// handed to any of them would author bytes this installation then has no record of, and a
-		// Workspace whose Remote Status reads `Up to date` over work GitHub has never seen is the one
+		// Workspace whose Remote Status reads `In sync` over work GitHub has never seen is the one
 		// failure this index exists to prevent.
 		const store = trackLocalChanges(rawStore, workspaceKey, this.#metadataStorage);
 		const leaving = this.session;

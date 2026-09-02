@@ -104,49 +104,49 @@ describe('compareWorkspace', () => {
 		baseline: Readonly<Record<string, string>> | null
 	): SourceStatus => compareWorkspace(input(local, remote, baseline)).status;
 
-	it('reports Up to date when every source path matches the Baseline', () => {
+	it('reports In sync when every source path matches the Baseline', () => {
 		const files = { 'amsterdam-1625/project.json': SHA.a, 'images/map-1/info.json': SHA.b };
-		expect(status(files, files, files)).toBe('up-to-date');
+		expect(status(files, files, files)).toBe('in-sync');
 	});
 
-	it('reports Up to date when both sides made the same change', () => {
+	it('reports In sync when both sides made the same change', () => {
 		expect(
 			status(
 				{ 'amsterdam-1625/project.json': SHA.b },
 				{ 'amsterdam-1625/project.json': SHA.b },
 				{ 'amsterdam-1625/project.json': SHA.a }
 			)
-		).toBe('up-to-date');
+		).toBe('in-sync');
 	});
 
-	it('reports Changes to publish for a local-only change', () => {
+	it('reports Changes to send for a local-only change', () => {
 		expect(
 			status(
 				{ 'amsterdam-1625/project.json': SHA.b },
 				{ 'amsterdam-1625/project.json': SHA.a },
 				{ 'amsterdam-1625/project.json': SHA.a }
 			)
-		).toBe('changes-to-publish');
+		).toBe('changes-to-send');
 	});
 
-	it('reports Update available for a Remote-only change', () => {
+	it('reports Changes to get for a Remote-only change', () => {
 		expect(
 			status(
 				{ 'amsterdam-1625/project.json': SHA.a },
 				{ 'amsterdam-1625/project.json': SHA.b },
 				{ 'amsterdam-1625/project.json': SHA.a }
 			)
-		).toBe('update-available');
+		).toBe('changes-to-get');
 	});
 
-	it('reports Changes on both sides for safe changes at different paths', () => {
+	it('reports Changes both ways for safe changes at different paths', () => {
 		expect(
 			status(
 				{ 'amsterdam-1625/project.json': SHA.b, 'leiden-1640/project.json': SHA.a },
 				{ 'amsterdam-1625/project.json': SHA.a, 'leiden-1640/project.json': SHA.b },
 				{ 'amsterdam-1625/project.json': SHA.a, 'leiden-1640/project.json': SHA.a }
 			)
-		).toBe('changes-on-both-sides');
+		).toBe('changes-both-ways');
 	});
 
 	it('reports Conflict for one path changed differently on both sides', () => {
@@ -208,7 +208,7 @@ describe('compareWorkspace', () => {
 			)
 		);
 		expect(comparison.paths.map((path) => path.path)).toEqual(['amsterdam-1625/project.json']);
-		expect(comparison.status).toBe('up-to-date');
+		expect(comparison.status).toBe('in-sync');
 	});
 
 	// ── Published Site staleness ───────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ describe('compareWorkspace', () => {
 				{ 'amsterdam-1625/project.json': SHA.a }
 			)
 		);
-		expect(comparison.status).toBe('up-to-date');
+		expect(comparison.status).toBe('in-sync');
 		expect(comparison.publishedSiteStale).toEqual([
 			'_app/immutable/entry/app.new.js',
 			'_app/immutable/entry/app.old.js'
@@ -335,7 +335,7 @@ describe('prospective graph validation', () => {
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
 		// The Alignment alone is a local-only addition, so the graph is sound.
-		expect(comparison.status).toBe('changes-to-publish');
+		expect(comparison.status).toBe('changes-to-send');
 		expect(comparison.graph.outcome).toBe('valid');
 
 		// A Project with no Layers at all, so the only thing left to object to is the Alignment.
@@ -397,7 +397,7 @@ describe('prospective graph validation', () => {
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
 		expect(comparison.graph.outcome).toBe('valid');
-		expect(comparison.status).toBe('up-to-date');
+		expect(comparison.status).toBe('in-sync');
 	});
 
 	it('is an operation failure, not Conflict, when a Remote project.json will not parse', async () => {
@@ -412,7 +412,7 @@ describe('prospective graph validation', () => {
 		if (comparison.graph.outcome !== 'failed') throw new Error('expected an operation failure');
 		expect(comparison.graph.failures.map((failure) => failure.kind)).toEqual(['malformed']);
 		expect(comparison.status).not.toBe('conflict');
-		expect(comparison.status).not.toBe('up-to-date');
+		expect(comparison.status).not.toBe('in-sync');
 	});
 
 	it('is an operation failure when a Remote project.json is from a newer format', async () => {
@@ -448,7 +448,7 @@ describe('prospective graph validation', () => {
 			)
 		);
 		expect(comparison.graph.outcome).toBe('not-checked');
-		expect(comparison.status).toBe('changes-to-publish');
+		expect(comparison.status).toBe('changes-to-send');
 	});
 });
 
@@ -794,7 +794,7 @@ describe('deliberate planning hashes the whole Workspace', () => {
 		// The passive check therefore reports one inbound change and no local drift at all, and a plan
 		// built from the same evidence would take the Remote's bytes over the author's own edit.
 		const passive = await checkSourceStatus({ changes: managed, remote, baseline });
-		expect(passive.status).toBe('update-available');
+		expect(passive.status).toBe('changes-to-get');
 		expect(passive.written).toEqual([]);
 		const inbound = await gitBlobSha(encode('{"features":[{"id":1}]}\n'));
 		const stale = planWorkspaceSync({ local: shared, remote, baseline });

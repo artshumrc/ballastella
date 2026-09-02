@@ -511,12 +511,12 @@ test.describe('the fit happens once, on open', () => {
 		// 1. Hiding a Layer. The stack changes, the fallback chain's first branch changes with it, and a
 		//    reactive bounds would recompute and jump.
 		await rows(page).nth(1).getByTestId('layer-visible').uncheck();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toHaveText('Saved here');
 		await stillParked(page, 'after a Layer was hidden');
 
 		// 2. And showing it again.
 		await rows(page).nth(1).getByTestId('layer-visible').check();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toHaveText('Saved here');
 		await stillParked(page, 'after a Layer was shown again');
 
 		// 3. Renaming. Nothing about the geography changes, which is exactly why a refit here would be
@@ -526,7 +526,7 @@ test.describe('the fit happens once, on open', () => {
 		const renaming = await openLayerRow(page, rows(page).nth(0));
 		await renaming.getByTestId('layer-rename').click();
 		await renaming.getByTestId('layer-name').fill('The pins, renamed');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toHaveText('Saved here');
 		await stillParked(page, 'after a Layer was renamed');
 
 		// 4. Opening a Layer, which is what reveals the drawing tools — and is itself a change to the
@@ -540,7 +540,7 @@ test.describe('the fit happens once, on open', () => {
 		await page.getByTestId('annotation-new').click();
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(page.getByTestId('base-map-pane'), 0.5, 0.5);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByRole('status')).toHaveText('Saved here');
 		await stillParked(page, 'after an Annotation was drawn');
 	});
 

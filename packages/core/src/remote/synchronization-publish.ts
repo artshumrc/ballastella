@@ -31,7 +31,7 @@
 // coming back as somebody else's work.
 //
 // ⚠ **And the index is narrowed only under a Baseline that was kept.** Clearing marks with no
-// evidence to compare them against is `Cannot tell` reported as `Up to date` on the next check,
+// evidence to compare them against is `Cannot tell` reported as `In sync` on the next check,
 // which is the one direction that licenses an overwrite.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';

@@ -83,7 +83,7 @@ describe('LocalChangeIndex', () => {
 			true
 		);
 
-		// The local-only path an Update retained is still Changes to publish, and a reconstruction has
+		// The local-only path an Update retained is still Changes to send, and a reconstruction has
 		// to say so — this is the record that says the Remote has never seen it.
 		const expected = { written: ['atlas/annotations/notes.json'], deleted: [] };
 		expect(await changes.localChanges()).toEqual(expected);
@@ -174,27 +174,27 @@ describe('checkSourceStatus', () => {
 		expect(status.written).toEqual(['atlas/project.json']);
 	});
 
-	it('is Up to date when nothing has been written or deleted', async () => {
+	it('is In sync when nothing has been written or deleted', async () => {
 		const status = await checkSourceStatus({
 			changes: source(),
 			remote: [{ path: 'atlas/project.json', sha: 'b1' }],
 			baseline: baseline([['atlas/project.json', 'b1']])
 		});
 
-		expect(status.status).toBe('up-to-date');
+		expect(status.status).toBe('in-sync');
 	});
 
-	it('is Changes to publish for a written path the Remote still agrees with', async () => {
+	it('is Changes to send for a written path the Remote still agrees with', async () => {
 		const status = await checkSourceStatus({
 			changes: source(['atlas/project.json']),
 			remote: [{ path: 'atlas/project.json', sha: 'b1' }],
 			baseline: baseline([['atlas/project.json', 'b1']])
 		});
 
-		expect(status.status).toBe('changes-to-publish');
+		expect(status.status).toBe('changes-to-send');
 	});
 
-	it('is Changes to publish for a deleted path the Remote still holds at the Baseline', async () => {
+	it('is Changes to send for a deleted path the Remote still holds at the Baseline', async () => {
 		const status = await checkSourceStatus({
 			changes: source([], ['atlas/annotations/notes.json']),
 			remote: [
@@ -207,21 +207,21 @@ describe('checkSourceStatus', () => {
 			])
 		});
 
-		expect(status.status).toBe('changes-to-publish');
+		expect(status.status).toBe('changes-to-send');
 		expect(status.deleted).toEqual(['atlas/annotations/notes.json']);
 	});
 
-	it('is Update available for a Remote change the index knows nothing about', async () => {
+	it('is Changes to get for a Remote change the index knows nothing about', async () => {
 		const status = await checkSourceStatus({
 			changes: source(),
 			remote: [{ path: 'atlas/project.json', sha: 'r2' }],
 			baseline: baseline([['atlas/project.json', 'b1']])
 		});
 
-		expect(status.status).toBe('update-available');
+		expect(status.status).toBe('changes-to-get');
 	});
 
-	it('is Changes on both sides when the two changed different paths', async () => {
+	it('is Changes both ways when the two changed different paths', async () => {
 		const status = await checkSourceStatus({
 			changes: source(['atlas/annotations/notes.json']),
 			remote: [
@@ -234,7 +234,7 @@ describe('checkSourceStatus', () => {
 			])
 		});
 
-		expect(status.status).toBe('changes-on-both-sides');
+		expect(status.status).toBe('changes-both-ways');
 	});
 
 	it('is Conflict when one path changed on both sides, because it cannot compare the bytes', async () => {
@@ -245,7 +245,7 @@ describe('checkSourceStatus', () => {
 		});
 
 		// The two changes may well be identical. A passive check has no way to find out, and the
-		// deliberate pass hashes and may downgrade this — reporting `Up to date` over an unexamined
+		// deliberate pass hashes and may downgrade this — reporting `In sync` over an unexamined
 		// Conflict is the one direction there is no recovering from.
 		expect(status.status).toBe('conflict');
 	});
@@ -276,7 +276,7 @@ describe('checkSourceStatus', () => {
 			])
 		});
 
-		expect(status.status).toBe('changes-to-publish');
+		expect(status.status).toBe('changes-to-send');
 		expect(status.written).toEqual(['atlas/project.json']);
 		expect(status.deleted).toEqual(['atlas/annotations/notes.json']);
 		for (const spy of spies) expect(spy).not.toHaveBeenCalled();

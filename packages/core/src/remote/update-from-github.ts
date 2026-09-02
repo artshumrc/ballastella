@@ -486,7 +486,7 @@ export interface WorkspaceUpdate {
 	readonly replaced: readonly string[];
 	/** Paths the Remote no longer holds, removed here after the author confirmed it, sorted. */
 	readonly removed: readonly string[];
-	/** Local-only changes this Update left alone. Still Changes to publish afterwards. */
+	/** Local-only changes this Update left alone. Still Changes to send afterwards. */
 	readonly retained: readonly string[];
 	readonly totalFiles: number;
 	readonly totalBytes: number;
@@ -494,7 +494,7 @@ export interface WorkspaceUpdate {
 	 * The complete Baseline a successful Update may now record.
 	 *
 	 * ⚠ **The previous Baseline, advanced only where the two sides now share bytes.** A local-only
-	 * change keeps whatever the Baseline said about it, so it still reports as Changes to publish; a
+	 * change keeps whatever the Baseline said about it, so it still reports as Changes to send; a
 	 * path neither side holds any more is dropped. Recording the whole prospective
 	 * inventory instead would claim the author's unpublished work had been shared.
 	 */
@@ -636,7 +636,7 @@ export async function updateFromGitHub(
  *
  * ⚠ **Not the prospective inventory.** `toGet.advances` is exactly the paths the two sides now share
  * and `toGet.retires` exactly those neither holds; every other path keeps whatever the Baseline said,
- * which is what leaves a local-only change reporting as Changes to publish afterwards.
+ * which is what leaves a local-only change reporting as Changes to send afterwards.
  */
 function advancedBaseline(
 	previous: SynchronizationBaseline | null,

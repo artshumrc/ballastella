@@ -180,7 +180,7 @@ export const folderWorkspaceKey = (folderReference: string): string => `folder:$
  *
  * Untracked where there is no durable metadata store, exactly as the journal and the Baseline are:
  * a browser that will not keep a record cannot be given one, and its Remote Status reads
- * `Cannot tell` rather than a fabricated `Up to date`.
+ * `Cannot tell` rather than a fabricated `In sync`.
  */
 export function trackLocalChanges(
 	store: ProjectStore,

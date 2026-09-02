@@ -717,24 +717,22 @@ test.describe('publishing a Workspace', () => {
 	/**
 	 * The reason the word changed at all.
 	 *
-	 * Publish now means *send this Workspace to its Remote*, and the indicator sits beside that
-	 * button — so the bare word "Saved" conflated the two facts a scholar most needs kept apart. The
-	 * other two states keep their own words, because there is nowhere else for an unsaved edit to be.
+	 * A Sync sends this Workspace to its Remote and the indicator sits beside that control, so the
+	 * bare word "Saved" conflated the two facts a scholar most needs kept apart. The other two states
+	 * keep their own words, because there is nowhere else for an unsaved edit to be.
 	 */
-	test('reads “Saved locally” beside Publish, and is still the only status region', async ({
-		page
-	}) => {
+	test('reads “Saved here” beside Sync, and is still the only status region', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
 		// ⚠ **Strict-mode `getByRole('status')` is the assertion here, not a convenience.** A second
 		// `status` on the editor makes this throw, and a locator that has to be disambiguated is a hint
 		// that a screen-reader user would have to disambiguate as well (ADR-0016). One region carries
-		// both clauses of the badge (ADR-0041), which is why this reads the local one rather than the
+		// both clauses of the badge (ADR-0044), which is why this reads the local one rather than the
 		// whole line.
-		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved here');
 		// The one GitHub control, on Workspace Home — which is the screen a student meets before they
-		// have opened a Project, and the reason the door is on the bar rather than in a settings
-		// dialog (ADR-0041).
+		// have opened a Project, and the reason the control is on the bar rather than in a settings
+		// dialog (ADR-0044).
 		await expect(page.getByTestId('connect-to-github')).toBeVisible();
 
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
@@ -778,10 +776,10 @@ test.describe('publishing a Workspace', () => {
 				{ message: 'the indicator should pass through unsaved and saving, in its own words' }
 			)
 			.toEqual([
-				'saved=Saved locally',
+				'saved=Saved here',
 				'unsaved=Unsaved changes',
 				'saving=Saving…',
-				'saved=Saved locally'
+				'saved=Saved here'
 			]);
 	});
 });

@@ -257,7 +257,7 @@ describe('updateFromGitHub', () => {
 		const result = await update(store, fake, baseline);
 
 		// The inbound path is recorded at the Remote's SHA; the local-only path keeps the SHA the
-		// Baseline already had, which is what leaves it reporting as Changes to publish.
+		// Baseline already had, which is what leaves it reporting as Changes to send.
 		expect(result.baseline.get('images/map-1/0/0/1.jpg')).toBe(await gitBlobSha(encode(theirs)));
 		expect(result.baseline.get('amsterdam-1625/annotations/l2.geojson')).toBe(
 			baseline.files.get('amsterdam-1625/annotations/l2.geojson')

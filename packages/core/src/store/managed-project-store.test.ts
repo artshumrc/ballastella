@@ -9,8 +9,8 @@ import type { LocalChanges } from '../remote/local-change-index.js';
 // What this seam is for is the question "has anything in this Workspace changed since GitHub last saw
 // it?", answered without reading a Workspace that may be several gigabytes. So the tests are about
 // what does and does not earn a mark: only what succeeded, and only scholarship. A mark on a
-// published `_app/` chunk would make every Workspace read `Changes to publish` the moment it
-// published, and a *missing* mark is worse — it reports changed work as `Up to date`.
+// published `_app/` chunk would make every Workspace read `Changes to send` the moment it
+// published, and a *missing* mark is worse — it reports changed work as `In sync`.
 
 const WORKSPACE = 'opfs:Marking 2026';
 const FOLDER = 'folder:maps';

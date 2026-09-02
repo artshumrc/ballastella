@@ -751,7 +751,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 			.toEqual(['saved', 'unsaved', 'saving', 'saved']);
 
 		// And it is what a screen reader is given, not only what the attribute says.
-		await expect(indicator).toHaveText('Saved locally');
+		await expect(indicator).toHaveText('Saved here');
 
 		// And the store really has it: reloading shows the new name.
 		await page.reload();

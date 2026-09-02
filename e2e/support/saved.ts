@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // AND WHY NOT THE SAVE INDICATOR
 //
-// The obvious wait — `expect(page.getByRole('status')).toHaveText('Saved locally')` — is not one. The
+// The obvious wait — `expect(page.getByRole('status')).toHaveText('Saved here')` — is not one. The
 // indicator's whole sequence is **`saved → unsaved → saving → saved`** (measured, and asserted in
 // `editor-workspace.e2e.ts`; the three-state shape this file used to quote was wrong, and `unsaved`
 // is the 400 ms debounce window the tool spends telling the user it has not written yet). So "Saved"

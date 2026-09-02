@@ -7,7 +7,7 @@
 // own: synchronization stays one whole Workspace to at most one Remote (ADR-0038), and an Import is
 // a copy that keeps no relationship with where it came from (ADR-0037). The imported files cross the
 // managed store like any other write, so they are in the local-change index and the next Remote
-// Status reads `Changes to publish`; the next deliberate Publish carries them because Publish owns
+// Status reads `Changes to send`; the next deliberate Publish carries them because Publish owns
 // the whole Workspace namespace and has never needed to be told about a particular Project.
 //
 // So there are exactly two things a Remote adds to an Import, and both of them happen *before* the

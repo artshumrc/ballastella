@@ -459,7 +459,7 @@ async function verifiedSource(
 	// ⚠ **A declined Alignment is left out.** The Remote's bytes for it were never written — the
 	// Workspace kept the Alignment it already had for that Map Image — so recording the Remote's SHA
 	// would be a Baseline claiming the two sides share bytes that are not here, and the first status
-	// check would read `Up to date` over an Alignment GitHub has never seen. Absent, it is an
+	// check would read `In sync` over an Alignment GitHub has never seen. Absent, it is an
 	// unattributable path, which is what it is.
 	const withheld = new Set(declined);
 	const source = new Map<string, string>();

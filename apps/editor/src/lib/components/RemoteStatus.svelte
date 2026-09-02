@@ -1,20 +1,20 @@
 <script lang="ts">
-	// Whether GitHub agrees with this Workspace, in words, on every screen (ADR-0038).
+	// Whether GitHub agrees with this Workspace, in words, on every screen (ADR-0044).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// ONE BADGE, TWO CLAUSES, AND EVERYTHING ELSE ONE PRESS AWAY (ADR-0041)
+	// ONE BADGE, TWO CLAUSES, AND EVERYTHING ELSE ONE PRESS AWAY (ADR-0044)
 	//
 	// The bar answers *where is my work* once. `WhereYourWorkIs` is that badge and owns the bar's one
 	// `role="status"`; this supplies its GitHub clause, and holds the determination, the sentence, the
-	// time of the reading, the Baseline and the two gestures behind the disclosure beside it.
+	// time of the reading and the Baseline behind the disclosure beside it.
 	//
 	// ⚠ **The two clauses are always both present and never collapse into one word.** *Is my edit kept
 	// on this machine* and *does GitHub hold it too* are different questions with different remedies,
-	// and conflating them is how a scholar comes to believe a saved edit is a published one. The rule
-	// is kept in the text, where it does the work, rather than in two badges side by side, where it
-	// only cost height.
+	// and conflating them is how a scholar comes to believe a saved edit is a sent one. The rule is
+	// kept in the text, where it does the work, rather than in two badges side by side, where it only
+	// cost height.
 	//
-	// ⚠ **The check and the transfer are not here: they are on the Sync modal** (ADR-0041, ADR-0044).
+	// ⚠ **The check and the transfer are not here: they are on the Sync modal** (ADR-0044).
 	// Getting is the only way Remote work reaches a Workspace and an explicit check is the only status a
 	// signed-out author can get, so they moved rather than went — to the Sync modal, which reads both
 	// sides and shows what it found before it moves a byte. What stays here is what a get *says*: its
@@ -34,33 +34,37 @@
 	// either half of it — see `WhereYourWorkIs`.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// A PLAIN CLAUSE, AND SIX DETERMINATIONS BEHIND ONE PRESS
+	// A DIRECTION ON THE BADGE, THE DETERMINATION BEHIND ONE PRESS
 	//
-	// A newcomer's question is *is my work on GitHub?*, and `Changes on both sides` does not answer
-	// it at a glance. So the badge carries one plain sentence per determination and puts the
-	// determination's own name and its consequence behind a disclosure.
+	// The scholar's question is *is my work anywhere but this machine?*, and the only answer they can
+	// act on is which direction has something outstanding in it. So the clause says that — to send, to
+	// get, both ways, or nothing — and the determination's own name, the reading's time and the
+	// Baseline's commit sit behind a disclosure.
 	//
-	// ⚠ **The clause is a projection of the six and never a replacement for them.** Collapsing the
-	// determinations to a two-state indicator is refused: a boolean says "safe" during a Conflict and
-	// during `Cannot tell`, which is the class of misreading ADR-0032 designed out when it chose *not
-	// on the Front Page* over *unpublished*. The three leads that cannot promise agreement — Conflict,
-	// Changes on both sides, Cannot tell — say what is true instead, and none of them reads as work
-	// having reached GitHub.
+	// ⚠ **The repository is named in the agreeing clause and nowhere else** (ADR-0044). A name beside
+	// a state that is not agreement reports an intention rather than a fact, and the whole value of
+	// seeing it is that it is a fact — the bar reading *Synced with `owner/repo`* the moment a
+	// repository was connected, before a byte had moved, is what this replaces.
 	//
-	// ⚠ **`REMOTE_STATUS_LEADS` and `REMOTE_STATUS_DETAILS` live here and `REMOTE_STATUS_LABELS` does
-	// not.** The labels are the domain's own words and are shared, so a second surface cannot spell
-	// one of them differently; these two are this bar's phrasing of them for one reader in one place,
-	// and nothing else renders them.
+	// ⚠ **A Conflict reads as the both-directions row it is.** There is genuinely work outstanding in
+	// both directions, and which file the two sides contest is the determination's business rather
+	// than the badge's. What the clause may never do is promise agreement.
 	//
-	// ⚠ **The plain words available are *GitHub* and *publish*, and nothing else.** The glossary's
-	// *Publish* and *Remote* entries put the storage metaphors on their *Avoid* lists, and the reason
-	// is substantive rather than stylistic: a Publish mirrors an owned namespace and removes Projects
-	// the author deleted locally (ADR-0033), so it is not a copy kept somewhere safe and must not be
-	// worded as one. `remote-status.dom.test.ts` holds the list and reads this surface for it.
+	// ⚠ **`remoteStatusClauses` and `REMOTE_STATUS_DETAILS` live here and `REMOTE_STATUS_LABELS`
+	// does not.** The labels are the domain's own words and are shared, so a second surface cannot
+	// spell one of them differently; these two are this bar's phrasing of them for one reader in one
+	// place, and nothing else renders them.
+	//
+	// ⚠ **Git's vocabulary is not available here, and neither is *connected*.** `ahead` and `behind`
+	// name positions in a commit graph a scholar never opens, and being connected is not an
+	// achievement: it says a repository was chosen, not that any work reached it.
+	// `remote-status.dom.test.ts` holds the list and reads this surface for it.
 
 	import {
 		REMOTE_STATUS_LABELS,
 		REMOTE_STATUS_UNCHECKED,
+		describeRemote,
+		type RemoteRepository,
 		type RemoteStatusState,
 		type SaveState,
 		type SourceStatus,
@@ -80,6 +84,7 @@
 	 */
 	let {
 		saveState,
+		remote: repository,
 		state: remote,
 		baseline,
 		update,
@@ -88,6 +93,13 @@
 	}: {
 		/** The local clause of the one badge, passed straight through. */
 		saveState: SaveState;
+		/**
+		 * The repository this Workspace syncs with.
+		 *
+		 * Named on the badge only where the two sides agree, which is why it is a prop rather than
+		 * read off {@link baseline}: a Baseline is absent in exactly the state that must not name one.
+		 */
+		remote: RemoteRepository;
 		state: RemoteStatusState;
 		/** What this Workspace and GitHub last agreed on, or `null` when nothing here knows. */
 		baseline: SynchronizationBaseline | null;
@@ -100,36 +112,38 @@
 	} = $props();
 
 	/**
-	 * The plain answer to *is my work on GitHub?*, one per determination.
+	 * Which direction has something outstanding in it, one per determination.
 	 *
-	 * Each names GitHub, because that is the question being answered and the bar has no room to say so
-	 * twice. None of the three that cannot promise agreement — `conflict`, `changes-on-both-sides`,
-	 * `cannot-tell` — says the work is on GitHub, which is the whole reason a boolean was refused.
+	 * ⚠ **Only the agreeing clause names the repository**, and it is the only one that can: the other
+	 * five report a difference, and a repository named beside a difference says the Workspace was
+	 * pointed at it rather than that any work reached it (ADR-0044).
+	 *
+	 * ⚠ **`conflict` reads as the both-directions row it is.** There is work outstanding in both
+	 * directions and the badge says so; that one file is contested is the determination's own business
+	 * and is one press away.
 	 */
-	const REMOTE_STATUS_LEADS: Record<SourceStatus, string> = {
-		'up-to-date': 'Your work is on GitHub',
-		'changes-to-publish': 'Not all your work is on GitHub yet',
-		'update-available': 'GitHub has work this Workspace does not',
-		'changes-on-both-sides': 'This Workspace and GitHub have both changed',
-		conflict: 'This Workspace and GitHub disagree',
-		'cannot-tell': 'Ballastella cannot say whether your work reached GitHub'
-	};
+	const remoteStatusClauses: Record<SourceStatus, string> = $derived({
+		'in-sync': `in sync with ${describeRemote(repository)}`,
+		'changes-to-send': 'changes to send',
+		'changes-to-get': 'changes to get',
+		'changes-both-ways': 'changes both ways',
+		conflict: 'changes both ways',
+		'cannot-tell': "can't tell what's on GitHub"
+	});
 
 	/**
 	 * What the determination beside it means, and what the author can do about it.
 	 *
-	 * The two remedies named are the two gestures this bar already offers, Publish and Update from
-	 * GitHub. Nothing here names a remedy the reader cannot reach from the screen they are on.
+	 * The remedy named is the one gesture the bar offers, which is Sync. Nothing here names a remedy
+	 * the reader cannot reach from the screen they are on.
 	 */
 	const REMOTE_STATUS_DETAILS: Record<SourceStatus, string> = {
-		'up-to-date':
+		'in-sync':
 			'Everything in this Workspace has reached GitHub, and GitHub holds nothing this Workspace does not.',
-		'changes-to-publish':
-			'This Workspace has changes GitHub does not have. Publish sends them to GitHub.',
-		'update-available':
-			'GitHub has changes this Workspace does not have. Update from GitHub brings them in.',
-		'changes-on-both-sides':
-			'Different files changed here and on GitHub since the two last agreed. Update from GitHub first, then Publish.',
+		'changes-to-send': 'This Workspace has changes GitHub has not got. Sync sends them.',
+		'changes-to-get': 'GitHub has changes this Workspace has not got. Sync brings them in.',
+		'changes-both-ways':
+			'Different files changed here and on GitHub since the two last agreed. Sync moves both directions in one act.',
 		conflict:
 			'The same file changed here and on GitHub since the two last agreed, so neither side can be brought to the other without a choice.',
 		'cannot-tell':
@@ -139,29 +153,20 @@
 	/**
 	 * The seventh clause, which is the absence of a determination rather than one of the six.
 	 *
-	 * ⚠ **It names GitHub like the other six, and the determination behind the press does not.** The
-	 * badge's GitHub clause is always about GitHub, so a reader scanning one line never has to work out
-	 * which half of it a bare "Not checked yet" belonged to; `REMOTE_STATUS_UNCHECKED` is the domain's
-	 * own seventh sentence and is what the disclosure states, unchanged.
+	 * ⚠ **It is not one of the six and must not be projected onto them.** A signed-out author has
+	 * taken no reading yet: `in sync` would be a claim nothing here has made, and `Cannot tell` is a
+	 * *determination* about missing evidence rather than the absence of a determination. Naming the
+	 * gap is what makes the Sync control beside it mean something.
 	 */
-	const UNCHECKED_LEAD = 'GitHub has not been checked yet';
+	const UNCHECKED_CLAUSE = 'not checked yet';
 
 	/** What the seventh sentence means, for the reader who presses on it. */
 	const UNCHECKED_DETAIL =
-		'Nothing has been read from GitHub in this Workspace yet. Check Remote Status asks GitHub what it holds.';
+		'Nothing has been read from GitHub in this Workspace yet. Sync reads both sides and says what it found.';
 
-	/**
-	 * The lead, which is the GitHub half of the badge.
-	 *
-	 * ⚠ **`Not checked yet` is a seventh sentence and it is not one of the six.** A signed-out author
-	 * has taken no reading yet, and there is no honest way to project that onto the six: `Up to date`
-	 * would be a claim nothing here has made, and `Cannot tell` is a *determination* about missing
-	 * evidence rather than the absence of a determination. Naming the gap is what makes the button
-	 * beside it mean something — so it leads with itself rather than with a plain answer it does not
-	 * have.
-	 */
-	const lead = $derived(
-		remote.status === null ? UNCHECKED_LEAD : REMOTE_STATUS_LEADS[remote.status]
+	/** The GitHub half of the badge, which is the one this component supplies. */
+	const github = $derived(
+		remote.status === null ? UNCHECKED_CLAUSE : remoteStatusClauses[remote.status]
 	);
 
 	/**
@@ -169,26 +174,26 @@
 	 *
 	 * ⚠ **A check in flight or a check that failed is said *beside* the determination, never instead
 	 * of it.** A network failure, an expired credential or a spent hourly budget is not agreement, and
-	 * reported as `Up to date` it is the one reading that licenses publishing over somebody else's
-	 * work. The sentence saying which of those it was is in the stack, where it can be put away.
+	 * reported as agreement it is the one reading that licenses sending over somebody else's work. The
+	 * sentence saying which of those it was is in the stack, where it can be put away.
 	 */
 	const clause = $derived(
 		remote.checking
-			? `${lead} · Checking…`
+			? `${github} · Checking…`
 			: remote.failure === ''
-				? lead
-				: `${lead} · Check failed`
+				? github
+				: `${github} · Check failed`
 	);
 
 	/** Whether GitHub holds this Workspace's work, on the last reading that completed. */
-	const agreeing = $derived(remote.status === 'up-to-date' && remote.failure === '');
+	const agreeing = $derived(remote.status === 'in-sync' && remote.failure === '');
 
 	/** The determination, in the domain's own words, one press behind the badge. */
 	const label = $derived(
 		remote.status === null ? REMOTE_STATUS_UNCHECKED : REMOTE_STATUS_LABELS[remote.status]
 	);
 
-	/** The sentence behind the lead, beside the determination it explains. */
+	/** The sentence behind the clause, beside the determination it explains. */
 	const detail = $derived(
 		remote.status === null ? UNCHECKED_DETAIL : REMOTE_STATUS_DETAILS[remote.status]
 	);

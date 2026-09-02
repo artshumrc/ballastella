@@ -6,14 +6,15 @@
 // sees for each of the six — which is a claim about one badge, two clauses and one press, and needs
 // no browser.
 //
-// ⚠ **The three cautionary determinations are asserted negatively as well as positively.** A lead
-// that read as agreement during a Conflict is the misreading the whole design exists to refuse, and
-// an assertion that only checked the exact string would keep passing after somebody softened it.
+// ⚠ **The table is asserted whole rather than row by row in scattered tests.** ADR-0044 settles what
+// each situation reads as, and the failure worth catching is a row that drifted out of agreement with
+// its neighbours — a repository named where the two sides do not agree, or a direction dropped.
 
 import {
 	REMOTE_STATUS_LABELS,
 	REMOTE_STATUS_UNCHECKED,
 	UNCHECKED_REMOTE_STATUS,
+	type RemoteRepository,
 	type RemoteStatusState,
 	type SourceStatus,
 	type SynchronizationBaseline
@@ -24,6 +25,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { toasts } from '$lib/toasts/toasts.svelte.js';
 
 import RemoteStatus from './RemoteStatus.svelte';
+import WhereYourWorkIs from './WhereYourWorkIs.svelte';
 
 /** Every determination there is, so a seventh added to core arrives here as a failure. */
 const DETERMINATIONS = Object.keys(REMOTE_STATUS_LABELS) as SourceStatus[];
@@ -31,30 +33,51 @@ const DETERMINATIONS = Object.keys(REMOTE_STATUS_LABELS) as SourceStatus[];
 /**
  * The words the glossary's *Avoid* lists put out of reach on this surface.
  *
- * Substantive rather than stylistic: a Publish mirrors an owned namespace and removes Projects the
- * author deleted locally (ADR-0033), so calling it a backup would be a promise the code does not
- * keep.
+ * Substantive rather than stylistic: `ahead` and `behind` describe a commit graph the scholar never
+ * opens, *connected* and *up to date* report a relationship rather than whether the work is anywhere
+ * but this machine, and calling a Sync a backup would promise something a mirror of an owned
+ * namespace does not keep (ADR-0033, ADR-0044).
  */
 const FORBIDDEN = [
 	'backed up',
 	'back up',
 	'backup',
 	'the cloud',
-	'sync',
-	'in sync',
 	'ahead',
 	'behind',
-	'dirty'
+	'connected',
+	'up to date',
+	'dirty',
+	'diverged'
 ];
 
+const ATLAS: RemoteRepository = { owner: 'ada', repository: 'atlas', branch: 'main' };
+
 const BASELINE: SynchronizationBaseline = {
-	remote: { owner: 'ada', repository: 'atlas', branch: 'main' },
+	remote: ATLAS,
 	commit: 'c0ffee1',
 	files: new Map([
 		['projects/atlas/project.json', 'aaa'],
 		['projects/atlas/map.tif', 'bbb']
 	])
 };
+
+/**
+ * ADR-0044's table, verbatim, with `null` for the reading that has not been taken.
+ *
+ * ⚠ **`conflict` reads as the both-directions row it is.** The badge says which direction is
+ * outstanding, and a Conflict has work outstanding in both; that the two sides contest one file is
+ * the determination's own business and is one press away. Nothing here may promise agreement.
+ */
+const TABLE: readonly (readonly [SourceStatus | null, string])[] = [
+	['in-sync', 'Saved here · in sync with ada/atlas'],
+	['changes-to-send', 'Saved here · changes to send'],
+	['changes-to-get', 'Saved here · changes to get'],
+	['changes-both-ways', 'Saved here · changes both ways'],
+	['conflict', 'Saved here · changes both ways'],
+	['cannot-tell', "Saved here · can't tell what's on GitHub"],
+	[null, 'Saved here · not checked yet']
+];
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -74,6 +97,7 @@ function bar(
 		target: main,
 		props: {
 			saveState: 'saved',
+			remote: ATLAS,
 			state: { ...UNCHECKED_REMOTE_STATUS, ...state },
 			baseline: extra.baseline ?? null,
 			update: null,
@@ -83,6 +107,12 @@ function bar(
 	});
 	flushSync();
 }
+
+/** One determination's whole state, with a reading behind it where there is one to have. */
+const reading = (status: SourceStatus | null): Partial<RemoteStatusState> => ({
+	status,
+	at: status === null ? null : Date.parse('2026-08-27T10:00:00Z')
+});
 
 const at = (testid: string): HTMLElement | null =>
 	document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
@@ -102,78 +132,95 @@ function clear(): void {
 	document.body.innerHTML = '';
 }
 
-/** One determination's GitHub clause, from its own mount. */
-function clauseFor(status: SourceStatus): string {
-	bar({ status, at: Date.parse('2026-08-27T10:00:00Z') });
-	const clause = text('where-your-work-is');
+/** One determination's badge, from its own mount. */
+function badgeFor(status: SourceStatus | null): string {
+	bar(reading(status));
+	const badge = text('where-your-work-is');
 	clear();
-	return clause;
+	return badge;
 }
 
 describe('one badge, two clauses', () => {
-	test.each([...DETERMINATIONS, null])('%s keeps both clauses on the badge', (status) => {
-		bar({ status, at: status === null ? null : Date.parse('2026-08-27T10:00:00Z') });
+	test.each(TABLE)('%s reads as ADR-0044 says it reads', (status, expected) => {
+		bar(reading(status));
 
-		const badge = text('where-your-work-is');
-		// Where the work is kept here…
-		expect(badge).toContain('Saved locally');
-		// …and whether GitHub has it, in the same line and never in one word.
-		expect(badge).toContain('GitHub');
-		expect(badge.replace('Saved locally', '').replace(/[·\s]/g, '').length).toBeGreaterThan(1);
+		expect(text('where-your-work-is')).toBe(expected);
 	});
 
+	// ⚠ **The name is the report of a fact, and there is only one row where the fact holds.** Beside
+	// any other determination it says a repository was named rather than that work reached it.
+	test.each(TABLE.filter(([status]) => status !== 'in-sync'))(
+		'%s names no repository anywhere on the badge',
+		(status) => {
+			bar(reading(status), { baseline: BASELINE });
+
+			expect(at('where-your-work-is')?.outerHTML).not.toContain('ada/atlas');
+		}
+	);
+
 	test('is the only status region in the bar', () => {
-		bar({ status: 'up-to-date', at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading('in-sync'));
 
 		expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
 		expect(at('where-your-work-is')?.getAttribute('role')).toBe('status');
+	});
+
+	// ⚠ **Where the edit is kept and whether GitHub has it are different questions**, and a badge that
+	// answered one of them would be read as answering both.
+	test.each(TABLE)('%s keeps the local clause beside the GitHub one', (status) => {
+		bar(reading(status));
+
+		const badge = text('where-your-work-is');
+		expect(badge.startsWith('Saved here · ')).toBe(true);
+		expect(badge.slice('Saved here · '.length).length).toBeGreaterThan(1);
 	});
 
 	test('says the reading has not been taken rather than projecting one of the six', () => {
 		bar();
 		press('remote-status-explain');
 
-		// Named as GitHub's on the badge, and as the domain's own seventh sentence behind the press.
-		expect(text('where-your-work-is')).toMatch(/GitHub has not been checked/i);
 		expect(text('remote-status-determination')).toBe(REMOTE_STATUS_UNCHECKED);
 	});
 
-	test.each(DETERMINATIONS)(
-		'%s leads with a plain answer rather than the determination',
+	test.each(['conflict', 'changes-both-ways', 'cannot-tell'] as const)(
+		'%s does not read as the two sides agreeing',
 		(status) => {
-			bar({ status, at: Date.parse('2026-08-27T10:00:00Z') });
+			const agreement = badgeFor('in-sync');
+			const badge = badgeFor(status);
 
-			// Not the determination's own label: that is what the press is for.
-			expect(text('where-your-work-is')).not.toContain(REMOTE_STATUS_LABELS[status]);
-		}
-	);
-
-	test.each(['conflict', 'changes-on-both-sides', 'cannot-tell'] as const)(
-		'%s does not read as work being safe on GitHub',
-		(status) => {
-			const agreement = clauseFor('up-to-date');
-			const clause = clauseFor(status);
-
-			expect(clause).not.toBe(agreement);
-			expect(clause).not.toMatch(/\bis on GitHub\b/i);
+			expect(badge).not.toBe(agreement);
+			expect(badge).not.toMatch(/in sync/i);
 		}
 	);
 
 	test('keeps the determination readable by a spec without putting it on screen', () => {
-		bar({ status: 'conflict', at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading('conflict'));
 
 		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe('conflict');
+		expect(text('where-your-work-is')).not.toContain(REMOTE_STATUS_LABELS.conflict);
+	});
+});
+
+// ⚠ **A status about a repository that does not exist is a status about nothing** (ADR-0044). The
+// bar offers Sync with GitHub instead, and `RemoteStatus` is not mounted at all — but the clause that
+// says whether the edit reached this machine is not the GitHub clause and does not go with it
+// (ADR-0017 rule 5).
+describe('a Workspace with no repository', () => {
+	test('is the local clause alone, carrying no GitHub clause and no determination', () => {
+		const main = document.createElement('main');
+		document.body.append(main);
+		mounted = mount(WhereYourWorkIs, { target: main, props: { saveState: 'saved' } });
+		flushSync();
+
+		expect(text('where-your-work-is')).toBe('Saved here');
+		expect(at('where-your-work-is')?.dataset.remoteStatus).toBeUndefined();
+		expect(at('remote-status-explain')).toBeNull();
 	});
 });
 
 describe('everything else, one press away', () => {
 	test('holds nothing until the disclosure is pressed, and all four after', () => {
-		bar(
-			{ status: 'changes-to-publish', at: Date.parse('2026-08-27T10:00:00Z') },
-			{
-				baseline: BASELINE
-			}
-		);
+		bar(reading('changes-to-send'), { baseline: BASELINE });
 
 		expect(at('remote-status-detail')).toBeNull();
 		expect(at('remote-status-determination')).toBeNull();
@@ -184,27 +231,26 @@ describe('everything else, one press away', () => {
 		press('remote-status-explain');
 
 		expect(at('remote-status-explain')?.getAttribute('aria-expanded')).toBe('true');
-		expect(text('remote-status-determination')).toContain('Changes to publish');
-		expect(text('remote-status-detail')).toContain('Publish sends them to GitHub');
+		expect(text('remote-status-determination')).toContain('Changes to send');
+		expect(text('remote-status-detail')).toContain('Sync sends them');
 		expect(text('remote-status-checked')).toContain('Checked at');
 		expect(text('remote-status-baseline')).toContain(BASELINE.commit);
 		expect(text('remote-status-baseline')).toContain('2 files');
 	});
 
 	test('leaves the Baseline line out when there is no Baseline', () => {
-		bar({ status: 'cannot-tell', at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading('cannot-tell'));
 		press('remote-status-explain');
 
 		expect(at('remote-status-determination')).not.toBeNull();
 		expect(at('remote-status-baseline')).toBeNull();
 	});
 
-	// ⚠ **The two gestures are behind the door and not here** (ADR-0041). This panel is the reading:
+	// ⚠ **The gestures are on the Sync modal and not here** (ADR-0044). This panel is the reading:
 	// what the determination is, what it means, when it was taken and what the two sides last agreed
-	// on. What to *do* about any of it is one surface, reached from the bar's one GitHub control, and
-	// `connect-to-github.dom.test.ts` is where their presence is asserted.
+	// on. What to *do* about any of it is one surface, reached from the bar's one GitHub control.
 	test('offers no gesture of its own, in either state of the disclosure', () => {
-		bar({ status: 'up-to-date', at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading('in-sync'));
 
 		expect(at('check-remote-status')).toBeNull();
 		expect(at('update-from-github')).toBeNull();
@@ -216,7 +262,7 @@ describe('everything else, one press away', () => {
 	});
 
 	test.each(DETERMINATIONS)('%s has both a label and a sentence behind the press', (status) => {
-		bar({ status, at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading(status));
 		press('remote-status-explain');
 
 		const detail = text('remote-status-detail');
@@ -226,7 +272,7 @@ describe('everything else, one press away', () => {
 	});
 
 	test('closes again on a second press', () => {
-		bar({ status: 'up-to-date', at: Date.parse('2026-08-27T10:00:00Z') });
+		bar(reading('in-sync'));
 
 		press('remote-status-explain');
 		press('remote-status-explain');
@@ -235,20 +281,19 @@ describe('everything else, one press away', () => {
 	});
 });
 
-// ⚠ **A network failure is not agreement.** Reported as `Up to date` it is the one reading that
-// licenses publishing over somebody else's afternoon, and reported as a Conflict resolved it is the
+// ⚠ **A network failure is not agreement.** Reported as `In sync` it is the one reading that
+// licenses sending over somebody else's afternoon, and reported as a Conflict resolved it is the
 // one that licenses believing a Conflict is over.
 describe('a check that failed', () => {
-	test.each(['up-to-date', 'conflict'] as const)('%s keeps the determination it had', (status) => {
-		bar({ status, at: Date.parse('2026-08-27T10:00:00Z') });
+	test.each(['in-sync', 'conflict'] as const)('%s keeps the determination it had', (status) => {
+		bar(reading(status));
 		press('remote-status-explain');
 		const determination = text('remote-status-determination');
 		const checked = text('remote-status-checked');
 		clear();
 
 		bar({
-			status,
-			at: Date.parse('2026-08-27T10:00:00Z'),
+			...reading(status),
 			failure: 'GitHub could not be reached, so the status below is the last one read.'
 		});
 		press('remote-status-explain');
@@ -263,11 +308,7 @@ describe('a check that failed', () => {
 // names, so this is routinely true of a Workspace whose scholarship agrees with its Remote exactly.
 describe('a Published Site built from other files', () => {
 	test('is its own message rather than a determination', () => {
-		bar({
-			status: 'up-to-date',
-			at: Date.parse('2026-08-27T10:00:00Z'),
-			publishedSiteStale: ['index.html', 'app.js']
-		});
+		bar({ ...reading('in-sync'), publishedSiteStale: ['index.html', 'app.js'] });
 		press('remote-status-explain');
 
 		// A message the reader can put away, drawn in the app's one stack rather than in the bar.
@@ -276,19 +317,16 @@ describe('a Published Site built from other files', () => {
 		expect(stale?.tone).toBe('info');
 
 		// And the determination beside it is untouched by it.
-		expect(text('remote-status-determination')).toBe(REMOTE_STATUS_LABELS['up-to-date']);
-		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe('up-to-date');
+		expect(text('remote-status-determination')).toBe(REMOTE_STATUS_LABELS['in-sync']);
+		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe('in-sync');
 	});
 });
 
-describe('the vocabulary', () => {
+describe('the words the badge uses', () => {
 	test.each([...DETERMINATIONS, null])(
 		'%s says none of the words the glossary refuses',
 		(status) => {
-			bar(
-				{ status, at: status === null ? null : Date.parse('2026-08-27T10:00:00Z') },
-				{ baseline: BASELINE }
-			);
+			bar(reading(status), { baseline: BASELINE });
 			press('remote-status-explain');
 
 			const surface = (document.body.textContent ?? '').toLowerCase();
