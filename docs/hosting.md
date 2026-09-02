@@ -1,14 +1,14 @@
-# Hosting Ballastella, and publishing what you make with it
+# Hosting Ballastella, and sharing what you make with it
 
 There are two different jobs here, done by two different people, and they produce two different
 sites. Keeping them apart is most of understanding this document.
 
-| | **Hosting the tool** | **Publishing your work** |
+| | **Hosting the tool** | **Keeping and sharing your work** |
 | --- | --- | --- |
 | Who | An instructor or department who wants their own instance | Any scholar or student using one |
-| What is served | The editor — the authoring application | A Workspace — your Projects, as a website |
+| What is served | The editor — the authoring application | A Workspace — your Projects, and optionally a site |
 | Where it comes from | A fork of this repository, built by CI | Your Workspace folder, sent by the editor |
-| How often it changes | When you pull upstream changes | Every time you publish |
+| How often it changes | When you pull upstream changes | Every time you sync |
 
 They are **separate repositories**, deliberately. One instance of the tool serves any number of
 people, and each person's work lives in a repository they own. See
@@ -54,8 +54,8 @@ Your instance is then at `https://<your-name>.github.io/<your-fork>/`.
 
 That address is a *subdirectory*, not a domain root, and everything in both apps is built for it:
 asset paths are relative, and CI greps the built output to keep them that way
-([ADR-0006](adr/0006-the-project-directory-is-the-published-site.md)). A custom domain works the
-same way with no reconfiguration — set it under **Settings → Pages → Custom domain** and rebuild.
+([ADR-0045](adr/0045-a-repository-holds-the-work-and-a-site-is-asked-for.md)). A custom domain works
+the same way with no reconfiguration — set it under **Settings → Pages → Custom domain** and rebuild.
 
 ### 4. Decide about the Base Map
 
@@ -142,23 +142,23 @@ stops working.
 
 ### 6. Decide about the GitHub sign-in
 
-Publishing needs a GitHub credential, and there are two ways for a scholar to give the editor one.
+Sending work to GitHub needs a credential, and there are two ways for a scholar to give the editor one.
 
 **The paste always works, and needs nothing from you.** A scholar makes a fine-grained personal
-access token on GitHub, pastes it behind *Connect to GitHub* on the editor's bar, and publishes. No
+access token on GitHub, pastes it behind *Sync with GitHub* on the editor's bar, and syncs. No
 server is involved, no configuration, and no account of yours. **If you do nothing at all in this
-section, this is your fork's whole authentication and everything still works** — the publish path,
+section, this is your fork's whole authentication and everything still works** — the sync path,
 its speed, and where the data goes are identical either way.
 
 **It is the door offered where there is no App, and only there.** The three values below decide which
 of the two a scholar is shown, and they are never shown both: a person asked to choose between two
 credentials has no way to tell which one is meant for them, and one of the two sends them off to
-generate a secret. So where an App is configured, *Connect to GitHub* leads to the sign-in and no
+generate a secret. So where an App is configured, *Sync with GitHub* leads to the sign-in and no
 token field appears anywhere on the screen a student meets. The one exception is a disclosure on the
 door itself — *Signing in will not work for me* — which starts closed and puts nothing in the page
 until it is pressed. That is the way back in for an instructor whose App installation has broken
 mid-class, and it is worded for somebody who already knows what they are asking for. Where the three
-values are empty, *Connect to GitHub* leads straight to the paste, with the guidance a fork's author
+values are empty, *Sync with GitHub* leads straight to the paste, with the guidance a fork's author
 needs, and no sign-in button is shown at all.
 
 **The nicer front door** is a button: press *Sign in with GitHub*, install the App and authorise it
@@ -251,7 +251,7 @@ it belongs to and a fence on the word alone would refuse the project's own packa
 
 Set all three values to the empty string. The button disappears entirely — rather than sitting there
 leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again, and
-the front door of the guided sequence: *Connect to GitHub* opens on the repository address and the
+the front door of the guided sequence: *Sync with GitHub* opens on the repository address and the
 token rather than on a sign-in nobody can complete.
 `pnpm lint` then reports `NO GITHUB APP CONFIGURED` instead of a containment scan, which is a
 deliberately different line: a fence with nothing to look for must not print the same success message
@@ -298,42 +298,40 @@ reason to keep the fork current.
 
 ---
 
-## Part 2 — Publishing your Workspace
+## Part 2 — Syncing your Workspace, and sharing what is in it
 
-Your Workspace is a folder on your computer holding your Projects. To **Publish** is to send that
-folder's files to its **Remote** — the one GitHub repository the Workspace is bound to — so that the
-**Published Site** at that address becomes your work as it now stands. There is no `git` to learn and
-nothing to install: the editor talks to GitHub from the browser.
+Your Workspace is a folder on your computer holding your Projects. To **Sync** is to bring that folder
+and its **Remote** — the one GitHub repository your Workspace is connected to — into agreement, in
+whichever direction the difference lies. There is no `git` to learn and nothing to install: the editor
+talks to GitHub from the browser.
 
-Publishing **adds** files to that same folder and copies none of your data, not one tile
-([ADR-0006](adr/0006-the-project-directory-is-the-published-site.md)). It is never automatic: your
-edits are saved to your own disk as you make them; nothing reaches the Remote until you press the
-button ([ADR-0032](adr/0032-publish-means-the-remote.md)).
+Syncing moves your files and nothing else. Whether your work also answers at a web address is a
+separate question with a separate answer, and part 2 reaches it at step 5.
 
-### Read this before your first publish: everything there is public
-
-The Remote is a public repository, and everything in it can be read by anyone who has the address —
-every Project, every Map Image, every annotation.
-
-**A Project you keep off the Front Page is still readable by anyone with the link.** The Front Page
-is the site's front door, listing the Projects a Reader arriving there is offered; taking a Project
-off it is an editorial decision about that list and nothing more. It is not a lock, not a password,
-and not an embargo. Do not put material there that is under embargo, under licence, or otherwise not
-yet yours to hand to a stranger.
-
-### 1. Make an empty repository on GitHub
+### 1. Make a repository on GitHub
 
 The editor offers you a link to `github.com/new` with the name already filled in from your Workspace.
-Choose **Public**, add nothing to it — no README, no `.gitignore`, no licence — and create it. A
-repository with nothing in it is what a first Publish expects.
+Add nothing to it — no README, no `.gitignore`, no licence — and create it.
 
 One repository for the whole Workspace, not one per Project.
 
-### 2. Bind your Workspace to it
+**Public or private is your choice, and it decides one thing.** A private repository syncs exactly
+like a public one. What it costs you is that **Share Links** need GitHub Pages, and Pages on a private
+repository requires a paid GitHub plan; on a free account it is available on public repositories only.
+It also means nobody can take a copy of your Workspace from the repository without being signed in and
+given access, which for a class or a collaborator is sometimes what you want and sometimes the thing
+in the way.
 
-In the editor: **Connect to GitHub** on the bar. What that opens depends on the instance. Where a
-GitHub App is configured it walks you through signing in and then lists the repositories you have
-given the app access to, and binding is pressing the one you want. Where none is, it asks for the
+**A public repository is public from the moment you sync to it**, whether or not you ever turn Share
+Links on — every Project, every Map Image, every annotation, readable by anyone who has the address.
+Do not put material there that is under embargo, under licence, or otherwise not yet yours to hand to
+a stranger.
+
+### 2. Connect your Workspace to it
+
+In the editor: **Sync with GitHub** on the bar. What that opens depends on the instance. Where a GitHub
+App is configured it walks you through signing in and then lists the repositories you have given the
+app access to, and connecting is pressing the one you want. Where none is, it asks for the
 repository's address and a token.
 
 **A pasted token always works, on any instance.** Make a fine-grained personal access token on
@@ -348,55 +346,136 @@ Four things on that form matter:
   cannot see it — and the symptom is a repository that appears not to exist.
 - **Repository access.** Choose *Only select repositories*, and select that one repository.
 - **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
-  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*. Turning your
-  Published Site on is a separate act with its own button, and step 4 says what that additionally
-  needs.
-- **Expiration.** Whatever you are comfortable with. When it expires, publishing says so and you make
+  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*. Contents is all
+  a Sync needs; Pages matters only at step 5.
+- **Expiration.** Whatever you are comfortable with. When it expires, the editor says so and you make
   another one.
 
 Copy the token on the screen that follows — that is the only time GitHub shows it — and paste it into
-the field *Connect to GitHub* asks for it in.
+the field the editor asks for it in.
 
 **Where there is a *Sign in with GitHub* button, its being there does not mean it works.** The button
-appears whenever the instance has all three App values filled in, and a fork inherits the ones
-it was forked from — which name an App that will only ever redirect to the instance those values
-belong to. So on such a fork the button is on screen and the attempt fails with a sentence telling
-you to paste a token instead. Only an instance that registered its own GitHub App and deployed a
-broker can complete that sign-in (part 1, step 6). If you do not know which kind of instance you are
-on, paste a token: it is the same publish either way, and where the button is there the paste is
-behind *Signing in will not work for me* on the same screen.
+appears whenever the instance has all three App values filled in, and a fork inherits the ones it was
+forked from — which name an App that will only ever redirect to the instance those values belong to.
+So on such a fork the button is on screen and the attempt fails with a sentence telling you to paste a
+token instead. Only an instance that registered its own GitHub App and deployed a broker can complete
+that sign-in (part 1, step 6). If you do not know which kind of instance you are on, paste a token: it
+is the same Sync either way, and where the button is there the paste is behind *Signing in will not
+work for me* on the same screen.
+
+**Getting needs no credential; sending does.** If all you want is a copy of somebody's public
+Workspace — an instructor's, say — make an empty Workspace, connect it to their repository by
+address, and get. No GitHub account is involved. A credential is needed to send, and to touch a
+private repository at all.
 
 **A pasted token is forgotten when you close the tab.** It is kept in the browser tab's own storage,
-never in your Workspace — a token in the Workspace would leave your machine inside the next publish,
-or inside an archive you sent a colleague. Reloading the page keeps it; closing the tab, or coming
-back tomorrow, means pasting it again. There is no way to keep one longer, because a pasted token has
-no renewable half.
+never in your Workspace — a token in the Workspace would leave your machine inside the next Sync, or
+inside an archive you sent a colleague. Reloading the page keeps it; closing the tab, or coming back
+tomorrow, means pasting it again. There is no way to keep one longer, because a pasted token has no
+renewable half.
 
-**A sign-in is forgotten when you close the tab too, unless the person using it asks otherwise.**
-*Connect to GitHub* carries *Keep me signed in on this computer*, unticked until somebody ticks it, so
-a shared or library machine keeps nothing of a sign-in unless the person at it says otherwise. Where it
-is ticked, this installation keeps the part that renews the sign-in and never the part that publishes,
-in storage no Backup packs and no Publish uploads.
+**A sign-in is forgotten when you close the tab too, unless the person using it asks otherwise.** The
+sign-in screen carries *Keep me signed in on this computer*, unticked until somebody ticks it, so a
+shared or library machine keeps nothing unless the person at it says otherwise. Where it is ticked,
+this installation keeps the part that renews the sign-in and never the part that writes, in storage no
+Backup packs and no Sync uploads.
 
-The **binding** is the part that persists. Binding checks that the credential can actually write to
-that repository before it keeps anything, so a mistyped address or a token without the rights is
-refused there and then rather than half way through an upload. A Workspace has at most one Remote,
-and the binding is recorded in a `remote.json` in the Workspace itself, so it travels with the folder
-— copy the Workspace to another machine and it still knows where it publishes, and still asks you for
-a credential.
+**The connection is the part that persists, and it stays on this computer.** Connecting checks that
+the credential can actually write to that repository before it keeps anything, so a mistyped address
+or a token without the rights is refused there and then rather than half way through an upload. A
+Workspace has at most one Remote, and which repository that is, is remembered by this browser rather
+than written into the folder — so a Workspace copied to another machine arrives unconnected, and you
+connect it there. That is deliberate: a copied or forked repository cannot silently claim a Workspace
+that was never sent to it.
 
-### 3. Press Publish
+### 3. Sync
 
-**Publish…**, behind the navigation bar's one GitHub control — the one that names your repository.
-Everything about GitHub is behind it: connecting, publishing, **Update from GitHub** and **Check
-Remote Status**. The dialog tells you how many files and how many bytes it is
-about to send, how many Projects the Published Site will carry and how many of those the Front Page
-lists, and warns you about anything that would disappoint a Reader — a Project that references
-images from a Library, for instance, which a Reader with no network will not see.
+**Sync**, on the navigation bar. It never sends or fetches anything on the press: it reads both sides
+and opens on what it found, in two columns —
 
-The editor writes the read-only viewer, the Front Page, and `.nojekyll` in beside your Projects, and
-sends the whole Workspace as a single commit. Nothing on your **Published Site** changes until that
-commit lands, so a publish that fails half way through leaves it exactly as the last one left it.
+- **To get**, listing what is on GitHub that your Workspace has not got.
+- **To send**, listing what your Workspace has that GitHub has not got.
+
+— with, under each, exactly what would be *removed* from that side, named. Then four choices:
+
+| | |
+| --- | --- |
+| **Get changes** | Bring GitHub's side in. Nothing of yours leaves. |
+| **Send changes** | Send your side out. Nothing comes in. |
+| **Get and send** | Both. |
+| **Overwrite the repository** | Make the repository match your Workspace exactly, deleting whatever it has that you have not. |
+
+**Send never deletes work you have not seen.** It removes from the repository only files that were
+there the last time the two sides agreed and that you have since deleted. Something a collaborator, or
+your other laptop, added after that is left alone and comes down on your next *get*. The first sync of
+a Workspace deletes nothing at all in either direction, because there is no record of a previous
+agreement to judge a deletion against.
+
+**Overwrite is the one that can lose somebody else's work**, which is why it is set apart, why it
+names the files it would remove before it will do it, and why it insists on a confirmation where the
+repository is not solely yours. What it replaces stays in the repository's Git history, which is a
+consolation rather than a plan.
+
+Everything goes as a single commit. Nothing on GitHub changes until that commit lands, so a Sync that
+fails half way through leaves the repository exactly as the last one left it.
+
+**When the same file has changed on both sides**, the Sync does not stop. Everything that can be moved
+safely moves, and the contested file becomes a second copy so that you can look at both and delete
+one: a contested set of annotations arrives as another Layer, `… (from GitHub)`; a contested Project
+arrives as another Project. The copy goes to both sides, so your other machine sees the pair too.
+Ballastella never merges the two and never picks between them.
+
+**An Alignment is the exception.** There is one Alignment per Map Image, so a second file would be a
+copy you could never look at. There the editor asks you directly — keep yours, or take the one from
+GitHub — showing how many control points each has and when each was made.
+
+### 4. Syncing again
+
+Press **Sync** again. Only what changed moves — files the other side already holds are not sent or
+fetched a second time — so an ordinary sync after an afternoon's work takes seconds.
+
+A Project deleted from your Workspace is removed from the repository on your next send, with the tiles
+only it used. Files you put in the repository yourself and the editor knows nothing about — a `CNAME`,
+a `README.md`, a `docs/` folder — are left alone
+([ADR-0033](adr/0033-a-sync-mirrors-an-owned-namespace.md)). This is the one-repository-per-semester
+workflow: connect once, sync all term. The one thing you do repeat is the credential — it goes when
+the tab closes, so a send in a fresh tab asks you to paste your token again (step 2).
+
+The bar tells you where things stand without your asking, and names your repository only when the two
+sides actually agree: *in sync with `you/your-repo`*, or *changes to send*, *changes to get*, *changes
+both ways*.
+
+### 5. Share Links: giving your work an address
+
+Everything so far has moved files. **Share Links** is what gives them a web address, so that a Project
+can be opened by a link. It is optional, it is asked for once, and it lives in your Workspace's own
+settings — or it offers itself the first time you press **Share Project** on a Project without it.
+
+**Read this before you turn it on.** With Share Links your repository also serves a website, and
+anything in the repository can be fetched from it. A Project you keep off the Front Page is still
+readable by anyone with its link: the Front Page is the site's front door, listing the Projects a
+Reader arriving there is offered, and taking a Project off it is an editorial decision about that list
+and nothing more. It is not a lock, not a password, and not an embargo.
+
+Turning it on does two things: it adds the read-only viewer to your repository — written in beside
+your Projects, copying none of your data, not one tile — and it asks GitHub to turn Pages on.
+
+**GitHub will often refuse that second part, and the refusal is not about anything you did wrong.**
+GitHub requires **Pages: Read and write** *and* **Administration: Read and write** together to turn a
+site on for you, and Ballastella's GitHub App asks for the first and never the second — it will not
+ask for the right to rename, transfer, or delete your repositories
+([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)). A pasted
+token can carry both if you grant them; a sign-in never can.
+
+So where GitHub refuses, the editor hands you the one setting and waits: **Settings → Pages → Source →
+Deploy from a branch**, branch `main`, folder `/ (root)`. Set it, come back, and press **Check
+again** — the editor keeps asking GitHub until the site answers and then carries on by itself. It
+needs a branch to point at, so if your repository is still empty, sync once first; that is what makes
+the branch. You want the branch deploy here, because the site is already built. There is nothing to
+compile.
+
+Your site is then at `https://<your-name>.github.io/<your-repository>/`, and a single Project is at
+`…/?p=amsterdam-1625`. Those URLs are stable and citable.
 
 Afterwards your Workspace holds these entries beside your Projects:
 
@@ -404,95 +483,72 @@ Afterwards your Workspace holds these entries beside your Projects:
 workspace/
 ├── index.html              ← the Front Page, listing the Projects you put on it
 ├── _app/                   ← the read-only viewer
-├── ballastella-site.json   ← the Project list, and the Base Map settings the site was published with
-├── remote.json             ← which repository this Workspace publishes to
+├── ballastella-site.json   ← the Project list, and the Base Map settings the site was built with
 ├── .nojekyll               ← see below; do not delete it
 ├── amsterdam-1625/         ← your work, untouched
 └── boston-1775/            ← your work, untouched
 ```
 
 You can delete every one of them and each Project directory is still complete and readable, in
-standard formats, with no proprietary index left behind.
+standard formats, with no proprietary index left behind. Until you turn Share Links on, none of them
+exists and the repository holds your Projects and your Map Images and nothing else.
 
-### 4. Let other people see it
+**Turning Share Links off** takes the viewer out of the repository on your next sync and asks GitHub
+to turn the site off. It cannot undo what is already out: every link you have given anybody stops
+working, the address may keep answering from a cache for a while, and anything already fetched,
+forked, or archived is beyond reach. Your repository and your work are untouched. It is not a way to
+unpublish.
 
-Your repository is where the work lives. Whether anybody may *read* it at a web address is a separate
-question, and nothing answers it for you: connecting turns no site on, and never has anything to say
-about one.
+### 6. The Front Page, and sharing one Project
 
-The editor offers **Let other people see this** on the screen you land on once a repository is
-connected. Press it whenever you like — before your first publish or long after it.
+**A Project is on the Front Page only because you put it there.** New Projects are not, and nothing
+appears there by default. Open a Project's settings and turn on **Show on Front Page**; that is the
+only place it is set, and you can set it before you have Share Links at all, in which case it takes
+effect when you turn them on.
 
-**It will often be refused, and the refusal is not about anything you did wrong.** GitHub requires
-**Pages: Read and write** *and* **Administration: Read and write** together to turn a site on for
-you, and Ballastella's GitHub App asks for the first and never the second — it will not ask to
-administer your repositories
-([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)), so the pair
-GitHub wants is never complete for a sign-in. A pasted
-token can carry both if you grant them; a sign-in never can. Either way the editor says so and names
-what to click.
+**Share Project**, in the same settings, hands you that Project's link. It works whether or not the
+Project is on the Front Page — the Front Page is discovery, not permission. If that Project has work
+you have not sent yet, the editor offers to sync first, because a link that quietly serves last
+week's work is worse than a moment's wait.
 
-Doing it by hand is one setting, done once: **Settings → Pages → Source → Deploy from a branch**,
-branch `main`, folder `/ (root)`. It needs a branch to point at, so if your repository is still the
-empty one step 1 told you to make, publish once first — that is what makes the branch.
+A Front Page with nothing on it shows nothing at all.
 
-Here you *do* want the branch deploy, because the site is already built — what was sent is the
-website. There is nothing to compile.
+### The hourly request budget, and the sync it will not fit
 
-Your Published Site is then at `https://<your-name>.github.io/<your-repository>/`, and a single
-Project is at `…/?p=amsterdam-1625`. Those URLs are stable and citable; send them to anyone.
+GitHub allows an account **5 000 requests an hour**, and a sync spends roughly one on every file it has
+not moved before, plus a few to write the commit. This is a ceiling rather than a throttle: a sync that
+fits inside it runs at full speed and is done in minutes, and every sync after the first moves only
+what changed and takes seconds.
 
-### 5. Publish again whenever you like
+What it is not is something to wait out. If the budget runs out part way through, the sync **stops**
+and names the time it resets; nothing has been sent, because the branch has not moved. **Syncing again
+starts the upload from the beginning.** Nothing resumes: what was sent before the stop is in no commit,
+so the next attempt cannot see it and sends it again. A sync therefore either finishes inside one
+hour's budget or it does not finish at all — and the editor tells you which before it sends a byte.
 
-Press **Publish** again. Only what changed is uploaded — files the Remote already holds are not sent
-a second time — so an ordinary publish after an afternoon's work takes seconds.
+Syncing in stages — adding and sending part of your work at a time — helps only where each stage fits
+inside the budget on its own.
 
-A Project deleted from your Workspace is removed from the Remote, with the tiles only it used. Files
-you put in the repository yourself and the editor knows nothing about — a `CNAME`, a `README.md`, a
-`docs/` folder — are left alone
-([ADR-0033](adr/0033-a-publish-mirrors-an-owned-namespace.md)). This is the
-one-repository-per-semester workflow: set hosting up once, publish all term. The one thing you do
-repeat is the credential — it goes when the tab closes, so a publish in a fresh tab asks you to paste
-your token again (step 2). The Remote, the Pages setting, and everything already on the Published
-Site are untouched by that.
-
-### The hourly request budget, and the publish it will not fit
-
-GitHub allows an account **5 000 requests an hour**, and a publish spends roughly one on every file it
-has not sent before, plus a few to write the commit. This is a ceiling rather than a throttle: a
-publish that fits inside it runs at full speed and is done in minutes, and every publish after the
-first sends only what changed and takes seconds.
-
-What it is not is something to wait out. If the budget runs out part way through, publishing **stops**
-and names the time it resets; nothing has been published, because the branch has not moved and your
-Published Site is exactly as it was. **Publishing again starts the upload from the beginning.**
-Nothing resumes: what was sent before the stop is in no commit, so the next attempt cannot see it and
-sends it again. A publish therefore either finishes inside one hour's budget or it does not finish at
-all — and the editor tells you which before it sends a byte.
-
-Publishing in stages — adding and publishing part of your work at a time — helps only where each
-stage fits inside the budget on its own.
-
-**There is a case that has no answer today.** The smallest thing you can add is one Map Image,
-and a freshly tiled one is thousands of tiles: an image at the largest size the editor will take is
-roughly 11 000 of them. A single Map Image that large is more than one hour's budget in one
-indivisible step, and no order of publishing makes it smaller — so **a Workspace holding one may not
-be publishable to GitHub at all as things stand.** This is a known, recorded gap awaiting a decision
-rather than something to work around; see "Known gaps" below.
+**There is a case that has no answer today.** The smallest thing you can add is one Map Image, and a
+freshly tiled one is thousands of tiles: an image at the largest size the editor will take is roughly
+11 000 of them. A single Map Image that large is more than one hour's budget in one indivisible step,
+and no order of syncing makes it smaller — so **a Workspace holding one may not reach GitHub at all as
+things stand.** This is a known, recorded gap awaiting a decision rather than something to work
+around; see "Known gaps" below.
 
 ### The three limits, and what drives each
 
 | Limit | Roughly | Driven by |
 | --- | --- | --- |
-| Total bytes | **1 GB** for the whole site | offline Base Map tiles, ~150 kB each |
+| Total bytes | **1 GB** for the whole repository | offline Base Map tiles, ~150 kB each |
 | Total files | **40 000** | Map Image pyramids, which are thousands of small tiles each |
-| Requests an hour | **5 000** | a first publish, which sends every file once |
+| Requests an hour | **5 000** | a first sync, which moves every file once |
 
 The first two are properties of your Workspace; the third is a property of the hour you are in. You
 are told about all three before anything is uploaded rather than by a failure part way through: about
-bytes at the two moments that matter — before making an Offline Copy of a large map, and at publish
-([ADR-0008](adr/0008-projects-live-in-a-workspace.md)) — and about requests when you press Publish. A
-Workspace past the file ceiling is refused outright, because a publish over it is one GitHub would
+bytes at the two moments that matter — before making an Offline Copy of a large map, and when you sync
+([ADR-0008](adr/0008-projects-live-in-a-workspace.md)) — and about requests when you press Sync. A
+Workspace past the file ceiling is refused outright, because a tree over it is one GitHub would
 silently truncate.
 
 Two further notes if you are working near the limits:
@@ -505,25 +561,25 @@ Two further notes if you are working near the limits:
 
 ### What `.nojekyll` is, and why it must stay
 
-GitHub Pages, when deploying from a branch, runs your files through Jekyll — and Jekyll ignores
-every path beginning with `_`. The viewer lives in `_app/`. Without an empty `.nojekyll` file at the
-root of your site, GitHub would serve your Front Page and then refuse to serve any of the JavaScript
-in it: **a blank page, with the reason visible only in a browser's developer console.**
+GitHub Pages, when deploying from a branch, runs your files through Jekyll — and Jekyll ignores every
+path beginning with `_`. The viewer lives in `_app/`. Without an empty `.nojekyll` file at the root of
+your site, GitHub would serve your Front Page and then refuse to serve any of the JavaScript in it:
+**a blank page, with the reason visible only in a browser's developer console.**
 
-It is empty, and publishing writes it directly rather than copying it from anywhere — there are no
+It is empty, and the editor writes it directly rather than copying it from anywhere — there are no
 bytes in it to copy, and a file fetched over the network is a file that can 404.
 
-Publishing writes the file for you, into your Workspace and into **every** commit it sends to your
-Remote, whether or not your Workspace holds a copy — so in normal use you will never think about it.
-It is mentioned here because it is an empty file with a strange name, and empty files with strange
-names get tidied away.
+It is written for you into every commit that carries a site, whether or not your Workspace holds a
+copy, so in normal use you will never think about it. It is mentioned here because it is an empty file
+with a strange name, and empty files with strange names get tidied away.
 
 ### Other hosts
 
-A published Workspace is a directory of static files with no server-side anything, and it works at a
-domain root or in a subdirectory from the same bytes. Publish goes to GitHub, but the folder does not
-have to stay there: copy the Workspace to anywhere that serves files and the site works. `.nojekyll`
-is inert everywhere else — harmless, and worth keeping in case the folder later goes to Pages.
+A Workspace with Share Links is a directory of static files with no server-side anything, and it works
+at a domain root or in a subdirectory from the same bytes. A Sync goes to GitHub, but the folder does
+not have to stay there: copy the Workspace to anywhere that serves files and the site works.
+`.nojekyll` is inert everywhere else — harmless, and worth keeping in case the folder later goes to
+Pages.
 
 ---
 
@@ -541,16 +597,16 @@ is inert everywhere else — harmless, and worth keeping in case the folder late
   step 5, and [ADR-0029](adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md). The use is
   within that service's published policy, and a fork inherits it until it repoints
   `packages/core/src/places/service.ts`.
-- **A publish stopped by the hourly request budget starts again from the beginning, and a large
-  Map Image may therefore not be publishable at all** (part 2, "The hourly request budget").
+- **A sync stopped by the hourly request budget starts again from the beginning, and a large
+  Map Image may therefore never reach GitHub** (part 2, "The hourly request budget").
   What was uploaded before the stop is in no commit, so the next attempt sends it again and nothing
-  resumes. Publishing in stages is the remedy where the work divides into stages that each fit inside
+  resumes. Syncing in stages is the remedy where the work divides into stages that each fit inside
   5 000 requests; a single freshly tiled Map Image is roughly 11 000 tiles at the largest size
   the editor accepts, does not divide, and has no path to a GitHub Remote today. That is an open
   question awaiting a human decision, not an oversight — and the alternative, moving the branch to a
-  half-uploaded commit, would break the promise that a Published Site never changes until a publish
-  has wholly arrived.
-- **Publishing a single Project standalone** is not implemented. The Workspace is the site; a
+  half-uploaded commit, would break the promise that a repository never changes until a sync has
+  wholly arrived.
+- **A site holding a single Project alone** is not implemented. The Workspace is the site; a
   per-Project output is a deferred second mode (ADR-0008).
 - **Pretty per-Project URLs** (`/amsterdam-1625/` rather than `?p=amsterdam-1625`) are deferred, and
   additive when they arrive (ADR-0008).

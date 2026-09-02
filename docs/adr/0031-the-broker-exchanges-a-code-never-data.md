@@ -1,8 +1,8 @@
 # The broker exchanges a code, never data
 
-Publishing a Workspace to GitHub needs one server-side thing and one only: the exchange of an OAuth
+Syncing a Workspace with GitHub needs one server-side thing and one only: the exchange of an OAuth
 authorisation code for a token. Every other request — the tree listing, every blob, the commit, the
-ref update, every byte of a Clone — goes from the browser to GitHub directly.
+ref update, every byte coming down — goes from the browser to GitHub directly.
 
 This is a measured property rather than a hope:
 
@@ -45,14 +45,14 @@ about 3,700 tiles and 110 MB of packfile, so the proxy this design would need ca
 being provisioned. It would have to be a Cloudflare Worker or a container, and reuse across projects
 would then mean routing every project's repository data through one function.
 
-Blob-by-blob through the Git Data API is slower on the first Publish and needs its own ceiling
-(see [ADR-0033](./0033-a-publish-mirrors-an-owned-namespace.md)), and it buys the property this
+Blob-by-blob through the Git Data API is slower on the first Sync and needs its own ceiling
+(see [ADR-0033](./0033-a-sync-mirrors-an-owned-namespace.md)), and it buys the property this
 record is named for.
 
 ## Why the ceiling is the API's and not ours
 
 `POST /git/blobs` is one request per file, because the tree API's inline `content` field is UTF-8 only
-and tiles are JPEG. A user token gets 5,000 REST requests an hour, so a first Publish of one 48 MP map
+and tiles are JPEG. A user token gets 5,000 REST requests an hour, so a first Sync of one 48 MP map
 is roughly 1,020 requests and a large one roughly 3,700 — front-loaded once per Map Image, not
 once per save, because subsequent Publishes touch only the documents that changed.
 
@@ -69,15 +69,15 @@ before a byte is uploaded, rather than discovered as a commit with most of the W
   for. The engine, its speed, and its data path are identical either way. This is what keeps
   `docs/hosting.md` Part 1 — "fork this repository" — a complete story rather than one that now ends
   at an AWS account.
-- **The broker being down does not stop anyone publishing.** It stops the nicer front door.
+- **The broker being down does not stop anyone syncing.** It stops the nicer front door.
 - **The sync engine receives an opaque bearer token and must not import anything auth-flow-specific.**
   It is handed `{ token, repo: { owner, name }, branch }`. No `if (authMethod === …)` below the UI.
 - **`codeload.github.com` is unusable from a browser**, and this is the trap worth naming: the
-  tarball endpoint is the obvious way to Clone, and `restore-workspace-tar.ts` already exists to
-  receive it. But `codeload` answers `access-control-allow-origin: https://render.githubusercontent.com`
+  tarball endpoint is the obvious way to fetch a whole Workspace, and `restore-workspace-tar.ts`
+  already exists to receive it. But `codeload` answers `access-control-allow-origin: https://render.githubusercontent.com`
   — a specific origin, not `*` — so the fetch fails only at runtime, in a browser, as a CORS error.
-  Clone therefore reads the file list from one `git/trees?recursive=1` call and the bytes from
-  `raw.githubusercontent.com`, which is `*`.
+  An inbound Sync therefore reads the file list from one `git/trees?recursive=1` call and the bytes
+  from `raw.githubusercontent.com`, which is `*`.
 - **A GitHub App's callback URL is registered per App.** A fork at a different address needs its own
   App and its own client ID, and until it has one the token-paste path is the whole of its auth. The
   broker URL and client ID live in one deployment-configuration module with a `pnpm lint` fence, the

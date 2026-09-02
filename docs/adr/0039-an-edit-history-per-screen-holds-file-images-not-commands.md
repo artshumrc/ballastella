@@ -36,7 +36,7 @@ was written.
 Two costs are accepted for it. Control Point ids are re-minted when an Alignment is read back, so
 undoing an Alignment Step rebuilds the pairing on screen and drops any selection. And a Step must be
 opened explicitly around a user's gesture, because the store also carries writes that are nobody's
-edit: publish output, Update from GitHub, and journal replay.
+edit: generated site output, an inbound Sync, and journal replay.
 
 ## Typed text is invisible to a Step in both directions
 
@@ -59,7 +59,7 @@ Where a Step legitimately removes the thing carrying the text — undoing the cr
 
 ## A disturbed history is discarded whole
 
-Anything that writes a history's files other than its own Steps invalidates it: Update from GitHub,
+Anything that writes a history's files other than its own Steps invalidates it: an inbound Sync,
 putting back an Alignment a colleague changed, a concurrent write from another tab, or the deletion of
 the subject. The history is dropped entirely and the affordance goes absent.
 
@@ -70,5 +70,5 @@ An absent undo costs a scholar one convenience. A wrong one costs a colleague an
 ## Nothing survives a reload
 
 An Edit History is memory only. Putting a change back at startup is the Write-Ahead Journal's job
-(ADR-0017), and the on-disk before-images in `update-from-github.ts` are a crash-recovery protocol for
-Update from GitHub, not a history — the words are close and the lifetimes are opposite.
+(ADR-0017), and the on-disk before-images an inbound Sync writes are a crash-recovery protocol for
+that transaction, not a history — the words are close and the lifetimes are opposite.

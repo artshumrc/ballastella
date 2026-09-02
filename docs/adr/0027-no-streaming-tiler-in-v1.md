@@ -19,7 +19,7 @@ Measured 2026-08-05, serving the package's own files:
 
 Without the headers it does not reject. It **hangs**, in both engines, after the pthread worker's `postMessage` throws `DataCloneError` — an ingest that shows a progress bar and never moves, which is the worst failure available on this path. That is why `libvipsUnavailableReason()` refused before importing anything, and why `ingestImageFile` consulted it *before* opening the tiler: so the module was never even fetched.
 
-Nothing in this repository sends those headers, and nothing can. The deployment target is GitHub Pages ([ADR-0006](./0006-the-project-directory-is-the-published-site.md)), which cannot send them; there is no `_headers`, no `netlify.toml`, no `vercel.json`, no `server.headers` in either Vite config, and no header-setting in the e2e deployment support. So the refusal fired in dev, in preview, in e2e, and in production alike — the same state in every one of them.
+Nothing in this repository sends those headers, and nothing can. The deployment target is GitHub Pages ([ADR-0045](./0045-a-repository-holds-the-work-and-a-site-is-asked-for.md)), which cannot send them; there is no `_headers`, no `netlify.toml`, no `vercel.json`, no `server.headers` in either Vite config, and no header-setting in the e2e deployment support. So the refusal fired in dev, in preview, in e2e, and in production alike — the same state in every one of them.
 
 **The consequence is that the app shipped 10.25 MB and 936 lines of code, tests, and fences to guard code that never ran.** `vite build` emitted `vips.wasm` twice, byte-identical at 5,084,535 bytes each, plus 79 KB of `vips-es6` glue. Measured on 2026-08-07, before and after:
 

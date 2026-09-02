@@ -34,7 +34,7 @@ This is a real gap in "nothing fails silently" and it is not closed here. It is 
 solved because the two failures are genuinely indistinguishable at this seam — a cell the tiler never
 wrote and a cell that failed to upload are the same 404 for the same URL — and telling them apart
 needs something the pyramid does not currently carry, such as a manifest of the cells that were
-actually written. That is a change to what publishing emits, not to what the reader reports.
+actually written. That is a change to what the site is built from, not to what the reader reports.
 
 Anyone picking this up should start there, and should not "fix" it by reporting tile 404s: that was
 the first design, and it is wrong for the reason in the section above.

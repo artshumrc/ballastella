@@ -1,6 +1,6 @@
 # Map Images and their Alignments live in the Workspace
 
-> **Amends [ADR-0006](./0006-the-project-directory-is-the-published-site.md) and [ADR-0008](./0008-projects-live-in-a-workspace.md).** A Project directory no longer holds a Map Image's bytes or its Alignment. Everything else in both ADRs holds: publishing is still additive, the Workspace is still the Published Site, and a Project is still addressed by `?p=`.
+> **Amends [ADR-0008](./0008-projects-live-in-a-workspace.md).** A Project directory does not hold a Map Image's bytes or its Alignment. Everything else in that record holds: a Workspace is what a Published Site is made from, the viewer is written in beside the data, and a Project is addressed by `?p=`.
 >
 > **Amended by [ADR-0037](./0037-import-copies-a-project-into-the-current-workspace.md):** deterministic identity still governs adding a referenced Map Image normally, but Import deliberately assigns every incoming Map Image a fresh identity so its Alignment cannot alter existing Projects.
 

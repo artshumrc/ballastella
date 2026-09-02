@@ -1,18 +1,18 @@
 # Projects live in a workspace, and the workspace is the published site
 
-> **Amended by [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md):** the tree below is out of date. `images/` and `alignments/` sit at the workspace root, shared by every project; a project directory holds `project.json` and `annotations/`. `images`, `alignments`, and `base-map` are therefore reserved directory names and must be refused when a project is created — `toDirectoryName('Images')` produces `images`, and the existing check runs only at publish time, which is too late.
+> **Amended by [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md):** the tree below is out of date. `images/` and `alignments/` sit at the workspace root, shared by every project; a project directory holds `project.json` and `annotations/`. `images`, `alignments`, and `base-map` are therefore reserved directory names and must be refused when a project is created — `toDirectoryName('Images')` produces `images`, and the existing check runs only when the site is written, which is too late.
 >
 > **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** "a project zip is one project subdirectory" no longer describes transfer. Backup is a **tar of the whole workspace**; a project bundle is a separate artefact that opens only in a throwaway Review Workspace and is never merged into the recipient's own.
 >
 > **Amended again by [ADR-0037](./0037-import-copies-a-project-into-the-current-workspace.md):** a Project Bundle can now be reviewed or imported. Import copies the Project into the current Workspace with fresh Map Image identities rather than merging Workspace-level assets.
 >
-> The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold map images no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
+> The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold map images no project uses, and a Sync sends the whole owned namespace so it cannot exclude them. The hosting warning must name that weight.
 >
-> **Amended by [ADR-0032](./0032-publish-means-the-remote.md): the "hub page" below is the *Front Page*.** "Hub" was doing two jobs — this record's reader-facing published root, and `ProjectHub.svelte`, which is the *editor's* Project list. Read every "hub page" here as **Front Page**, and note that a Project is now either on it or not, which this record's `?p=` addressing already makes possible at no cost: a Project absent from the Front Page is still reachable by its query parameter, and is therefore not private.
+> **The "hub page" below is the *Front Page*.** "Hub" otherwise does two jobs — this record's reader-facing published root, and `ProjectHub.svelte`, which is the *editor's* Project list. Read every "hub page" here as **Front Page**. A Project is either on it or not, which this record's `?p=` addressing makes possible at no cost: a Project absent from the Front Page is still reachable by its query parameter, and is therefore not private ([ADR-0045](./0045-a-repository-holds-the-work-and-a-site-is-asked-for.md)).
 >
-> **The "one repository to set up, not N" argument below is now load-bearing for a second reason.** Publishing is a push to a **Remote** — one repository per Workspace, bound in the app — so the count of repositories a student must create is the count this record already argued down to one.
+> **The "one repository to set up, not N" argument below is load-bearing for a second reason.** A Sync sends to a **Remote** — one repository per Workspace, bound in the app — so the count of repositories a student must create is the count this record argues down to one.
 
-A user chooses one **workspace** directory. Projects are directories inside it. Publishing writes a single `index.html` and one shared viewer bundle at the workspace root; that root, published, is a hub page listing every project, with a project addressed by query parameter — `/?p=amsterdam-1625`.
+A user chooses one **workspace** directory. Projects are directories inside it. A single `index.html` and one shared viewer bundle sit at the workspace root; that root, on the web, is a hub page listing every project, with a project addressed by query parameter — `/?p=amsterdam-1625`.
 
 ```
 workspace/
@@ -34,7 +34,7 @@ This supersedes an earlier plan of one project per directory, each its own site.
 - **One shared viewer bundle** rather than a copy of `maplibre-gl` per project.
 - **The hub page is a feature**, not scaffolding: a scholar's portfolio at one address instead of a scatter of unrelated URLs.
 
-Query-parameter addressing was chosen over per-project directory URLs and over hash routing because it is the only option with no build-time trickery — no SPA fallback file, no post-build asset-path rewriting, and no per-project artifacts to keep in sync when a project is renamed or deleted. SvelteKit's static adapter prerenders one page; the project is selected client-side. `?p=` URLs are fully shareable and citable. Pretty `/amsterdam-1625/` URLs remain available later as a purely additive publish step.
+Query-parameter addressing was chosen over per-project directory URLs and over hash routing because it is the only option with no build-time trickery — no SPA fallback file, no post-build asset-path rewriting, and no per-project artifacts to keep in sync when a project is renamed or deleted. SvelteKit's static adapter prerenders one page; the project is selected client-side. `?p=` URLs are fully shareable and citable. Pretty `/amsterdam-1625/` URLs remain available later as a purely additive step.
 
 ## Consequences
 

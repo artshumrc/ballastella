@@ -10,12 +10,12 @@ Recorded because unnamed adjacent scope is where a plan quietly triples, and bec
 >
 > "Authoring is desktop-only; viewing is fully responsive" holds and is load-bearing for everything built on top of v1.
 >
-> **Fences 2 and 3 are reversed by [ADR-0031](./0031-the-broker-exchanges-a-code-never-data.md) and [ADR-0032](./0032-publish-means-the-remote.md).** Both were correct on their premises and both premises moved:
+> **Fences 2 and 3 are reversed by [ADR-0031](./0031-the-broker-exchanges-a-code-never-data.md) and [ADR-0044](./0044-sync-is-one-act-in-two-directions.md).** Both were correct on their premises and both premises moved:
 >
 > - **"Accounts and authentication — there is no server to authenticate against."** There is now one, and it is smaller than the fence assumed: a stateless code-for-token exchange that never sees repository data, needed only because `github.com/login/oauth/access_token` sends no CORS headers while `api.github.com` sends `*`. Nothing authenticates *to Ballastella*; there are still no accounts and no user records. A fork with no infrastructure remains fully functional through a pasted token.
-> - **"In-app git. Publishing produces files; committing them is the user's business, documented in prose."** The prose was written — `docs/hosting.md` Part 2 — and step 2 of it asks a humanities student on a Chromebook to `git init`, `git remote add`, and `git push`, which is a step they cannot take at all. Replacing that one paragraph with a button is the whole of the change. It is not in-app git: one branch, one commit per Publish, no merges, no branches, no pull requests, no history.
+> - **"In-app git. Publishing produces files; committing them is the user's business, documented in prose."** The prose was written — `docs/hosting.md` Part 2 — and step 2 of it asks a humanities student on a Chromebook to `git init`, `git remote add`, and `git push`, which is a step they cannot take at all. Replacing that one paragraph with a button is the whole of the change. It is not in-app git: one branch, one commit per Sync, no merges, no branches, no pull requests, no history.
 >
-> **Fence 1 is untouched and is load-bearing.** Collaboration and multi-user editing remain out. A shared Remote is not collaboration — [ADR-0033](./0033-a-publish-mirrors-an-owned-namespace.md) refuses a Publish that would overwrite another machine's work rather than merging it, precisely because merging is what fence 1 refuses.
+> **Fence 1 is untouched and is load-bearing.** Collaboration and multi-user editing remain out. A shared Remote is not collaboration — [ADR-0046](./0046-a-conflict-becomes-a-copy-except-an-alignment.md) answers a contested file with two copies for a scholar to choose between rather than merging them, precisely because merging is what fence 1 refuses.
 
 ## Out of v1
 
