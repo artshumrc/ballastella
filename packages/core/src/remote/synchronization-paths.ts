@@ -15,9 +15,10 @@
 //   source              Scholarship, and the only thing a status or a transfer compares. Projects
 //                       and their Annotations, Workspace Map Images, Offline Copies, Alignments,
 //                       and cached Base Map tiles.
-//   published-output    What a Publish generates. It may be stale — a site written by another
-//                       editor version is — but staleness is a Published Site fact, never source
-//                       drift and never a Conflict, and Update never downloads it.
+//   published-output    What publishing generates: the read-only viewer, its site record, and the
+//                       display assets it serves. It may be stale — a site written by another editor
+//                       version is — but staleness is a Published Site fact, never source drift and
+//                       never a Conflict.
 //   outside-ballastella Somebody else's file in the same repository: a README, a LICENSE, a CNAME,
 //                       a workflow, a submodule, a `docs/` folder. Preserved, never owned.
 //
@@ -36,7 +37,6 @@ import { IMAGE_DIRECTORY } from '../project/image-files.js';
 import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import { topLevelSegment } from '../store/project-store.js';
 import { isViewerFile } from '../transfer/viewer-files.js';
-import { REMOTE_BINDING_PATH } from './remote-binding.js';
 
 /** What a path is, to synchronization. See this module's header. */
 export type PathClass = 'source' | 'published-output' | 'outside-ballastella';
@@ -96,20 +96,11 @@ export function recognisedProjectDirectories(inventories: PathInventories): Set<
 	return directories;
 }
 
-/**
- * Which of the three a path is, given the recognised Project directories.
- *
- * ⚠ **`remote.json` is published output, and it is the one entry here that has to be argued for.**
- * It is not the Remote relationship — that is installation-local metadata — but a Publish still
- * writes it so an older Published Site's return links keep working, and an unbound Workspace
- * must not leave a stale one on the Remote. Publish-owned is exactly that: ours to write and ours to
- * remove, never inbound, and never authored local state a synchronization could resurrect.
- */
+/** Which of the three a path is, given the recognised Project directories. */
 export function classifyPath(path: string, projects: ReadonlySet<string>): PathClass {
 	// Before `isViewerFile`, which claims the whole of `base-map/`. See this module's header.
 	if (path.startsWith(BASE_MAP_TILE_ROOT)) return 'source';
 	if (isViewerFile(path)) return 'published-output';
-	if (path === REMOTE_BINDING_PATH) return 'published-output';
 	if (SOURCE_DIRECTORIES.some((directory) => path.startsWith(directory))) return 'source';
 	// A top-level *file* is never a Project's, whatever it is called: `listProjects` matches only
 	// `<directory>/project.json`.
@@ -118,20 +109,31 @@ export function classifyPath(path: string, projects: ReadonlySet<string>): PathC
 }
 
 /**
- * Whether a path is inside Ballastella's namespace at all — source or published output.
+ * Whether a path is inside Ballastella's namespace at all — the exact-mirror boundary of ADR-0033.
  *
- * The exact-mirror boundary of ADR-0033: inside it a Publish makes the Remote be the Workspace, and
- * outside it nothing is touched, which is why a scholar's `CNAME` survives. Publish over it once and
- * their cited address quietly moves back to a `github.io` URL, and the next publish does it again
- * after they fix it.
+ * Inside it a Sync makes the Remote be the Workspace, and outside it nothing is touched, which is why
+ * a scholar's `CNAME` survives. Mirror over it once and their cited address quietly moves back to a
+ * `github.io` URL, and the next Sync does it again after they fix it.
+ *
+ * ⚠ **The boundary is conditional, and `shareLinks` is what conditions it** (ADR-0045). A repository
+ * holds the scholar's own work until they ask for a site, so generated output is ours to write and
+ * ours to remove **only where the Workspace has Share Links**. Without them it is neither sent nor
+ * removed: a `.nojekyll` that seeded an empty repository, and a site from before the author withdrew
+ * one, are both left exactly where they are rather than being differences anybody is told about.
  *
  * ⚠ **A Clone reads exactly this rule, and there is deliberately no second copy of it.** The two
  * halves have to agree or the namespace leaks: a Clone that brought down a path this excludes would
- * make it Workspace content, and the next publish from that Workspace would push somebody else's
+ * make it Workspace content, and the next Sync from that Workspace would push somebody else's
  * `README.md` and workflows into the cloner's own repository as though the cloner had written them.
  */
-export const isOwnedPath = (path: string, projects: ReadonlySet<string>): boolean =>
-	classifyPath(path, projects) !== 'outside-ballastella';
+export const isOwnedPath = (
+	path: string,
+	projects: ReadonlySet<string>,
+	shareLinks: boolean
+): boolean => {
+	const bucket = classifyPath(path, projects);
+	return bucket === 'source' || (shareLinks && bucket === 'published-output');
+};
 
 /** One inventory, split three ways. Entries are carried through whole and in the order given. */
 export type ClassifiedInventory<E> = {

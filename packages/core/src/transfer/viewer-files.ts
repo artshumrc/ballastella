@@ -1,5 +1,5 @@
-// The enumerable, recorded set of files publishing writes, so the data-only zip can leave them
-// out (ADR-0006).
+// The enumerable, recorded set of files publishing writes, so the data-only zip can leave them out —
+// and so that a Sync can tell what to remove when Share Links are withdrawn (ADR-0045).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE LIST LIVES HERE RATHER THAN BESIDE THE REST OF PUBLISHING
@@ -107,3 +107,24 @@ export const isViewerFile = createViewerFileFilter(VIEWER_FILE_PATHS);
  */
 export const claimedByPublishing = (name: string): boolean =>
 	VIEWER_FILE_PATHS.some((path) => (path.endsWith('/') ? path.slice(0, -1) : path) === name);
+
+/**
+ * Whether an inventory carries a Published Site — which is what having **Share Links** means
+ * (ADR-0045).
+ *
+ * ⚠ **Observed from the bytes, never stored.** A Workspace has Share Links when the files are there,
+ * so there is no flag to disagree with them: the tree listing a Sync already fetches answers the
+ * question, and a Workspace and its Remote can each be asked the same way. This is the `imageMode`
+ * precedent (ADR-0023) — a stored claim can be wrong about the files, a derived one cannot.
+ *
+ * ⚠ **The site record and nothing else, though the whole set is what the answer is about.** Two of
+ * the recorded paths are evidence of nothing: `base-map/` holds the opt-in offline tile cache of a
+ * Workspace that has never been published, and {@link JEKYLL_OFF_MARKER} is written into a
+ * repository that has to be seeded before it has a branch (ADR-0045). {@link
+ * PUBLISHED_SITE_RECORD_NAME} is written by `publishSite` and by nothing else, and it is the file a
+ * Reader's first request resolves through — so its presence is exactly the claim being made.
+ */
+export const carriesPublishedSite = (paths: Iterable<string>): boolean => {
+	for (const path of paths) if (path === PUBLISHED_SITE_RECORD_NAME) return true;
+	return false;
+};

@@ -18,7 +18,6 @@ import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { RestoreDestination } from '../transfer/restore-workspace-tar.js';
 import { CloneRefusedError, cloneFromRemote } from './clone-from-remote.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
-import { REMOTE_BINDING_PATH } from './remote-binding.js';
 
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -43,15 +42,12 @@ const OUTSIDE_NAMESPACE = [
  * A published Workspace as a publish leaves it on the Remote: the viewer's files, the Jekyll marker,
  * one Project with a Map Image and an Alignment, plus the paths a Clone must treat specially.
  *
- * {@link OUTSIDE_NAMESPACE} is the scholar's own; `remote.json` names a **different** repository, as
- * a fork's published binding would, so a Clone that copied it down instead of writing its own would
- * be caught.
+ * {@link OUTSIDE_NAMESPACE} is the scholar's own, and is what a Clone must leave behind.
  */
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/app.js': 'export const start = () => {};',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
 	'atlas/project.json': JSON.stringify({ formatVersion: 1, name: 'Atlas', layers: [] }),
 	'atlas/annotations/notes.geojson': '{"type":"FeatureCollection","features":[]}',
 	'images/map-1/info.json': '{"width":1024,"height":768}',
@@ -63,15 +59,12 @@ const PUBLISHED: Record<string, string> = {
 };
 
 /**
- * Everything this brings down: the owned namespace, less the `remote.json` in the published tree.
+ * Everything this brings down: the owned namespace, and nothing outside it.
  *
- * The binding is **not** written here. It is published output and the
- * relationship a Workspace actually has is installation-local metadata (ADR-0038), so the transfer
- * writes neither — see `open-workspace-from-github.ts`.
+ * The relationship is **not** written here. It is installation-local (ADR-0044), so a Clone writes
+ * nothing about it into the Workspace — see `open-workspace-from-github.ts`.
  */
-const DOWNLOADED = Object.keys(PUBLISHED).filter(
-	(path) => path !== 'remote.json' && !OUTSIDE_NAMESPACE.includes(path)
-);
+const DOWNLOADED = Object.keys(PUBLISHED).filter((path) => !OUTSIDE_NAMESPACE.includes(path));
 
 const github = (tree: Record<string, string> = PUBLISHED): Promise<FakeGitHub> =>
 	createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree });
@@ -190,10 +183,10 @@ describe('cloneFromRemote', () => {
 		);
 	});
 
-	it('reports the repository it was told to read, not the one on the wire', async () => {
-		// ⚠ The published tree carries a `remote.json` naming `someone-else/fork`, as a fork's would.
-		// It is filtered out of the download entirely, and the repository reported back is the one the
-		// caller named — which is what `open-workspace-from-github.ts` records the relationship from.
+	it('reports the repository it was told to read, and writes nothing about it', async () => {
+		// ⚠ The repository reported back is the one the caller named, and it is the only account of the
+		// relationship there is — `open-workspace-from-github.ts` records it, and the Workspace itself
+		// carries no claim about which repository it belongs to (ADR-0044).
 		const fake = await github();
 		const destination = destinationFor(new MemoryProjectStore());
 
@@ -203,9 +196,7 @@ describe('cloneFromRemote', () => {
 		});
 
 		expect(result.remote).toEqual({ owner: OWNER, repository: REPOSITORY, branch: 'main' });
-		// Nothing writes a binding into the Workspace any more: the relationship is installation-local
-		// metadata, so a partly-filled destination cannot look like synchronized work.
-		await expect(destination.store.read(REMOTE_BINDING_PATH)).rejects.toThrow();
+		expect(await destination.store.list('')).toEqual(expect.not.arrayContaining(OUTSIDE_NAMESPACE));
 	});
 
 	describe('resuming an interrupted Clone', () => {
@@ -317,17 +308,15 @@ describe('cloneFromRemote', () => {
 
 		it('leaves the files that arrived and nothing that claims a Remote', async () => {
 			// ⚠ **The invariant, asserted rather than left to the order of the code.** A partly filled
-			// Workspace that looked bound is one the Publish button acts on, and publishing it would
+			// Workspace that looked connected is one the Sync button acts on, and sending it would
 			// delete from the Remote every owned-namespace path that had not yet been fetched — a
-			// scholar's whole site taken down by a transfer somebody interrupted. So nothing here writes
-			// a binding at all, and the relationship is recorded by the caller only after everything has
-			// arrived and validated.
+			// scholar's whole site taken down by a transfer somebody interrupted. So the relationship is
+			// recorded by the caller only after everything has arrived and validated.
 			const fake = await github();
 			const store = new MemoryProjectStore();
 
 			await expect(interrupted(fake, store)).rejects.toMatchObject({ name: 'CloneRefusedError' });
 
-			expect(await store.list('')).not.toContain(REMOTE_BINDING_PATH);
 			// And what did arrive is still here, which is the other half of the same design: the files
 			// are kept so a resume is cheap.
 			expect(await text(store, 'images/map-1/0/0/0.jpg')).toBe('tile-zero-bytes');

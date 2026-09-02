@@ -237,13 +237,10 @@ test.describe('restoring a Workspace', () => {
 	test('creates a new Workspace, switches to it, and leaves the old one untouched', async ({
 		page
 	}) => {
-		// ⚠ **Bound before the backup is taken** (ADR-0038), so the restore has a Remote
-		// relationship it must fail to carry. `remote.json` travels in the archive — it is inside the
-		// published tree — and the relationship that *makes* a Workspace bound is installation-local, so
-		// neither route can arrive as an active Remote in the restored copy.
-		await seedWorkspace(page, DEFAULT_WORKSPACE, {
-			'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
-		});
+		// ⚠ **Connected before the backup is taken** (ADR-0044), so the restore has a Remote
+		// relationship it must fail to carry. The relationship is installation-local and nothing in the
+		// Workspace's own files names a repository, so there is no route by which the restored copy can
+		// arrive with an active Remote.
 		await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
 		await page.reload();
 		await expectRemoteNamed(page, 'ada/atlas');
@@ -285,11 +282,9 @@ test.describe('restoring a Workspace', () => {
 		expect(paths).not.toContain(`${restoredName}/ballastella-site.json`);
 		expect(paths.filter((path) => path.startsWith(`${restoredName}/_app/`))).toEqual([]);
 
-		// ⚠ **And it arrives unbound**. `restoreWorkspaceTar` strips `remote.json` on the way
-		// in, and nothing wrote an installation-local relationship for a Workspace this browser has
-		// never published from — so a Backup mailed to a colleague cannot aim their Publish button at
-		// the sender's repository.
-		expect(paths).not.toContain(`${restoredName}/remote.json`);
+		// ⚠ **And it arrives connected to nothing.** Nothing wrote an installation-local relationship
+		// for a Workspace this browser has never synced from, and the archive carries no claim of its
+		// own — so a Backup mailed to a colleague cannot aim their Sync at the sender's repository.
 		expect(await readRemoteRelationship(page, restoredName)).toBeNull();
 		await expectNoRemote(page);
 

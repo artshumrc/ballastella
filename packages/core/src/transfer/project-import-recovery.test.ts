@@ -114,8 +114,7 @@ const BEFORE: Record<string, string> = {
 	'the-canal-ring/project.json': '{"formatVersion":1,"name":"The Canal Ring","layers":[]}',
 	'images/blaeu-1649/info.json': '{"width":2048,"height":2048}',
 	// alignment-write-is-the-fixture: the user's own Alignment, seeded so a sweep that touched it would be visible
-	'alignments/blaeu-1649.json': '{"type":"Annotation","id":"blaeu-1649"}',
-	'remote.json': '{"formatVersion":1,"owner":"ada","repository":"atlas"}'
+	'alignments/blaeu-1649.json': '{"type":"Annotation","id":"blaeu-1649"}'
 };
 
 /** The Workspace once the whole closure has arrived at its planned paths. */

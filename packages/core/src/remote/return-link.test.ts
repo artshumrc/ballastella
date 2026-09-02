@@ -86,9 +86,9 @@ describe('a site record naming its own repository', () => {
 		]);
 	});
 
-	// Every site published before the field existed. Those sites carry the repository in `remote.json`
-	// inside the published tree, which the viewer still reads — so the tolerant answer here is
-	// "no repository on the record", never a refusal to read the record at all.
+	// A site published into a folder rather than to a Remote, and every site published before the
+	// field existed. The tolerant answer is "no repository on the record", never a refusal to read the
+	// record at all: the cost is a Front Page with one fewer link.
 	it('reads a record written before the field existed as naming no repository', () => {
 		expect(record({ editorUrl: INSTANCE }).repository).toBeNull();
 	});

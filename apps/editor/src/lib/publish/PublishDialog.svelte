@@ -162,9 +162,20 @@
 	 */
 	let rightsNotice = $state('');
 
+	/**
+	 * Whether this Workspace has Share Links, or `null` while nobody has looked (ADR-0045).
+	 *
+	 * ⚠ **It decides whether the local publish runs at all.** Without Share Links a Sync carries the
+	 * scholar's own files and nothing else, and writing the viewer into the Workspace anyway would be
+	 * the very thing that gave them Share Links — the answer is the files' presence, so writing them
+	 * *is* asking for a site. `WorkspaceStorage.enableShareLinks` is the only thing that may do that.
+	 */
+	let shareLinks = $state<boolean | null>(null);
+
 	/** What happened, once it has. Announced, and it stays on screen after the dialog closes. */
 	let published = $state<{
-		site: PublishedSite;
+		/** The site record this publish wrote, or `null` for a Workspace with no Share Links. */
+		site: PublishedSite | null;
 		files: number;
 		sent: { remote: string; files: number; uploaded: number } | null;
 		/** The Remote nothing was sent to, or `''` when there was nothing to send to. */
@@ -193,6 +204,7 @@
 	const reset = () => {
 		plan = null;
 		site = null;
+		shareLinks = null;
 		upload = null;
 		uploadProblem = '';
 		replacing = false;
@@ -328,8 +340,15 @@
 	/** Everything the dialog has to say before it does anything: the record, the plan, the forecast. */
 	async function planOpening(active: EditorSession, mine: number): Promise<void> {
 		try {
-			const bundle = await loadViewerBundle();
-			const record = await active.readPublishedSite();
+			// Concurrently, and that is not tuning: this runs again whenever a Project's Front Page choice
+			// changes, and every await here is time in which the dialog is still showing the plan the
+			// choice has just invalidated. Three independent reads — a fetch, a directory lookup and a
+			// file read — with nothing between them to order.
+			const [bundle, hasSite, record] = await Promise.all([
+				loadViewerBundle(),
+				storage.hasShareLinks(),
+				active.readPublishedSite()
+			]);
 			const planned = await active.planPublish({
 				bundle,
 				editorUrl: deploymentRoot(),
@@ -338,6 +357,7 @@
 				repository: storage.remote
 			});
 			if (mine !== planning) return;
+			shareLinks = hasSite;
 			site = record;
 			plan = planned;
 			staleness =
@@ -352,7 +372,9 @@
 			failure = messageOf(cause);
 		}
 		if (mine !== planning) return;
-		await forecastUpload(plan?.files ?? [], mine);
+		// The viewer is only pending where there is a site to keep current, so the three budgets are
+		// about the Sync being agreed to rather than about one that is not going to happen.
+		await forecastUpload(shareLinks === true ? (plan?.files ?? []) : [], mine);
 	}
 
 	/**
@@ -419,11 +441,14 @@
 	 * {@link RemotePublishPlan.unchanged} sees.
 	 */
 	const siteIsCurrent = $derived(
-		site !== null &&
-			plan !== null &&
-			staleness === '' &&
-			site.baseMapBundled === plan.baseMapBundled &&
-			site.baseMapAssetsBundled === plan.baseMapAssetsBundled
+		// A Workspace with no Share Links has no site to be behind (ADR-0045), so there is nothing here
+		// for a publish to bring up to date and "nothing needs changing" turns on the Remote alone.
+		shareLinks === false ||
+			(site !== null &&
+				plan !== null &&
+				staleness === '' &&
+				site.baseMapBundled === plan.baseMapBundled &&
+				site.baseMapAssetsBundled === plan.baseMapAssetsBundled)
 	);
 
 	/**
@@ -551,19 +576,25 @@
 		/** Whether the viewer has reached the Workspace, so a later refusal does not deny it. */
 		let written = false;
 		try {
-			const siteWritten = await session.publish({
-				plan: agreed,
-				readAsset: readBundleAsset,
-				onProgress: (seen) => {
-					progress = {
-						phase: 'writing',
-						files: seen.files,
-						totalFiles: seen.totalFiles,
-						requestsRemaining: null
-					};
-				}
-			});
-			written = true;
+			// ⚠ **Not run at all for a Workspace with no Share Links** (ADR-0045). A repository holds the
+			// work until an author asks for a site, and since having Share Links *is* carrying the viewer
+			// file set, writing it here would grant them — silently, on a press about GitHub.
+			const siteWritten =
+				shareLinks === true
+					? await session.publish({
+							plan: agreed,
+							readAsset: readBundleAsset,
+							onProgress: (seen) => {
+								progress = {
+									phase: 'writing',
+									files: seen.files,
+									totalFiles: seen.totalFiles,
+									requestsRemaining: null
+								};
+							}
+						})
+					: null;
+			written = siteWritten !== null;
 
 			// The Remote and the credential are read again here rather than taken from the render: a
 			// publish of a large Workspace runs for minutes, and a sign-out during one must not be
@@ -608,7 +639,7 @@
 			await tick();
 			published = {
 				site: siteWritten,
-				files: agreed.files.length,
+				files: siteWritten === null ? 0 : agreed.files.length,
 				sent,
 				notSent,
 				baselineKept
@@ -623,9 +654,9 @@
 				? `${messageOf(cause)} The website itself was written into this Workspace, so publishing ` +
 					`again sends it without doing that work twice.`
 				: messageOf(cause);
-			// The Workspace holds the website now, so the forecast is re-made against what is actually
+			// The Workspace may hold the website now, so the forecast is re-made against what is actually
 			// there rather than against what was still pending when the dialog opened.
-			await forecastUpload(plan?.files ?? []);
+			await forecastUpload(shareLinks === true ? (plan?.files ?? []) : []);
 		} finally {
 			publishing = false;
 			progress = null;
@@ -698,9 +729,12 @@
 	const result = $derived.by(() => {
 		if (!published) return '';
 		const sent = published.sent;
+		const site = published.site;
 		return (
-			`Published: ${published.files} files written into your Workspace, carrying ` +
-			`${describeProjects(published.site.projects)}.` +
+			(site === null
+				? 'Sent.'
+				: `Published: ${published.files} files written into your Workspace, carrying ` +
+					`${describeProjects(site.projects)}.`) +
 			(sent
 				? ` Sent to ${sent.remote}: ${sent.files} files, ${sent.uploaded} of them uploaded.`
 				: '') +

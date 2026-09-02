@@ -8,9 +8,9 @@
 // installation-local metadata, keyed by stable Workspace identity and backing. Both records say what
 // **this machine** believes about a Remote, and a record that travelled — into a Backup, into a
 // Project Bundle, up to the Remote and back down into a fork — would be somebody else's belief
-// arriving as this machine's evidence. That is the whole reason `remote.json` stops being the active
-// relationship: it is inside the published tree, so a fork carries a binding to the repository it was
-// forked *from*, and an author who opened the fork would publish to the original.
+// arriving as this machine's evidence. That is the whole reason no document in the Workspace names
+// the Remote: such a file is inside the published tree, so a fork would carry a claim on the
+// repository it was forked *from*, and an author who opened the fork would sync to the original.
 //
 // It is not `localStorage` either. A Workspace of 40 000 files is a Baseline of a couple of megabytes
 // against an origin-wide 5 MB budget already shared with the write-ahead journal, so a record kept

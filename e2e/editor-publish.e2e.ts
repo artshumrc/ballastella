@@ -23,9 +23,6 @@ import {
 	seedRemoteRelationship
 } from './support/workspace.js';
 
-const DEFAULT_REMOTE_BINDING = {
-	'remote.json': `${JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas', branch: 'main' }, null, '\t')}\n`
-};
 const DEFAULT_PUBLISH_TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -255,14 +252,34 @@ async function openWorkspace(
 	await routeGitHubOnce(page);
 	await page.goto('./');
 	await emptyWorkspace(page);
-	await seed(page, options.unbound ? files : { ...DEFAULT_REMOTE_BINDING, ...files });
-	// ⚠ **The Remote is installation-local now** (ADR-0038): a seeded `remote.json` is the Published
-	// Site's compatibility evidence and binds nothing, so a spec that needs a bound Workspace records
-	// the relationship the way an Open or a bind does.
+	await seed(page, files);
+	// ⚠ **The relationship is installation-local and is the only account of it there is** (ADR-0044),
+	// so a spec that needs a connected Workspace records it the way an Open or a connect does. Nothing
+	// seeded into the Workspace's own files can make it connected.
 	if (!options.unbound) await seedRemoteRelationship(page, { owner: 'ada', repository: 'atlas' });
 	if (options.signedIn !== false) await seedGitHubCredential(page, DEFAULT_PUBLISH_TOKEN);
 	await page.reload();
 	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+}
+
+/**
+ * Ask for Share Links, from the door's own press, unless this Workspace already has them.
+ *
+ * ⚠ **A repository holds the work until the author asks for an address** (ADR-0045), so a Sync from a
+ * Workspace that never asked carries the scholar's own files and no website at all. Every claim in
+ * this spec is about a *site* — its relative asset paths, its front page, its Base Map, its version
+ * stamp — so the press that grants one is part of the arrangement rather than part of the subject.
+ * What the press itself does is asserted at Seam 1 (`bind-remote.test.ts`) and at Seam 1c
+ * (`connect-to-github.dom.test.ts`).
+ *
+ * Tolerant of a Workspace that has one already: the offer is replaced by *Withdraw Share Links* the
+ * moment the site record is there, so a second call is a no-op rather than a second press.
+ */
+async function withShareLinks(page: Page): Promise<void> {
+	const offer = page.getByTestId('enable-pages');
+	if ((await offer.count()) === 0) return;
+	await offer.click();
+	await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
 }
 
 /**
@@ -274,6 +291,7 @@ async function openWorkspace(
  */
 async function openPublishDialog(page: Page) {
 	await openTheDoor(page);
+	await withShareLinks(page);
 	await page.getByTestId('connect-publish').click();
 	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
 	// `getByRole('dialog')` is then two elements rather than one.
@@ -417,6 +435,12 @@ test.describe('publishing a Workspace', () => {
 		await boston.uncheck();
 		await expect(description).toContainText('All Projects stay published.');
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		// ⚠ **The forecast, not the checkbox.** Unchecking writes `project.json`, and the plan the
+		// dialog holds is re-made from the Projects afterwards — so pressing Publish on the strength of
+		// the checkbox alone publishes whichever plan happened to be in hand.
+		await expect(dialog.getByTestId('publish-projects')).toContainText(
+			'2 Projects, 1 of them on the front page'
+		);
 
 		await publish(page, dialog);
 
@@ -779,11 +803,6 @@ const TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
 /** Well into the future, so a reset time is a stable clock reading rather than a race. */
 const RESET_AT = 1_800_000_000;
 
-/** `remote.json`, exactly as `bindWorkspaceToRemote` writes it — see `editor-remote-binding.e2e.ts`. */
-const boundTo = (owner = OWNER, repository = REPOSITORY): Record<string, string> => ({
-	'remote.json': `${JSON.stringify({ formatVersion: 1, owner, repository, branch: 'main' }, null, '\t')}\n`
-});
-
 test.describe('publishing to a Remote', () => {
 	/** A bound Workspace on a clean hub, with one repository on the fake GitHub. */
 	async function start(
@@ -794,13 +813,12 @@ test.describe('publishing to a Remote', () => {
 			repositories: [{ owner: OWNER, name: REPOSITORY }],
 			...options.hosts
 		});
-		// ⚠ **No credential, because that is the state this describe starts every test from**: bound,
-		// and pressed to Publish with nothing held. `signedIn` is what moves past it.
+		// ⚠ **No credential, because that is the state this describe starts every test from**:
+		// connected, and pressed to Publish with nothing held. `signedIn` is what moves past it.
 		await openWorkspace(
 			page,
 			{
 				...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-				...boundTo(),
 				...options.files
 			},
 			{ signedIn: false }
@@ -865,11 +883,10 @@ test.describe('publishing to a Remote', () => {
 		await publishToRemote(page, dialog);
 
 		// What arrived, rather than what was asked for. The Workspace's own files, the website that was
-		// written into it, the binding, and the marker without which GitHub Pages serves a blank page.
+		// written into it, and the marker without which GitHub Pages serves a blank page.
 		const arrived = github.files(OWNER, REPOSITORY);
 		expect(arrived).toContain('.nojekyll');
 		expect(arrived).toContain('index.html');
-		expect(arrived).toContain('remote.json');
 		expect(arrived).toContain('ballastella-site.json');
 		expect(arrived).toContain('amsterdam-1625/project.json');
 		expect(arrived).toContain('images/aaa/0,0,256,256/256,256/0/default.jpg');
@@ -900,9 +917,9 @@ test.describe('publishing to a Remote', () => {
 		// and `docs/guide.md` were carried into the commit from the tree listing, with SHAs nothing
 		// here has read bytes for, so claiming them would be this machine asserting authorship of
 		// files it never sent. And the generated site — `index.html`, `_app/**`, `.nojekyll`,
-		// `remote.json`, `ballastella-site.json`, the Base Map's fonts and sprites — is Publish-owned
-		// output: it is sent every time and it is never shared *source*, or two editor versions would
-		// read each other's chunk names as changed scholarship.
+		// `ballastella-site.json`, the Base Map's fonts and sprites — is Publish-owned output: it is
+		// sent every time and it is never shared *source*, or two editor versions would read each
+		// other's chunk names as changed scholarship.
 		expect(baseline?.files.sort()).toEqual([
 			'alignments/aaa.json',
 			'amsterdam-1625/annotations/l2.geojson',
@@ -1079,17 +1096,16 @@ test.describe('publishing to a Remote', () => {
 	});
 
 	/**
-	 * The forecast's two numbers, checked against what actually arrived.
+	 * The forecast's two numbers, checked against what actually arrived and what was announced.
 	 *
-	 * ⚠ **The forecast is made before the local publish writes**, so a count taken off the Workspace as
-	 * it stands is short by the whole website: `index.html`, `_app/**` and `ballastella-site.json` are
-	 * not there yet when the dialog states what it will send. The assertion is the one that cannot pass
-	 * over that — the stated total against the tree the Remote ends up holding, which is every file the
-	 * forecast named plus the `README.md` outside the owned namespace that a publish preserves.
+	 * ⚠ **A forecast is worth nothing unless it is the same count as the outcome**, and the two are
+	 * computed at different moments against different evidence: the dialog states what it will send
+	 * before a byte moves, and `publishToRemote` plans again afterwards against the Workspace the local
+	 * publish has just refreshed. So both halves are tied down here — the stated total against the tree
+	 * the Remote ends up holding (every file the forecast named, plus the `README.md` outside the owned
+	 * namespace that a Sync preserves), and the stated uploads against the number the result announces.
 	 */
-	test('states a first publish’s file count including the website it is about to write', async ({
-		page
-	}) => {
+	test('states the file count it will send, and the outcome agrees with it', async ({ page }) => {
 		const github = await start(page);
 		const dialog = await signedIn(page);
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
@@ -1103,9 +1119,12 @@ test.describe('publishing to a Remote', () => {
 		const arrived = github.files(OWNER, REPOSITORY);
 		expect(arrived).toContain('index.html');
 		expect(Number(total)).toBe(arrived.length - 1);
-		// And the same total is what the publish had to upload: the repository held only the `README.md`
-		// it keeps, so every file the forecast named was new.
-		expect(Number(uploads)).toBe(Number(total));
+		// ⚠ **Fewer blobs than files, and the gap is the claim.** Two paths holding the same bytes are
+		// one `POST /git/blobs` between them — every empty file in the site is byte-identical to every
+		// other — so a forecast that counted paths would send a scholar to wait for a rate-limit reset
+		// they were never going to meet.
+		expect(Number(uploads)).toBeLessThan(Number(total));
+		await expect(page.getByTestId('publish-status')).toContainText(`${uploads} of them uploaded`);
 	});
 
 	test('stops legibly when the budget runs out part way, leaving the site as it was', async ({

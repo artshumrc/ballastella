@@ -198,6 +198,21 @@ export default defineConfig({
 			{
 				plugins: [svelte()],
 				environments: { ssr: { consumer: 'client', resolve: { conditions: ['browser'] } } },
+				// ⚠ **SvelteKit's aliases, needed here the moment something without a DOM imports through
+				// them** — which is what the note on the DOM project's own `resolve` predicted. `$app/paths`
+				// arrives through `WorkspaceStorage`, which reads the deployment's own address to write into
+				// a Published Site's record. The alias is spelled at the project's top level rather than on
+				// the `ssr` environment because vite resolves `resolve.alias` from the shared config; only
+				// `conditions` is the environment-scoped half, which is why the two sit apart.
+				resolve: {
+					alias: {
+						$lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+						'$app/paths': fileURLToPath(new URL('./vitest-setup/app-paths.ts', import.meta.url)),
+						'$app/navigation': fileURLToPath(
+							new URL('./vitest-setup/app-navigation.ts', import.meta.url)
+						)
+					}
+				},
 				test: {
 					name: 'editor',
 					environment: 'node',

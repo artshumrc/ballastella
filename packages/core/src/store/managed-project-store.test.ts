@@ -140,10 +140,7 @@ describe('ManagedProjectStore', () => {
 			'robots.txt',
 			'.nojekyll',
 			'ballastella-site.json',
-			'base-map/glyphs/0-255.pbf',
-			// No longer the Remote relationship, but still written by a Publish so an old site's return
-			// links keep working. Publish-owned, and never the author's drifting work.
-			'remote.json'
+			'base-map/glyphs/0-255.pbf'
 		]) {
 			await store.write(path, bytes('generated'));
 		}

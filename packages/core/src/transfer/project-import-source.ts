@@ -60,9 +60,9 @@ export type ClosurePath = string;
  * What was **observed** about where a closure came from. Nothing that could be acted on.
  *
  * ⚠ **Facts, not a relationship.** This carries no credential, no writable destination, and no Remote
- * a destination Workspace could bind itself to: an imported Project keeps no relationship with its
- * source (ADR-0037), and the only thing these fields are for is the provenance entry the Import
- * engine appends. A Workspace `remote.json` is not among them and must not become one.
+ * a destination Workspace could connect itself to: an imported Project keeps no relationship with
+ * its source (ADR-0037), and the only thing these fields are for is the provenance entry the Import
+ * engine appends. Nothing here may become a relationship.
  */
 export type ProjectImportOrigin =
 	| {

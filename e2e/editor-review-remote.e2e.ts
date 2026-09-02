@@ -81,7 +81,7 @@ const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/p
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
+	'ballastella-site.json': '{"formatVersion":2,"projects":[]}',
 
 	[`${AMSTERDAM}/project.json`]: projectJson(
 		'Amsterdam 1625',
@@ -179,7 +179,7 @@ const AMSTERDAM_CLOSURE = [
 /** Paths the Remote holds that a review of the Amsterdam Project must never bring down. */
 const NOT_THIS_PROJECT = [
 	...OUTSIDE_NAMESPACE,
-	'remote.json',
+	'ballastella-site.json',
 	'index.html',
 	'.nojekyll',
 	`${BOSTON}/project.json`,
@@ -321,8 +321,8 @@ test.describe('arriving on a link from a Published Site', () => {
 	 * ⚠ **One test, because the claims are one workflow and none of them survives on its own.** That
 	 * the Import writes into the Workspace the offer *named* is only observable against the Workspace
 	 * that already existed; that it made no second one is what tells Import from Review at all; and
-	 * that a published tree's own `remote.json` did not become this Workspace's Remote is a fact
-	 * about the same Workspace after the same operation. The engine's refusals, the closure and the
+	 * that nothing in the published tree became this Workspace's Remote is a fact about the same
+	 * Workspace after the same operation. The engine's refusals, the closure and the
 	 * allocation are exhausted at Seam 1 (`project-import-source.test.ts`,
 	 * `project-import-own-remote.test.ts`) and the offer's controls at Seam 1c
 	 * (`return-link-offer.dom.test.ts`).
@@ -380,7 +380,7 @@ test.describe('arriving on a link from a Published Site', () => {
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 
 		// What arrived is the Project's closure as ordinary work — and **not** the publisher's own
-		// files, the other Project, or the `remote.json` sitting in the published root.
+		// files, the other Project, or the site record sitting in the published root.
 		const paths = Object.keys(await everyByteOf(page, DEFAULT_WORKSPACE));
 		// ⚠ **The Map Image is a fresh identity, not the publisher's** (ADR-0037). An Import mints one,
 		// so the closure cannot be compared to the Remote's own paths — which is exactly the difference

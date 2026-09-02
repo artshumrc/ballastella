@@ -68,6 +68,7 @@ import {
 	planRemotePublish as planWorkspaceUpload,
 	projectFilePath,
 	publishSite,
+	withdrawShareLinks,
 	publishWorkspaceToRemote as publishWorkspace,
 	readPublishedSite,
 	readImageLabel,
@@ -2675,6 +2676,18 @@ export class EditorSession {
 		// staleness notice wrong in the direction that matters.
 		this.projects = await this.#workspace.listProjects();
 		return site;
+	}
+
+	/**
+	 * Take the Published Site back out of the Workspace — the local half of withdrawing Share Links.
+	 *
+	 * The mirror of {@link publish}: exactly the recorded viewer file set, so no Project file, no
+	 * pyramid and no Alignment can be reached by it. Everything pending is flushed first, for
+	 * {@link publish}'s reason — a write landing after the sweep would put a file back.
+	 */
+	async withdrawShareLinks(): Promise<void> {
+		await this.flush();
+		await withdrawShareLinks(this.#store);
 	}
 
 	/** The record the Published Site carries about itself, or `null` if there is no site yet. */

@@ -12,9 +12,8 @@
 // importing a published Project needs no GitHub account — the same property the Review has, for the
 // same reason, and the reason there is no credential anywhere in this module's types.
 //
-// ⚠ **Nothing here binds anything.** The repository coordinates travel out on the origin as observed
-// provenance, and an imported Project retains no Remote relationship (ADR-0037). A Workspace
-// `remote.json` in the published tree is not part of a Project's closure and never reaches one.
+// ⚠ **Nothing here connects anything.** The repository coordinates travel out on the origin as
+// observed provenance, and an imported Project retains no Remote relationship (ADR-0037).
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { createHttpProjectStore } from '../store/http-project-store.js';
@@ -111,9 +110,9 @@ export async function readRemoteProjectSource(
  * entries in the other direction, which is what makes the three sources report one closure.
  *
  * Everything outside the Project's directory and outside the shared pool is simply not offered:
- * another Project's files, the publisher's own `README.md`, the Workspace's `remote.json`. The
- * closure is then taken out of what is offered, so a file the Project never references cannot travel
- * even if it is under a name that looks shared.
+ * another Project's files, the publisher's own `README.md`, the site record beside them. The closure
+ * is then taken out of what is offered, so a file the Project never references cannot travel even if
+ * it is under a name that looks shared.
  */
 function offer(blobs: readonly RemoteBlob[], prefix: string): OfferedFile[] {
 	const offered: OfferedFile[] = [];

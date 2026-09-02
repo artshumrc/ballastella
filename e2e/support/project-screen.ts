@@ -25,7 +25,7 @@ export async function projectNameField(page: Page): Promise<Locator> {
 /**
  * Put a Map Image Layer for `imageId` into a Project's `project.json`, behind the app's back.
  *
- * Fixtures that write a Workspace `remote.json` directly are writing what a *Workspace* holds; the
+ * Fixtures that write `images/<id>/remote.json` directly are writing what a *Workspace* holds; the
  * Project screen shows a Map Image only where a Layer of this Project draws it
  * (ADR-0023: the Workspace owns the map, the Project owns how it is presented). So a fixture that
  * wants the map on the Project screen has to say which Project draws it, which is what this does —

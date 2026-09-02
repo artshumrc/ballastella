@@ -1,4 +1,4 @@
-// Publishing a Workspace to its Remote: one tree, one commit, one ref (ADR-0031, ADR-0032, ADR-0033).
+// Publishing a Workspace to its Remote: one tree, one commit, one ref (ADR-0031, ADR-0033).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // BESIDE `publish/publish.ts`, NOT INSTEAD OF IT
@@ -6,6 +6,17 @@
 // Local publish writes the viewer's files into the Workspace; this uploads the Workspace. The two
 // are deliberately not folded together: `publishSite` reaches no network at all, and putting a
 // request inside it would make every one of its assertions about a folder depend on a host.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// WHAT IT CARRIES DEPENDS ON WHETHER THERE IS A SITE, AND THAT IS OBSERVED FROM THE BYTES
+//
+// A repository holds the scholar's own work until they ask for **Share Links** (ADR-0045), so
+// generated site output is inside the mirror boundary only where a `ballastella-site.json` exists —
+// on either side. Either side is deliberate and both halves are load-bearing. The *local* half is
+// how a site first arrives: asking for Share Links writes the viewer into the Workspace, and the
+// Remote does not carry it yet. The *Remote* half is how one is taken away: withdrawal removes the
+// viewer from the Workspace, and the tree still holding it is what makes the removal a difference
+// this mirror is entitled to send. Nothing is stored, so nothing can disagree with the files.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // NOTHING IS VISIBLE UNTIL THE REF MOVES
@@ -32,10 +43,10 @@ import {
 	type WorkspaceSize
 } from '../project/workspace-size.js';
 import type { Bytes, ProjectStore } from '../store/project-store.js';
-import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';
+import { JEKYLL_OFF_MARKER, carriesPublishedSite } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
-import { classifyInventory, recognisedProjectDirectories } from './synchronization-paths.js';
+import { classifyPath, recognisedProjectDirectories } from './synchronization-paths.js';
 import { planWorkspacePublish } from './synchronization-planner.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import type { PlanRefusal } from './synchronization-planner.js';
@@ -556,10 +567,12 @@ async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<strin
  * ref read gets — so there is no order of those three calls that opens an empty repository. The
  * Contents API is the exception, and it is what github.com's own "create a new file" button uses.
  *
- * `.nojekyll` is what gets written, because it is the one file the publish has to put there anyway
- * (ADR-0006): without it Pages hands the whole site to Jekyll, which drops `_app/`, and the reader
- * gets a blank page. So the seed is not scaffolding to be cleaned up later — it is the first of this
- * publish's own files, arriving one commit early.
+ * `.nojekyll` is what gets written because it is the one file that is safe to write here: zero bytes,
+ * a name nothing else claims, and — for a Workspace with Share Links — a file this publish has to put
+ * there anyway, so it arrives one commit early rather than being scaffolding to clean up.
+ * Without Share Links it is scaffolding, and the publish's own commit simply does not carry it
+ * forward: a repository holding only the scholar's work has no `_app/` for Jekyll to drop
+ * (ADR-0045).
  *
  * The commit it makes is the parent of the publish's own, so the history reads as a repository that
  * was opened and then published into, and nothing is force-pushed over.
@@ -735,8 +748,35 @@ export async function planRemotePublish(
 
 	const paths = await store.list('');
 	const held = new Set<string>(paths);
+
+	// The union of all three inventories, exactly as `compareSource` takes it: a Project deleted here
+	// is still recognised as ours from the Remote or the Baseline, so its whole directory stays inside
+	// the owned namespace and its pyramid is removed rather than silently preserved forever.
+	const projects = recognisedProjectDirectories({
+		local: paths,
+		remote: remote.map((entry) => entry.path),
+		baseline: options.baseline?.files.keys() ?? []
+	});
+
+	// ⚠ **Share Links, observed from the bytes on both sides** (ADR-0045). A Workspace whose site is
+	// only just written has one and its Remote does not yet, which is how a site first arrives; a
+	// Workspace the author has withdrawn Share Links from has none and its Remote still does, which is
+	// how one is taken away. Either side is enough, and neither is a stored flag that could be wrong
+	// about the files.
+	const shareLinks =
+		carriesPublishedSite(paths) ||
+		carriesPublishedSite((options.pending ?? []).map((file) => file.path)) ||
+		carriesPublishedSite(remote.map((entry) => entry.path));
+	const owned = (path: string): boolean => {
+		const bucket = classifyPath(path, projects);
+		return bucket === 'source' || (shareLinks && bucket === 'published-output');
+	};
+
 	const files: PlannedRemoteFile[] = [];
 	for (const path of paths) {
+		// A Workspace with no Share Links keeps whatever a previous site left in it, and sends none of
+		// it: the repository holds the scholar's own work until they ask for a site.
+		if (!owned(path)) continue;
 		const bytes = await store.read(path);
 		const sha = await gitBlobSha(bytes);
 		files.push({
@@ -748,10 +788,12 @@ export async function planRemotePublish(
 		});
 	}
 
-	// **Written into every commit, whether or not the Workspace holds one** (ADR-0033). Jekyll drops
-	// every path beginning with `_`, the viewer bundle lives in `_app/`, and the site that needs the
-	// file is the author's own repository — a publish is the hand that pushes it.
-	if (!held.has(JEKYLL_OFF_MARKER)) {
+	// **Written into every commit that carries a site** (ADR-0045). Jekyll drops every path beginning
+	// with `_`, the viewer bundle lives in `_app/`, and the site that needs the file is the author's
+	// own repository — a Sync is the hand that pushes it. Without Share Links there is no site to
+	// protect, and the marker is not the repository's to be given: `seedEmptyRepository` writes one
+	// only where GitHub will accept nothing else, and it is preserved from then on rather than owned.
+	if (shareLinks && !held.has(JEKYLL_OFF_MARKER)) {
 		const sha = await gitBlobSha(EMPTY_FILE);
 		files.push({
 			path: JEKYLL_OFF_MARKER,
@@ -763,18 +805,9 @@ export async function planRemotePublish(
 	}
 	files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 
-	// The union of all three inventories, exactly as `compareSource` takes it: a Project deleted here
-	// is still recognised as ours from the Remote or the Baseline, so its whole directory stays inside
-	// the owned namespace and its pyramid is removed rather than silently preserved forever.
-	const projects = recognisedProjectDirectories({
-		local: files.map((file) => file.path),
-		remote: remote.map((entry) => entry.path),
-		baseline: options.baseline?.files.keys() ?? []
-	});
-
 	// What the local publish will add, minus whatever it is about to overwrite: a second publish
 	// rewrites the whole viewer over the copy already in the Workspace, so its file list arrives here
-	// almost entirely held and adds nothing to any of the three budgets.
+	// almost entirely planned and adds nothing to any of the three budgets.
 	//
 	// The {@link MAX_PUBLISHED_FILES} refusal above is deliberately *not* re-made against this total.
 	// It is a statement about the Workspace, which is the half a scholar can act on, and it is made
@@ -783,11 +816,10 @@ export async function planRemotePublish(
 	const pending = (options.pending ?? []).filter((file) => !planned.has(file.path));
 	const pendingBytes = pending.reduce((sum, file) => sum + file.bytes, 0);
 
-	// Outside Ballastella's namespace, and not something the Workspace is sending anyway. This is the
-	// half that keeps a `CNAME`, a `README.md`, and a `docs/` folder the scholar added.
-	const preserved = classifyInventory(remote, projects).outside.filter(
-		(entry) => !held.has(entry.path)
-	);
+	// Outside the mirror boundary, and not something the Workspace is sending anyway. This is the half
+	// that keeps a `CNAME`, a `README.md` and a `docs/` folder the scholar added — and, for a
+	// Workspace with no Share Links, the site somebody else's fork or an older build left behind.
+	const preserved = remote.filter((entry) => !owned(entry.path) && !planned.has(entry.path));
 	const preservedBytes = preserved.reduce((sum, entry) => sum + entry.bytes, 0);
 
 	const uploaded = blobsToUpload(files);
@@ -881,10 +913,11 @@ export async function planRemotePublish(
  * a `project.json` for a directory whose files were preserved last time and those unverified SHAs
  * become licence to delete them.
  *
- * ⚠ **Generated output is sent and is not recorded**, which is the one asymmetry here. The commit
- * holds `index.html` and the whole of `_app/**` because a Published Site needs them; the source
- * Baseline holds neither, because a chunk name another editor version writes is
- * staleness to republish and never scholarship somebody changed.
+ * ⚠ **Generated output, where there is any, is sent and is not recorded** — the one asymmetry here.
+ * A commit that carries a site holds `index.html` and the whole of `_app/**` because a Reader needs
+ * them; the source Baseline holds neither, because a chunk name another editor version writes is
+ * staleness to republish and never scholarship somebody changed. A commit from a Workspace with no
+ * Share Links holds none of it in the first place (ADR-0045).
  *
  * @returns the new commit; the source Baseline a caller persists so the next transfer can tell its
  *   own work from somebody else's; and the source paths whose local-change marks that Baseline now

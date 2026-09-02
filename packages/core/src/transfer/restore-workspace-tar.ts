@@ -9,7 +9,6 @@ import {
 	parseProjectFile
 } from '../project/project-file.js';
 import { describeBytes } from '../project/workspace-size.js';
-import { REMOTE_BINDING_PATH } from '../remote/remote-binding.js';
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
 import type { TransferProgressListener } from './transfer.js';
 import {
@@ -382,18 +381,6 @@ async function drainInto(
 		// because a reader counts it as protection; so it is gone rather than kept and excused.
 		const path = header.name.slice(prefix.length) as StorePath;
 		assertSafeBackupPath(path);
-
-		// ⚠ **A restored Backup arrives unbound** (ADR-0032). `remote.json` is inside the
-		// published tree, so a Backup taken from a bound Workspace carries it — and restoring it would
-		// hand the user a Publish button aimed at a live, cited address, from a state they restored
-		// precisely because something had gone wrong. Dropped on the way *in* rather than left out of
-		// the Backup: the Backup is a faithful copy of the Workspace, and it is the arrival that has to
-		// be safe. Not counted and not reported as declined — `declined` is about work that was in the
-		// archive and is not in the Workspace, and this is neither.
-		if (path === REMOTE_BINDING_PATH) {
-			await body.cancel();
-			continue;
-		}
 
 		const content = await collect(body);
 

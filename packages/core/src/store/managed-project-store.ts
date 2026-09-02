@@ -23,9 +23,9 @@
 // `reclaimAbandonedWrites` mark nothing because they change nothing.
 //
 // And a marked path is a **source** path by `synchronization-paths.ts`'s classifier: the `_app/`
-// bundle a Publish writes is generated output, `remote.json` is Publish-owned, and a `README.md` is
-// somebody else's file. None of them is an author's drifting scholarship, and reporting them as such
-// would make a Workspace read `Changes to publish` the moment it published.
+// bundle and the site record a Publish writes are generated output, and a `README.md` is somebody
+// else's file. None of them is an author's drifting scholarship, and reporting them as such would
+// make a Workspace read `Changes to send` the moment it sent them.
 
 import { LocalChangeIndex } from '../remote/local-change-index.js';
 import { classifyPath, projectDirectories } from '../remote/synchronization-paths.js';

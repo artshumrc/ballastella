@@ -1,212 +1,77 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	REVIEW_MARK_FORMAT_VERSION,
-	REVIEW_MARK_PATH,
-	ReviewWorkspaceError,
-	serialiseReviewMark
-} from '../project/review-workspace.js';
-import { MemoryProjectStore } from '../store/memory-project-store.js';
-import type { Bytes } from '../store/project-store.js';
-import {
 	DEFAULT_REMOTE_BRANCH,
-	REMOTE_BINDING_FORMAT_VERSION,
-	REMOTE_BINDING_PATH,
-	clearRemoteBinding,
 	describeRemote,
-	parseRemoteBinding,
-	parseRemoteReference,
-	readRemoteBinding,
-	serialiseRemoteBinding,
-	writeRemoteBinding,
-	type RemoteBinding
+	isOwnerName,
+	isRepositoryName,
+	normaliseRemoteIdentity,
+	parseRemoteReference
 } from './remote-binding.js';
 
-const encode = (text: string): Bytes => new TextEncoder().encode(text);
+// ⚠ **The one reader every persisted repository identity goes through**, and the *less* trusted of
+// the two: what arrives here is a record read back out of storage — an installation-local
+// relationship, a Baseline offered as evidence, a Published Site's own record — and both fields are
+// interpolated straight into the API path the synchronization engine builds. `encodeURIComponent` at
+// the interpolation is not the fix: it leaves `.` alone, so `..` survives it and `fetch` normalises
+// the traversal away. So a hostile record is *no repository at all*.
+describe('a record this build cannot act on names no repository', () => {
+	const refused = (record: Record<string, unknown>) =>
+		expect(normaliseRemoteIdentity(record)).toBeNull();
 
-const BINDING: RemoteBinding = {
-	formatVersion: REMOTE_BINDING_FORMAT_VERSION,
-	owner: 'ada',
-	repository: 'atlas',
-	branch: DEFAULT_REMOTE_BRANCH
-};
+	it('names no owner', () => refused({ repository: 'atlas' }));
+	it('names no repository', () => refused({ owner: 'ada' }));
+	it('names an empty owner', () => refused({ owner: '  ', repository: 'atlas' }));
+	it('names neither as a string', () => refused({ owner: 7, repository: ['atlas'] }));
 
-/** A Workspace that is a review copy of somebody else's Project (ADR-0024). */
-const reviewCopy = (): MemoryProjectStore => {
-	const store = new MemoryProjectStore();
-	store.plant(
-		REVIEW_MARK_PATH,
-		serialiseReviewMark({
-			formatVersion: REVIEW_MARK_FORMAT_VERSION,
-			project: 'Amsterdam 1625',
-			directory: 'amsterdam-1625',
-			openedAt: '2026-08-08T09:00:00.000Z',
-			origin: null
-		})
-	);
-	return store;
-};
+	it('names an owner that would climb out of the repository path', () =>
+		refused({ owner: 'ada/../../orgs', repository: 'atlas' }));
 
-describe('the document that binds a Workspace to a Remote', () => {
-	it('round-trips', () => {
-		expect(parseRemoteBinding(serialiseRemoteBinding(BINDING))).toEqual(BINDING);
-	});
+	it('names a repository carrying a query of its own', () =>
+		refused({ owner: 'ada', repository: 'atlas?x=1' }));
 
-	it('is absent from a Workspace nobody has bound', async () => {
-		expect(await readRemoteBinding(new MemoryProjectStore())).toBeNull();
-	});
+	it('names a repository on another host entirely', () =>
+		refused({ owner: 'ada', repository: 'https://evil.invalid/x' }));
 
-	it('is read off the Workspace itself, so the binding survives a reload', async () => {
-		const store = new MemoryProjectStore();
-		await writeRemoteBinding(store, 'My Workspace', BINDING);
-
-		expect(await readRemoteBinding(store)).toEqual(BINDING);
-	});
-
-	it('is at the Workspace root, inside the published tree (ADR-0033)', async () => {
-		const store = new MemoryProjectStore();
-		await writeRemoteBinding(store, 'My Workspace', BINDING);
-
-		expect(await store.list('')).toContain(REMOTE_BINDING_PATH);
-	});
-
-	it('is written as JSON a person can read, and a Clone can parse', async () => {
-		const store = new MemoryProjectStore();
-		await writeRemoteBinding(store, 'My Workspace', BINDING);
-
-		expect(JSON.parse(new TextDecoder().decode(await store.read(REMOTE_BINDING_PATH)))).toEqual({
-			formatVersion: 1,
-			owner: 'ada',
-			repository: 'atlas',
-			branch: 'main'
-		});
-	});
-
-	it('is gone once the Workspace is unbound, and unbinding twice is not an error', async () => {
-		const store = new MemoryProjectStore();
-		await writeRemoteBinding(store, 'My Workspace', BINDING);
-
-		await clearRemoteBinding(store);
-		await clearRemoteBinding(store);
-
-		expect(await readRemoteBinding(store)).toBeNull();
-	});
-});
-
-// ⚠ **Unreadable means *unbound*, which is the opposite of what the review mark does with the same
-// situation.** The mark answers "review" for a file it cannot read, because the failure to avoid
-// there is an afternoon's work inside a Workspace built to be thrown away. Here the failure to avoid
-// is a Publish button aimed at an address nobody checked, so every doubt answers `null` — and none
-// of these throws, because this is read on every load.
-describe('a binding this build cannot act on is no binding', () => {
-	const unbound = async (content: string) => {
-		const store = new MemoryProjectStore();
-		store.plant(REMOTE_BINDING_PATH, encode(content));
-		expect(await readRemoteBinding(store)).toBeNull();
-	};
-
-	it('is not JSON', async () => unbound('not json at all'));
-	it('is JSON that is not an object', async () => unbound('"ada/atlas"'));
-	it('names no owner', async () => unbound('{"formatVersion":1,"repository":"atlas"}'));
-	it('names no repository', async () => unbound('{"formatVersion":1,"owner":"ada"}'));
-	it('names an empty owner', async () =>
-		unbound('{"formatVersion":1,"owner":"  ","repository":"atlas"}'));
-
-	// ⚠ **This is the *less* trusted of the two readers, and it used to be the more tolerant one.**
-	// What arrives here is a file on disk — from a restored Backup, a colleague's folder, or (ticket
-	// 07) a `remote.json` downloaded out of somebody else's published tree — and both fields are
-	// interpolated straight into the API path the publish engine builds. `encodeURIComponent` at the
-	// interpolation is not the fix: it leaves `.` alone, so `..` survives it and `fetch` normalises
-	// the traversal away. So a hostile document is *no binding at all*, and the Workspace is unbound.
-	it('names an owner that would climb out of the repository path', async () =>
-		unbound('{"formatVersion":1,"owner":"ada/../../orgs","repository":"atlas"}'));
-
-	it('names a repository carrying a query of its own', async () =>
-		unbound('{"formatVersion":1,"owner":"ada","repository":"atlas?x=1"}'));
-
-	it('names a repository on another host entirely', async () =>
-		unbound('{"formatVersion":1,"owner":"ada","repository":"https://evil.invalid/x"}'));
-
-	it('names an owner with a dot in it, which GitHub does not allow', async () =>
-		unbound('{"formatVersion":1,"owner":"ada.lovelace","repository":"atlas"}'));
+	it('names an owner with a dot in it, which GitHub does not allow', () =>
+		refused({ owner: 'ada.lovelace', repository: 'atlas' }));
 
 	// ⚠ **The two path segments that are not names.** Both match the character set a repository is
 	// allowed — letters, digits and `-_.` — and both are interpolated straight into a URL: `ada/..`
 	// normalises to `api.github.com/repos/ada`, which is an endpoint about a *user*, and on the raw
 	// host it climbs out of the repository altogether.
-	it('names a repository that is the current directory', async () =>
-		unbound('{"formatVersion":1,"owner":"ada","repository":"."}'));
+	it('names a repository that is the current directory', () =>
+		refused({ owner: 'ada', repository: '.' }));
 
-	it('names a repository that is the parent directory', async () =>
-		unbound('{"formatVersion":1,"owner":"ada","repository":".."}'));
+	it('names a repository that is the parent directory', () =>
+		refused({ owner: 'ada', repository: '..' }));
 
-	it('is a Workspace that cannot be reached at all', async () => {
-		const unreachable = {
-			read: () => Promise.reject(new Error('The folder has been unplugged.')),
-			list: () => Promise.resolve([]),
-			write: () => Promise.resolve(),
-			delete: () => Promise.resolve(),
-			size: () => Promise.resolve(0),
-			reclaimAbandonedWrites: () => Promise.resolve()
-		};
-
-		expect(await readRemoteBinding(unreachable)).toBeNull();
+	// The dot is refused as a whole segment and nowhere else: real repositories are called `.github`
+	// and `foo.js`, and banning the character would refuse them.
+	it('keeps a repository whose name has a dot in it', () => {
+		expect(isRepositoryName('.github')).toBe(true);
+		expect(isRepositoryName('foo.js')).toBe(true);
+		expect(isOwnerName('ada-lovelace')).toBe(true);
 	});
 });
 
-describe('a binding from a build that knew more than this one', () => {
-	it('keeps its owner and repository rather than being refused (ADR-0010’s tolerance)', async () => {
-		const store = new MemoryProjectStore();
-		store.plant(
-			REMOTE_BINDING_PATH,
-			encode(
-				'{"formatVersion":7,"owner":"ada","repository":"atlas","branch":"main","host":"gitea"}'
-			)
-		);
-
-		expect(await readRemoteBinding(store)).toEqual({
-			formatVersion: 7,
-			owner: 'ada',
-			repository: 'atlas',
-			branch: 'main'
-		});
-	});
-
-	it('names no branch, and is therefore bound to main', () => {
+describe('a record from a build that knew more than this one', () => {
+	it('keeps its owner and repository rather than being refused (ADR-0010’s tolerance)', () => {
 		expect(
-			parseRemoteBinding(encode('{"formatVersion":1,"owner":"ada","repository":"atlas"}'))
-		).toHaveProperty('branch', DEFAULT_REMOTE_BRANCH);
+			normaliseRemoteIdentity({
+				owner: 'ada',
+				repository: 'atlas',
+				branch: 'main',
+				host: 'gitea'
+			} as Record<string, unknown>)
+		).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 	});
-});
 
-// ADR-0024. **Refused in the domain package rather than by an absent menu item**:
-// publishing somebody else's Project to your own address is promotion by another route and a worse
-// one, and a Clone, a restored Backup, and a URL parameter all reach a store without passing a menu.
-describe('a Review Workspace can never be bound', () => {
-	it('refuses, in the sentence every review refusal uses', async () => {
-		const store = reviewCopy();
-
-		await expect(writeRemoteBinding(store, 'assignment 7', BINDING)).rejects.toThrow(
-			ReviewWorkspaceError
+	it('names no branch, and therefore names the branch Ballastella synchronizes with', () => {
+		expect(normaliseRemoteIdentity({ owner: 'ada', repository: 'atlas' })).toHaveProperty(
+			'branch',
+			DEFAULT_REMOTE_BRANCH
 		);
-	});
-
-	it('names the Project and says why, rather than failing silently', async () => {
-		const store = reviewCopy();
-
-		await expect(writeRemoteBinding(store, 'assignment 7', BINDING)).rejects.toThrow(
-			/review copy of “Amsterdam 1625”.*bound to a repository on GitHub/s
-		);
-	});
-
-	it('writes nothing, so the review copy is left exactly as it was', async () => {
-		const store = reviewCopy();
-		const before = await store.list('');
-
-		await expect(writeRemoteBinding(store, 'assignment 7', BINDING)).rejects.toThrow();
-
-		expect(await store.list('')).toEqual(before);
-		expect(await readRemoteBinding(store)).toBeNull();
 	});
 });
 
@@ -262,6 +127,6 @@ describe('what a scholar pastes as a repository address', () => {
 	});
 
 	it('names a Remote the way GitHub does', () => {
-		expect(describeRemote(BINDING)).toBe('ada/atlas');
+		expect(describeRemote({ owner: 'ada', repository: 'atlas' })).toBe('ada/atlas');
 	});
 });

@@ -110,15 +110,26 @@ async function bind(page: Page): Promise<void> {
 	await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 }
 
-/** `remote.json` as the Workspace holds it, or `null`. */
-async function bindingFile(page: Page, workspace = DEFAULT_WORKSPACE): Promise<string | null> {
+/**
+ * Every top-level *file* the Workspace holds, sorted.
+ *
+ * ⚠ **The claim it carries is that none of them names a repository** (ADR-0044). The relationship is
+ * installation-local and has exactly one home; a document in the Workspace would be a second copy,
+ * travelling into a Backup, a folder and a fork, where a repository nobody chose could claim the
+ * Workspace it landed in.
+ */
+async function topLevelFiles(page: Page, workspace = DEFAULT_WORKSPACE): Promise<string[]> {
 	return page.evaluate(async (name) => {
+		const found: string[] = [];
 		try {
 			const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle(name);
-			return await (await (await directory.getFileHandle('remote.json')).getFile()).text();
+			for await (const [entry, handle] of directory) {
+				if (handle.kind === 'file') found.push(entry);
+			}
 		} catch {
-			return null;
+			return found;
 		}
+		return found.sort();
 	}, workspace);
 }
 
@@ -129,15 +140,11 @@ test.describe('binding a Workspace to a repository', () => {
 		await bind(page);
 		await closeTheDoor(page);
 
-		// The binding is a **file in the Workspace** as well as a relationship this installation holds
-		// — which is what lets a Published Site say what it was built from, and a Clone learn its own
-		// Remote (ADR-0032, ADR-0038).
-		expect(JSON.parse((await bindingFile(page)) ?? 'null')).toEqual({
-			formatVersion: 1,
-			owner: OWNER,
-			repository: REPOSITORY,
-			branch: 'main'
-		});
+		// ⚠ **The relationship is installation-local and is written nowhere in the Workspace**
+		// (ADR-0044). It survives the reload below because this installation kept it, not because a
+		// file in the folder says so — which is what makes a copied Workspace arrive connected to
+		// nothing.
+		expect(await topLevelFiles(page)).toEqual([]);
 
 		await page.reload();
 		await expectRemoteNamed(page, REMOTE);
@@ -181,18 +188,18 @@ test.describe('a repository this credential cannot publish to', () => {
 		await closeTheDoor(page);
 		// Nothing was bound by looking at it.
 		await expectNoRemote(page);
-		expect(await bindingFile(page)).toBeNull();
+		expect(await topLevelFiles(page)).toEqual([]);
 	});
 });
 
 // A repository full of correct files that serves nothing is the failure; an error dialog over a
-// binding that otherwise worked is a worse one.
-// ⚠ **A Remote is a place the work lives before it is a site anybody reads.** Turning a Published
-// Site on is a separate, later, optional act with a press of its own, on the door's connected step —
-// so connecting must leave the repository exactly as it found it and say nothing about Pages at all.
-// What the later act says when GitHub refuses it is `bind-remote.test.ts`'s at Seam 1, and that the
-// press exists and renders the answer is the door's at Seam 1c.
-test.describe('binding does not turn Pages on', () => {
+// connection that otherwise worked is a worse one.
+// ⚠ **A Remote is a place the work lives before it is a site anybody reads** (ADR-0045). Share Links
+// are a separate, later, optional act with a press of their own, on the door's connected step — so
+// connecting must leave the repository exactly as it found it and say nothing about Pages at all.
+// What each of the four outcomes says is `bind-remote.test.ts`'s at Seam 1, and that the presses
+// exist and render their answers is the door's at Seam 1c.
+test.describe('connecting does not turn Pages on', () => {
 	test('leaves the site off, with nothing to say about it', async ({ page }) => {
 		const github = await start(page);
 
@@ -336,17 +343,16 @@ test.describe('a folder Workspace', () => {
 		await closeTheDoor(page);
 
 		await expectRemoteNamed(page, REMOTE);
-		// In the folder, which is where the binding has to be for a Clone to learn its own Remote.
-		expect(JSON.parse((await bindingFile(page, 'e2e-remote-folder')) ?? 'null')).toHaveProperty(
-			'repository',
-			REPOSITORY
-		);
+		// And nothing about it is in the folder, exactly as nothing about it is in browser storage's
+		// copy: a folder handed to a colleague carries the work and no claim on a repository.
+		expect(await topLevelFiles(page, 'e2e-remote-folder')).toEqual([]);
 	});
 });
 
-// ADR-0032: `remote.json` is inside the published tree deliberately, so a Backup carries it — and a
-// scholar restoring one is somebody recovering from something having gone wrong. Handing them a
-// Publish button aimed at their live, cited address at that moment is the failure.
+// ADR-0044: the relationship is installation-local, so a restored Backup arrives connected to
+// nothing by construction rather than by a document being dropped on the way in. A scholar restoring
+// one is somebody recovering from something having gone wrong, and handing them a Sync aimed at their
+// live, cited address at that moment is the failure this makes unreachable.
 test.describe('a restored Backup', () => {
 	test('arrives unbound', async ({ page }) => {
 		await start(page);
@@ -369,6 +375,6 @@ test.describe('a restored Backup', () => {
 
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
 		await expectNoRemote(page);
-		expect(await bindingFile(page, `${DEFAULT_WORKSPACE} (2)`)).toBeNull();
+		expect(await topLevelFiles(page, `${DEFAULT_WORKSPACE} (2)`)).toEqual([]);
 	});
 });

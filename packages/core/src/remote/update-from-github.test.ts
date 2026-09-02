@@ -82,7 +82,6 @@ const NOT_SOURCE: Record<string, string> = {
 	'_app/immutable/app.js': 'export const start = () => {};',
 	'ballastella-site.json': '{"formatVersion":2}',
 	'.nojekyll': '',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
 	'README.md': '# Atlas, by hand\n',
 	CNAME: 'atlas.example\n',
 	'.github/workflows/pages.yml': 'name: pages\n'

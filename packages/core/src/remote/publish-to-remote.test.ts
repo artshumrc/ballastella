@@ -4,6 +4,7 @@ import type { FetchFn } from '../injection/store-image-fetch.js';
 import { STATIC_HOSTING_LIMIT_BYTES } from '../project/workspace-size.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
+import { withdrawShareLinks } from '../publish/publish.js';
 import { gitBlobSha } from './blob-sha.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
@@ -65,7 +66,13 @@ const publish = async (
 		fetch: github.fetch,
 		baseline
 	});
-	return publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+	const result = await publishToRemote(store, {
+		token: TOKEN,
+		remote: REMOTE,
+		plan,
+		fetch: github.fetch
+	});
+	return { ...result, plan };
 };
 
 /**
@@ -105,6 +112,14 @@ const withoutBudgetHeaders =
 		headers.delete('X-RateLimit-Reset');
 		return new Response(response.body, { status: response.status, headers });
 	};
+
+/**
+ * The site record, whose presence is what having Share Links means (ADR-0045).
+ *
+ * Spread into a fixture wherever the claim under test is about a Workspace that *has* asked for a
+ * site — which, before this Epic, every fixture here silently assumed.
+ */
+const SITE = { 'ballastella-site.json': '{"formatVersion":2,"projects":[]}' };
 
 /** A Workspace with one small Project, its shared pyramid, and a viewer already written into it. */
 const smallWorkspace = () =>
@@ -166,7 +181,7 @@ describe('publishing a Workspace to its Remote', () => {
 	// branch has to exist before the first blob is sent. The publish opens it through the Contents
 	// API with `.nojekyll` — the file it must write anyway — and then commits onto that.
 	it('opens an empty repository and publishes into it', async () => {
-		const store = await seeded({ 'index.html': '<!doctype html>' });
+		const store = await seeded({ ...SITE, 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
 		const { commit } = await publish(store, github);
@@ -176,7 +191,7 @@ describe('publishing a Workspace to its Remote', () => {
 			commit,
 			// The seed, and the publish parented onto it. Nothing is force-pushed over.
 			2,
-			['.nojekyll', 'index.html']
+			['.nojekyll', 'ballastella-site.json', 'index.html']
 		]);
 		expect(history[0]).toBe(commit);
 		// The seed carried `.nojekyll` and nothing else: a Reader who arrived between the two commits
@@ -328,7 +343,7 @@ describe('a second publish', () => {
 		// The other half: the plan marked this path `onRemote`, so an engine reading the plan's flag
 		// never re-reads it at all. Provoked with a store that answers different bytes on the second
 		// read of the path, which is what a save between the two passes amounts to.
-		const store = await seeded({ 'index.html': '<!doctype html>' });
+		const store = await seeded({ ...SITE, 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 		const first = await publish(store, github);
 
@@ -364,6 +379,7 @@ describe('a second publish', () => {
 		// Map Image with margins — and a blob posted twice spends two of the one hourly budget
 		// ADR-0033 singles out.
 		const store = await seeded({
+			...SITE,
 			'index.html': '<!doctype html>',
 			'images/blaeu/0,0,256,256/256,256/0/default.jpg': 'blank-tile',
 			'images/blaeu/0,256,256,256/256,256/0/default.jpg': 'blank-tile'
@@ -377,8 +393,9 @@ describe('a second publish', () => {
 		});
 		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-		// Four paths, three blobs: the two tiles, `index.html`, and the empty `.nojekyll`.
-		expect([plan.files.length, plan.uploads, github.blobPosts]).toEqual([4, 3, 3]);
+		// Five paths, four blobs: the two tiles are one between them, beside `index.html`, the site
+		// record, and the empty `.nojekyll`.
+		expect([plan.files.length, plan.uploads, github.blobPosts]).toEqual([5, 4, 4]);
 		expect(
 			[...github.files()]
 				.filter(([path]) => path.startsWith('images/'))
@@ -496,6 +513,7 @@ describe('the owned namespace (ADR-0033)', () => {
 	 */
 	it('removes the Publish-owned output a previous site left and this one does not write', async () => {
 		const store = await seeded({
+			...SITE,
 			'index.html': '<!doctype html>',
 			'_app/immutable/entry/start.AAAA.js': 'export const start = 1;',
 			'base-map/tiles/9f8/12/2094/1330.mvt': 'tile-bytes',
@@ -519,9 +537,143 @@ describe('the owned namespace (ADR-0033)', () => {
 			'README.md',
 			'_app/immutable/entry/start.AAAA.js',
 			'amsterdam-1625/project.json',
+			'ballastella-site.json',
 			'base-map/tiles/9f8/12/2094/1330.mvt',
 			'index.html'
 		]);
+	});
+});
+
+// ⚠ **A repository holds the work, and a site is asked for separately** (ADR-0045). Everything in
+// this block is one question — *does the tree carry a `ballastella-site.json`* — asked of the
+// Workspace and of the Remote, and never of a stored flag that could disagree with either.
+describe('the owned namespace when Share Links are not asked for (ADR-0045)', () => {
+	/** The Workspace as it is before anybody asks for a site: the scholar's own files and nothing else. */
+	const workOnly = () =>
+		seeded({
+			'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}',
+			'amsterdam-1625/annotations/notes.json': '{"type":"FeatureCollection","features":[]}',
+			'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}',
+			'images/blaeu/0,0,256,256/256,256/0/default.jpg': 'jpeg-bytes',
+			// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the publish has one to send
+			'alignments/blaeu.json': '{"type":"Annotation"}'
+		});
+
+	// The whole of story 64: browsing the repository on github.com shows the scholar's work rather
+	// than a build. No `index.html`, no `_app/`, no site record, and not even the Jekyll marker.
+	it('sends the source namespace and nothing else', async () => {
+		const store = await workOnly();
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+		const { plan } = await publish(store, github);
+
+		expect(plan.files.map((file) => file.path)).toEqual([
+			'alignments/blaeu.json',
+			'amsterdam-1625/annotations/notes.json',
+			'amsterdam-1625/project.json',
+			'images/blaeu/0,0,256,256/256,256/0/default.jpg',
+			'images/blaeu/info.json'
+		]);
+		expect([...github.files().keys()]).toEqual(plan.files.map((file) => file.path));
+	});
+
+	// ⚠ **Neither sent nor removed.** A site somebody's fork left, or one an older build wrote before
+	// this rule existed, is not this Workspace's to take down — and its presence is not a difference
+	// anybody is told about.
+	it('leaves a site already on the Remote exactly where it is', async () => {
+		const store = await workOnly();
+		const github = await createFakeGitHub({
+			...REMOTE,
+			tree: {
+				'.nojekyll': '',
+				'index.html': '<!doctype html>',
+				'_app/immutable/entry/start.OLD.js': 'export const start = 0;'
+			}
+		});
+
+		const { plan } = await publish(store, github);
+
+		expect(plan.removed).toEqual([]);
+		expect(plan.conflict).toBeNull();
+		expect([...github.files().keys()]).toContain('index.html');
+		expect([...github.files().keys()]).toContain('_app/immutable/entry/start.OLD.js');
+	});
+
+	// ⚠ **The seed is scaffolding here and a published file with Share Links, which is the one
+	// difference between the two.** `PUT /contents/` is the only endpoint that writes to a repository
+	// with no commits (ADR-0045), so the marker opens the branch one commit early — and then the
+	// publish's own commit does not carry it, because a repository holding only work has no `_app/`
+	// for Jekyll to drop. What a scholar browsing github.com sees is their own files.
+	it('opens an empty repository with the marker and does not commit it', async () => {
+		const store = await workOnly();
+		const github = await createFakeGitHub({ owner: REMOTE.owner, repository: REMOTE.repository });
+
+		const { plan } = await publish(store, github);
+
+		expect(plan.files.map((file) => file.path)).not.toContain('.nojekyll');
+		expect([...github.files().keys()]).not.toContain('.nojekyll');
+		// It was there, in the commit that opened the branch: the scaffolding happened, and only the
+		// publish parented onto it declines to carry it forward.
+		expect([...github.files(github.history()[1] ?? '').keys()]).toEqual(['.nojekyll']);
+	});
+});
+
+describe('the owned namespace once Share Links are asked for (ADR-0045)', () => {
+	// Asking for Share Links writes the viewer into the Workspace; the next Sync is what carries it.
+	it('sends the source namespace, the viewer file set, and the Jekyll marker', async () => {
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+		await publish(store, github);
+
+		expect([...github.files().keys()]).toEqual([
+			'.nojekyll',
+			'_app/immutable/entry/start.AAAA.js',
+			'alignments/blaeu.json',
+			'amsterdam-1625/annotations/notes.json',
+			'amsterdam-1625/project.json',
+			'ballastella-site.json',
+			'images/blaeu/0,0,256,256/256,256/0/default.jpg',
+			'images/blaeu/info.json',
+			'index.html'
+		]);
+	});
+
+	// ⚠ **Withdrawal, asserted end to end at the seam that carries it out.** `withdrawShareLinks` has
+	// taken the viewer out of the Workspace; the Remote still has it, which is what still makes this a
+	// Workspace with Share Links — and so the mirror removes it. The scholar's files are the control.
+	it('removes the viewer set the Workspace no longer holds, and no source file with it', async () => {
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+		const first = await publish(store, github);
+
+		await withdrawShareLinks(store);
+		const { plan } = await publish(store, github, shared(first));
+
+		expect([...github.files().keys()]).toEqual([
+			'.nojekyll',
+			'alignments/blaeu.json',
+			'amsterdam-1625/annotations/notes.json',
+			'amsterdam-1625/project.json',
+			'images/blaeu/0,0,256,256/256,256/0/default.jpg',
+			'images/blaeu/info.json'
+		]);
+		expect(plan.conflict).toBeNull();
+	});
+
+	// And then it stays withdrawn: the Remote no longer carries a site record, so the marker the last
+	// commit still holds is preserved rather than re-authored, and nothing oscillates.
+	it('leaves the repository alone on the Sync after a withdrawal', async () => {
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+		const first = await publish(store, github);
+		await withdrawShareLinks(store);
+		const second = await publish(store, github, shared(first));
+
+		const { plan } = await publish(store, github, shared(second));
+
+		expect(plan.unchanged).toBe(true);
+		expect(plan.files.map((file) => file.path)).not.toContain('.nojekyll');
 	});
 });
 
@@ -717,8 +869,10 @@ describe('the three budgets (ADR-0033)', () => {
 				pending: website
 			});
 
-			// Three files: the two the Workspace holds and the `.nojekyll` a publish authors.
-			expect([bare.pending.length, bare.uploads, whole.uploads]).toEqual([0, 3, 7]);
+			// Two files, because a Workspace with no site carries no `.nojekyll`: the marker exists to
+			// stop Jekyll dropping `_app/`, and there is no `_app/` in a repository holding only work
+			// (ADR-0045). The website's four make it seven, the marker among them.
+			expect([bare.pending.length, bare.uploads, whole.uploads]).toEqual([0, 2, 7]);
 			expect(whole.bytes - bare.bytes).toBe(5_002_700);
 			expect(whole.uploadBytes - bare.uploadBytes).toBe(5_002_700);
 			expect(whole.pending.map((file) => file.path)).toEqual(website.map((file) => file.path));
@@ -727,7 +881,7 @@ describe('the three budgets (ADR-0033)', () => {
 		it('warns about the hour’s budget on a count the website is in', async () => {
 			const store = await beforeTheFirstPublish();
 			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
-			// Room for the three files the Workspace holds, the tree, the commit and the ref move — and
+			// Room for the two files the Workspace holds, the tree, the commit and the ref move — and
 			// none for the website. Uncounted, this publish is forecast to fit and stops part way.
 			github.rateLimit = { remaining: 8, reset: 1_800_000_000 };
 
@@ -1414,7 +1568,7 @@ describe('the Jekyll marker every publish writes', () => {
 		// second entry for the same path is gone before any reader of it can see one. The plan's file
 		// list is what the upload loop walks and what the tree is built from, so a duplicate there is a
 		// second read of the file and a second entry posted to `POST /git/trees` for the same path.
-		const store = await seeded({ '.nojekyll': '', 'index.html': '<!doctype html>' });
+		const store = await seeded({ ...SITE, '.nojekyll': '', 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
 		const plan = await planRemotePublish(store, {
@@ -1423,8 +1577,12 @@ describe('the Jekyll marker every publish writes', () => {
 			fetch: github.fetch
 		});
 
-		expect(plan.files.map((file) => file.path)).toEqual(['.nojekyll', 'index.html']);
+		expect(plan.files.map((file) => file.path)).toEqual([
+			'.nojekyll',
+			'ballastella-site.json',
+			'index.html'
+		]);
 		// And it is the Workspace's own file rather than an authored one standing beside it.
-		expect(plan.files.map((file) => file.authored)).toEqual([false, false]);
+		expect(plan.files.map((file) => file.authored)).toEqual([false, false, false]);
 	});
 });

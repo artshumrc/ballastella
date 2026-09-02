@@ -1,53 +1,28 @@
-// Which repository a Workspace belongs to: the binding, and nothing else (ADR-0032, ADR-0033).
+// Which repository a Workspace belongs to: what a reference is, and what makes two of them the same.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHY THE BINDING IS A FILE IN THE WORKSPACE
+// THE RELATIONSHIP IS INSTALLATION-LOCAL, SO THIS MODULE HOLDS NO DOCUMENT
 //
-// `review.json`'s precedent, for a related reason: a fact *about this Workspace* belongs inside the
-// Workspace, so it travels with the directory wherever the directory goes — to a second browser
-// profile, into a folder on disk, and, uniquely here, back out of the Remote. A binding kept in
-// `localStorage` would be a fact about this browser, and a Clone would have to be told its own Remote
-// by whoever cloned it.
+// A Workspace's Remote is kept by the installation that synchronizes with it (ADR-0044), and
+// nothing writes a second copy into the tree: a file in the Workspace saying which repository it
+// belongs to is a claim that can disagree with the one the installation acts on, and it travels —
+// into a Backup, into a fork, into a colleague's folder — where it would let a repository nobody
+// chose claim a Workspace. What a Published Site needs to name its own repository it carries in its
+// own record (`ballastella-site.json`), which publishing writes and which says nothing about any
+// Workspace.
 //
-// It is *inside* the published tree deliberately, which is the one thing that separates it from the
-// review mark. The binding never changes, so it causes no churn on the Remote; and because it is
-// published, a Clone reads its own Remote out of the files it just downloaded.
+// So what is left here are the rules every reader of a repository reference has to agree about, in
+// one place: the character sets GitHub itself enforces, the shape a reference has, and the
+// comparison that decides whether two of them are one repository.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// UNREADABLE MEANS UNBOUND, WHICH IS THE OPPOSITE DIRECTION FROM THE REVIEW MARK
+// THE CHARACTER SETS ARE CHECKED, NEVER TRUSTED
 //
-// `readReviewMark` answers "review" for a file it cannot read, because the failure to avoid there is
-// an afternoon's work done in a Workspace built to be thrown away. Here the safe direction is the
-// other one: the worst outcome of a mangled `remote.json` is a Publish button aimed at an address
-// nobody has checked, and the cost of answering "unbound" is that the user binds again. So every
-// failure — absent, unreachable, not JSON, missing an owner — comes back `null`, and nothing on this
-// path throws at startup.
-
-import { assertNotReviewing, readReviewMark } from '../project/review-workspace.js';
-import type {
-	Bytes,
-	ProjectStore,
-	ReadOnlyProjectStore,
-	StorePath
-} from '../store/project-store.js';
-
-/**
- * Where the binding lives, relative to the Workspace root.
- *
- * A top-level *file*, so it cannot collide with a Project: `listProjects` matches only
- * `<directory>/project.json` (ADR-0008), and `toDirectoryName` turns any name a user could type into
- * a slug with no `.` in it, so no Project directory can ever be called this.
- */
-export const REMOTE_BINDING_PATH = 'remote.json' as StorePath;
-
-/**
- * The format version of the binding itself.
- *
- * Separate from a Project's `formatVersion` and, like the review mark's, deliberately not checked
- * against the future: a binding from a newer build still names a repository, and refusing to read it
- * would leave a scholar unbound on the machine that can still publish.
- */
-export const REMOTE_BINDING_FORMAT_VERSION = 1;
+// Both fields are interpolated straight into an API path by the synchronization engine. An owner of
+// `ada/../../orgs` or a repository of `atlas?x=1` would retarget every request it makes, and
+// `encodeURIComponent` at the interpolation is **not** the fix: it leaves `.` alone, so `..`
+// survives it and `fetch` normalises the traversal away afterwards. Checked here instead, so a
+// reference is safe by construction wherever it is interpolated.
 
 /** The one branch Ballastella publishes to. One branch, one commit per publish. */
 export const DEFAULT_REMOTE_BRANCH = 'main';
@@ -56,8 +31,8 @@ export const DEFAULT_REMOTE_BRANCH = 'main';
  * GitHub's own rule for an account name and for a repository name: letters, digits and `-_.`, with
  * an owner allowing no dot.
  *
- * ⚠ **Checked rather than trusted, on both the address a user pastes and the binding read back off
- * disk**, because both go straight into a URL path. One pair of patterns for the two readers, so
+ * ⚠ **Checked rather than trusted, on the address a user pastes and on every record read back out
+ * of storage**, because both go straight into a URL path. One pair of patterns for every reader, so
  * they cannot come to disagree about what a repository may be called.
  */
 const OWNER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
@@ -69,8 +44,8 @@ const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+$/;
  * ⚠ **`.` and `..` match {@link REPOSITORY_PATTERN} exactly**, and both are interpolated straight
  * into a URL path: `ada/..` normalises to `api.github.com/repos/ada`, an endpoint about a *user*,
  * and on the raw host it climbs out of the repository altogether. `encodeURIComponent` is no defence
- * — it leaves `.` alone and `fetch` resolves the traversal afterwards, which is the trap the note on
- * {@link parseRemoteBinding} records.
+ * — it leaves `.` alone and `fetch` resolves the traversal afterwards, which is the trap this
+ * module's header records.
  *
  * The two exact strings, rather than the character: real repositories are called `.github` and
  * `foo.js`, and banning the dot would refuse them.
@@ -91,14 +66,13 @@ export const isOwnerName = (value: string): boolean => OWNER_PATTERN.test(value)
  * `{ owner, repository, branch }` out of untrusted members, or `null` when they are not a repository.
  *
  * ⚠ **The one place the character sets are applied to a record read back out of storage**, so that
- * every reader of a persisted repository identity — the binding document, the installation-local
- * relationship, a Baseline offered as evidence — agrees about what a repository may be called. Two
- * readers with their own copies of the rules are two readers that can come to disagree, and the
+ * every reader of a persisted repository identity — the installation-local relationship, a Baseline
+ * offered as evidence, a Published Site's own record — agrees about what a repository may be called.
+ * Two readers with their own copies of the rules are two readers that can come to disagree, and the
  * disagreement is silent: one of them interpolates `ada/..` into an API path.
  *
- * An absent or empty branch normalises to {@link DEFAULT_REMOTE_BRANCH}, for the reason
- * {@link parseRemoteBinding} gives — a record written before anybody thought about branches names
- * the branch Ballastella publishes to.
+ * An absent or empty branch normalises to {@link DEFAULT_REMOTE_BRANCH}: a record written before
+ * anybody thought about branch names means the branch Ballastella synchronizes with.
  */
 export function normaliseRemoteIdentity(record: {
 	readonly owner?: unknown;
@@ -112,106 +86,12 @@ export function normaliseRemoteIdentity(record: {
 	return { owner, repository, branch: text(record.branch) || DEFAULT_REMOTE_BRANCH };
 }
 
-/** Which repository this Workspace is published to. */
-export interface RemoteBinding {
-	readonly formatVersion: number;
-	readonly owner: string;
-	readonly repository: string;
-	readonly branch: string;
-}
-
-export function serialiseRemoteBinding(binding: RemoteBinding): Bytes {
-	return new TextEncoder().encode(`${JSON.stringify(binding, null, '\t')}\n`) as Bytes;
-}
-
-/**
- * Read a binding's bytes, or `null` when they are not a binding this build can act on.
- *
- * A document naming no owner or no repository is `null` rather than a half-binding: everything
- * downstream builds a URL out of both, and `https://api.github.com/repos//maps` is a request nobody
- * meant to make. Unknown members are carried nowhere — the document holds four things by contract,
- * and a Publish rewrites it from this build's model only when the user binds again.
- *
- * ⚠ **The owner and the repository are checked against GitHub's own character sets, exactly as
- * {@link parseRemoteReference} checks what a user typed, and this is the *less* trusted of the two
- * inputs.** It is a file on disk — one a restored Backup, a colleague's folder, or a `remote.json`
- * downloaded out of somebody else's published tree can put there — and both fields are
- * interpolated straight into an API path by the publish engine. An owner of `ada/../../orgs` or a
- * repository of `atlas?x=1` would retarget every request the engine makes. `encodeURIComponent` at
- * the interpolation is **not** the fix and must not be mistaken for one: it leaves `.` alone, so
- * `..` survives it and `fetch` normalises the traversal away afterwards. Checked here instead, so
- * the binding is safe by construction wherever it is interpolated.
- */
-export function parseRemoteBinding(bytes: Bytes): RemoteBinding | null {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-	} catch {
-		return null;
-	}
-	if (typeof raw !== 'object' || raw === null) return null;
-	const record = raw as Record<string, unknown>;
-	const identity = normaliseRemoteIdentity(record);
-	if (identity === null) return null;
-	const formatVersion = record['formatVersion'];
-	return {
-		formatVersion:
-			typeof formatVersion === 'number' ? formatVersion : REMOTE_BINDING_FORMAT_VERSION,
-		...identity
-	};
-}
-
-/**
- * The Remote this Workspace is bound to, or `null` when it is bound to nothing.
- *
- * Never throws. See this module's header for why unreadable means unbound here and means the
- * opposite in `readReviewMark`.
- */
-export async function readRemoteBinding(
-	store: ReadOnlyProjectStore
-): Promise<RemoteBinding | null> {
-	// Every failure is the same answer, including {@link PathNotFoundError}: an absent binding and an
-	// unreachable Workspace are both "do not offer to publish", and the app reports an unreachable
-	// Workspace in its own words elsewhere (ADR-0008) rather than through this.
-	const bytes = await store.read(REMOTE_BINDING_PATH).catch(() => null);
-	return bytes === null ? null : parseRemoteBinding(bytes);
-}
-
-/**
- * Bind a Workspace to a repository, refusing a Review Workspace.
- *
- * ⚠ **The refusal is here rather than only in the menu that offers it** (ADR-0024).
- * Publishing somebody else's Project to your own address is promotion by another route and a worse
- * one, and a guard that lives in markup is one route away from being absent — a Clone, a restored
- * Backup, and a future URL parameter all reach a store without passing a menu.
- *
- * @throws ReviewWorkspaceError when the Workspace is a review copy
- */
-export async function writeRemoteBinding(
-	store: ProjectStore,
-	workspaceName: string,
-	binding: RemoteBinding
-): Promise<void> {
-	assertNotReviewing(workspaceName, await readReviewMark(store), 'bound to a repository on GitHub');
-	await store.write(REMOTE_BINDING_PATH, serialiseRemoteBinding(binding));
-}
-
-/**
- * Unbind a Workspace.
- *
- * Idempotent, because `ProjectStore.delete` is. The Remote itself is untouched: unbinding is this
- * machine forgetting where it published, never a deletion of anybody's site.
- */
-export async function clearRemoteBinding(store: ProjectStore): Promise<void> {
-	await store.delete(REMOTE_BINDING_PATH);
-}
-
 /** `owner/repository`, which is how GitHub itself names a repository and how the bar shows it. */
-export function describeRemote(binding: {
+export function describeRemote(remote: {
 	readonly owner: string;
 	readonly repository: string;
 }): string {
-	return `${binding.owner}/${binding.repository}`;
+	return `${remote.owner}/${remote.repository}`;
 }
 
 /**
@@ -220,8 +100,8 @@ export function describeRemote(binding: {
  * A repository's address is the thing a scholar copies out of their browser's URL bar, so the whole
  * `https://github.com/owner/repository` is accepted alongside the short form — refusing it would be
  * refusing the likeliest paste. Nothing deeper is taken: a URL naming a file inside a repository is
- * not a repository, and silently truncating one to its first two segments would bind a Workspace to
- * something the user did not name.
+ * not a repository, and silently truncating one to its first two segments would connect a Workspace
+ * to something the user did not name.
  */
 export function parseRemoteReference(
 	pasted: string
