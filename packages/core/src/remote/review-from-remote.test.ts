@@ -558,7 +558,7 @@ describe('what a Review refuses', () => {
 
 	it('bytes that are not the ones the tree named, discarding the whole review copy', async () => {
 		// ⚠ The only refusal that can happen after the Workspace exists — and it leaves nothing, which
-		// is the deliberate divergence from the Clone. A Clone keeps its partial Workspace because it
+		// is the deliberate divergence from a get. A get keeps its partial Workspace because it
 		// can resume into it; a review copy is a thing you throw away, so there is nothing to protect.
 		const fake = await github();
 		const destination = destinationFor();

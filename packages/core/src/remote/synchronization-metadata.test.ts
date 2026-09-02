@@ -6,7 +6,6 @@ import {
 	SynchronizationMetadata,
 	baselineKey,
 	discardSynchronizationMetadata,
-	listRemoteRelationships,
 	remoteRelationshipKey
 } from './synchronization-metadata.js';
 
@@ -95,7 +94,7 @@ describe('installation-local synchronization metadata', () => {
 
 		// ⚠ **A `RemoteBinding` read off disk carries its own `formatVersion`.** Spread over the stored
 		// record's, it wrote a version this build's reader refuses — a Workspace that reported itself
-		// unbound the instant it was bound, which is what a Clone met.
+		// unbound the instant it was bound.
 		it('takes only the repository identity from whatever the caller was carrying', async () => {
 			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
 
@@ -332,29 +331,6 @@ describe('installation-local synchronization metadata', () => {
 			expect(await going.readBaseline(ATLAS)).toBeNull();
 			expect(await kept.readRemote()).toEqual(ATLAS_2);
 			expect(await kept.readBaseline(ATLAS_2)).toEqual(baseline(ATLAS_2));
-		});
-	});
-
-	// The hook under "reopening a repository returns to its existing Workspace".
-	describe('the repository-to-Workspace lookup', () => {
-		it('names every Workspace holding a relationship, and nothing else', async () => {
-			const storage = new FakeMetadataStorage();
-			await new SynchronizationMetadata(storage, WORKSPACE).bindRemote(ATLAS);
-			await new SynchronizationMetadata(storage, FOLDER).bindRemote(ATLAS_2);
-			// A Baseline with no relationship is not a bound Workspace.
-			await new SynchronizationMetadata(storage, OTHER).writeBaseline(baseline());
-
-			expect(await listRemoteRelationships(storage)).toEqual([
-				{ workspaceKey: WORKSPACE, remote: ATLAS },
-				{ workspaceKey: FOLDER, remote: ATLAS_2 }
-			]);
-		});
-
-		it('is empty rather than throwing when the store cannot be listed', async () => {
-			const storage = new FakeMetadataStorage();
-			storage.keys = () => Promise.reject(new Error('no'));
-
-			expect(await listRemoteRelationships(storage)).toEqual([]);
 		});
 	});
 });

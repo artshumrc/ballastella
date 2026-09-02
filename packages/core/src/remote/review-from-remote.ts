@@ -19,9 +19,9 @@
 // finished.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// A SIBLING OF THE CLONE, AND WHERE IT DELIBERATELY DIVERGES
+// A SIBLING OF THE INBOUND SYNC, AND WHERE IT DELIBERATELY DIVERGES
 //
-// The file list, the two hosts, the anonymity and the blob-SHA check are `clone-from-remote.ts`'s and
+// The file list, the two hosts, the anonymity and the blob-SHA check are the inbound half's and
 // are shared rather than restated — the listing through `remote-tree.ts`, the namespace question
 // through `projectDirectories`, the byte check through `gitBlobSha`. Four things differ, and
 // each is a decision rather than an accident:
@@ -35,12 +35,12 @@
 //      takes is either under a directory `projectDirectories` named or under `images/` or
 //      `alignments/`. `review-from-remote.test.ts` asserts the containment rather than this module
 //      claiming it.
-//   2. **No relationship is recorded.** An Open records the repository it read, as provenance. A
-//      Review Workspace belongs to no repository at all: `bindWorkspaceToRemote` would refuse it,
-//      and so this never asks.
-//   3. **A failure discards the whole Review Workspace**, where a Clone keeps its partial one. A
-//      Clone is resumable and as expensive as a first publish, so keeping what arrived is what makes
-//      an interruption bearable. A review copy is a thing you throw away when you have finished
+//   2. **No relationship is recorded.** A Workspace connected to a repository records it, as
+//      provenance. A Review Workspace belongs to no repository at all: `bindWorkspaceToRemote`
+//      would refuse it, and so this never asks.
+//   3. **A failure discards the whole Review Workspace**, where a get keeps what arrived. A get is
+//      resumable and as expensive as a first send, so keeping what arrived is what makes an
+//      interruption bearable. A review copy is a thing you throw away when you have finished
 //      looking at it; there is no resume to protect, and every refusal here can therefore end on the
 //      bundle's sentence — *nothing has been opened*.
 //   4. **The manifest is read before the destination exists.** A tar has no index, so
@@ -82,7 +82,7 @@ import type { EstimateStorage } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { isViewerFile } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
-import type { CloneReference } from './clone-from-remote.js';
+import type { RemoteReference } from './bind-remote.js';
 import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
 import { projectDirectories } from './synchronization-paths.js';
 import {
@@ -97,11 +97,11 @@ import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
 /**
  * Which Project on which Remote to review.
  *
- * The repository half is {@link CloneReference} unchanged — the same three fields with the same
+ * The repository half is {@link RemoteReference} unchanged — the same three fields with the same
  * meanings and the same default branch — because it is the same question asked of the same host.
  * What a Review adds is the field that makes it a different operation.
  */
-export type ReviewReference = CloneReference & {
+export type ReviewReference = RemoteReference & {
 	/**
 	 * The Project's directory on the Remote, which is a Project's identity (ADR-0008).
 	 *
@@ -140,11 +140,11 @@ export type ReviewRefusal =
 /**
  * A Review that will not happen, with a message for the person who asked for it.
  *
- * ⚠ **Every one of them ends on the same sentence, and unlike the Clone's that is unconditional.**
+ * ⚠ **Every one of them ends on the same sentence, and unlike a get's that is unconditional.**
  * A refusal before the Review Workspace is made has left nothing behind because there is nothing to
  * leave; one after it has left nothing behind because {@link reviewFromRemote} discards the whole
- * Workspace on its way out. The Clone's equivalent has to say which of the two happened, because a
- * Clone deliberately keeps what it downloaded.
+ * Workspace on its way out. A get's equivalent has to say which of the two happened, because a get
+ * deliberately keeps what it downloaded.
  */
 export class ReviewRefusedError extends Error {
 	readonly refusal: ReviewRefusal;
@@ -195,9 +195,9 @@ export interface ReviewedProject {
 	/** How many files were written, `project.json` included. */
 	readonly totalFiles: number;
 	/**
-	 * How many bytes were **written**, which is not what `WorkspaceClone.totalBytes` counts.
+	 * How many bytes were **written**, which is not what a get counts.
 	 *
-	 * A Clone reports the tree's own figure for everything it means to fetch, because a resumed Clone
+	 * A get reports the tree's own figure for everything it means to fetch, because a resumed one
 	 * writes only some of it and the total a progress line counts towards must not move between runs.
 	 * A Review always writes everything it fetches, once, so the honest figure is the one measured on
 	 * the way past — and it is the figure the closing progress report ends on.
@@ -207,7 +207,7 @@ export interface ReviewedProject {
 	 * Files this Project's Layers name that the Remote did not hold, and that therefore did not come.
 	 *
 	 * Empty for a Project published whole, which is every ordinary one. Reported rather than
-	 * swallowed, for `WorkspaceClone.declined`'s reason — a transfer that quietly delivers less
+	 * swallowed, for the reason every transfer here reports its declines — one that quietly delivers less
 	 * than it was given is the exact failure `restore-workspace-tar.ts`'s whole format change escaped
 	 * — and here the reviewer cannot discover it any other way: a Layer card has no missing-image
 	 * state, so a map Layer whose pyramid never arrived draws blank and looks exactly like one nobody
@@ -318,7 +318,7 @@ export async function reviewFromRemote(
 		for (const entry of wanted) {
 			const content = await read(entry);
 			// ⚠ **A decline is a refusal here rather than a file quietly left out**, which is the whole
-			// difference between this and the Clone's resume. The destination is made by this call and is
+			// difference between this and a get's resume. The destination is made by this call and is
 			// empty, so `writeAlignmentBytes` cannot decline against it — but if it ever could, counting
 			// the file as written would report a Review that delivered everything while an Alignment was
 			// missing from the Workspace, which is the failure `unmet` exists to make impossible.
@@ -429,7 +429,7 @@ function reviewRefusalFor(cause: unknown, remote: Required<ReviewReference>): Re
  * The Project the user named and its manifest, having established the Remote really holds one.
  *
  * ⚠ **`projectDirectories` rather than "does `<dir>/project.json` exist"**, so that this asks
- * the same question of the same kind of tree as the publish and the Clone do — and so that the
+ * the same question of the same kind of tree as the two halves of a Sync do — and so that the
  * refusal can name the alternatives, which is the difference between a message a scholar can act on
  * and one that tells them a folder they were sent is not there.
  *
@@ -624,7 +624,7 @@ function readManifest(bytes: Bytes): ProjectFile {
 /**
  * Write one reviewed file, sending an Alignment through the one writer (ADR-0023).
  *
- * Routed for the reason `clone-from-remote.ts` and `open-project-bundle.ts` both give at length, and
+ * Routed for the reason `open-project-bundle.ts` gives at length, and
  * it is the same situation: the path arrives as *data* — an entry in somebody else's tree — so
  * neither the `AlignmentPath` brand nor `scripts/check-alignment-writers.mjs` can see it, and "the
  * Review writes Alignments with the generic writer" would be a true statement about the codebase
@@ -633,7 +633,7 @@ function readManifest(bytes: Bytes): ProjectFile {
  * The destination is made by this call and is empty, so `intent: 'create'` always writes and the
  * decline `writeAlignmentBytes` can answer is unreachable through {@link reviewFromRemote} — but it
  * is *answered* rather than discarded, because a caller that ignored it would count a file it did
- * not write. A resumed Clone reports its declines; a Review has nowhere to put one, so it refuses.
+ * not write. A Review has nowhere to put a decline, so it refuses.
  *
  * @returns `'written'`, or `'declined'` when the destination already held an Alignment for that map
  */
@@ -660,7 +660,7 @@ async function writeReviewed(
 /**
  * Refuse a Review there is no room for, **before the Review Workspace exists**.
  *
- * `clone-from-remote.ts`'s argument, and ADR-0024's: OPFS shares the origin's quota, a teacher with
+ * The inbound half's argument, and ADR-0024's: OPFS shares the origin's quota, a teacher with
  * six review copies open can fail at eighty per cent, and refusing legibly beforehand beats
  * discovering it half way through a pyramid. Silent when the browser will not answer, because
  * refusing over an unavailable quota API would refuse every Review on Safari.

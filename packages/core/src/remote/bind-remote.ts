@@ -11,9 +11,24 @@
 // hourly request budget.
 //
 // **A refusal does not refuse the connection.** The relationship is also provenance — *this
-// Workspace came from there* — and a reader who opened somebody's public Workspace has a legitimate
-// connected-but-unable-to-push state (see `clone-from-remote.ts`). So a `permissions.push` of
-// `false` is a sentence, and the caller records the relationship anyway.
+// Workspace came from there* — and a reader who connected to somebody's public repository has a
+// legitimate connected-but-unable-to-push state. So a `permissions.push` of `false` is a sentence,
+// and the caller records the relationship anyway.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// CONNECTING NEEDS NO CREDENTIAL, BECAUSE GETTING DOES NOT
+//
+// A public repository is readable by anyone, so {@link bindWorkspaceToRemote} takes `token: null`
+// and asks GitHub the same question with no `Authorization` header at all (ADR-0044). That is the
+// whole of how a student with no GitHub account seeds a Workspace from their instructor's
+// repository: make a Workspace, connect it, get.
+//
+// ⚠ **An anonymous connection says nothing whatever about push rights.** GitHub returns no
+// `permissions` at all to a reader it does not know, so `canPush` is `false` for "certainly not"
+// and for "nobody asked" alike — and {@link RemoteBindOutcome.rightsNotice} is therefore empty
+// rather than carrying {@link noPushMessage}. Whether this author may send is a question a sign-in
+// answers, and a screen that reported it from here would be stating a fact it could not have
+// checked (ADR-0043).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // SHARE LINKS ARE NOT PART OF CONNECTING, AND FAIL INTO A SENTENCE WHEN THEY ARE ASKED FOR
@@ -62,6 +77,17 @@ export type BindRemoteOptions = {
 	readonly remote: RemoteReference;
 	/** Defaulting to the page's own, as the publish engine and the place lookup already do. */
 	readonly fetch?: FetchFn;
+};
+
+/**
+ * The same, for the two acts that may be done with no credential at all.
+ *
+ * ⚠ **Connecting and reading rights are the only two, and Share Links are deliberately not among
+ * them.** Every Pages call writes to somebody's repository, so those keep {@link BindRemoteOptions}
+ * and cannot be reached without a token — which is a property of the types rather than a check.
+ */
+export type ConnectRemoteOptions = Omit<BindRemoteOptions, 'token'> & {
+	readonly token: string | null;
 };
 
 /** Why a binding did not happen, in the words the user should see. */
@@ -140,16 +166,16 @@ export type RemoteBindOutcome = {
 	readonly rightsNotice: string;
 };
 
-const request = (options: BindRemoteOptions): FetchFn =>
+const request = (options: ConnectRemoteOptions): FetchFn =>
 	options.fetch ?? ((input, init) => fetch(input, init));
 
 const repositoryUrl = (remote: RemoteReference): string =>
 	`${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.repository)}`;
 
-const headers = (token: string): Record<string, string> => ({
-	Accept: 'application/vnd.github+json',
-	Authorization: `Bearer ${token}`
-});
+const headers = (token: string | null): Record<string, string> =>
+	token === null
+		? { Accept: 'application/vnd.github+json' }
+		: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` };
 
 /** GitHub's own words for a refusal, which are more useful than a status code alone. */
 async function problemOf(response: Response): Promise<string> {
@@ -162,11 +188,12 @@ async function problemOf(response: Response): Promise<string> {
 }
 
 /**
- * Ask GitHub whether this credential may push to this repository.
+ * Ask GitHub whether this credential may push to this repository — or, with none, whether the
+ * repository is there to be read at all.
  *
  * @throws RemoteBindRefusedError when the credential is rejected, or there is no such repository
  */
-export async function readRemoteRights(options: BindRemoteOptions): Promise<RemoteRights> {
+export async function readRemoteRights(options: ConnectRemoteOptions): Promise<RemoteRights> {
 	const { remote, token } = options;
 	let response: Response;
 	try {
@@ -182,7 +209,10 @@ export async function readRemoteRights(options: BindRemoteOptions): Promise<Remo
 	// see, so a typo, a private repository, and a token scoped to somebody else's account are one
 	// answer here. The message says so rather than asserting the first of the three.
 	if (response.status === 404) {
-		throw new RemoteBindRefusedError('no-repository', noRepositoryMessage(remote));
+		throw new RemoteBindRefusedError(
+			'no-repository',
+			token === null ? noPublicRepositoryMessage(remote) : noRepositoryMessage(remote)
+		);
 	}
 	if (!response.ok) {
 		throw new RemoteBindRefusedError('refused', refusedMessage(remote, await problemOf(response)));
@@ -384,7 +414,7 @@ export async function disableRemotePages(
 export async function bindWorkspaceToRemote(
 	store: ProjectStore,
 	workspaceName: string,
-	options: BindRemoteOptions
+	options: ConnectRemoteOptions
 ): Promise<RemoteBindOutcome> {
 	assertNotReviewing(
 		workspaceName,
@@ -400,7 +430,10 @@ export async function bindWorkspaceToRemote(
 			branch: options.remote.branch ?? DEFAULT_REMOTE_BRANCH
 		},
 		canPush: rights.canPush,
-		rightsNotice: rights.canPush ? '' : noPushMessage(options.remote)
+		// ⚠ **Silent where nobody was asked.** An anonymous read carries no `permissions`, so a
+		// `canPush` of `false` here means "unknown" rather than "refused" — and saying the second
+		// would tell a signed-out student that GitHub had turned them down.
+		rightsNotice: rights.canPush || options.token === null ? '' : noPushMessage(options.remote)
 	};
 }
 
@@ -422,6 +455,23 @@ function noRepositoryMessage(remote: RemoteReference): string {
 		`exactly like a missing one to somebody who cannot open it, and a fine-grained token reaches ` +
 		`only the repositories it was given. If you have not made it yet, create it on GitHub first ` +
 		`and choose Public.`
+	);
+}
+
+/**
+ * No public repository there — which, to a reader who has signed in to nothing, is also what a
+ * private one looks like.
+ *
+ * Separate from {@link noRepositoryMessage} because none of that sentence's three causes is this
+ * author's: there is no token to have mistyped, to have expired, or to have been scoped to the
+ * wrong account.
+ */
+function noPublicRepositoryMessage(remote: RemoteReference): string {
+	return (
+		`GitHub has no public repository at ${describeRemote(remote)}, so nothing has been ` +
+		`connected. From here a private repository looks exactly like a missing one, because this ` +
+		`reads GitHub without signing in — check the owner and the repository name, and sign in if ` +
+		`the repository is a private one.`
 	);
 }
 

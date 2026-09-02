@@ -3,14 +3,14 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A MODULE AND NOT A FUNCTION IN EACH READER
 //
-// A Clone takes the whole owned namespace and a Review takes one Project's closure, so they want
+// A get takes the whole owned namespace and a Review takes one Project's closure, so they want
 // *different subsets* of the same listing — but the listing itself is one request, one set of
 // statuses to make sense of, and one 200-response-that-is-not-complete to refuse. Written twice,
 // the two readings could disagree about what a repository holds while both stayed green: the
 // `iiif-hosts` divergence, and the reason `projectDirectories` is exported rather than
 // restated. So the reading lives here and the *wording* does not.
 //
-// ⚠ **The refusals carry a kind and nothing else that a user reads.** A Clone's truncation message
+// ⚠ **The refusals carry a kind and nothing else that a user reads.** A get's truncation message
 // says a Workspace would arrive with a pyramid missing and that nothing has been downloaded; a
 // Review's says nothing has been opened. Those are different sentences about the same fact, so each
 // caller writes its own from {@link RemoteTreeRefusedError.refusal} — this module has no opinion
@@ -219,7 +219,7 @@ export async function readRemoteCommitDate(
  *
  * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,
  * which is what lets a student with no GitHub account seed a Workspace from their instructor's
- * Remote (ADR-0031): Clone and Review are both unauthenticated. Sending a credential here would make
+ * Remote (ADR-0031): a get and a Review are both unauthenticated. Sending a credential here would make
  * an account a prerequisite for the operations that need none, and it would do it silently — the flow
  * would go on working for everybody who had already signed in.
  *

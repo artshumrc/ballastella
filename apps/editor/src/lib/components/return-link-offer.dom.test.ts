@@ -17,6 +17,8 @@ import type { ReturnLink } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { syncModal } from '$lib/sync-modal.svelte.js';
+
 import type { ImportTarget, WorkspaceStorage } from '../workspace-storage.svelte.js';
 import ReturnLinkOffer from './ReturnLinkOffer.svelte';
 
@@ -47,7 +49,9 @@ function fakeStorage(importTarget: ImportTarget | null = TARGET) {
 			workspace: 'Harbour maps'
 		})),
 		reviewFrom: vi.fn(async () => ({ notice: 'Reviewing Amsterdam 1625 in atlas.' })),
-		openFromGitHub: vi.fn(async () => ({ notice: 'Opened ada/atlas.' }))
+		connectNewWorkspaceTo: vi.fn(async () => ({
+			notice: '“atlas” is a new Workspace connected to ada/atlas.'
+		}))
 	};
 	const storage = {
 		transfer: null,
@@ -68,6 +72,8 @@ afterEach(() => {
 	if (mounted) unmount(mounted);
 	mounted = undefined;
 	document.body.innerHTML = '';
+	// The Sync modal is a module singleton, so one test's press is the next test's starting state.
+	syncModal.open = false;
 });
 
 /**
@@ -266,18 +272,21 @@ describe('focus after a press, which the press itself unmounts', () => {
 });
 
 describe('a link naming a whole repository', () => {
-	// The Workspace-level invitation is one operation and keeps its own words.
-	test('offers to open a Workspace from GitHub, and nothing about Import', async () => {
-		const { storage, openFromGitHub, importRemoteProject } = fakeStorage();
+	// ⚠ **Make a Workspace, connect it, get** (ADR-0044). The invitation is one operation and it
+	// moves no bytes: what it leaves the visitor looking at is the Sync modal, with everything the
+	// repository holds under To get and the press that fetches it still unmade.
+	test('makes a Workspace and connects it, and offers nothing about Import', async () => {
+		const { storage, connectNewWorkspaceTo, importRemoteProject } = fakeStorage();
 
 		offer(CLONE, storage);
 
 		expect(absent('import-return-link')).toBe(true);
-		expect(at('accept-return-link').textContent).toContain('Open a Workspace from GitHub');
+		expect(at('accept-return-link').textContent).toContain('Make a Workspace and connect it');
 
 		await press('accept-return-link');
 
-		expect(openFromGitHub).toHaveBeenCalledWith({ owner: 'ada', repository: 'atlas' });
+		expect(connectNewWorkspaceTo).toHaveBeenCalledWith({ owner: 'ada', repository: 'atlas' });
 		expect(importRemoteProject).not.toHaveBeenCalled();
+		expect(syncModal.open).toBe(true);
 	});
 });

@@ -45,6 +45,8 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
+	import { syncModal } from '$lib/sync-modal.svelte.js';
+	import { workspaceSettings } from '$lib/workspace-settings.svelte.js';
 	import SyncDialog from '$lib/publish/SyncDialog.svelte';
 	import { syncControlLabel, type SyncProgress } from '$lib/publish/sync-progress.js';
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
@@ -59,6 +61,7 @@
 	import Toast from '$lib/toasts/Toast.svelte';
 
 	import ConnectToGitHub from './ConnectToGitHub.svelte';
+	import WorkspaceRemote from './WorkspaceRemote.svelte';
 	import KeepingYourWork from './KeepingYourWork.svelte';
 	import ModalDialog from './ModalDialog.svelte';
 	import RemoteStatus from './RemoteStatus.svelte';
@@ -116,7 +119,6 @@
 	);
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
-	let syncOpen = $state(false);
 	/**
 	 * The door control, so a dialog opened from behind it has somewhere to put focus back.
 	 *
@@ -162,8 +164,8 @@
 	 * the question there is not a gate. It is not asked at all where the browser has no picker.
 	 */
 	let newKind = $state<WorkspaceBacking>('browser');
-	/** The row being renamed and the name being typed into it, or `null`. */
-	let renaming = $state<{ key: string; label: string } | null>(null);
+	/** The row being edited and the name being typed into it, or `null`. */
+	let renaming = $state<{ key: string; label: string; isOpen: boolean } | null>(null);
 	let renameOpen = $state(false);
 	/** The row a deletion is being confirmed for, or `null` when nothing is being confirmed. */
 	let confirming = $state<{
@@ -215,6 +217,21 @@
 	});
 
 	/**
+	 * Open the editing dialog for somebody who asked for it from somewhere that is not the roster.
+	 *
+	 * The Sync modal's **Repository settings…** is the one caller: the standing relationship is a
+	 * setting of this Workspace and lives here (ADR-0042), so the modal hands off rather than
+	 * carrying a second copy of it. An effect because it is a subscription to a press made elsewhere,
+	 * and the ask is taken back down as it is answered so a later close cannot reopen it.
+	 */
+	$effect(() => {
+		if (!workspaceSettings.asked) return;
+		workspaceSettings.asked = false;
+		const open = entries.find((entry) => entry.isOpen);
+		if (open !== undefined) startRename(open);
+	});
+
+	/**
 	 * What just happened to the Workspace, announced.
 	 *
 	 * ⚠ **Switching Workspaces changes almost everything on screen and, without this, says nothing.**
@@ -257,7 +274,7 @@
 
 	/** Open the rename dialog for a Workspace row. */
 	function startRename(entry: WorkspaceEntry): void {
-		renaming = { key: entry.key, label: entry.label };
+		renaming = { key: entry.key, label: entry.label, isOpen: entry.isOpen };
 		renameOpen = true;
 	}
 
@@ -593,7 +610,7 @@
 				onclick={() => {
 					if (syncing) return;
 					if (storage?.remote === null) connectSequence.start();
-					else syncOpen = true;
+					else syncModal.start();
 				}}
 			>
 				{syncing
@@ -721,7 +738,7 @@
 {#if syncable && storage !== null}
 	<SyncDialog
 		{storage}
-		bind:open={syncOpen}
+		bind:open={syncModal.open}
 		bind:syncing
 		bind:progress={syncProgress}
 		restoreFocusTo={() => doorButton}
@@ -735,7 +752,7 @@
 		`onsync` hands off to the modal beside it: the sequence ends where syncing begins, and there is
 		no second path to it.
 	-->
-	<ConnectToGitHub {storage} bind:open={connectSequence.open} onsync={() => (syncOpen = true)} />
+	<ConnectToGitHub {storage} bind:open={connectSequence.open} onsync={() => syncModal.start()} />
 {/if}
 
 {#if storage !== null && newName !== null}
@@ -806,6 +823,17 @@
 			</label>
 		</form>
 		<KeepingYourWork {storage} />
+		<!--
+			Which repository this Workspace belongs to, and everything about that relationship but the
+			transfer (ADR-0042, ADR-0044).
+
+			⚠ **Only on the open Workspace's own row.** The storage answers about the Workspace that is
+			open and no other, so rendering this over a row that is not it would name one Workspace's
+			repository under another one's name.
+		-->
+		{#if renaming.isOpen}
+			<WorkspaceRemote {storage} onclose={closeRename} />
+		{/if}
 		{#snippet actions()}
 			<button class="btn" type="button" onclick={closeRename}>Cancel</button>
 			<button

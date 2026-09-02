@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE CLASSIFIER, BECAUSE THREE ANSWERS WERE BEING GIVEN IN FOUR PLACES
 //
-// A Publish asked "is this mine to overwrite?", a Clone asked "is this mine to download?", and
+// A send asked "is this mine to overwrite?", a get asked "is this mine to download?", and
 // nothing asked "is this scholarship or is it a rebuilt viewer?" — so `_app/**` counted as
 // Workspace content, which is the same question with the worst possible answer once Update exists.
 // Two editor versions synchronizing would then trade obsolete bundles forever, each side seeing the
@@ -121,10 +121,10 @@ export function classifyPath(path: string, projects: ReadonlySet<string>): PathC
  * removed: a `.nojekyll` that seeded an empty repository, and a site from before the author withdrew
  * one, are both left exactly where they are rather than being differences anybody is told about.
  *
- * ⚠ **A Clone reads exactly this rule, and there is deliberately no second copy of it.** The two
- * halves have to agree or the namespace leaks: a Clone that brought down a path this excludes would
- * make it Workspace content, and the next Sync from that Workspace would push somebody else's
- * `README.md` and workflows into the cloner's own repository as though the cloner had written them.
+ * ⚠ **A get reads exactly this rule, and there is deliberately no second copy of it.** The two
+ * halves have to agree or the namespace leaks: a get that brought down a path this excludes would
+ * make it Workspace content, and the next send from that Workspace would push somebody else's
+ * `README.md` and workflows into that author's own repository as though they had written them.
  */
 export const isOwnedPath = (
 	path: string,

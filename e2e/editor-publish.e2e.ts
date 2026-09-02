@@ -15,9 +15,10 @@ import {
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
 import {
-	closeTheDoor,
+	closeWorkspaceDialog,
 	createWorkspace,
 	expectCredential,
+	openRepositorySettings,
 	openSyncModal,
 	openTheDoor,
 	readBaseline,
@@ -272,37 +273,38 @@ async function openWorkspace(
  * this spec is about a *site* — its relative asset paths, its front page, its Base Map, its version
  * stamp — so the press that grants one is part of the arrangement rather than part of the subject.
  * What the press itself does is asserted at Seam 1 (`bind-remote.test.ts`) and at Seam 1c
- * (`connect-to-github.dom.test.ts`).
+ * (`workspace-remote.dom.test.ts`).
  *
  * Tolerant of a Workspace that has one already: the offer is replaced by *Withdraw Share Links* the
  * moment the site record is there, so a second call is a no-op rather than a second press.
  */
 async function withShareLinks(page: Page): Promise<void> {
+	await openRepositorySettings(page);
 	const offer = page.getByTestId('enable-pages');
-	if ((await offer.count()) === 0) return;
-	await offer.click();
-	await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
+	if ((await offer.count()) > 0) {
+		await offer.click();
+		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
+	}
+	await closeWorkspaceDialog(page);
 }
 
-/**
- * Open the Sync modal and wait for the plan it computed.
- *
- * The door is opened first because these specs need Share Links — a Sync from a Workspace that never
- * asked for them carries no website at all (ADR-0045) — and the door is where that press is. The bar
- * opens this modal directly for a Workspace with a repository, which `editor-remote-binding` asserts.
- */
+/** Open the Sync modal, which is what the bar's one GitHub control does (ADR-0044). */
 async function openSyncFromTheBar(page: Page) {
 	await openSyncModal(page);
 	return page.getByRole('dialog', { name: 'Sync with GitHub' });
 }
 
+/**
+ * Ask for Share Links first, then open the Sync modal.
+ *
+ * These specs need Share Links — a Sync from a Workspace that never asked for them carries no
+ * website at all (ADR-0045) — and that press is on the Workspace's own row (ADR-0042).
+ */
 async function openSyncModalWithShareLinks(page: Page) {
-	await openTheDoor(page);
 	await withShareLinks(page);
-	await page.getByTestId('connect-sync').click();
-	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
-	// `getByRole('dialog')` is then two elements rather than one.
-	const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+	// Named, because the guided sequence's own `<dialog>` may be in the document behind this one and
+	// a bare `getByRole('dialog')` is then two elements rather than one.
+	const dialog = await openSyncFromTheBar(page);
 	await expect(dialog.getByTestId('sync-modal')).toBeVisible();
 	return dialog;
 }
@@ -1162,10 +1164,9 @@ test.describe('publishing to a Remote', () => {
 		await expect(page.getByTestId('connect-to-github')).toHaveText('Sync with GitHub');
 		await openTheDoor(page);
 
-		// The path to a repository, and no publish anywhere on it: there is nowhere to send this
+		// The path to a repository, and no send anywhere on it: there is nowhere to send this
 		// Workspace, so nothing offers to.
 		await expect(page.getByTestId('connect-needs-account')).toBeVisible();
-		await expect(page.getByTestId('connect-sync')).toBeHidden();
 		await expect(page.getByTestId('sync-send')).toHaveCount(0);
 		// ⚠ **And nothing is asked of GitHub to find that out.** A Workspace with nowhere to publish
 		// is asked for no credential at all until the author says they have an account, because a
@@ -1200,12 +1201,11 @@ test.describe('publishing to a Remote', () => {
 	 * The credential that reaches a repository and cannot push to it.
 	 *
 	 * ⚠ **This test used to press through to a refusal, and it cannot any more — by design**
-	 * (ADR-0043). A read-only collaborator is offered no publish affordance at all: the door
-	 * is the only way to the publish dialog (ADR-0041), and the door withdraws **Publish…** once
-	 * GitHub has said this sign-in may not write there. So the claim this test carries is now the
-	 * *absence*, which is the stronger one — a control that will certainly refuse is worse than no
-	 * control — and the engine's own refusal before a byte moves stays asserted at Seam 1, in
-	 * `publish-to-remote.test.ts`'s permission check.
+	 * (ADR-0043). A read-only collaborator is offered no send affordance at all: the Sync modal
+	 * carries the three that send only where GitHub has said this sign-in may write there. So the
+	 * claim this test carries is now the *absence*, which is the stronger one — a control that will
+	 * certainly refuse is worse than no control — and the engine's own refusal before a byte moves
+	 * stays asserted at Seam 1, in `publish-to-remote.test.ts`'s permission check.
 	 *
 	 * What only a browser can settle is that the real `WorkspaceStorage` reads the real rights off the
 	 * bound Remote and the bar's one GitHub control acts on them.
@@ -1219,19 +1219,18 @@ test.describe('publishing to a Remote', () => {
 		await seedGitHubCredential(page, TOKEN);
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		await openTheDoor(page);
+		await openRepositorySettings(page);
 
 		// The relationship stated once, where the author is standing, rather than discovered at a
 		// refusal after the whole website has been written into the Workspace.
-		await expect(page.getByTestId('pull-only-remote')).toContainText('you cannot publish to it');
-		await expect(page.getByTestId('connect-sync')).toHaveCount(0);
+		await expect(page.getByTestId('read-only-remote')).toContainText('you cannot send to it');
 		// The way forward is on the same screen as the limitation.
-		await expect(page.getByTestId('publish-to-your-own')).toBeVisible();
+		await expect(page.getByTestId('change-repository')).toBeVisible();
 		expect(github.head(OWNER, REPOSITORY)).toBe(before);
 
 		// And getting is untouched: taking changes from a repository needs no write access, so the
 		// Sync modal offers that one choice and none of the three that send (ADR-0044).
-		await closeTheDoor(page);
+		await closeWorkspaceDialog(page);
 		await openSyncModal(page);
 		const modal = page.getByRole('dialog', { name: 'Sync with GitHub' });
 		await expect(modal.getByTestId('sync-read-only')).toContainText('cannot write to it');

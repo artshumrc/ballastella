@@ -411,7 +411,8 @@ export {
 	type WorkspaceBackup
 } from './transfer/export-workspace-tar.js';
 // Moving an existing Workspace into a folder the author can see (ADR-0042). The only way work that
-// already exists reaches disk: restore and hydrate both always make a browser Workspace.
+// already exists reaches disk: a restore and a Workspace made for a repository both always make a
+// browser Workspace.
 export {
 	copyWorkspaceFiles,
 	type CopyWorkspaceFilesOptions,
@@ -483,7 +484,7 @@ export {
 } from './publish/viewer-bundle.js';
 
 // Publishing to a Remote (ADR-0031, ADR-0032, ADR-0033). The name git gives a file's bytes, which
-// is what makes an incremental publish, a conflict refusal, and a resumed Clone possible at all.
+// is what makes an incremental send, a conflict refusal, and a resumed get possible at all.
 export { gitBlobSha } from './remote/blob-sha.js';
 export { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './remote/github-api.js';
 // The fake GitHub every Remote test drives: one fake shared by every suite cannot disagree with
@@ -536,7 +537,6 @@ export {
 	SynchronizationMetadata,
 	baselineKey,
 	discardSynchronizationMetadata,
-	listRemoteRelationships,
 	remoteRelationshipKey,
 	type MetadataStorage,
 	type RemoteRelationship,
@@ -613,26 +613,6 @@ export {
 	IndexedDbMetadataStorage,
 	browserMetadataStorage
 } from './store/indexeddb-metadata-storage.js';
-// Downloading a published Workspace back out of a public repository (ADR-0031, ADR-0032). It needs
-// no credential at all, which is what lets a student with no GitHub account seed a Workspace from
-// their instructor's Remote.
-export {
-	CloneRefusedError,
-	cloneFromRemote,
-	type CloneFromRemoteOptions,
-	type CloneReference,
-	type CloneRefusal,
-	type WorkspaceClone
-} from './remote/clone-from-remote.js';
-// Open a Workspace from GitHub: the transfer above, plus the one thing that makes it a relationship —
-// this installation keeps at most one synchronized Workspace per repository, and reopening returns to
-// it rather than making a second (ADR-0038).
-export {
-	findWorkspaceForRepository,
-	openWorkspaceFromGitHub,
-	type OpenWorkspaceFromGitHubOptions,
-	type OpenedWorkspace
-} from './remote/open-workspace-from-github.js';
 // The inbound half of a Sync: the explicit transfer that takes the Remote's own additions,
 // replacements and deletions, keeps local-only work, and sends nothing (ADR-0038, ADR-0044).
 // Anonymous, like the Open above — inbound synchronization is not publishing authority.
@@ -683,7 +663,7 @@ export {
 	type ContestedThings,
 	type ResolveConflictsOptions
 } from './remote/conflict-resolution.js';
-// Reviewing one Project out of a public repository (ADR-0024, ADR-0031). The Clone's sibling and
+// Reviewing one Project out of a public repository (ADR-0024, ADR-0031). A get's sibling and
 // the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
 // unbound and unpublishable.
 export {

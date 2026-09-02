@@ -5,7 +5,7 @@ import { gitBlobSha } from './blob-sha.js';
 // The values below are git's own, and the command that produced each is beside it so a future
 // reader can re-derive them rather than trust them. They are the whole of the evidence that a
 // browser's arithmetic agrees with the tool the Remote is running: incremental upload, conflict
-// detection, and a resumed Clone all compare a SHA computed here against one GitHub computed, and
+// detection, and a resumed get all compare a SHA computed here against one GitHub computed, and
 // if this is wrong all three are wrong together, silently, in the same direction.
 describe('gitBlobSha', () => {
 	const utf8 = (text: string) => new TextEncoder().encode(text);

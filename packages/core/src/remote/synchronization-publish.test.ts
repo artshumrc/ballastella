@@ -376,7 +376,7 @@ describe('a Publish with no Baseline', () => {
 	});
 
 	// The other half of that, and the commonest one: a browser whose storage was cleared, or a
-	// Workspace opened from a complete Clone. The two source namespaces are byte-for-byte equal, so
+	// Workspace filled by a complete get. The two source namespaces are byte-for-byte equal, so
 	// there is nothing to be uncertain about and nothing at stake in going ahead.
 	it('establishes evidence where the two source namespaces are already equal', async () => {
 		const kit = await workspace();

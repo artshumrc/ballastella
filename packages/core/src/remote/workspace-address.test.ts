@@ -130,6 +130,44 @@ describe('which of the candidates actually holds a Workspace', () => {
 		});
 	});
 
+	// ⚠ **An address that names one repository is answered by whether GitHub has it** (ADR-0044).
+	// Connecting is not opening: a scholar reaching an organisation repository GitHub will not list
+	// for them, or one they made at `github.com/new` a moment ago, is the case this path is for, and
+	// there is no second candidate for holding a Workspace to choose between.
+	it('resolves a named repository that holds no Ballastella work at all', async () => {
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PROSE });
+
+		const resolved = await resolveWorkspaceAddress('ada/atlas', github.fetch);
+
+		expect(resolved).toMatchObject({
+			kind: 'resolved',
+			remote: { owner: 'ada', repository: 'atlas' }
+		});
+	});
+
+	// A repository made at `github.com/new` with no README has no commits and so no tree at all.
+	it('resolves a named repository with no commits in it', async () => {
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+		const resolved = await resolveWorkspaceAddress('github.com/ada/atlas', github.fetch);
+
+		expect(resolved).toMatchObject({
+			kind: 'resolved',
+			remote: { owner: 'ada', repository: 'atlas' }
+		});
+	});
+
+	// ⚠ **And an address GitHub has nothing at is still refused**, which is what keeps the
+	// confirmation above a reading rather than an echo of what was typed.
+	it('refuses a named repository GitHub does not have', async () => {
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+
+		const resolved = await resolveWorkspaceAddress('ada/notebook', github.fetch);
+
+		expect(resolved.kind).toBe('refused');
+		expect(resolved.kind === 'refused' && resolved.message).toContain('ada/notebook');
+	});
+
 	// ⚠ **A repository that is there and holds no Workspace is not the answer.** Somebody's own
 	// `ada.github.io` full of prose would otherwise be offered as the thing to download.
 	it('passes over a repository that holds no Workspace', async () => {

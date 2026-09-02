@@ -14,6 +14,7 @@ import {
 	expectCredential,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
+	openRepositorySettings,
 	openSyncModal,
 	openTheDoor
 } from './support/workspace';
@@ -200,8 +201,12 @@ async function signInWithGitHub(page: Page): Promise<void> {
 async function bindFromTheDoor(page: Page): Promise<void> {
 	await openTheDoor(page);
 	await page.getByTestId('choose-repository').first().click();
-	await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
-	await closeTheDoor(page);
+	// ⚠ **The sequence ends at the connection and hands off to the Sync modal** (ADR-0044): there is
+	// no step saying it worked, so what waiting for the connection means is waiting for that modal.
+	await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('sync-modal')).toBeHidden();
+	await expectRemoteNamed(page, REMOTE);
 }
 
 /**
@@ -213,10 +218,10 @@ async function bindFromTheDoor(page: Page): Promise<void> {
  * to assert on a *site* therefore asks for one first, from the press that exists for it.
  */
 async function turnShareLinksOn(page: Page): Promise<void> {
-	await openTheDoor(page);
+	await openRepositorySettings(page);
 	await page.getByTestId('enable-pages').click();
 	await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
-	await closeTheDoor(page);
+	await closeWorkspaceDialog(page);
 }
 
 /** Arrive at the callback with these parameters, having seeded whatever `state` we like. */
@@ -360,7 +365,9 @@ test.describe('binding while already signed in', () => {
 		await expect(page.getByTestId('connect-token-field')).toHaveCount(0);
 		await page.getByTestId('choose-repository').first().click();
 
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+		await page.keyboard.press('Escape');
+		await expectRemoteNamed(page, REMOTE);
 	});
 
 	// ⚠ **The trap in the fix.** Binding by paste clears the grant record, which is right for a paste
@@ -763,7 +770,9 @@ test.describe('with no broker served at all', () => {
 		await page.getByTestId('connect-token-field').fill(PASTED);
 		await page.getByTestId('connect-paste').click();
 
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+		await page.keyboard.press('Escape');
+		await expectRemoteNamed(page, REMOTE);
 		expect(await holdsCredential(page)).toBe(true);
 		expect(github.requests).not.toContain('/github/token');
 		expect(github.requests).not.toContain('/github/refresh');
@@ -830,18 +839,20 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await dialog.getByTestId('sync-sign-in-with-github').click();
 
 		// The redirect replaces the document, so nothing in the dialog resumes: the mark reopens the
-		// door, and a Workspace that is already bound derives its `connected` step — whose **Publish…**
-		// is the same dialog. Signing in from Publish therefore arrives back at Publish, which is the
-		// whole reason the dialog is not closed to open the door and the door gains no extra step.
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		// sequence, and a Workspace that is already bound lands on the list it would choose a different
+		// repository from — with the sign-in it has just made stated on it.
+		await expect(page.getByTestId('connect-credential')).toContainText('Signed in to GitHub', {
+			timeout: 30_000
+		});
+		await closeTheDoor(page);
 		expect(await holdsCredential(page)).toBe(true);
+		await expectRemoteNamed(page, REMOTE);
 
 		// A website is what this leg has to arrive at, and a Remote is a place the work lives before it
-		// is one (ADR-0045) — so Share Links are asked for from the step the sign-in landed on.
-		await page.getByTestId('enable-pages').click();
-		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
+		// is one (ADR-0045) — so Share Links are asked for from the Workspace's own row.
+		await turnShareLinksOn(page);
 
-		await page.getByTestId('connect-sync').click();
+		await openSyncModal(page);
 		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
 		await dialog.getByTestId('sync-send').click();
 		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
@@ -930,23 +941,30 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		await expect(page.getByTestId('granted-repository')).toHaveText(new RegExp(REMOTE));
 		await page.getByTestId('choose-repository').click();
 
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+		// ⚠ **The sequence ends on the Sync modal** (ADR-0044): connecting moves no bytes, so what a
+		// scholar is handed next is both sides compared rather than a step saying it worked.
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('sync-modal')).toBeHidden();
+		await expectRemoteNamed(page, REMOTE);
+
+		// ⚠ **Connecting turned nothing on**, because a Remote is a place the work lives before it is
+		// a site anybody reads. Letting other people see it is the press after it, on the Workspace's
+		// own row, and this is the one place the whole of that act is wired to the real GitHub.
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
+		await openRepositorySettings(page);
 		// The address the assignment asked for.
 		await expect(page.getByTestId('published-site-address')).toHaveText(
 			`https://${OWNER}.github.io/${REPOSITORY}/`
 		);
-
-		// ⚠ **Connecting turned nothing on**, because a Remote is a place the work lives before it is
-		// a site anybody reads. Letting other people see it is the press after it, and this is the one
-		// place the whole of that act is wired to the real GitHub.
-		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
 		await page.getByTestId('enable-pages').click();
 		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 30_000 });
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
+		await closeWorkspaceDialog(page);
 
-		// The handoff is the door's own **Publish…**, and it reaches GitHub.
-		await page.getByTestId('connect-sync').click();
-		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		// And the transfer is the bar's one control, which opens the Sync modal.
+		await openSyncModal(page);
 		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
 		await dialog.getByTestId('sync-send').click();
 		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {

@@ -9,9 +9,9 @@ import {
 	seedGitHubCredential,
 	seedRemoteRelationship,
 	checkRemoteStatus,
+	openRepositorySettings,
 	openSyncModal,
 	openTheDoor,
-	closeTheDoor,
 	showRemoteStatusDetail,
 	updateFromGitHub,
 	switchToWorkspace
@@ -233,12 +233,14 @@ test.describe('connecting to a Remote that already carries Projects', () => {
 	/**
 	 * Connect from the door, choosing the repository GitHub says the author has granted.
 	 *
-	 * ⚠ **There is no address field and no token field** (ADR-0042): the sequence lists what GitHub
-	 * answers and the row is the gesture.
+	 * ⚠ **The sequence lists what GitHub answers and the row is the gesture** (ADR-0042), and it ends
+	 * at the connection: what a press hands off to is the Sync modal, on both sides compared
+	 * (ADR-0044).
 	 */
 	async function bind(page: Page): Promise<void> {
 		await openTheDoor(page);
 		await page.getByTestId('choose-repository').first().click();
+		await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
 	}
 
 	test('connects to one holding Projects this Workspace has not got', async ({ page }) => {
@@ -258,15 +260,15 @@ test.describe('connecting to a Remote that already carries Projects', () => {
 
 		await bind(page);
 
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
-		await closeTheDoor(page);
-		await expect(doorButton(page)).toHaveText(`Sync with ${REMOTE}`);
-
 		// And what it holds is offered as work to get rather than as work about to be deleted, which
-		// is the whole of why the refusal could go.
-		const dialog = await openSync(page);
+		// is the whole of why the refusal could go — on the modal the connection handed off to.
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 60_000 });
 		await expect(dialog.getByTestId('to-get')).toContainText('florida-1657');
 		await expect(dialog.getByTestId('to-send-removals')).toHaveCount(0);
+
+		await page.keyboard.press('Escape');
+		await expect(doorButton(page)).toHaveText(`Sync with ${REMOTE}`);
 	});
 
 	test('goes ahead when the Remote’s Projects are all here', async ({ page }) => {
@@ -288,9 +290,8 @@ test.describe('connecting to a Remote that already carries Projects', () => {
 
 		await bind(page);
 
-		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, {
-			timeout: 30_000
-		});
+		await page.keyboard.press('Escape');
+		await expect(doorButton(page)).toHaveText(`Sync with ${REMOTE}`);
 	});
 });
 
@@ -588,12 +589,12 @@ test.describe('Remote Status on the navigation bar', () => {
 
 		// The gesture, reached by the keyboard alone, is what makes status available with no account at
 		// all — and the answer is dated, so a retained one can later be told from a current one. The
-		// gesture is behind the door and the date is behind the badge's disclosure: what is *done*
-		// about GitHub is one place, and what is *true* of it is the other.
-		await openTheDoor(page);
+		// gesture is on the Workspace's own row (ADR-0042) and the date is behind the badge's
+		// disclosure: what is *done* about GitHub is one place, and what is *true* of it is the other.
+		await openRepositorySettings(page);
 		await page.getByTestId('check-remote-status').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('connect-sequence')).toBeHidden();
+		await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeHidden();
 		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 		await showRemoteStatusDetail(page);
 		await expect(page.getByTestId('remote-status-checked')).toContainText('Checked at');
@@ -703,10 +704,10 @@ test.describe('Remote Status on the navigation bar', () => {
 		// The alert is announced rather than merely rendered: it is inserted at the moment its text
 		// first exists, which a polite region does not reliably announce.
 		expect(await failure.getAttribute('role')).toBe('alert');
-		// And focus is on the bar's one GitHub control — where the closing door put it back — rather
-		// than on the document, so an alert appearing does not drop a keyboard user to the top of the
-		// page (WCAG 2.4.3).
-		await expect(page.getByTestId('connect-to-github')).toBeFocused();
+		// And focus is on the control the closing dialog put it back on — the Workspace switcher the
+		// row was reached from — rather than on the document, so an alert appearing does not drop a
+		// keyboard user to the top of the page (WCAG 2.4.3).
+		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
 	});
 
 	test('cannot render one Workspace’s pending result beside another’s name', async ({ page }) => {

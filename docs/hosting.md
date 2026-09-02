@@ -167,7 +167,7 @@ trip, because the App asks for user authorisation *during* installation. This is
 Ballastella that needs a server, and it needs one for a single reason:
 `github.com/login/oauth/access_token` sends no CORS headers, so a browser cannot exchange an
 authorisation code for a token by itself. Every other request — the file list, every blob, the
-commit, every byte of a Clone — goes from the browser straight to `api.github.com`, which does
+commit, every byte a Sync gets — goes from the browser straight to `api.github.com`, which does
 ([ADR-0031](adr/0031-the-broker-exchanges-a-code-never-data.md)).
 
 That server is called the **broker**, and it does that exchange and nothing else. **No repository

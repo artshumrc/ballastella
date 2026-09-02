@@ -12,7 +12,7 @@
 // A LINK IS SOMETHING ANYONE CAN SEND
 //
 // Both halves of a repository reference are interpolated straight into a GitHub API path by the
-// Clone and Review engines, so `readReturnLink` goes through `parseRemoteReference` — the checked
+// inbound and Review engines, so `readReturnLink` goes through `parseRemoteReference` — the checked
 // reader `parseRemoteBinding`'s note is written about — rather than splitting on a slash. An owner
 // of `ada/../../orgs` retargets every request the engine makes, and `encodeURIComponent` at the
 // interpolation is not the fix.

@@ -97,8 +97,8 @@
 	/**
 	 * The "review a Project from a Remote" dialog (ADR-0031).
 	 *
-	 * ⚠ **Beside the bundle's button and not beside Clone's, because it is the bundle's operation.**
-	 * A Clone makes a Workspace of the user's own that they may go on working in, which is why it
+	 * ⚠ **Beside the bundle's button and not beside a Sync's, because it is the bundle's operation.**
+	 * A Sync gets work into a Workspace of the user's own that they go on working in, which is why it
 	 * lives behind the bar's one door to GitHub, beside the binding (ADR-0041). This makes a *review
 	 * copy*, from a link somebody
 	 * sent — the same throwaway, unbound, unpublishable Workspace `open-bundle` makes, differing only

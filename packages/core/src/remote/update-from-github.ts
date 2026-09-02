@@ -17,8 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT NEEDS NO ACCOUNT, WHICH IS THE CASE IT IS MOST LIKELY TO BE USED FOR
 //
-// The reads are `clone-from-remote.ts`'s reads: an anonymous tree listing and anonymous
-// `raw.githubusercontent.com` bytes. Nothing here takes a token, and none may be added. The case to
+// The reads are an anonymous tree listing and anonymous `raw.githubusercontent.com` bytes. Nothing here takes a token, and none may be added. The case to
 // keep in view is a student whose instructor publishes to a repository they cannot push to — inbound
 // synchronization is not publishing authority, and a refusal for want of write permission would be
 // this app inventing a rule GitHub does not have.
@@ -909,7 +908,7 @@ const isProjectManifest = (path: string): boolean => {
  * them out would refuse to run out of room in the one place — half way through the replacements —
  * where running out of room cannot be undone. A deletion looks free and is not: its before-image is
  * written before the file goes, so the peak is the old bytes twice over. Silent when the browser will
- * not answer, for `cloneFromRemote`'s reason.
+ * not answer, because refusing over an unavailable quota API would refuse every get on Safari.
  */
 async function assertRoomToUpdate(
 	store: ProjectStore,
@@ -1055,7 +1054,7 @@ async function rollBackOrRefuse(
 /**
  * Fetch one blob and check it against the SHA the listing named.
  *
- * ⚠ **The check is not optional and it is nearly free**, `cloneFromRemote`'s argument exactly: the
+ * ⚠ **The check is not optional and it is nearly free**: the
  * bytes are already in memory, and without it a proxy or a cache serving a rewritten copy replaces
  * the author's file with something nothing has vouched for — and the Baseline then records those
  * bytes as shared, so no later comparison can find it.

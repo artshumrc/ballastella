@@ -1380,7 +1380,7 @@
 			⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
 			way back to the editor, and it survived that paragraph's move into the navigation bar: a
 			student with no GitHub account is exactly the Reader who will not follow a link that looks
-			like it wants one, and the copy a Clone takes changes nothing on this site.
+			like it wants one, and the copy a get takes changes nothing on this site.
 
 			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
 			this expression and nothing else — because the sentence is *about* the invitation. A site

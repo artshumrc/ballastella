@@ -11,7 +11,6 @@ import {
 	closeWorkspaceDialog,
 	editOpenWorkspace,
 	openTheDoor,
-	closeTheDoor,
 	seedGitHubCredential,
 	switchToWorkspace,
 	checkRemoteStatus,
@@ -1453,10 +1452,11 @@ test.describe('synchronizing a folder Workspace', () => {
 			.filter({ hasText: `${OWNER}/${repository}` })
 			.getByTestId('choose-repository')
 			.click();
-		await expect(page.getByTestId('connect-outcome')).toContainText(`${OWNER}/${repository}`, {
-			timeout: 30_000
-		});
-		await closeTheDoor(page);
+		// The sequence ends at the connection and hands off to the Sync modal (ADR-0044), which this
+		// dismisses: what follows here is a send of its own.
+		await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('sync-modal')).toBeHidden();
 	}
 
 	/** Publish the open Workspace to its Remote and wait for the Remote to be named in the result. */

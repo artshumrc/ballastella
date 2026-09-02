@@ -23,7 +23,7 @@ const repository = `${GITHUB_API_ORIGIN}/repos/ada/atlas`;
  *
  * Reads are answered unauthenticated — a public repository needs no credential — and the raw host is
  * called through `github.fetch` directly throughout, since a test that sent a token there would hide
- * a Clone doing the same.
+ * a get doing the same.
  */
 const call = (github: FakeGitHub, url: string, init: RequestInit = {}) =>
 	github.fetch(url, { ...init, headers: { Authorization: 'Bearer ghp_a-token' } });
@@ -183,7 +183,7 @@ describe('the fake GitHub', () => {
 
 		it('counts raw reads, including the ones it refuses', async () => {
 			// `blobPosts`'s counterpart, and it exists for the same reason pointing the other way: a
-			// resumed Clone that skipped nothing leaves a Workspace identical to one that skipped
+			// resumed get that skipped nothing leaves a Workspace identical to one that skipped
 			// everything, so the only place the difference shows is how many times it asked.
 			await commitThrough(github, { 'a.txt': utf8('a') });
 			const before = github.rawGets;
@@ -486,7 +486,7 @@ describe('the fake GitHub', () => {
 			expect(response.status).toBe(401);
 		});
 
-		// A public repository's file list is readable with no credential, and Import depends on it: Clone
+		// A public repository's file list is readable with no credential, and Import depends on it: a get
 		// and Review are both unauthenticated, so a student with no GitHub account can open an
 		// instructor's Workspace. Pinned here rather than beside the operation that needs it, because a
 		// gate that crept back would be found here first.
