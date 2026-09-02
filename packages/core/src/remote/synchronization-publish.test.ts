@@ -421,7 +421,7 @@ describe('the local-change index a Publish narrows', () => {
 
 	// ⚠ **A deletion is a mark the Baseline accounts for by *not* holding the path.** A Project
 	// deleted here is removed on the Remote by the mirror, so leaving its mark standing would report
-	// `Changes to publish` forever over a path neither side has any more.
+	// `Changes to send` forever over a path neither side has any more.
 	it('clears the mark of a Project the mirror took down', async () => {
 		const kit = await workspace();
 		await publish(kit);

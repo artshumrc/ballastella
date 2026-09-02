@@ -273,7 +273,7 @@ describe('cloneFromRemote', () => {
 			// ⚠ And it is **not** in the source the caller records as the initial Baseline. The Remote's
 			// bytes for that path were never written, so a Baseline holding the Remote's SHA for it would
 			// claim the two sides share an Alignment they do not — and the first status check would read
-			// `Up to date` over Control Points GitHub has never seen.
+			// `In sync` over Control Points GitHub has never seen.
 			expect(result.source.has('alignments/map-1.json')).toBe(false);
 		});
 

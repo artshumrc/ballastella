@@ -7,7 +7,7 @@
 // places that author bytes: autosave, the tiler, the Annotation editor, offline
 // copies, Base Map tile caching, Alignment commits, tar restore, Project Import. Marking the index
 // from each of them is a rule every future feature has to remember, and the one that forgets it does
-// not fail a test — it silently reports a changed Workspace as `Up to date`.
+// not fail a test — it silently reports a changed Workspace as `In sync`.
 //
 // So nothing authoring changes at all. `ProjectStore` is already the narrow interface every byte
 // crosses (ADR-0001), so composition over it catches every writer that exists and every writer that

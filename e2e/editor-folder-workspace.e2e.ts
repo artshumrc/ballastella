@@ -1541,12 +1541,12 @@ test.describe('synchronizing a folder Workspace', () => {
 		}
 		// And a Publish earns a Baseline in the folder Workspace exactly as it does in the other one,
 		// which is what makes every determination below answerable at all.
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText(`in sync with ${OWNER}/${FROM_FOLDER}`);
 
 		// ── Somebody else's afternoon, arriving on the folder's Remote ────────────────────────────
 		await github.commitFiles(OWNER, FROM_FOLDER, THEIRS);
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
+		await expect(remoteStatus(page)).toContainText('changes to get');
 
 		await updateFromGitHub(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
@@ -1555,7 +1555,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		expect(await everyPathInFolder(page)).toContain('delft/project.json');
 		expect(await readInFolder(page, 'delft/project.json')).toBe(THEIRS['delft/project.json']);
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText(`in sync with ${OWNER}/${FROM_FOLDER}`);
 
 		// ── And a destructive one, named on the modal before anything is pressed ─────────────────
 		const before = await everyPathInFolder(page);
@@ -1584,6 +1584,6 @@ test.describe('synchronizing a folder Workspace', () => {
 		expect(await readInFolder(page, 'amsterdam-1625/project.json')).toBe(
 			SOURCE['amsterdam-1625/project.json']
 		);
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText(`in sync with ${OWNER}/${FROM_FOLDER}`);
 	});
 });

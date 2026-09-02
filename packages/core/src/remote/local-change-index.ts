@@ -172,7 +172,7 @@ export class LocalChangeIndex implements LocalChangeSource {
 	 *
 	 * ⚠ **Selective, because an Update advances part of a Baseline.** An Update retains local-only
 	 * changes and advances only state that was made shared, so the paths it left alone are still
-	 * Changes to publish afterwards and clearing the whole index would report them as shared
+	 * Changes to send afterwards and clearing the whole index would report them as shared
 	 * with a Remote that has never seen them. The caller must have written the Baseline successfully
 	 * before calling this; under a refused Baseline write there is no shared state to record.
 	 *
@@ -379,7 +379,7 @@ export interface AutomaticStatus {
  *
  * ⚠ **A path changed on both sides comes back `conflict`, not `converged`.** Two changes this cannot
  * compare are not evidence that they agree, and a passive check that guessed they did would report
- * `Up to date` over a genuine Conflict. The deliberate pass hashes and may downgrade it, which is the
+ * `In sync` over a genuine Conflict. The deliberate pass hashes and may downgrade it, which is the
  * one revision allowed before transfer.
  *
  * ⚠ **Published Site staleness is answered only where the Baseline is evidence about it.** A

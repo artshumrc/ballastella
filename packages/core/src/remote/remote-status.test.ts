@@ -7,6 +7,7 @@ import { MemoryProjectStore } from '../store/memory-project-store.js';
 import {
 	AUTOMATIC_CHECK_INTERVAL_MS,
 	REMOTE_STATUS_LABELS,
+	REMOTE_STATUS_UNCHECKED,
 	RemoteStatusChecker,
 	RemoteStatusUnavailableError,
 	readRemoteInventory,
@@ -26,7 +27,7 @@ import type { SourceStatus } from './synchronization-planner.js';
 //   2. **A check is bounded.** Window focus is not a rare event, so a burst of them must share one
 //      listing, and an authenticated session must not spend its hourly budget on status.
 //   3. **A failed check is not agreement.** The last determination stays visible with the failure
-//      beside it, and the words never become `Up to date` or `Cannot tell`.
+//      beside it, and the words never become `In sync` or `Cannot tell`.
 
 const ATLAS = { owner: 'ada', repository: 'atlas', branch: 'main' };
 const WORKSPACE = 'opfs:Marking 2026';
@@ -59,19 +60,30 @@ function testClock(start = 1_000): { now: () => number; advance: (ms: number) =>
 	};
 }
 
-describe('REMOTE_STATUS_LABELS', () => {
+describe('the Remote Status a scholar reads', () => {
 	// The six determinations are words, and one of them is the word for "there is no trustworthy
 	// evidence" — which a control showing nothing would render as safety.
 	it('gives every one of the six a distinct sentence a reader can act on', () => {
 		expect(REMOTE_STATUS_LABELS).toEqual({
-			'up-to-date': 'Up to date',
-			'changes-to-publish': 'Changes to publish',
-			'update-available': 'Update available',
-			'changes-on-both-sides': 'Changes on both sides',
+			'in-sync': 'In sync',
+			'changes-to-send': 'Changes to send',
+			'changes-to-get': 'Changes to get',
+			'changes-both-ways': 'Changes both ways',
 			conflict: 'Conflict',
 			'cannot-tell': 'Cannot tell'
 		});
 		expect(new Set(Object.values(REMOTE_STATUS_LABELS)).size).toBe(6);
+	});
+
+	// ⚠ Git's vocabulary describes a graph the scholar never sees, and *connected* reports a
+	// relationship rather than whether the work is anywhere but this machine (ADR-0044).
+	it('reaches for none of the words the glossary refuses', () => {
+		const words = [...Object.values(REMOTE_STATUS_LABELS), REMOTE_STATUS_UNCHECKED]
+			.join(' ')
+			.toLowerCase();
+		for (const refused of ['ahead', 'behind', 'up to date', 'connected', 'published', 'dirty']) {
+			expect(words).not.toContain(refused);
+		}
 	});
 });
 
@@ -236,7 +248,7 @@ describe('a successful check', () => {
 			baseline: baseline([['atlas/project.json', await blobShaOf(github, 'atlas/project.json')]])
 		});
 
-		expect(found.status).toBe('changes-to-publish');
+		expect(found.status).toBe('changes-to-send');
 		for (const spy of spies) expect(spy).not.toHaveBeenCalled();
 		// No durable record was written at all, so no Baseline and no index can have advanced, which is
 		// the reason a check cannot hide drift.
@@ -259,7 +271,7 @@ describe('a successful check', () => {
 		expect(REMOTE_STATUS_LABELS[found.status]).toBe('Cannot tell');
 	});
 
-	it('reports Publish-owned drift as staleness, leaving the source status Up to date', async () => {
+	it('reports Publish-owned drift as staleness, leaving the source status In sync', async () => {
 		const storage = new FakeMetadataStorage();
 
 		const found = await checkSourceStatus({
@@ -278,7 +290,7 @@ describe('a successful check', () => {
 			])
 		});
 
-		expect(found.status).toBe('up-to-date');
+		expect(found.status).toBe('in-sync');
 		expect(found.publishedSiteStale).toEqual(['_app/immutable/entry/start.js', 'index.html']);
 	});
 
@@ -296,7 +308,7 @@ describe('a successful check', () => {
 			baseline: baseline([['atlas/project.json', 's1']])
 		});
 
-		expect(found.status).toBe('up-to-date');
+		expect(found.status).toBe('in-sync');
 		expect(found.publishedSiteStale).toEqual([]);
 	});
 });
@@ -318,11 +330,11 @@ describe('RemoteStatusChecker', () => {
 
 	it('keeps the determination and the moment it was reached', async () => {
 		const clock = testClock(5_000);
-		const { checker } = checkerOver(async () => determined('changes-to-publish'), clock);
+		const { checker } = checkerOver(async () => determined('changes-to-send'), clock);
 
 		await checker.check('open');
 
-		expect(checker.state.status).toBe('changes-to-publish');
+		expect(checker.state.status).toBe('changes-to-send');
 		expect(checker.state.at).toBe(5_000);
 		expect(checker.state.failure).toBe('');
 		expect(checker.state.checking).toBe(false);
@@ -333,7 +345,7 @@ describe('RemoteStatusChecker', () => {
 		const { checker, seen } = checkerOver(
 			() =>
 				new Promise<RemoteStatusObservation>((resolve) => {
-					release = () => resolve(determined('up-to-date'));
+					release = () => resolve(determined('in-sync'));
 				})
 		);
 
@@ -351,7 +363,7 @@ describe('RemoteStatusChecker', () => {
 		const { checker } = checkerOver(() => {
 			listings += 1;
 			return new Promise<RemoteStatusObservation>((resolve) => {
-				release = () => resolve(determined('up-to-date'));
+				release = () => resolve(determined('in-sync'));
 			});
 		});
 
@@ -369,7 +381,7 @@ describe('RemoteStatusChecker', () => {
 		let listings = 0;
 		const { checker } = checkerOver(async () => {
 			listings += 1;
-			return determined('up-to-date');
+			return determined('in-sync');
 		}, clock);
 
 		await checker.check('open');
@@ -395,7 +407,7 @@ describe('RemoteStatusChecker', () => {
 			checks += 1;
 			// `Cannot tell` is settled from the Baseline's absence, so it asks GitHub nothing — and must
 			// not hold off the check that follows the transfer which gives the Workspace a Baseline.
-			return checks === 1 ? determined('cannot-tell', [], false) : determined('up-to-date');
+			return checks === 1 ? determined('cannot-tell', [], false) : determined('in-sync');
 		}, clock);
 
 		await checker.check('open');
@@ -403,7 +415,7 @@ describe('RemoteStatusChecker', () => {
 
 		await checker.check('focus');
 		expect(checks).toBe(2);
-		expect(checker.state.status).toBe('up-to-date');
+		expect(checker.state.status).toBe('in-sync');
 
 		// The one that did ask closes the window behind it.
 		await checker.check('focus');
@@ -415,7 +427,7 @@ describe('RemoteStatusChecker', () => {
 		let listings = 0;
 		const { checker } = checkerOver(async () => {
 			listings += 1;
-			return determined('up-to-date');
+			return determined('in-sync');
 		}, clock);
 
 		await checker.check('open');
@@ -434,7 +446,7 @@ describe('RemoteStatusChecker', () => {
 			triggers.push(trigger);
 			// What a signed-out session answers an automatic trigger with: no listing, and no progress
 			// announced for a check that was never going to happen.
-			return trigger === 'explicit' ? Promise.resolve(determined('up-to-date')) : null;
+			return trigger === 'explicit' ? Promise.resolve(determined('in-sync')) : null;
 		}, clock);
 
 		await checker.check('open');
@@ -446,7 +458,7 @@ describe('RemoteStatusChecker', () => {
 
 		await checker.check('explicit');
 		expect(triggers).toEqual(['open', 'focus', 'explicit']);
-		expect(checker.state.status).toBe('up-to-date');
+		expect(checker.state.status).toBe('in-sync');
 	});
 
 	it('does not spend the interval on a check that turned out not to be attempted', async () => {
@@ -455,7 +467,7 @@ describe('RemoteStatusChecker', () => {
 		const { checker, seen } = checkerOver(async () => {
 			attempt += 1;
 			// The order that matters: nothing was asked of GitHub first, and then something was.
-			return attempt === 1 ? { outcome: 'not-attempted' as const } : determined('up-to-date');
+			return attempt === 1 ? { outcome: 'not-attempted' as const } : determined('in-sync');
 		}, clock);
 
 		await checker.check('open');
@@ -467,7 +479,7 @@ describe('RemoteStatusChecker', () => {
 		// after signing in.
 		await checker.check('focus');
 		expect(attempt).toBe(2);
-		expect(checker.state.status).toBe('up-to-date');
+		expect(checker.state.status).toBe('in-sync');
 
 		// And this one is, because the check before it did reach GitHub.
 		await checker.check('focus');
@@ -480,7 +492,7 @@ describe('RemoteStatusChecker', () => {
 		let attempt = 0;
 		const { checker } = checkerOver(async () => {
 			attempt += 1;
-			if (attempt === 1) return determined('changes-to-publish', ['index.html']);
+			if (attempt === 1) return determined('changes-to-send', ['index.html']);
 			throw new RemoteStatusUnavailableError('unreachable', 'GitHub could not be reached.');
 		}, clock);
 
@@ -488,10 +500,10 @@ describe('RemoteStatusChecker', () => {
 		clock.advance(AUTOMATIC_CHECK_INTERVAL_MS);
 		await checker.check('focus');
 
-		// ⚠ **The whole rule about a failed check, in one assertion.** A failure is never `Up to date`
+		// ⚠ **The whole rule about a failed check, in one assertion.** A failure is never `In sync`
 		// and never `Cannot tell`: the last thing this browser worked out stays, with the failure beside
 		// it.
-		expect(checker.state.status).toBe('changes-to-publish');
+		expect(checker.state.status).toBe('changes-to-send');
 		expect(checker.state.at).toBe(1_000);
 		expect(checker.state.publishedSiteStale).toEqual(['index.html']);
 		expect(checker.state.failure).toBe('GitHub could not be reached.');
@@ -504,7 +516,7 @@ describe('RemoteStatusChecker', () => {
 		const { checker } = checkerOver(async () => {
 			attempt += 1;
 			if (attempt === 1) throw new Error('offline');
-			return determined('up-to-date');
+			return determined('in-sync');
 		}, clock);
 
 		await checker.check('open');
@@ -515,7 +527,7 @@ describe('RemoteStatusChecker', () => {
 		await checker.check('focus');
 
 		expect(checker.state.failure).toBe('');
-		expect(checker.state.status).toBe('up-to-date');
+		expect(checker.state.status).toBe('in-sync');
 	});
 
 	it('cannot render one Workspace’s result after the Workspace has been left', async () => {

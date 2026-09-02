@@ -412,7 +412,7 @@ test.describe('a send against a Remote this browser has never seen', () => {
 		// ⚠ **And the status on the bar is recomputed by the Sync, not by the next window focus.** The
 		// send recorded nothing about the path it left alone, so the two sides still differ and the
 		// badge says which way.
-		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
+		await expect(remoteStatus(page)).toContainText('changes to get');
 	});
 
 	// ⚠ **Overwrite is the one control whose blast radius is somebody else's afternoon** (ADR-0043).
@@ -480,7 +480,7 @@ test.describe('a send against a Remote this browser has never seen', () => {
 // them are exhausted at Seam 1 (`synchronization-planner.test.ts`, `local-change-index.test.ts`),
 // and the bounded checking, the retained failure and the per-Workspace isolation at Seam 1 too
 // (`remote-status.test.ts`) — all of it without a browser. What only a browser can settle is that
-// the clause is *there*, on every screen, in words, beside a `Saved locally` that is never allowed to
+// the clause is *there*, on every screen, in words, beside a `Saved here` that is never allowed to
 // stand for it; that an authenticated session checks by itself and a signed-out one does not; and
 // that a failed check leaves the last answer on screen rather than reporting agreement.
 //
@@ -499,13 +499,13 @@ async function sharedShas(files: Record<string, string>): Promise<Record<string,
 }
 
 /**
- * The one badge, and its two clauses (ADR-0041).
+ * The one badge, and its two clauses (ADR-0044).
  *
- * ⚠ **The GitHub clause is the plain answer, not the determination.** `Changes on both sides` and
- * the other five are one press behind it, so the sentences asserted here are `REMOTE_STATUS_LEADS`'s
- * and each still stands for exactly one of the six. Which clause belongs to which determination is
- * `remote-status.dom.test.ts`'s at Seam 1c; what this file can say is that the determination the
- * checker reached is the one the bar is speaking for.
+ * ⚠ **The GitHub clause is the outstanding direction, not the determination.** `Changes both ways`
+ * and the other five are one press behind it, and the repository is named in the agreeing clause
+ * alone. Which clause belongs to which determination is `remote-status.dom.test.ts`'s at Seam 1c;
+ * what this file can say is that the determination the checker reached is the one the bar is
+ * speaking for.
  */
 const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
@@ -555,15 +555,13 @@ test.describe('Remote Status on the navigation bar', () => {
 
 		// Bound, with no Baseline yet: `Cannot tell` is a determination and it needs no request, so its
 		// lead is on screen without a credential and without GitHub having been asked anything.
-		await expect(remoteStatus(page)).toContainText(
-			'Ballastella cannot say whether your work reached GitHub'
-		);
+		await expect(remoteStatus(page)).toContainText("can't tell what's on GitHub");
 		expect(listings(github)).toBe(0);
 
 		// ⚠ **One `status` region on this bar, carrying both clauses**, and strict mode is the
 		// assertion: a second region would make the two facts a scholar most needs kept apart into two
 		// announcements, of which a screen-reader user has to work out which is now true.
-		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved here');
 		await expect(page.getByRole('status')).toContainText('GitHub');
 		expect(
 			await remoteStatus(page).evaluate((element) => [
@@ -583,7 +581,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		// ⚠ **Signed out, nothing is polled**. GitHub allows an anonymous reader sixty
 		// requests an hour *per IP address*, so a seminar room on one campus address checking on every
 		// window focus would spend the room's whole budget on status.
-		await expect(remoteStatus(page)).toContainText('GitHub has not been checked yet');
+		await expect(remoteStatus(page)).toContainText('not checked yet');
 		await refocus(page);
 		await refocus(page);
 		expect(listings(github)).toBe(0);
@@ -596,7 +594,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.getByTestId('check-remote-status').focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByTestId('connect-sequence')).toBeHidden();
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 		await showRemoteStatusDetail(page);
 		await expect(page.getByTestId('remote-status-checked')).toContainText('Checked at');
 		expect(listings(github)).toBe(1);
@@ -626,7 +624,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		// Signing in is the moment an automatic check becomes possible, and it takes one by itself.
 		await signedIn(page);
 		await page.keyboard.press('Escape');
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 		const afterSignIn = await settledListings(page, github);
 
 		// ⚠ **Bounded.** Coming back to the tab three times inside the interval is three focus events
@@ -634,7 +632,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await refocus(page);
 		await refocus(page);
 		await refocus(page);
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 		expect(listings(github)).toBe(afterSignIn);
 
 		// Another editor version rebuilt the site: different chunk names, identical scholarship. It is
@@ -643,7 +641,7 @@ test.describe('Remote Status on the navigation bar', () => {
 			'index.html': '<!doctype html><title>Atlas, rebuilt</title>'
 		});
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 		await expect(page.getByTestId('published-site-stale')).toContainText('Publish again');
 
 		// The author's own work, which GitHub has never seen.
@@ -655,7 +653,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await page.getByRole('button', { name: 'Create Project' }).click();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
+		await expect(remoteStatus(page)).toContainText('changes to send');
 
 		// And somebody else's afternoon, arriving on a path this Workspace has not touched. Two safe
 		// changes, and the whole point of the state is that it is not a Conflict.
@@ -664,14 +662,15 @@ test.describe('Remote Status on the navigation bar', () => {
 				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		});
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
+		await expect(remoteStatus(page)).toContainText('changes both ways');
+		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'changes-both-ways');
 
 		// Persistent, and it follows the author onto the Project screen — drift stays visible while
 		// they work rather than only on the hub.
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
-		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(remoteStatus(page)).toContainText('changes both ways');
+		await expect(page.getByRole('status')).toContainText('Saved here');
 
 		// The same path on both sides, which is the one state the passive check may not read as
 		// agreement: it knows `delft/project.json` changed here and cannot compare the bytes.
@@ -679,11 +678,14 @@ test.describe('Remote Status on the navigation bar', () => {
 			'delft/project.json': '{"formatVersion":1,"name":"Delft, theirs"}'
 		});
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub disagree');
+		// ⚠ **The badge says which directions are outstanding and a Conflict has both**, so the clause
+		// is the both-ways one and the determination behind it is what tells the two apart.
+		await expect(remoteStatus(page)).toContainText('changes both ways');
+		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'conflict');
 
 		// ⚠ **A failed check is not agreement**. The last determination stays, dated,
-		// with an alert beside it saying it is no longer being confirmed — never relabelled `Up to
-		// date`, and never the successful determination `Cannot tell`.
+		// with an alert beside it saying it is no longer being confirmed — never relabelled `In sync`,
+		// and never the successful determination `Cannot tell`.
 		await showRemoteStatusDetail(page);
 		const checkedBefore = await page.getByTestId('remote-status-checked').textContent();
 		await page.route('https://api.github.com/**/git/trees/**', (route) =>
@@ -694,7 +696,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await expect(failure).toBeVisible();
 		await expect(failure).toContainText('the last one Ballastella was able to work out');
 		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'conflict');
-		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub disagree');
+		await expect(remoteStatus(page)).toContainText('changes both ways');
 		await expect(remoteStatus(page)).toContainText('Check failed');
 		expect(await page.getByTestId('remote-status-checked').textContent()).toBe(checkedBefore);
 		// The alert is announced rather than merely rendered: it is inserted at the moment its text
@@ -722,7 +724,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 		await signedIn(page);
 		await page.keyboard.press('Escape');
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 
 		// A listing of a large tree takes seconds, and one click switches Workspace inside one of them.
 		let release: (() => void) | undefined;
@@ -743,7 +745,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		// Workspace menu instead. What it must never do is wear the Workspace the author left.
 		await expect(page.getByTestId('remote-status-slot')).toHaveCount(0);
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 	});
 });
 
@@ -850,7 +852,7 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 		await signedIn(page);
 		await page.keyboard.press('Escape');
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 
 		// The author's own afternoon, which GitHub has never seen and this Update must not touch.
 		await page.getByRole('button', { name: 'New Project' }).click();
@@ -869,7 +871,7 @@ test.describe('getting a Remote’s changes', () => {
 			'atlas-1625/annotations/l2.geojson': THEIRS
 		});
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('This Workspace and GitHub have both changed');
+		await expect(remoteStatus(page)).toContainText('changes both ways');
 
 		// ⚠ **Nothing has arrived, and that is the whole claim.** Coming back to the tab and asking for
 		// the status again are both observations: neither downloads a byte.
@@ -947,9 +949,9 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(page.getByTestId('project-name')).toHaveText('Delft');
 
 		// And the next required action is on screen already: the Baseline advanced only for what is now
-		// shared, so the Project GitHub has never seen is still Changes to publish.
-		await expect(remoteStatus(page)).toContainText('Not all your work is on GitHub yet');
-		await expect(page.getByRole('status')).toContainText('Saved locally');
+		// shared, so the Project GitHub has never seen is still Changes to send.
+		await expect(remoteStatus(page)).toContainText('changes to send');
+		await expect(page.getByRole('status')).toContainText('Saved here');
 
 		// Finally: a switch inside a transfer. The Workspace the Update was aimed at is the one it
 		// writes to, and the one that arrives wears none of it.
@@ -993,7 +995,7 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(3);
-		await expect(page.getByRole('status')).toContainText('Saved locally');
+		await expect(page.getByRole('status')).toContainText('Saved here');
 
 		// ⚠ **And an Edit History does not survive an Update** (ADR-0039). A Step holds the bytes of the
 		// files its gesture wrote, so a Step taken before an Update describes files the Update may have
@@ -1044,7 +1046,7 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 		await signedIn(page);
 		await page.keyboard.press('Escape');
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 
 		await github.commitFiles(OWNER, REPOSITORY, {
 			'delft/project.json': null,
@@ -1075,7 +1077,7 @@ test.describe('getting a Remote’s changes', () => {
 		// the status still reads the drift it read before, rather than agreement it never reached.
 		expect(github.head(OWNER, REPOSITORY)).toBe(head);
 		await checkNow(page);
-		await expect(remoteStatus(page)).toContainText('GitHub has work this Workspace does not');
+		await expect(remoteStatus(page)).toContainText('changes to get');
 
 		// ── Get changes: the Project goes, and the one the Remote kept does not ───────────────────
 		await updateFromGitHub(page);
@@ -1085,7 +1087,7 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(page.getByRole('link', { name: 'Atlas 1625' })).toBeVisible();
 		// And the two sides now agree, which is the whole point of applying a deletion rather than
 		// refusing it: a synchronized deletion that did not apply comes back at every status check.
-		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
+		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
 
 		// ── An Update whose record cannot be read shuts the Workspace, rather than showing half of
 		// one. Folded in here rather than given its own test because it needs exactly

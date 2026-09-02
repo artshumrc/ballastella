@@ -109,7 +109,7 @@ const stackOrder = async (page: Page): Promise<string[]> =>
 		)
 	).filter((id) => id.startsWith('ballastella-layer-'));
 
-const saved = (page: Page) => expect(page.getByRole('status')).toHaveText('Saved locally');
+const saved = (page: Page) => expect(page.getByRole('status')).toHaveText('Saved here');
 
 /**
  * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.
@@ -593,7 +593,7 @@ test.describe('a Resource Mask corner added or taken away', () => {
 		const half = imagePoints(page).first();
 		await half.focus();
 		await page.keyboard.press('Shift+ArrowRight');
-		// Polled to the *change*, not merely to `Saved locally`: the indicator is already saying that
+		// Polled to the *change*, not merely to `Saved here`: the indicator is already saying that
 		// when the move is pressed, so reading the file on the word alone snapshots the Alignment from
 		// before the gesture and every byte comparison below is then against the wrong file.
 		await saved(page);
@@ -682,7 +682,7 @@ test.describe('a deleted Annotation', () => {
 		await editHistoryUndo(page).click();
 		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
 		// the indicator is still saying what the gesture before it left it saying — so waiting for
-		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// "Saved here" alone reads the file the undo is in the middle of replacing. The redo control
 		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
 		// The deletion is now what redo offers, in the same sentence with one word swapped.
 		await expect(editHistoryRedo(page)).toHaveAttribute(
@@ -755,7 +755,7 @@ test.describe('a deleted Annotation', () => {
 		await editHistoryUndo(page).click();
 		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
 		// the indicator is still saying what the gesture before it left it saying — so waiting for
-		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// "Saved here" alone reads the file the undo is in the middle of replacing. The redo control
 		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
 		await expect(editHistoryRedo(page)).toHaveCount(1);
 		await saved(page);
@@ -1248,7 +1248,7 @@ test.describe('a deleted Label', () => {
 		await editHistoryUndo(page).click();
 		// **A visible consequence before the bytes are read.** An undo is dispatched and then runs, and
 		// the indicator is still saying what the gesture before it left it saying — so waiting for
-		// "Saved locally" alone reads the file the undo is in the middle of replacing. The redo control
+		// "Saved here" alone reads the file the undo is in the middle of replacing. The redo control
 		// appears only once the cursor has moved, and the cursor moves only on a write that landed.
 		await expect(editHistoryRedo(page)).toHaveCount(1);
 		await saved(page);

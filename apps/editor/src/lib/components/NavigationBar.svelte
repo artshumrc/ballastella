@@ -610,26 +610,28 @@
 {#snippet status()}
 	{#if session !== null}
 		<!--
-			7. Where the work is: one badge, two clauses, and everything else one press away (ADR-0041).
+			7. Where the work is: one badge, two clauses, and everything else one press away (ADR-0044).
 
 			**Whether the work is kept here, and whether GitHub has it, in one line.** ADR-0017 rule 5:
 			there is no Save button, so the first clause is the only signal that anything reached storage,
 			which is why it is on every screen and not only on the ones that happen to write. The second
-			is the question the first does not answer — "Saved locally" is about this machine and says
-			nothing about the Remote, and a scholar who reads the one as the other publishes over a
+			is the question the first does not answer — "Saved here" is about this machine and says
+			nothing about the Remote, and a scholar who reads the one as the other sends over a
 			colleague's afternoon.
 
-			**Two clauses rather than two badges** (ADR-0041). They are the two halves of one question, so
+			**Two clauses rather than two badges** (ADR-0044). They are the two halves of one question, so
 			they share one region and one line; what keeps them apart is that both are always said.
 
 			The GitHub clause only for an ordinary bound Workspace. A Review Workspace is never bound
 			(ADR-0024) and an unbound one has nothing to compare against, so the badge is the local clause
-			alone and `RemoteStatus`'s disclosure is not mounted at all.
+			alone and `RemoteStatus`'s disclosure is not mounted at all — a status about a repository that
+			does not exist is a status about nothing, and what the bar offers instead is the act.
 		-->
 		<div class="flex items-start" data-testid="save-slot">
 			{#if storage !== null && storage.remote !== null && storage.review === null}
 				<RemoteStatus
 					saveState={session.saveState}
+					remote={storage.remote}
 					state={storage.remoteStatusState}
 					baseline={storage.baseline}
 					update={storage.updateProgress}

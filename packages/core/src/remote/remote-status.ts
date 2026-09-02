@@ -21,6 +21,10 @@
 // rather than in a component so that a second surface cannot spell one of them differently. The
 // meaning is in the text, never in a colour, an icon or a disabled button.
 //
+// ⚠ **The repository's name belongs to `In sync` and to no other determination** (ADR-0044). Naming
+// it beside a state that is not agreement reports an intention rather than a fact, so the name is
+// interpolated by the badge that renders the agreeing clause and appears in none of the words here.
+//
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // SIGNED OUT MEANS ASKED FOR, NEVER POLLED
 //
@@ -42,16 +46,22 @@ import type { InventoryEntry, SourceStatus } from './synchronization-planner.js'
 /**
  * The six words a scholar reads, one per {@link SourceStatus}.
  *
+ * ⚠ **Every one of them says which direction is outstanding**, because that is the only thing a
+ * scholar can act on: something to send, something to get, both, or neither. Git's `ahead` and
+ * `behind` name positions in a commit graph nobody here is looking at, and *connected* and *up to
+ * date* both report a relationship rather than whether the work is anywhere but this machine
+ * (ADR-0044).
+ *
  * ⚠ **`Cannot tell` is a determination and is worded as one.** It is what absence, corruption, a
  * record naming another repository and a Baseline this browser refused to keep all come to, and every
  * one of them means *nothing here can say how the two sides differ*. Shown as nothing at all — or as
  * a greyed-out control — it reads as agreement, which is the one reading that licenses overwriting.
  */
 export const REMOTE_STATUS_LABELS: Record<SourceStatus, string> = {
-	'up-to-date': 'Up to date',
-	'changes-to-publish': 'Changes to publish',
-	'update-available': 'Update available',
-	'changes-on-both-sides': 'Changes on both sides',
+	'in-sync': 'In sync',
+	'changes-to-send': 'Changes to send',
+	'changes-to-get': 'Changes to get',
+	'changes-both-ways': 'Changes both ways',
 	conflict: 'Conflict',
 	'cannot-tell': 'Cannot tell'
 };
@@ -81,7 +91,7 @@ export type RemoteStatusRefusal =
 /**
  * A check that could not be completed, with the sentence its reader is shown.
  *
- * ⚠ **A refusal is never a status.** A failed check must not be reported as `Up to date` — nor as
+ * ⚠ **A refusal is never a status.** A failed check must not be reported as `In sync` — nor as
  * `Cannot tell`, which is a *successful* determination about missing evidence. {@link
  * RemoteStatusChecker} keeps the last determination visible and puts this beside it.
  */
@@ -248,7 +258,7 @@ async function credentialedInventory(
 	}
 
 	// ⚠ **A truncated listing answers 200**, so nothing throws and nothing logs. Read as complete it
-	// would report every unlisted path as deleted on the Remote — `Update available` over a Remote
+	// would report every unlisted path as deleted on the Remote — `Changes to get` over a Remote
 	// nobody has touched, on the largest Workspaces, which are the ones that reach the limit.
 	if (body.truncated === true) {
 		throw new RemoteStatusUnavailableError(
