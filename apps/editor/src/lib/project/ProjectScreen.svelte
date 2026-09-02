@@ -107,6 +107,7 @@
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 
 	import { describeImportEvidence, describeImportProvenance } from './import-provenance-text.js';
+	import ProjectSharing from './ProjectSharing.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -148,7 +149,7 @@
 				action: {
 					label: 'Edit Project name',
 					testid: 'edit-project-name',
-					onClick: openSettings
+					onClick: () => void openSettings()
 				}
 			}
 		]);
@@ -1055,8 +1056,70 @@
 	/** The Project's transfer history, oldest first, or nothing for a Project nobody imported. */
 	const provenance = $derived(session.openProject?.importProvenance ?? []);
 
-	function openSettings(): void {
+	/**
+	 * Whether the Workspace carries a site, or `null` while nothing has read the files yet.
+	 *
+	 * ⚠ **Observed on opening rather than derived.** Having Share Links *is* carrying the viewer file
+	 * set (ADR-0045), so the answer is a read of the store — not a signal, and not something to
+	 * repeat on every render of a screen that also draws a map.
+	 */
+	let shareLinks = $state<boolean | null>(null);
+
+	/**
+	 * Whether this Project holds work the Remote has not got.
+	 *
+	 * Starts `true`, which is what absent evidence means: the state that offers the Sync first is the
+	 * one that cannot hand a colleague a link to last week.
+	 */
+	let unsentWork = $state(true);
+
+	/** The address *Share Project* hands over, or `''` where there is no repository to serve one. */
+	const shareLink = $derived(storage.projectShareLink(openDirectory));
+
+	const messageOf = (cause: unknown): string =>
+		cause instanceof Error ? cause.message : String(cause);
+
+	async function openSettings(): Promise<void> {
 		settingsOpen = true;
+		shareLinks = await storage.hasShareLinks();
+		unsentWork = (await storage.projectReach(openDirectory)).unsent;
+	}
+
+	/** Re-read what the two Share Project controls depend on, after an act that could have moved it. */
+	async function reReadSharing(): Promise<void> {
+		shareLinks = await storage.hasShareLinks();
+		unsentWork = (await storage.projectReach(openDirectory)).unsent;
+	}
+
+	/**
+	 * Turn Share Links on from here, and report the refusal rather than throwing it.
+	 *
+	 * ⚠ **A guided step is a refusal here, and deliberately so.** GitHub needs
+	 * `Administration: write` to switch Pages on and ADR-0040 refuses to ask for it, so the ordinary
+	 * outcome is one setting the author changes on github.com — and the screen that hands over the
+	 * deep link and polls until the site answers is the Workspace's own dialog (ADR-0042). What
+	 * happens here is that the viewer reaches the Workspace, the instruction is said, and the link is
+	 * not handed over as though it worked.
+	 */
+	async function enableShareLinksHere(): Promise<string> {
+		try {
+			const outcome = await storage.enableShareLinks();
+			await reReadSharing();
+			return outcome.enabled ? '' : outcome.instruction;
+		} catch (cause) {
+			return messageOf(cause);
+		}
+	}
+
+	/** *Sync and copy the link*'s first half: the send, with its refusal as a sentence. */
+	async function sendForShareLink(): Promise<string> {
+		try {
+			await storage.sendToRemote();
+			await reReadSharing();
+			return '';
+		} catch (cause) {
+			return messageOf(cause);
+		}
 	}
 
 	/** Close settings before the offline dialog opens, leaving one modal focus trap at a time. */
@@ -1889,6 +1952,24 @@
 					oncommit={() => void session.commitBorderStyle()}
 				/>
 			</section>
+
+			<!--
+				⚠ **The one place front-page membership is set, and the one place a Project's link is
+				handed over** (ADR-0045). It was also offered as a list of every Project at the moment a
+				site was created; two places to set one flag is how an author ends up unsure which one
+				won, so that list is gone rather than hidden.
+			-->
+			<ProjectSharing
+				name={session.openProject.name}
+				directory={openDirectory}
+				onFrontPage={session.openProject.onFrontPage}
+				{shareLinks}
+				link={shareLink}
+				unsent={unsentWork}
+				setOnFrontPage={(on) => session.setProjectOnFrontPage(openDirectory, on)}
+				enableShareLinks={enableShareLinksHere}
+				send={sendForShareLink}
+			/>
 
 			<section class="flex flex-col items-start gap-3 pt-6">
 				<h3 class="font-serif text-lg">Base Map offline</h3>

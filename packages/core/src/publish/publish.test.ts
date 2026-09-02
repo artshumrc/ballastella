@@ -106,9 +106,10 @@ describe('planning a publish', () => {
 
 	it('names every Project the site will carry, by folder, display name, and front-page choice', async () => {
 		await workspace.createProject('Boston 1775');
+		await workspace.setProjectOnFrontPage('boston-1775', true);
 
 		expect((await plan()).projects).toEqual([
-			{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: true },
+			{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false },
 			{ directory: 'boston-1775', name: 'Boston 1775', onFrontPage: true }
 		]);
 	});
@@ -499,12 +500,12 @@ describe('publishing', () => {
 		expect(record.baseMapBundled).toBe(false);
 	});
 
-	// ADR-0032: the record is the site's whole account of itself, so a Project taken off the Front Page
+	// ADR-0045: the record is the site's whole account of itself, so a Project not on the Front Page
 	// is *on the record and marked*, never left out of it. Omitting it would make the choice into a
 	// claim about who can read the Project — and the files are on a public host either way.
 	it('records each Project’s front-page choice, listing every Project either way', async () => {
 		await workspace.createProject('Boston 1775');
-		await workspace.setProjectOnFrontPage('boston-1775', false);
+		await workspace.setProjectOnFrontPage('amsterdam-1625', true);
 
 		const site = await publish();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));

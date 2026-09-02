@@ -702,6 +702,13 @@ export {
 	readRemoteProjectSource,
 	type RemoteProjectSourceOptions
 } from './remote/remote-project-source.js';
+// How far one Project's own work has got towards the Remote, from local records alone (ADR-0045).
+// What *Share Project* asks before it hands over a link, and what a Project's deletion warns about.
+export {
+	projectRemoteReach,
+	type ProjectRemoteReach,
+	type ProjectRemoteReachInput
+} from './remote/project-reach.js';
 // Which repository a Workspace synchronizes with, and the credential that may push there (ADR-0033,
 // ADR-0044). The rights check happens the moment a scholar names one, so that "you cannot push here"
 // is not discovered after four thousand tiles have gone — and Share Links are the separate, later
@@ -714,6 +721,8 @@ export {
 	disableRemotePages,
 	enableRemotePages,
 	pagesSettingsUrl,
+	projectShareUrl,
+	publishedSiteUrl,
 	readRemotePages,
 	readRemoteRights,
 	shareLinksWithdrawalMessage,

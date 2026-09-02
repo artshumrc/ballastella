@@ -166,8 +166,8 @@ const projectFiles = (
 			formatVersion: 1,
 			name: fields.name,
 			updatedAt: '2026-01-02T03:04:05.000Z',
-			// Left out unless a test asks for it, which is the shape every `project.json` written before
-			// ADR-0032 has and the shape that means "on the front page".
+			// Left out unless a test asks for it, which is the shape that means "not on the front page"
+			// (ADR-0045): a Project is listed because somebody put it there.
 			...(fields.onFrontPage === undefined ? {} : { onFrontPage: fields.onFrontPage }),
 			layers: [
 				{
@@ -419,43 +419,12 @@ test.describe('publishing a Workspace', () => {
 	// file" and "writes nothing at all inside a Project directory" for the Project half, and
 	// "duplicates no tile bytes: the pyramid is in the Workspace exactly once" for the pyramid.
 
-	/**
-	 * The Front Page choice belongs with publishing: the dialog shows the consequence, persists the
-	 * choice, and forecasts the resulting site before the button is pressed.
-	 */
-	test('lets the author choose which Projects appear on the front page', async ({ page }) => {
-		await openWorkspace(page, {
-			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
-			...projectFiles('boston-1775', { name: 'Boston 1775' })
-		});
-
-		const dialog = await openSyncModalWithShareLinks(page);
-		const boston = dialog.getByTestId('on-front-page-boston-1775');
-		await expect(boston).toBeChecked();
-		await expect(boston).toHaveAccessibleName('On the front page — Boston 1775');
-		const description = dialog.locator('#sync-project-description');
-		await expect(boston).toHaveAttribute(
-			'aria-describedby',
-			(await description.getAttribute('id')) ?? ''
-		);
-
-		await boston.uncheck();
-		await expect(description).toContainText('All Projects stay published.');
-		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
-		// ⚠ **The forecast, not the checkbox.** Unchecking writes `project.json`, and the plan the
-		// dialog holds is re-made from the Projects afterwards — so pressing Publish on the strength of
-		// the checkbox alone publishes whichever plan happened to be in hand.
-		await expect(dialog.getByTestId('sync-site-projects')).toContainText(
-			'2 Projects, 1 of them on the front page'
-		);
-
-		await publish(page, dialog);
-
-		await expect(page.getByTestId('sync-status')).toContainText(
-			'carrying 2 Projects, 1 of them on the front page.',
-			{ timeout: 30_000 }
-		);
-	});
+	// "lets the author choose which Projects appear on the front page" was asked here, of a list of
+	// every Project inside the sync modal. That list is gone: front-page membership is set in a
+	// Project's own settings and nowhere else (ADR-0045), and what the modal now says about a site is
+	// how many Projects it carries. The control is asserted in
+	// `apps/editor/src/lib/project/project-sharing.dom.test.ts` and the serialisation in
+	// `packages/core/src/project/project-file.test.ts`.
 
 	test('states the Base Map’s size before publishing, and adds those files', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
@@ -608,12 +577,17 @@ test.describe('publishing a Workspace', () => {
 	test('extends the hub page on a second publish and leaves the first Project untouched', async ({
 		page
 	}) => {
-		// The semester-long, one-repository workflow.
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+		// The semester-long, one-repository workflow. Both Projects are put on the front page in the
+		// fixture, because that is what this test reads at the end and a Project is on a front page
+		// only where somebody put it (ADR-0045).
+		await openWorkspace(
+			page,
+			projectFiles('amsterdam-1625', { name: 'Amsterdam 1625', onFrontPage: true })
+		);
 		await publish(page);
 		const firstProject = await takeWorkspace(page);
 
-		await seed(page, projectFiles('boston-1775', { name: 'Boston 1775' }));
+		await seed(page, projectFiles('boston-1775', { name: 'Boston 1775', onFrontPage: true }));
 		await page.reload();
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toBeVisible();
 		await publish(page);
@@ -682,7 +656,8 @@ test.describe('publishing a Workspace', () => {
 		// blank surface passes every "nothing dangerous survived" check.
 		const payload =
 			'Amsterdam <img src=x onerror="window.pwned=1"> 1625<script>window.pwned=1</script>';
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: payload }));
+		// On the front page, because the front page is the surface this test reads the name off.
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: payload, onFrontPage: true }));
 		await publish(page);
 
 		const { root } = await servePublished(page);

@@ -3,7 +3,7 @@
 	import { untrack } from 'svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
-	import { provideWorkspaceHost } from '../workspace-storage.svelte.js';
+	import { provideWorkspaceHost, type WorkspaceStorage } from '../workspace-storage.svelte.js';
 	import ProjectHub from './ProjectHub.svelte';
 
 	/**
@@ -22,11 +22,17 @@
 	let {
 		mapImages = [],
 		projects = [],
-		mapImagesLoading = false
+		mapImagesLoading = false,
+		shareLinks = false,
+		synced = []
 	}: {
 		mapImages?: readonly WorkspaceMapImage[];
 		projects?: readonly ProjectSummary[];
 		mapImagesLoading?: boolean;
+		/** Whether the Workspace carries a site, which is what Share Links are (ADR-0045). */
+		shareLinks?: boolean;
+		/** The Project directories the Remote holds a version of. */
+		synced?: readonly string[];
 	} = $props();
 
 	// Seeds, captured once on purpose: after mount the harness owns these lists and the hub changes
@@ -35,7 +41,24 @@
 	let maps = $state(untrack(() => [...mapImages]));
 	let listed = $state(untrack(() => [...projects]));
 
-	provideWorkspaceHost();
+	const host = provideWorkspaceHost();
+	/**
+	 * The two members of `WorkspaceStorage` the delete confirmation asks, and the four it renders.
+	 *
+	 * Cast for `session`'s reason: the real class is thousands of lines over OPFS, IndexedDB and
+	 * GitHub, and what the hub touches is a handful of members.
+	 */
+	host.storage = {
+		review: null,
+		transfer: null,
+		importTarget: null,
+		name: 'Atlas',
+		hasShareLinks: async () => shareLinks,
+		projectReach: async (directory: string) => ({
+			synced: synced.includes(directory),
+			unsent: !synced.includes(directory)
+		})
+	} as unknown as WorkspaceStorage;
 
 	/**
 	 * The session surface the hub reads, and only that.

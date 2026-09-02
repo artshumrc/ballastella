@@ -62,7 +62,6 @@
 		type OutboundDeletionPreview,
 		type ProjectSummary,
 		type PublishPlan,
-		type PublishedProject,
 		type PublishedSite,
 		type RemotePublishPlan,
 		type SyncColumn,
@@ -690,25 +689,6 @@
 		};
 	});
 
-	/**
-	 * How many Projects a site carries, and how many of them its Front Page lists (ADR-0032).
-	 *
-	 * ⚠ **Two numbers, because `projects` is every Project the site carries, listed or not.** A
-	 * Workspace of five Projects with two taken off sends five and lists three. Saying "5" would
-	 * overstate the Front Page; saying "3" would understate what is about to be written to a public
-	 * host, which is the more dangerous of the two errors.
-	 */
-	const describeProjects = (projects: readonly PublishedProject[]): string => {
-		if (projects.length === 0) return 'no Projects';
-		const listed = projects.filter((project) => project.onFrontPage).length;
-		const carried = projects.length === 1 ? '1 Project' : `${projects.length} Projects`;
-		if (listed === projects.length) {
-			return `${carried}, ${projects.length === 1 ? 'on' : 'all on'} the front page`;
-		}
-		if (listed === 0) return `${carried}, none of them on the front page`;
-		return `${carried}, ${listed} of them on the front page`;
-	};
-
 	/** The line announced while the Sync is happening, from **inside** the modal. */
 	const progressLine = $derived(describeSyncProgress(progress));
 
@@ -740,9 +720,10 @@
 			(sent
 				? `${got === null ? '' : ' '}Sent to ${sent.remote}: ${sent.files} files, ` +
 					`${sent.uploaded} of them uploaded` +
-					// What the site a Reader meets now carries, where there is one (ADR-0032). Two numbers,
-					// for `describeProjects`' reason.
-					`${sent.site === null ? '' : `, carrying ${describeProjects(sent.site.projects)}`}.`
+					// What the site a Reader meets now carries, where there is one. The count and not the
+					// front-page tally: which Projects are listed is each Project's own settings' subject
+					// (ADR-0045), and a number said here would be a second place to read it from.
+					`${sent.site === null ? '' : `, carrying ${count(sent.site.projects.length, 'Project')}`}.`
 				: '') +
 			// Said rather than swallowed: the send reached the Remote and this machine's Baseline for it
 			// did not survive, which is the `Cannot tell` the next Sync would otherwise meet as an
@@ -1006,7 +987,7 @@
 						>
 					</p>
 					<p class="mt-2 text-sm" data-testid="sync-site-projects">
-						This site will carry {describeProjects(plan.projects)}.
+						This site will carry {count(plan.projects.length, 'Project')}.
 					</p>
 					<dl
 						class="mt-4 grid grid-cols-[1fr_auto_6rem] items-baseline border-t border-rule text-sm [&>*]:border-b [&>*]:border-rule [&>*]:py-2"
@@ -1257,56 +1238,16 @@
 					</div>
 				{/each}
 			{/if}
-
-			<!--
-				Which Projects a Reader meets first — only for a Workspace that has a site for them to
-				meet them on. Without Share Links a Sync carries the scholar's own files and nothing else,
-				and a front-page question there would be about a website that does not exist (ADR-0045).
-			-->
-			{#if shareLinks === true}
-				<section data-testid="sync-project-selection">
-					<h3 class="font-semibold">Projects on the front page</h3>
-					<p id="sync-project-description" class="mt-1 text-sm opacity-80">
-						Choose which Projects Readers see first. All Projects stay published.
-					</p>
-					<ul class="mt-3 border-t border-rule">
-						{#each session.projects as project (project.directory)}
-							<li class="[&+li]:border-t [&+li]:border-rule">
-								<label class="flex items-center justify-between gap-4 py-2 text-sm">
-									<span class="font-medium">{project.name}</span>
-									<span class="flex shrink-0 items-center gap-2">
-										<span class="opacity-70">Front page</span>
-										<input
-											type="checkbox"
-											class="toggle toggle-sm"
-											data-testid="on-front-page-{project.directory}"
-											checked={project.onFrontPage}
-											onchange={(event) =>
-												void session.setProjectOnFrontPage(
-													project.directory,
-													(event.currentTarget as HTMLInputElement).checked
-												)}
-											disabled={project.problem !== null}
-											aria-label="On the front page — {project.name}"
-											aria-describedby="sync-project-description"
-										/>
-									</span>
-								</label>
-							</li>
-						{/each}
-					</ul>
-				</section>
-			{/if}
 		{/if}
 
 		<!--
 			Progress, seen and announced by the same element, from inside the modal so that it is not in
 			the inert half of the document while it has something to say.
 
-			⚠ **Outside every gate above, and unconditionally rendered while the modal is open.**
-			Flipping a Front Page toggle re-plans, which nulls the plan — gated on it this region would
-			be removed mid-Sync and re-inserted already holding a line, and an `aria-live` region
-			inserted together with its first text is not announced.
+			⚠ **Outside every gate above, and unconditionally rendered while the modal is open.** A re-plan
+			nulls the plan — gated on it this region would be removed mid-Sync and re-inserted already
+			holding a line, and an `aria-live` region inserted together with its first text is not
+			announced.
 		-->
 		<p aria-live="polite" aria-atomic="true" class="text-sm" data-testid="sync-progress">
 			{progressLine}

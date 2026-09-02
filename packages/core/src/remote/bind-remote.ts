@@ -197,6 +197,33 @@ export const pagesSettingsUrl = (remote: RemoteReference): string =>
 	`https://github.com/${encodeURIComponent(remote.owner)}/` +
 	`${encodeURIComponent(remote.repository)}/settings/pages`;
 
+/**
+ * The address a repository's Published Site answers at, once Share Links are on.
+ *
+ * GitHub Pages serves an owner's own `<login>.github.io` repository at the domain root and every
+ * other repository in a folder beneath it, so the two cases are one line apart and the wrong one is
+ * an address that answers nothing. Case-insensitively, because GitHub's own comparison is:
+ * `Ada/Ada.github.io` is the root site too.
+ */
+export function publishedSiteUrl(remote: RemoteReference): string {
+	const host = `${remote.owner.toLowerCase()}.github.io`;
+	return remote.repository.toLowerCase() === host
+		? `https://${host}/`
+		: `https://${host}/${remote.repository}/`;
+}
+
+/**
+ * The link that opens one Project on that site — the whole of what *Share Project* hands over.
+ *
+ * ⚠ **`?p=<directory>` and nothing else** (ADR-0045). There is no token, no signature and nothing
+ * unguessable in it: the repository is readable and the files are fetchable, so being on the Front
+ * Page is discovery and never permission. Anything here that looked like a secret would invite the
+ * one reading a scholar with embargoed material must not take.
+ */
+export function projectShareUrl(remote: RemoteReference, directory: string): string {
+	return `${publishedSiteUrl(remote)}?p=${encodeURIComponent(directory)}`;
+}
+
 /** The site is on: the one outcome with nothing left to say and nowhere left to send anybody. */
 const pagesOn: RemotePagesOutcome = {
 	enabled: true,
