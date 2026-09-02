@@ -52,6 +52,7 @@
 		annotationLayerIds,
 		annotationMarkBox,
 		cachedBaseMapTileTemplate,
+		captureMapFrame,
 		createWarpedMapLayer,
 		drawLayerStack,
 		isDrawnMap,
@@ -62,6 +63,7 @@
 		updateAlignment,
 		type DrawnLayer,
 		type DrawnOutcome,
+		type FrameInvalidator,
 		type ReadCachedTile,
 		type ScreenBox,
 		type StackRender,
@@ -101,6 +103,10 @@
 		onwarped,
 		onstack,
 		onbasemapstatus,
+		snapshotGeneration = 0,
+		oninvalidateframe,
+		onframesettled,
+		overlayDocked = false,
 		selectedAnnotationId = null,
 		annotationDragPreview = null,
 		controls,
@@ -292,12 +298,43 @@
 		selectedAnnotationId?: string | null;
 		annotationDragPreview?: AnnotationDragPreview | null;
 		/**
+		 * Which frame the page is currently asking about — `SnapshotReadiness.generation`.
+		 *
+		 * **The page mints it and this pane carries it back**, rather than each keeping a counter of
+		 * its own: two counters is two things that can disagree, and the whole use of the number is
+		 * that a late answer can be recognised as belonging to a picture no longer on screen.
+		 */
+		snapshotGeneration?: number;
+		/**
+		 * Something happened here that can change the pixels — see `FRAME_INVALIDATORS`.
+		 *
+		 * Reported rather than decided: the pane knows *what* moved, and the readiness machine in
+		 * `core` knows what that means. Every source is wired below; one missing is a Map Snapshot of
+		 * the view before this one.
+		 */
+		oninvalidateframe?: (by: FrameInvalidator) => void;
+		/**
+		 * {@link snapshotGeneration}'s frame has drawn everything it asked for.
+		 *
+		 * Carries the generation it was waiting on, because the wait is asynchronous and the answer
+		 * routinely arrives after the frame it describes has gone.
+		 */
+		onframesettled?: (generation: number) => void;
+		/**
 		 * Page-owned controls placed beside the place search over the map.
 		 *
 		 * The Project screen uses this for its Base Map choice and its explicit framing action. They
 		 * belong to the Project, not to every consumer of this pane.
 		 */
 		controls?: Snippet;
+		/**
+		 * Whether {@link overlay} is docked into the pane's top-right corner above `lg`.
+		 *
+		 * The pane cannot see it: the overlay is the page's snippet, positioned by the page's own
+		 * element, and it is drawn *above* this pane's control row. So the page says, and the row stops
+		 * short of that column while it is there — see the row's own note for the measurement.
+		 */
+		overlayDocked?: boolean;
 		/**
 		 * What the page draws *over* this pane, inside the pane's own positioned container.
 		 *
@@ -426,9 +463,16 @@
 		// check for, and the work behind it is idempotent.
 		const cameraMoved = (): void => {
 			for (const watcher of cameraWatchers) watcher();
+			// Every frame of a gesture, not only its end. The whole point of the invalidation is that
+			// there is no moment during a pan at which the previous frame is still the one on screen,
+			// and `moveend` would leave exactly that window open.
+			oninvalidateframe?.('camera');
 		};
 		created.on('move', cameraMoved);
 		created.on('zoom', cameraMoved);
+		// The drawing buffer's own dimensions change with the container, so the frame that was
+		// complete is not even the same size as the one being drawn.
+		created.on('resize', () => oninvalidateframe?.('resize'));
 
 		// ──────────────────────────────────────────────────────────────────────────────────────
 		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
@@ -547,6 +591,9 @@
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;
+		// The theme, the tile choice, the three appearance switches and the border choice all arrive
+		// here, and every one of them repaints the map from the ground up.
+		oninvalidateframe?.('base-map');
 		// One call, driven by one signal: the flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
@@ -1072,6 +1119,10 @@
 		const current = map;
 		const readTiles = fetchTile;
 		const stackLayers = untrack(() => layers);
+		// Whatever moved the structure key — a Layer shown, hidden, reordered, or its Alignment
+		// edited — the stack is about to be torn down and built again, and nothing of the frame it
+		// was drawing survives that.
+		oninvalidateframe?.('layer-stack');
 		if (!current || !readTiles || stackLayers.length === 0) {
 			onstack?.({});
 			return;
@@ -1137,7 +1188,20 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
-		const preview = annotationDragPreview;
+		// A title recoloured, a vertex moved, a drag preview appearing or going: none of it rebuilds
+		// the stack, and all of it changes the picture.
+		oninvalidateframe?.('annotations');
+		paintAnnotations(built, annotationDragPreview);
+	});
+
+	/**
+	 * Push every Annotation Layer's features into the sources already on the map.
+	 *
+	 * A function rather than only the body of the effect above, because {@link captureSnapshot} needs
+	 * the same write with `preview` set to `null`: a Map Snapshot carries the Annotation as it is
+	 * saved, not the one halfway through a drag.
+	 */
+	const paintAnnotations = (built: StackRender, preview: AnnotationDragPreview | null): void => {
 		for (const stacked of layers) {
 			if (!isDrawnMap(stacked)) {
 				const annotations = stacked.annotations ?? { annotations: [] };
@@ -1149,10 +1213,13 @@
 				);
 			}
 		}
-	});
+	};
 
 	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
 	$effect(() => {
+		// A selected Annotation is drawn more strongly, and a Map Snapshot is taken without that
+		// emphasis — so a change of selection is a change of the frame a capture would have to make.
+		oninvalidateframe?.('selection');
 		stack?.setSelectedAnnotation(selectedAnnotationId ?? null);
 	});
 
@@ -1160,10 +1227,102 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		oninvalidateframe?.('layer-opacity');
 		for (const stacked of layers) {
 			if (isDrawnMap(stacked)) built.setOpacity(stacked.layer.id, stacked.layer.opacity);
 		}
 	});
+
+	/**
+	 * Resolve once MapLibre has nothing left to draw **and the camera has stopped**.
+	 *
+	 * `loaded()` first, because `idle` is an event and an event that has already fired is one a late
+	 * listener never hears — which for a map that settled before anybody asked is every time.
+	 *
+	 * ⚠ **`loaded()` is true in the middle of a flight**, and that is why the three camera questions
+	 * are asked beside it. It answers "is anything still being fetched or restyled", not "has the map
+	 * stopped": between the frames of an animated pan nothing is outstanding, so the short circuit
+	 * resolved once per frame and the Map Snapshot control flickered its way across the animation —
+	 * offering, sixty times a second, to capture a view the scholar was still moving away from.
+	 * Measured against `panBy`, which eases: twenty-odd ready/preparing pairs in one gesture. The
+	 * `idle` path never had the problem, because MapLibre withholds that event while the camera moves.
+	 */
+	const whenMapIdle = (target: MapLibreMap): Promise<void> =>
+		new Promise((resolve) => {
+			if (target.loaded() && !target.isMoving() && !target.isZooming() && !target.isRotating()) {
+				resolve();
+				return;
+			}
+			target.once('idle', () => resolve());
+		});
+
+	/**
+	 * Tell the page when the frame it is asking about has finished drawing.
+	 *
+	 * **Both halves, because neither is the whole answer.** MapLibre's own idleness covers the Base
+	 * Map and the Annotation layers; a warped Map Image is drawn by a custom layer with a tile cache
+	 * of its own, so the stack is asked as well (`whenTilesSettled`). The second idle is what puts
+	 * those tiles on screen: they arrive after the map has already fallen quiet once.
+	 *
+	 * **Keyed on the generation**, so an invalidation the page has recorded starts the wait again from
+	 * the top. The answer carries the generation it was waiting on and the reducer discards it if the
+	 * frame has moved on since; `live` is the same guard one step earlier, so an abandoned wait does
+	 * not even reach the page. Neither alone is enough — this effect re-runs for a new `map` or a
+	 * rebuilt `stack` as well, and those arrive with a generation of their own.
+	 */
+	$effect(() => {
+		const current = map;
+		const built = stack;
+		const generation = snapshotGeneration;
+		if (!current) return;
+		let live = true;
+		void (async () => {
+			await whenMapIdle(current);
+			await built?.whenTilesSettled();
+			await whenMapIdle(current);
+			if (live) onframesettled?.(generation);
+		})();
+		return () => {
+			live = false;
+		};
+	});
+
+	/**
+	 * The map as it is on screen, as a PNG — a Map Snapshot of this Project's current view.
+	 *
+	 * **Exported rather than driven by a prop**, for the reason {@link frameOnPlace} is: the control
+	 * that asks for it is the page's, in the page's own control row, and what it needs back is one
+	 * value once rather than a stream of state.
+	 *
+	 * The captured frame is the *clean* one — the Annotations as they are saved, with nothing
+	 * selected — because a Map Snapshot is the composition rather than the moment of authoring it.
+	 * Both are written straight onto the layers already on the map and put back in the `finally`, so
+	 * no Project data is touched and the Author's selection and half-finished drag are still there
+	 * afterwards. What is drawn over the pane in the DOM — the Inspector, leader lines, Control
+	 * Points, the map's own controls — is outside the framebuffer and needs no undoing.
+	 *
+	 * The wait is what makes the clean state the one captured: `setData` is parsed off the main
+	 * thread and a feature state lands on the next render, so capturing immediately would still
+	 * catch the preview.
+	 */
+	export async function captureSnapshot(): Promise<Blob> {
+		const current = map;
+		if (!current) throw new Error('There is no Base Map on screen to capture.');
+		const built = stack;
+		if (built) {
+			paintAnnotations(built, null);
+			built.setSelectedAnnotation(null);
+		}
+		try {
+			await whenMapIdle(current);
+			return await captureMapFrame(current);
+		} finally {
+			if (built) {
+				paintAnnotations(built, annotationDragPreview);
+				built.setSelectedAnnotation(selectedAnnotationId ?? null);
+			}
+		}
+	}
 
 	/**
 	 * Read the distortion view without registering it as a dependency of the effect that owns the
@@ -1259,6 +1418,18 @@
 	Project screen supplies its own Base Map controls. This search navigates and places nothing;
 	placing lives on the Annotation Layer surface, where there is always a Layer to draw into.
 
+	⚠ **While something is docked over the pane's top-right corner, the block stops short of it — that
+	is the conditional `max-width`.** The Annotation Inspector docks `right-2` at `w-80` above `lg` and
+	sits a layer above this block, so a control the row puts under that column is covered: the pointer
+	reaches the Inspector rather than the button. Measured on the Project screen at 1280 wide with an
+	Annotation selected: the row's last control spanned 982–1168 against an Inspector starting at 952,
+	and `elementFromPoint` at the button's centre answered with the Inspector's heading. So the row
+	wraps before it gets there, and only while it has to — applied unconditionally it costs the row a
+	second line at every ordinary desktop width, which is the single line ADR-0020's panel exists to
+	buy. The `max()` floor is the place search's own width: the alignment screen renders this pane in a
+	column narrower than the Inspector's, where an unfloored subtraction resolves negative and
+	collapses the search to nothing.
+
 	⚠ **`z-[6]` puts this block with the map's other controls, and the number is load-bearing.** One
 	stacking context holds the leader at 5, MapLibre's four control corners at 6 (`packages/ui`'s
 	`layout.css` has the rule and the reason), and the Annotation Inspector at 7. This block is pane
@@ -1270,7 +1441,11 @@
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
-	<div class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+	<div
+		class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2 {overlayDocked
+			? 'lg:max-w-[max(18rem,calc(100%-21.5rem))]'
+			: ''}"
+	>
 		<div class="w-72 max-w-full">
 			<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
 		</div>

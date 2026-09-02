@@ -105,6 +105,7 @@ import {
 	type GeoBounds,
 	type HistoryFiles,
 	type MapImageSource,
+	type TileFetchOutcome,
 	type IngestProgress,
 	type IngestedImage,
 	type FinishedDeletions,
@@ -1499,9 +1500,21 @@ export class EditorSession {
 	 * referencing the same `imageId` draw the same bytes. A version that took a `projectDirectory`
 	 * would be the most dangerous shape this function can have: rooted at a Project, it answers a
 	 * request for one map with *another map's* tiles, and nothing raises.
+	 *
+	 * ⚠ **A fresh shim per call, and `onOutcome` is why that matters.** Each shim keeps its own record
+	 * of which URLs are outstanding, so only the caller that asked to be told hears anything — and the
+	 * callers that must not report are the reason this is opt-in rather than wired here. `add-remote-map`
+	 * probes a library with a tile request it *expects* to be refused, to find out whether that host
+	 * will answer at all; an offline copy reads a whole pyramid; a thumbnail draws one image. Wired
+	 * globally, the probe alone would leave a permanent "a Map Image stopped drawing" over a Workspace
+	 * where nothing is wrong. So the Project map — the one drawing surface where a refusal really does
+	 * mean a Layer has a hole in it — passes a listener, and nothing else does.
+	 *
+	 * @param onOutcome told what became of each request, for a caller that surfaces the answer. See
+	 *   {@link TileFetchOutcome} for which requests are reported and which deliberately are not.
 	 */
-	imageServiceFetch(): FetchFn {
-		return createStoreImageFetch({ store: this.#store });
+	imageServiceFetch(onOutcome?: (outcome: TileFetchOutcome) => void): FetchFn {
+		return createStoreImageFetch({ store: this.#store, ...(onOutcome ? { onOutcome } : {}) });
 	}
 
 	/**

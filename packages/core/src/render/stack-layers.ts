@@ -48,7 +48,12 @@ import { drawingOrder, type AnnotationLayer, type MapLayer } from '../project/la
 import type { WarpedMapLayer } from '@allmaps/maplibre';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
-import { createWarpedMapLayer, showAlignment, type WarpedRender } from './warped-map-layer.js';
+import {
+	createWarpedMapLayer,
+	showAlignment,
+	warpedTilesRequestedForViewport,
+	type WarpedRender
+} from './warped-map-layer.js';
 
 /**
  * One Layer of the stack with the documents it references already read.
@@ -151,6 +156,28 @@ export interface StackRender {
 	 * screen's state, not the document's.
 	 */
 	setSelectedAnnotation(annotationId: string | null): void;
+	/**
+	 * Resolve once every warped Map Image in the stack has the tiles this frame asked for.
+	 *
+	 * **The half of "the map has settled" that MapLibre cannot answer.** A warped Map Image is drawn
+	 * by a custom layer with its own tile cache, so `Map#idle` can be true while a Map Image is still
+	 * a hole. Anything that has to act on a *complete* frame — capturing a Map Snapshot is the case
+	 * this exists for — needs both.
+	 *
+	 * Only the Layers on the map, which is only the visible ones: a hidden Layer is not in the stack
+	 * at all, so it cannot delay this. Resolves immediately when nothing is outstanding, and for a
+	 * stack with no Map Images there is nothing to wait for.
+	 *
+	 * The renderer's own promise rather than its `allrequestedtilesloaded` event, because an event
+	 * that already fired is an event a late listener never hears — which for a cached frame is every
+	 * time.
+	 *
+	 * ⚠ **And the counter alone is not the answer**, which is why this waits on
+	 * {@link warpedTilesRequestedForViewport} as well: nothing in flight is also true of a renderer
+	 * that has not yet asked for the frame on screen. See that function for the whole of the
+	 * distinction, and for why "decoded" is not the test.
+	 */
+	whenTilesSettled(): Promise<void>;
 	/**
 	 * Take the whole stack off the map. Survivable after a `setStyle` has already removed it.
 	 *
@@ -789,6 +816,9 @@ export function drawLayerStack(options: {
 			selectedAnnotationId = annotationId;
 			paintSelection();
 		},
+		async whenTilesSettled() {
+			await Promise.all(Object.values(warped).map((layer) => settleWarpedTiles(map, layer)));
+		},
 		destroy({ mapIsGone = false } = {}) {
 			unexpose();
 			if (mapIsGone) return;
@@ -798,6 +828,32 @@ export function drawLayerStack(options: {
 			for (const id of sources) if (map.getSource(id)) map.removeSource(id);
 		}
 	};
+}
+
+/**
+ * Wait until one warped layer has both asked for the frame on screen and finished answering.
+ *
+ * Two conditions in a loop rather than one wait, because each covers the other's blind spot: the
+ * counter can be empty before the requests are made, and the requests being made says nothing about
+ * whether they have arrived.
+ *
+ * **The wait between attempts is `idle`, and it is not a timeout.** MapLibre fires it when it has
+ * rendered and then stopped, which is precisely when upstream will have re-asked for this viewport;
+ * an animation frame would come round whether or not anything had rendered, so a renderer whose
+ * state never resolved would spin at the display's refresh rate. A map that never renders again
+ * leaves this pending, and a pending wait is a control that stays disabled — the honest answer for a
+ * frame that has not proved itself, and one the next gesture clears.
+ */
+async function settleWarpedTiles(map: MapLibreMap, layer: WarpedMapLayer): Promise<void> {
+	const renderer = layer.renderer;
+	if (!renderer) return;
+	for (;;) {
+		await renderer.tileCache.allRequestedTilesLoaded();
+		if (warpedTilesRequestedForViewport(renderer)) return;
+		await new Promise<void>((resolve) => {
+			map.once('idle', () => resolve());
+		});
+	}
 }
 
 /** A {@link WarpedRender} as the Layer list reads it. */
