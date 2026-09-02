@@ -68,10 +68,11 @@ export interface DrawnMapLayer {
 	/**
 	 * The remote image service this Layer's tiles come from, or `''` for a local copy.
 	 *
-	 * Resolved by the caller from the Workspace's `remote.json` records, for the same reason the
-	 * Alignment is: reaching the store is `EditorSession`'s business. A referenced Layer with `''` here
-	 * draws nothing at all, so the caller observes whether the image is referenced — the image directory
-	 * has an `info.json` of ours, or only a `remote.json` — and passes {@link referenced} with it.
+	 * Resolved by the caller from each Map Image's own `images/<id>/remote.json`, for the same reason
+	 * the Alignment is: reaching the store is `EditorSession`'s business. A referenced Layer with `''`
+	 * here draws nothing at all, so the caller observes whether the image is referenced — the image
+	 * directory has an `info.json` of ours, or only that record — and passes {@link referenced} with
+	 * it.
 	 */
 	readonly service?: string;
 	/**

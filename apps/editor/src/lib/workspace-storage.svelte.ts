@@ -62,9 +62,11 @@ import {
 	journalledWorkspaces,
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
+	awaitRemotePages,
+	disableRemotePages,
 	enableRemotePages,
+	PUBLISHED_SITE_RECORD_NAME,
 	browserCredentialStore,
-	clearRemoteBinding,
 	closedWhileReviewing,
 	describeRemote,
 	describeReviewSubject,
@@ -114,6 +116,8 @@ import {
 	type SynchronizationBaseline,
 	type RemoteReference,
 	type RemotePagesOutcome,
+	type RemoteRepository,
+	type RemotePagesWithdrawal,
 	type RemoteRights,
 	type RemoteSharing,
 	type RemoteStatusState,
@@ -140,6 +144,8 @@ import {
 	workspaceKeyLabel,
 	type TransferState
 } from './editor-session.svelte.js';
+import { deploymentRoot } from './base-map/deployment-assets.js';
+import { loadViewerBundle, readBundleAsset } from './publish/viewer-bundle-source.js';
 import { saveFile } from './save-file.js';
 
 // ── The GitHub App sign-in's browser-side pieces (ADR-0031) ───────────────────────────────────
@@ -2138,9 +2144,9 @@ export class WorkspaceStorage {
 	 * somebody with no GitHub account, and the source reads the repository the same way
 	 * {@link reviewFrom} does: unauthenticated, or not at all.
 	 *
-	 * ⚠ **Nothing about the published tree binds this Workspace.** The source offers a Project's
-	 * closure and an observed origin; a Workspace `remote.json` sitting in the published root is not
-	 * part of either, and the origin travels as provenance rather than as a relationship.
+	 * ⚠ **Nothing about the published tree connects this Workspace to anything.** The source offers a
+	 * Project's closure and an observed origin, and the origin travels as provenance rather than as a
+	 * relationship.
 	 *
 	 * @throws ReviewRefusedError, ImportSourceRefusedError, ImportRefusedError,
 	 *   ProjectFormatTooNewError — each with nothing added to the Workspace
@@ -2780,15 +2786,11 @@ export class WorkspaceStorage {
 			remote
 		});
 		if (token !== null) this.#keepPasted(token);
-		const binding = {
-			owner: outcome.binding.owner,
-			repository: outcome.binding.repository,
-			branch: outcome.binding.branch
-		};
-		// ⚠ **The installation-local relationship is what makes this Workspace bound**, and the
-		// `remote.json` `bindWorkspaceToRemote` wrote is now only the Published Site's compatibility
-		// evidence. A store that will not keep this leaves the Workspace unbound, so it is said out
-		// loud rather than reported as a binding that does not exist.
+		const binding = outcome.remote;
+		// ⚠ **The installation-local relationship is the whole of what makes this Workspace connected**
+		// (ADR-0044), and there is no second copy of it anywhere. A store that will not keep this
+		// leaves the Workspace connected to nothing, so it is said out loud rather than reported as a
+		// relationship that does not exist.
 		const metadata = this.session.synchronization;
 		if (metadata !== null && !(await metadata.bindRemote(binding))) {
 			throw new Error(
@@ -2804,32 +2806,97 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Turn GitHub Pages on for the Remote this Workspace is bound to.
+	 * Whether this Workspace has **Share Links**: whether it carries a Published Site (ADR-0045).
+	 *
+	 * ⚠ **Observed, never stored.** There is no flag anywhere saying a Workspace has a site — the
+	 * site record's presence *is* the answer, so nothing can disagree with the files.
+	 *
+	 * ⚠ **`size` rather than `list` or `read`.** `list` is a string-prefix match over a walk from the
+	 * store's root, so asking it about one file costs an enumeration of every tile in the Workspace;
+	 * and a `read` would answer *no* for a record this build cannot parse, which is a site that exists
+	 * and is broken. `size` reads directory metadata for one name.
+	 */
+	async hasShareLinks(): Promise<boolean> {
+		return this.session.store.size(PUBLISHED_SITE_RECORD_NAME).then(
+			() => true,
+			() => false
+		);
+	}
+
+	/**
+	 * Ask for Share Links: write the read-only viewer into the Workspace, then ask GitHub for an
+	 * address.
 	 *
 	 * ⚠ **Deliberately not part of {@link bindRemote}.** A Remote is a place the work lives before it
-	 * is a site anybody reads, so this is a separate, later, optional act with a press of its own —
-	 * and it is asked for from exactly one control, on the guided sequence's connected step.
+	 * is a site anybody reads (ADR-0045), so this is a separate, later, optional act with a press of
+	 * its own. Folded into connecting it answered a question about who may read this — with a
+	 * paragraph about a GitHub permission — in the middle of a step about where the work goes.
 	 *
-	 * Refusals are answers rather than throws, for the reason `bind-remote.ts` records: the repository
-	 * is correctly connected either way, and what is owed is the sentence naming the two permissions
-	 * GitHub requires and the setting to change by hand. The two things that *are* thrown are the two
-	 * that make the request impossible rather than refused.
+	 * ⚠ **The viewer is written first and is kept whatever GitHub says.** Turning Pages on is the half
+	 * that can be refused, and the refusal has a remedy the author carries out on github.com; a
+	 * Workspace left without the viewer would then have an address serving nothing, and the author
+	 * would have to find the press again. The next Sync carries what is now here.
+	 *
+	 * Refusals are answers rather than throws, for the reason `bind-remote.ts` records. The two things
+	 * that *are* thrown are the two that make the request impossible rather than refused.
 	 */
-	async enablePages(): Promise<RemotePagesOutcome> {
-		const binding = this.remote;
-		if (binding === null) {
+	async enableShareLinks(): Promise<RemotePagesOutcome> {
+		const { remote, token } = this.#shareLinksRequest('turn Share Links on for');
+		await this.#writePublishedSite();
+		return enableRemotePages({ token, remote });
+	}
+
+	/**
+	 * Poll GitHub until the site answers, then carry on — what *Check again* does.
+	 *
+	 * The waiting and the verifying are ours (ADR-0045): the author changed one setting on github.com
+	 * and should not have to guess when it took effect.
+	 */
+	async checkShareLinks(): Promise<RemotePagesOutcome> {
+		const { remote, token } = this.#shareLinksRequest('check Share Links for');
+		return awaitRemotePages({ token, remote });
+	}
+
+	/**
+	 * Withdraw Share Links: take the viewer back out of the Workspace, and ask GitHub to take the
+	 * site down.
+	 *
+	 * ⚠ **The Remote's copy goes on the next Sync and not here**, which is what makes this safe to
+	 * press: the removal travels through the same mirror every other change does, so a Project cannot
+	 * be caught up in it. What this does to the repository is only the Pages setting.
+	 */
+	async withdrawShareLinks(): Promise<RemotePagesWithdrawal> {
+		const { remote, token } = this.#shareLinksRequest('withdraw Share Links from');
+		await this.session.withdrawShareLinks();
+		return disableRemotePages({ token, remote });
+	}
+
+	/** The Remote and the credential every Share Links act needs, or the sentence saying which is not there. */
+	#shareLinksRequest(act: string): { remote: RemoteRepository; token: string } {
+		const remote = this.remote;
+		if (remote === null) {
 			throw new Error(
-				`“${this.name}” is not connected to a repository yet, so there is no site to turn on.`
+				`“${this.name}” is not connected to a repository yet, so there is no site to ${act}.`
 			);
 		}
 		const token = this.credential;
 		if (token === null) {
 			throw new Error(
-				`Turning the site on for ${describeRemote(binding)} needs you to be signed in to GitHub, ` +
-					`and you are not. Sign in and press it again.`
+				`Asking GitHub to ${act} ${describeRemote(remote)} needs you to be signed in, and you are ` +
+					`not. Sign in and press it again.`
 			);
 		}
-		return enableRemotePages({ token, remote: binding });
+		return { remote, token };
+	}
+
+	/** Write the read-only viewer and the site record into the Workspace, as a publish does. */
+	async #writePublishedSite(): Promise<void> {
+		const plan = await this.session.planPublish({
+			bundle: await loadViewerBundle(),
+			editorUrl: deploymentRoot(),
+			repository: this.remote
+		});
+		await this.session.publish({ plan, readAsset: readBundleAsset });
 	}
 
 	/**
@@ -3244,11 +3311,9 @@ export class WorkspaceStorage {
 	 * account rather than to this Workspace, and signing out is its own button.
 	 */
 	async unbindRemote(): Promise<void> {
-		// The installation-local relationship first, because that is the one that decides whether this
-		// Workspace is bound. `remote.json` goes too: it is the copy the Published Site reads, and a
-		// tree left naming a repository this Workspace no longer belongs to is a claim nothing backs.
+		// The installation-local relationship is the only record there is (ADR-0044), so forgetting it
+		// is the whole of unbinding.
 		await this.session.synchronization?.clearRemote();
-		await clearRemoteBinding(this.session.store);
 		this.baseline = null;
 		this.remote = null;
 		// Nothing left to compare against, so the control goes rather than reporting a Remote that is

@@ -11,10 +11,10 @@ import { readReviewMark, type ReviewOrigin } from '../project/review-workspace.j
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { ReviewDestination } from '../transfer/open-project-bundle.js';
+import { bindWorkspaceToRemote } from './bind-remote.js';
 import { closedWhileReviewing, memoryCredentialStore } from './credential-store.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import { isOwnedPath, projectDirectories } from './synchronization-paths.js';
-import { REMOTE_BINDING_FORMAT_VERSION, writeRemoteBinding } from './remote-binding.js';
 import { ReviewRefusedError, reviewFromRemote } from './review-from-remote.js';
 
 const OWNER = 'ada';
@@ -56,7 +56,7 @@ const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/app.js': 'export const start = () => {};',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
+	'ballastella-site.json': '{"formatVersion":2,"projects":[]}',
 
 	[`${AMSTERDAM}/project.json`]: projectJson(
 		'Amsterdam 1625',
@@ -203,7 +203,7 @@ describe('reviewFromRemote', () => {
 		const projects = projectDirectories(Object.keys(PUBLISHED));
 		for (const path of await destination.store.list('')) {
 			if (path === 'review.json') continue;
-			expect(isOwnedPath(path, projects)).toBe(true);
+			expect(isOwnedPath(path, projects, true)).toBe(true);
 		}
 		for (const path of OUTSIDE_NAMESPACE) {
 			await expect(destination.store.read(path as StorePath)).rejects.toThrow();
@@ -270,9 +270,9 @@ describe('reviewFromRemote', () => {
 		expect((await readReviewMark(destination.store))?.origin).toEqual(origin);
 	});
 
-	it('writes no remote.json, and binding what it made is refused', async () => {
-		// ⚠ The two hard refusals a Review Workspace carries, asserted at the route that *creates* the
-		// Workspace they protect against. The refusal is called directly rather than inferred from an
+	it('refuses to connect what it made to a repository', async () => {
+		// ⚠ The hard refusal a Review Workspace carries, asserted at the route that *creates* the
+		// Workspace it protects against. The refusal is called directly rather than inferred from an
 		// absent button: a guard that lives in markup is one route away from gone.
 		const fake = await github();
 		const destination = destinationFor();
@@ -282,17 +282,13 @@ describe('reviewFromRemote', () => {
 			fetch: fake.fetch
 		});
 
-		expect(await destination.store.list('')).not.toContain('remote.json');
 		await expect(
-			writeRemoteBinding(destination.store, REPOSITORY, {
-				formatVersion: REMOTE_BINDING_FORMAT_VERSION,
-				owner: OWNER,
-				repository: REPOSITORY,
-				branch: 'main'
+			bindWorkspaceToRemote(destination.store, REPOSITORY, {
+				token: 'ghp_whatever',
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: fake.fetch
 			})
 		).rejects.toThrow(/review copy/);
-		// And it is still not there afterwards, which is what the refusal has to mean.
-		expect(await destination.store.list('')).not.toContain('remote.json');
 	});
 
 	it('seals the credential store for as long as the Workspace it made is open', async () => {

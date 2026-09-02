@@ -152,9 +152,9 @@ export type PublishedSite = {
 	 * never promote it into a binding — a forked repository's site record would otherwise make the
 	 * fork's owner a publisher to somebody else's repository.
 	 *
-	 * `null` for every site published before the field existed, which is the ordinary tolerant read:
-	 * those sites carry `remote.json` inside the published tree instead, and the viewer falls back to
-	 * it.
+	 * `null` for a site published into a folder rather than to a Remote, and for every site published
+	 * before the field existed. Both cost their Readers a Front Page with one fewer link, which is a
+	 * degradation and never a failure — the viewer has no second place to look (ADR-0044).
 	 */
 	readonly repository: PublishedRepository | null;
 	readonly projects: readonly PublishedProject[];
@@ -856,6 +856,12 @@ export type PublishSiteOptions = {
  * {@link removeSupersededFiles}, which is confined to the same recorded list and runs only once
  * everything this publish writes is on disk.
  *
+ * ⚠ **Whether it runs at all is the caller's decision, and the caller must not make it lightly.** A
+ * repository holds the scholar's own work until they ask for Share Links, and having Share Links *is*
+ * carrying the files this writes (ADR-0045) — so running this is granting them. It belongs behind the
+ * one press that asks (`WorkspaceStorage.enableShareLinks`) and behind a Sync of a Workspace that
+ * already has a site, and nowhere else.
+ *
  * The site record is written **last**, for the same reason `project.json` is written last
  * everywhere else in this codebase: it is what a Reader's first request resolves through, and a
  * record naming a viewer whose chunks are not all there yet is a site that renders blank. Written
@@ -973,6 +979,38 @@ async function removeSupersededFiles(
 			// `delete` is idempotent, so a recorded name this Workspace never held costs one no-op
 			// rather than a `list` of the whole Workspace to find out.
 			await store.delete(recorded);
+		}
+	}
+}
+
+/**
+ * Take the Published Site back out of the Workspace — what withdrawing Share Links does here
+ * (ADR-0045).
+ *
+ * The mirror of {@link publishSite}: it removes exactly the recorded viewer file set and nothing
+ * else, so no Project file, no pyramid and no Alignment can be reached by it. What it removes from
+ * the *Remote* is nothing — the next Sync does that, because generated output stops being inside the
+ * owned namespace the moment neither side carries a site record.
+ *
+ * ⚠ **`_app/` is swept here and left alone by {@link removeSupersededFiles}, and the difference is
+ * the point.** Between two publishes an obsolete chunk is an accepted cost; after a
+ * withdrawal the whole directory is machinery for a site that no longer exists, and leaving it would
+ * mean the Workspace still looked like it had Share Links to anybody counting files.
+ *
+ * ⚠ **`base-map/tiles/` survives**, for {@link removeSupersededFiles}' reason: since ADR-0025 the
+ * opt-in offline tile cache lives inside a recorded viewer directory, and those bytes are the
+ * author's own decision to make a Project work without a network.
+ */
+export async function withdrawShareLinks(store: ProjectStore): Promise<void> {
+	for (const recorded of VIEWER_FILE_PATHS) {
+		if (recorded.endsWith('/')) {
+			for (const path of await store.list(recorded)) {
+				if (path.startsWith(BASE_MAP_TILE_ROOT)) continue;
+				await store.delete(assertStorePath(path));
+			}
+		} else {
+			// `delete` is idempotent, so a recorded name this Workspace never held costs one no-op.
+			await store.delete(assertStorePath(recorded));
 		}
 	}
 }

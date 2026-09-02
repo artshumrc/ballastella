@@ -107,13 +107,18 @@ const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/p
 /**
  * The whole repository, as a publish leaves it.
  *
- * `remote.json` names a **different** repository, as a fork's published binding would, so an Open
- * that copied it down would be caught by the assertions below.
+ * `ballastella-site.json` records **somebody else's** repository, as a fork's published site would,
+ * so an Open that read the relationship off the wire instead of out of what the author typed would be
+ * caught by the assertions below.
  */
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
+	'ballastella-site.json': JSON.stringify({
+		formatVersion: 2,
+		projects: [],
+		repository: { owner: 'someone-else', repository: 'fork', branch: 'main' }
+	}),
 	'amsterdam-1625/project.json': PROJECT_JSON,
 	'amsterdam-1625/annotations/warehouses.geojson': WAREHOUSES,
 	// alignment-write-is-the-fixture: the Alignment as it sits on the Remote, seeded into the fake GitHub rather than into any Workspace — the Open under test is what writes it, through `writeAlignmentBytes`
@@ -124,14 +129,12 @@ const PUBLISHED: Record<string, string> = {
 };
 
 /**
- * Everything an Open brings down: the owned namespace, less the published tree's own `remote.json`.
+ * Everything an Open brings down: the owned namespace, and nothing outside it.
  *
- * Nothing writes a binding into the Workspace. The relationship is installation-local metadata
- * (ADR-0038), so a partly-filled directory cannot look like synchronized work.
+ * Nothing writes the relationship into the Workspace. It is installation-local (ADR-0044), so a
+ * partly-filled directory cannot look like synchronized work.
  */
-const DOWNLOADED = Object.keys(PUBLISHED).filter(
-	(path) => path !== 'remote.json' && !OUTSIDE_NAMESPACE.includes(path)
-);
+const DOWNLOADED = Object.keys(PUBLISHED).filter((path) => !OUTSIDE_NAMESPACE.includes(path));
 
 // The hub draws a Base Map from an archive on somebody else's host, and every spec here is behind
 // the default-deny network fence. On the `context`, so a request through a service worker is covered.
@@ -246,8 +249,8 @@ test.describe('opening a published Workspace', () => {
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
 
 		const stored = await everyByteOf(page, 'atlas');
-		// The owned namespace and nothing else: not the publisher's own files, and not a `remote.json`
-		// either — the relationship is installation-local metadata now (ADR-0038).
+		// The owned namespace and nothing else: not the publisher's own files, and nothing describing
+		// which repository this Workspace belongs to — that is installation-local (ADR-0044).
 		expect(Object.keys(stored).sort()).toEqual([...DOWNLOADED].sort());
 		for (const path of OUTSIDE_NAMESPACE) expect(Object.keys(stored)).not.toContain(path);
 		expect(stored['images/amsterdam-1625/info.json']).toBe('{"width":4096,"height":3072}');
@@ -280,13 +283,12 @@ test.describe('opening a published Workspace', () => {
 		await expect(page.getByTestId('layer-name-text')).toHaveText(['Warehouses', 'The 1625 plan']);
 	});
 
-	test('records the selected Remote and a Baseline, and no stale binding can redirect it', async ({
+	test('records the selected Remote and a Baseline, and nothing on the wire can redirect it', async ({
 		page
 	}) => {
-		// ⚠ **The published tree carries a `remote.json` naming `someone-else/fork`**, as a fork's
-		// published binding would. Read as the relationship it would aim this author's Publish button
-		// at a repository they have never seen — so it is not downloaded at all, and what is recorded
-		// is the repository they typed.
+		// ⚠ **The published tree's site record names `someone-else/fork`**, as a fork's would. Read as
+		// the relationship it would aim this author's Sync at a repository they have never seen — so
+		// what is recorded is the repository they typed and nothing else (ADR-0044).
 		await start(page);
 
 		await openFromGitHub(page);
@@ -315,8 +317,8 @@ test.describe('opening a published Workspace', () => {
 		// Source only: the Baseline describes scholarship, never the viewer a publish generated.
 		expect(baseline?.files).toContain('images/amsterdam-1625/info.json');
 		expect(baseline?.files).not.toContain('index.html');
-		// And nothing of `someone-else/fork` reached the Workspace or the record.
-		expect(Object.keys(await everyByteOf(page, 'atlas'))).not.toContain('remote.json');
+		// And nothing of `someone-else/fork` reached the record this installation acts on.
+		expect(await readRemoteRelationship(page, 'atlas')).not.toMatchObject({ repository: 'fork' });
 	});
 
 	test('needs no credential, and sends none', async ({ page }) => {
@@ -457,9 +459,9 @@ test.describe('what Open never does', () => {
 		const mine = await everyByteOf(page, DEFAULT_WORKSPACE);
 		expect(Object.keys(mine)).toEqual(['amsterdam-1625/project.json']);
 		expect(mine['amsterdam-1625/project.json']).toContain('My own Amsterdam');
-		// And nothing of the Remote's leaked into it — no binding, no pyramid. Indexed rather than
+		// And nothing of the Remote's leaked into it — no site record, no pyramid. Indexed rather than
 		// `toHaveProperty`, which reads the dot in the key as a path separator.
-		expect(mine['remote.json']).toBeUndefined();
+		expect(mine['ballastella-site.json']).toBeUndefined();
 	});
 
 	test('goes on saying what it did after the dialog is closed and the Workspace changed', async ({

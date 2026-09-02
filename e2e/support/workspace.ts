@@ -336,9 +336,9 @@ export const browserWorkspaceKey = (workspace = DEFAULT_WORKSPACE): string => `o
 /**
  * Put an installation-local Remote relationship in place, as an Open or a bind would.
  *
- * The seam for a spec that needs a *bound* Workspace without going through GitHub. Seeding
- * `remote.json` alone no longer binds anything: a binding inside the Workspace is now only the
- * Published Site's compatibility evidence, and lifting it needs corroboration or a confirmation.
+ * The seam for a spec that needs a *connected* Workspace without going through GitHub, and the only
+ * one there is: the relationship is installation-local and nothing in a Workspace's own files names a
+ * repository (ADR-0044), so there is nothing else a fixture could seed.
  */
 export async function seedRemoteRelationship(
 	page: Page,

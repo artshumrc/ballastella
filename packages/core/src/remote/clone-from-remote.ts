@@ -102,7 +102,7 @@ import {
 	urlPath,
 	type RemoteBlob
 } from './remote-tree.js';
-import { DEFAULT_REMOTE_BRANCH, REMOTE_BINDING_PATH, describeRemote } from './remote-binding.js';
+import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
 import type { RemoteRelationship } from './synchronization-metadata.js';
 
 /** The repository this reads from. No branch selection UI: it is the Remote's default. */
@@ -191,10 +191,9 @@ export interface WorkspaceClone {
 	/**
 	 * The repository it was read from — the one the user named, never one read off the wire.
 	 *
-	 * ⚠ **Nothing here binds anything.** The published tree can carry a `remote.json` of its own,
-	 * and on a fork or a mirror that document names the repository the *publisher* pushed to. It is
-	 * filtered out of the download entirely (see {@link readCloneTree}) and the relationship is the
-	 * caller's to record from this, against the repository the user actually chose.
+	 * ⚠ **Nothing here connects anything.** The relationship is the caller's to record from this,
+	 * against the repository the user actually chose — never from anything in the tree, which on a
+	 * fork or a mirror describes the repository the *publisher* pushed to (ADR-0044).
 	 */
 	readonly remote: RemoteRelationship;
 	/**
@@ -210,9 +209,9 @@ export interface WorkspaceClone {
 	 *
 	 * ⚠ **Verified rather than listed**, which is the whole distinction a Baseline draws: every entry
 	 * here was either fetched and hashed against the tree's SHA, or found already on disk with those
-	 * exact bytes. Published output — the viewer, `.nojekyll`, `remote.json` — is deliberately absent
-	 * (see `synchronization-paths.ts`): it is generated, so it is never source drift and never part of
-	 * what the two sides are said to have shared.
+	 * exact bytes. Published output — the viewer, the site record, `.nojekyll` — is deliberately
+	 * absent (see `synchronization-paths.ts`): it is generated, so it is never source drift and never
+	 * part of what the two sides are said to have shared.
 	 */
 	readonly source: ReadonlyMap<string, string>;
 	/** Every file the Remote's tree holds for this Workspace. */
@@ -499,15 +498,12 @@ async function readCloneTree(
 	const projects = projectDirectories(blobs.map((entry) => entry.path));
 
 	return blobs.flatMap<CloneEntry>((entry) =>
-		// ⚠ **`remote.json` is left where it is, and nothing here writes one.** The
-		// relationship is installation-local metadata recorded by `open-workspace-from-github.ts` for
-		// the repository the user actually selected; the copy inside a published tree is the *source's*
-		// claim about itself, so a fork's names the repository it was forked from. Downloaded it would
-		// be a Publish-owned file this Workspace never wrote, pushed back on the next publish as though
-		// it had.
-		entry.path !== REMOTE_BINDING_PATH && isOwnedPath(entry.path, projects)
-			? [{ ...entry, path: entry.path as StorePath }]
-			: []
+		// ⚠ **`shareLinks` is `true` here, and it is the one place that is not a question.** The
+		// Remote's tree is the whole of what is being read, so a site in it is a site this repository
+		// has: brought down, the opened Workspace has the same Share Links the Remote does and every
+		// later Sync keeps them current. Answering `false` would leave the viewer behind and make the
+		// opener's first Sync take the site down.
+		isOwnedPath(entry.path, projects, true) ? [{ ...entry, path: entry.path as StorePath }] : []
 	);
 }
 

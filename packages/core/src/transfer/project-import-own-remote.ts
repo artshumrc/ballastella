@@ -69,10 +69,10 @@ export interface ImportIntoWorkspace {
 	/**
 	 * The Remote this Workspace is bound to, or `null` when it is bound to nothing.
 	 *
-	 * The installation-local relationship (ADR-0038), never a `remote.json` read out of the
-	 * Workspace: a binding carried in from a restored Backup or a fork's published tree binds nothing,
-	 * and must not make an Import ask GitHub about a repository this installation has no relationship
-	 * with.
+	 * The installation-local relationship (ADR-0044) and the only account of it there is:
+	 * nothing in a Workspace's own files names a repository, so a restored Backup and a fork's
+	 * published tree both arrive connected to nothing, and neither can make an Import ask GitHub about
+	 * a repository this installation has no relationship with.
 	 */
 	readonly remote: RemoteRepository | null;
 	/**

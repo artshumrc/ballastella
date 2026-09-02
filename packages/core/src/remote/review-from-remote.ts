@@ -35,9 +35,9 @@
 //      takes is either under a directory `projectDirectories` named or under `images/` or
 //      `alignments/`. `review-from-remote.test.ts` asserts the containment rather than this module
 //      claiming it.
-//   2. **Nothing is written and no `remote.json` is made.** A Clone binds what it made, last, as
-//      provenance. A Review Workspace is bound to nothing at all: `writeRemoteBinding` would refuse
-//      it, and so this never asks.
+//   2. **No relationship is recorded.** An Open records the repository it read, as provenance. A
+//      Review Workspace belongs to no repository at all: `bindWorkspaceToRemote` would refuse it,
+//      and so this never asks.
 //   3. **A failure discards the whole Review Workspace**, where a Clone keeps its partial one. A
 //      Clone is resumable and as expensive as a first publish, so keeping what arrived is what makes
 //      an interruption bearable. A review copy is a thing you throw away when you have finished

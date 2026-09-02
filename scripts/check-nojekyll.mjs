@@ -19,6 +19,16 @@
 // file. **The site that needs it is the author's** — their Remote, served by the default branch
 // deploy, where Jekyll runs.
 //
+// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+// │ THE SUBJECT IS A SITE, AND SINCE ADR-0045 A SITE ONLY SOMETIMES EXISTS                     │
+// └───────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// A repository holds the scholar's work until they ask for **Share Links**, and until then there is
+// no `_app/` for Jekyll to drop and no marker to be missing. So the property being fenced is
+// conditional: *every commit that carries a site carries the marker*. What remains unconditional is
+// the chain — the constant, the build, and the engine still spelling the name from the constant —
+// because a break anywhere along it breaks the site that does exist.
+//
 // So there are three links, carried by different mechanisms on purpose.
 //
 //   1. **The editor's own build** ships the marker from `apps/editor/static/`, for a forker who
@@ -32,17 +42,20 @@
 //      under `vite preview`, which serves no dotfiles, and the same on any static host that hides
 //      them. See the note on `JEKYLL_OFF_MARKER_FILE` in `publish/publish.ts`.
 //
-//   3. **Every commit a Publish writes** carries the marker at the tree root, authored by
+//   3. **Every commit that carries a site** holds the marker at the tree root, authored by
 //      `planRemotePublish` whether or not the Workspace holds one. This is the end of the chain: the
 //      repository that needs the file is one this code now writes to, so it is the last point at
-//      which the property can be checked at all.
+//      which the property can be checked at all. A Sync from a Workspace with no Share Links carries
+//      neither the marker nor anything for it to protect (ADR-0045), and the marker that opened an
+//      empty repository is preserved rather than owned.
 //
 // Links 2 and 3 are asserted where they live, against what was actually written — `publish.test.ts`
 // checks `VIEWER_FILE_PATHS` against what `publishSite` wrote, and `publish-to-remote.test.ts` reads
-// the marker out of *every* commit a publish sent to the fake GitHub, with a commit that publish did
-// not write as its control. This script re-asserts neither, because neither is visible to a script:
-// it checks that the constant still says `.nojekyll` and that the publish engine still spells its
-// file from that constant, because everything downstream is spelled from that name.
+// the marker out of every commit a publish *with Share Links* sent to the fake GitHub, with a commit
+// that publish did not write as its control and a Sync with no Share Links as the other one. This
+// script re-asserts neither, because neither is visible to a script: it checks that the constant
+// still says `.nojekyll` and that the engine still spells its file from that constant, because
+// everything downstream is spelled from that name.
 //
 // **It also refuses the arrangement that broke**: a marker inside the staged viewer bundle means
 // somebody has put it back in `apps/viewer/static/`, and publishing is fetching it again.
@@ -142,9 +155,9 @@ if (!existsSync(path.join(repoRoot, publishEngine))) {
 	!readFileSync(path.join(repoRoot, publishEngine), 'utf8').includes('JEKYLL_OFF_MARKER')
 ) {
 	problems.push(
-		`${publishEngine} no longer names JEKYLL_OFF_MARKER, so a Publish may be sending commits\n` +
+		`${publishEngine} no longer names JEKYLL_OFF_MARKER, so a Sync may be sending commits\n` +
 			`  with no ${MARKER} in them.\n` +
-			`  Every commit a Publish writes must carry it at the tree root, whether or not the\n` +
+			`  Every commit that carries a site must hold it at the tree root, whether or not the\n` +
 			`  Workspace holds one — the Remote is served by a branch deploy, which runs Jekyll, and\n` +
 			`  a Reader would meet a blank page.\n` +
 			`  See the ${MARKER} assertions in packages/core/src/remote/publish-to-remote.test.ts.`
@@ -162,5 +175,6 @@ if (problems.length > 0) {
 
 console.log(
 	`OK: ${MARKER} ships in the editor's build, publishing authors it rather than fetching it, and ` +
-		`the engine that publishes to a Remote still spells it from the constant.`
+		`the engine that syncs with a Remote still spells it from the constant for every commit that ` +
+		`carries a site.`
 );

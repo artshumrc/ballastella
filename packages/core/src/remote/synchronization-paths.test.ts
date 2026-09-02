@@ -31,7 +31,6 @@ describe('classifyPath', () => {
 		['published-output', 'base-map/fonts/Noto Sans Regular/0-255.pbf', 'a generated glyph range'],
 		['published-output', 'base-map/sprites/sprite.png', 'a generated sprite sheet'],
 		['published-output', 'base-map/amsterdam-centre.pmtiles', "the deployment's extract"],
-		['published-output', 'remote.json', 'published-site compatibility evidence'],
 
 		['outside-ballastella', 'README.md', "the repository's own readme"],
 		['outside-ballastella', 'LICENSE', 'a licence'],
@@ -122,8 +121,7 @@ describe('classifyInventory', () => {
 		{ path: 'amsterdam-1625/project.json', sha: 'a6' },
 		{ path: 'images/map-1/info.json', sha: 'a7' },
 		{ path: 'alignments/map-1.json', sha: 'a8' },
-		{ path: 'README.md', sha: 'a9' },
-		{ path: 'remote.json', sha: 'b1' }
+		{ path: 'README.md', sha: 'a9' }
 	];
 	const inventory = classifyInventory(tree, projectDirectories(tree.map((entry) => entry.path)));
 
@@ -143,8 +141,7 @@ describe('classifyInventory', () => {
 			'_app/immutable/entry/app.old.js',
 			'index.html',
 			'ballastella-site.json',
-			'base-map/fonts/Noto Sans Regular/0-255.pbf',
-			'remote.json'
+			'base-map/fonts/Noto Sans Regular/0-255.pbf'
 		]);
 	});
 

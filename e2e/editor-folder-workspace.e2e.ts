@@ -1532,7 +1532,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		// ⚠ **Byte-equivalent, path by path.** Only the source closure is compared: a published site
 		// carries its own build stamp, so `index.html` differing between two publishes seconds apart
 		// says nothing about the backing. What the two Remotes must agree on to the byte is the
-		// scholarship — and `remote.json` is deliberately not in it, because each names its own
+		// scholarship — and the site record is deliberately not in it, because each names its own
 		// repository.
 		for (const path of Object.keys(SOURCE)) {
 			expect(github.fileText(OWNER, FROM_FOLDER, path)).toBe(

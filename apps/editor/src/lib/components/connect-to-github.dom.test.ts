@@ -44,6 +44,7 @@ import {
 	FAKE_STATE,
 	FakeStorage,
 	outcome,
+	pagesGuided,
 	sequenceProps,
 	type SequenceProps
 } from './connect-to-github-fake.svelte.js';
@@ -240,9 +241,17 @@ function pausedOpen(): PausedOpen {
 	return storage;
 }
 
-/** Let the injected listing and the injected bind settle, and render what they answered. */
+/**
+ * Let the injected listing, the injected bind and the Share Links acts settle, and render what they
+ * answered.
+ *
+ * ⚠ **The turn count is a depth rather than a duration.** Each `await` here lets one generation of
+ * queued microtasks run, and the deepest chain on this surface is a press calling an `async` wrapper
+ * calling an `async` method that awaits — so a count that only just covered the shallowest one left a
+ * button reading "Asking GitHub…" and a test looking for the answer behind it.
+ */
 async function settle(): Promise<void> {
-	for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+	for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 	flushSync();
 }
 
@@ -913,6 +922,10 @@ describe('connecting, which is one act', () => {
 			canPush: false,
 			rightsNotice: 'This token cannot push to ada/atlas, so publishing to it will be refused.'
 		});
+		// The same fact from the live read the connected step makes: GitHub says it once, and both
+		// answers here are that one saying. A fixture where the two disagreed would leave the screen
+		// showing whichever arrived last.
+		storage.rightsAnswer = { canPush: false };
 		open(storage);
 		await choose();
 
@@ -1149,12 +1162,12 @@ describe('the address, and the handoff', () => {
 	});
 });
 
-// ⚠ **A Remote is a place the work lives before it is a site anybody reads.**
-// Turning a Published Site on is offered here, once, after the connection is made and never during
-// it — and its refusal names both the permissions GitHub actually requires, so an author is not sent
-// to grant the one they already granted. The sentence itself is `bind-remote.ts`'s at Seam 1; what
-// is here is that a press asks for it, that the answer is rendered, and that nothing asks before the
-// press.
+// ⚠ **A Remote is a place the work lives before it is a site anybody reads** (ADR-0045).
+// Share Links are asked for here, once, after the connection is made and never during it — and the
+// refusal is a *step* rather than an error: the screen, the branch, the folder, and a Check again
+// that polls until the site answers. The sentences themselves are `bind-remote.ts`'s at Seam 1; what
+// is here is that a press asks for it, that each outcome is rendered with the control it needs, and
+// that nothing asks before the press.
 describe('letting other people see it, which is a later act', () => {
 	/** A Workspace already connected to `ada/atlas`, which is the connected step's whole input. */
 	function connected(): FakeStorage {
@@ -1162,6 +1175,11 @@ describe('letting other people see it, which is a later act', () => {
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		return storage;
 	}
+
+	/** GitHub's ordinary refusal, which is what ADR-0040 buys by not asking for `Administration`. */
+	const REFUSAL =
+		'GitHub Pages could not be turned on for ada/atlas — that needs both “Pages: Read and ' +
+		'write” and “Administration: Read and write”, and this credential does not have them.';
 
 	// ⚠ **The connected step and nowhere else.** There is no site to turn on before there is a
 	// repository to serve it, and the address the offer names would name nothing.
@@ -1175,9 +1193,10 @@ describe('letting other people see it, which is a later act', () => {
 		expect(absent('enable-pages')).toBe(true);
 	});
 
-	test('offers it on the connected step, and asks GitHub nothing until it is pressed', () => {
+	test('offers it on the connected step, and asks GitHub nothing until it is pressed', async () => {
 		const storage = connected();
 		open(storage);
+		await settle();
 
 		expect(at('enable-pages')).toBeTruthy();
 		expect(storage.pagesAsks).toBe(0);
@@ -1187,6 +1206,7 @@ describe('letting other people see it, which is a later act', () => {
 	test('asks for it once when pressed, and says the site will answer', async () => {
 		const storage = connected();
 		open(storage);
+		await settle();
 
 		press('enable-pages');
 		await settle();
@@ -1198,18 +1218,27 @@ describe('letting other people see it, which is a later act', () => {
 		expect(absent('enable-pages')).toBe(true);
 	});
 
-	// ⚠ **Both permissions, and the offer stays.** ADR-0040 refuses `Administration` for the App, so
-	// this is the ordinary answer rather than a rare one — and an author who has just granted it by
-	// hand needs the press to still be there.
-	test('renders the refusal, keeps the offer, and stays connected', async () => {
+	// ⚠ **A Workspace that already carries a site is never offered the press again.** Share Links are
+	// the site record's presence and nothing else (ADR-0045), so the offer is a reading of the
+	// Workspace rather than of what happened in this session.
+	test('offers withdrawal rather than the press for a Workspace that already has a site', async () => {
 		const storage = connected();
-		storage.pagesAnswer = {
-			enabled: false,
-			instruction:
-				'GitHub Pages could not be turned on for ada/atlas — that needs both “Pages: Read and ' +
-				'write” and “Administration: Read and write”, and this credential does not have them.'
-		};
+		storage.shareLinks = true;
 		open(storage);
+		await settle();
+
+		expect(absent('enable-pages')).toBe(true);
+		expect(at('withdraw-share-links')).toBeTruthy();
+		expect(storage.pagesAsks).toBe(0);
+	});
+
+	// ⚠ **Both permissions, and the guided step stays.** ADR-0040 refuses `Administration` for the
+	// App, so this is the ordinary answer rather than a rare one.
+	test('renders the refusal, and stays connected', async () => {
+		const storage = connected();
+		storage.pagesAnswer = pagesGuided(REFUSAL);
+		open(storage);
+		await settle();
 
 		press('enable-pages');
 		await settle();
@@ -1217,16 +1246,99 @@ describe('letting other people see it, which is a later act', () => {
 		const notice = text(at('pages-notice'));
 		expect(notice).toContain('Pages: Read and write');
 		expect(notice).toContain('Administration: Read and write');
-		expect(at('enable-pages')).toBeTruthy();
 		expect(at('connect-connected')).toBeTruthy();
 	});
 
-	// The one thing `enablePages` throws over is a credential that is not there, and it is a refusal
-	// about this press rather than about the connection, which stands.
+	// ⚠ **One click and not a search** (story 59): the screen, the branch and the folder are handed
+	// over. The link is the outcome's own, so nothing here can build an address the sentence beside it
+	// disagrees with.
+	test('hands over the settings screen, the branch and the folder', async () => {
+		const storage = connected();
+		storage.pagesAnswer = pagesGuided(REFUSAL);
+		open(storage);
+		await settle();
+
+		press('enable-pages');
+		await settle();
+
+		expect(at('pages-settings-link')).toHaveAttribute(
+			'href',
+			'https://github.com/ada/atlas/settings/pages'
+		);
+		expect(text(at('pages-branch'))).toBe('main');
+		expect(text(at('pages-notice')?.parentElement)).toContain('/ (root)');
+	});
+
+	// ⚠ **The waiting and the verifying are ours** (story 60). The author changes one setting on
+	// github.com; one press polls until the site answers and then carries on by itself.
+	test('polls on Check again, and carries on when the site answers', async () => {
+		const storage = connected();
+		storage.pagesAnswer = pagesGuided(REFUSAL);
+		open(storage);
+		await settle();
+		press('enable-pages');
+		await settle();
+
+		expect(at('check-pages')).toBeTruthy();
+		press('check-pages');
+		await settle();
+
+		expect(storage.pagesChecks).toBe(1);
+		expect(text(at('pages-enabled'))).toContain('https://ada.github.io/atlas/');
+		expect(absent('check-pages')).toBe(true);
+	});
+
+	// A poll that came back "not yet" leaves the author on the same screen, which is a screen they can
+	// press again — never a refusal whose only sequel is Close.
+	test('leaves the guided step in place when the site still does not answer', async () => {
+		const storage = connected();
+		storage.pagesAnswer = pagesGuided(REFUSAL);
+		storage.checkAnswer = pagesGuided(REFUSAL);
+		open(storage);
+		await settle();
+		press('enable-pages');
+		await settle();
+
+		press('check-pages');
+		await settle();
+
+		expect(at('check-pages')).toBeTruthy();
+		expect(text(at('pages-notice'))).toContain('Administration: Read and write');
+	});
+
+	// ⚠ **An empty repository is a Sync away from being fine, and is never reported as a permission
+	// problem** (story 61). There is nothing to check again for, because nothing has been asked of the
+	// author — so the guided step's controls are absent.
+	test('reports an empty repository as needing a Sync, with nothing to go and change', async () => {
+		const storage = connected();
+		storage.pagesAnswer = {
+			enabled: false,
+			next: 'sync-first',
+			instruction:
+				'GitHub Pages is not on yet for ada/atlas, because the repository is empty. Nothing is ' +
+				'wrong with your token and nothing needs fixing. Publish once: that makes the branch.',
+			settingsUrl: 'https://github.com/ada/atlas/settings/pages',
+			branch: 'main'
+		};
+		open(storage);
+		await settle();
+
+		press('enable-pages');
+		await settle();
+
+		expect(text(at('pages-notice'))).toContain('repository is empty');
+		expect(text(at('pages-notice'))).not.toContain('Administration');
+		expect(absent('check-pages')).toBe(true);
+		expect(absent('pages-settings-link')).toBe(true);
+	});
+
+	// The one thing the Share Links acts throw over is a credential that is not there, and it is a
+	// refusal about this press rather than about the connection, which stands.
 	test('says why it could not be asked at all, and stays connected', async () => {
 		const storage = connected();
 		storage.pagesAnswer = new Error('Sign in with GitHub first.');
 		open(storage);
+		await settle();
 
 		press('enable-pages');
 		await settle();
@@ -1240,6 +1352,7 @@ describe('letting other people see it, which is a later act', () => {
 	test('leaves no answer of its own behind on a close', async () => {
 		const storage = connected();
 		const opened = open(storage);
+		await settle();
 		press('enable-pages');
 		await settle();
 		expect(at('pages-enabled')).toBeTruthy();
@@ -1249,7 +1362,83 @@ describe('letting other people see it, which is a later act', () => {
 		flushSync();
 
 		expect(absent('pages-enabled')).toBe(true);
+	});
+});
+
+// ⚠ **Withdrawal is not a way to unpublish and is never presented as one** (ADR-0045, stories 65-67).
+describe('withdrawing Share Links', () => {
+	function withSite(): FakeStorage {
+		const storage = signedIn();
+		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
+		storage.shareLinks = true;
+		return storage;
+	}
+
+	// ⚠ **The three things it cannot promise, before the press that does it.** A scholar who reads
+	// "turn the site off" as "make it unseen" will act on that reading.
+	test('says plainly what cannot be undone before it happens', async () => {
+		const storage = withSite();
+		open(storage);
+		await settle();
+
+		press('withdraw-share-links');
+		flushSync();
+
+		const said = text(at('withdraw-warning'));
+		expect(said).toContain('already given out stops working');
+		expect(said).toContain('cache');
+		expect(said).toContain('forked');
+		expect(said).toContain('repository and your own files are untouched');
+		// Nothing has happened yet: the warning is a question, not a report.
+		expect(storage.pagesWithdrawals).toBe(0);
+	});
+
+	test('does nothing at all when the author keeps them', async () => {
+		const storage = withSite();
+		open(storage);
+		await settle();
+		press('withdraw-share-links');
+		flushSync();
+
+		press('withdraw-share-links-cancel');
+		flushSync();
+
+		expect(storage.pagesWithdrawals).toBe(0);
+		expect(at('withdraw-share-links')).toBeTruthy();
+	});
+
+	test('withdraws on the confirmation, and offers Share Links again', async () => {
+		const storage = withSite();
+		open(storage);
+		await settle();
+		press('withdraw-share-links');
+		flushSync();
+
+		press('withdraw-share-links-confirm');
+		await settle();
+
+		expect(storage.pagesWithdrawals).toBe(1);
 		expect(at('enable-pages')).toBeTruthy();
+		expect(absent('withdraw-share-links')).toBe(true);
+	});
+
+	// GitHub refusing to take the site down is a sentence rather than an error: the viewer still
+	// leaves the repository on the next Sync, and the author is told what is left to do by hand.
+	test('says the site may still answer when GitHub would not take it down', async () => {
+		const storage = withSite();
+		storage.withdrawalAnswer = {
+			disabled: false,
+			notice: 'GitHub would not turn the site off for ada/atlas, so it may still answer.'
+		};
+		open(storage);
+		await settle();
+		press('withdraw-share-links');
+		flushSync();
+
+		press('withdraw-share-links-confirm');
+		await settle();
+
+		expect(text(at('withdrawal-notice'))).toContain('may still answer');
 	});
 });
 
@@ -2240,6 +2429,9 @@ describe('the standing state, and the gestures on it', () => {
 		const storage = connected();
 		storage.pagesAnswer = new Error('GitHub would not answer');
 		open(storage);
+		// The Share Links offer is a reading of the Workspace's own files (ADR-0045), so it arrives one
+		// turn after the step does.
+		await settle();
 
 		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
 

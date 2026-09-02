@@ -128,7 +128,7 @@ const WORKSPACE: Record<string, string> = {
 	// alignment-write-is-the-fixture: the unused map's Alignment, seeded so that leaving it out of the closure is assertable
 	'alignments/blaeu-1649.json': '{"type":"Annotation","id":"blaeu-1649"}',
 
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'ada', repository: 'atlas' }),
+	'ballastella-site.json': '{"formatVersion":2,"projects":[]}',
 	'review.json': JSON.stringify({
 		formatVersion: 1,
 		project: 'Amsterdam 1625',
@@ -271,7 +271,7 @@ describe('one closure, whichever of the three sources it comes from', () => {
 		expect(source.paths).not.toContain('_app/app.js');
 		expect(source.paths).not.toContain('base-map/glyphs/0.pbf');
 		expect(source.paths).not.toContain('annotations/superseded.geojson');
-		expect(source.paths).not.toContain('remote.json');
+		expect(source.paths).not.toContain('ballastella-site.json');
 		expect(source.paths).not.toContain('review.json');
 		expect(source.paths.filter((path) => path.includes('blaeu-1649'))).toEqual([]);
 		expect(source.paths.filter((path) => path.includes('canal'))).toEqual([]);

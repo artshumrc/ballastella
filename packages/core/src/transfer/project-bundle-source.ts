@@ -25,7 +25,6 @@ import { createTarDecoder } from 'modern-tar';
 
 import { PROJECT_FILE_NAME, type ProjectFile } from '../project/project-file.js';
 import { describeBytes } from '../project/workspace-size.js';
-import { REMOTE_BINDING_PATH } from '../remote/remote-binding.js';
 import type { Bytes } from '../store/project-store.js';
 import { BUNDLE_LIMITS, type BundleLimits } from './open-project-bundle.js';
 import {
@@ -101,10 +100,6 @@ interface ArchiveListing {
  * the same file. What this pass owes them is an honest list — every name the archive held, once each —
  * which is why a second `project.json` is not allowed to replace the first on the way past.
  *
- * ⚠ **A root `remote.json` is dropped rather than offered.** An imported Project retains no Remote
- * relationship at all (ADR-0037), and a Workspace binding is not part of a Project's closure.
- * `images/<id>/remote.json` is a different document — a referenced IIIF image's own record
- * (ADR-0007) — and is exactly what a Project with a referenced Map Image needs to be readable.
  */
 async function listArchive(
 	archive: ReadableStream<Uint8Array>,
@@ -128,11 +123,6 @@ async function listArchive(
 					`It has not been read further.`
 			);
 		}
-		if (header.name === REMOTE_BINDING_PATH) {
-			await body.cancel();
-			continue;
-		}
-
 		// The **first** `project.json`, and only the first. An archive carrying two is refused as a
 		// repeated path like any other, by the one check that decides that — but the manifest has to be
 		// parsed to gather a closure at all, so the second one must not silently replace it in the

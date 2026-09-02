@@ -68,6 +68,7 @@
 		readGrantedRepositories,
 		RemoteBindRefusedError,
 		resolveWorkspaceAddress,
+		shareLinksWithdrawalMessage,
 		type AddressResolution,
 		type GrantedInstallation,
 		type GrantedRepositoriesOutcome,
@@ -151,11 +152,12 @@
 	 * ⚠ **The second of those is a refusal and not a warning.** Publishing over it would delete
 	 * somebody's work, so the sequence goes back to the choice rather than offering to proceed.
 	 *
-	 * ⚠ **Turning the Published Site on is not part of it.** A Remote is a place the work lives before
-	 * it is a site anybody reads, so `enablePages` is offered once from the `connected` step and is the
-	 * only call to it anywhere in this application. Folded into the connection it answered a question
-	 * about who may read this — with a paragraph about a GitHub permission — in the middle of a step
-	 * that was about where the work goes.
+	 * ⚠ **Share Links are not part of it.** A Remote is a place the work lives before it is a site
+	 * anybody reads (ADR-0045), so asking for them, checking again, and withdrawing them are offered
+	 * from the `connected` step and are the only calls to any of the three anywhere in this
+	 * application. Folded into the connection they answered a question about who may read this — with
+	 * a paragraph about a GitHub permission — in the middle of a step that was about where the work
+	 * goes.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE DOOR WHERE THERE IS AN APP, AND THE DOOR THAT WORKS WHERE THERE IS NOT
@@ -291,16 +293,28 @@
 	 */
 	let rightsAsked = $state(false);
 	/**
-	 * What turning the Published Site on answered, or `null` while nobody has asked for it.
+	 * What asking for Share Links answered, or `null` while nobody has asked for them.
 	 *
 	 * ⚠ **`null` is "not asked", and it is the state this must open in.** A Remote is a place the work
-	 * lives before it is a site anybody reads, so the sequence never asks GitHub about Pages on its
-	 * own — an instruction about a permission said before the press would answer a question the author
-	 * has not asked.
+	 * lives before it is a site anybody reads (ADR-0045), so the sequence never asks GitHub about
+	 * Pages on its own — an instruction about a permission said before the press would answer a
+	 * question the author has not asked.
 	 */
 	let pages = $state<RemotePagesOutcome | null>(null);
-	/** Whether the offer is in flight, so a second press is not a second request. */
+	/**
+	 * Whether this Workspace already carries a Published Site, or `null` while nobody has looked.
+	 *
+	 * ⚠ **Read rather than remembered** (ADR-0045). Share Links are the site record's presence and
+	 * nothing else, so this is a reading of the Workspace's files — which is what makes it right after
+	 * another surface, or another tab, has changed them.
+	 */
+	let shareLinks = $state<boolean | null>(null);
+	/** Whether a Share Links act is in flight, so a second press is not a second request. */
 	let enablingPages = $state(false);
+	/** Whether the withdrawal's confirmation is on screen. */
+	let withdrawing = $state(false);
+	/** What GitHub said about taking the site down, or `''`. */
+	let withdrawalNotice = $state('');
 	/**
 	 * Whether an answer to the uncorroborated binding, or an unbinding, is in flight.
 	 *
@@ -562,6 +576,15 @@
 			: `https://${host}/${bound.repository}/`;
 	});
 
+	/**
+	 * What withdrawing Share Links cannot undo, in `packages/core`'s own words.
+	 *
+	 * Composed there rather than here for the reason every other sentence on this surface is: it is a
+	 * statement about what a repository and a cache will do, and a second wording here would be a
+	 * second thing to keep true.
+	 */
+	const withdrawalWarning = $derived(bound === null ? '' : shareLinksWithdrawalMessage(bound));
+
 	/** Which account this is, for somebody on a shared or a classmate's machine. */
 	const account = $derived(
 		storage.signedIn
@@ -660,6 +683,9 @@
 			listing = null;
 			notices = [];
 			pages = null;
+			shareLinks = null;
+			withdrawing = false;
+			withdrawalNotice = '';
 			problem = '';
 			copied = false;
 			// Read again on the next open, for the reason nothing else here is remembered: write access
@@ -765,6 +791,25 @@
 		void storage.readRights().then(
 			(answer) => {
 				rights = answer;
+			},
+			() => {}
+		);
+	});
+
+	/**
+	 * Read whether this Workspace already carries a Published Site, once the connected step is reached.
+	 *
+	 * ⚠ **A reading of the files rather than a flag** (ADR-0045), so it is asked here rather than
+	 * remembered: another surface, another tab, or a Sync that brought a site down can all have
+	 * changed the answer since the sequence was last open. No credential and no request — it is one
+	 * question about a folder — so unlike the rights read it is asked whether or not anybody is signed
+	 * in.
+	 */
+	$effect(() => {
+		if (!open || bound === null || changing || shareLinks !== null) return;
+		void storage.hasShareLinks().then(
+			(answer) => {
+				shareLinks = answer;
 			},
 			() => {}
 		);
@@ -1063,24 +1108,50 @@
 	}
 
 	/**
-	 * Turn the Published Site on, which is the one act connecting deliberately does not perform.
+	 * Ask for Share Links, check again, or withdraw them — the three presses, and one wrapper.
 	 *
-	 * ⚠ **Never throws its answer at anybody.** A refusal is a sentence naming the two permissions
-	 * GitHub requires and the setting to change by hand, and the connection it is said over stands —
-	 * so it is a notice rather than a problem. The one thing that *is* a problem is a press that could
-	 * not be made at all, which is a sign-in that is no longer held.
+	 * ⚠ **Never throws its answer at anybody.** A refusal is a sentence naming what GitHub requires
+	 * and the setting to change by hand, and the connection it is said over stands — so it is a notice
+	 * rather than a problem. The one thing that *is* a problem is a press that could not be made at
+	 * all, which is a sign-in that is no longer held.
 	 */
-	async function enablePages(): Promise<void> {
+	async function shareLinksAct(act: () => Promise<void>): Promise<void> {
 		problem = '';
 		enablingPages = true;
 		try {
-			pages = await storage.enablePages();
+			await act();
 		} catch (cause) {
 			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			enablingPages = false;
 		}
 	}
+
+	/** Write the viewer into the Workspace and ask GitHub for an address. */
+	const enablePages = () =>
+		shareLinksAct(async () => {
+			pages = await storage.enableShareLinks();
+			// The viewer is in the Workspace whatever GitHub answered, so this is true either way — and
+			// it is what puts *Withdraw Share Links* on screen beside a refusal the author is still
+			// working through.
+			shareLinks = true;
+		});
+
+	/** Poll GitHub until the site answers, then carry on. */
+	const checkPages = () =>
+		shareLinksAct(async () => {
+			pages = await storage.checkShareLinks();
+		});
+
+	/** Take the viewer back out and ask GitHub to take the site down. */
+	const withdrawPages = () =>
+		shareLinksAct(async () => {
+			const withdrawal = await storage.withdrawShareLinks();
+			withdrawing = false;
+			withdrawalNotice = withdrawal.notice;
+			pages = null;
+			shareLinks = false;
+		});
 
 	/**
 	 * Put the address on the clipboard, for pasting into a submission form.
@@ -1821,25 +1892,40 @@
 					</div>
 				{/if}
 				<!--
-					⚠ **The one place a Published Site is offered, and it is offered rather than done.** A
-					repository is where the work lives; whether anybody may read it at that address is a
-					separate question, and the author is the only one who can answer it. Asked during
-					connecting, it put a paragraph about a GitHub permission in front of somebody who had
-					only said where their work goes.
+					⚠ **The one place Share Links are asked for, and they are asked for rather than done.**
+					A repository is where the work lives; whether anybody may read it at an address is a
+					separate question, and the author is the only one who can answer it (ADR-0045). Asked
+					during connecting, it put a paragraph about a GitHub permission in front of somebody who
+					had only said where their work goes.
 
-					The offer goes once it has succeeded: asking GitHub to turn on what is already on is a
-					press with nothing behind it. A refusal keeps it, because the remedy is a setting the
-					author can change and come back from.
+					The offer goes once the Workspace carries a site: asking GitHub to turn on what is
+					already on is a press with nothing behind it. A refusal keeps the *guided step* instead,
+					because the remedy is a setting the author can change and come back from.
 				-->
-				{#if pages?.enabled}
+				<!--
+					⚠ **Nothing about Share Links is offered to somebody who is not signed in.** Every one of
+					the three presses is a request to GitHub, so the offer would be a control that can only
+					refuse — and the sentence a scholar needs in that state is the one above, about
+					publishing needing a sign-in, rather than a second one about a website.
+				-->
+				{#if !storage.signedIn || shareLinks === null}
+					<!--
+						Not signed in: said once, above, by the branch that owns that state.
+
+						⚠ **And nothing at all until the Workspace's own files have been read.** Whether there
+						is a site is a reading rather than a remembered flag (ADR-0045), so it arrives one
+						turn after the step does — and an offer rendered in the meantime is an offer that
+						disappears under the hand of anybody who takes it.
+					-->
+				{:else if pages?.enabled}
 					<p class="mt-3 max-w-prose" data-testid="pages-enabled">
 						Anybody you give the address to can now open your map at
 						<code>{publishedSiteAddress}</code>. It appears there the first time you publish.
 					</p>
-				{:else}
+				{:else if shareLinks !== true}
 					<p class="mt-3 max-w-prose">
-						That address answers nothing yet. Your map is on GitHub either way — this is the one
-						setting that also lets other people open it.
+						That address answers nothing yet. Your map is on GitHub either way — Share Links is what
+						also lets other people open it.
 					</p>
 					<!-- `aria-disabled` and never `disabled`, for the reason every busy control on this
 					     surface uses the same: a `disabled` button leaves the tab order the instant it is
@@ -1853,12 +1939,100 @@
 							if (!enablingPages) void enablePages();
 						}}
 					>
-						{enablingPages ? 'Asking GitHub…' : 'Let other people see this'}
+						{enablingPages ? 'Asking GitHub…' : 'Turn Share Links on'}
 					</button>
 				{/if}
 				{#if pages && !pages.enabled}
 					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
 						<p data-testid="pages-notice">{pages.instruction}</p>
+						<!--
+							⚠ **The guided step: the screen, the branch, and the folder, handed over.** GitHub
+							requires `Administration: write` to turn Pages on and ADR-0040 refuses to ask for it,
+							so this is the ordinary answer rather than a rare one — and the manual step has to be
+							one click rather than a search. The link and the branch come off the outcome, so
+							nothing here can build an address the sentence beside it disagrees with.
+						-->
+						{#if pages.next === 'guided'}
+							<!-- eslint-disable svelte/no-navigation-without-resolve -->
+							<p>
+								<a
+									class="link"
+									href={pages.settingsUrl}
+									target="_blank"
+									rel="noreferrer noopener"
+									data-testid="pages-settings-link"
+								>
+									Open Settings → Pages for {boundName}
+								</a>
+								— set Source to “Deploy from a branch”, choose
+								<code data-testid="pages-branch">{pages.branch}</code> and
+								<code>/ (root)</code>, and press Save.
+							</p>
+							<!-- eslint-enable svelte/no-navigation-without-resolve -->
+							<!--
+								⚠ **The waiting and the verifying are ours** (ADR-0045). The author does one thing
+								on github.com; guessing when it took effect, and pressing until it does, is the
+								avoidable half of the manual step. One press polls until the site answers.
+							-->
+							<button
+								class="btn btn-sm"
+								class:btn-disabled={enablingPages}
+								aria-disabled={enablingPages}
+								data-testid="check-pages"
+								onclick={() => {
+									if (!enablingPages) void checkPages();
+								}}
+							>
+								{enablingPages ? 'Asking GitHub…' : 'Check again'}
+							</button>
+						{/if}
+					</div>
+				{/if}
+				<!--
+					⚠ **Withdrawal says what it cannot undo before it happens, and it is never called
+					unpublishing** (ADR-0045). A scholar who reads "turn the site off" as "make it unseen"
+					will act on that reading — with an embargoed photograph, or a manuscript under a
+					library's publication restriction — so the three things it cannot promise are on the
+					screen where the press is, rather than in a document nobody opens.
+				-->
+				{#if shareLinks === true && storage.signedIn}
+					{#if withdrawing}
+						<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+							<p data-testid="withdraw-warning">{withdrawalWarning}</p>
+							<div class="flex flex-wrap gap-2">
+								<button
+									class="btn btn-sm btn-warning"
+									class:btn-disabled={enablingPages}
+									aria-disabled={enablingPages}
+									data-testid="withdraw-share-links-confirm"
+									onclick={() => {
+										if (!enablingPages) void withdrawPages();
+									}}
+								>
+									{enablingPages ? 'Asking GitHub…' : 'Withdraw Share Links'}
+								</button>
+								<button
+									class="btn btn-ghost btn-sm"
+									data-testid="withdraw-share-links-cancel"
+									onclick={() => (withdrawing = false)}
+								>
+									Keep them
+								</button>
+							</div>
+						</div>
+					{:else}
+						<button
+							class="btn mt-3 btn-ghost btn-sm"
+							data-testid="withdraw-share-links"
+							onclick={() => (withdrawing = true)}
+						>
+							Withdraw Share Links…
+						</button>
+					{/if}
+				{/if}
+				{#if withdrawalNotice}
+					<div role="status" class="mt-3 alert flex-col items-start alert-warning">
+						<p data-testid="withdrawal-notice">{withdrawalNotice}</p>
 					</div>
 				{/if}
 				<!--

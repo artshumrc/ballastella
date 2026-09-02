@@ -809,6 +809,33 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			return json(state.contributors.map((login) => ({ login })));
 		}
 
+		// ⚠ **The read is unauthenticated-tolerant and answers 404 for a repository with no site**,
+		// which is what makes it the poll a *Check again* can make: the author has just changed a
+		// setting on github.com, and "not yet" has to be an ordinary answer rather than an error.
+		if (rest[0] === 'pages' && rest.length === 1 && method === 'GET') {
+			return authenticated(async () =>
+				state.pagesEnabled
+					? json({
+							status: 'built',
+							html_url: `https://${options.owner}.github.io/${options.repository}/`
+						})
+					: problem(404, 'Not Found')
+			);
+		}
+
+		// Taking the site down needs the same permission as putting it up, so `refusePages` covers
+		// both. A repository with no site answers 404, which withdrawal reads as the state it wanted.
+		if (rest[0] === 'pages' && rest.length === 1 && method === 'DELETE') {
+			return authenticated(async () => {
+				if (state.refusePages) {
+					return problem(403, 'Resource not accessible by personal access token');
+				}
+				if (!state.pagesEnabled) return problem(404, 'Not Found');
+				state.pagesEnabled = false;
+				return new Response(null, { status: 204 });
+			});
+		}
+
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
 			// Outside `write`, which is the git database's own switch: `refuseWrites` models a token
 			// without `contents: write`, and Pages enablement turns on a different permission entirely.

@@ -76,7 +76,6 @@
 		parsePublishedSite,
 		projectFilePath,
 		readBaseMapPreference,
-		readRemoteBinding,
 		resolveBaseMap,
 		returnLinkUrl,
 		projectOpeningFit,
@@ -181,13 +180,12 @@
 	/**
 	 * The repository this site was published to, for the return links below — or `null`.
 	 *
-	 * A static host cannot be asked what repository serves it, so this has to be *in* the site. A
-	 * publish records it on `ballastella-site.json`; a site published before that field existed
-	 * carries it in `remote.json` inside the published tree instead (ADR-0032), which is why the
-	 * fallback is a second request rather than an absence.
+	 * A static host cannot be asked what repository serves it, so this has to be *in* the site, and
+	 * `ballastella-site.json` is the only place it is (ADR-0044): the relationship between a Workspace
+	 * and its Remote is installation-local, so nothing in the tree describes it.
 	 *
-	 * Never a failure. A site published into a folder rather than to a Remote has neither, and a
-	 * Front Page with one fewer link is the whole of what that costs a Reader.
+	 * Never a failure. A site published into a folder rather than to a Remote records no repository,
+	 * and a Front Page with one fewer link is the whole of what that costs a Reader.
 	 */
 	let remote = $state<PublishedRepository | null>(null);
 
@@ -203,13 +201,9 @@
 				const record = parsePublishedSite(await readSiteFile(PUBLISHED_SITE_RECORD_NAME));
 				site = record;
 				siteError = '';
-				// Asked for only when there is an instance to link back to, so a site that records no
-				// editor — an older site published without one — costs its Readers no request at all;
-				// and only when the record itself does not say, so a current site costs none either.
-				remote =
-					record.editorUrl === ''
-						? null
-						: (record.repository ?? (await readRemoteBinding(siteStore())));
+				// Only where there is an instance to link back to: a site that records no editor — an
+				// older site published without one — has nowhere to send a Reader.
+				remote = record.editorUrl === '' ? null : record.repository;
 			} catch (cause) {
 				siteError = describeSiteRecordFailure(cause);
 			}

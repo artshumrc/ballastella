@@ -464,6 +464,7 @@ export {
 	readPublishedSite,
 	serialisePublishedSite,
 	stampCanonicalUrl,
+	withdrawShareLinks,
 	type CanonicalStamp,
 	type PlanPublishOptions,
 	type PublishPlan,
@@ -672,18 +673,28 @@ export {
 	readRemoteProjectSource,
 	type RemoteProjectSourceOptions
 } from './remote/remote-project-source.js';
-// Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
-// ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
-// that "you cannot push here" is not discovered after four thousand tiles have gone.
+// Which repository a Workspace synchronizes with, and the credential that may push there (ADR-0033,
+// ADR-0044). The rights check happens the moment a scholar names one, so that "you cannot push here"
+// is not discovered after four thousand tiles have gone — and Share Links are the separate, later
+// act ADR-0045 makes them, with the guided step and its poll beside the call they follow.
 export {
+	PAGES_POLL_DELAYS,
 	RemoteBindRefusedError,
+	awaitRemotePages,
 	bindWorkspaceToRemote,
+	disableRemotePages,
 	enableRemotePages,
+	pagesSettingsUrl,
+	readRemotePages,
 	readRemoteRights,
+	shareLinksWithdrawalMessage,
+	type AwaitRemotePagesOptions,
 	type BindRemoteOptions,
 	type RemoteBindOutcome,
 	type RemoteBindRefusal,
+	type RemotePagesNext,
 	type RemotePagesOutcome,
+	type RemotePagesWithdrawal,
 	type RemoteReference,
 	type RemoteRights
 } from './remote/bind-remote.js';
@@ -720,16 +731,8 @@ export {
 } from './remote/workspace-address.js';
 export {
 	DEFAULT_REMOTE_BRANCH,
-	REMOTE_BINDING_FORMAT_VERSION,
-	REMOTE_BINDING_PATH,
-	clearRemoteBinding,
 	describeRemote,
-	parseRemoteBinding,
-	parseRemoteReference,
-	readRemoteBinding,
-	serialiseRemoteBinding,
-	writeRemoteBinding,
-	type RemoteBinding
+	parseRemoteReference
 } from './remote/remote-binding.js';
 // The Front Page's two return links. Exported for **both** apps: the viewer
 // builds the address and the editor reads it back, and they share no code but this package.

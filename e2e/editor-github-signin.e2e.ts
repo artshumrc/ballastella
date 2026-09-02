@@ -204,6 +204,21 @@ async function bindFromTheDoor(page: Page): Promise<void> {
 	await closeTheDoor(page);
 }
 
+/**
+ * Ask for Share Links, which is what makes a Sync carry a website at all (ADR-0045).
+ *
+ * ⚠ **A repository holds the work until the author asks for an address**, so a publish from a
+ * connected Workspace that never asked sends the scholar's own files and nothing else — which for an
+ * empty Workspace is nothing, and leaves the dialog correctly saying so. Every test below that means
+ * to assert on a *site* therefore asks for one first, from the press that exists for it.
+ */
+async function turnShareLinksOn(page: Page): Promise<void> {
+	await openTheDoor(page);
+	await page.getByTestId('enable-pages').click();
+	await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
+	await closeTheDoor(page);
+}
+
 /** Arrive at the callback with these parameters, having seeded whatever `state` we like. */
 async function arriveAt(page: Page, search: string, seeded: string | null): Promise<void> {
 	await page.evaluate(
@@ -689,6 +704,7 @@ test.describe('a sign-in kept past the tab', () => {
 		// Bound on the strength of the credential already held, which is what the sign-in door exists
 		// to make possible: nothing is typed and nothing is pasted.
 		await bindFromTheDoor(page);
+		await turnShareLinksOn(page);
 
 		await openPublishFromTheDoor(page);
 		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
@@ -819,6 +835,11 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		// whole reason the dialog is not closed to open the door and the door gains no extra step.
 		await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
 		expect(await holdsCredential(page)).toBe(true);
+
+		// A website is what this leg has to arrive at, and a Remote is a place the work lives before it
+		// is one (ADR-0045) — so Share Links are asked for from the step the sign-in landed on.
+		await page.getByTestId('enable-pages').click();
+		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
 
 		await page.getByTestId('connect-publish').click();
 		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });

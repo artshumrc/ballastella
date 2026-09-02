@@ -46,11 +46,6 @@ const REMOTE = `${OWNER}/${REPOSITORY}`;
 /** A token of the right shape. Its value never matters: the fake looks only for a credential. */
 const TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
 
-/** `remote.json`, exactly as `bindWorkspaceToRemote` writes it. */
-const boundTo = (): Record<string, string> => ({
-	'remote.json': `${JSON.stringify({ formatVersion: 1, owner: OWNER, repository: REPOSITORY, branch: 'main' }, null, '\t')}\n`
-});
-
 /** One Project, as small as a Project gets: the directory, its `project.json`, and one Layer. */
 const projectFiles = (directory: string, name: string): Record<string, string> => ({
 	[`${directory}/project.json`]: `${JSON.stringify(
@@ -218,6 +213,14 @@ async function start(
 		workspace?: Record<string, string>;
 		onRemote?: Record<string, string>;
 		/**
+		 * Whether this installation records a relationship with the repository (ADR-0044).
+		 *
+		 * Defaults to *not*, which is what a test that connects through the door wants. The
+		 * relationship has exactly one home and no fixture can put it in the Workspace's own files, so
+		 * this flag is the whole of "start from a connected Workspace".
+		 */
+		connected?: boolean;
+		/**
 		 * Answer the door's listing, so the repository can be chosen from where the author asks.
 		 *
 		 * Left out, nothing routes GitHub's sign-in surface and the door has no list — which is what
@@ -260,10 +263,9 @@ async function start(
 	await page.goto('./');
 	await emptyBrowserStorage(page);
 	await seed(page, options.workspace ?? {});
-	// ⚠ **The Remote is installation-local now** (ADR-0038): a seeded `remote.json` is the Published
-	// Site's compatibility evidence and binds nothing, so a spec that needs a bound Workspace records
-	// the relationship the way an Open or a bind does.
-	if (options.workspace?.['remote.json']) {
+	// ⚠ **The relationship is installation-local and is the only account of it there is** (ADR-0044),
+	// so a spec that needs a connected Workspace records it the way an Open or a connect does.
+	if (options.connected === true) {
 		await seedRemoteRelationship(page, { owner: OWNER, repository: REPOSITORY });
 	}
 	await page.reload();
@@ -484,7 +486,8 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		page
 	}) => {
 		const github = await start(page, {
-			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() },
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			connected: true,
 			// A Remote somebody has already published to, and a browser that has never published to it:
 			// an Open from GitHub, a second machine, or storage cleared since. All three look the same
 			// from here.
@@ -531,7 +534,8 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		page
 	}) => {
 		const github = await start(page, {
-			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() }
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			connected: true
 		});
 		await confirm(page, await signedIn(page));
 		const commit = github.head(OWNER, REPOSITORY);
@@ -556,7 +560,8 @@ test.describe('a publish that would overwrite work this browser has never seen',
 
 	test('names the file another machine wrote, and replaces it when told to', async ({ page }) => {
 		const github = await start(page, {
-			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() }
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			connected: true
 		});
 
 		// A first publish, which is what gives this browser its record of the Remote.
@@ -634,7 +639,8 @@ test.describe('a publish that would overwrite work this browser has never seen',
 		page
 	}) => {
 		const github = await start(page, {
-			workspace: { ...projectFiles('amsterdam-1625', 'Amsterdam 1625'), ...boundTo() },
+			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
+			connected: true,
 			// `ada/atlas` is not grace's, so the Remote is shared before anybody has contributed to it.
 			login: 'grace'
 		});
@@ -758,7 +764,8 @@ test.describe('Remote Status on the navigation bar', () => {
 		page
 	}) => {
 		const github = await start(page, {
-			workspace: { ...AMSTERDAM, ...boundTo() },
+			workspace: AMSTERDAM,
+			connected: true,
 			onRemote: AMSTERDAM
 		});
 
@@ -815,7 +822,8 @@ test.describe('Remote Status on the navigation bar', () => {
 		page
 	}) => {
 		const github = await start(page, {
-			workspace: { ...AMSTERDAM, ...boundTo() },
+			workspace: AMSTERDAM,
+			connected: true,
 			onRemote: { ...AMSTERDAM, 'index.html': '<!doctype html><title>Atlas</title>' }
 		});
 		await seedBaseline(page, {
@@ -917,7 +925,8 @@ test.describe('Remote Status on the navigation bar', () => {
 	test('cannot render one Workspace’s pending result beside another’s name', async ({ page }) => {
 		const AMSTERDAM_SHAS = await sharedShas(AMSTERDAM);
 		await start(page, {
-			workspace: { ...AMSTERDAM, ...boundTo() },
+			workspace: AMSTERDAM,
+			connected: true,
 			onRemote: AMSTERDAM
 		});
 		await seedBaseline(page, {
@@ -1029,7 +1038,8 @@ test.describe('Update from GitHub', () => {
 
 	test('brings the Remote’s work in when the author asks, and never before', async ({ page }) => {
 		const github = await start(page, {
-			workspace: { ...ATLAS, ...boundTo() },
+			workspace: ATLAS,
+			connected: true,
 			onRemote: ATLAS
 		});
 		await seedBaseline(page, {
@@ -1217,7 +1227,8 @@ test.describe('Update from GitHub', () => {
 		// Two Projects both sides hold. The Remote loses one of them entirely.
 		const both = { ...ATLAS, ...syncProject('delft', 'Delft') };
 		const github = await start(page, {
-			workspace: { ...both, ...boundTo() },
+			workspace: both,
+			connected: true,
 			onRemote: both
 		});
 		await seedBaseline(page, {

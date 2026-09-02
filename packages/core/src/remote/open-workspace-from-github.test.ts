@@ -57,14 +57,11 @@ const PROJECT_JSON = JSON.stringify({
 /**
  * A published Workspace as a publish leaves it, with the three kinds of path an Open has to tell
  * apart: the Workspace's source, the viewer a publish generated, and the scholar's own files.
- *
- * `remote.json` names a **different** repository, as a fork's published binding would.
  */
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/app.js': 'export const start = () => {};',
-	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
 	// The Published Site record, which carries the editor address its return links point at. Written by
 	// whoever published, so on a fork or a mirror it describes somebody else's deployment entirely.
 	'ballastella-site.json': JSON.stringify({
@@ -173,8 +170,8 @@ describe('openWorkspaceFromGitHub', () => {
 		expect(await text(store!, 'alignments/map-1.json')).toBe(
 			'{"formatVersion":1,"controlPoints":[]}'
 		);
-		// The publisher's own files, and the binding their tree carried, are not Workspace content.
-		for (const path of [...OUTSIDE_NAMESPACE, 'remote.json']) {
+		// The publisher's own files are not Workspace content.
+		for (const path of OUTSIDE_NAMESPACE) {
 			expect(await store!.list('')).not.toContain(path);
 		}
 	});
@@ -191,7 +188,7 @@ describe('openWorkspaceFromGitHub', () => {
 		expect(await synchronization.readRemote()).toEqual(REMOTE);
 		const baseline = await synchronization.readBaseline(REMOTE);
 		expect(baseline).not.toBeNull();
-		// ⚠ **Source only.** The viewer, `.nojekyll` and `remote.json` are what a Publish generates:
+		// ⚠ **Source only.** The viewer, the site record and `.nojekyll` are what a Publish generates:
 		// staleness there is a Published Site fact, never source drift, so a Baseline that named them
 		// would report every publish from another editor version as inbound change.
 		expect([...baseline!.files.keys()].sort()).toEqual(SOURCE);
@@ -207,9 +204,9 @@ describe('openWorkspaceFromGitHub', () => {
 	});
 
 	it('takes the Remote from the repository selected, not from the published tree', async () => {
-		// ⚠ The tree carries a `remote.json` naming `someone-else/fork`, as a fork's published binding
-		// would, and a `ballastella-site.json` whose return links point at somebody else's deployment.
-		// Reading either would aim this author's Publish button at a repository they have never seen.
+		// ⚠ The tree carries a `ballastella-site.json` whose return links point at somebody else's
+		// deployment, as a fork's would. Reading a repository out of it would aim this author's Sync at
+		// a repository they have never seen.
 		const fake = await github();
 		const place = installation();
 

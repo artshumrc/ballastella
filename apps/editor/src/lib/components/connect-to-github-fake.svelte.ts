@@ -21,6 +21,7 @@ import {
 	type GrantedRepositoriesOutcome,
 	type RemoteBindOutcome,
 	type RemotePagesOutcome,
+	type RemotePagesWithdrawal,
 	type RemoteReference,
 	type RemoteRights,
 	type RemoteStatusState,
@@ -105,10 +106,20 @@ export class FakeStorage {
 	signInRefusal = '';
 	/** What `bindRemote` answers, or throws when it is an `Error`. */
 	bindAnswer: RemoteBindOutcome | Error = outcome();
-	/** How many times the later Pages act was asked for. `0` is "nothing was asked of GitHub". */
+	/** How many times Share Links were asked for. `0` is "nothing was asked of GitHub". */
 	pagesAsks = 0;
-	/** What `enablePages` answers, or throws when it is an `Error`. */
-	pagesAnswer: RemotePagesOutcome | Error = { enabled: true, instruction: '' };
+	/** How many times *Check again* polled GitHub. */
+	pagesChecks = 0;
+	/** How many times Share Links were withdrawn. */
+	pagesWithdrawals = 0;
+	/** What `enableShareLinks` answers, or throws when it is an `Error`. */
+	pagesAnswer: RemotePagesOutcome | Error = pagesOn();
+	/** What `checkShareLinks` answers, or throws when it is an `Error`. */
+	checkAnswer: RemotePagesOutcome | Error = pagesOn();
+	/** What `withdrawShareLinks` answers, or throws when it is an `Error`. */
+	withdrawalAnswer: RemotePagesWithdrawal | Error = { disabled: true, notice: '' };
+	/** Whether the Workspace carries a Published Site, which is what Share Links are (ADR-0045). */
+	shareLinks = false;
 	/** How many times the sign-in was ended by a press. */
 	signOuts = 0;
 	/** How many times the Workspace was unbound, which is the claim about the one caller. */
@@ -206,11 +217,34 @@ export class FakeStorage {
 		return this.rightsAnswer;
 	}
 
-	async enablePages(): Promise<RemotePagesOutcome> {
+	async hasShareLinks(): Promise<boolean> {
+		await Promise.resolve();
+		return this.shareLinks;
+	}
+
+	async enableShareLinks(): Promise<RemotePagesOutcome> {
 		this.pagesAsks += 1;
 		await Promise.resolve();
 		if (this.pagesAnswer instanceof Error) throw this.pagesAnswer;
+		// The real one writes the viewer into the Workspace before it asks GitHub anything, and keeps
+		// it whatever the answer is — which is what puts the withdrawal beside a refusal.
+		this.shareLinks = true;
 		return this.pagesAnswer;
+	}
+
+	async checkShareLinks(): Promise<RemotePagesOutcome> {
+		this.pagesChecks += 1;
+		await Promise.resolve();
+		if (this.checkAnswer instanceof Error) throw this.checkAnswer;
+		return this.checkAnswer;
+	}
+
+	async withdrawShareLinks(): Promise<RemotePagesWithdrawal> {
+		this.pagesWithdrawals += 1;
+		await Promise.resolve();
+		if (this.withdrawalAnswer instanceof Error) throw this.withdrawalAnswer;
+		this.shareLinks = false;
+		return this.withdrawalAnswer;
 	}
 
 	async unbindRemote(): Promise<void> {
@@ -256,26 +290,43 @@ export class FakeStorage {
 		if (this.bindAnswer instanceof Error) throw this.bindAnswer;
 		// The real one records the binding on the Workspace, and the sequence's `connected` step is a
 		// reading of exactly that rather than of anything this call returned.
-		const { owner, repository, branch } = this.bindAnswer.binding;
-		this.remote = { owner, repository, branch };
+		this.remote = { ...this.bindAnswer.remote };
 		return this.bindAnswer;
 	}
 }
 
-/** A binding that worked, with push rights. Override a field per test. */
+/** A connection that worked, with push rights. Override a field per test. */
 export function outcome(over: Partial<RemoteBindOutcome> = {}): RemoteBindOutcome {
 	return {
-		binding: {
-			formatVersion: 1,
-			owner: 'ada',
-			repository: 'atlas',
-			branch: 'main'
-		},
+		remote: { owner: 'ada', repository: 'atlas', branch: 'main' },
 		canPush: true,
 		rightsNotice: '',
 		...over
 	};
 }
+
+/** Share Links on, with nothing left to say and nowhere left to send anybody. */
+export const pagesOn = (): RemotePagesOutcome => ({
+	enabled: true,
+	next: 'none',
+	instruction: '',
+	settingsUrl: '',
+	branch: ''
+});
+
+/**
+ * The guided step: GitHub refused, and what is owed is the screen, the branch and the folder.
+ *
+ * The ordinary answer rather than a rare one — ADR-0040 refuses `Administration: write` for the App,
+ * and `POST /pages` needs it — so it is a named fixture rather than an override spelled per test.
+ */
+export const pagesGuided = (instruction: string): RemotePagesOutcome => ({
+	enabled: false,
+	next: 'guided',
+	instruction,
+	settingsUrl: 'https://github.com/ada/atlas/settings/pages',
+	branch: 'main'
+});
 
 /** What the sequence is mounted with. `open` is a signal, which is what the next function is for. */
 export type SequenceProps = {
