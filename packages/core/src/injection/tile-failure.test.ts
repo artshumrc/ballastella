@@ -59,7 +59,7 @@ describe('mapImageTilesUnavailableNotice', () => {
 
 		expect(notice).toContain('does not hold the file it is drawn from');
 		expect(notice).toContain('Reconnecting will not help');
-		expect(notice).toContain('Whoever published this site has to restore it');
+		expect(notice).toContain('Whoever made this site has to restore it');
 	});
 
 	it('names the status, and says the connection is working, when a server answered and failed', () => {
@@ -145,7 +145,7 @@ describe('mapImageTilesUnavailableNotice', () => {
 				expect(notice).not.toContain('either your connection or that server');
 			}
 			if (failure.kind !== 'file-missing') {
-				expect(notice).not.toContain('Whoever published');
+				expect(notice).not.toContain('Whoever made');
 				expect(notice).not.toContain('Reconnecting will not help');
 			}
 			if (failure.kind !== 'server-error') {
@@ -156,8 +156,8 @@ describe('mapImageTilesUnavailableNotice', () => {
 			// No row claims what is on the screen beyond what survived, in any wording.
 			expect(notice).not.toMatch(/fully drawn|is complete|all of the map|drawn in full/);
 			// And no row tells a person to do the thing that is guaranteed not to work here: there is
-			// nothing to save, re-align, or re-publish from a Reader's side.
-			expect(notice).not.toMatch(/try again later by hand|re-align|publish it again/);
+			// nothing to save, re-align, or rebuild from a Reader's side.
+			expect(notice).not.toMatch(/try again later by hand|re-align|make it again/);
 		}
 	});
 
@@ -173,7 +173,7 @@ describe('mapImageTilesUnavailableNotice', () => {
 		// something only that row's remedy contains.
 		const REMEDY_MARK: Record<TileSourceFailure['kind'], string> = {
 			'no-answer': 'either your connection or that server',
-			'file-missing': 'Whoever published this site',
+			'file-missing': 'Whoever made this site',
 			'server-error': 'your own connection is working',
 			unreadable: 'Reloading the page'
 		};

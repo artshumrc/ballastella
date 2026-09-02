@@ -9,7 +9,7 @@ import { gitBlobSha } from './blob-sha.js';
 import { FakeMetadataStorage } from './fake-metadata-storage.js';
 import { LocalChangeIndex, checkSourceStatus } from './local-change-index.js';
 import { createFakeGitHub } from './fake-github.js';
-import type { RemoteRepository } from './publish-to-remote.js';
+import type { RemoteRepository } from './send-to-remote.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import {
 	comparePath,

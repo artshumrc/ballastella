@@ -8,7 +8,7 @@ import { SYNCHRONIZATION_FORMAT_VERSION } from './synchronization-metadata.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 
 // Two things are being held to account here. The index has to survive being reconstructed — it is the
-// only record that a file the user changed yesterday has not been published — and it has to be read
+// only record that a file the user changed yesterday has not been sent — and it has to be read
 // *cautiously*: it says which paths changed and never what they now hold, so a status derived from it
 // must not turn "I cannot compare these two changes" into "they agree".
 

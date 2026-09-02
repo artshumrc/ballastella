@@ -52,7 +52,7 @@ function open(storage: FakeStorage): Opened {
 	return { storage, onclose };
 }
 
-/** Somebody signed in, whose Workspace is connected to `owner/repository`. */
+/** Somebody signed in, whose Workspace belongs to `owner/repository`. */
 function connected(owner = 'ada', repository = 'atlas'): FakeStorage {
 	const storage = new FakeStorage();
 	storage.signedIn = true;
@@ -434,7 +434,7 @@ describe('letting other people see it, which is a later act', () => {
 	});
 });
 
-// ⚠ **Withdrawal is not a way to unpublish and is never presented as one** (ADR-0045, stories 65-67).
+// ⚠ **Withdrawal is not a way to take the work back, and is never presented as one** (ADR-0045, stories 65-67).
 describe('withdrawing Share Links', () => {
 	function withSite(): FakeStorage {
 		const storage = connected();

@@ -484,7 +484,7 @@ test.describe('making an offline copy', () => {
 	test('warns explicitly about the ~1 GB hosting limit and still lets the copy proceed', async ({
 		page
 	}) => {
-		// ADR-0008's cliff, and it is information rather than a gate: the scholar may never publish this
+		// ADR-0008's cliff, and it is information rather than a gate: the scholar may never share this
 		// Workspace to a free static host at all.
 		//
 		// **The Workspace is seeded rather than the image made enormous, and that is ADR-0027's

@@ -126,7 +126,7 @@
 		// restoration exists to stop them being.
 		//
 		// ⚠ **And in the document is not the same as reachable.** A dialog opened from inside another
-		// dialog that has since closed — the Publish dialog, opened from the door, which closes on the
+		// dialog that has since closed — the sync modal, opened from the door, which closes on the
 		// press — has a trigger that is still connected and inside a `<dialog>` nobody can see. Worse
 		// than a no-op: daisyUI's `.modal` keeps a closed dialog laid out, so `focus()` on that button
 		// *succeeds* and a keyboard user is left on a control that is not on the screen. Asking whether

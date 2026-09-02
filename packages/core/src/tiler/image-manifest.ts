@@ -8,7 +8,7 @@
 // exists to prevent.
 //
 // Its `id`s carry the same `https://unset.invalid/` placeholder as `info.json` and for the same
-// reason (ADR-0004): there is no URL at authoring time, publishing resolves one, and a
+// reason (ADR-0004): there is no URL at authoring time, the site's address resolves one, and a
 // placeholder that always fails DNS is better than one that quietly resolves to somewhere else.
 
 import type { Level0ImageInfo } from './pyramid.js';

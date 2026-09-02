@@ -27,8 +27,8 @@ import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/
  * one of those names would put `project.json` and `annotations/` inside the pool of shared material,
  * and deleting that Project would take every Project's Map Images with it.
  *
- * Refused at **creation**, which is the point. `claimedByPublishing` refuses a colliding name at
- * *publish* time, and by then the Project exists and holds a semester's work; the only remedy on offer
+ * Refused at **creation**, which is the point. `claimedByPublishedSite` refuses a colliding name at
+ * *Sync* time, and by then the Project exists and holds a semester's work; the only remedy on offer
  * is a rename, and the folder has already been sitting in the middle of the images.
  */
 export const RESERVED_DIRECTORY_NAMES: readonly string[] = [
@@ -38,7 +38,7 @@ export const RESERVED_DIRECTORY_NAMES: readonly string[] = [
 	// to refuse, arriving by the one route it could not see.
 	IMAGE_DIRECTORY,
 	ALIGNMENT_DIRECTORY,
-	// A literal because there is no constant to take it from: `base-map/` is written by publishing
+	// A literal because there is no constant to take it from: `base-map/` is written by the site write
 	// (`VIEWER_FILE_PATHS`) and read by the catalog's archive paths (ADR-0020, ADR-0025), neither of
 	// which names a directory on its own.
 	'base-map'
@@ -248,7 +248,7 @@ type Verdict =
  * The two fields of a {@link ProjectSummary} that come out of the manifest.
  *
  * ⚠ **One spelling, because the deletion check compares against exactly what the hub rendered.**
- * There were two, and they disagreed on the empty name: `#summarise` published `file.name ||
+ * There were two, and they disagreed on the empty name: `#summarise` announced `file.name ||
  * directory` while the deletion check compared the raw `file.name`, so a Project whose manifest has
  * no name — reachable in a hand-editable folder Workspace, where `parseProjectFile` yields `''` —
  * could never match its own record. Its deletion could never be finished, its record was refused at
@@ -358,7 +358,7 @@ export class Workspace {
 	 * @param options.stamp false for a write that changes nothing about the Project's content, so
 	 *   `updatedAt` keeps the moment the work itself was last touched. The hub is ordered by that
 	 *   stamp, so bumping it moves the row — under the cursor of the user who just clicked something
-	 *   on it, and, since that order is the order publishing writes, on the Front Page too.
+	 *   on it, and, since that order is the order the site record is written in, on the Front Page too.
 	 */
 	async writeProject(
 		directory: string,
@@ -453,7 +453,7 @@ export class Workspace {
 	 *
 	 * **It changes what a Front Page lists and nothing else.** The Project's files are untouched, its
 	 * `?p=` address still resolves, and on a public Remote anyone who knows the directory name can read
-	 * it — which is why nothing on this path is called private, hidden, or unpublished.
+	 * it — which is why nothing on this path is called private, hidden, or withheld.
 	 *
 	 * **`updatedAt` is left alone.** It records when the *work* was last touched, and the hub is
 	 * ordered by it: stamping here would jump the row to the top under the cursor of the user who

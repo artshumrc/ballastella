@@ -7,7 +7,7 @@
 // writes nothing to the Remote, and — the one that matters most — never advances a Synchronization
 // Baseline: a status check never advances it, so that checking cannot hide drift. A check that
 // recorded what it saw would turn somebody else's afternoon into this machine's own evidence, and the
-// next Publish would delete it as an ordinary removal.
+// next send would delete it as an ordinary removal.
 //
 // The local half is `local-change-index.ts`, which answers what changed here without reading a
 // gigabyte; the comparison is `synchronization-planner.ts`, which is pure. What is left for this
@@ -40,7 +40,7 @@ import { describeRemote } from './remote-binding.js';
 import { RemoteTreeRefusedError, readRemoteTree, urlPath } from './remote-tree.js';
 import type { RemoteTreeRefusal } from './remote-tree.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import type { RemoteRepository } from './publish-to-remote.js';
+import type { RemoteRepository } from './send-to-remote.js';
 import type { InventoryEntry, SourceStatus } from './synchronization-planner.js';
 
 /**
@@ -232,7 +232,7 @@ async function credentialedInventory(
 		);
 	}
 	// ⚠ **A 403 is two situations and the remaining count is what separates them**, exactly as the
-	// anonymous reader and the publish engine both find: a spent hourly budget and a credential
+	// anonymous reader and the send engine both find: a spent hourly budget and a credential
 	// without the rights answer the same status, and only one of them is fixed by waiting.
 	if (response.status === 403) {
 		const budget = rateLimitOf(response.headers);
@@ -346,7 +346,7 @@ export type RemoteStatusObservation =
 	| {
 			readonly outcome: 'determined';
 			readonly status: SourceStatus;
-			/** Publish-owned paths the two sides disagree about. Never part of {@link status}. */
+			/** Site-owned paths the two sides disagree about. Never part of {@link status}. */
 			readonly publishedSiteStale: readonly string[];
 			/**
 			 * Whether reaching this asked GitHub anything.
@@ -382,7 +382,7 @@ export interface RemoteStatusState {
 	 * check that succeeds, and never by one that does not.
 	 */
 	readonly failure: string;
-	/** Publish-owned drift from the last successful check. Separate from the five source states. */
+	/** Site-owned drift from the last successful check. Separate from the five source states. */
 	readonly publishedSiteStale: readonly string[];
 }
 
@@ -401,7 +401,7 @@ export const UNCHECKED_REMOTE_STATUS: RemoteStatusState = {
  * A window focus is not a rare event — every switch back from a browser tab, a PDF reader or a
  * mail client is one, and a scholar comparing a manuscript facsimile with their alignment produces
  * dozens a minute. Unbounded, each would be a GitHub request against an hourly budget that a large
- * publish also has to fit inside (ADR-0033).
+ * a send also has to fit inside (ADR-0033).
  */
 export const AUTOMATIC_CHECK_INTERVAL_MS = 60_000;
 
@@ -476,7 +476,7 @@ export class RemoteStatusChecker {
 		}
 		const observation = this.#observe(trigger);
 		if (observation === null) return Promise.resolve();
-		this.#publish({ ...this.#state, checking: true });
+		this.#announce({ ...this.#state, checking: true });
 		// ⚠ **The promise held is the *wrapper*, not the one it wraps.** Comparing against the inner
 		// promise here never matches, so `#running` is never cleared and every later check is coalesced
 		// into a listing that finished minutes ago — a status control that updates exactly once.
@@ -503,7 +503,7 @@ export class RemoteStatusChecker {
 		if (found.outcome === 'not-attempted') {
 			// Nothing was asked and nothing went wrong: the last determination, the last failure and the
 			// throttle window all stand exactly as they were.
-			this.#publish({ ...this.#state, checking: false });
+			this.#announce({ ...this.#state, checking: false });
 			return;
 		}
 		// ⚠ **Stamped when the check *finishes*, and only when it asked GitHub something.** Stamped at
@@ -511,7 +511,7 @@ export class RemoteStatusChecker {
 		// eight seconds early; stamped for a determination that made no request, it would bound checking
 		// that costs nothing to do.
 		if (found.requested) this.#lastAttempt = this.#now();
-		this.#publish({
+		this.#announce({
 			status: found.status,
 			at: this.#now(),
 			checking: false,
@@ -526,14 +526,14 @@ export class RemoteStatusChecker {
 		// the last thing this browser actually worked out is still the best answer there is — so it stays
 		// on screen, with the failure beside it saying it is no longer current.
 		this.#lastAttempt = this.#now();
-		this.#publish({
+		this.#announce({
 			...this.#state,
 			checking: false,
 			failure: cause instanceof Error ? cause.message : String(cause)
 		});
 	}
 
-	#publish(state: RemoteStatusState): void {
+	#announce(state: RemoteStatusState): void {
 		this.#state = state;
 		this.#onChange?.(state);
 	}

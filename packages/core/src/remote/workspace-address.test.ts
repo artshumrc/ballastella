@@ -12,8 +12,8 @@ import type { FetchFn } from '../injection/store-image-fetch.js';
 import { createFakeGitHub } from './fake-github.js';
 import { resolveWorkspaceAddress, workspaceAddressCandidates } from './workspace-address.js';
 
-/** A published Workspace, cut down to the one thing that makes it recognisable as one. */
-const PUBLISHED: Record<string, string> = {
+/** A Workspace on a Remote, cut down to the one thing that makes it recognisable as one. */
+const ON_REMOTE: Record<string, string> = {
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'atlas/project.json': JSON.stringify({ formatVersion: 1, name: 'Atlas', layers: [] })
 };
@@ -51,7 +51,7 @@ describe('which repositories an address could mean', () => {
 
 	// The address of a page *inside* a published site is the likeliest thing to be copied out of an
 	// address bar, and its first segment is the same repository.
-	it('reads the first segment of a deeper published address', () => {
+	it('reads the first segment of a deeper site address', () => {
 		expect(names('ada.github.io/atlas/atlas/index.html')).toEqual([
 			'ada/atlas',
 			'ada/ada.github.io'
@@ -92,7 +92,7 @@ describe('which repositories an address could mean', () => {
 
 describe('which of the candidates actually holds a Workspace', () => {
 	it('resolves the project site when that is where the Workspace is', async () => {
-		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: ON_REMOTE });
 
 		const resolved = await resolveWorkspaceAddress('ada.github.io/atlas', github.fetch);
 
@@ -102,13 +102,13 @@ describe('which of the candidates actually holds a Workspace', () => {
 		});
 	});
 
-	// The other real layout: the Workspace is published at the root of `ada`'s own site repository,
+	// The other real layout: the Workspace is at the root of `ada`'s own site repository,
 	// and `atlas` is a folder inside it — a Project, which is what the viewer serves at that address.
 	it('resolves the user site when the folder is inside it', async () => {
 		const github = await createFakeGitHub({
 			owner: 'ada',
 			repository: 'ada.github.io',
-			tree: PUBLISHED
+			tree: ON_REMOTE
 		});
 
 		const resolved = await resolveWorkspaceAddress('ada.github.io/atlas', github.fetch);
@@ -120,7 +120,7 @@ describe('which of the candidates actually holds a Workspace', () => {
 	});
 
 	it('resolves an address that names its repository outright', async () => {
-		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: ON_REMOTE });
 
 		const resolved = await resolveWorkspaceAddress('https://github.com/ada/atlas', github.fetch);
 
@@ -160,7 +160,7 @@ describe('which of the candidates actually holds a Workspace', () => {
 	// ⚠ **And an address GitHub has nothing at is still refused**, which is what keeps the
 	// confirmation above a reading rather than an echo of what was typed.
 	it('refuses a named repository GitHub does not have', async () => {
-		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: ON_REMOTE });
 
 		const resolved = await resolveWorkspaceAddress('ada/notebook', github.fetch);
 
@@ -203,7 +203,7 @@ describe('which of the candidates actually holds a Workspace', () => {
 	// The hourly limit belongs to the internet connection rather than to the reader, so it stops the
 	// probe rather than being read as "that repository is not the one".
 	it('stops at the hourly limit rather than reporting a missing Workspace', async () => {
-		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: ON_REMOTE });
 		github.rateLimit = { remaining: 0, reset: 0 };
 
 		const resolved = await resolveWorkspaceAddress('ada.github.io/atlas', github.fetch);
@@ -212,11 +212,11 @@ describe('which of the candidates actually holds a Workspace', () => {
 		expect(resolved.kind === 'refused' && resolved.message).toContain('60 requests');
 	});
 
-	// ⚠ **Nothing on this path may carry a credential**: opening somebody's published Workspace is
+	// ⚠ **Nothing on this path may carry a credential**: opening somebody's public Workspace is
 	// what a student with no account does (ADR-0031). Asserted against a GitHub that refuses any
 	// request carrying one, which is the only way a credential sent silently would show up at all.
 	it('sends no credential', async () => {
-		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: PUBLISHED });
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: ON_REMOTE });
 		github.rejectCredential = true;
 
 		const resolved = await resolveWorkspaceAddress('ada.github.io/atlas', github.fetch);

@@ -200,7 +200,7 @@ reaches `fonts.googleapis.com` or any other third party: a webfont host sees eve
 published site, which is not a thing a scholar's readers agreed to.
 
 Three consequences follow from the file being *redistributed* rather than merely used. Publishing
-copies these bytes into every Published Site (ADR-0006), so the licence has to permit
+copies these bytes into every Published Site, so the licence has to permit
 redistribution — which OFL does and which the free-but-bespoke foundry licences generally do not,
 and which is why a face being free to download was never sufficient. Both need an entry in
 `THIRD-PARTY-NOTICES.md` under ADR-0021. And 119 KB lands in the viewer's bundle, which ADR-0019
@@ -213,7 +213,7 @@ the app, and titles a dialog, and nothing else.
 **Where the files live is a constraint, not a preference.** Both sit in `packages/ui/src/fonts/` — one
 copy — and are referenced by a *relative* URL from `packages/ui/src/layout.css`, so Vite emits them
 and rewrites the URL relative to the emitted stylesheet. `paths: { relative: true }` is mandatory
-under ADR-0006 because the publish target is unknown at build time, so an absolute
+because a site's own address is unknown at build time, so an absolute
 `url('/fonts/…')` would 404 on every site published into a subdirectory; and a relative URL from
 `static/` is no better, because the built CSS is served from `_app/immutable/assets/` and resolves
 against that directory. Any later face arrives the same way.

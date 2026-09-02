@@ -36,7 +36,7 @@
 	 *
 	 * The hub reads it for two things and neither is cosmetic: what a review copy may *not* do, and
 	 * where the button that opens one lives. Both belong here because the hub is where a Workspace's
-	 * Workspace-level actions are (Publish is here for the same reason ADR-0008 gives).
+	 * Workspace-level actions are (a Sync is here for the same reason ADR-0008 gives).
 	 */
 	const review = $derived(storage?.review ?? null);
 
@@ -101,7 +101,7 @@
 	 * A Sync gets work into a Workspace of the user's own that they go on working in, which is why it
 	 * lives behind the bar's one door to GitHub, beside the binding (ADR-0041). This makes a *review
 	 * copy*, from a link somebody
-	 * sent — the same throwaway, unbound, unpublishable Workspace `open-bundle` makes, differing only
+	 * sent — the same throwaway, unbound, unable-to-send Workspace `open-bundle` makes, differing only
 	 * in where the bytes come from — so it is offered where the reader already looks for "somebody
 	 * sent me a Project", and it is absent inside a review copy for the identical reason.
 	 *
@@ -418,7 +418,7 @@
 
 	// ── The Workspace's Map Images ─────────────────────────────────────────────────────────
 	//
-	// On the hub rather than inside a Project for the same reason Publish is: a pyramid belongs to the
+	// On the hub rather than inside a Project for the same reason a Sync is: a pyramid belongs to the
 	// **Workspace** and is drawn by any number of Projects (ADR-0023), so "what does this Workspace
 	// hold, and what can I reclaim" is a question about the Workspace and has nowhere else to be asked.
 	//
@@ -861,13 +861,13 @@ What else the Hub says about a Project: whether this build can read it.
 				</div>
 			</div>
 
-			<!-- ADR-0024: a Review Workspace is never published. The control and its dialog are on the
+			<!-- ADR-0024: a Review Workspace is never sent. The control and its dialog are on the
 	     navigation bar, where they are on every screen — so what is left here is the sentence
 	     explaining the absence, which the bar has nowhere to put. -->
 			{#if review !== null}
 				<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
-					A review copy is not published and not backed up: it holds somebody else's work and is
-					meant to be discarded. Go back to your own Workspace to publish yours.
+					A review copy is not sent and not backed up: it holds somebody else's work and is meant to
+					be discarded. Go back to your own Workspace to share yours.
 				</p>
 			{/if}
 
@@ -1194,7 +1194,7 @@ What else the Hub says about a Project: whether this build can read it.
 	</p>
 	<label class="floating-label mt-4">
 		<span>Project bundle</span>
-		<!-- The first source, and the only one in this slice: a Published GitHub Project is its own
+		<!-- The first source, and the only one in this slice: a Project on a GitHub Remote is its own
 		     offer. `.project.tar` is what Export writes; `.tar` is accepted too, because a mail client
 		     that rewrote the name is not the author's fault. -->
 		<input
@@ -1207,7 +1207,7 @@ What else the Hub says about a Project: whether this build can read it.
 	</label>
 	<p class="mt-3 text-sm opacity-70" data-testid="import-consequence">
 		The Project is <strong>copied into this Workspace</strong> as work of your own: yours to edit, to
-		publish, and to back up. Its maps arrive as new Map Images of this Workspace, so nothing you already
+		share, and to back up. Its maps arrive as new Map Images of this Workspace, so nothing you already
 		have is changed or overwritten. There is no connection back afterwards — later changes to the original
 		never travel here, and yours never travel there.
 	</p>
@@ -1362,7 +1362,7 @@ What else the Hub says about a Project: whether this build can read it.
 		This opens into a separate <strong>review copy</strong> — a throwaway Workspace holding only that
 		Project and the Map Images and Alignments it uses. It has to be a public repository, and you do not
 		need a GitHub account or a token. Nothing in this Workspace is changed, nothing from the review copy
-		can be brought back into it, and a review copy is never published.
+		can be brought back into it, and a review copy is never sent.
 	</p>
 	<!-- Per-file progress, announced: a Map Image's pyramid is thousands of files over real minutes,
 	     and this is one of the places a scholar waits on something they cannot see.
@@ -1439,7 +1439,7 @@ What else the Hub says about a Project: whether this build can read it.
 	{#if deletingBreaksLinks}
 		<p class="mt-3 text-sm" data-testid="delete-breaks-share-link">
 			Anyone you have given this Project's link to will find it stops working after the next Sync,
-			including a link in something already published.
+			including a link in something already in print.
 		</p>
 	{/if}
 	{#snippet actions()}

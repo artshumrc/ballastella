@@ -69,7 +69,7 @@
 	onMount(async () => {
 		// ADR-0004: `info.json` carries the unset.invalid placeholder id, and the base the tiles
 		// are really served from is resolved here, at load time. `asset()` keeps that path
-		// relative, which ADR-0006 requires — the publish target is unknown at build time.
+		// relative, because a site's address is unknown at build time.
 		const infoUrl = new URL(asset('/fixtures/images/floride-1657/info.json'), location.href);
 
 		try {

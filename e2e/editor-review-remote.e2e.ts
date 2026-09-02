@@ -17,7 +17,7 @@ import { expectNoRemote, expectWorkspaceNamed } from './support/workspace.js';
  *   - the Project in it lists on the hub, opens and draws, so its Map Image, its Alignment and
  *     its Annotations all really landed, read back through the app's own code;
  *   - the Workspace-shared maps the *other* Project draws never arrive (ADR-0023);
- *   - the result is **unbound and unpublishable**, and the credential is **sealed** while it is open
+ *   - the result is **unbound and unable to send**, and the credential is **sealed** while it is open
  *     — both refusals asserted at the route that creates the Workspace they protect against;
  *   - there is no affordance anywhere that moves the reviewed Project into the user's own Workspace,
  *     which ADR-0024 names as the fence making the rest coherent;
@@ -67,18 +67,18 @@ const projectJson = (name: string, imageId: string, annotation: string): string 
 
 const FEATURES = '{"type":"FeatureCollection","features":[]}';
 
-/** What the publisher's repository holds that is **not** any Project (ADR-0033). */
+/** What the author's repository holds that is **not** any Project (ADR-0033). */
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
 /**
- * A published Workspace holding **two** Projects and **three** Map Images.
+ * A Workspace on a Remote holding **two** Projects and **three** Map Images.
  *
  * `map-3` is drawn by no Layer of either Project and `map-2` only by the Boston one, which is what
  * makes "only what this Project references travels" assertable rather than merely true of a fixture
  * with nothing else in it. A Workspace holds a shared pool (ADR-0023); a review copy holds one
  * Project's worth of it.
  */
-const PUBLISHED: Record<string, string> = {
+const ON_REMOTE: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'ballastella-site.json': '{"formatVersion":2,"projects":[]}',
@@ -160,9 +160,9 @@ const GEOREFERENCED_MAP_1 = JSON.stringify({
 	}
 });
 
-/** The same published Workspace, with an Alignment an Import can really remap. */
+/** The same Workspace, with an Alignment an Import can really remap. */
 const IMPORTABLE: Record<string, string> = {
-	...PUBLISHED,
+	...ON_REMOTE,
 	// alignment-write-is-the-fixture: the Alignment as it sits on the Remote, seeded into the fake GitHub rather than into any Workspace — the Import under test is what writes one, through the remapping
 	'alignments/map-1.json': GEOREFERENCED_MAP_1
 };
@@ -213,7 +213,7 @@ async function start(
 	repositories: Parameters<typeof routeGitHubHosts>[1] = {}
 ): Promise<Awaited<ReturnType<typeof routeGitHubHosts>>> {
 	const github = await routeGitHubHosts(page, {
-		repositories: [{ owner: OWNER, name: REPOSITORY, files: PUBLISHED }],
+		repositories: [{ owner: OWNER, name: REPOSITORY, files: ON_REMOTE }],
 		...repositories
 	});
 	await page.goto(HUB);
@@ -321,7 +321,7 @@ test.describe('arriving on a link from a Published Site', () => {
 	 * ⚠ **One test, because the claims are one workflow and none of them survives on its own.** That
 	 * the Import writes into the Workspace the offer *named* is only observable against the Workspace
 	 * that already existed; that it made no second one is what tells Import from Review at all; and
-	 * that nothing in the published tree became this Workspace's Remote is a fact about the same
+	 * that nothing in the Remote's tree became this Workspace's Remote is a fact about the same
 	 * Workspace after the same operation. The engine's refusals, the closure and the
 	 * allocation are exhausted at Seam 1 (`project-import-source.test.ts`,
 	 * `project-import-own-remote.test.ts`) and the offer's controls at Seam 1c
@@ -379,10 +379,10 @@ test.describe('arriving on a link from a Published Site', () => {
 		await expect(banner(page)).toBeHidden();
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 
-		// What arrived is the Project's closure as ordinary work — and **not** the publisher's own
-		// files, the other Project, or the site record sitting in the published root.
+		// What arrived is the Project's closure as ordinary work — and **not** the author's own
+		// files, the other Project, or the site record sitting in the Remote's root.
 		const paths = Object.keys(await everyByteOf(page, DEFAULT_WORKSPACE));
-		// ⚠ **The Map Image is a fresh identity, not the publisher's** (ADR-0037). An Import mints one,
+		// ⚠ **The Map Image is a fresh identity, not the author's** (ADR-0037). An Import mints one,
 		// so the closure cannot be compared to the Remote's own paths — which is exactly the difference
 		// from the Review above, and the reason the identity is read out of the result rather than
 		// written into the expectation.
@@ -401,9 +401,9 @@ test.describe('arriving on a link from a Published Site', () => {
 		);
 		for (const path of NOT_THIS_PROJECT) expect(paths).not.toContain(path);
 
-		// ⚠ **The published tree names `someone-else/fork`, and this Workspace is still unbound.** A
+		// ⚠ **The Remote's tree names `someone-else/fork`, and this Workspace is still unbound.** A
 		// copied or forked repository choosing a stranger's Remote is the failure the separation between
-		// published metadata and local binding exists to prevent, so the bind form is what the Remote
+		// a Remote's metadata and local binding exists to prevent, so the bind form is what the Remote
 		// screen shows.
 		// Read from the door, which offers connecting rather than naming a repository.
 		await expectNoRemote(page);
@@ -443,7 +443,7 @@ test.describe('arriving on a link from a Published Site', () => {
 		await expect(banner(page)).toBeVisible();
 		await expectWorkspaceNamed(page, REPOSITORY);
 		// What arrived, rather than what was said: the Project's closure and the mark that makes this
-		// Workspace a review copy, and nothing of the publisher's own.
+		// Workspace a review copy, and nothing of the author's own.
 		const stored = await everyByteOf(page, REPOSITORY);
 		expect(Object.keys(stored).sort()).toEqual([...AMSTERDAM_CLOSURE, 'review.json'].sort());
 		for (const path of NOT_THIS_PROJECT) expect(Object.keys(stored)).not.toContain(path);

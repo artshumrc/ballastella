@@ -71,7 +71,7 @@ async function tabTo(page: Page, control: Locator, limit = 60): Promise<void> {
 }
 
 /**
- * Workspace Home, in a Workspace that publishes somewhere, with a second Workspace beside it and an
+ * Workspace Home, in a Workspace with a repository, with a second Workspace beside it and an
  * unsaved change belonging to a third that no longer exists.
  *
  * All three are what makes the surfaces exist at all: the badge carries its GitHub clause and its

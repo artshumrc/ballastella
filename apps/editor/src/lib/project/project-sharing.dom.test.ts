@@ -112,14 +112,14 @@ describe('Show on Front Page', () => {
 	// ⚠ **Not privacy, said beside the control.** A scholar with embargoed material acts on the
 	// reading the interface invites, and the words "private", "hidden" and "unpublished" invite the
 	// wrong one (ADR-0045).
-	test('says the choice is not privacy, and calls the Project neither private nor unpublished', () => {
+	test('says the choice is not privacy, and calls the Project neither private nor hidden', () => {
 		section();
 
 		const said = text('front-page-settings').toLowerCase();
 		expect(said).toContain('not privacy');
 		expect(said).not.toContain('private');
 		expect(said).not.toContain('hidden');
-		expect(said).not.toContain('unpublished');
+		expect(said).not.toContain('publish');
 	});
 });
 

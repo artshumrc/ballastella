@@ -15,7 +15,7 @@
 // *not* the fixture: this runs in `pnpm test`, which does not build.
 //
 // The third case is the regression that already happened once: the marker inside the staged bundle,
-// which is publishing fetching an empty file over HTTP and a dead Publish button on any host that
+// which is the site write fetching an empty file over HTTP and dead Share Links on any host that
 // hides dotfiles.
 
 import assert from 'node:assert/strict';
@@ -33,7 +33,7 @@ const checkPath = path.join(repoRoot, 'scripts/check-nojekyll.mjs');
  * A tree shaped like a built repository.
  *
  * @param defect one of `'editor'` (no marker in the editor's build), `'staged'` (the marker back
- *   inside the viewer bundle), `'constant'` (the exported name gone), `'engine'` (the Remote publish
+ *   inside the viewer bundle), `'constant'` (the exported name gone), `'engine'` (the Remote send
  *   engine no longer naming the marker), or `null` for a sound tree.
  */
 function fixture(defect) {
@@ -59,14 +59,14 @@ function fixture(defect) {
 	}
 	write('apps/editor/static/viewer-bundle/bundle.json', JSON.stringify({ version: 'v', files }));
 
-	// The engine a Publish runs. The defect is the one that would actually happen: the block that
+	// The engine a Sync runs. The defect is the one that would actually happen: the block that
 	// authors the marker is deleted, and with it the last mention of the constant.
 	write(
-		'packages/core/src/remote/publish-to-remote.ts',
+		'packages/core/src/remote/send-to-remote.ts',
 		defect === 'engine'
-			? 'export const publishToRemote = async () => {};\n'
+			? 'export const sendToRemote = async () => {};\n'
 			: "import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';\n" +
-					'export const publishToRemote = async () => JEKYLL_OFF_MARKER;\n'
+					'export const sendToRemote = async () => JEKYLL_OFF_MARKER;\n'
 	);
 
 	return root;
@@ -108,7 +108,7 @@ test("the editor's build without the marker is refused", () => {
 test('the marker back inside the staged bundle is refused, by the reason it was removed', () => {
 	withFixture('staged', ({ status, output }) => {
 		assert.equal(status, 1);
-		assert.match(output, /carries \.nojekyll as "\.nojekyll", so publishing would fetch it/);
+		assert.match(output, /carries \.nojekyll as "\.nojekyll", so the site write would fetch it/);
 		assert.match(output, /dotfiles/);
 	});
 });
@@ -121,24 +121,24 @@ test('a renamed constant is refused rather than silently looked past', () => {
 	});
 });
 
-test('a Publish engine that no longer writes the marker is refused', () => {
+test('a send engine that no longer writes the marker is refused', () => {
 	// Link 3, and the end of the chain: the Remote is served by a branch deploy, so a commit without
 	// the marker is a blank page on the scholar's own address.
 	withFixture('engine', ({ status, output }) => {
 		assert.equal(status, 1);
-		assert.match(output, /publish-to-remote\.ts no longer names JEKYLL_OFF_MARKER/);
+		assert.match(output, /send-to-remote\.ts no longer names JEKYLL_OFF_MARKER/);
 	});
 });
 
 // Each of the three links reports its own absence with the same "could not run", so both tests below
 // name the file: matching the phrase alone, they would pass on any of the three going missing.
-test('a missing Publish engine is a failure, not a pass', () => {
+test('a missing send engine is a failure, not a pass', () => {
 	const root = fixture(null);
 	try {
-		rmSync(path.join(root, 'packages/core/src/remote/publish-to-remote.ts'), { force: true });
+		rmSync(path.join(root, 'packages/core/src/remote/send-to-remote.ts'), { force: true });
 		const { status, output } = run(root);
 		assert.equal(status, 1);
-		assert.match(output, /publish-to-remote\.ts does not exist, so this check could not run/);
+		assert.match(output, /send-to-remote\.ts does not exist, so this check could not run/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

@@ -1,22 +1,22 @@
-// Publishing: the Workspace becomes the Published Site (ADR-0006, ADR-0008).
+// The Published Site: the Workspace becomes a site a Reader can open (ADR-0008, ADR-0045).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// WHAT PUBLISHING IS, AND WHAT IT IS NOT
+// WHAT WRITING THE SITE IS, AND WHAT IT IS NOT
 //
 // It writes an `index.html`, the read-only viewer's files, and one small record of the site into
 // the Workspace, **beside** the Projects already there. It copies no Project data at all — not one
 // tile, not one `project.json` — because a single Map Image is hundreds of megabytes to
-// gigabytes of pyramid and copying it on every publish is slowest exactly in OPFS, the most
-// constrained backend (ADR-0006). That is why `publishSite` never calls `store.read` on anything
-// inside a Project directory, and why `publish.test.ts` puts a spy on `read` to keep it that way.
+// gigabytes of pyramid and copying it on every write is slowest exactly in OPFS, the most
+// constrained backend. That is why `writePublishedSite` never calls `store.read` on anything
+// inside a Project directory, and why `published-site.test.ts` puts a spy on `read` to keep it that way.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THERE IS A SITE RECORD AT ALL
 //
 // A static host has no directory listing, so the viewer's HTTP `ProjectStore` cannot enumerate
-// anything (ADR-0006 names that adapter; ADR-0008 has no index file inside the Workspace because
-// the *editor's* backends can list). The hub page therefore needs the Project list handed to it,
-// and publishing is the only moment that list is knowable. So one file — `ballastella-site.json` —
+// anything (ADR-0008 has no index file inside the Workspace because the *editor's* backends can
+// list). The hub page therefore needs the Project list handed to it, and writing the site is the
+// only moment that list is knowable. So one file — `ballastella-site.json` —
 // carries the Project list, the viewer's version stamp, and the resolved Base Map catalog
 // (ADR-0020, so a Published Site keeps working when the authoring deployment later changes its
 // own catalog).
@@ -25,7 +25,7 @@
 // it and every Project directory is still complete, standard-format, and readable with no
 // proprietary index. It is part of the viewer file set, not part of the data.
 //
-// Publishing still copies no Project data and no pyramid. ADR-0023 moved the pyramids to the Workspace
+// Writing the site still copies no Project data and no pyramid. ADR-0023 moved the pyramids to the Workspace
 // root, which changes nothing here: they were never copied, and now they are not copied from one place
 // instead of many.
 
@@ -57,7 +57,7 @@ import {
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
 	VIEWER_FILE_PATHS,
-	claimedByPublishing,
+	claimedByPublishedSite,
 	isViewerFile
 } from '../transfer/viewer-files.js';
 import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-bundle.js';
@@ -72,7 +72,7 @@ import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-
  * `baseMapMaxZoom` became {@link PublishedSite.baseMapCaches}, which is a change of shape and not
  * only of name. The bump is the honest label on that; it is not what protects anybody, because
  * nothing in this repository refuses a site record by version — only `project.json` does (ADR-0010).
- * What protects a site published before this change is {@link parseBaseMapCaches}' reading of the
+ * What protects a site written before this change is {@link parseBaseMapCaches}' reading of the
  * old field, without which its cached geography would simply stop drawing and nothing would say why:
  * `baseMapBundled: true`, no `baseMapCaches`, and a blank reference map under the Project's own
  * Layers. That is the same silent-blank failure ADR-0025 exists to prevent, arriving through the
@@ -92,7 +92,7 @@ export type PublishedProject = {
 	/**
 	 * Whether the Front Page lists it (ADR-0032).
 	 *
-	 * **Every published Project is on the record, listed or not.** A Reader's store cannot enumerate a
+	 * **Every Project the Workspace holds is on the record, listed or not.** A Reader's store cannot enumerate a
 	 * static host, so this record is the only account the site has of itself — and leaving the unlisted
 	 * ones out of it would make "not on the Front Page" into a claim about who can read the Project,
 	 * which it is not: the files are fetchable and `?p=<directory>` opens it for anyone who knows the
@@ -108,7 +108,7 @@ export type PublishedProject = {
  * Where a Published Site's files came from, normalised — for its return links and nothing else.
  *
  * Structurally a `RemoteRepository`, and deliberately its own type rather than that one: this is a
- * *published* fact about a site, and a type shared with the relationship would invite a Remote to be
+ * recorded fact about a site, and a type shared with the relationship would invite a Remote to be
  * read out of a site record. See {@link PublishedSite.repository}.
  */
 export type PublishedRepository = {
@@ -122,10 +122,10 @@ export type PublishedSite = {
 	readonly formatVersion: number;
 	/** The stamp of the viewer that was written, so a stale bundle is detectable (ADR-0006). */
 	readonly viewerVersion: string;
-	/** When it was published, ISO 8601. */
+	/** When it was written, ISO 8601. */
 	readonly publishedAt: string;
 	/**
-	 * The editor instance that published this site, with a trailing slash — or `''` when the record
+	 * The editor instance that wrote this site, with a trailing slash — or `''` when the record
 	 * does not say.
 	 *
 	 * **This is what makes the Front Page's return links possible**: a Reader who was given
@@ -133,26 +133,26 @@ export type PublishedSite = {
 	 * of the tool to use. It is provenance independent of the link, which is why it is recorded rather
 	 * than derived at read time — a site can say where it came from.
 	 *
-	 * `''` renders no link at all. A record written before this field existed, and a site published
+	 * `''` renders no link at all. A record written before this field existed, and a site written
 	 * from a build that could not know its own address, must degrade to nothing: a guess at a
 	 * canonical deployment would send a Reader to a stranger's editor.
 	 */
 	readonly editorUrl: string;
 	/**
-	 * The repository this site was published to, or `null` when it was published into a folder.
+	 * The repository this site was sent to, or `null` when it was written into a folder.
 	 *
 	 * **Here so the Front Page can offer the way back, and here for nothing else.** A static host
-	 * cannot be asked what repository serves it, and the record already says which editor published
+	 * cannot be asked what repository serves it, and the record already says which editor wrote
 	 * the site but not where the files came from — so the coordinates travel on the record,
 	 * normalised, and the two return links are built from them.
 	 *
-	 * ⚠ **A published field, and published fields cannot bind anything.** The Remote relationship is
+	 * ⚠ **A recorded field, and a recorded field cannot bind anything.** The Remote relationship is
 	 * installation-local metadata keyed by Workspace identity; this is evidence about a *site*, in a
 	 * file any Reader can fetch and anyone can edit. Opening, importing, restoring or updating must
 	 * never promote it into a binding — a forked repository's site record would otherwise make the
-	 * fork's owner a publisher to somebody else's repository.
+	 * fork's owner a writer to somebody else's repository.
 	 *
-	 * `null` for a site published into a folder rather than to a Remote, and for every site published
+	 * `null` for a site written into a folder rather than sent to a Remote, and for every site written
 	 * before the field existed. Both cost their Readers a Front Page with one fewer link, which is a
 	 * degradation and never a failure — the viewer has no second place to look (ADR-0044).
 	 */
@@ -164,8 +164,8 @@ export type PublishedSite = {
 	 * Whether this Workspace carries cached Base Map **tiles** (ADR-0025).
 	 *
 	 * True means the site draws its geography from `base-map/tiles/…` and needs no network for it.
-	 * Publishing copies nothing extra to make it true — the tiles are already in the Workspace, which
-	 * *is* the published root — so this is an observation of the folder at publish time and never a
+	 * Writing the site copies nothing extra to make it true — the tiles are already in the Workspace,
+	 * which *is* the site's root — so this is an observation of the folder at write time and never a
 	 * choice on the dialog.
 	 */
 	readonly baseMapBundled: boolean;
@@ -176,7 +176,7 @@ export type PublishedSite = {
 	 * independently true and the Reader meets different failures: without *tiles* the geography is
 	 * absent, and without *glyphs* the geography draws with no place names at all (ADR-0025's 820 KB).
 	 * `ReaderMapPane` drops `glyphs`, `sprite`, and every symbol layer when this is false, and the two
-	 * sentences beside the map say which of the two happened. New publishes always include these files;
+	 * sentences beside the map say which of the two happened. Every site written by this build includes these files;
 	 * false remains meaningful for legacy sites.
 	 */
 	readonly baseMapAssetsBundled: boolean;
@@ -195,7 +195,7 @@ export type PublishedSite = {
 	 *
 	 * **`maxZoom` is load-bearing rather than informational**: a vector source with no `maxzoom` makes
 	 * MapLibre ask for tiles past the pyramid, every one of which 404s, and the map goes blank at
-	 * exactly the zoom the site was published to work at.
+	 * exactly the zoom the site was written to work at.
 	 */
 	readonly baseMapCaches: readonly PublishedBaseMapCache[];
 };
@@ -232,9 +232,9 @@ export const serialisePublishedSite = (site: PublishedSite): Bytes => serialiseJ
  * │ WRITTEN HERE RATHER THAN CARRIED IN THE VIEWER'S BUILD, AND THAT IS NOT A TIDINESS CHOICE. │
  * └───────────────────────────────────────────────────────────────────────────────────────────┘
  *
- * It was in `apps/viewer/static/` first, which staged it into the bundle and made publishing
- * `fetch` it like any other asset. That broke the Publish button outright under `vite preview`,
- * which serves no dotfiles — twelve e2e specs, every one of them the whole publish flow hanging
+ * It was in `apps/viewer/static/` first, which staged it into the bundle and made the site write
+ * `fetch` it like any other asset. That broke Share Links outright under `vite preview`,
+ * which serves no dotfiles — twelve e2e specs, every one of them the whole flow hanging
  * with an empty status line, because `readBundleAsset` got a 404 for a file with no bytes in it.
  *
  * **The lesson generalises past the dev server.** Refusing dotfiles is ordinary static-host
@@ -287,7 +287,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 					directory,
 					name: typeof project?.name === 'string' ? project.name : directory,
 					// ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032). A viewer bundle
-					// published before the field existed is sitting in front of Readers right now, and reading
+					// written before the field existed is sitting in front of Readers right now, and reading
 					// this strictly would empty its Front Page — every Project still fetchable, none of them
 					// listed, and nothing on the page to say why. Absence has to mean what it meant, which is
 					// the same tolerance `baseMapAssetsBundled` above is written for.
@@ -317,7 +317,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 }
 
 /**
- * The publishing instance's address, as something a Reader's page may safely put in an `href`.
+ * The writing instance's address, as something a Reader's page may safely put in an `href`.
  *
  * ⚠ **The scheme is checked here rather than where the link is built.** The record is ordinarily
  * written by the editor, but this is the tolerant reader for a file nobody in this repository wrote
@@ -358,7 +358,7 @@ function parseEditorUrl(value: unknown): string {
  * Open and Review engines, and an owner of `ada/../../orgs` retargets every request they make — so a
  * record served by whoever controls the host is checked here rather than trusted, exactly as
  * `parseRemoteBinding` checks the file it reads. A record that names no repository is ordinary — a
- * site published into a folder — and not a failure.
+ * site written into a folder — and not a failure.
  */
 function parsePublishedRepository(value: unknown): PublishedRepository | null {
 	if (typeof value !== 'object' || value === null) return null;
@@ -366,14 +366,14 @@ function parsePublishedRepository(value: unknown): PublishedRepository | null {
 }
 
 /**
- * Whether an address means anything on a machine that is not the one that published the site.
+ * Whether an address means anything on a machine that is not the one that wrote the site.
  *
  * ⚠ **This looks like an odd refusal until you know what gets recorded.** The editor stamps its own
- * `location.origin`, so an author who publishes to GitHub Pages from `pnpm dev` records
+ * `location.origin`, so an author who sends to GitHub Pages from `pnpm dev` records
  * `http://localhost:5173/`, and every Reader's Front Page then offers them a live "Open this
  * Workspace in Ballastella" pointing at *their own* port 5173 — a dead link, or whatever unrelated
  * thing is running there. A single-label name (`http://atlas/`) is the same failure by way of
- * somebody's intranet: it resolves on the author's network and nowhere else. Nothing in the publish
+ * somebody's intranet: it resolves on the author's network and nowhere else. Nothing in the site write
  * dialog shows the address or offers to override it, so the refusal has to be here.
  *
  * Refusing produces `''`, which is the record's no-instance state: no link, no error, no guess at a
@@ -400,7 +400,7 @@ function reachableByAReader(hostname: string): boolean {
  * costs a Reader the network rather than a blank map.
  *
  * ⚠ **An older record has `baseMapMaxZoom` and no `baseMapCaches`, and its tiles are at the unkeyed
- * `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every already-published
+ * `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every site already written
  * offline site drawing no geography at all, with `baseMapBundled: true` beside it — silent, and
  * indistinguishable from the archive being down. So the old field is read as one cache with **no
  * archive**, which is exactly what it meant: there was one directory and it served whichever
@@ -422,7 +422,7 @@ function parseBaseMapCaches(
 	}
 	return value.flatMap<PublishedBaseMapCache>((entry: unknown) => {
 		const { archive, maxZoom } = (entry ?? {}) as { archive?: unknown; maxZoom?: unknown };
-		// `null` is a value this build **writes**, for a legacy pile re-published — so refusing it here
+		// `null` is a value this build **writes**, for a legacy pile written again — so refusing it here
 		// would make the record unreadable by the code that produced it, which is the one round trip a
 		// format has to survive. An absent or empty `archive` is still a half-written entry.
 		const named =
@@ -450,21 +450,21 @@ function isCatalog(value: unknown): value is BaseMapCatalog {
 	);
 }
 
-/** Something the user should read before publishing, or after. */
-export type PublishWarning = {
+/** Something the user should read before the site is written, or after. */
+export type PublishedSiteWarning = {
 	readonly kind: 'referenced-images' | 'base-map-size' | 'hosting-limit' | 'name-collision';
 	readonly message: string;
 };
 
-/** What publishing is about to do, worked out before a single byte is written. */
-export type PublishPlan = {
+/** What writing the site is about to do, worked out before a single byte is written. */
+export type PublishedSitePlan = {
 	readonly viewerVersion: string;
 	/**
 	 * Every Project the site will carry, in the order the record will name them — each saying whether
 	 * the Front Page lists it (ADR-0032).
 	 */
 	readonly projects: readonly PublishedProject[];
-	/** Every path publishing will write, with its byte length. The site record is included. */
+	/** Every path the site write will write, with its byte length. The site record is included. */
 	readonly files: readonly ViewerBundleFile[];
 	/** How many bytes those files add to the Workspace. */
 	readonly bytes: number;
@@ -475,7 +475,7 @@ export type PublishPlan = {
 	/**
 	 * How much of {@link workspace} is Map Images no Project's Layers draw.
 	 *
-	 * **Publishing is additive and cannot leave them out** — they are already in the directory the site
+	 * **Writing the site is additive and cannot leave them out** — they are already in the directory the site
 	 * is written into — so the honest thing is to say what they weigh. That sentence is what gives the
 	 * hub's reclaim list a reason to be visited, and `{ bytes: 0, maps: 0 }` for a Workspace where every
 	 * map is in use is the answer rather than the absence of one.
@@ -484,8 +484,8 @@ export type PublishPlan = {
 	/**
 	 * Whether the Workspace already carries cached Base Map tiles (ADR-0025).
 	 *
-	 * Observed rather than chosen: publishing copies nothing to make it true, because the tiles are
-	 * already in the directory being published. It is on the plan so the dialog can say whether the
+	 * Observed rather than chosen: writing the site copies nothing to make it true, because the tiles
+	 * are already in the directory the site is written into. It is on the plan so the dialog can say whether the
 	 * site will need a network connection before the user pushes it.
 	 */
 	readonly baseMapBundled: boolean;
@@ -508,37 +508,37 @@ export type PublishPlan = {
 	 * Carried on the plan because it is read from the same `project.json` files the referenced-image
 	 * warning is read from, and because the alternative is asking a user to remember, a semester
 	 * later, the exact address they typed — which is the difference between a citable IIIF endpoint
-	 * and one that moves every time it is re-published.
+	 * and one that moves every time the site is written again.
 	 */
 	readonly canonicalUrl: string | null;
-	/** The address the site will record for the instance publishing it, or `''`. */
+	/** The address the site will record for the instance writing it, or `''`. */
 	readonly editorUrl: string;
-	/** The repository the site will record having been published to, or `null`. */
+	/** The repository the site will record having been sent to, or `null`. */
 	readonly repository: PublishedRepository | null;
 	/**
-	 * Project directories whose names collide with something publishing writes. Publishing refuses
-	 * rather than overwriting one — see {@link publishSite}.
+	 * Project directories whose names collide with something the site write writes. It refuses
+	 * rather than overwriting one — see {@link writePublishedSite}.
 	 */
 	readonly collisions: readonly string[];
-	readonly warnings: readonly PublishWarning[];
+	readonly warnings: readonly PublishedSiteWarning[];
 };
 
-/** Publishing was refused, before anything was written. */
-export class PublishRefusedError extends Error {
+/** Writing the site was refused, before anything was written. */
+export class PublishedSiteRefusedError extends Error {
 	constructor(message: string) {
 		super(message);
-		this.name = 'PublishRefusedError';
+		this.name = 'PublishedSiteRefusedError';
 	}
 }
 
-export type PlanPublishOptions = {
+export type PlanPublishedSiteOptions = {
 	readonly bundle: ViewerBundle;
 	/** The Projects, as the Workspace lists them — most recently touched first (ADR-0008). */
 	readonly projects: readonly ProjectSummary[];
 	/** This deployment's catalog. Injected so the tests can drive a different one (ADR-0020). */
 	readonly catalog?: BaseMapCatalog;
 	/**
-	 * Where the editor doing the publishing lives, for {@link PublishedSite.editorUrl}.
+	 * Where the editor writing the site lives, for {@link PublishedSite.editorUrl}.
 	 *
 	 * Passed in rather than read here, because it is `location.origin` plus a base path and core has
 	 * no business knowing either (ADR-0006) — the same division `readAsset` is drawn on. Omitted, the
@@ -546,11 +546,11 @@ export type PlanPublishOptions = {
 	 */
 	readonly editorUrl?: string;
 	/**
-	 * The repository this Workspace publishes to, for {@link PublishedSite.repository}.
+	 * The repository this Workspace is sent to, for {@link PublishedSite.repository}.
 	 *
 	 * Passed in rather than read here for the same division `editorUrl` is drawn on, and for a second
-	 * reason: the relationship is installation-local metadata that core's publish module has no
-	 * business reaching for. Omitted — a publish into a folder — the site records no repository and
+	 * reason: the relationship is installation-local metadata that this module has no
+	 * business reaching for. Omitted — a site written into a folder — it records no repository and
 	 * its Front Page carries no return link, which is a working site.
 	 */
 	readonly repository?: PublishedRepository | null;
@@ -568,17 +568,17 @@ const tiledMapImageSize = async (store: ProjectStore): Promise<WorkspaceSize> =>
 };
 
 /**
- * Work out what publishing would do, and everything the user has to be told first.
+ * Work out what writing the site would do, and everything the user has to be told first.
  *
- * Separate from {@link publishSite} because two of the three required warnings are only useful
+ * Separate from {@link writePublishedSite} because two of the three required warnings are only useful
  * *before* the writing starts: ADR-0020 requires the Base Map's size be stated before it is added,
  * and ADR-0008's hosting cliff is a decision, not a report. So this reads and computes; it writes
  * nothing at all.
  */
-export async function planPublish(
+export async function planPublishedSite(
 	store: ProjectStore,
-	options: PlanPublishOptions
-): Promise<PublishPlan> {
+	options: PlanPublishedSiteOptions
+): Promise<PublishedSitePlan> {
 	const { bundle, projects } = options;
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	// Through the record's own reader, so the plan carries exactly what a Reader will read back — and
@@ -608,10 +608,10 @@ export async function planPublish(
 	// `size` per tile — the same `list` + `size` discipline as `workspaceSize`, never a `read`.
 	const caches = await baseMapCaches(store);
 	const baseMapTiles = totalBaseMapCacheSize(caches);
-	const publishedCaches = publishableCaches(caches);
+	const publishedCaches = publishedBaseMapCaches(caches);
 
 	const baseMap = bundle.baseMap;
-	// The record is weighed with a plausible length rather than skipped: it is a file publishing
+	// The record is weighed with a plausible length rather than skipped: it is a file the site write
 	// writes, and a plan whose byte total omitted one of its own files would be wrong in the
 	// direction that matters at the cliff.
 	const recordFile: ViewerBundleFile = {
@@ -636,10 +636,10 @@ export async function planPublish(
 	const bytes = bundleBytes(files);
 
 	const collisions = listed
-		.filter((project) => claimedByPublishing(project.directory))
+		.filter((project) => claimedByPublishedSite(project.directory))
 		.map((project) => project.directory);
 
-	const warnings: PublishWarning[] = [];
+	const warnings: PublishedSiteWarning[] = [];
 
 	if (collisions.length > 0) {
 		warnings.push({ kind: 'name-collision', message: collisionMessage(collisions) });
@@ -694,17 +694,19 @@ export async function planPublish(
 /**
  * The caches a site record can honestly name: the ones whose provenance record survived.
  *
- * A cache with no record is still *served* — its files are in the folder and publishing copies
+ * A cache with no record is still *served* — its files are in the folder and the site write copies
  * nothing — but a Reader cannot be told which catalog entry it belongs to, so it is not claimed.
  * Silently attaching it to whichever entry is selected is the wrong-map failure the keyed directory
  * exists to end, and it would arrive on somebody else's screen rather than on the author's.
  */
-const publishableCaches = (caches: readonly BaseMapCache[]): readonly PublishedBaseMapCache[] =>
+const publishedBaseMapCaches = (
+	caches: readonly BaseMapCache[]
+): readonly PublishedBaseMapCache[] =>
 	caches.flatMap<PublishedBaseMapCache>((cache) => {
 		if (cache.tiles === 0) return [];
-		// A legacy unkeyed pile is published as what it is: no archive, and the depth read off its own
+		// A legacy unkeyed pile is recorded as what it is: no archive, and the depth read off its own
 		// files, which is exactly what the old `baseMapMaxZoom` was. Dropping it would take a working
-		// offline site away from a scholar the first time they re-published.
+		// offline site away from a scholar the first time the site was written again.
 		if (cache.legacy) {
 			return cache.maxZoom === null ? [] : [{ archive: null, maxZoom: cache.maxZoom }];
 		}
@@ -716,19 +718,19 @@ const publishableCaches = (caches: readonly BaseMapCache[]): readonly PublishedB
 const collisionMessage = (collisions: readonly string[]): string =>
 	`${collisions.map((directory) => `“${directory}”`).join(', ')} ` +
 	`${collisions.length === 1 ? 'is a Project whose folder has' : 'are Projects whose folders have'} ` +
-	`a name publishing needs for the website itself. Rename ` +
-	`${collisions.length === 1 ? 'it' : 'them'} — the display name can stay as it is — and publish ` +
+	`a name the website itself needs. Rename ` +
+	`${collisions.length === 1 ? 'it' : 'them'} — the display name can stay as it is — and try ` +
 	`again. Nothing has been written.`;
 
 /**
- * The two facts publishing needs out of the Projects' own documents, in one walk.
+ * The two facts the site write needs out of the Projects' own documents, in one walk.
  *
  * **The referenced Map Images** are each Project's map Layers intersected with what the Workspace
  * observably fetches from elsewhere, because the warning is about what the *site* draws: a `remote.json`
  * for an image nothing references costs a Reader nothing, and a Layer over a referenced image renders
  * blank without a network (ADR-0007).
  *
- * **The canonical address** is whatever the Projects already agree on, so a re-publish can offer it
+ * **The canonical address** is whatever the Projects already agree on, so a later write can offer it
  * back. The first one found wins: they are stamped together by one action, and a Workspace whose
  * Projects disagree has been edited by hand, where offering one of the two is better than offering
  * neither.
@@ -784,15 +786,15 @@ function referencedWarning(referenced: { project: PublishedProject; layers: stri
 }
 
 /**
- * The ADR-0008 cliff, said in publishing's own words.
+ * The ADR-0008 cliff, said in the site write's own words.
  *
  * The arithmetic is `crossesHostingLimit`'s and the byte total is `workspaceSize`'s — the same two
  * functions `hostingLimitWarning` reads, so the two moments cannot give a user two different answers
  * about one Workspace. Only the sentence differs, because that one is about a copy that is about to
  * be made and this one is about a site that is about to be pushed.
  *
- * **And it names what is reclaimable.** Publishing is additive: the Map Images no Project draws are
- * already in the directory being published and cannot be left out, so a warning about a cliff that
+ * **And it names what is reclaimable.** Writing the site is additive: the Map Images no Project draws
+ * are already in the directory it is written into and cannot be left out, so a warning about a cliff that
  * did not say how much of the drop is dead weight would be telling the user they are stuck when
  * they are one deletion from not being. The clause is omitted rather than written with a zero,
  * because "including 0 bytes of Map Images no Project uses" is noise in the one message that has to
@@ -812,26 +814,26 @@ function hostingWarning(
 				`${unused.maps === 1 ? 'one map' : `${unused.maps} maps`} you can delete from the hub to ` +
 				`reclaim that space — and`
 			: ' and') +
-		` publishing adds about ${describeBytes(adding)}, ` +
+		`writing it adds about ${describeBytes(adding)}, ` +
 		(already
-			? `so it is already past the ${limit} a free static host such as GitHub Pages will publish. `
-			: `which takes it past the ${limit} a free static host such as GitHub Pages will publish. `) +
+			? `so it is already past the ${limit} a free static host such as GitHub Pages will serve. `
+			: `which takes it past the ${limit} a free static host such as GitHub Pages will serve. `) +
 		`This is a cliff rather than a slowdown: the files are written either way, but pushing them ` +
 		`will fail. The way out is to host the site somewhere without that limit, or to keep fewer ` +
 		`offline copies in this Workspace.`
 	);
 }
 
-export type PublishSiteOptions = {
+export type WritePublishedSiteOptions = {
 	readonly store: ProjectStore;
-	readonly plan: PublishPlan;
+	readonly plan: PublishedSitePlan;
 	/**
 	 * The bytes of one bundle file, given the file's own record — which carries the deployment-relative
 	 * `source` the editor serves it from as well as the Workspace-relative `path` it goes to.
 	 *
 	 * Injected because the editor serves those files from its own deployment over a **relative** URL
 	 * (ADR-0006), which is knowledge core must not have — and because it is what lets the tests drive
-	 * publishing with no browser at all.
+	 * writing a site with no browser at all.
 	 */
 	readonly readAsset: (file: ViewerBundleFile) => Promise<Bytes>;
 	/** The clock, injectable so `publishedAt` is assertable. */
@@ -849,12 +851,12 @@ export type PublishSiteOptions = {
  * **Additive towards the user's data, and that is a property of this function rather than an
  * intention.** It writes only the paths the plan names, every one of which is a name
  * `VIEWER_FILE_PATHS` records — checked below rather than assumed — and it reads nothing from the
- * Workspace, so no Project file can be rewritten, re-serialised, or touched by publishing, whatever
+ * Workspace, so no Project file can be rewritten, re-serialised, or touched by the site write, whatever
  * else changes here later.
  *
- * The one thing it removes is what the *last* publish wrote and this one does not: see
+ * The one thing it removes is what the *last* write left and this one does not: see
  * {@link removeSupersededFiles}, which is confined to the same recorded list and runs only once
- * everything this publish writes is on disk.
+ * everything this write puts there is on disk.
  *
  * ⚠ **Whether it runs at all is the caller's decision, and the caller must not make it lightly.** A
  * repository holds the scholar's own work until they ask for Share Links, and having Share Links *is*
@@ -865,35 +867,37 @@ export type PublishSiteOptions = {
  * The site record is written **last**, for the same reason `project.json` is written last
  * everywhere else in this codebase: it is what a Reader's first request resolves through, and a
  * record naming a viewer whose chunks are not all there yet is a site that renders blank. Written
- * this way, an interrupted publish leaves a stale record — the site the user had before — which is
+ * this way, an interrupted write leaves a stale record — the site the user had before — which is
  * a site that works.
  *
- * @throws PublishRefusedError when a Project's folder is named after something publishing writes
+ * @throws PublishedSiteRefusedError when a Project's folder is named after something the site write writes
  */
-export async function publishSite(options: PublishSiteOptions): Promise<PublishedSite> {
+export async function writePublishedSite(
+	options: WritePublishedSiteOptions
+): Promise<PublishedSite> {
 	const { store, plan, readAsset } = options;
 	const now = options.now ?? (() => new Date());
 
 	if (plan.collisions.length > 0) {
-		throw new PublishRefusedError(collisionMessage(plan.collisions));
+		throw new PublishedSiteRefusedError(collisionMessage(plan.collisions));
 	}
 
 	// The recorded list is enforced here rather than merely documented. ADR-0006's requirement is
 	// that the viewer file set be *recorded*, and the way that quietly stops being true is a chunk
 	// or an asset arriving in the bundle under a name nobody added to `VIEWER_FILE_PATHS` — after
 	// which the data-only zip carries it and nothing says so. Refusing to write an unrecorded path
-	// makes the list an invariant of publishing instead of a comment about it.
+	// makes the list an invariant of the site write instead of a comment about it.
 	const unrecorded = plan.files.filter((file) => !isViewerFile(file.path));
 	if (unrecorded.length > 0) {
-		throw new PublishRefusedError(
-			`Publishing would write ${unrecorded.map((file) => file.path).join(', ')}, which ` +
+		throw new PublishedSiteRefusedError(
+			`Writing this site would put ${unrecorded.map((file) => file.path).join(', ')} there, which ` +
 				`VIEWER_FILE_PATHS does not record. ADR-0006 requires the viewer file set to be ` +
 				`enumerable, so that a data-only Project archive can exclude exactly it. Record the path ` +
-				`there and publish again. Nothing has been written.`
+				`there and try again. Nothing has been written.`
 		);
 	}
 
-	// The two files publishing *authors* rather than copies, so neither is fetched. Filtered by the
+	// The two files the site write *authors* rather than copies, so neither is fetched. Filtered by the
 	// same predicate that drives the loop, so a third authored file cannot be added to the plan and
 	// then be looked for on the server: `source: ''` is the one signal both ends read.
 	const assets = plan.files.filter((file) => file.source !== '');
@@ -934,7 +938,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 	written += 1;
 	report(PUBLISHED_SITE_RECORD_NAME);
 
-	// After the record, deliberately. Everything this publish writes is already on disk by here, so
+	// After the record, deliberately. Everything this write puts there is already on disk by here, so
 	// an interruption during the sweep leaves a complete site with some superseded files still beside
 	// it — the same "a site that works" outcome the write order above is arranged for.
 	await removeSupersededFiles(store, new Set(plan.files.map((file) => file.path)));
@@ -942,7 +946,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 }
 
 /**
- * Remove the files a previous publish wrote that this one does not.
+ * Remove the files a previous write left that this one does not.
  *
  * The case this exists for is the Base Map. The recorded viewer directory can contain files from a
  * previous build, while the record written beside it describes the current site. A Reader is
@@ -951,17 +955,17 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
  *
  * **Only paths `VIEWER_FILE_PATHS` records are so much as listed.** That is the whole of the safety
  * argument: the sweep cannot reach a Project directory because it never asks about one, and a
- * Project whose folder is one of those names was refused above rather than published over.
+ * Project whose folder is one of those names was refused above rather than written over.
  *
  * `_app/` is left alone on purpose. Its names are content hashes, so an edited viewer writes new
- * ones beside the old, and ADR-0006 records that accumulation as an accepted cost of publishing into
+ * ones beside the old, and that accumulation is an accepted cost of writing a site into
  * the working folder. Sweeping it would be a change to that decision rather than a repair of this
  * one.
  *
  * ⚠ **`base-map/tiles/` is left alone too.** `base-map/` is a
  * recorded viewer directory because of its glyphs and sprites, and since ADR-0025 the opt-in offline
  * tile cache lives inside it — bytes fetched from somebody else's server and never written by
- * publishing. Without this guard, refreshing the published display assets would delete every cached
+ * the site write. Without this guard, refreshing the site's display assets would delete every cached
  * tile and the Project would silently stop being available offline.
  */
 async function removeSupersededFiles(
@@ -987,13 +991,13 @@ async function removeSupersededFiles(
  * Take the Published Site back out of the Workspace — what withdrawing Share Links does here
  * (ADR-0045).
  *
- * The mirror of {@link publishSite}: it removes exactly the recorded viewer file set and nothing
+ * The mirror of {@link writePublishedSite}: it removes exactly the recorded viewer file set and nothing
  * else, so no Project file, no pyramid and no Alignment can be reached by it. What it removes from
  * the *Remote* is nothing — the next Sync does that, because generated output stops being inside the
  * owned namespace the moment neither side carries a site record.
  *
  * ⚠ **`_app/` is swept here and left alone by {@link removeSupersededFiles}, and the difference is
- * the point.** Between two publishes an obsolete chunk is an accepted cost; after a
+ * the point.** Between two writes an obsolete chunk is an accepted cost; after a
  * withdrawal the whole directory is machinery for a site that no longer exists, and leaving it would
  * mean the Workspace still looked like it had Share Links to anybody counting files.
  *
@@ -1039,9 +1043,9 @@ const siteRecord = (fields: {
 });
 
 /**
- * The site record as it stands in the Workspace, or `null` when it has never been published.
+ * The site record as it stands in the Workspace, or `null` when no site has been written.
  *
- * Never published is the ordinary first state, not a failure. A record that is there and will not
+ * No site yet is the ordinary first state, not a failure. A record that is there and will not
  * parse *is* surfaced, because it is what the editor reads to decide whether the Published Site is
  * out of date, and quietly answering "no site" would offer the wrong action.
  */
@@ -1069,8 +1073,8 @@ export function publishedSiteStaleness(
 ): string {
 	if (site === null) return '';
 
-	const published = new Set(site.projects.map((project) => project.directory));
-	const missing = current.projects.filter((project) => !published.has(project.directory));
+	const onSite = new Set(site.projects.map((project) => project.directory));
+	const missing = current.projects.filter((project) => !onSite.has(project.directory));
 	const removed = site.projects.filter(
 		(project) => !current.projects.some((summary) => summary.directory === project.directory)
 	);
@@ -1081,7 +1085,7 @@ export function publishedSiteStaleness(
 	);
 	// ⚠ **A Front Page choice the site has not been told about is drift, the same as a rename**
 	// (ADR-0032). Taking a Project off writes `project.json` and nothing else; until the site is
-	// published again its Front Page still offers the Project to every Reader who arrives. Said in
+	// written again its Front Page still offers the Project to every Reader who arrives. Said in
 	// both directions and separately, because the direction is the whole point of the sentence: the
 	// author needs to know *which* answer the live site is still giving.
 	const stillListed = current.projects.filter(
@@ -1116,10 +1120,10 @@ export function publishedSiteStaleness(
 	].filter(Boolean);
 
 	if (reasons.length === 0) return '';
-	return `This Workspace has been published, but ${reasons.join(', ')}. Publish again to bring the site up to date.`;
+	return `This Workspace has a Published Site, but ${reasons.join(', ')}. Sync again to bring the site up to date.`;
 }
 
-// ── The canonical URL: an opt-in stamp, and the one thing publishing writes into Project data ──
+// ── The canonical URL: an opt-in stamp, and the one thing the site write puts in Project data ──
 
 /**
  * A user-typed address as an image service base, or `''` when it cannot be one.
@@ -1184,8 +1188,8 @@ export type CanonicalStamp = {
  * per-Project version wrote `<url>/<project>/images/<id>`, which was a citation that broke as soon as
  * a second Project used the map or the first one was renamed.
  *
- * **Opt-in, and the only path on which publishing writes the user's own files.** Everything else
- * publishing does is additive; this is a change the user asked for, so it is a separate call the
+ * **Opt-in, and the only path on which the site write touches the user's own files.** Everything else
+ * it does is additive; this is a change the user asked for, so it is a separate call the
  * caller makes deliberately and records in each `project.json`.
  *
  * Only `id` is touched, and the rest of the document is written back exactly as it was parsed, so
@@ -1200,9 +1204,9 @@ export async function stampCanonicalUrl(
 ): Promise<CanonicalStamp> {
 	const stamped = normaliseCanonicalUrl(url);
 	if (stamped === '') {
-		throw new PublishRefusedError(
+		throw new PublishedSiteRefusedError(
 			`“${url}” is not a web address a IIIF client could fetch tiles from. It needs to start ` +
-				`with https:// (or http://) and name the address your Workspace is published at — for ` +
+				`with https:// (or http://) and name the address your Workspace is served at — for ` +
 				`example https://your-name.github.io/your-repository. Nothing has been changed.`
 		);
 	}

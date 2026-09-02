@@ -29,7 +29,7 @@
 //
 // Provisional files sit at ordinary Workspace paths, so *every* reader would otherwise see them: the
 // Project list is whichever directories hold a `project.json` (ADR-0008), the Map Image list is
-// whatever is under `images/`, and Workspace size, Backup and Publish all walk `list`. Teaching each
+// whatever is under `images/`, and Workspace size, Backup and a Sync all walk `list`. Teaching each
 // of those to skip a transaction's paths is five filters, and the sixth reader written next year is
 // the bug — the same argument `review-workspace.ts` makes about containment being structural rather
 // than filtered.
@@ -236,7 +236,7 @@ export function parseImportTransaction(bytes: Bytes): ImportTransaction | null {
  * The transaction this Workspace has outstanding, or `null` when it has none.
  *
  * **A non-`null` answer means the Workspace is unavailable**, and that is the whole of the gate: no
- * Project list, no Map Image list, no size, no Backup, no Publish and no Project open until recovery
+ * Project list, no Map Image list, no size, no Backup, no Sync and no Project open until recovery
  * resolves it (`project-import-recovery.ts`). Nothing filters provisional paths per reader — see the
  * note at the top of this file for why that is one gate rather than six filters.
  *
@@ -600,7 +600,7 @@ async function writeClosure(
  *
  * The path is runtime data — the plan's, built from an identity allocated for this Import — so
  * neither `WritablePath` nor `check-alignment-writers.mjs` can see it, exactly as in the two tar
- * readers and `clone-from-remote.ts`. It is routed for the reason `alignment-file.ts` gives: "the
+ * readers and `workspace-address.ts`. It is routed for the reason `alignment-file.ts` gives: "the
  * Import engine writes Alignments with the generic writer" would be a true statement about the
  * codebase that the next person reads as permission.
  *

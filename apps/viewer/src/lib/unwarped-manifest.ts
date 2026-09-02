@@ -24,7 +24,7 @@
 // {@link servedImageServiceId} is therefore the whole of this module's honesty: it reports where the
 // tiles will *really* come from, and the page refuses to open a viewer that could only draw nothing.
 // ADR-0004's own remedy is the opt-in canonical stamp, which rewrites that `id` to the address the
-// Workspace is published at — a stamped Project reads unwarped here, and an unstamped one says why it
+// Workspace is served at — a stamped Project reads unwarped here, and an unstamped one says why it
 // cannot. That limitation is upstream's and is recorded rather than improvised around: what is missing
 // is a prop — a `TileSource` a host can pass in — and the object that would be passed is
 // `storedPyramidTileSource` in `@ballastella/core`, whose header states the gap in full.
@@ -36,7 +36,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS IS BUILT FROM
 //
-// The published `info.json`, which is the document that *describes the pyramid*: its pixel dimensions
+// The site's `info.json`, which is the document that *describes the pyramid*: its pixel dimensions
 // and the tile sizes and scale factors it actually holds. Nothing is guessed and nothing is recomputed
 // from a tiler — `apps/viewer` must never acquire one (ADR-0019), which is why the coarsest scale factor
 // below is read out of the document's own `scaleFactors` rather than derived.
@@ -48,7 +48,7 @@
 // this?".
 
 /**
- * A published `info.json`: the whole document, plus the two facts this module reads out of it.
+ * The site's `info.json`: the whole document, plus the two facts this module reads out of it.
  *
  * Read structurally rather than through `@allmaps/iiif-parser`, because value-importing the parser is how
  * the tiler reaches the viewer (ADR-0019).
@@ -72,7 +72,7 @@ export type ServedImageInfo = {
 	 * discovering it as eight DNS failures.
 	 */
 	readonly declaredId: string;
-	/** The document as published. Handed to the Manifest's service entry unchanged. */
+	/** The document as the site carries it. Handed to the Manifest's service entry unchanged. */
 	readonly document: Readonly<Record<string, unknown>>;
 };
 
@@ -85,7 +85,7 @@ export class ServedImageInfoUnreadableError extends Error {
 }
 
 /**
- * Parse a published `info.json` down to the four facts a Manifest needs.
+ * Parse the site's `info.json` down to the four facts a Manifest needs.
  *
  * Strict about exactly those four and indifferent to everything else, which is the same tolerance every
  * other parser in this codebase has: a document written by a newer build must still be readable, and a
@@ -243,7 +243,7 @@ export function servedImageManifest(options: {
 									// The service entry is what a tiling viewer draws from; the `id` above is the
 									// fallback for one that cannot tile.
 									//
-									// **The whole published `info.json`, with only its `id` replaced.** A level-0
+									// **The whole `info.json` as the site carries it, with only its `id` replaced.** A level-0
 									// service serves exactly the regions and sizes its own document declares, so an
 									// entry of `{ id, type, profile }` alone gives a viewer nothing to compute a tile
 									// URL from. Measured against triiiceratops 1.0.0-rc.35: OpenSeadragon mounts over

@@ -3,7 +3,7 @@
 // The presentation used to be written twice — the alert boxes in `apps/editor`'s `ProjectScreen` and
 // again in the viewer's `+page.svelte`, each with its own `role="alert"` versus `aria-live` decision
 // — and the two had already drifted: the viewer's own comment recorded that `base-map-notice` and
-// `base-map-not-published` were `aria-live` regions inside `{#if}` blocks, which is a notice a
+// `base-map-not-in-site` were `aria-live` regions inside `{#if}` blocks, which is a notice a
 // screen-reader user never hears. The rule is one component's now, so it is one test.
 //
 // ⚠ **What stays in `e2e/`.** Which notice is up when, and what each one says: the sentences are
@@ -113,10 +113,10 @@ describe('which mechanism a notice uses is this component’s rule', () => {
 		const held = changeable({
 			shape: 'always-present',
 			variant: 'plain',
-			testid: 'base-map-not-published'
+			testid: 'base-map-not-in-site'
 		});
 
-		const before = one('base-map-not-published');
+		const before = one('base-map-not-in-site');
 		expect(before).toBeInTheDocument();
 		expect(text(before)).toBe('');
 		expect(before).toHaveAttribute('aria-live', 'polite');
@@ -124,11 +124,11 @@ describe('which mechanism a notice uses is this component’s rule', () => {
 		expect(before).toHaveAttribute('aria-atomic', 'true');
 		expect(before).not.toHaveAttribute('role');
 
-		held.say('This site was published without the Base Map’s labels and symbols.');
+		held.say('This site does not carry the Base Map’s labels and symbols.');
 		flushSync();
 
-		expect(one('base-map-not-published')).toBe(before);
-		expect(text(before)).toBe('This site was published without the Base Map’s labels and symbols.');
+		expect(one('base-map-not-in-site')).toBe(before);
+		expect(text(before)).toBe('This site does not carry the Base Map’s labels and symbols.');
 		expect(before).toHaveAttribute('aria-live', 'polite');
 	});
 

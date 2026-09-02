@@ -220,7 +220,7 @@ describe('projectOpeningBounds', () => {
 		expect(bounds).toEqual({ west: 4.9041, south: 52.3676, east: 4.9041, north: 52.3676 });
 
 		// Nothing here invents a neighbourhood-sized box out of a point: the cap is what keeps a fit to
-		// zero area off four roof tiles, and it travels with the fit so the editor and the published
+		// zero area off four roof tiles, and it travels with the fit so the editor and the Reader's
 		// viewer cannot cap differently.
 		const fit = openingViewFit(bounds!);
 		expect(fit.maxZoom).toBe(OPENING_VIEW_MAX_ZOOM);

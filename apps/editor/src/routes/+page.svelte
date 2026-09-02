@@ -134,7 +134,7 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// A PUBLISHED SITE'S FRONT PAGE LEADS BACK HERE
+	// A ON_REMOTE SITE'S FRONT PAGE LEADS BACK HERE
 	//
 	// `?clone=owner/repo` and `?review=owner/repo&p=<directory>`, landing on the same one route the
 	// sign-in callback and `?p=` already arrive on, for the same reason: this app has one page.
@@ -321,7 +321,7 @@
 	<!--
 		⚠ **Its own branch, above the hub and above the Project.** An Import or an Update that did not
 		finish could not be resolved, so this Workspace has not opened: its provisional files sit at
-		ordinary Workspace paths and a Project list, a Map Image list, a size, a Backup or a Publish
+		ordinary Workspace paths and a Project list, a Map Image list, a size, a Backup or a Sync
 		plan drawn now would include them. Nothing enumerates —
 		`storage.recovered` is never resolved — so rendering `ProjectHub` here would show “Looking for
 		your Projects…” for ever beside an alert saying the Workspace is shut, which answers neither

@@ -65,7 +65,7 @@ export {
 export {
 	baseMapArchiveHost,
 	baseMapFallbackNotice,
-	baseMapNotPublishedNotice,
+	baseMapNotInSiteNotice,
 	baseMapOptions,
 	baseMapUnavailableNotice,
 	defaultEntry,

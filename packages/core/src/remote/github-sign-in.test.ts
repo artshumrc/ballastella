@@ -5,7 +5,7 @@ import type { GitHubApp } from './github-app.js';
 import { GITHUB_APP, isGitHubAppConfigured } from './github-app.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import { planRemotePublish, publishToRemote } from './publish-to-remote.js';
+import { planRemoteSend, sendToRemote } from './send-to-remote.js';
 import {
 	CREDENTIAL_FRESHNESS_MARGIN_MS,
 	GITHUB_APP_SESSION_KEY,
@@ -467,7 +467,7 @@ describe('the refresh', () => {
 });
 
 // ADR-0041: what may be kept past the tab is the renewable half and nothing else. Eight hours of
-// publish rights at rest is the outcome this whole feature must not produce, so the stripping is
+// push rights at rest is the outcome this whole feature must not produce, so the stripping is
 // asserted at the function that does it rather than trusted to each caller.
 describe('the half of a grant that may be kept past the tab', () => {
 	it('keeps the refresh token and its expiry, and not the access token', () => {
@@ -577,7 +577,7 @@ describe('the grant record', () => {
 });
 
 describe('freshness', () => {
-	// The rule that makes expiry a refusal *before* a publish rather than a failure during one.
+	// The rule that makes expiry a refusal *before* a send rather than a failure during one.
 	it('calls a token at the end of its life stale, with a margin', () => {
 		const now = 1_000_000;
 
@@ -600,9 +600,9 @@ describe('freshness', () => {
 
 // ADR-0031's first consequence, and the property that licenses this deployment shipping placeholder
 // values: *a fork with no infrastructure is fully functional, not degraded.* The broker is on no data
-// path at all, so a publish with a pasted token must not touch it — asserted here rather than in the
+// path at all, so a send with a pasted token must not touch it — asserted here rather than in the
 // browser because "which host was reached" is a question about the engine, not about a screen.
-describe('a publish with a pasted token', () => {
+describe('a send with a pasted token', () => {
 	it('never reaches the broker, even when every request to it would fail', async () => {
 		const fake = await github();
 		const store = new MemoryProjectStore();
@@ -621,8 +621,8 @@ describe('a publish with a pasted token', () => {
 
 		const remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		const token = 'github_pat_11ABCDE0000abcdefghij';
-		const plan = await planRemotePublish(store, { token, remote, fetch: noBroker });
-		await publishToRemote(store, { token, remote, plan, fetch: noBroker });
+		const plan = await planRemoteSend(store, { token, remote, fetch: noBroker });
+		await sendToRemote(store, { token, remote, plan, fetch: noBroker });
 
 		expect(fake.files().get('amsterdam-1625/project.json')).toBeDefined();
 		expect(reached).not.toContain(APP.brokerOrigin);

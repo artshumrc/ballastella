@@ -899,7 +899,7 @@ describe('what a Workspace key says about which directory it is', () => {
  * could be exactly one folder Workspace the collision needed two visits and destroyed nothing in
  * between; plural, it is one afternoon — and what is keyed by the Workspace includes a Remote
  * binding and a Synchronization Baseline, which is this installation's claim that a repository
- * already holds these bytes. Two folders sharing one of those is a Publish aimed at somebody else's
+ * already holds these bytes. Two folders sharing one of those is a send aimed at somebody else's
  * repository, judged against somebody else's tree.
  *
  * So the key is the reference `folder-workspaces.ts` minted for each, and the directory's name — the
@@ -980,7 +980,7 @@ describe('the record of what is on disk for an Alignment', () => {
 	 * **One opt-out with the reasoning written once**, which is the discipline
 	 * `packages/core/src/alignment/alignment-fixture.ts` sets out: three near-identical pragmas across
 	 * three tests is enough pressure on the mechanism that people start pasting it without reading it.
-	 * That helper is core's own and is not on the package's published surface, so the same shape is
+	 * That helper is core's own and is not on the package's exported surface, so the same shape is
 	 * spelled here rather than reached for.
 	 *
 	 * This genuinely is not a write the application makes. It is another process's, which is the whole
@@ -2376,14 +2376,14 @@ describe('an Edit History and the writes it did not make', () => {
 		expect(session.historyFor(MAP).undoable?.label).toBe('Undo placing Control Point 1');
 	});
 	/**
-	 * An Update from GitHub is the one event that does not name a subject.
+	 * A get from a Remote is the one event that does not name a subject.
 	 *
 	 * An Update rewrites arbitrary paths across the whole Workspace — a Project's `project.json`, an
 	 * Annotation, an Alignment a colleague refined on another machine — so there is no history it
 	 * cannot have invalidated. Every one of them goes, which is the generous direction, and the
 	 * assertion is that both screens' controls have nothing left to draw.
 	 */
-	it('goes for every subject when an Update from GitHub lands', async () => {
+	it('goes for every subject when a get from a Remote lands', async () => {
 		const remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		const metadataStorage = new FakeMetadataStorage();
 		const workspaceKey = 'opfs:Amsterdam';

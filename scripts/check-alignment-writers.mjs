@@ -38,10 +38,10 @@
 //   - `packages/core/src/transfer/project-import-transaction.ts` — one Project being copied into the
 //     Workspace the user already has (ADR-0037), where the path is a Map Image identity allocated
 //     for this Import rather than one anything in the source named.
-//   - `packages/core/src/remote/update-from-github.ts` — the inbound half of synchronization, where
+//   - `packages/core/src/remote/get-from-remote.ts` — the inbound half of synchronization, where
 //     the path is an entry in somebody else's git tree, and the one writer with a *fourth* case: a
 //     rollback putting back the Alignment the get itself had displaced or removed.
-//   - `packages/core/src/remote/review-from-remote.ts` — one published Project downloaded into a
+//   - `packages/core/src/remote/review-from-remote.ts` — one Project off a Remote downloaded into a
 //     Review Workspace, from the same kind of tree entry.
 //   - `packages/core/src/autosave/replay.ts` — an unsaved change being put back from the
 //     write-ahead journal at startup. Its own comment says so at the branch: "the path is runtime

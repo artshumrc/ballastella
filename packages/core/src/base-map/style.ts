@@ -58,7 +58,7 @@ export type BaseMapStyleOptions = {
 	readonly catalog?: BaseMapCatalog;
 	/**
 	 * Turns a deployment-relative asset path into a URL, and is the seam ADR-0006 needs: the
-	 * publish target — a domain root or a project subdirectory — is unknown at build time, so
+	 * site's address — a domain root or a project subdirectory — is unknown at build time, so
 	 * nothing here may be an absolute path. Identity by default, which is what the tests want.
 	 *
 	 * It receives the glyph and sprite templates with their `{fontstack}`, `{range}`, and

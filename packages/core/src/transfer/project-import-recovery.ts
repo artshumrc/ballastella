@@ -7,7 +7,7 @@
 // provisional by naming it in one durable marker: while that marker is unresolved the Workspace is
 // **unavailable**, because provisional files sit at ordinary Workspace paths and every reader would
 // otherwise see them. That gate is only worth having if something closes it, and this is that
-// something. It runs before a Project list, a Map Image list, a size, a Backup, a Publish plan, a
+// something. It runs before a Project list, a Map Image list, a size, a Backup, a sync plan, a
 // Remote read, an interrupted deletion or a journal replay — before anything at all asks the
 // Workspace a question.
 //

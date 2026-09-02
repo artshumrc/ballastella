@@ -77,7 +77,7 @@ export interface TileCoordinate {
  * **It is a parent, never a cache.** One level below it is {@link baseMapTileDirectory}, keyed by
  * archive — see the note there. Nothing writes tiles directly into this directory, and the only
  * things that name it are the ones that must reason about *every* cache at once: the hub's size and
- * clear, publishing's list, and the publish sweep's exclusion.
+ * clear, the site's file list, and the site sweep's exclusion.
  */
 export const BASE_MAP_TILE_ROOT = 'base-map/tiles/';
 
@@ -94,12 +94,12 @@ export const BASE_MAP_TILE_ROOT = 'base-map/tiles/';
  * nothing logs, and a scholar gets a plausible pane of the *wrong world*. Detecting that after the
  * fact is the most an unkeyed pile allows; the key removes the state instead. And the path is copied
  * verbatim into a Published Site and read by the viewer's HTTP store, so the key is part of the
- * published format rather than a local detail of the editor's storage.
+ * site's own format rather than a local detail of the editor's storage.
  *
  * ⚠ **The key is derived from `BaseMapEntry.archive` exactly as the catalog writes it, not from the
  * URL a deployment resolves it to.** A bundled archive is a deployment-relative path, so the
  * resolved URL carries the origin the editor happened to be running on — and the same Workspace,
- * published and served from somebody else's host, would then compute a different key for the same
+ * served from somebody else's host, would then compute a different key for the same
  * files and find no cache at all. The catalog's own string is the one thing the editor and every
  * Published Site made from it agree on.
  *
@@ -144,7 +144,7 @@ function fingerprint(value: string): string {
 /**
  * Where one archive's cached tiles live, with its trailing `/`: `base-map/tiles/<key>/`.
  *
- * The path is part of the published format — a Published Site carries these files and the viewer
+ * The path is part of a site's own format — a Published Site carries these files and the viewer
  * reads them over HTTP with no ability to list a directory — so which archive a site's tiles belong
  * to travels on `PublishedSite.baseMapCaches` rather than being guessed from the folder.
  */
@@ -178,7 +178,7 @@ export const legacyCachedTilePath = (tile: TileCoordinate): string =>
  * The archive key and tile a cache path names, or `null` when the path is not one of ours.
  *
  * Key-agnostic on purpose, and that is what the whole-cache callers need: the hub's size, the hub's
- * clear, and publishing's list all have to answer for *every* archive a Workspace has cached, and
+ * clear, and the site's file list all have to answer for *every* archive a Workspace has cached, and
  * the key is a one-way function of an archive they are not holding. {@link parseCachedTilePath} is
  * the same read narrowed to one archive.
  *

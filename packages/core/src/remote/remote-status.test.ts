@@ -88,7 +88,7 @@ describe('the Remote Status a scholar reads', () => {
 		const words = [...Object.values(REMOTE_STATUS_LABELS), REMOTE_STATUS_UNCHECKED]
 			.join(' ')
 			.toLowerCase();
-		for (const refused of ['ahead', 'behind', 'up to date', 'connected', 'published', 'dirty']) {
+		for (const refused of ['ahead', 'behind', 'up to date', 'bound', 'sent', 'dirty']) {
 			expect(words).not.toContain(refused);
 		}
 	});
@@ -278,7 +278,7 @@ describe('a successful check', () => {
 		expect(REMOTE_STATUS_LABELS[found.status]).toBe('Cannot tell');
 	});
 
-	it('reports Publish-owned drift as staleness, leaving the source status In sync', async () => {
+	it('reports site-owned drift as staleness, leaving the source status In sync', async () => {
 		const storage = new FakeMetadataStorage();
 
 		const found = await checkSourceStatus({
@@ -308,9 +308,9 @@ describe('a successful check', () => {
 			changes: index(storage),
 			remote: [
 				{ path: 'atlas/project.json', sha: 's1' },
-				{ path: 'index.html', sha: 'published' }
+				{ path: 'index.html', sha: 'site-write' }
 			],
-			// What an Open and a Publish both record: source paths only (ADR-0038). The Workspace holds
+			// What a get and a send both record: source paths only. The Workspace holds
 			// the site's files too, so calling every one of them drift would be a long and wrong notice.
 			baseline: baseline([['atlas/project.json', 's1']])
 		});

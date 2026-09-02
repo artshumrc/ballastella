@@ -147,7 +147,7 @@ import {
 	type TransferState
 } from './editor-session.svelte.js';
 import { deploymentRoot } from './base-map/deployment-assets.js';
-import { loadViewerBundle, readBundleAsset } from './publish/viewer-bundle-source.js';
+import { loadViewerBundle, readBundleAsset } from './sync/viewer-bundle-source.js';
 import { saveFile } from './save-file.js';
 
 // ── The GitHub App sign-in's browser-side pieces (ADR-0031) ───────────────────────────────────
@@ -264,7 +264,7 @@ const callbackUri = (): string => `${globalThis.location.origin}${globalThis.loc
 /**
  * Whose credential this is, or `''` when GitHub will not say.
  *
- * A failure here is deliberately not a failed sign-in: the token works, the publish will work, and
+ * A failure here is deliberately not a failed sign-in: the token works, a send will work, and
  * the only thing missing is a name on the bar. Refusing the whole sign-in over it would turn a
  * cosmetic outage into an unusable app.
  */
@@ -414,7 +414,7 @@ export interface ImportedFromReview extends ImportedIntoWorkspace {
  *
  * `localStorage` rather than anything in OPFS, and deliberately outside the Workspaces themselves:
  * "which one was I in" is a fact about this browser, not about anybody's work, and writing it into a
- * Workspace would put it in the folder that gets published, backed up, and handed to a colleague.
+ * Workspace would put it in the folder that gets sent, backed up, and handed to a colleague.
  */
 const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 
@@ -641,7 +641,7 @@ export class WorkspaceStorage {
 	/**
 	 * The mark on the Workspace that is open, or `null` when it is one of the user's own (ADR-0024).
 	 *
-	 * This is what the banner is drawn from, and what refuses to publish or back one up. It is read
+	 * This is what the banner is drawn from, and what refuses to send or back one up. It is read
 	 * off the Workspace itself rather than kept here across a switch: a mark that lived only in this
 	 * object would be lost on a reload, and a user would then be inside a throwaway Workspace with
 	 * nothing on screen saying so — which is the exact failure ADR-0024 rules out by making review an
@@ -657,7 +657,7 @@ export class WorkspaceStorage {
 	 */
 	reviewWorkspaces = $state<string[]>([]);
 	/**
-	 * The repository this Workspace publishes to, or `null` when it is bound to nothing (ADR-0032).
+	 * The repository this Workspace syncs with, or `null` when it is bound to nothing.
 	 *
 	 * Read off the Workspace itself on every switch, exactly as {@link review} is and for the same
 	 * reason: the binding is a fact about the Workspace rather than about this tab, so it survives a
@@ -683,11 +683,11 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **Separate from {@link EditorSession.saveState}, which is the whole point of it.** "Saved
 	 * locally" is a fact about this machine and says nothing about whether GitHub agrees; a scholar
-	 * who reads the one as the other publishes over a colleague's afternoon.
+	 * who reads the one as the other sends over a colleague's afternoon.
 	 */
 	remoteStatusState = $state<RemoteStatusState>(UNCHECKED_REMOTE_STATUS);
 	/**
-	 * An Update from GitHub in flight, as files done out of files planned, or `null` for none.
+	 * A get in flight, as files done out of files planned, or `null` for none.
 	 *
 	 * ⚠ **Here rather than in {@link transfer}, which the hub owns.** The Update control lives on the
 	 * navigation bar and is therefore on every screen, so its progress has to be renderable beside it
@@ -792,7 +792,7 @@ export class WorkspaceStorage {
 	 * ⚠ **Not a notice beside a Workspace that opened anyway.** An Import writes its provisional files
 	 * at ordinary Workspace paths under one durable marker, so while that marker is unresolved *every*
 	 * reader would see them — the Project list is whichever directories hold a `project.json`, and
-	 * Workspace size, Backup and Publish all walk `list`. `recoverProjectImport` resolves the marker
+	 * Workspace size, Backup and a Sync all walk `list`. `recoverProjectImport` resolves the marker
 	 * before anything asks the Workspace a question; when it cannot, this is set and
 	 * {@link recovered} is never resolved, so nothing enumerates and the routes render this instead of
 	 * a Project list that would be a lie.
@@ -817,12 +817,12 @@ export class WorkspaceStorage {
 	unrecoveredUpdate = $state('');
 
 	/**
-	 * Why this Workspace may not be enumerated, opened, backed up or published at all, or `''`.
+	 * Why this Workspace may not be enumerated, opened, backed up or sent at all, or `''`.
 	 *
 	 * ⚠ **One question with two answers, deliberately asked once.** An Import and an Update both
 	 * leave provisional state at ordinary Workspace paths under a durable marker, and a guard that
 	 * consulted one of them was a guard that let the other through — which is a Project list, a
-	 * Backup or a Publish over half a transfer.
+	 * Backup or a Sync over half a transfer.
 	 */
 	get unavailable(): string {
 		return this.unrecoveredImport || this.unrecoveredUpdate;
@@ -871,7 +871,7 @@ export class WorkspaceStorage {
 	 *
 	 * IndexedDB rather than `localStorage`, because a Baseline for a Workspace of 40 000 files is a
 	 * couple of megabytes against an origin-wide 5 MB budget the journal already shares — which is how
-	 * the v1 manifest came to be lost *after* a publish had reached GitHub.
+	 * the v1 manifest came to be lost *after* a send had reached GitHub.
 	 */
 	readonly #metadataStorage: MetadataStorage | null = browserMetadataStorage();
 	/**
@@ -879,7 +879,7 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **Not on the `EditorSession` and not in the `ProjectStore`.** A token inside the Workspace
 	 * would be walked by `exportWorkspaceTar` into a Backup the user mails to a colleague, copied
-	 * into the write-ahead journal, and uploaded by the first Publish. It is here, behind an
+	 * into the write-ahead journal, and uploaded by the first Sync. It is here, behind an
 	 * interface, so that the App sign-in's broker-exchanged token is a swap rather than a second path.
 	 *
 	 * The seal is a wrapper rather than a check at each caller, because it has to hold for code
@@ -935,7 +935,7 @@ export class WorkspaceStorage {
 	/**
 	 * Open a fresh recovery window, and answer the promise that closes with it.
 	 *
-	 * Called **before** the arriving session is published, never after: the effect that opens a
+	 * Called **before** the arriving session is announced, never after: the effect that opens a
 	 * Project re-runs the instant `session` changes, and a window opened afterwards would be one it
 	 * had already sailed past.
 	 */
@@ -1010,7 +1010,7 @@ export class WorkspaceStorage {
 			this.unrecoveredUpdate =
 				cause instanceof UpdateRefusedError
 					? cause.message
-					: `This Workspace could not be opened, because an Update from GitHub that did not ` +
+					: `This Workspace could not be opened, because a get from GitHub that did not ` +
 						`finish could not be cleared up: ${cause instanceof Error ? cause.message : String(cause)}`;
 			return false;
 		}
@@ -1033,7 +1033,7 @@ export class WorkspaceStorage {
 		this.canChooseFolder = isFolderWorkspaceSupported();
 		this.#teardownFlushOnHide = this.session.installFlushOnHide();
 		// ⚠ **Window focus, because that is when a Remote has had time to change.** An out-of-band
-		// commit — a colleague publishing, an edit made on github.com — happens while this tab is not
+		// commit — a colleague sending, an edit made on github.com — happens while this tab is not
 		// the one being looked at, so coming back to it is the one moment worth spending a request on.
 		// A timer would spend them while nobody is reading; `RemoteStatusChecker` bounds the rate,
 		// because switching back from a facsimile viewer is not a rare event.
@@ -1352,7 +1352,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * The switch itself, without publishing a listing.
+	 * The switch itself, without announcing a listing.
 	 *
 	 * Split out for {@link discardReview}, which leaves a Workspace it is **about to delete** and has
 	 * already withdrawn from {@link workspaces}. Going through the public {@link openWorkspace} there
@@ -1678,7 +1678,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * The removal itself, without publishing a listing. See {@link #switchTo} for why that is split.
+	 * The removal itself, without announcing a listing. See {@link #switchTo} for why that is split.
 	 *
 	 * ⚠ **The "not the open one" guard lives here, on the deletion, not on the public method above.**
 	 * It was on {@link deleteWorkspace}, and {@link discardReview} — the second caller, added later —
@@ -1711,8 +1711,8 @@ export class WorkspaceStorage {
 	 * reuse. Unfinished deletions carry the same hazard with more force, because their effect is
 	 * *destructive* rather than additive: a record left by a Workspace called "Marking 2026" is a
 	 * standing instruction to delete a directory inside whatever "Marking 2026" is made next. A
-	 * publish manifest (ADR-0033) is this browser's claim about a repository, standing ready for
-	 * whichever repository the next Workspace of that name is bound to — and a publish is judged by
+	 * Baseline (ADR-0033) is this browser's claim about a repository, standing ready for
+	 * whichever repository the next Workspace of that name is bound to — and a send is judged by
 	 * it. The Remote relationship with its Baseline (ADR-0038), and the local-change index, are the
 	 * same claim in the direction that matters most: that these files are already shared with a
 	 * repository the author has never seen. Nothing else sweeps any of them.
@@ -1865,7 +1865,7 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **The same destination as {@link openBundle}, deliberately.** This is the bundle path with a
 	 * different source of bytes (ADR-0024), so what arrives is the same kind of Workspace: throwaway,
-	 * unbound, unpublishable, carrying the banner. Nothing here decides that — `reviewFromRemote`
+	 * unbound, unable to send, carrying the banner. Nothing here decides that — `reviewFromRemote`
 	 * writes the mark, `#adopt` reads it back, and the banner, the sealed credential and the refused
 	 * binding all follow from the mark rather than from this method remembering to arrange them.
 	 *
@@ -1994,7 +1994,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Leaving without publishing a listing, so {@link discardReview} can list once at the end.
+	 * Leaving without announcing a listing, so {@link discardReview} can list once at the end.
 	 *
 	 * ⚠ **It has to actually leave, and there is a reachable arrangement where the obvious switch is a
 	 * no-op.** `#switchTo` returns at once when the destination is already open, and the destination
@@ -2063,7 +2063,7 @@ export class WorkspaceStorage {
 	 * has its own listing and no way to hear about this one, for the reason {@link deleteWorkspace}
 	 * gives at length. What is closed is every route in this tab.
 	 *
-	 * Publishing the listing once, at the end, is the other half — going out through the public
+	 * Announcing the listing once, at the end, is the other half — going out through the public
 	 * `openWorkspace` put the name straight back from OPFS, which still holds it.
 	 */
 	async discardReview(): Promise<void> {
@@ -2134,7 +2134,7 @@ export class WorkspaceStorage {
 	 * somebody with no GitHub account, and the source reads the repository the same way
 	 * {@link reviewFrom} does: unauthenticated, or not at all.
 	 *
-	 * ⚠ **Nothing about the published tree connects this Workspace to anything.** The source offers a
+	 * ⚠ **Nothing about the Remote's tree connects this Workspace to anything.** The source offers a
 	 * Project's closure and an observed origin, and the origin travels as provenance rather than as a
 	 * relationship.
 	 *
@@ -2176,7 +2176,7 @@ export class WorkspaceStorage {
 	 *    they were reading, byte for byte as they left it.
 	 * 2. The Project is read through the read-only source capability over the *review copy's* store —
 	 *    its current state, the reviewer's own edits included — and never from the bundle or the
-	 *    published tree it arrived from.
+	 *    Remote tree it arrived from.
 	 * 3. The Import is the shared engine's, unchanged: fresh Map Image identities, the allocation, the
 	 *    publication reset, the appended provenance, the quota check and one atomic commit.
 	 * 4. Only once that has committed is the destination switched to and the Project opened.
@@ -2390,7 +2390,7 @@ export class WorkspaceStorage {
 			// ⚠ **The Remote is asked before anything is allocated, and one that will not answer refuses
 			// the Import.** A bound Workspace's Remote may hold a Project this installation has never seen,
 			// and a directory allocated as free because a failed listing did not mention it is a Conflict
-			// the author meets at some later Publish. It is also where an Import of the Project this
+			// the author meets at some later Sync. It is also where an Import of the Project this
 			// Workspace already synchronizes is refused, which is why the observed origin is handed over
 			// rather than only the closure.
 			const evidence = await readImportEvidence(source.origin, {
@@ -2497,7 +2497,7 @@ export class WorkspaceStorage {
 	 * Refuse an action a Review Workspace does not get, in the words the user should see.
 	 *
 	 * ⚠ **The sentence is core's.** A message with no test seam under it is a message that drifts:
-	 * publishing and backing up are refused for the same reason and the user is owed the same
+	 * sending and backing up are refused for the same reason and the user is owed the same
 	 * explanation. `assertNotReviewing` also guards `exportWorkspaceTar` itself, so deleting the call
 	 * below changes when the message arrives rather than whether the rule holds — which is what a guard
 	 * with two layers is supposed to mean.
@@ -2522,7 +2522,7 @@ export class WorkspaceStorage {
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ADR-0032, ADR-0033)
 	//
-	// Nothing here publishes. What this half delivers is that the app knows which repository this
+	// Nothing here sends. What this half delivers is that the app knows which repository this
 	// Workspace belongs to, knows whether it may write there, and holds a credential for the length of
 	// the tab.
 
@@ -2530,11 +2530,11 @@ export class WorkspaceStorage {
 	 * Settle the arriving Workspace's Remote, and re-answer whether a credential is readable.
 	 *
 	 * ⚠ **The relationship comes from {@link SynchronizationMetadata} and from nowhere else**, so a
-	 * binding downloaded inside a fork's published tree, carried in a Project Bundle, or restored
+	 * binding downloaded inside a fork's tree, carried in a Project Bundle, or restored
 	 * from a Backup cannot become an active Remote.
 	 *
 	 * Never throws. A Workspace whose metadata cannot be read is unbound and `Cannot tell`, which is
-	 * the direction whose cost is binding again rather than a Publish aimed at an unchecked address.
+	 * the direction whose cost is binding again rather than a send aimed at an unchecked address.
 	 */
 	async #readRemote(session: EditorSession): Promise<void> {
 		const metadata = session.synchronization;
@@ -2543,7 +2543,7 @@ export class WorkspaceStorage {
 		// ⚠ **Cleared and then nothing, over a Workspace whose Import could not be recovered.** Reading
 		// a Remote is a read of this Workspace, and the clears above are why the guard is here rather
 		// than at the call: leaving the *previous* Workspace's Remote on screen beside an unavailable one
-		// is how a Publish gets offered over work that is not there.
+		// is how a send gets offered over work that is not there.
 		if (this.unavailable !== '') return;
 		if (metadata !== null) {
 			this.remote = await metadata.readRemote();
@@ -2633,9 +2633,7 @@ export class WorkspaceStorage {
 	): Promise<WorkspaceUpdate> {
 		const remote = this.remote;
 		if (remote === null) {
-			throw new Error(
-				`“${this.name}” is not connected to a repository, so there is nothing to get.`
-			);
+			throw new Error(`“${this.name}” has no repository, so there is nothing to get.`);
 		}
 		const session = this.session;
 		const key = this.#workspaceKey;
@@ -2705,7 +2703,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * The credential a publish would use, or `null`. Always `null` inside a Review Workspace.
+	 * The credential a send would use, or `null`. Always `null` inside a Review Workspace.
 	 *
 	 * A getter rather than reactive state: the token itself is never rendered, and holding a copy in
 	 * `$state` would put it somewhere a component could show it by accident.
@@ -2743,7 +2741,7 @@ export class WorkspaceStorage {
 		const binding = outcome.remote;
 		// ⚠ **The installation-local relationship is the whole of what makes this Workspace connected**
 		// (ADR-0044), and there is no second copy of it anywhere. A store that will not keep this
-		// leaves the Workspace connected to nothing, so it is said out loud rather than reported as a
+		// leaves the Workspace with no repository, so it is said out loud rather than reported as a
 		// relationship that does not exist.
 		const metadata = this.session.synchronization;
 		if (metadata !== null && !(await metadata.bindRemote(binding))) {
@@ -2811,9 +2809,7 @@ export class WorkspaceStorage {
 	async sendToRemote(): Promise<void> {
 		const remote = this.remote;
 		if (remote === null) {
-			throw new Error(
-				`“${this.name}” is not connected to a repository, so there is nothing to send to.`
-			);
+			throw new Error(`“${this.name}” has no repository, so there is nothing to send to.`);
 		}
 		const token = this.credential;
 		if (token === null) {
@@ -2824,7 +2820,7 @@ export class WorkspaceStorage {
 		}
 		if (await this.hasShareLinks()) await this.#writePublishedSite();
 		try {
-			await this.session.publishToRemote({ token, remote });
+			await this.session.sendToRemote({ token, remote });
 		} finally {
 			// Re-read rather than assumed, for `getFromRemote`'s reason: a refused `writeBaseline`
 			// discards the previous record, so the honest answer afterwards is the `null` this finds.
@@ -2890,9 +2886,7 @@ export class WorkspaceStorage {
 	#shareLinksRequest(act: string): { remote: RemoteRepository; token: string } {
 		const remote = this.remote;
 		if (remote === null) {
-			throw new Error(
-				`“${this.name}” is not connected to a repository yet, so there is no site to ${act}.`
-			);
+			throw new Error(`“${this.name}” has no repository yet, so there is no site to ${act}.`);
 		}
 		const token = this.credential;
 		if (token === null) {
@@ -2904,21 +2898,21 @@ export class WorkspaceStorage {
 		return { remote, token };
 	}
 
-	/** Write the read-only viewer and the site record into the Workspace, as a publish does. */
+	/** Write the read-only viewer and the site record into the Workspace. */
 	async #writePublishedSite(): Promise<void> {
-		const plan = await this.session.planPublish({
+		const plan = await this.session.planPublishedSite({
 			bundle: await loadViewerBundle(),
 			editorUrl: deploymentRoot(),
 			repository: this.remote
 		});
-		await this.session.publish({ plan, readAsset: readBundleAsset });
+		await this.session.writePublishedSite({ plan, readAsset: readBundleAsset });
 	}
 
 	/**
-	 * Ask GitHub whether the sign-in now held may publish to the Remote this Workspace has.
+	 * Ask GitHub whether the sign-in now held may push to the Remote this Workspace has.
 	 *
 	 * ⚠ **Read live and never remembered.** Write access is somebody else's to grant and to take away,
-	 * and the two states this answers — a pull-only relationship stated once, and a publish affordance
+	 * and the two states this answers — a get-only relationship stated once, and a send affordance
 	 * that is absent rather than refusing — are exactly the ones a remembered answer gets wrong
 	 * (ADR-0043). It is the same one `GET /repos/{owner}/{repo}` a bind makes, for the same reason
 	 * `bind-remote.ts` makes it there: before a byte moves.
@@ -2929,14 +2923,12 @@ export class WorkspaceStorage {
 	async readRights(): Promise<RemoteRights> {
 		const binding = this.remote;
 		if (binding === null) {
-			throw new Error(
-				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
-			);
+			throw new Error(`“${this.name}” has no repository, so there is nothing to ask.`);
 		}
 		const token = this.credential;
 		if (token === null) {
 			throw new Error(
-				`Whether you may publish to ${describeRemote(binding)} is something only GitHub can say, ` +
+				`Whether you may push to ${describeRemote(binding)} is something only GitHub can say, ` +
 					`and asking needs you to be signed in.`
 			);
 		}
@@ -2944,7 +2936,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Whether the Remote this Workspace publishes to is the signed-in author's alone (ADR-0043).
+	 * Whether the Remote this Workspace syncs with is the signed-in author's alone (ADR-0044).
 	 *
 	 * Read at the moment it decides something — the press of *Overwrite the repository* — rather than
 	 * held, for
@@ -2956,9 +2948,7 @@ export class WorkspaceStorage {
 	async readSharing(): Promise<RemoteSharing> {
 		const binding = this.remote;
 		if (binding === null) {
-			throw new Error(
-				`“${this.name}” is not connected to a repository, so there is nothing to ask.`
-			);
+			throw new Error(`“${this.name}” has no repository, so there is nothing to ask.`);
 		}
 		const token = this.credential;
 		if (token === null) {
@@ -2974,7 +2964,7 @@ export class WorkspaceStorage {
 	 * Supply a credential for the Remote this Workspace is already bound to.
 	 *
 	 * Validated against that repository rather than merely kept, so a mistyped paste is caught here
-	 * and not at the first Publish. Answers what it found out about the rights, which the screen says
+	 * and not at the first send. Answers what it found out about the rights, which the screen says
 	 * out loud — the credential that reaches a repository and cannot push to it is the one worth
 	 * knowing about before four thousand tiles have gone.
 	 */
@@ -3043,7 +3033,7 @@ export class WorkspaceStorage {
 	// THE GITHUB APP SIGN-IN (ADR-0031)
 	//
 	// The second acquisition path behind the same credential interface. Everything below this class
-	// — `bindWorkspaceToRemote`, `readRemoteRights`, the publish engine — receives an opaque bearer
+	// — `bindWorkspaceToRemote`, `readRemoteRights`, the send engine — receives an opaque bearer
 	// string and cannot tell which door it came through. That is the rule ADR-0031 states and the
 	// reason none of this lives any lower: the flow is the *UI's* business, and the token is not.
 
@@ -3175,7 +3165,7 @@ export class WorkspaceStorage {
 		// ⚠ **The record is written beside the credential with nothing between them that can throw.**
 		// A credential held with no record beside it reads exactly like a pasted token — no expiry to
 		// check and no refresh token to spend — so an eight-hour App token would then be carried into a
-		// publish that meets its end partway through, which is the one outcome
+		// send that meets its end partway through, which is the one outcome
 		// {@link ensureCredentialFresh} exists to prevent. `readGitHubLogin`, which can fail and is only
 		// a name on the bar, comes after both.
 		writeGrantRecord(this.#grants, grant);
@@ -3186,7 +3176,7 @@ export class WorkspaceStorage {
 	/**
 	 * Make sure the held credential will still be good when work starts — **before** it starts.
 	 *
-	 * The rule is that an expired token surfaces as "sign in again", never as a publish that fails
+	 * The rule is that an expired token surfaces as "sign in again", never as a send that fails
 	 * partway through — check before starting, not during. A pasted token has no grant record and is
 	 * therefore left alone, which is not a branch on the auth method so much as the absence of anything
 	 * to check: there is no expiry to read and no refresh token to spend.
@@ -3247,7 +3237,7 @@ export class WorkspaceStorage {
 	 *
 	 * ⚠ **There is nothing to put back but a refresh token.** The access token died with the tab, by
 	 * design, so the only way back to one is the broker's refresh endpoint — which is what keeps a
-	 * stolen database from being a publish: the exchange still has to pass the broker's `Origin`
+	 * stolen database from being a send: the exchange still has to pass the broker's `Origin`
 	 * allowlist. A refresh that fails is a sign-in that has ended, and what was kept goes with it
 	 * rather than being tried again on every visit for ever.
 	 *
@@ -3284,7 +3274,7 @@ export class WorkspaceStorage {
 			});
 			// The session record first, and with nothing between them that can throw, for the reason
 			// {@link completeGitHubSignIn} gives: a credential held with no record beside it reads as a
-			// pasted token, and an eight-hour one would then be carried into a publish that ends partway.
+			// pasted token, and an eight-hour one would then be carried into a send that ends partway.
 			writeGrantRecord(this.#grants, renewed);
 			this.#keepGrant(renewed);
 			this.identity = await readGitHubLogin(renewed.token);
@@ -3319,7 +3309,7 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Forget which repository this Workspace publishes to.
+	 * Forget which repository this Workspace syncs with.
 	 *
 	 * **Nothing on the Remote is touched.** Unbinding is this machine forgetting an address, never a
 	 * deletion of a published site — a scholar who unbinds and binds again is where they were, and
@@ -3371,7 +3361,7 @@ export class WorkspaceStorage {
 		await this.bindRemote(remote, null);
 		return {
 			notice:
-				`“${this.name}” is a new Workspace connected to ${subject}. Nothing has been ` +
+				`“${this.name}” is a new Workspace for ${subject}. Nothing has been ` +
 				`downloaded yet — everything ${subject} holds is waiting under To get.`
 		};
 	}
@@ -3470,10 +3460,10 @@ export class WorkspaceStorage {
 		// its provisional files sit at ordinary paths — so a mark, a Remote, a replay, or the Project the
 		// route is about to ask for would all be read over half an Import.
 		const available = await this.#recoverTransfers(store);
-		// ⚠ **The mark is read before `this.session` is published, and the order is the point.** The
-		// banner, the Publish refusal and the backup refusal are all drawn from it, so a frame in which
+		// ⚠ **The mark is read before `this.session` is announced, and the order is the point.** The
+		// banner, the send refusal and the backup refusal are all drawn from it, so a frame in which
 		// the new session is on screen and the mark is still the *previous* Workspace's is a frame in
-		// which the Publish button is offered over somebody else's work — or, switching the other way,
+		// which a send is offered over somebody else's work — or, switching the other way,
 		// a review banner is drawn over the user's own research with a Discard button on it.
 		//
 		// A folder Workspace is never a review copy: a bundle only ever opens into browser storage, so
@@ -3486,7 +3476,7 @@ export class WorkspaceStorage {
 		// already answering for the arriving Workspace.
 		await this.#readRemote(arriving);
 
-		// Before `this.session` is published, so the route effect that re-runs on the swap waits for
+		// Before `this.session` is announced, so the route effect that re-runs on the swap waits for
 		// the arriving Workspace's replay rather than reading a Project out from under it.
 		this.#beginRecovery();
 		this.session = arriving;

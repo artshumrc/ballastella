@@ -20,7 +20,7 @@
 	// a recorded amendment to ADR-0016's `aria-live="polite"` mandate for status.
 	//
 	// It is the component's decision because it had already been got wrong: the viewer's own comment
-	// flagged `base-map-notice` and `base-map-not-published` as `aria-live` regions inside `{#if}`
+	// flagged `base-map-notice` and `base-map-not-in-site` as `aria-live` regions inside `{#if}`
 	// blocks — correct-looking at each call site, and inaudible. `shape` names what the notice *is*,
 	// and the mapping to a mechanism is made here; a caller can no longer spell it a third way.
 	//
@@ -39,8 +39,8 @@
 	// ⚠ THIS COMPONENT COMPOSES NO PROSE
 	//
 	// Every sentence arrives from the consumer, and the four that matter are core's:
-	// `baseMapFallbackNotice`, `baseMapUnavailableNotice`, `baseMapNotPublishedNotice` and
-	// `mapImageTilesUnavailableNotice`. A sentence written in here would be published by both
+	// `baseMapFallbackNotice`, `baseMapUnavailableNotice`, `baseMapNotInSiteNotice` and
+	// `mapImageTilesUnavailableNotice`. A sentence written in here would be said by both
 	// apps to two different users, which is precisely how a Reader ends up being told to press a
 	// button their app does not have.
 

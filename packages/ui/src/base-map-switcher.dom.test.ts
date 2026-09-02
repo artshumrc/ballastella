@@ -6,7 +6,7 @@
 // component rather than in either consumer.
 //
 // ⚠ What stays in `e2e/` is unchanged: that *this deployment's* catalog is what the editor offers,
-// that a Published Site keeps offering what it was published with, and that choosing an entry
+// that a Published Site keeps offering the entries it was written with, and that choosing an entry
 // actually redraws MapLibre. Those are claims about the application's real dependencies. This file's
 // subject is the `<select>` the component builds out of whatever catalog it is handed.
 //
@@ -112,7 +112,7 @@ test('labels an option with the map’s name and nothing else', () => {
 });
 
 test('carries the test id both suites address the control by', () => {
-	// Roughly twenty assertions in `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` reach
+	// Roughly twenty assertions in `e2e/viewer-reader.e2e.ts` and `e2e/editor-sync.e2e.ts` reach
 	// this control as `getByTestId('base-map-switcher')`, and a published site is not rebuilt by this
 	// repository's test run — so deleting the attribute here breaks a suite that cannot see this file.
 	const select = render({ entryId: 'parish-roads', catalog: CATALOG, onSelect: () => {} });
@@ -122,7 +122,7 @@ test('carries the test id both suites address the control by', () => {
 
 test('marks needs-network on each option as data a test can read, and not only in the text', () => {
 	// The visible text is for the Reader; this attribute is how `e2e/viewer-reader.e2e.ts` asks which
-	// entries of a *published* catalog need the network, having no access to that catalog otherwise.
+	// entries of a site's own catalog need the network, having no access to that catalog otherwise.
 	// It reads `option.dataset.needsNetwork === 'true'`, so the value matters as much as the name.
 	const select = render({ entryId: 'parish-roads', catalog: CATALOG, onSelect: () => {} });
 

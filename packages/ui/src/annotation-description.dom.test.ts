@@ -4,7 +4,7 @@
 // answers "supported" against happy-dom and then returns its input essentially untouched, so a
 // sanitiser claim at this seam is green whatever the sanitiser does — this package's
 // `vitest.config.ts` records the measurement. That claim lives in `e2e/viewer-reader.e2e.ts`, in a
-// real browser, against a real published build.
+// real browser, against the real Reader build.
 //
 // What is left for this seam is the surface's own shape, which is what the tests below assert.
 

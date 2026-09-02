@@ -15,7 +15,7 @@
 	reason the stack is always here and empty rather than raised with its first message. A refusal
 	carries `role="alert"` on the message itself, which announces on insertion.
 
-	`mt-20` clears the navigation bar, so a message never covers the Publish button or the theme
+	`mt-20` clears the navigation bar, so a message never covers the Sync control or the theme
 	control it is most likely to be about.
 -->
 <div class="toast toast-end toast-top z-50 mt-20" aria-live="polite" data-testid="toast-stack">

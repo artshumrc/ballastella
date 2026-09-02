@@ -249,7 +249,7 @@ function ensureLabelChipImage(map: MapLibreMap): void {
  * A Published Site written before ADR-0025 holds no `base-map/` assets, and the viewer builds its
  * style without `glyphs` rather than firing 404s at fonts that are not there — or worse, letting
  * MapLibre substitute a system one, which is invisible to every assertion about the map. A Label on
- * such a site cannot be drawn, and the page's notice says so (`baseMapNotPublishedNotice`).
+ * such a site cannot be drawn, and the page's notice says so (`baseMapNotInSiteNotice`).
  *
  * ⚠ **Asked of the map, not passed in.** The style is the fact; a boolean threaded down from two
  * applications would be a second description of it, free to disagree. Both panes wait for the style
@@ -698,7 +698,7 @@ export type DrawnStackObjects = {
  * **The seam that keeps each app's Playwright handle in its own app.** CONTRIBUTING.md's Seam 2 is a
  * real browser with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but
  * a `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding into
- * the other's types, and into a published Reader's bundle. So the exposure is injected and this module
+ * the other's types, and into the Reader's bundle. So the exposure is injected and this module
  * knows nothing about `window`.
  */
 export type StackBuiltListener = (

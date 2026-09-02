@@ -107,7 +107,7 @@ describe('the sync modal', () => {
 		expect(shown('to-get')).toBeTruthy();
 		expect(storage.gets).toEqual([]);
 		expect(storage.session.sends).toEqual([]);
-		expect(storage.session.published).toBe(0);
+		expect(storage.session.siteWrites).toBe(0);
 	});
 
 	// ⚠ **The claim the whole modal exists for.** A Sync of one map is four thousand paths; a column
@@ -332,7 +332,7 @@ describe('the sync modal for somebody who cannot write', () => {
 // instructor's repository and presses *Get changes* — and the three affordances that send are
 // absent rather than present-and-refusing.
 describe('the sync modal with nobody signed in', () => {
-	/** A student who has signed up for nothing, whose Workspace is connected to a public repository. */
+	/** A student who has signed up for nothing, whose Workspace belongs to a public repository. */
 	const signedOut = (): FakeSyncStorage => {
 		const storage = somethingToGet();
 		storage.signedIn = false;
@@ -513,7 +513,7 @@ describe('the sync modal and Share Links', () => {
 		press('sync-send');
 		await settle();
 
-		expect(storage.session.published).toBe(0);
+		expect(storage.session.siteWrites).toBe(0);
 	});
 
 	// ⚠ **And no front-page question either, here or with Share Links on.** Which Projects a Reader
@@ -529,6 +529,6 @@ describe('the sync modal and Share Links', () => {
 		press('sync-send');
 		await settle();
 
-		expect(storage.session.published).toBe(1);
+		expect(storage.session.siteWrites).toBe(1);
 	});
 });

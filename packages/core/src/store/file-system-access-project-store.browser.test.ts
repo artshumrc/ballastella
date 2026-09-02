@@ -47,7 +47,7 @@ describeProjectStore('FileSystemAccessProjectStore', async () => {
 });
 
 /**
- * Update from GitHub over a chosen folder.
+ * Getting from a Remote over a chosen folder.
  *
  * ⚠ **The same suite, unchanged, and that is the assertion.** The requirement is that the two
  * backings produce the same committed files, the same rollback-or-forward choice, the same Project

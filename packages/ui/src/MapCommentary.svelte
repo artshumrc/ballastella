@@ -39,7 +39,7 @@
 		 * consumer's own screen belongs in the markup that renders it.
 		 */
 		emptyStackNote: Snippet;
-		/** What the opening view settled on. Also published as `data-opening-view`. */
+		/** What the opening view settled on. Also exposed as `data-opening-view`. */
 		openingOutcome: OpeningViewOutcome;
 		/** Whether the framing was asked for rather than automatic. */
 		refitted?: boolean;

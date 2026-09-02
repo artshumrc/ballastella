@@ -16,8 +16,8 @@
 //
 // So every run had two `vite build` processes racing over one output directory while a third step
 // read that directory to stage it. A copy that lands mid-empty stages a partial viewer into the
-// editor, and the editor then ships a Publish button whose bundle is missing files — which shows up
-// as an unrelated-looking failure in `editor-publish`, `editor-transfer` or `editor-pwa`, in one run
+// editor, and the editor then ships Share Links whose bundle is missing files — which shows up
+// as an unrelated-looking failure in `editor-sync`, `editor-transfer` or `editor-pwa`, in one run
 // and not the next. Nothing errors; the build reports success both times.
 //
 // The fix is that there is now exactly one build, sequential, shared: the editor's own `build`

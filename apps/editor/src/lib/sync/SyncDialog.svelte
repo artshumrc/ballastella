@@ -46,8 +46,8 @@
 	import { SvelteMap } from 'svelte/reactivity';
 
 	import {
-		MAX_PUBLISHED_FILES,
-		RemotePublishCredentialError,
+		MAX_SENT_FILES,
+		RemoteSendCredentialError,
 		STATIC_HOSTING_LIMIT_BYTES,
 		describeBytes,
 		describeOutboundRemovals,
@@ -61,9 +61,9 @@
 		type Change,
 		type OutboundDeletionPreview,
 		type ProjectSummary,
-		type PublishPlan,
+		type PublishedSitePlan,
 		type PublishedSite,
-		type RemotePublishPlan,
+		type RemoteSendPlan,
 		type SyncColumn,
 		type SyncMode,
 		type SyncPlan
@@ -109,11 +109,11 @@
 	const signedIn = $derived(storage.signedIn);
 
 	/** What a send would write into the Workspace first, for a Workspace with Share Links. */
-	let plan = $state<PublishPlan | null>(null);
+	let plan = $state<PublishedSitePlan | null>(null);
 	/** The record this Workspace's own Published Site carries, or `null` before there is one. */
 	let site = $state<PublishedSite | null>(null);
 	/** The forecast both columns are read from, or `null` before GitHub has been asked. */
-	let upload = $state<RemotePublishPlan | null>(null);
+	let upload = $state<RemoteSendPlan | null>(null);
 	/** Why the two sides could not be compared: a truncated tree, an expired sign-in. */
 	let problem = $state('');
 	/**
@@ -127,7 +127,7 @@
 	/**
 	 * Whether this Workspace has Share Links, or `null` while nobody has looked (ADR-0045).
 	 *
-	 * ⚠ **It decides whether the local publish runs at all.** Without Share Links a Sync carries the
+	 * ⚠ **It decides whether the Published Site is written at all.** Without Share Links a Sync carries the
 	 * scholar's own files and nothing else, and writing the viewer into the Workspace anyway would be
 	 * the very thing that gave them Share Links — the answer is the files' presence, so writing them
 	 * *is* asking for a site.
@@ -318,13 +318,13 @@
 			// The viewer is only pending where there is a site to keep current, so the three budgets are
 			// about the Sync being offered rather than about one that is not going to happen.
 			const local = hasSite
-				? await active.planPublish({
+				? await active.planPublishedSite({
 						bundle,
 						editorUrl: deploymentRoot(),
 						repository: bound
 					})
 				: null;
-			const forecast = await active.planRemotePublish({
+			const forecast = await active.planRemoteSend({
 				token: credential,
 				remote: bound,
 				pending: local?.files ?? [],
@@ -361,7 +361,7 @@
 		} catch (cause) {
 			// Outside the guard: the credential is dead whichever run found that out, and leaving it in
 			// place would put the next Sync's discovery of it after the upload has started.
-			if (cause instanceof RemotePublishCredentialError) storage.signOut();
+			if (cause instanceof RemoteSendCredentialError) storage.signOut();
 			if (mine !== planning) return;
 			problem = messageOf(cause);
 		}
@@ -401,7 +401,7 @@
 	/**
 	 * Whether sending would change the repository.
 	 *
-	 * ⚠ **Read from {@link RemotePublishPlan.unchanged} rather than from the *To send* column**, and
+	 * ⚠ **Read from {@link RemoteSendPlan.unchanged} rather than from the *To send* column**, and
 	 * the two are not the same question. The column is the scholar's own work — Projects and Map
 	 * Images — and a Workspace with Share Links also sends a viewer, a site record and a `.nojekyll`,
 	 * none of which is source and none of which appears in a column. A Workspace whose Projects
@@ -520,13 +520,13 @@
 				};
 			}
 			if (mode !== 'get') {
-				// ⚠ **The local publish is not run at all for a Workspace with no Share Links**
+				// ⚠ **The Published Site is not written at all for a Workspace with no Share Links**
 				// (ADR-0045). A repository holds the work until an author asks for a site, and since
 				// having Share Links *is* carrying the viewer file set, writing it here would grant them
 				// — silently, on a press about GitHub.
 				let site: PublishedSite | null = null;
 				if (shareLinks === true && plan !== null) {
-					site = await session.publish({
+					site = await session.writePublishedSite({
 						plan,
 						readAsset: readBundleAsset,
 						onProgress: (seen) => {
@@ -545,7 +545,7 @@
 			await tick();
 			done = { got, sent, baselineKept };
 		} catch (cause) {
-			if (cause instanceof RemotePublishCredentialError) storage.signOut();
+			if (cause instanceof RemoteSendCredentialError) storage.signOut();
 			// ⚠ **A refusal after the viewer has been written must not imply nothing happened.** Core's
 			// upload refusals all say "nothing on your Published Site has changed", which is true and is
 			// about the repository — while the Workspace in front of the author has just gained a
@@ -585,7 +585,7 @@
 	/**
 	 * The upload half of a send: the bytes, and what this installation then believes.
 	 *
-	 * The local publish is the caller's, because whether it ran is what a refusal afterwards has to
+	 * The local site write is the caller's, because whether it ran is what a refusal afterwards has to
 	 * be able to say out loud.
 	 */
 	async function sendToRemote(overwriting: boolean): Promise<{
@@ -605,11 +605,11 @@
 					`it was.`
 			);
 		}
-		const result = await session.publishToRemote({
+		const result = await session.sendToRemote({
 			token: credential,
 			remote: bound,
 			// The author's answer carried through to the engine as **the files it was about** — which
-			// re-plans against the Workspace the local publish has just written, minutes newer than the
+			// re-plans against the Workspace the local site write has just changed, minutes newer than the
 			// listing on screen. An agreement to remove one Annotation must not become an agreement to
 			// delete a Project that arrived in the meantime.
 			...(overwriting ? { overwrite: upload?.overwrites ?? [] } : {}),
@@ -1235,7 +1235,7 @@
 						<li data-budget="files">
 							{sync.size.files} of {upload === null
 								? 0
-								: upload.files.length + upload.pending.length} files need uploading (limit: {MAX_PUBLISHED_FILES}).
+								: upload.files.length + upload.pending.length} files need uploading (limit: {MAX_SENT_FILES}).
 						</li>
 						<li data-budget="bytes">
 							Sending would move {describeBytes(sync.size.bytes)}; the repository would hold

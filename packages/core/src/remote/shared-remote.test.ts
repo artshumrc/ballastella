@@ -138,7 +138,7 @@ describe('whether a Remote is the signed-in author’s alone', () => {
 	});
 
 	// A repository with no commits at all: GitHub answers 204, which is *nobody* rather than a
-	// question it would not answer. Read as unanswered it would make the first publish of every
+	// question it would not answer. Read as unanswered it would make the first send of every
 	// brand-new repository ask a confirmation about a colleague who does not exist.
 	it('reads a repository with no commits as nobody else, not as unanswered', async () => {
 		const remote = await github();

@@ -30,7 +30,7 @@
 // containment cannot.
 //
 // What the mark is load-bearing for is the *banner* — which screen says "you are in a review copy",
-// what it names, and which two exits it offers — and for refusing to publish or back one up.
+// what it names, and which two exits it offers — and for refusing to send or back one up.
 
 import {
 	PathNotFoundError,
@@ -243,7 +243,7 @@ export function describeReviewSubject(mark: ReviewMark): string {
 /**
  * Refuse an action a Review Workspace does not get, in the words the user should see.
  *
- * ⚠ **One sentence for every one of them rather than a phrase per call site.** Publishing and backing
+ * ⚠ **One sentence for every one of them rather than a phrase per call site.** Sending and backing
  * up are refused for the same reason and the user is owed the same explanation; two spellings is how
  * two screens come to say different things about one rule. In `packages/core` rather than in the
  * editor so it has a test seam at all — the app has none — and so that the *writer* of a backup can

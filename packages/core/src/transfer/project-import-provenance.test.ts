@@ -49,7 +49,7 @@ const REVIEW: ProjectImportOrigin = {
 };
 
 /**
- * The Project as it arrives: published from somebody's site, on their front page, with a field a
+ * The Project as it arrives: read off somebody's site, on their front page, with a field a
  * later build wrote.
  *
  * Read out of bytes rather than written as a literal, so the fixture is a `project.json` a source
@@ -90,7 +90,7 @@ describe('the observed entry each source appends', () => {
 		]);
 	});
 
-	it('records the repository, branch, Project directory and commit, for a published Project', () => {
+	it('records the repository, branch, Project directory and commit, for a Project on a Remote', () => {
 		const detached = detachImportedProject(arrived(), GITHUB, AT);
 
 		expect(detached.importProvenance).toEqual([
@@ -126,7 +126,7 @@ describe('the observed entry each source appends', () => {
 	it.each([
 		['a Project Bundle', BUNDLE, ['evidence', 'filename', 'kind', 'observedAt', 'projectName']],
 		[
-			'a published Project',
+			'a Project on a Remote',
 			GITHUB,
 			['branch', 'commit', 'directory', 'evidence', 'kind', 'observedAt', 'owner', 'repository']
 		],
@@ -139,7 +139,7 @@ describe('the observed entry each source appends', () => {
 });
 
 describe('the publication reset', () => {
-	it('writes no canonicalUrl at all, whatever the source was published at', () => {
+	it('writes no canonicalUrl at all, whatever address the source was stamped with', () => {
 		const detached = detachImportedProject(arrived(), GITHUB, AT);
 
 		expect(detached.canonicalUrl).toBeNull();

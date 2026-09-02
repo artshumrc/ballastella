@@ -59,7 +59,7 @@ export type FakeGitHubOptions = {
 	 *
 	 * **Omit it for an empty repository** — no commit and no ref at all, which is the repository
 	 * `github.com/new` makes with nothing ticked. Reads and writes of the git database both answer
-	 * 409 `Git Repository is empty.` in that state, so a first publish has to open it through the
+	 * 409 `Git Repository is empty.` in that state, so a first send has to open it through the
 	 * Contents API before it can send anything.
 	 */
 	readonly tree?: Readonly<Record<string, string | Uint8Array>>;
@@ -67,7 +67,7 @@ export type FakeGitHubOptions = {
 	 * Submodules the repository already holds: path → the commit SHA the gitlink points at.
 	 *
 	 * A gitlink has no bytes anywhere in this repository, so it never appears in {@link FakeGitHub.files}
-	 * — read it back through {@link FakeGitHub.gitlinks}. It is here because a publish must carry one
+	 * — read it back through {@link FakeGitHub.gitlinks}. It is here because a send must carry one
 	 * through untouched (ADR-0033) and a listing filtered to blobs would drop it silently.
 	 */
 	readonly submodules?: Readonly<Record<string, string>>;
@@ -107,7 +107,7 @@ export type FakeGitHubOptions = {
 export type FakeGrantedRepository = {
 	readonly owner: string;
 	readonly repository: string;
-	/** `permissions.push`, which is what decides whether the author may publish to it. */
+	/** `permissions.push`, which is what decides whether the author may push to it. */
 	readonly push: boolean;
 	/**
 	 * `permissions.admin`, which is what decides whether the author can widen the grant themselves.
@@ -188,7 +188,7 @@ export interface FakeGitHub {
 	 * How many `POST /git/blobs` calls have arrived, counting those {@link refuseWrites} turned away.
 	 *
 	 * It measures what the engine sent, not what the store accepted, so a test can assert *"the second
-	 * publish uploaded nothing"* without asserting a call order — which would pass over an engine that
+	 * send uploaded nothing"* without asserting a call order — which would pass over an engine that
 	 * uploaded everything in a different sequence — and can assert that a refusal stopped the uploads
 	 * rather than merely failed them.
 	 */
@@ -199,7 +199,7 @@ export interface FakeGitHub {
 	 *
 	 * {@link blobPosts}'s counterpart on the read side, and it measures the same thing for the same
 	 * reason: what the engine *asked for*, not what it got. A get resumes by skipping paths it
-	 * already holds (`clone-from-remote.ts`), and "already holds" is a claim only this counter can
+	 * already holds (`workspace-address.ts`), and "already holds" is a claim only this counter can
 	 * check — an engine that re-downloaded every file and then wrote the same bytes back would leave a
 	 * Workspace indistinguishable from a resumed one, and pass any assertion made on the result.
 	 */
@@ -209,7 +209,7 @@ export interface FakeGitHub {
 	 * Every file a commit holds, path → a copy of its bytes, sorted by path.
 	 *
 	 * Takes a branch name or a commit SHA, so a test can ask what an *earlier* commit held rather
-	 * than only what survived to the head — the question "every commit a publish writes carries
+	 * than only what survived to the head — the question "every commit a send writes carries
 	 * `.nojekyll`" cannot be asked of the head alone.
 	 */
 	files(ref?: string): Map<string, Uint8Array>;
@@ -226,9 +226,9 @@ export interface FakeGitHub {
 	/**
 	 * Commit a change nothing here made: a scholar editing a file on github.com, or another machine.
 	 *
-	 * ⚠ **The only way to produce a *foreign* write**, and that is what it is for. A publish's
+	 * ⚠ **The only way to produce a *foreign* write**, and that is what it is for. A send's
 	 * conflict refusal is entirely about writes this app did not make, and every other way of
-	 * changing this repository goes through the publish engine — so a test that built one that way
+	 * changing this repository goes through the send engine — so a test that built one that way
 	 * would be asserting that the engine agrees with itself.
 	 *
 	 * Paths not named are left exactly as they are, and `null` removes one. The commit is parented
@@ -620,10 +620,10 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		// `api.github.com` answers `access-control-allow-origin: *` and *names* both rate-limit headers
 		// in `access-control-expose-headers`. The two do different jobs, and only the second is about
 		// the budget: without the **origin** header a cross-origin response is not readable at all —
-		// `fetch` rejects and the publish reports a network failure — while without the **expose**
+		// `fetch` rejects and the send reports a network failure — while without the **expose**
 		// header the response arrives and every unexposed header is hidden, so the budget reads `null`
-		// end to end: no request warning before a publish, no count in the progress line, and a spent
-		// budget mid-publish reported as an ordinary refusal rather than as a wait.
+		// end to end: no request warning before a send, no count in the progress line, and a spent
+		// budget mid-send reported as an ordinary refusal rather than as a wait.
 		//
 		// Both are carried so a fake driven through Playwright routes fails the way GitHub would.
 		// **What this does not model is the preflight.** Every request here carries `Authorization`,
@@ -666,8 +666,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 * What a read of the git database answers for a ref it cannot resolve.
 	 *
 	 * ⚠ **A repository with no commits answers 409 `Git Repository is empty.`, not 404**, and the
-	 * difference decides whether a first publish to a repository the scholar created a moment ago
-	 * works at all: read as an ordinary failure it stops the publish at plan time, with a message
+	 * difference decides whether a first send to a repository the scholar created a moment ago
+	 * works at all: read as an ordinary failure it stops the send at plan time, with a message
 	 * about a repository that is perfectly fine. A repository that has branches but not this one is
 	 * the 404 it always was.
 	 */
@@ -681,7 +681,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 * `POST /git/blobs` answers 409 `Git Repository is empty.` on real GitHub, so there is no order of
 	 * blob, tree and commit calls that opens an empty repository — the Contents API below is the only
 	 * way in. A fake that accepted objects here was more permissive than GitHub in the one direction
-	 * that mattered: every first-publish test passed while the first publish anybody actually made
+	 * that mattered: every first-send test passed while the first send anybody actually made
 	 * failed at its first blob, on the repository the tool's own link tells them to create.
 	 */
 	const emptyForWrites = (): Response | null =>
@@ -786,7 +786,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 		// `PUT /repos/{owner}/{repo}/contents/{path}` — the one write an empty repository accepts, and
 		// the only reason it is modelled here. It is what github.com's "create a new file" uses, and a
-		// publish uses it once, to bring the branch into being before the Git Data API is asked for
+		// a send uses it once, to bring the branch into being before the Git Data API is asked for
 		// anything. Only the create case is implemented: this fake has no `sha` parameter and so no
 		// update-an-existing-file path, because nothing here overwrites a file that way.
 		if (rest[0] === 'contents' && rest.length > 1 && method === 'PUT') {
@@ -802,7 +802,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				}
 				const target = typeof branch === 'string' && branch !== '' ? branch : defaultBranch;
 				// A repository that already has this branch is not what this endpoint is used for here,
-				// and a fake that quietly committed over it would hide a publish taking the slow road.
+				// and a fake that quietly committed over it would hide a send taking the slow road.
 				if (refs.has(target)) {
 					return problem(
 						422,
@@ -879,7 +879,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				// `github.com/new` with no README has no branches at all, and that is precisely the
 				// repository the "create it yourself" link hands a scholar back from. Modelled because
 				// the two failures need opposite sentences: one is a permission to grant, and the other
-				// is a branch that appears by itself at the first publish.
+				// is a branch that appears by itself at the first send.
 				if (!refs.has(source.branch)) {
 					return json(
 						{
@@ -897,15 +897,15 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		if (rest[0] !== 'git') return notFound(`${url.pathname} is not a path this fake implements.`);
 
 		if (rest[1] === 'ref' && rest[2] === 'heads' && rest.length > 3 && method === 'GET') {
-			// Where a publish starts: the branch's current commit, which becomes the parent of the one
-			// it writes. Without it a publish can only commit an orphan, which is a force push over
+			// Where a send starts: the branch's current commit, which becomes the parent of the one
+			// it writes. Without it a send can only commit an orphan, which is a force push over
 			// whatever the scholar did on github.com — and, because a commit here is content-addressed
 			// over tree, parents, and message, an unchanged Workspace would produce the *same* commit
 			// SHA and the ref would not move at all.
 			const branch = rest.slice(3).join('/');
 			const at = refs.get(branch);
 			// An empty repository and a missing branch are **different statuses**, and both mean the
-			// first publish creates the ref rather than moving it. A repository with no branches at all
+			// first send creates the ref rather than moving it. A repository with no branches at all
 			// answers 409 `Git Repository is empty.` — the one `github.com/new` makes with no README —
 			// and one that has branches but not this one answers 404.
 			if (at === undefined) return emptyOrMissing(branch);
@@ -919,7 +919,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 			const recursive = url.searchParams.get('recursive');
 			// A listing that is not recursive holds the top level only, which is how an engine that
-			// forgot the parameter comes to publish a Workspace it believes has three files in it.
+			// forgot the parameter comes to send a Workspace it believes has three files in it.
 			const entries = (await listing(tree)).filter(
 				(entry) => recursive !== null || !entry.path.includes('/')
 			);
@@ -1067,7 +1067,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				}
 				// Any move is accepted and `force` is ignored on purpose. Conflict detection in this
 				// epic is manifest-based (ADR-0033) — the engine compares the Remote's blob SHAs
-				// against what it last published and refuses before it ever gets here — so a
+				// against what it last sent and refuses before it ever gets here — so a
 				// fast-forward check at this endpoint would refuse pushes the engine means to make and
 				// would test a rule nothing in the product relies on.
 				refs.set(branch, sha);

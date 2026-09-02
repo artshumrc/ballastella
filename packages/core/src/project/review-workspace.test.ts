@@ -225,9 +225,9 @@ describe('what a Review Workspace may and may not be asked to do', () => {
 					openedAt: '',
 					origin: null
 				},
-				'published'
+				'sent to GitHub'
 			)
-		).toThrow(/a Project somebody sent you.*cannot be published/s);
+		).toThrow(/a Project somebody sent you.*cannot be sent to GitHub/s);
 	});
 
 	it('lets a review copy be discarded, and refuses to discard one of the user’s own', () => {

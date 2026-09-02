@@ -96,7 +96,7 @@ interface ArchiveListing {
  *
  * ⚠ **A repeated entry name and an unsafe one are refused by `createProjectImportSource` rather than
  * here.** They are properties of the path set, not of tar, and the Review path already spells them its
- * own way; a third spelling in this module is how a bundle and a published tree come to disagree about
+ * own way; a third spelling in this module is how a bundle and a Remote's tree come to disagree about
  * the same file. What this pass owes them is an honest list — every name the archive held, once each —
  * which is why a second `project.json` is not allowed to replace the first on the way past.
  *

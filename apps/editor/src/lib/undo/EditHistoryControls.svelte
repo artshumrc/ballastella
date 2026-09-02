@@ -25,7 +25,7 @@
 	let undoable = $state.raw<Step | null>(null);
 	let redoable = $state.raw<Step | null>(null);
 
-	// The history publishes; this projects it into reactive state, the same shape the save indicator
+	// The history announces; this projects it into reactive state, the same shape the save indicator
 	// gets from `Autosave`. `subscribe` calls back once immediately and returns its own unsubscribe,
 	// which is this effect's teardown — so swapping histories cannot leave the bar reading the old one.
 	$effect(() =>

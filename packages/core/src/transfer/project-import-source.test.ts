@@ -234,7 +234,7 @@ async function delivered(source: ProjectImportSource): Promise<Record<string, st
 
 const adapters = [
 	['a Project Bundle', bundleSource],
-	['a Published GitHub Project', remoteSource],
+	['a Project on a GitHub Remote', remoteSource],
 	['a Review Workspace', reviewSource]
 ] as const;
 
@@ -343,7 +343,7 @@ describe('what a source observed about where it came from', () => {
 		});
 	});
 
-	it('records the repository, branch, Project directory and commit of a published Project', async () => {
+	it('records the repository, branch, Project directory and commit of a Project on a Remote', async () => {
 		// The fake here rather than through `remoteSource`, so the commit is compared against the one
 		// the branch really stands at rather than against a shape.
 		const fake = await createFakeGitHub({
@@ -583,7 +583,7 @@ describe('a source is refused before anything could be installed', () => {
 
 	// The generated-file exclusion is asked of *referenced* paths too, which is the only way it can
 	// still matter now the closure is reference-only: a Layer pointing at `_app/app.js` must not pull
-	// publishing's own output into the user's Workspace as if it were scholarship (ADR-0006).
+	// the site's own output into the user's Workspace as if it were scholarship (ADR-0045).
 	it.each(adapters)(
 		'will not follow a Layer reference into generated site output in %s',
 		async (_name, open) => {

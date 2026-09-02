@@ -448,7 +448,7 @@ describe('every offered type is one this codebase can hold', () => {
  * sharpest: the routing in its `write` and the refusal in its `writePlain` both consult it, so
  * loosening or narrowing moves the branch and its guard together and in the same direction, the
  * guard stops catching exactly the paths the branch stopped routing, and nothing anywhere goes red.
- * `clone-from-remote.ts`, `update-from-github.ts`, `review-from-remote.ts` and
+ * `workspace-address.ts`, `get-from-remote.ts`, `review-from-remote.ts` and
  * `restore-workspace-tar.ts` each route a write the same way from the same answer. The specimens
  * below are the spellings on either side of the line, taken from `hoistedImageId`, which answers the
  * same question for the two tar readers.

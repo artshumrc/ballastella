@@ -16,7 +16,7 @@
  *
  * So: one expected string, built here, asserted with `toHaveText` (never `toContainText`) on both
  * sides. A **function** rather than a constant because the two specs legitimately render different
- * Base Maps — the editor gets this deployment's own entry, and the viewer whatever entry a published
+ * Base Maps — the editor gets this deployment's own entry, and the viewer whatever entry a site's
  * fixture's catalog carries — and a constant would have forced one of them to stop asserting the
  * label.
  *

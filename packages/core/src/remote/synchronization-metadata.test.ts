@@ -226,7 +226,7 @@ describe('installation-local synchronization metadata', () => {
 			expect(await metadata.readBaseline(ATLAS)).toEqual(baseline());
 		});
 
-		// Stale evidence is never retained, and the Publish is never reported as failed. A refused write
+		// Stale evidence is never retained, and the Send is never reported as failed. A refused write
 		// leaves the previous transfer's map in place, which the reader cannot tell from a record of the
 		// transfer that has just happened.
 		it('answers false and clears stale evidence when the store refuses the write', async () => {

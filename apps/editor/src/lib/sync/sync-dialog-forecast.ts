@@ -7,15 +7,15 @@
 
 import type {
 	PendingLocalFile,
-	PublishPlan,
-	RemotePublishPlan,
+	PublishedSitePlan,
+	RemoteSendPlan,
 	RemoteRepository
 } from '@ballastella/core';
 
 export const ATLAS: RemoteRepository = { owner: 'ada', repository: 'atlas', branch: 'main' };
 
 /** A forecast with nothing in either direction, which every case starts from and varies. */
-export function emptyForecast(over: Partial<RemotePublishPlan> = {}): RemotePublishPlan {
+export function emptyForecast(over: Partial<RemoteSendPlan> = {}): RemoteSendPlan {
 	return {
 		head: 'c0ffee',
 		files: [],
@@ -51,8 +51,8 @@ export const at = (path: string, sha = 'a'.repeat(40)) => ({
 	authored: false
 });
 
-/** What `planPublish` answers: enough of a local plan for the Share Links half to be exercised. */
-export const localPlan = (files: readonly PendingLocalFile[] = []): PublishPlan =>
+/** What `planPublishedSite` answers: enough of a local plan for the Share Links half to be exercised. */
+export const localPlan = (files: readonly PendingLocalFile[] = []): PublishedSitePlan =>
 	({
 		files,
 		bytes: files.reduce((total, file) => total + file.bytes, 0),
@@ -61,4 +61,4 @@ export const localPlan = (files: readonly PendingLocalFile[] = []): PublishPlan 
 		warnings: [],
 		baseMapBundled: false,
 		baseMapAssetsBundled: false
-	}) as unknown as PublishPlan;
+	}) as unknown as PublishedSitePlan;

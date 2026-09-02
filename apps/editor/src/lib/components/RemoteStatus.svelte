@@ -145,7 +145,7 @@
 		'changes-both-ways':
 			'Something changed here and something changed on GitHub since the two last agreed. Sync moves both directions in one act.',
 		'cannot-tell':
-			'There is no trustworthy record of what this Workspace and GitHub last shared, so the differences cannot be attributed to either side.'
+			'Nothing here can say how the two sides differ: either there is no trustworthy record of what this Workspace and GitHub last shared, or the repository could not be read at all, which is what a private one looks like to somebody signed out.'
 	};
 
 	/**
@@ -332,11 +332,11 @@
 	nobody hears is an author who believes the Remote's changes are now in their Workspace. The
 	`remote-status-failure` alert also leaves the determination beside it exactly as it was: a network
 	failure, an expired credential or a spent hourly budget is not agreement, and reported as `Up to
-	date` it is the one reading that licenses publishing over somebody else's work.
+	date` it is the one reading that licenses sending over somebody else's work.
 
 	⚠ **Published Site staleness is never one of the six** (ADR-0033). A site built by another editor
 	version has different chunk names, so this is routinely true of a Workspace whose scholarship agrees
-	with its Remote exactly. What it means is "republish when you like", which is why it is its own
+	with its Remote exactly. What it means is "the next Sync rebuilds it", which is why it is its own
 	sentence with its own remedy and why it is a note rather than a warning.
 -->
 <Toast text={notice} testid="update-outcome" tone="info" />
@@ -346,7 +346,7 @@
 	text={remote.publishedSiteStale.length === 0
 		? ''
 		: `The Published Site was built from different files (${remote.publishedSiteStale.length} ` +
-			`${remote.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). Publish again to rebuild it.`}
+			`${remote.publishedSiteStale.length === 1 ? 'file' : 'files'} differ). The next Sync rebuilds it.`}
 	testid="published-site-stale"
 	tone="info"
 />

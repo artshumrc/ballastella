@@ -87,7 +87,7 @@
 		</div>
 	{:else if job.coverage}
 		<p class="mt-4 max-w-prose text-sm opacity-70">
-			These tiles come from the server this deployment's Base Map is published on. Ballastella will
+			These tiles come from the server this deployment's Base Map is served from. Ballastella will
 			ask it for {job.coverage.missing.length}
 			{job.coverage.missing.length === 1 ? 'tile' : 'tiles'} — the ones not already in this Workspace
 			— and for nothing else. The data is OpenStreetMap under the Open Database Licence, and the map keeps

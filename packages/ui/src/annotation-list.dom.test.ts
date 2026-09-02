@@ -13,7 +13,7 @@
 // answers "supported" against happy-dom and then returns its input essentially untouched, so a
 // sanitiser claim at this seam is green whatever the sanitiser does — this package's
 // `vitest.config.ts` records the measurement. That claim lives in `e2e/viewer-reader.e2e.ts`, in a
-// real browser, against a real published build.
+// real browser, against the real Reader build.
 //
 // **The row's name surface is asserted here**, and it is a different mechanism from the description:
 // a title is a Svelte interpolation, so the DOM never parses it as markup, and that it stays one is

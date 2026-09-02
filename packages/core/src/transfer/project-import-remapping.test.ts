@@ -159,7 +159,7 @@ const REMOTE_JSON = {
 /**
  * The closure the source offers, Project-relative.
  *
- * `images/<LOCAL>/info.json` carries the **source Workspace's published address** rather than the
+ * `images/<LOCAL>/info.json` carries the **source Workspace's stamped address** rather than the
  * ADR-0004 placeholder, because that is the stamp the remap has to reset: a Project imported from
  * somebody's Published Site arrives claiming their IIIF endpoint.
  */

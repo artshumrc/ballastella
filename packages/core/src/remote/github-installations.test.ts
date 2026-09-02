@@ -5,7 +5,7 @@ import { createFakeGitHub, type FakeGitHub, type FakeGrants } from './fake-githu
 import { readGrantedRepositories } from './github-installations.js';
 
 // The in-memory seam, against the one shared fake GitHub. What is asserted is the *answer* — which
-// repositories, which of them may be published to, and whether a refusal is a refusal — rather than
+// repositories, which of them may be pushed to, and whether a refusal is a refusal — rather than
 // which requests were made: the failure this module exists to prevent is a rejected sign-in
 // rendered as "you have no repositories", and no assertion on a call count can see it.
 //
@@ -34,7 +34,7 @@ const listed = async (fetch: FetchFn) => {
 };
 
 describe('the repositories a signed-in author has granted the App', () => {
-	// ⚠ **Publishing and widening the grant are separate rights.** `atlas` has both, `diary` only the
+	// ⚠ **Pushing and widening the grant are separate rights.** `atlas` has both, `diary` only the
 	// first — which is the difference between an author who can add a missing repository themselves
 	// and one who has to ask somebody.
 	it('reports each one with what may be done to it and whether it is private', async () => {
@@ -44,21 +44,21 @@ describe('the repositories a signed-in author has granted the App', () => {
 			{
 				owner: 'ada',
 				repository: 'atlas',
-				canPublish: true,
+				canPush: true,
 				canGrantAccess: true,
 				isPrivate: false
 			},
 			{
 				owner: 'ada',
 				repository: 'diary',
-				canPublish: true,
+				canPush: true,
 				canGrantAccess: false,
 				isPrivate: true
 			},
 			{
 				owner: 'ada',
 				repository: 'notes',
-				canPublish: false,
+				canPush: false,
 				canGrantAccess: false,
 				isPrivate: false
 			}

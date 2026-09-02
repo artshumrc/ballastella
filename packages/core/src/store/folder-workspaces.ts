@@ -109,7 +109,7 @@ export async function resolveFolderWorkspace(
  * ⚠ **Run before any folder is picked in this session.** The trigger is the folder in the single
  * slot rather than a folder the user has just chosen, because a folder that merely shares a name
  * with the remembered one holds different work — and inheriting the remembered folder's Remote
- * binding would aim an author's next Publish at a repository they have never seen.
+ * binding would aim an author's next send at a repository they have never seen.
  *
  * Once, structurally: a folder with a record is found by {@link resolveFolderWorkspace}'s own
  * matching and there is nothing left to move. `null` is a slot with no folder in it, a browser with

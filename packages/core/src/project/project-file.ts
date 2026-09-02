@@ -144,15 +144,15 @@ export interface ProjectFile {
 	/**
 	 * The address this Project's Map Images have been stamped for, or `null` (ADR-0004).
 	 *
-	 * Set only by the opt-in publish step that rewrites each `info.json` `id`, and remembered here so
-	 * that a later publish can offer the same address rather than asking again — which is what makes
+	 * Set only by the opt-in stamp that rewrites each `info.json` `id`, and remembered here so
+	 * that a later stamp can offer the same address rather than asking again — which is what makes
 	 * a stamped `id` a *citable* IIIF endpoint rather than a value nobody can reproduce.
 	 *
 	 * **An address, and the one field in this file that is one.** It is not read to fetch anything:
 	 * the editor assigns `Image#uri` from wherever the tiles really are, so moving a stamped Project
 	 * cannot break it (ADR-0004's load-time override always wins). Compare `baseMap`, which is an id
 	 * precisely *because* an address in Project data is the mistake ADR-0020 exists to prevent — the
-	 * difference is that this one is a record of where the user published, not a place to fetch from.
+	 * difference is that this one is a record of the address the user gave, not a place to fetch from.
 	 *
 	 * `null` is written as *absence*: an unstamped `project.json` is byte-identical to one written
 	 * before this field existed, which is what keeps every byte-identity assertion in this codebase
@@ -163,7 +163,7 @@ export interface ProjectFile {
 	 * Whether this Project is listed on the Published Site's Front Page (ADR-0032).
 	 *
 	 * **Absent from the file means `true`**, which is what every Project written before this field
-	 * existed meant and what a new one means: publishing lists everything unless the author says
+	 * existed meant and what a new one means: a site listed everything unless the author said
 	 * otherwise. `false` is written; `true` is written as *absence*, so a Project on the Front Page is
 	 * byte-identical to one from a build that had never heard of the choice.
 	 *

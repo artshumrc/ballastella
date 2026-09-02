@@ -84,7 +84,7 @@ const press = (key: string, modifiers: { shift?: boolean } = {}, target: EventTa
 
 /** Let the undo's own writes settle, since the handlers do not await. */
 const settled = async (): Promise<void> => {
-	// A handful of microtask turns: the write, the history's own publish, and this component's
+	// A handful of microtask turns: the write, the history's own announcement, and this component's
 	// continuation after it are each one, and counting them exactly would be a test of the internals.
 	for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
 	// Twice: the first flush runs `Toast`'s effect, which posts to the store the stack renders from.

@@ -38,11 +38,11 @@
 {/snippet}
 
 {#snippet end()}
-	<button type="button" data-testid="app-control">Publish…</button>
+	<button type="button" data-testid="app-control">Sync</button>
 {/snippet}
 
 {#snippet menu()}
-	<li><button type="button" data-testid="app-control">Publish…</button></li>
+	<li><button type="button" data-testid="app-control">Sync</button></li>
 {/snippet}
 
 {#snippet status()}

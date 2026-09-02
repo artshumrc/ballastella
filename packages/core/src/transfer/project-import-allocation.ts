@@ -23,10 +23,10 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE REMOTE AND THE BASELINE ARE EVIDENCE
 //
-// A bound Workspace's Remote may hold a Project this installation has never seen — published from
+// A bound Workspace's Remote may hold a Project this installation has never seen — sent from
 // another machine, or added by a collaborator. Allocating `amsterdam-1625` locally because nothing
 // local holds it manufactures a Conflict the author did not create and cannot understand: two
-// unrelated Projects at one directory, discovered at the next Publish. The Baseline covers the third
+// unrelated Projects at one directory, discovered at the next Sync. The Baseline covers the third
 // case, a directory both live sides have already lost sight of but whose files are still ours.
 //
 // `recognisedProjectDirectories` is the one rule for that union and is asked here rather than

@@ -10,7 +10,7 @@
 // same unauthenticated tree listing a get reads, and the first that holds a Workspace wins.
 //
 // ⚠ **This is beside {@link parseRemoteReference} rather than inside it.** That one guards a *bind* —
-// the address a Workspace will publish to — where one answer or none is the only safe shape, and a
+// the address a Workspace will sync with — where one answer or none is the only safe shape, and a
 // function that sometimes means two repositories has no business deciding where somebody's work
 // goes. This one only ever opens somebody else's public Remote, which changes nothing anywhere.
 //
@@ -225,7 +225,7 @@ function stopsTheProbe(candidate: AddressCandidate, cause: unknown): string | nu
 			return (
 				`GitHub could only list the first ${cause.listed} files in ${name}, so Ballastella ` +
 				`cannot tell whether the address you pasted means that repository. Nothing has been ` +
-				`downloaded. Ask whoever published it for the “owner/repository” form of the address.`
+				`downloaded. Ask whoever owns it for the “owner/repository” form of the address.`
 			);
 		case 'unreachable':
 			return (
@@ -240,7 +240,7 @@ function stopsTheProbe(candidate: AddressCandidate, cause: unknown): string | nu
 /**
  * The hourly limit, said as a wait rather than as a fault in the address.
  *
- * ⚠ **Named as *anonymous* and the connection as *shared*, for `clone-from-remote.ts`'s reason.**
+ * ⚠ **Named as *anonymous* and the connection as *shared*, for `workspace-address.ts`'s reason.**
  * This path signs in to nothing, so the budget is GitHub's 60 requests an hour per internet
  * connection — and a class all opening their instructor's Workspace at once spends it between them.
  */
@@ -271,7 +271,7 @@ function notAnAddressMessage(pasted: string): string {
 	const customDomain = host !== undefined && host.includes('.');
 	return customDomain
 		? `“${shown}” is a site on an address of its own, and a site like that says nothing about ` +
-				`which repository on GitHub it was published from — so Ballastella cannot work out what ` +
+				`which repository on GitHub it came from — so Ballastella cannot work out what ` +
 				`to open. Paste the GitHub address instead: “owner/repository”, or the whole of ` +
 				`https://github.com/owner/repository.`
 		: `“${shown}” is not an address Ballastella can open. It takes “owner/repository”, the whole ` +
@@ -283,9 +283,9 @@ function notAnAddressMessage(pasted: string): string {
 function noWorkspaceMessage(candidates: readonly AddressCandidate[]): string {
 	const names = candidates.map((one) => `${one.owner}/${one.repository}`).join(' or ');
 	return (
-		`Nothing that Ballastella can open is published at ${names}. Either there is no public ` +
+		`Nothing that Ballastella can open is served at ${names}. Either there is no public ` +
 		`repository there — from here a private one looks exactly like a missing one, because this ` +
-		`reads GitHub without signing in — or what is published there was not published by ` +
+		`reads GitHub without signing in — or what is there was not written by ` +
 		`Ballastella. Check the address with whoever gave it to you.`
 	);
 }

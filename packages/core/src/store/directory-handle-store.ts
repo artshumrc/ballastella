@@ -277,7 +277,7 @@ const DRAIN_ATTEMPTS = 5;
  * ⚠ **A partial drain is re-read, never returned.** The obvious handling of a mid-drain
  * `NotFoundError` — keep what was collected and carry on — is a listing that is short by an unknown
  * number of files and reports success. That is a worse bug than the throw it replaces and a much
- * quieter one: `list('')` feeds the Project hub, publishing, and backup, where a short
+ * quieter one: `list('')` feeds the Project hub, the site write, and backup, where a short
  * listing is an archive that is silently missing somebody's work. So the whole directory is read
  * again instead. The retry converges because the entry that went is gone by the next pass.
  *

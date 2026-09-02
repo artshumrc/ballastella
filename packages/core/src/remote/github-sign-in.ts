@@ -6,7 +6,7 @@
 //
 // A push credential lives behind {@link CredentialStore}: a token can be put in, taken out, and
 // thrown away. A pasted fine-grained token was the first way to get one; this is the second, and
-// **below that interface the two are indistinguishable** — the publish engine is handed an opaque
+// **below that interface the two are indistinguishable** — the send engine is handed an opaque
 // bearer string and never learns which door it came through. Nothing here or anywhere beneath the UI
 // branches on which of the two it holds, which is ADR-0031's consequence written as a rule.
 //
@@ -255,7 +255,7 @@ export function describeCallbackRefusal(callback: SignInCallback): string {
 		const detail = callback.errorDescription || callback.error;
 		return (
 			`GitHub would not authorise this application, so nothing has been signed in to: ${detail}. ` +
-			`Nothing on this computer has changed, and you can publish by pasting a personal access ` +
+			`Nothing on this computer has changed, and you can send by pasting a personal access ` +
 			`token instead.`
 		);
 	}
@@ -345,7 +345,7 @@ const brokerUnreachable = (cause: unknown): GitHubSignInError =>
 	new GitHubSignInError(
 		`The GitHub sign-in service could not be reached, so nothing has been signed in to. The ` +
 			`browser reported: ${cause instanceof Error ? cause.message : String(cause)}. Everything you ` +
-			`have is still saved on this computer, and you can publish by pasting a personal access ` +
+			`have is still saved on this computer, and you can send by pasting a personal access ` +
 			`token instead — that path needs no service at all.`
 	);
 
@@ -412,13 +412,13 @@ export async function refreshGitHubToken(options: {
 // ── The grant, kept beside the credential ─────────────────────────────────────────────────────
 
 /**
- * How much of the eight hours has to be left for a publish to be allowed to start.
+ * How much of the eight hours has to be left for a send to be allowed to start.
  *
  * ⚠ **The whole point of a margin is that expiry is refused *before* an upload, never during one.**
- * A first publish of a large Map Image is thousands of requests and can run for many minutes,
+ * A first send of a large Map Image is thousands of requests and can run for many minutes,
  * and a token that dies partway leaves loose blobs in no tree and a ref that never moved. One minute
- * is not enough to cover a long publish, so this is not a guarantee that the token outlives the
- * upload — it is what stops a publish being started with a credential already at its end. The
+ * is not enough to cover a long send, so this is not a guarantee that the token outlives the
+ * upload — it is what stops a send being started with a credential already at its end. The
  * refresh below is what keeps the token far from its expiry in the ordinary case.
  */
 export const CREDENTIAL_FRESHNESS_MARGIN_MS = 60_000;
@@ -431,7 +431,7 @@ export const isGrantFresh = (grant: GitHubTokenGrant, now: number): boolean =>
  * The record kept beside the credential, so an expiry survives a reload.
  *
  * ⚠ **It holds a refresh token, which is a secret**, so it lives wherever the credential lives and
- * nowhere else — never in the Workspace, which is what a Backup packs and a Publish uploads, and
+ * nowhere else — never in the Workspace, which is what a Backup packs and a send uploads, and
  * never in `localStorage`, which holds the write-ahead journal (ADR-0033).
  */
 export function readGrantRecord(storage: CredentialStorage): GitHubTokenGrant | null {
@@ -478,7 +478,7 @@ export function clearGrantRecord(storage: CredentialStorage): void {
 /**
  * What survives a tab close when the author has asked this machine to keep their sign-in.
  *
- * ⚠ **The access token is not in it, and cannot be added to it.** Eight hours of publish rights at
+ * ⚠ **The access token is not in it, and cannot be added to it.** Eight hours of push rights at
  * rest is the thing this feature must not create; a refresh token at rest still has to be exchanged
  * through the broker, which leaves the broker's `Origin` allowlist in the path. {@link
  * writeRememberedGrant} takes a whole grant and writes these two fields, so the stripping is one
@@ -548,9 +548,9 @@ export function clearRememberedGrant(storage: CredentialStorage): void {
 /** What a scholar is told when the token has run out and could not be renewed. */
 export function signInAgainMessage(): string {
 	return (
-		`Your GitHub sign-in has expired, so nothing has been published. A sign-in from GitHub lasts ` +
+		`Your GitHub sign-in has expired, so nothing has been sent. A sign-in from GitHub lasts ` +
 		`eight hours and this one has run out — renewing it was tried and did not work. Press “Sign in ` +
-		`with GitHub” to sign in again, then publish. Nothing on this computer or on GitHub has been ` +
+		`with GitHub” to sign in again, then Sync. Nothing on this computer or on GitHub has been ` +
 		`changed, and your work is exactly where you left it.`
 	);
 }
@@ -566,7 +566,7 @@ function refusedExchange(detail: string): string {
 function unexpectedAnswer(status: number): string {
 	return (
 		`The GitHub sign-in service gave an answer this application did not understand (HTTP ` +
-		`${status}), so nothing has been signed in to. You can publish by pasting a personal access ` +
+		`${status}), so nothing has been signed in to. You can send by pasting a personal access ` +
 		`token instead, which needs no service at all.`
 	);
 }

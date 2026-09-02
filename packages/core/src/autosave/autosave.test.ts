@@ -212,7 +212,7 @@ describe('Autosave', () => {
 	 * journal whose `forget` threw was once an ending, and the worst of them: `commit` rejected for a
 	 * write the store had taken, with the indicator reading Saved (see `does not fail a write the
 	 * store took because the journal would not forget it`). A subscriber that threw while the
-	 * indicator was published was once an ending too — **that one is removed**, by not letting a
+	 * indicator was announced was once an ending too — **that one is removed**, by not letting a
 	 * listener throw into this class at all rather than by guarding the three places it could land.
 	 * See `a subscriber that throws cannot touch the write path`, which is where those assertions
 	 * went.
@@ -476,7 +476,7 @@ describe('Autosave', () => {
 		 * ⚠ **A SUBSCRIBER RE-ENTERING DURING A SWEEP COULD REVERT A PATH TO OLDER BYTES.**
 		 *
 		 * `flush` and `settled` walk a snapshot of the paths and then drain each one. Draining the
-		 * *first* path publishes `'saving'`, and `#publish` runs subscribers synchronously — a seam this
+		 * *first* path announces `'saving'`, and `#announce` runs subscribers synchronously — a seam this
 		 * class documents, supports and tests. So a subscriber that writes to a path **later in the
 		 * walk** has its edit installed and then overwritten by the value the sweep is still carrying
 		 * for that path.
@@ -520,7 +520,7 @@ describe('Autosave', () => {
 			};
 
 			it('does not let flush write back bytes a subscriber superseded mid-sweep', async () => {
-				// Two paths, so the sweep publishes on the first and still has the second to reach.
+				// Two paths, so the sweep announces on the first and still has the second to reach.
 				autosave.queue('a/project.json', utf8.encode('a1'));
 				autosave.queue('b/project.json', utf8.encode('b1'));
 				let committed: 'resolved' | 'rejected' | 'waiting' = 'waiting';
@@ -555,7 +555,7 @@ describe('Autosave', () => {
 			it('does not let settled write back bytes a subscriber superseded mid-sweep', async () => {
 				// `settled` is what `EditorSession.#quietBeforeDeleting` calls, so this is the reachable
 				// twin of the test above rather than a second spelling of it. Two files under one
-				// Project, because the sweep has to publish on the first and still have the second to
+				// Project, because the sweep has to announce on the first and still have the second to
 				// reach — which is the whole mechanism.
 				autosave.queue('p/annotations/one.geojson', utf8.encode('a1'));
 				autosave.queue('p/project.json', utf8.encode('b1'));
@@ -609,7 +609,7 @@ describe('Autosave', () => {
 					},
 					onJournalRefused: (problem) => {
 						// Once, and never for the withdrawal, or this recurses: each refusal is a fresh
-						// `Error`, so every record publishes a change.
+						// `Error`, so every record announces a change.
 						if (problem === null || reentered) return;
 						reentered = true;
 						void refusing.commit('p/project.json', utf8.encode('NEWER')).catch(() => undefined);
@@ -777,8 +777,8 @@ describe('Autosave', () => {
 		/**
 		 * ⚠ **A SUBSCRIBER THAT THREW KILLED THE PATH OUTRIGHT, AND THIS FIX INTRODUCED IT.**
 		 *
-		 * `#drainLoop`'s first act is `#publish('saving')`, and `#publish` runs subscribers
-		 * synchronously. Published from *above* the loop's `try`, a subscriber that threw made the loop
+		 * `#drainLoop`'s first act is `#announce('saving')`, and `#announce` runs subscribers
+		 * synchronously. Announced from *above* the loop's `try`, a subscriber that threw made the loop
 		 * reject without the `finally` ever running — so `file.draining` held a rejected promise for
 		 * ever and every later `#drain` on that path handed it straight back. The indicator sat on
 		 * "Saving" and `commit`, the debounce and `flush` were all dead for that file, permanently.
@@ -795,7 +795,7 @@ describe('Autosave', () => {
 		 * subscriber's own failure is not swallowed for it — see `a subscriber that throws cannot touch
 		 * the write path`, which asserts it escapes.
 		 */
-		it('is not killed by a subscriber that throws while the indicator is published', async () => {
+		it('is not killed by a subscriber that throws while the indicator is announced', async () => {
 			escapesOutOfBand();
 			let willThrow = true;
 			autosave.subscribe((state) => {
@@ -828,9 +828,9 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **The `finally` replaces the drain's state BEFORE it publishes, and the order is
-		 * load-bearing** (review 2, finding F). `#derive` reads the state map, so publishing first
-		 * reports `'saving'` for a drain that has already stopped and then never republishes — the
+		 * ⚠ **The `finally` replaces the drain's state BEFORE it announces, and the order is
+		 * load-bearing** (review 2, finding F). `#derive` reads the state map, so announcing first
+		 * reports `'saving'` for a drain that has already stopped and then never re-announces — the
 		 * indicator sits on "Saving" for ever with nothing in flight.
 		 *
 		 * ⚠ **Driven by a store that rejects rather than by a subscriber that throws.** A listener
@@ -839,7 +839,7 @@ describe('Autosave', () => {
 		 * ending that reaches this line with a state still to be replaced, and swapping the two lines
 		 * turns this red.
 		 */
-		it('releases the drain before it publishes, so the indicator does not stick on Saving', async () => {
+		it('releases the drain before it announces, so the indicator does not stick on Saving', async () => {
 			vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
 
 			await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
@@ -912,7 +912,7 @@ describe('Autosave', () => {
 		/**
 		 * ⚠ **WHY THE DEFERRED IN `#drain` IS LOAD-BEARING RATHER THAN DEFENSIVE.**
 		 *
-		 * `#drainLoop` publishes `'saving'` before it does anything else, and subscribers run
+		 * `#drainLoop` announces `'saving'` before it does anything else, and subscribers run
 		 * synchronously. A subscriber is application code, so it can commit — and therefore re-enter
 		 * `#drain` — *before the loop that provoked it has run a second line*. The memo must already be
 		 * in `file.draining` by then, and an `async` method cannot see its own promise to put it there.
@@ -964,12 +964,12 @@ describe('Autosave', () => {
 		 * last write covered for the two before it, and both a no-op `flush` and a deleted debounce
 		 * drain left all three rows green. A route that is written down but not read is decoration.
 		 *
-		 * ⚠ **`a subscriber threw while the indicator was being published` is deliberately not a row
+		 * ⚠ **`a subscriber threw while the indicator was being announced` is deliberately not a row
 		 * here, and dropping a row is exactly the move that needs justifying.** It is not a way a drain
 		 * can stop — a listener cannot throw into this class at all — so the row would assert
 		 * `holdsTheBytes: true` for a write that completes. The property it would check is not dropped:
 		 * it lives in `a subscriber that throws cannot touch the write path`, which drives a throwing
-		 * listener through **every** publish point rather than only the one at the top of the drain
+		 * listener through **every** announce point rather than only the one at the top of the drain
 		 * loop.
 		 */
 		const waysADrainCanStop = [
@@ -1023,7 +1023,7 @@ describe('Autosave', () => {
 	});
 
 	/**
-	 * ⚠ **A SUBSCRIBER THAT THREW CORRUPTED THIS CLASS TWICE, FROM TWO DIFFERENT PUBLISH POINTS.**
+	 * ⚠ **A SUBSCRIBER THAT THREW CORRUPTED THIS CLASS TWICE, FROM TWO DIFFERENT ANNOUNCE POINTS.**
 	 *
 	 * Once it left a rejected promise memoised against the path for ever, so every later write to
 	 * that file was handed the rejection and the indicator sat on "Saving" — `commit`, the debounce
@@ -1036,7 +1036,7 @@ describe('Autosave', () => {
 	 * remove. `injection/store-image-fetch.ts` uses the same pattern at the tile-fetch seam.
 	 *
 	 * ⚠ **Driven at every seam rather than at the one that hurt.** The two defects above were both at
-	 * `#drainLoop`'s first publish, so a test that drove only that seam would have gone green against
+	 * `#drainLoop`'s first announce, so a test that drove only that seam would have gone green against
 	 * a class that still let `abandon`, `settled` or `subscribe` be taken down. `onJournalRefused` is
 	 * in here too: it is a different callback, but it is the same thing — application code called
 	 * from inside a method that owns an invariant.
@@ -1081,8 +1081,8 @@ describe('Autosave', () => {
 			await microtasks();
 			// Every one of those calls failed, and every one of them was reported — one escape for each
 			// call a healthy listener beside it received. A count rather than a bare
-			// `not.toHaveLength(0)`: this is what says the listener really was called at every publish,
-			// so a change that stopped publishing reads as a failure rather than as a pass.
+			// `not.toHaveLength(0)`: this is what says the listener really was called at every announce,
+			// so a change that stopped announcing reads as a failure rather than as a pass.
 			expect({ escaped: escaped.length, told: alsoTold }).toEqual({
 				escaped: 6,
 				told: ['saved', 'unsaved', 'saving', 'saved', 'saving', 'saved']
@@ -1146,7 +1146,7 @@ describe('Autosave', () => {
 
 			await autosave.commit('p/project.json', utf8.encode('a'));
 
-			// ⚠ **The listener registered *after* the thrower is the assertion.** `#publish` iterates
+			// ⚠ **The listener registered *after* the thrower is the assertion.** `#announce` iterates
 			// its set, and an unguarded throw stopped that iteration — so a single bad subscriber
 			// silenced the indicator for everything registered behind it. Named as a residual on the
 			// previous shape of this class, closed here.
@@ -1365,7 +1365,7 @@ describe('Autosave', () => {
 		 * unprotected against leaving the page — for a Project they have just deleted, which has no
 		 * files to protect — until some unrelated edit happens to re-derive the answer.
 		 *
-		 * That is the same shape as the defect `lastError` and `#publishJournalRefusal` are both
+		 * That is the same shape as the defect `lastError` and `#sendJournalRefusal` are both
 		 * per-file for: a warning that is true of nothing, left on the screen.
 		 */
 		it('withdraws a journal refusal for a Project it is giving up on', async () => {
@@ -1396,7 +1396,7 @@ describe('Autosave', () => {
 		 *
 		 * `abandon` walked keys *and values*, and calls `#forget(path)` in the loop — an injected
 		 * `AutosaveJournal.forget`, which is application code by the same standard as `onJournalRefused`
-		 * and `#publish`. A `forget` that writes to a path later in the walk leaves the sweep holding a
+		 * and `#announce`. A `forget` that writes to a path later in the walk leaves the sweep holding a
 		 * value from before that write: it sees the path as merely debouncing, takes the branch that
 		 * deletes it outright, and the drain it was actually in **never reaches `inFlight`**.
 		 *
@@ -1710,9 +1710,9 @@ describe('Autosave', () => {
 		 * 3 — the sixth way out, and the one a "where does control leave this class" sweep could not
 		 * find).
 		 *
-		 * `#publish` read `#derive()` **once**, into a local, and then handed that one value to
+		 * `#announce` read `#derive()` **once**, into a local, and then handed that one value to
 		 * application code once per listener. A listener that reacts by editing runs a nested
-		 * `#publish` which correctly advances the state; when the stack unwinds, the outer loop
+		 * `#announce` which correctly advances the state; when the stack unwinds, the outer loop
 		 * resumes and delivers its **pre-edit** snapshot to every listener it had not yet reached. The
 		 * last thing such a subscriber is told is `saved`, with bytes pending and `hasPendingWrite`
 		 * answering `true`.
@@ -1736,14 +1736,14 @@ describe('Autosave', () => {
 			let armed = false;
 			let edited = false;
 			// ⚠ **Subscribed first, then armed.** `subscribe` replays the current state immediately, so
-			// an unarmed listener would make its edit at registration time — before the publish this is
+			// an unarmed listener would make its edit at registration time — before the announce this is
 			// about — and the test would pass against the defect. It did, on the first cut.
 			autosave.subscribe((state) => {
 				if (!armed || state !== 'saved' || edited) return;
 				edited = true;
 				autosave.queue('p/other.json', utf8.encode('typed while being told'));
 			});
-			// Registered behind it, so the publish still has this one to reach when the edit happens.
+			// Registered behind it, so the announce still has this one to reach when the edit happens.
 			autosave.subscribe((state) => seenByLate.push(state));
 			armed = true;
 
@@ -1768,7 +1768,7 @@ describe('Autosave', () => {
 		 *
 		 * A `Set` visits an element again if it is deleted and re-added during iteration, so a
 		 * listener that unsubscribes and resubscribes inside its own callback is called a second time
-		 * by the very publish it is already inside — and that second call carried the snapshot.
+		 * by the very announce it is already inside — and that second call carried the snapshot.
 		 */
 		it('does not tell a resubscribing listener the state it had before its own edit', async () => {
 			const seen: SaveState[] = [];

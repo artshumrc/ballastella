@@ -48,7 +48,7 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  *                     failure this file exists to prevent, so the fixture host is built to catch
  *                     exactly that. `route.abort()` is what a browser does to a
  *                     cross-origin request the host does not permit: the `fetch` rejects.
- *   `sizes-only.test` — level 0 publishing no `tiles` at all, which is the one shape this app must
+ *   `sizes-only.test` — level 0 offering no `tiles` at all, which is the one shape this app must
  *                     refuse when the map is *added*.
  *   `annotations.allmaps.org` — the community lookup, so "off means no request" is a claim about
  *                     the network rather than about a variable.
@@ -676,7 +676,7 @@ test.describe('adding a Map Image from a IIIF URL', () => {
 	 * Before ADR-0023's starter Alignment, adding a referenced Map Image without a community
 	 * offer wrote no `alignments/<id>.json` at all. The Layer referenced a file that did not exist,
 	 * `assertReferencesPresent` refused the Project by name, and it could be neither exported nor
-	 * published — permanently, because nothing later wrote the missing file either.
+	 * sent — permanently, because nothing later wrote the missing file either.
 	 *
 	 * Nothing repairs such a Project when it is *opened*: ADR-0010 forbids writing when merely opening
 	 * one, and the ADR says so again about migrations. What repairs it is the obvious gesture — adding

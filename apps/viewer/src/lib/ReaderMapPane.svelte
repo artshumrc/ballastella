@@ -118,7 +118,7 @@
 		/**
 		 * Which administrative boundaries the geography draws.
 		 *
-		 * **The author's, out of the published `project.json`, and not the Reader's.** How the Base Map
+		 * **The author's, out of the site's `project.json`, and not the Reader's.** How the Base Map
 		 * is drawn is a Reader's preference on this site (`reader-preference.ts`); which borders are
 		 * drawn over a work is the author's argument about it, so this site offers no control for it and
 		 * this prop has no second source.
@@ -139,7 +139,7 @@
 		 * Whether this site carries the Base Map's display assets — its glyphs and sprites (ADR-0020).
 		 * Tile availability is reported separately by {@link cachedBaseMap}.
 		 *
-		 * `false` remains an ordinary, supported state for legacy sites that were published without the
+		 * `false` remains an ordinary, supported state for legacy sites written without the
 		 * display assets. What must not happen is the site asking for them anyway — a bundled entry's
 		 * `archive` is a **site-relative path**, so on such a site every tile, glyph, and sprite request is a
 		 * 404 and the Reader gets a blank map with nothing to explain it. See {@link styleFor}.
@@ -210,7 +210,7 @@
 		 * Whether the Base Map's own source is drawing, and that it is not when it is not.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────
-		 * A PUBLISHED SITE HAS NO CONSOLE ANYONE IS WATCHING
+		 * A ON_REMOTE SITE HAS NO CONSOLE ANYONE IS WATCHING
 		 *
 		 * The editor's `BaseMapPane` reports the same status, for the same incident:
 		 * `demo-bucket.protomaps.com` began refusing the archive every entry in this deployment's catalog
@@ -219,7 +219,7 @@
 		 * rule out the third possibility either — that the scholar's own work failed to draw.
 		 *
 		 * **Reported, not rendered here**, for the same reason it is in the editor: what to say is the
-		 * page's question, and the page already owns the fallback notice and the published-without-files
+		 * page's question, and the page already owns the fallback notice and the missing-files
 		 * notice that this has to sit beside without contradicting.
 		 *
 		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm. The
@@ -357,12 +357,12 @@
 	 * subdirectory (ADR-0006). An entry whose `archive` is an absolute URL is left alone — that is the
 	 * `needsNetwork` case.
 	 *
-	 * **A bare style when the files are not here.** A site published without its Base Map (ADR-0020's
+	 * **A bare style when the files are not here.** A site written without its Base Map (ADR-0020's
 	 * opt-in) holds no `base-map/` directory at all, and a bundled entry's archive, glyphs, and sprites
 	 * are all site-relative paths — so building the ordinary style would fire a pmtiles range request and
 	 * two sprite requests at files that are not there. The Reader would get a blank map, three 404s, and
 	 * no account of either. So the reference map is simply absent, the Project's own Layers still draw
-	 * over the background, and the page says why (see `base-map-not-published`).
+	 * over the background, and the page says why (see `base-map-not-in-site`).
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
@@ -396,7 +396,7 @@
 				// Map Image is custom WebGL, and a Pin is a symbol drawn from an image this app registers
 				// itself. A **Label** does need glyphs, and `drawLayerStack` asks the style for them and
 				// omits the Label bucket when they are absent, which is what makes this style safe to
-				// build; `baseMapNotPublishedNotice` is where a Reader is told the Labels are not drawn.
+				// build; `baseMapNotInSiteNotice` is where a Reader is told the Labels are not drawn.
 				layers: [
 					{
 						id: 'ballastella-no-base-map',
@@ -429,7 +429,7 @@
 		// system font, which is invisible to every assertion about the map (ADR-0025).
 		//
 		// **A map with no place names on it is not a map that needs no explanation.** The page says so:
-		// `baseMapNotPublished` in `+page.svelte` has a branch for exactly this state, and dropping it
+		// `baseMapNotInSite` in `+page.svelte` has a branch for exactly this state, and dropping it
 		// would leave a Reader holding an unlabelled world with no account of why.
 		//
 		// ⚠ **The author's own Labels go too**, and the same notice names them. A Label's words are
@@ -524,9 +524,9 @@
 		// as blank as an archive that will not answer.
 		//
 		// Only one of the five styles `styleFor` builds declares no source at all — the bare background,
-		// which is reached for a site published without its Base Map **and** a site-relative archive.
+		// which is reached for a site written without its Base Map **and** a site-relative archive.
 		// Every entry in this deployment's catalog has an absolute archive, so the state a Reader
-		// actually meets on a site published without those files is the remote style with its symbol
+		// actually meets on a site written without those files is the remote style with its symbol
 		// layers stripped, which declares this source, can fail, and reports here. Both notices can
 		// therefore be on screen at once, and `+page.svelte` says nothing in either that the other
 		// denies.

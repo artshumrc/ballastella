@@ -235,8 +235,8 @@ export async function restoreWorkspaceTar(
 			// product gives notice of either.
 			notice:
 				`Restored into a new Workspace called “${destination.name}”. Your other Workspaces have ` +
-				`not been touched. A backup holds your work rather than a website, so publish this ` +
-				`Workspace again to turn it back into one — and if you had made a Project available ` +
+				`not been touched. A backup holds your work rather than a website, so turn Share Links on for this ` +
+				`Workspace again to make it one — and if you had made a Project available ` +
 				`offline, make its offline copy again.` +
 				// A restore that wrote less than the archive held **says so, in the same breath**. See
 				// `drainInto` for why anything can be declined at all, and why reporting it is not
@@ -455,7 +455,7 @@ async function drainInto(
  * hub" is the only question the write-last rule is about. A `project.json` deeper in the tree is an
  * ordinary file with an unlucky name and is written with the rest.
  *
- * Exported for `remote/clone-from-remote.ts`, which fills a new Workspace from a different source of
+ * Exported for `remote/workspace-address.ts`, which fills a new Workspace from a different source of
  * bytes under the same discipline. Shared rather than copied because a second spelling that drifted
  * would put a Project on the hub before its Layers had landed — which is the failure the write-last
  * rule exists to prevent, and one that looks like the tool having eaten somebody's work.

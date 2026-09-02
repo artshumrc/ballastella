@@ -90,7 +90,7 @@ describe('the rights check that happens at bind, not after four thousand tiles (
 
 	// `permissions` appears only on an authenticated read, so a response without it is a read GitHub
 	// answered for anybody. "Nobody said you may push" is the same answer as "you may not", and the
-	// only question being asked is whether a publish would be refused. Provoked by sending no
+	// only question being asked is whether a send would be refused. Provoked by sending no
 	// credential at all, which is the one way a real repository answers without the field.
 	it('reports no push rights when GitHub said nothing about them', async () => {
 		const remote = await github();
@@ -213,7 +213,7 @@ describe('turning Pages on, whose failure is a step rather than an error', () =>
 		expect(outcome.enabled).toBe(false);
 		expect(outcome.next).toBe('sync-first');
 		expect(outcome.instruction).toMatch(/repository is empty/);
-		expect(outcome.instruction).toMatch(/Publish once/);
+		expect(outcome.instruction).toMatch(/Sync once/);
 		expect(outcome.instruction).not.toMatch(
 			/does not have|Pages: Read and write|Administration: Read and write/
 		);
@@ -310,7 +310,7 @@ describe('checking again until the site answers', () => {
 	});
 });
 
-// ⚠ **It is not a way to unpublish, and it is never presented as one** (ADR-0045).
+// ⚠ **It is not a way to take the work back, and it is never presented as one** (ADR-0045).
 describe('withdrawing Share Links', () => {
 	it('takes the site down', async () => {
 		const remote = await github();
@@ -382,7 +382,7 @@ describe('connecting a Workspace', () => {
 		expect(outcome.rightsNotice).toBe('');
 		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 		// ⚠ **Nothing is written into the Workspace**, so a Workspace copied to another machine
-		// arrives connected to nothing at all and no repository can claim it (ADR-0044).
+		// arrives bound to nothing at all and no repository can claim it (ADR-0044).
 		expect(await store.list('')).toEqual([]);
 	});
 
@@ -607,7 +607,7 @@ describe('a Review Workspace can never be bound', () => {
 // nothing at all, and what the repository holds reads as work to get. Kept as a describe of its own
 // because the case it names is the one the refusal was written for.
 describe('binding to a Remote that already carries Projects this Workspace has not got', () => {
-	/** A published Workspace's site record, as it sits at the root of a Remote (ADR-0032). */
+	/** A Workspace's site record, as it sits at the root of a Remote. */
 	const siteRecord = (...projects: { directory: string; name: string }[]): string =>
 		JSON.stringify({
 			formatVersion: 2,
@@ -620,8 +620,8 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 			baseMapCaches: []
 		});
 
-	/** A Remote somebody has already published two Projects to. */
-	const published = (): Promise<FakeGitHub> =>
+	/** A Remote somebody has already sent two Projects to. */
+	const alreadySent = (): Promise<FakeGitHub> =>
 		createFakeGitHub({
 			owner: REMOTE.owner,
 			repository: REMOTE.repository,
@@ -650,7 +650,7 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 
 	it('connects, so that an existing Workspace can be joined to an existing repository', async () => {
 		const store = await holding('amsterdam-1625');
-		const remote = await published();
+		const remote = await alreadySent();
 
 		const outcome = await bindWorkspaceToRemote(store, 'atlas', {
 			token: TOKEN,
@@ -666,7 +666,7 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 	// the rights check has already established, on every connection anybody ever makes.
 	it('reads nothing but the repository itself, whatever the Remote carries', async () => {
 		const store = await holding('amsterdam-1625');
-		const remote = await published();
+		const remote = await alreadySent();
 		let raw = 0;
 		const counted: typeof remote.fetch = async (input, init) => {
 			if (String(input).includes('raw.githubusercontent.com')) raw += 1;
@@ -678,7 +678,7 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		expect(raw).toBe(0);
 	});
 
-	it('connects to a Remote that has never been published to', async () => {
+	it('connects to a Remote nothing has ever been sent to', async () => {
 		const store = await holding('amsterdam-1625');
 		const remote = await github();
 

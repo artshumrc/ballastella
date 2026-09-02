@@ -270,7 +270,7 @@
 	/**
 	 * What the pane was framed on, for the sentence beside it.
 	 *
-	 * The Project screen and the viewer both publish one, and this pane moves the Base Map on open
+	 * The Project screen and the viewer both provide one, and this pane moves the Base Map on open
 	 * exactly as they do — so a user who cannot see the canvas was the only one not told that it had
 	 * moved, and not told *why* when the Alignment is new and it did not. Its own vocabulary rather
 	 * than core's {@link OpeningViewOutcome}, because what it frames on is one Map Image's Control

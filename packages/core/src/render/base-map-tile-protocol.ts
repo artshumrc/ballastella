@@ -52,7 +52,7 @@ export type ReadCachedTile = (tile: CachedTileRef) => Promise<Uint8Array | null>
  * **The seam that keeps each app's Playwright handle in its own app**, and it is the same one
  * `StackBuiltListener` exists for two files away: a `declare global` on `Window` inside
  * `@ballastella/core` would put one app's test scaffolding into the other's types **and into a
- * published Reader's bundle** — and `ReaderMapPane` imports this module, so those arrays really would
+ * Reader's bundle** — and `ReaderMapPane` imports this module, so those arrays really would
  * ship to every site. So the exposure is injected and this module knows nothing about `window`.
  *
  * Both are needed and neither substitutes for the other. `onServed` fires only for a tile answered

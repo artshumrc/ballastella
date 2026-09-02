@@ -8,28 +8,28 @@ import { createFakeGitHub } from './fake-github.js';
 import { FakeMetadataStorage } from './fake-metadata-storage.js';
 import { LocalChangeIndex } from './local-change-index.js';
 import {
-	RemotePublishFailedError,
-	RemotePublishRefusedError,
+	RemoteSendFailedError,
+	RemoteSendRefusedError,
 	type RemoteRepository
-} from './publish-to-remote.js';
+} from './send-to-remote.js';
 import {
 	SynchronizationMetadata,
 	baselineKey,
 	type SynchronizationBaseline
 } from './synchronization-metadata.js';
-import { publishWorkspaceToRemote } from './synchronization-publish.js';
-import { updateFromGitHub } from './update-from-github.js';
+import { sendWorkspaceToRemote } from './synchronization-send.js';
+import { getFromRemote } from './get-from-remote.js';
 
 // This module's own assertions and nothing the transport's tests already cover. The transport — the
 // resulting tree, the exact mirror, truncation, budgets, the branch move — is
-// `publish-to-remote.test.ts`; the three-way table is `synchronization-planner.test.ts`. What is
-// asserted here is the join: which refusals stop a publish before it touches anything, and what
+// `send-to-remote.test.ts`; the three-way table is `synchronization-planner.test.ts`. What is
+// asserted here is the join: which refusals stop a send before it touches anything, and what
 // this installation durably believes afterwards.
 //
-// **Persisted evidence rather than a returned value, wherever the two differ.** A publish that
+// **Persisted evidence rather than a returned value, wherever the two differ.** A send that
 // answered the right Baseline and stored the wrong one — or stored the right one under a key the
 // reader validates away — passes every assertion made on its return value and leaves the next
-// publish saying `Cannot tell`. So the Baseline is read back through `SynchronizationMetadata`,
+// send saying `Cannot tell`. So the Baseline is read back through `SynchronizationMetadata`,
 // which is the reader the application uses.
 
 const encode = (text: string): Bytes => new TextEncoder().encode(text);
@@ -40,7 +40,7 @@ const REMOTE: RemoteRepository = { owner: 'ada', repository: 'atlas', branch: 'm
 const TOKEN = 'ghp_a-token';
 const WORKSPACE = 'opfs:Atlas';
 
-/** A Workspace of one Project, its shared pyramid, and the website a previous publish wrote. */
+/** A Workspace of one Project, its shared pyramid, and the website a previous send wrote. */
 const WORKSPACE_FILES = {
 	'ballastella-site.json': '{"formatVersion":2,"projects":[{"directory":"amsterdam-1625"}]}',
 	'index.html': '<!doctype html>',
@@ -49,7 +49,7 @@ const WORKSPACE_FILES = {
 	'amsterdam-1625/annotations/notes.json': '{"type":"FeatureCollection","features":[]}',
 	'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}',
 	'images/blaeu/0,0,256,256/256,256/0/default.jpg': 'jpeg-bytes',
-	// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the publish has one to send; nothing here edits Control Points
+	// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the send has one to send; nothing here edits Control Points
 	'alignments/blaeu.json': '{"type":"Annotation"}'
 };
 
@@ -68,7 +68,7 @@ const seeded = async (files: Record<string, string>): Promise<MemoryProjectStore
 	return store;
 };
 
-/** The whole apparatus one Workspace publishes through: the store, the fake, and the evidence. */
+/** The whole apparatus one Workspace sends through: the store, the fake, and the evidence. */
 const workspace = async (
 	files: Record<string, string> = WORKSPACE_FILES,
 	tree: Record<string, string> = { 'README.md': '# Atlas\n' }
@@ -83,8 +83,8 @@ const workspace = async (
 
 type Apparatus = Awaited<ReturnType<typeof workspace>>;
 
-const publish = (kit: Apparatus, options: { overwrite?: readonly string[] } = {}) =>
-	publishWorkspaceToRemote(kit.store, {
+const send = (kit: Apparatus, options: { overwrite?: readonly string[] } = {}) =>
+	sendWorkspaceToRemote(kit.store, {
 		token: TOKEN,
 		remote: REMOTE,
 		metadata: kit.metadata,
@@ -106,21 +106,21 @@ const snapshot = (kit: Apparatus) => ({
 });
 
 /** Somebody else's commit, which is the one thing no gesture in this app can produce. */
-const somebodyElsePublishes = (kit: Apparatus, files: Record<string, string | null>) =>
+const somebodyElseSends = (kit: Apparatus, files: Record<string, string | null>) =>
 	kit.github.commitFiles(files);
 
-describe('an ordinary Publish', () => {
+describe('an ordinary Send', () => {
 	it('records the complete source Baseline at the commit the branch now holds', async () => {
 		const kit = await workspace();
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.baselineKept).toBe(true);
+		expect(sent.baselineKept).toBe(true);
 		const baseline = await believed(kit);
 		// The *actual resulting commit*, not the parent the plan was made against: a record naming the
-		// commit before this one is a record of a publish that did not happen.
+		// commit before this one is a record of a send that did not happen.
 		expect(baseline?.commit).toBe(kit.github.head());
-		expect(baseline?.commit).toBe(published.commit);
+		expect(baseline?.commit).toBe(sent.commit);
 		expect([...(baseline?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 		expect(baseline?.remote).toEqual(REMOTE);
 	});
@@ -131,7 +131,7 @@ describe('an ordinary Publish', () => {
 	it('sends the generated site and leaves every generated path out of the Baseline', async () => {
 		const kit = await workspace();
 
-		await publish(kit);
+		await send(kit);
 
 		const committed = [...kit.github.files().keys()];
 		expect(committed).toEqual(
@@ -152,22 +152,22 @@ describe('an ordinary Publish', () => {
 			'base-map/fonts/Noto Sans Regular/0-255.pbf': 'glyph-bytes'
 		});
 
-		await publish(kit);
+		await send(kit);
 
 		const recorded = [...((await believed(kit))?.files.keys() ?? [])];
 		expect(recorded).toContain('base-map/tiles/9f8/12/2094/1330.mvt');
 		expect(recorded).not.toContain('base-map/fonts/Noto Sans Regular/0-255.pbf');
 	});
 
-	it('goes ahead with local work to publish, and advances the Baseline to it', async () => {
+	it('goes ahead with local work to send, and advances the Baseline to it', async () => {
 		const kit = await workspace();
-		await publish(kit);
+		await send(kit);
 
 		await kit.store.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}')
 		);
-		const second = await publish(kit);
+		const second = await send(kit);
 
 		expect(second.plan.conflicts).toEqual([]);
 		const baseline = await believed(kit);
@@ -181,7 +181,7 @@ describe('an ordinary Publish', () => {
 
 	// Restated here only as the promise the *synchronization* rules must not have broken: the owned
 	// namespace is what a mirror replaces, and everything else is somebody's own repository. The
-	// exact-mirror assertions themselves are `publish-to-remote.test.ts`'s.
+	// exact-mirror assertions themselves are `send-to-remote.test.ts`'s.
 	it('preserves the repository’s own files and its submodules', async () => {
 		const store = await seeded(WORKSPACE_FILES);
 		const github = await createFakeGitHub({
@@ -202,7 +202,7 @@ describe('an ordinary Publish', () => {
 			changes: new LocalChangeIndex(storage, WORKSPACE, { flushInterval: 0 })
 		};
 
-		await publish(kit);
+		await send(kit);
 
 		const files = kit.github.files();
 		expect([
@@ -219,11 +219,11 @@ describe('an ordinary Publish', () => {
 });
 
 describe('a send the Remote has moved under', () => {
-	/** A published Workspace, and then somebody else's afternoon arriving on the Remote. */
-	const afterSomebodyElsePublished = async (files: Record<string, string | null>) => {
+	/** A sent Workspace, and then somebody else's afternoon arriving on the Remote. */
+	const afterSomebodyElseSent = async (files: Record<string, string | null>) => {
 		const kit = await workspace();
-		const ours = await publish(kit);
-		await somebodyElsePublishes(kit, files);
+		const ours = await send(kit);
+		await somebodyElseSends(kit, files);
 		return { ...kit, ours };
 	};
 
@@ -231,14 +231,14 @@ describe('a send the Remote has moved under', () => {
 	// neither overwritten with this Workspace's older copy nor dropped out of the tree, so a send
 	// from a machine that has never seen their afternoon leaves it exactly where it is.
 	it('leaves Remote-only source change alone and sends this Workspace’s own work', async () => {
-		const kit = await afterSomebodyElsePublished({
+		const kit = await afterSomebodyElseSent({
 			'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await kit.store.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"A2"}'));
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.plan.conflicts).toEqual([]);
+		expect(sent.plan.conflicts).toEqual([]);
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/l2.geojson') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[]}'
 		);
@@ -251,11 +251,11 @@ describe('a send the Remote has moved under', () => {
 	});
 
 	it('leaves alone a whole Project that arrived on the Remote after the last agreement', async () => {
-		const kit = await afterSomebodyElsePublished({
+		const kit = await afterSomebodyElseSent({
 			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 		});
 
-		await publish(kit);
+		await send(kit);
 
 		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
 	});
@@ -265,8 +265,8 @@ describe('a send the Remote has moved under', () => {
 	// copy the scholar compares against.
 	it('leaves a Conflict alone on both sides and sends everything else', async () => {
 		const kit = await workspace();
-		await publish(kit);
-		await somebodyElsePublishes(kit, {
+		await send(kit);
+		await somebodyElseSends(kit, {
 			'amsterdam-1625/annotations/notes.json':
 				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		});
@@ -276,9 +276,9 @@ describe('a send the Remote has moved under', () => {
 		);
 		await kit.store.write('amsterdam-1625/annotations/canals.json', encode('{"canals":true}'));
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.plan.conflicts.map((row) => row.path)).toEqual([
+		expect(sent.plan.conflicts.map((row) => row.path)).toEqual([
 			'amsterdam-1625/annotations/notes.json'
 		]);
 		// Their bytes, still theirs.
@@ -316,13 +316,13 @@ describe('a Sync that made Conflict Copies', () => {
 			}),
 			[LAYER]: '{"type":"FeatureCollection","features":[]}'
 		});
-		await publish(kit);
-		await somebodyElsePublishes(kit, {
+		await send(kit);
+		await somebodyElseSends(kit, {
 			[LAYER]: '{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		});
 		await kit.store.write(LAYER, encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}'));
 
-		const got = await updateFromGitHub(kit.store, {
+		const got = await getFromRemote(kit.store, {
 			remote: REMOTE,
 			token: null,
 			baseline: await kit.metadata.readBaseline(REMOTE),
@@ -334,7 +334,7 @@ describe('a Sync that made Conflict Copies', () => {
 			commit: got.commit,
 			files: got.baseline
 		});
-		await publish(kit);
+		await send(kit);
 
 		expect(got.copies.map((copy) => copy.name)).toEqual(['Notes (from GitHub)']);
 		// Both versions, on the Remote, at two paths — and neither of them merged.
@@ -347,7 +347,7 @@ describe('a Sync that made Conflict Copies', () => {
 	});
 });
 
-describe('a Publish with no Baseline', () => {
+describe('a Send with no Baseline', () => {
 	// ⚠ **The case the whole rule exists for**: an existing Workspace joined to an existing
 	// repository, with no record of what the two last shared. Nothing is removed, so this goes ahead.
 	it('leaves a non-empty Remote it cannot attribute exactly as it is', async () => {
@@ -356,9 +356,9 @@ describe('a Publish with no Baseline', () => {
 			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 		});
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.plan.conflicts).toEqual([]);
+		expect(sent.plan.conflicts).toEqual([]);
 		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
 		expect([...kit.github.files().keys()]).toContain('amsterdam-1625/project.json');
 		// The Baseline covers what this send wrote and not the Project it left alone.
@@ -366,13 +366,13 @@ describe('a Publish with no Baseline', () => {
 	});
 
 	// An empty side establishes a Baseline safely, because there is no history to invent. This is the
-	// first publish from a new Workspace, which must not meet a refusal.
+	// first send from a new Workspace, which must not meet a refusal.
 	it('establishes evidence against a Remote with no source of ours on it', async () => {
 		const kit = await workspace();
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.plan.conflicts).toEqual([]);
+		expect(sent.plan.conflicts).toEqual([]);
 		expect([...((await believed(kit))?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 	});
 
@@ -381,25 +381,25 @@ describe('a Publish with no Baseline', () => {
 	// there is nothing to be uncertain about and nothing at stake in going ahead.
 	it('establishes evidence where the two source namespaces are already equal', async () => {
 		const kit = await workspace();
-		await publish(kit);
+		await send(kit);
 		await kit.metadata.clearBaseline();
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.plan.conflicts).toEqual([]);
-		expect((await believed(kit))?.commit).toBe(published.commit);
+		expect(sent.plan.conflicts).toEqual([]);
+		expect((await believed(kit))?.commit).toBe(sent.commit);
 	});
 });
 
 describe('Overwrite the repository', () => {
 	it('replaces the owned source it was shown, and records the result', async () => {
 		const kit = await workspace();
-		await publish(kit);
-		await somebodyElsePublishes(kit, {
+		await send(kit);
+		await somebodyElseSends(kit, {
 			'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 
-		const published = await publish(kit, {
+		const sent = await send(kit, {
 			overwrite: ['amsterdam-1625/annotations/l2.geojson']
 		});
 
@@ -408,37 +408,37 @@ describe('Overwrite the repository', () => {
 		expect([...kit.github.files().keys()]).not.toContain('amsterdam-1625/annotations/l2.geojson');
 		expect(decode(kit.github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 		const baseline = await believed(kit);
-		expect(baseline?.commit).toBe(published.commit);
+		expect(baseline?.commit).toBe(sent.commit);
 		expect([...(baseline?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 	});
 
 	// ⚠ **The consent is about a set of files, and a set that has grown is a set nobody agreed to.**
-	// A large send runs for minutes and this replans against a listing taken after the local publish
+	// A large send runs for minutes and this replans against a listing taken after the local site write
 	// wrote — so an agreement to remove one Annotation must not become an agreement to delete a
 	// Project that arrived in the window.
 	it('refuses when the Remote has gained a path the author never saw', async () => {
 		const kit = await workspace();
-		await publish(kit);
-		await somebodyElsePublishes(kit, {
+		await send(kit);
+		await somebodyElseSends(kit, {
 			'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}',
 			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 		});
 		const before = snapshot(kit);
 
-		const refusal = await publish(kit, {
+		const refusal = await send(kit, {
 			// Only the one they were shown, a listing ago.
 			overwrite: ['amsterdam-1625/annotations/l2.geojson']
 		}).catch((cause: unknown) => cause);
 
-		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
+		expect(refusal).toBeInstanceOf(RemoteSendRefusedError);
 		expect(refusal instanceof Error ? refusal.message : '').toContain('florida-1657/project.json');
 		expect(snapshot(kit)).toEqual(before);
 	});
 
 	it('takes the local side of a Conflict when that is what was agreed', async () => {
 		const kit = await workspace();
-		await publish(kit);
-		await somebodyElsePublishes(kit, {
+		await send(kit);
+		await somebodyElseSends(kit, {
 			'amsterdam-1625/annotations/notes.json':
 				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		});
@@ -447,7 +447,7 @@ describe('Overwrite the repository', () => {
 			encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}')
 		);
 
-		await publish(kit, { overwrite: ['amsterdam-1625/annotations/notes.json'] });
+		await send(kit, { overwrite: ['amsterdam-1625/annotations/notes.json'] });
 
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"mine"}]}'
@@ -458,16 +458,16 @@ describe('Overwrite the repository', () => {
 	});
 });
 
-describe('the local-change index a Publish narrows', () => {
+describe('the local-change index a Send narrows', () => {
 	it('clears the marks the Baseline now accounts for, and only those', async () => {
 		const kit = await workspace();
 		await kit.changes.mark('amsterdam-1625/project.json', 'written');
 		await kit.changes.mark('images/blaeu/info.json', 'written');
-		// Publish-owned output, which the source Baseline never claims — so its mark is not this
-		// publish's to drop, however certainly the file was sent.
+		// site-owned output, which the source Baseline never claims — so its mark is not this
+		// send's to drop, however certainly the file was sent.
 		await kit.changes.mark('index.html', 'written');
 
-		await publish(kit);
+		await send(kit);
 
 		expect(await kit.changes.localChanges()).toEqual({ written: ['index.html'], deleted: [] });
 	});
@@ -477,42 +477,42 @@ describe('the local-change index a Publish narrows', () => {
 	// `Changes to send` forever over a path neither side has any more.
 	it('clears the mark of a Project the mirror took down', async () => {
 		const kit = await workspace();
-		await publish(kit);
+		await send(kit);
 		await kit.store.delete('amsterdam-1625/annotations/notes.json' as StorePath);
 		await kit.changes.mark('amsterdam-1625/annotations/notes.json', 'deleted');
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.shared).toContain('amsterdam-1625/annotations/notes.json');
+		expect(sent.shared).toContain('amsterdam-1625/annotations/notes.json');
 		expect(await kit.changes.localChanges()).toEqual({ written: [], deleted: [] });
 		expect([...kit.github.files().keys()]).not.toContain('amsterdam-1625/annotations/notes.json');
 	});
 
 	// Stale evidence is never retained, and this is that rule's counterpart on the index. Under a
 	// refused Baseline write there is nothing left to compare the marks against, so dropping them would
-	// report a Workspace full of unpublished work as having none.
+	// report a Workspace full of unsent work as having none.
 	it('keeps every mark when the Baseline could not be stored', async () => {
 		const kit = await workspace();
 		await kit.changes.mark('amsterdam-1625/project.json', 'written');
 		kit.storage.refuseWrites.add(baselineKey(WORKSPACE));
 
-		const published = await publish(kit);
+		const sent = await send(kit);
 
-		expect(published.baselineKept).toBe(false);
+		expect(sent.baselineKept).toBe(false);
 		expect((await kit.changes.localChanges()).written).toEqual(['amsterdam-1625/project.json']);
 	});
 });
 
-// If durable Baseline storage fails after Remote publication succeeds, the Publish succeeded and the
-// status is now Cannot tell: never the Publish reported as failed, and never stale evidence retained.
-describe('a Publish whose Remote commit succeeded and whose record did not', () => {
+// If durable Baseline storage fails after Remote publication succeeds, the Send succeeded and the
+// status is now Cannot tell: never the Send reported as failed, and never stale evidence retained.
+describe('a Send whose Remote commit succeeded and whose record did not', () => {
 	it('is a successful publication with no evidence, and never a failure', async () => {
 		const kit = await workspace();
-		const first = await publish(kit);
+		const first = await send(kit);
 		await kit.store.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"A2"}'));
 		kit.storage.refuseWrites.add(baselineKey(WORKSPACE));
 
-		const second = await publish(kit);
+		const second = await send(kit);
 
 		expect(second.baselineKept).toBe(false);
 		expect(second.commit).not.toBe(first.commit);
@@ -521,21 +521,21 @@ describe('a Publish whose Remote commit succeeded and whose record did not', () 
 		expect(decode(kit.github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
 			'{"formatVersion":1,"name":"A2"}'
 		);
-		// ⚠ **And the *previous* publish's record is gone rather than left standing.** A reader cannot
-		// tell a stale map from a current one, so keeping it would make every path this publish
+		// ⚠ **And the *previous* send's record is gone rather than left standing.** A reader cannot
+		// tell a stale map from a current one, so keeping it would make every path this send
 		// legitimately changed come back as somebody else's work on the next press.
 		expect(await believed(kit)).toBeNull();
 	});
 });
 
-// Each of these leaves the Baseline exactly as the last successful publish left it,
+// Each of these leaves the Baseline exactly as the last successful send left it,
 // and the check is the persisted record rather than a returned value: evidence advanced from a
 // forecast is evidence about a transfer that never happened.
-describe('a Publish that failed', () => {
-	/** A Workspace with one published state behind it, and an unpublished edit in front of it. */
+describe('a Send that failed', () => {
+	/** A Workspace with one sent state behind it, and an unsent edit in front of it. */
 	const withWorkToSend = async () => {
 		const kit = await workspace();
-		const first = await publish(kit);
+		const first = await send(kit);
 		await kit.store.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"A2"}'));
 		return { kit, first };
 	};
@@ -545,9 +545,9 @@ describe('a Publish that failed', () => {
 		kit.github.permissions = { push: false, admin: false };
 		const before = snapshot(kit);
 
-		const refusal = await publish(kit).catch((cause: unknown) => cause);
+		const refusal = await send(kit).catch((cause: unknown) => cause);
 
-		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
+		expect(refusal).toBeInstanceOf(RemoteSendRefusedError);
 		expect(refusal instanceof Error ? refusal.message : '').toContain('cannot push');
 		// ⚠ **Before the upload begins**, and that is the point: not one blob was posted, so the author is
 		// not waiting on a transfer that cannot complete.
@@ -559,7 +559,7 @@ describe('a Publish that failed', () => {
 		const { kit, first } = await withWorkToSend();
 		kit.github.rejectCredential = true;
 
-		await expect(publish(kit)).rejects.toThrow(RemotePublishFailedError);
+		await expect(send(kit)).rejects.toThrow(RemoteSendFailedError);
 
 		expect((await believed(kit))?.commit).toBe(first.commit);
 	});
@@ -568,7 +568,7 @@ describe('a Publish that failed', () => {
 		const { kit, first } = await withWorkToSend();
 		kit.github.truncateAfter = 2;
 
-		await expect(publish(kit)).rejects.toThrow(RemotePublishRefusedError);
+		await expect(send(kit)).rejects.toThrow(RemoteSendRefusedError);
 
 		expect((await believed(kit))?.commit).toBe(first.commit);
 	});
@@ -580,7 +580,7 @@ describe('a Publish that failed', () => {
 		kit.github.refuseWrites = true;
 		const head = kit.github.head();
 
-		await expect(publish(kit)).rejects.toThrow(RemotePublishFailedError);
+		await expect(send(kit)).rejects.toThrow(RemoteSendFailedError);
 
 		expect(kit.github.head()).toBe(head);
 		expect((await believed(kit))?.commit).toBe(first.commit);
@@ -589,7 +589,7 @@ describe('a Publish that failed', () => {
 		);
 	});
 
-	// The last request a publish makes, and the one moment anything becomes visible. Every blob, the
+	// The last request a send makes, and the one moment anything becomes visible. Every blob, the
 	// tree and the commit have landed; the branch has not moved, so the Published Site is exactly as
 	// it was — and evidence recorded from the commit that was written rather than the ref that moved
 	// would claim a publication no Reader can see.
@@ -607,14 +607,14 @@ describe('a Publish that failed', () => {
 		};
 
 		await expect(
-			publishWorkspaceToRemote(kit.store, {
+			sendWorkspaceToRemote(kit.store, {
 				token: TOKEN,
 				remote: REMOTE,
 				metadata: kit.metadata,
 				changes: kit.changes,
 				fetch: refusingTheRefMove
 			})
-		).rejects.toThrow(RemotePublishFailedError);
+		).rejects.toThrow(RemoteSendFailedError);
 
 		expect(kit.github.head()).toBe(first.commit);
 		expect((await believed(kit))?.commit).toBe(first.commit);

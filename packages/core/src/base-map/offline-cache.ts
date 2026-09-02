@@ -136,7 +136,7 @@ export interface BaseMapCache extends BaseMapCacheSize {
  * Every archive this Workspace has cached tiles for.
  *
  * The whole-Workspace read, for the three callers that must answer for all of them at once: the
- * hub's size and clear, and publishing, which writes the list into the site record because a
+ * hub's size and clear, and the site write, which puts the list in the site record because a
  * Reader's HTTP store cannot list a directory (ADR-0006). One `list` of {@link BASE_MAP_TILE_ROOT}
  * and a `size` per tile — never a `read` of one (ADR-0001) — plus one small `read` per archive for
  * the provenance record, which is the only place a key can be turned back into an archive.
@@ -207,7 +207,7 @@ export async function baseMapCacheSizeFor(
 	};
 }
 
-/** {@link baseMapCacheSize} over a list already in hand, so publishing walks the folder once. */
+/** {@link baseMapCacheSize} over a list already in hand, so the site write walks the folder once. */
 export function totalBaseMapCacheSize(caches: readonly BaseMapCache[]): BaseMapCacheSize {
 	const depths = caches.map((cache) => cache.maxZoom).filter((zoom) => zoom !== null);
 	return {
@@ -258,7 +258,7 @@ export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
 // under-report a half-filled cache, which is why it is right for *drawing* and wrong for *claiming*.
 //
 // **And the key alone does not say which archive it is.** {@link baseMapArchiveKey} is one-way, so
-// the record is also what lets `base-map/tiles/<key>/` be read back as an archive — which publishing
+// the record is also what lets `base-map/tiles/<key>/` be read back as an archive — which the site write
 // needs, because a Published Site's viewer has an HTTP store that cannot list a directory (ADR-0006)
 // and has to be told on the site record which archives it carries tiles for.
 //
@@ -280,7 +280,7 @@ export interface CachedTileSource {
 	 *
 	 * Deliberately the *unresolved* string — see {@link baseMapArchiveKey}. A bundled archive is a
 	 * deployment-relative path, and recording the URL the editor resolved it to would make a Workspace
-	 * published to another host disagree with itself about which archive its own tiles came from.
+	 * sent to another host disagree with itself about which archive its own tiles came from.
 	 */
 	readonly archive: string;
 	/** The source's own maximum zoom, read from its header — not read back off the cached files. */

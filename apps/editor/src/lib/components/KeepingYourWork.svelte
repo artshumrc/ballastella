@@ -167,7 +167,7 @@
 				transfer = `Restoring from “${file.name}”… ${progress.files} files so far.`;
 			});
 			// The notice comes from core rather than being phrased here, so the sentence about
-			// re-publishing is the same wherever a restore is reported (ADR-0006).
+			// turning Share Links back on is the same wherever a restore is reported.
 			outcome = restored.notice;
 		} catch (cause) {
 			// ADR-0010's refusal of a newer `formatVersion` arrives here as its own message, naming

@@ -5,12 +5,12 @@
 // module is the reader of that index, so the build script and the app cannot disagree about the
 // file set or about the version stamp.
 //
-// It deliberately holds no bytes and no `fetch`. Publishing takes the bytes through a `readAsset`
+// It deliberately holds no bytes and no `fetch`. The site write takes the bytes through a `readAsset`
 // function the app supplies, for the same reason ADR-0011's injection layer exists: the editor
 // serves those files from its own deployment over a **relative** path (ADR-0006), and core has no
 // business knowing what a deployment looks like.
 
-/** One file of the bundle, and where publishing puts it. */
+/** One file of the bundle, and where the site write puts it. */
 export type ViewerBundleFile = {
 	/**
 	 * Where it goes, relative to the Workspace — `index.html`, `_app/immutable/…` (ADR-0008
@@ -30,7 +30,7 @@ export type ViewerBundleFile = {
 	/**
 	 * Its byte length, recorded at build time.
 	 *
-	 * So that publishing can say what it is about to add **before** it adds it — ADR-0020 requires
+	 * So that the site write can say what it is about to add **before** it adds it — ADR-0020 requires
 	 * that of the Base Map extract, and ADR-0008's ~1 GB cliff needs it of everything. Reading
 	 * every file to weigh it would mean fetching several megabytes in order to ask a question whose
 	 * answer might be "do not do this".
@@ -43,7 +43,7 @@ export type ViewerBundle = {
 	/**
 	 * The version stamp (ADR-0006): a content hash over the file set below.
 	 *
-	 * A hash rather than a build timestamp, so that re-publishing an unchanged viewer produces the
+	 * A hash rather than a build timestamp, so that writing the site again with an unchanged viewer produces the
 	 * same stamp and "is this Published Site's viewer out of date?" has an answer that does not
 	 * drift on its own.
 	 */
@@ -57,11 +57,11 @@ export type ViewerBundle = {
 	readonly baseMap: readonly ViewerBundleFile[];
 };
 
-/** The staged bundle index could not be read, so there is nothing to publish. */
+/** The staged bundle index could not be read, so there is no site to write. */
 export class ViewerBundleUnreadableError extends Error {
 	constructor(reason: string) {
 		super(
-			`The read-only viewer that publishing writes could not be read: ${reason}. This build of ` +
+			`The read-only viewer a site is written from could not be read: ${reason}. This build of ` +
 				`the editor is incomplete — the viewer is staged into it by ` +
 				`scripts/stage-viewer-bundle.mjs during the build.`
 		);

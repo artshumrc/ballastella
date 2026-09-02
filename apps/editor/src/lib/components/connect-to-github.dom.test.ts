@@ -15,7 +15,7 @@
 // happens before any bytes move, that Pages enablement degrades to a sentence naming both the
 // permissions GitHub requires, and that the subset comparison
 // is by Project directory are `bind-remote.ts`'s, there too. That the application actually wires
-// this component to the real sign-in, the real bind and the real Publish is one test in
+// this component to the real sign-in, the real bind and a real Sync is one test in
 // `e2e/editor-github-signin.e2e.ts`, which is what keeps this file from asserting against a fake in
 // isolation. The action being visible without scrolling is layout and is not asserted at any seam
 // this file can reach.
@@ -51,7 +51,7 @@ import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 const ATLAS: GrantedRepository = {
 	owner: 'ada',
 	repository: 'atlas',
-	canPublish: true,
+	canPush: true,
 	canGrantAccess: true,
 	isPrivate: false
 };
@@ -896,7 +896,7 @@ describe('connecting, which is one act', () => {
 		const storage = signedIn();
 		storage.bindAnswer = outcome({
 			canPush: false,
-			rightsNotice: 'This token cannot push to ada/atlas, so publishing to it will be refused.'
+			rightsNotice: 'This token cannot push to ada/atlas, so sending to it will be refused.'
 		});
 		const opened = open(storage);
 		await choose();
@@ -1016,7 +1016,7 @@ describe('the student who has never heard of GitHub', () => {
 });
 
 // ⚠ **The one path through this sequence that needs no account at all** (ADR-0031, ADR-0044). A
-// student getting their instructor's published Workspace is the likeliest thing this tool is asked
+// student getting their instructor's shared Workspace is the likeliest thing this tool is asked
 // to do, and a door whose first step is signing in locks exactly that person out of it. It is also
 // how an organisation repository GitHub will not list is reached, which is the other half of why the
 // field survives the sign-in.
@@ -1248,7 +1248,7 @@ describe('leaving the sequence, and coming back to it', () => {
 // fail — as a listing with nothing in it, or as a repository that refused the author. So the expiry
 // is asked about the moment the sequence opens, before any of that can be misread.
 describe('a sign-in that ran out', () => {
-	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been published.';
+	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been sent.';
 
 	test('says the sign-in ended and offers to sign in again', async () => {
 		const storage = signedIn();
@@ -1275,8 +1275,8 @@ describe('a sign-in that ran out', () => {
 		expect(opened.storage.signInDepartures).toEqual([AUTHORIZE_ONLY]);
 	});
 
-	// ⚠ **Not as a repository problem and not as a publishing failure**, which are the two things an
-	// expiry looks like from underneath: the listing comes back refused, and a publish stops partway.
+	// ⚠ **Not as a repository problem and not as a failed send**, which are the two things an
+	// expiry looks like from underneath: the listing comes back refused, and a send stops partway.
 	test('does not present as a Workspace with no repositories', async () => {
 		const storage = signedIn();
 		storage.expiry = new Error(RAN_OUT);
@@ -1451,7 +1451,7 @@ describe('every step of the sequence, enumerated', () => {
 	 */
 	type Arrived = { readonly answers?: () => Promise<void> };
 
-	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been published.';
+	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been sent.';
 	const COULD_NOT_BE_READ = 'GitHub could not be reached, so your repositories could not be read.';
 
 	const reach: Record<Step, { readonly shows: string; readonly go: () => Promise<Arrived> }> = {
@@ -1517,7 +1517,7 @@ describe('every step of the sequence, enumerated', () => {
 					signedIn(),
 					listed([
 						ATLAS,
-						{ ...ATLAS, repository: 'notebook', canPublish: false },
+						{ ...ATLAS, repository: 'notebook', canPush: false },
 						{ ...ATLAS, repository: 'diary', isPrivate: true }
 					])
 				);

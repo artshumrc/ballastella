@@ -174,7 +174,7 @@ export class InstalledApp {
 	 * not arrive, they are not back where they started; they are worse off than if they had never
 	 * been offered the update, and they stay that way until a real connection returns.
 	 *
-	 * `navigator.onLine` is not enough to rule that out. It is famously "connected to *something*":
+	 * `navigator.onLine` is not enough to rule that out. It is famously "attached to *something*":
 	 * true on a captive portal, true on a wifi network with no route out, and stale for a while after
 	 * a connection drops. So the registration goes only after the deployment has actually answered.
 	 *
@@ -260,7 +260,7 @@ export class InstalledApp {
 	 *
 	 * That was the guard, and it had a hole exactly where ADR-0012's promise is loudest. A page loaded
 	 * before this browser had ever seen the worker is **not controlled**, and an uncontrolled page is
-	 * not a client of the registration — so a version published during that session does not wait
+	 * not a client of the registration — so a version deployed during that session does not wait
 	 * behind anything. The browser installs it and activates it straight away, `activate` deletes the
 	 * caches the previous build filled, and under the old guard nobody was told: no controller, no
 	 * prompt. The first visit is not a rare case, it is everybody's first visit.

@@ -79,7 +79,7 @@ const addInFlight = (page: Page): Promise<boolean> =>
  * ⚠ **THE DIALOG IS OPEN FOR A WHILE AFTER THE ADD IT IS DOING HAS VISIBLY SUCCEEDED, AND THAT
  * WINDOW IS WHAT MADE THIS SUITE FLAKE.**
  *
- * `EditorSession.#addMapLayer` publishes the new Layer into `openProject` — which renders the
+ * `EditorSession.#addMapLayer` puts the new Layer into `openProject` — which renders the
  * `layer-row` a caller is waiting for — and only *then* awaits the trailing `project.json` write.
  * The dialog closes at the end of that write, by way of `AddRemoteMap`'s `onadded`. So there is a
  * window in which the add is done as far as the screen is concerned and the dialog is open with a

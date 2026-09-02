@@ -101,7 +101,7 @@ export function baseMapUnavailableNotice(entry: BaseMapEntry, host: string | nul
 				'than your connection. Try another Base Map, or make this Project available offline ' +
 				'while one is working so it keeps drawing when none is.'
 			: 'This Base Map is served by this site, so the site is missing the file it needs. ' +
-				'Whoever published it has to restore it.')
+				'Whoever made it has to restore it.')
 	);
 }
 
@@ -157,7 +157,7 @@ export function baseMapOptions(
  * WHY THIS IS HERE RATHER THAN IN THE VIEWER'S PAGE, AND WHY IT TAKES THE SITE'S STATE
  *
  * Older Published Sites may not carry the Base Map's glyphs and sprites, so every Reader of one of
- * those sites meets whatever this returns. New publishes always carry the display assets; the
+ * those sites meets whatever this returns. Every site this build writes carries the display assets; the
  * legacy state remains here as a readable degradation rather than a reason to break old sites. It
  * lived in `+page.svelte` as a nested ternary
  * and was **false in a reachable row twice over** — first claiming "the geography, the Map
@@ -168,7 +168,7 @@ export function baseMapOptions(
  * Both were the same mistake: a sentence about what is *drawn*, chosen without the state that decides
  * it. Neither row was reachable from the browser suite — the second needs a catalog entry with a
  * relative archive, which this deployment has none of, and the fourth needs cached tiles alongside
- * absent assets, which no published fixture builds — so nothing could have caught either. Here they
+ * absent assets, which no site fixture builds — so nothing could have caught either. Here they
  * are four rows of a table, and `resolve.test.ts` drives all four in milliseconds.
  *
  * **The condition is `ReaderMapPane.styleFor`'s own precedence, restated.** That function tries the
@@ -179,7 +179,7 @@ export function baseMapOptions(
  * @param entry the Base Map being shown
  * @param site whether this site carries the Base Map's display assets, and its own cached tiles
  */
-export function baseMapNotPublishedNotice(
+export function baseMapNotInSiteNotice(
 	entry: BaseMapEntry,
 	site: { readonly bundledAssets: boolean; readonly cachedTiles: boolean }
 ): string {
@@ -196,7 +196,7 @@ export function baseMapNotPublishedNotice(
 	// absent is the false reassurance the row below was rewritten to stop making.
 	if (!site.cachedTiles && !isAbsoluteUrl(entry.archive)) {
 		return (
-			'This site was published without its own copy of the modern reference map, so only the ' +
+			'This site carries no copy of its own of the modern reference map, so only the ' +
 			'Map Images and the Pins, Lines and Shapes are drawn. The author’s Labels are not: they ' +
 			'are shaped from typefaces this site does not carry. The Base Maps marked “needs ' +
 			'network” still work.'
@@ -220,7 +220,7 @@ export function baseMapNotPublishedNotice(
 	// other notice would fix the first and leave the second, while making an `aria-live` region
 	// announce one claim on load and another a beat later when the archive's error arrived.
 	return (
-		'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
+		'This site does not carry the Base Map’s labels and symbols, so the modern reference ' +
 		'map here carries no place names at all, and the author’s Labels are not drawn. The Map ' +
 		'Images and the other Annotations — Pins, Lines and Shapes — are not affected.'
 	);

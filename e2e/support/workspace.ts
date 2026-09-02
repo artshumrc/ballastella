@@ -263,7 +263,7 @@ export async function checkRemoteStatus(page: Page): Promise<void> {
  * The modal is opened from the bar directly and shows what it found before anything moves, so this
  * presses *Get changes* on what it found rather than a control whose consequences are unstated.
  */
-export async function updateFromGitHub(page: Page): Promise<void> {
+export async function getFromRemote(page: Page): Promise<void> {
 	await openSyncModal(page);
 	await page.getByTestId('sync-get').click();
 	// ⚠ **Not waited out here.** The modal stays open for the whole transfer, because `showModal()`
@@ -277,7 +277,7 @@ export async function openSyncModal(page: Page): Promise<void> {
 	await expect(page.getByTestId('sync-modal')).toBeVisible();
 }
 
-/** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
+/** What the bar's door says this Workspace syncs with — a standing fact, not unfinished work. */
 export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
 	await expect(doorButton(page)).toHaveText(`Sync with ${remote}`);
 }
@@ -329,7 +329,7 @@ export async function bindThroughTheDoor(page: Page): Promise<void> {
  *
  * Read from the door, which offers connecting rather than naming a repository, and from the badge,
  * which carries no GitHub clause because there is nothing to compare against. Two claims rather than
- * one: "publishes nowhere" and "names a repository" must not both be true.
+ * one: "has no repository" and "names a repository" must not both be true.
  */
 export async function expectNoRemote(page: Page): Promise<void> {
 	await expect(doorButton(page)).toHaveText('Sync with GitHub');
@@ -340,7 +340,7 @@ export async function expectNoRemote(page: Page): Promise<void> {
  * That a Review Workspace names no Remote, which is a stronger claim than having none.
  *
  * The door is absent rather than offering to connect: a Review Workspace holds somebody else's work
- * and is never published (ADR-0024), so there is no gesture here to refuse.
+ * and is never sent (ADR-0024), so there is no gesture here to refuse.
  */
 export async function expectNoRemoteInReview(page: Page): Promise<void> {
 	await expect(doorButton(page)).toHaveCount(0);
@@ -441,7 +441,7 @@ export async function seedRemoteRelationship(
  *
  * ⚠ **Behind the app's back, and on purpose** — the companion to {@link seedRemoteRelationship}. A
  * spec whose subject is the bytes that arrive at a Remote needs a signed-in Workspace, not a
- * sign-in, and on a deployment with a GitHub App the publish dialog offers no token field to type
+ * sign-in, and on a deployment with a GitHub App the sync modal offers no token field to type
  * one into: the door there is a redirect off the page. Driving the real door for
  * every such spec would make each of them a test of the door, and it is asserted once, in
  * `editor-github-signin.e2e.ts`, where the real `isGitHubAppConfigured` is legible.
@@ -494,7 +494,7 @@ export async function readRemoteRelationship(
  *
  * Read out of the installation database behind the app's back, because the point of the assertion is
  * that the record is durable and *outside* the Workspace: a copy inside it would be packed into a
- * Backup, uploaded by the very publish it describes, and downloaded by a Clone.
+ * Backup, uploaded by the very send it describes, and downloaded by a get.
  */
 export async function readBaseline(
 	page: Page,
@@ -529,11 +529,11 @@ export async function readBaseline(
 }
 
 /**
- * Put a Synchronization Baseline in place, as a successful Open, Update or Publish would.
+ * Put a Synchronization Baseline in place, as a successful Sync would.
  *
  * The seam for a spec about *status* rather than about a transfer: the six Remote Status states are a
- * comparison against this record, so a spec that had to reach each of them through a real Publish
- * would be testing publishing over and over to arrive at the state it wanted to assert. The record
+ * comparison against this record, so a spec that had to reach each of them through a real Sync
+ * would be testing the Sync over and over to arrive at the state it wanted to assert. The record
  * shape is `synchronization-metadata.ts`'s, spelled once beside the two readers above.
  *
  * `files` is `path → blob SHA` for the source paths the two sides last shared. `gitBlobSha` over the

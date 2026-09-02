@@ -2969,7 +2969,7 @@ test.describe('placing a Pin at a Place', () => {
 		await placeFrom(page, AMBIGUOUS_QUERY, HAMPDEN_NAME, layerId);
 
 		// ⚠ **Asserted against the written bytes rather than against the field.** The title is what a
-		// scholar publishes, and a field that shows the query while the file holds the service's postal
+		// scholar shares, and a field that shows the query while the file holds the service's postal
 		// address is exactly the failure this criterion is about.
 		const written = await readProjectFile(page, `annotations/${layerId}.geojson`);
 		const stored = JSON.parse(written) as { features: { properties: Record<string, unknown> }[] };

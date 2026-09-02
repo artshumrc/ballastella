@@ -6,7 +6,7 @@
 	// WHY THE PROJECT LIST IS FETCHED RATHER THAN WALKED
 	//
 	// A static host has no directory listing, so nothing here can discover which folders hold a
-	// Project the way the editor's Workspace does. Publishing therefore writes the list into
+	// Project the way the editor's Workspace does. The site write therefore puts the list into
 	// `ballastella-site.json` (ADR-0006's HTTP reader, ADR-0008's Front Page), and this page reads it.
 	// That record also carries the Base Map catalog the authoring deployment resolved, so a
 	// Published Site keeps working when that deployment later changes its own catalog (ADR-0020).
@@ -19,7 +19,7 @@
 	// page: no SPA fallback, no post-build path rewriting, and nothing per-Project to keep in sync
 	// when a Project is renamed or deleted. `?unwarped=<layer-id>` is on the same page and for the same
 	// reason — a second *route* would be a second prerendered directory, which `VIEWER_FILE_PATHS` would
-	// have to claim before publishing would write it.
+	// have to claim before the site write would put it there.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// NOTHING A READER DOES IS AN EDIT
@@ -36,7 +36,7 @@
 	// THE STACK IS THE EDITOR'S `LayerList`, AND SUBTRACTION IS WHAT MAKES IT A READER'S
 	//
 	// A Reader reads the same card a scholar authored on — kind tint, kind line, disclosure, the drained
-	// header of a hidden Layer, the problem band — because a published Project that looks like a
+	// header of a hidden Layer, the problem band — because a Project on a site that looks like a
 	// different application is the thing this was for. The viewer's own `ReaderLayerControls` was a
 	// second implementation of that idea, written when every write `LayerList` emitted was a required
 	// prop; **that is no longer true**, so reuse no longer implies a write. Every editing callback is
@@ -44,7 +44,7 @@
 	// pass: no `ontypename`/`oncommit`, no `onmove`, no `ondelete`, no `problemAction`.
 	//
 	// `referencedImageIds` is withheld for a different reason, and it is not a safety one: where a
-	// Map Image's tiles are held is the author's publishing decision, and a Reader cannot copy a
+	// Map Image's tiles are held is the author's own decision, and a Reader cannot copy a
 	// pyramid or repoint a service. The badge stays in the editor, where the fact is actionable.
 	// {@link needsNetwork} below is not that badge and stays: it names what will not draw without a
 	// connection, which is a thing a Reader meets.
@@ -65,7 +65,7 @@
 		SiteFileUnreachableError,
 		baseMapArchiveHost,
 		baseMapFallbackNotice,
-		baseMapNotPublishedNotice,
+		baseMapNotInSiteNotice,
 		baseMapUnavailableNotice,
 		cachedTilePath,
 		legacyCachedTilePath,
@@ -144,7 +144,7 @@
 	 *
 	 * Everything gated on it needs something prerendering has not got. `page.url.searchParams` **throws**
 	 * during prerendering, because a prerendered page is one file serving every query string (see
-	 * {@link openDirectory}); there is no site record to read at build time, since publishing writes it
+	 * {@link openDirectory}); there is no site record to read at build time, since the site write puts it there
 	 * and the build does not; and a Base Map preference is one Reader's `localStorage` rather than a fact
 	 * about the file. So the prerendered HTML is the Front Page's own skeleton and nothing more.
 	 */
@@ -178,13 +178,13 @@
 	let siteError = $state('');
 
 	/**
-	 * The repository this site was published to, for the return links below — or `null`.
+	 * The repository this site was sent to, for the return links below — or `null`.
 	 *
 	 * A static host cannot be asked what repository serves it, so this has to be *in* the site, and
 	 * `ballastella-site.json` is the only place it is (ADR-0044): the relationship between a Workspace
 	 * and its Remote is installation-local, so nothing in the tree describes it.
 	 *
-	 * Never a failure. A site published into a folder rather than to a Remote records no repository,
+	 * Never a failure. A site written into a folder rather than sent to a Remote records no repository,
 	 * and a Front Page with one fewer link is the whole of what that costs a Reader.
 	 */
 	let remote = $state<PublishedRepository | null>(null);
@@ -194,7 +194,7 @@
 
 	$effect(() => {
 		// Only in the browser: prerendering has no site to read, and the record is written by
-		// publishing rather than by the build.
+		// the site write rather than by the build.
 		if (!hydrated) return;
 		void (async () => {
 			try {
@@ -202,7 +202,7 @@
 				site = record;
 				siteError = '';
 				// Only where there is an instance to link back to: a site that records no editor — an
-				// older site published without one — has nowhere to send a Reader.
+				// older site written without one — has nowhere to send a Reader.
 				remote = record.editorUrl === '' ? null : record.repository;
 			} catch (cause) {
 				siteError = describeSiteRecordFailure(cause);
@@ -214,7 +214,7 @@
 	 * The Projects the Front Page offers a Reader (ADR-0032).
 	 *
 	 * The record names every Project the site carries, listed or not, so the filter is here rather than
-	 * at publish time — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
+	 * when the site was written — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
 	 * files straight off the host without consulting this list, so one left out still opens and still
 	 * renders, which is what stops "not on the Front Page" from being mistaken for a privacy setting.
 	 */
@@ -339,7 +339,7 @@
 	 * Why the site record could not be read, in a Reader's terms.
 	 *
 	 * The three cases are genuinely different and reading them as one is how a Reader is misinformed: the
-	 * bundle sitting in a half-set-up repository with nothing published into it yet, a host that is not
+	 * bundle sitting in a half-set-up repository with no site written into it yet, a host that is not
 	 * answering, and a record that is there and corrupt. The adapter tells them apart (`PathNotFoundError`
 	 * versus `SiteFileUnreachableError`), which is the whole reason it distinguishes them.
 	 */
@@ -347,7 +347,7 @@
 		if (cause instanceof PathNotFoundError) {
 			return (
 				'This site has no list of Projects yet. The viewer’s own files are here, but nothing has ' +
-				'been published into this folder — publish again from Ballastella to add it.'
+				'the list itself has not arrived — Sync from Ballastella to add it.'
 			);
 		}
 		if (cause instanceof SiteFileUnreachableError) return cause.message;
@@ -754,7 +754,7 @@
 	/**
 	 * Which Layers still fetch their Map Image from the library that holds it.
 	 *
-	 * Said out loud on the page rather than only warned about at publish time, because the Reader is the
+	 * Said out loud on the page rather than only warned about in the editor, because the Reader is the
 	 * person who meets the consequence: on a train, or after the library reorganises, those Layers draw
 	 * nothing (ADR-0007).
 	 *
@@ -774,7 +774,7 @@
 	 * network before anything has looked for it.
 	 *
 	 * **A projection of that observation and not a second reading of the rule.** `readMapLayer` hands its
-	 * two 404 probes to core's `tileLocation`, the same function the editor and publishing answer this
+	 * two 404 probes to core's `tileLocation`, the same function the editor and the site write answer this
 	 * with; what is local to this page is only the three-state handling `documents` needs and the store
 	 * behind it does not have.
 	 */
@@ -868,13 +868,13 @@
 	/**
 	 * Whether this site carries the Base Map's own files (ADR-0020).
 	 *
-	 * Read out of the site record so legacy sites published without them still degrade honestly. New
-	 * publishes always carry the assets, despite their roughly 4.9 MB cost against the same hosting
+	 * Read out of the site record so legacy sites written without them still degrade honestly. Every
+	 * site this build writes carries the assets, despite their roughly 4.9 MB cost against the same hosting
 	 * budget as the scholar's Map Images.
 	 *
 	 * **Absent means absent, and the map waits rather than guessing** — see {@link siteRecordKnown}. This
 	 * used to default to `true` while the record was still being read, on the reasoning that no record at
-	 * all is the pre-publish bundle. But the record and the Project are read by two independent effects,
+	 * all is the bundle before a site is written. But the record and the Project are read by two independent effects,
 	 * so on a real site `?p=` could open a Project before the record arrived, and the pane would build the
 	 * ordinary style and fire exactly the pmtiles and sprite requests at absent files that this whole path
 	 * exists to prevent. It was invisible because it lost the race: it took removing an unrelated
@@ -971,11 +971,11 @@
 	 * somebody whose wifi is off. Saying nothing is the better of the two answers available, and it is
 	 * the same gate the editor's `unavailableNotice` carries.
 	 *
-	 * Distinct from {@link baseMapNotPublished}, which is about files this **site** does not carry: that
-	 * is a publishing choice, with a different remedy, knowable without waiting for a request. It is
+	 * Distinct from {@link baseMapNotInSite}, which is about files this **site** does not carry: that
+	 * is the author's own choice, with a different remedy, knowable without waiting for a request. It is
 	 * **not** mutually exclusive with this one, and the code used to claim it was: only the bare
 	 * background style declares no source, and it is built solely for a site-relative archive. Every
-	 * entry in this deployment's catalog is absolute, so a site published without those files draws the
+	 * entry in this deployment's catalog is absolute, so a site written without those files draws the
 	 * remote style — which declares the source, and fails with it. Both notices are up in that state
 	 * today, and neither now says anything the other denies.
 	 */
@@ -1005,8 +1005,8 @@
 	 * is nothing here to observe until a fork repoints the catalog at its own tiles, which is the case
 	 * the function's own tests cover. Said rather than left as a gap someone else has to rediscover.
 	 */
-	const baseMapNotPublished = $derived(
-		baseMapNotPublishedNotice(baseMap.entry, {
+	const baseMapNotInSite = $derived(
+		baseMapNotInSiteNotice(baseMap.entry, {
 			bundledAssets: bundledBaseMapAvailable,
 			cachedTiles: cachedBaseMap !== null
 		})
@@ -1023,7 +1023,7 @@
 	 * moves the element and not the moment: they say something on a Project's map, and nothing on the
 	 * Front Page, on a Project that would not open, or on a sheet being read as a document.
 	 *
-	 * `baseMapNotPublished` in particular is true from the first frame — `bundledBaseMapAvailable` is
+	 * `baseMapNotInSite` in particular is true from the first frame — `bundledBaseMapAvailable` is
 	 * `false` until the site record is read — so without this gate the sentence would be in the
 	 * prerendered HTML, which is the same defect one step earlier.
 	 */
@@ -1231,7 +1231,7 @@
 				return;
 			}
 			try {
-				// The published `info.json`, which is the document that describes the pyramid — and, in its
+				// The site's `info.json`, which is the document that describes the pyramid — and, in its
 				// own `id`, the document that decides where a tiling viewer will fetch from. See
 				// `$lib/unwarped-manifest` for why nothing here can override that.
 				const bytes = await siteStore().read(imageInfoPath(imageId));
@@ -1246,7 +1246,7 @@
 					unwarpedError =
 						'This Map Image cannot be opened on its own from this site yet. Its image was ' +
 						'tiled without a web address, so nothing here can fetch the sheet. The scholar who ' +
-						'published this site can fix it by publishing again and giving Ballastella the address ' +
+						'made this site can fix it by giving Ballastella the address ' +
 						'the site is at, which turns the map into a citable IIIF endpoint. It is still shown ' +
 						'aligned on the map.';
 					return;
@@ -1289,7 +1289,7 @@
 	 * Open a Map Image as a document, and come back.
 	 *
 	 * Query only, on the one route ADR-0008 chose: a second route would be a second prerendered
-	 * directory, which `VIEWER_FILE_PATHS` would have to claim before publishing would write it.
+	 * directory, which `VIEWER_FILE_PATHS` would have to claim before the site write would put it there.
 	 *
 	 * `goto` rather than `location.href`, so this is a **client-side** navigation. That is the harder
 	 * case and the one worth having: it destroys the map-bearing pane and mounts the unwarped one inside
@@ -1321,7 +1321,7 @@
 
 	/** What this site calls itself in the tab. The Front Page has no name of its own beyond the tool's. */
 	const title = $derived(
-		openProject ? `${openProject.file.name} — Ballastella` : 'Ballastella — published Projects'
+		openProject ? `${openProject.file.name} — Ballastella` : 'Ballastella — Projects'
 	);
 </script>
 
@@ -1341,14 +1341,14 @@
 <main class="flex min-h-0 flex-col lg:h-full">
 	<!--
 		Why the Base Map on screen is not the one the Project asked for (ADR-0020), and what this site
-		was published without.
+		does not carry.
 
 		⚠ **Above the Front-Page/Project split rather than beside the switcher, and that placement is
 		the mechanism.** Both are `aria-live` regions, which are announced when their text *changes*
 		and not when the element carrying them is inserted — so each has to be on the page before its
 		sentence exists. Everything below this point is built client-side once the site record and the
 		Project file have been read, and both sentences are settled before that happens: `baseMapNotice`
-		falls out of `resolveBaseMap` with the Project file, and `baseMapNotPublished` is true from the
+		falls out of `resolveBaseMap` with the Project file, and `baseMapNotInSite` is true from the
 		first frame. A region rendered down there arrives *with* its text however few `{#if}` blocks
 		are left around it, which is what made these two inaudible when they sat in the controls column.
 		Here they are in the prerendered HTML, empty, and the sentence arriving is a change.
@@ -1368,8 +1368,8 @@
 		shape="always-present"
 		variant="plain"
 		class="max-w-prose text-sm text-warning"
-		testid="base-map-not-published"
-		text={showingTheMap ? baseMapNotPublished : ''}
+		testid="base-map-not-in-site"
+		text={showingTheMap ? baseMapNotInSite : ''}
 	/>
 
 	{#if openDirectory === null}
@@ -1392,9 +1392,9 @@
 				stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 			-->
 				<p class="max-w-prose">
-					These are the Projects published from one Ballastella Workspace. A Reader can look at the
+					These are the Projects shared from one Ballastella Workspace. A Reader can look at the
 					work — the aligned Map Images and the Annotations written over them — and cannot change
-					it. Published with
+					it. Made with
 					<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
 				</p>
 
@@ -1406,7 +1406,7 @@
 
 				**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
 				this expression and nothing else — because the sentence is *about* the invitation. A site
-				published into a folder, and any site published without them, records no instance or no
+				written into a folder, and any site written without them, records no instance or no
 				repository, so the bar carries no "Open this Workspace in Ballastella" and this would be
 				telling a Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
 				drift into a page that offers the link without the sentence or the sentence without the link.
@@ -1414,7 +1414,7 @@
 				{#if cloneLink !== null}
 					<p class="mt-4 max-w-prose" data-testid="no-account-needed">
 						Opening this Workspace in Ballastella takes a copy of all of it onto your own computer.
-						You do not need an account, and nothing published here is changed.
+						You do not need an account, and nothing on this site is changed.
 					</p>
 				{/if}
 
@@ -1427,7 +1427,7 @@
 					<p class="mt-8">Looking for the Projects on this site…</p>
 				{:else}
 					<!--
-					The same list of cards the editor's Hub renders, from the one component — so publishing does
+					The same list of cards the editor's Hub renders, from the one component — so a site does
 					not reformat a scholar's Projects into something else.
 
 					**A Reader gets it with nothing else passed to it**, and that is the whole of how the
@@ -1435,8 +1435,8 @@
 					choice, because none of them is a snippet this call hands over. The name is interpolated as
 					text by the card itself and never as markup, which
 					`packages/ui/src/project-card-list.dom.test.ts` asserts against the component
-					and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
-					published site (ADR-0009).
+					and `e2e/viewer-reader.e2e.ts` and `e2e/editor-sync.e2e.ts` assert against a real
+					Published Site (ADR-0009).
 				-->
 					<!--
 					`workspace-home-column` is the measure, and it is the editor's too: it is declared once in
@@ -1445,7 +1445,7 @@
 				-->
 					<ProjectCardList
 						class="mt-8 workspace-home-column"
-						testid="published-projects"
+						testid="front-page-projects"
 						projects={frontPageCards}
 					/>
 				{/if}

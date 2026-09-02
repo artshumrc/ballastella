@@ -1,4 +1,4 @@
-// The in-memory seam for Update from GitHub's atomicity: the whole operation interrupted at every
+// The in-memory seam for the inbound apply's atomicity: the whole operation interrupted at every
 // durable boundary there is, and the Workspace compared with complete snapshots afterwards.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -39,8 +39,8 @@ import {
 	UpdateRefusedError,
 	readUpdateTransaction,
 	recoverWorkspaceUpdate,
-	updateFromGitHub
-} from './update-from-github.js';
+	getFromRemote
+} from './get-from-remote.js';
 
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -129,7 +129,7 @@ async function remoteWithChanges(): Promise<FakeGitHub> {
 
 /** The get the whole file is about: the four changes above. */
 const getChanges = (store: ProjectStore, fake: FakeGitHub, base: SynchronizationBaseline) =>
-	updateFromGitHub(store, {
+	getFromRemote(store, {
 		remote: REMOTE,
 		token: null,
 		baseline: base,
@@ -336,7 +336,7 @@ describe('before it will start at all', () => {
 		const store = new Interrupted(dead, Number.MAX_SAFE_INTEGER);
 
 		const refused = await refusal(
-			updateFromGitHub(store, {
+			getFromRemote(store, {
 				remote: REMOTE,
 				token: null,
 				baseline: await baseline(),

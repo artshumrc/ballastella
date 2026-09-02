@@ -9,18 +9,18 @@ import { serveDirectory, type StaticSite } from './static-site.js';
 // Reader's experience can be driven at a domain root and in a subdirectory.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY THIS ASSEMBLES A SITE RATHER THAN PUBLISHING ONE THROUGH THE EDITOR
+// WHY THIS ASSEMBLES A SITE RATHER THAN WRITING ONE THROUGH THE EDITOR
 //
-// `e2e/editor-publish.e2e.ts` already drives publishing end to end — through the dialog, out of OPFS,
-// onto disk, and served at two base paths — and that is where "publishing produces a working site"
+// `e2e/editor-sync.e2e.ts` already drives a Sync end to end — through the dialog, out of OPFS,
+// onto disk, and served at two base paths — and that is where "a Sync produces a working site"
 // belongs. What the Reader specs need is the *other* half: a great many Reader behaviours over a
 // Project with several Layers, an unreachable host, a newer `formatVersion`, an XSS payload, and a
 // 375 px viewport.
-// Going through the editor's UI for each of those would put OPFS seeding, a Publish dialog, and a
+// Going through the editor's UI for each of those would put OPFS seeding, a sync modal, and a
 // 30-second bundle write in front of every assertion, on a suite already at its contention ceiling.
 //
-// So the bytes come from where publishing gets them: `apps/viewer/build` — the same directory
-// `scripts/stage-viewer-bundle.mjs` copies and `publishSite` writes — plus the same `base-map/` assets,
+// So the bytes come from where a real site gets them: `apps/viewer/build` — the same directory
+// `scripts/stage-viewer-bundle.mjs` copies and `assemblePublishedSite` writes — plus the same `base-map/` assets,
 // plus a `ballastella-site.json` of the same shape `serialisePublishedSite` writes. Nothing here
 // reimplements the *viewer*, which is the thing under test; what it stands in for is the copying.
 //
@@ -48,11 +48,11 @@ export type SiteFiles = Record<string, string | Uint8Array>;
  * Layer drawn?" assertion a test of nothing.
  *
  * `withoutBaseMap` is the **other** supported state and not a broken one: including those 4.9 MB is opt-in
- * at publish time, so a great many real sites will not have them. A bundled
+ * when Share Links are asked for, so a great many real sites will not have them. A bundled
  * catalog entry's archive, glyphs, and sprites are all site-relative paths, so this is the shape in which
  * a viewer that asked for them anyway would answer a Reader with three 404s and a blank rectangle.
  */
-export async function writePublishedSite(
+export async function assemblePublishedSite(
 	files: SiteFiles,
 	options: { withoutBaseMap?: boolean } = {}
 ): Promise<string> {
@@ -70,12 +70,12 @@ export async function writePublishedSite(
 }
 
 /**
- * The site record publishing writes: the Project list, the viewer stamp, and — where a test supplies
+ * The site record a Published Site carries: the Project list, the viewer stamp, and — where a test supplies
  * one — the Base Map catalog that travels with the site (ADR-0020).
  *
  * **No catalog by default, and that is deliberate on two counts.** `parsePublishedSite` treats a record
  * with no usable `baseMap` as ADR-0020's own fallback case and uses the reading build's catalog, which
- * is exactly what a site published *by this build* carries — so the default record drives the viewer
+ * is exactly what a site written *by this build* carries — so the default record drives the viewer
  * with the same entries a real one would. And naming an entry id in this module would break
  * `scripts/check-base-map-catalog.mjs`, which exempts `*.e2e.ts` but not its support files, for the good
  * reason that a fork repointing its catalog must not have to edit the harness.
@@ -99,7 +99,7 @@ export function siteRecord(
 			publishedAt: '2026-08-06T00:00:00.000Z',
 			projects: [...projects],
 			// **Two independent facts** (ADR-0025). `baseMapBundled` means the site carries cached *tiles*
-			// under `base-map/tiles/`, which `writePublishedSite` does not write unless a test asks for
+			// under `base-map/tiles/`, which `assemblePublishedSite` does not write unless a test asks for
 			// them; `baseMapAssetsBundled` is the glyphs and sprites, which it copies by default. The two
 			// failures read completely differently to a Reader: no tiles is no geography, no glyphs is no
 			// place names.
@@ -132,7 +132,7 @@ export async function servePublishedSite(
 	sites: StaticSite[];
 	close(): Promise<void>;
 }> {
-	const directory = await writePublishedSite(files, options);
+	const directory = await assemblePublishedSite(files, options);
 	const sites = await Promise.all(SITE_PREFIXES.map((prefix) => serveDirectory(directory, prefix)));
 	return {
 		directory,
@@ -188,7 +188,7 @@ export const readSiteFile = (directory: string, relative: string): Promise<Buffe
  * `serveDirectory` reads from disk per request and caches nothing, exactly as a static host does, so this
  * takes effect on the next request with no restart. It exists because one thing a Reader test needs to
  * write can only be written **after** the site has an address: the canonical stamp `stampCanonicalUrl`
- * puts in a pyramid's `info.json` is the address the Workspace is published at, and the
+ * puts in a pyramid's `info.json` is the address the Workspace is served at, and the
  * harness cannot know a port it has not yet been given.
  */
 export async function writeSiteFile(

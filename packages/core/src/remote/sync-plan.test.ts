@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
 import { createFakeGitHub } from './fake-github.js';
-import { planRemotePublish, type RemoteRepository } from './publish-to-remote.js';
+import { planRemoteSend, type RemoteRepository } from './send-to-remote.js';
 import { describeChanges, describeSyncPlan } from './sync-plan.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import { gitBlobSha } from './blob-sha.js';
@@ -108,7 +108,7 @@ describe('the two columns one plan answers for', () => {
 		const store = await seeded(files);
 		const github = await createFakeGitHub({ ...REMOTE, tree });
 		return describeSyncPlan(
-			await planRemotePublish(store, {
+			await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,

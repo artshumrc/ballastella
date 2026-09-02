@@ -23,12 +23,12 @@
 // totalling.
 //
 // **That was a measurement with a destructive sweep of the whole Workspace inside it**, and the
-// caller is a user clicking "Make an offline copy" or opening the publish dialog.
+// caller is a user clicking "Make an offline copy" or opening the sync modal.
 // `TempFileWriteStore.reclaimAbandonedWrites` deletes every temporary path it walks, unconditionally
 // and with no age check, because at its intended call site nothing else is writing. Fired from here it
 // could land between another write's `writeBytes` and its `renameTempFile` — an autosave of
 // `project.json`, a tile of an ingest running in the same tab — and delete that write's temporary file
-// out from under it, failing a save the user never connected to the button they pressed. Asking how
+// out from under it, failing a save the user never associated with the button they pressed. Asking how
 // large a Workspace is must not be able to break what is being written into it.
 //
 // So the sweep stays where it is safe and expected: Workspace adoption, in
@@ -108,7 +108,7 @@ export function describeBytes(bytes: number): string {
  * What to tell the user before a copy that would cross the cliff, or `''` when it would not.
  *
  * **Information, not a gate** (ADR-0007): the scholar may be copying a map they have every right to
- * and may never publish this Workspace at all. What must not happen is that they find out from `git
+ * and may never share this Workspace at all. What must not happen is that they find out from `git
  * push` failing, which is the failure ADR-0008 names.
  */
 export function hostingLimitWarning(current: number, adding: number): string {
@@ -121,10 +121,10 @@ export function hostingLimitWarning(current: number, adding: number): string {
 		`This Workspace holds ${describeBytes(current)} and this copy adds about ` +
 		`${describeBytes(adding)}, ` +
 		(already
-			? `so it is already past the ${limit} a free static host such as GitHub Pages will publish. `
-			: `which takes it past the ${limit} a free static host such as GitHub Pages will publish. `) +
+			? `so it is already past the ${limit} a free static host such as GitHub Pages will serve. `
+			: `which takes it past the ${limit} a free static host such as GitHub Pages will serve. `) +
 		`You can still make the copy — this is worth knowing rather than a reason to stop — but ` +
-		`publishing the whole Workspace to one of those hosts will fail, and the way out is to publish ` +
+		`sending the whole Workspace to one of those hosts will fail, and the way out is to share ` +
 		`one Project at a time or to host it somewhere without that limit.`
 	);
 }

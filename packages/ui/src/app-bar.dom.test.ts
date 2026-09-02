@@ -6,7 +6,7 @@
 // page-chrome slot, the theme control, and the fold — so it is asserted once here rather than twice
 // in `e2e/`.
 //
-// ⚠ What stays in `e2e/` is unchanged: that the editor's own items still behave, that a published
+// ⚠ What stays in `e2e/` is unchanged: that the editor's own items still behave, that a
 // site really carries a bar in a real build served over HTTP, and anything about width or paint.
 // There is no layout here.
 //
@@ -77,7 +77,7 @@ test('renders each app’s own items in the slots it is handed', () => {
 	render();
 
 	expect(testid('site-name')).toHaveTextContent('Ballastella');
-	expect(testid('app-control')).toHaveTextContent('Publish…');
+	expect(testid('app-control')).toHaveTextContent('Sync');
 });
 
 test('says which screen this is, and nothing at all when the screen says nothing', () => {

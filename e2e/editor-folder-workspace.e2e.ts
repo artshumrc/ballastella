@@ -15,7 +15,7 @@ import {
 	switchToWorkspace,
 	checkRemoteStatus,
 	openSyncModal,
-	updateFromGitHub
+	getFromRemote
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
@@ -1387,7 +1387,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
 	};
 
-	/** A second Project, as another machine's publish leaves it on the Remote. */
+	/** A second Project, as another machine's Sync leaves it on the Remote. */
 	const THEIRS: Record<string, string> = {
 		'delft/project.json': `${JSON.stringify(
 			{
@@ -1459,8 +1459,8 @@ test.describe('synchronizing a folder Workspace', () => {
 		await expect(page.getByTestId('sync-modal')).toBeHidden();
 	}
 
-	/** Publish the open Workspace to its Remote and wait for the Remote to be named in the result. */
-	async function publish(page: Page, repository: string): Promise<void> {
+	/** Send the open Workspace to its Remote and wait for the Remote to be named in the result. */
+	async function send(page: Page, repository: string): Promise<void> {
 		await openSyncModal(page);
 		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
 		await expect(dialog.getByTestId('sync-budget')).toBeVisible();
@@ -1506,7 +1506,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await forgetRememberedFolder(page);
 		await page.evaluate(() => localStorage.clear());
 
-		// ── The control: the same Project, published out of browser storage ───────────────────────
+		// ── The control: the same Project, sent out of browser storage ────────────────────────────
 		await seedInto(page, null);
 		// ⚠ **Seeded before the reload, and before the folder is taken.** The credential is read when
 		// the app starts, and a folder Workspace resumes only from a gesture — so this is the last
@@ -1515,7 +1515,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await page.reload();
 		await inBrowserStorage(page);
 		await bindTo(page, FROM_BROWSER);
-		await publish(page, FROM_BROWSER);
+		await send(page, FROM_BROWSER);
 
 		// ── The same Project, in a folder the user picked ─────────────────────────────────────────
 		//
@@ -1526,10 +1526,10 @@ test.describe('synchronizing a folder Workspace', () => {
 		await inFolder(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await bindTo(page, FROM_FOLDER);
-		await publish(page, FROM_FOLDER);
+		await send(page, FROM_FOLDER);
 
 		// ⚠ **Byte-equivalent, path by path.** Only the source closure is compared: a published site
-		// carries its own build stamp, so `index.html` differing between two publishes seconds apart
+		// carries its own build stamp, so `index.html` differing between two sends seconds apart
 		// says nothing about the backing. What the two Remotes must agree on to the byte is the
 		// scholarship — and the site record is deliberately not in it, because each names its own
 		// repository.
@@ -1539,7 +1539,7 @@ test.describe('synchronizing a folder Workspace', () => {
 			);
 			expect(github.fileText(OWNER, FROM_FOLDER, path)).toBe(SOURCE[path]);
 		}
-		// And a Publish earns a Baseline in the folder Workspace exactly as it does in the other one,
+		// And a Sync earns a Baseline in the folder Workspace exactly as it does in the other one,
 		// which is what makes every determination below answerable at all.
 		await expect(remoteStatus(page)).toContainText(`in sync with ${OWNER}/${FROM_FOLDER}`);
 
@@ -1548,7 +1548,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('changes to get');
 
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 		// In the folder, as real files: the transfer wrote through the File System Access adapter and
 		// the bytes are the Remote's own.
@@ -1571,7 +1571,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		expect(await everyPathInFolder(page)).toEqual(before);
 
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
 		// Nothing of the removed Project is left in the folder, and the Project the Remote kept is

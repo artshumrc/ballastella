@@ -919,7 +919,7 @@ test.describe('a Layer for a Map Image that has just been added', () => {
 
 		// **The starter Alignment is on disk**, at the Workspace root, with no Control Points and a
 		// Resource Mask over the whole sheet. Without it the Layer names a file that is not there, and
-		// `assertReferencesPresent` makes the Project un-exportable and un-publishable — this build would
+		// `assertReferencesPresent` makes the Project un-exportable and unsendable — this build would
 		// write a zip it then refused to read.
 		const alignment = JSON.parse(
 			await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)

@@ -32,7 +32,7 @@
 //
 // The Project-level slug (`toDirectoryName`) is narrow because a Project directory is also a `?p=`
 // query value and a path segment inside a Published Site. A Workspace directory is neither: it sits
-// **above** the store root, so no store path ever contains it, and nothing published carries it.
+// **above** the store root, so no store path ever contains it, and nothing a site carries holds it.
 
 import { OpfsProjectStore } from './opfs-project-store.js';
 

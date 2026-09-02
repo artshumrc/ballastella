@@ -2,7 +2,7 @@
 //
 // A browser test because the whole claim is about a database Node does not have: that a credential
 // written here is still there after the tab that wrote it has gone, and that nothing about it lands
-// anywhere a Backup packs or a Publish uploads. A Node stub of IndexedDB would only prove the stub
+// anywhere a Backup packs or a send uploads. A Node stub of IndexedDB would only prove the stub
 // agrees with the mirror in front of it, which is the very thing this file exists to check.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

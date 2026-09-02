@@ -21,17 +21,17 @@ import {
  * guided sequence, the connection it makes, and the Sync modal that connection hands off to.
  *
  * The transfer itself — the tree listing, the skip-by-blob-SHA resume, the refusals and their
- * sentences — is asserted at Seam 1 in `update-from-github.test.ts`, and what a connection records
+ * sentences — is asserted at Seam 1 in `get-from-remote.test.ts`, and what a connection records
  * in `bind-remote.test.ts` and `synchronization-metadata.test.ts`. All of them assert bytes and
  * records rather than a screen. What only a browser can show is here:
  *
  *   - a repository address typed into the editor connects **this** Workspace, and getting fills it;
  *   - the Project that arrives lists on the hub, opens, and draws — so the Map Image, the Alignment
  *     and the Annotations all really landed, in a store the app reads through its own code;
- *   - only the **owned namespace** arrives, so the publisher's `README.md`, `CNAME` and workflow do
+ *   - only the **owned namespace** arrives, so the author's `README.md`, `CNAME` and workflow do
  *     not become this author's own content and are not sent as theirs later (ADR-0033);
  *   - the result is bound with a Baseline, and bound to the repository the *author* typed rather
- *     than to the one the published tree names;
+ *     than to the one the Remote's tree names;
  *   - **none of it needs a credential, and none is sent** — asserted against a GitHub that answers
  *     401 to anything carrying one. That is the whole property: a student with no GitHub account
  *     seeding a Workspace from their instructor's repository;
@@ -41,7 +41,7 @@ import {
  * ⚠ **Resume is asserted at Seam 1 and not here, on purpose.** Skipping a file that is already on
  * disk is invisible in the result — a retry that re-downloaded everything and wrote the same bytes
  * back leaves a byte-identical Workspace — so the only assertion worth making is on the request
- * counter, which `update-from-github.test.ts` makes directly.
+ * counter, which `get-from-remote.test.ts` makes directly.
  *
  * ⚠ **The shipped `?clone=owner/repository` invitation parameter is kept exactly as it is**, because
  * old Published Sites carry it and a link already given out has to go on working. Only what the
@@ -56,7 +56,7 @@ const REPOSITORY = 'atlas';
 const REMOTE = `${OWNER}/${REPOSITORY}`;
 
 /**
- * A Project as a publish leaves it on the Remote.
+ * A Project as a Sync leaves it on the Remote.
  *
  * A map Layer and an annotation Layer, so `images/`, `alignments/` and the Project's own
  * `annotations/` are all really carried — without them the assertion that an opened Project "opens
@@ -96,23 +96,23 @@ const PROJECT_JSON = `${JSON.stringify(
 const WAREHOUSES = '{"type":"FeatureCollection","features":[]}';
 
 /**
- * What the publisher's repository holds that is **not** the Workspace (ADR-0033).
+ * What the author's repository holds that is **not** the Workspace (ADR-0033).
  *
  * The scholar's own work on their own repository: the address they cite in print, the licence, the
- * workflow that deploys their site. A publish leaves every one of them alone and so does an Open —
- * anything downloaded becomes the opener's Workspace content, and their first publish would push it
+ * workflow that deploys their site. A Sync leaves every one of them alone and so does a get —
+ * anything downloaded becomes the opener's Workspace content, and their first send would put it
  * into their own repository as though they had written it.
  */
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
 /**
- * The whole repository, as a publish leaves it.
+ * The whole repository, as a Sync leaves it.
  *
  * `ballastella-site.json` records **somebody else's** repository, as a fork's published site would,
  * so an Open that read the relationship off the wire instead of out of what the author typed would be
  * caught by the assertions below.
  */
-const PUBLISHED: Record<string, string> = {
+const ON_REMOTE: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'ballastella-site.json': JSON.stringify({
@@ -141,7 +141,7 @@ const PUBLISHED: Record<string, string> = {
  * a partly-filled directory cannot look like synchronized work.
  */
 const GENERATED = ['.nojekyll', 'index.html', 'ballastella-site.json'];
-const DOWNLOADED = Object.keys(PUBLISHED).filter(
+const DOWNLOADED = Object.keys(ON_REMOTE).filter(
 	(path) => !OUTSIDE_NAMESPACE.includes(path) && !GENERATED.includes(path)
 );
 
@@ -170,10 +170,10 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 	});
 }
 
-/** Start on a clean hub, with one public repository holding a published Workspace. */
+/** Start on a clean hub, with one public repository holding a Workspace. */
 async function start(page: Page, repository: Record<string, unknown> = {}) {
 	const github = await routeGitHubHosts(page, {
-		repositories: [{ owner: OWNER, name: REPOSITORY, files: PUBLISHED, ...repository }]
+		repositories: [{ owner: OWNER, name: REPOSITORY, files: ON_REMOTE, ...repository }]
 	});
 	await page.goto(HUB);
 	await emptyBrowserStorage(page);
@@ -282,7 +282,7 @@ test.describe('connecting to a public repository, and getting from it', () => {
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 
 		const stored = await everyByteOf(page, DEFAULT_WORKSPACE);
-		// The owned namespace and nothing else: not the publisher's own files, and nothing describing
+		// The owned namespace and nothing else: not the author's own files, and nothing describing
 		// which repository this Workspace belongs to — that is installation-local (ADR-0044).
 		expect(Object.keys(stored).sort()).toEqual([...DOWNLOADED].sort());
 		for (const path of [...OUTSIDE_NAMESPACE, ...GENERATED]) {
@@ -318,7 +318,7 @@ test.describe('connecting to a public repository, and getting from it', () => {
 	});
 
 	test('records the repository the author typed, and a Baseline', async ({ page }) => {
-		// ⚠ **The published tree's site record names `someone-else/fork`**, as a fork's would. Read as
+		// ⚠ **The Remote tree's site record names `someone-else/fork`**, as a fork's would. Read as
 		// the relationship it would aim this author's Sync at a repository they have never seen — so
 		// what is recorded is the repository they typed and nothing else (ADR-0044).
 		await start(page);
@@ -359,7 +359,7 @@ test.describe('connecting to a public repository, and getting from it', () => {
 		// a public repository — so a connection or a get that attached an `Authorization` header
 		// anywhere would fail here. Nothing signs in: a student with no GitHub account.
 		const github = await routeGitHubHosts(page, {
-			repositories: [{ owner: OWNER, name: REPOSITORY, files: PUBLISHED }],
+			repositories: [{ owner: OWNER, name: REPOSITORY, files: ON_REMOTE }],
 			rejectCredential: true
 		});
 		await page.goto(HUB);
@@ -591,7 +591,7 @@ test.describe('refusals, all before a byte is written', () => {
 		// ⚠ A truncated listing answers **200**, so nothing throws anywhere. Proceeding would hand the
 		// user a Workspace with most of a pyramid silently missing — and here it is caught one step
 		// earlier still: the probe that works out which repository an address means reads the same
-		// listing, so a truncated one cannot even be confirmed, let alone connected to.
+		// listing, so a truncated one cannot even be confirmed, let alone bound to.
 		const github = await start(page, { truncateAfter: 3 });
 
 		await connectByAddress(page);
@@ -607,7 +607,7 @@ test.describe('refusals, all before a byte is written', () => {
 	test('a repository nobody can read anonymously', async ({ page }) => {
 		await start(page);
 
-		await connectByAddress(page, `${OWNER}/not-published`);
+		await connectByAddress(page, `${OWNER}/nothing-sent`);
 
 		// A private repository and a missing one are one answer to an anonymous reader, and the
 		// sentence says so rather than asserting the first of the two.

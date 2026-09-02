@@ -387,7 +387,7 @@
 	 * for tiles already in the folder.
 	 *
 	 * **Taken from the session rather than derived here**, which is where this used to be built by hand.
-	 * It is the same question core's `tileLocation` answers for publishing, for the hub's reclaim list,
+	 * It is the same question core's `tileLocation` answers for a site, for the hub's reclaim list,
 	 * and for the viewer's 404 probe; a set assembled in a page is how one rule ends up with five
 	 * readings that can disagree.
 	 */

@@ -7,8 +7,7 @@
 // into OPFS, booted the built editor, and then read a sentence out of a `<li>` — the label and the
 // size, where the tiles are, and which Projects draw the map. Every one of those sentences is
 // composed from a `WorkspaceMapImage` record and nothing else, so none of the scenery was
-// load-bearing. The Front Page choice now belongs to the Publish dialog, where it is shown with the
-// rest of the publishing decision.
+// load-bearing. The Front Page choice belongs to a Project's own settings (ADR-0045).
 //
 // ⚠ **What did not move.**
 //
@@ -93,7 +92,7 @@ const at = (testId: string): HTMLElement => {
 
 describe('what a Map Image card says about the map', () => {
 	// The file count beside the byte total, because "50 kB in 4 files" and "50 kB in 31 000 files"
-	// are different news for a scholar deciding what to publish.
+	// are different news for a scholar deciding what to share.
 	test('names it, weighs it, and says how many files that is', () => {
 		hub({
 			mapImages: [

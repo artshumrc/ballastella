@@ -111,7 +111,7 @@ describe('recognisedProjectDirectories', () => {
 });
 
 describe('classifyInventory', () => {
-	/** A tree an editor version older than this one published, with one Project in it. */
+	/** A tree an editor version older than this one wrote, with one Project in it. */
 	const tree = [
 		{ path: '_app/immutable/entry/app.old.js', sha: 'a1' },
 		{ path: 'index.html', sha: 'a2' },
@@ -136,7 +136,7 @@ describe('classifyInventory', () => {
 		]);
 	});
 
-	it('separates Publish-owned output from the source comparison', () => {
+	it('separates site-owned output from the source comparison', () => {
 		expect(inventory.publishedOutput.map((entry) => entry.path)).toEqual([
 			'_app/immutable/entry/app.old.js',
 			'index.html',

@@ -1,4 +1,4 @@
-// The GitHub every publishing spec talks to, installed as Playwright routes.
+// The GitHub every GitHub-area spec talks to, installed as Playwright routes.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE NETWORK FENCE, AND WHY THESE ROUTES COME FIRST
@@ -67,7 +67,7 @@ export type FakeRepository = {
 	 * What the repository already holds, as its first commit.
 	 *
 	 * A `README.md` by default, so the repository has the `main` branch a Pages source names. Pass
-	 * `{}` for a repository with a commit and no files, and pass files a publish must **not** touch —
+	 * `{}` for a repository with a commit and no files, and pass files a send must **not** touch —
 	 * a `CNAME`, a `docs/` folder — to assert ADR-0033's owned namespace from a browser.
 	 */
 	readonly files?: Readonly<Record<string, string>>;
@@ -97,7 +97,7 @@ export type FakeRepository = {
 	 * Cut every tree listing short after this many entries and report `truncated: true`.
 	 *
 	 * The real endpoint truncates at 100 000 entries or 7 MB **and still answers 200**, which is why
-	 * a publish that did not look would commit a tree missing most of a Workspace.
+	 * a send that did not look would commit a tree missing most of a Workspace.
 	 */
 	readonly truncateAfter?: number;
 	/** The hourly budget this repository starts with, and when it resets. */
@@ -132,7 +132,7 @@ export type GitHubHostsOptions = {
 	 * GitHub is real and answers; the broker's host is reserved by RFC 2606 and resolves nowhere
 	 * (`github-app.ts`), so a scholar gets all the way through the redirect and meets the failure at
 	 * the exchange. What must come out of that is a sentence naming the token-paste path, and a paste
-	 * that then binds and publishes exactly as it always did (ADR-0031's first consequence).
+	 * that then binds and sends exactly as it always did (ADR-0031's first consequence).
 	 */
 	readonly brokerUnreachable?: boolean;
 	/** How long an issued token lasts. Short values are how a spec reaches expiry without waiting. */
@@ -164,7 +164,7 @@ export type GitHubHostsOptions = {
  * ⚠ **A good test here asserts what arrived at the Remote, not which calls were made.** Every
  * failure mode in this area is silent and plausible: a truncated tree yields a commit missing most of
  * a pyramid, an off-by-one in the owned namespace deletes a `CNAME`. A spec counting requests passes over both, so {@link GitHubHosts.files} is what
- * a publish is asserted on and {@link GitHubHosts.requests} is for the one claim of the opposite
+ * a send is asserted on and {@link GitHubHosts.requests} is for the one claim of the opposite
  * shape — that a Review Workspace asked GitHub nothing at all.
  */
 export type GitHubHosts = {
@@ -181,7 +181,7 @@ export type GitHubHosts = {
 	/**
 	 * How many `POST /git/blobs` have arrived across every repository, refusals included.
 	 *
-	 * The one request count worth having: "the second publish uploaded nothing" and "the refusal
+	 * The one request count worth having: "the second send uploaded nothing" and "the refusal
 	 * stopped the uploads rather than merely failing them" are claims about what was *sent*, and no
 	 * assertion on the resulting tree can make either.
 	 */
@@ -189,9 +189,9 @@ export type GitHubHosts = {
 	/** The commit the branch is on, or `null` when the repository is empty. */
 	head(owner: string, name: string): string | null;
 	/**
-	 * Commit a change the browser did not make: another machine publishing, or an edit on github.com.
+	 * Commit a change the browser did not make: another machine sending, or an edit on github.com.
 	 *
-	 * ⚠ **The only way to produce a *foreign* write**, which is what the publish's conflict refusal is
+	 * ⚠ **The only way to produce a *foreign* write**, which is what the send's conflict refusal is
 	 * entirely about — every other way of changing a repository here goes through the app under test.
 	 * Paths not named are left as they are; `null` removes one. It is the shared fake's own
 	 * `commitFiles`, not a second way of writing bytes.

@@ -45,7 +45,7 @@ declare global {
  * The listeners `registerCachedBaseMapTiles` takes, recording into the two lists above.
  *
  * **Here rather than in `@ballastella/core`.** A `declare global` on `Window` in core would ship these
- * arrays' types — and the code writing them — into every published Reader's bundle, which is the rule
+ * arrays' types — and the code writing them — into every Reader's bundle, which is the rule
  * `StackBuiltListener` is written to state. So core takes listeners and each app owns its own arrays.
  */
 export const recordCachedBaseMapTiles = () => ({

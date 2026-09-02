@@ -289,7 +289,7 @@ export interface WorkspaceSyncPlan {
  * One path's three pieces of evidence, compared. `null` is absent on any of the three sides.
  *
  * **The one implementation of the table**, called by the Workspace comparison here and by
- * publishing's own refusal — which asks the same question of the same three values and must not
+ * the send's own refusal — which asks the same question of the same three values and must not
  * answer it differently. See this module's header for the rows.
  */
 export function comparePath(
@@ -583,8 +583,8 @@ export function validateProspectiveWorkspace(
  * {@link WorkspaceSyncPlan.overwrites} — the only removal set computed from the Workspace alone.
  *
  * Nothing here refuses: a Conflict is reported and the engine that moves the bytes resolves it.
- * Nothing here transfers a byte either — `update-from-github.ts` carries out a get and
- * `publish-to-remote.ts` a send.
+ * Nothing here transfers a byte either — `get-from-remote.ts` carries out a get and
+ * `send-to-remote.ts` a send.
  */
 export function planWorkspaceSync(input: SynchronizationInput): WorkspaceSyncPlan {
 	const comparison = compareSource(input);

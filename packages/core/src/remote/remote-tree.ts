@@ -35,7 +35,7 @@
 // `remote-tree.test.ts` drives this directly, because most of what is here is a reading of responses
 // no caller can produce through the fake — a body that is not JSON, a `tree` that is not an array, a
 // status neither reader has a name for. What the *callers* do with each refusal is asserted in
-// `clone-from-remote.test.ts` and `review-from-remote.test.ts`, against the sentences they write.
+// `workspace-address.test.ts` and `review-from-remote.test.ts`, against the sentences they write.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { GITHUB_API_ORIGIN, headerNumber } from './github-api.js';
@@ -123,7 +123,7 @@ export const urlPath = (path: string): string => path.split('/').map(encodeURICo
  * A GET of the git database, with every status this module has a refusal for.
  *
  * The `Authorization` header is **omitted rather than sent empty** for an anonymous read, as the
- * publish engine's own API wrapper omits it: GitHub answers 401 to a `Bearer` with nothing after it,
+ * send engine's own API wrapper omits it: GitHub answers 401 to a `Bearer` with nothing after it,
  * where it answers a public repository's tree to a request carrying no header at all.
  */
 async function githubGet(
@@ -148,7 +148,7 @@ async function githubGet(
 	}
 
 	// ⚠ 409 `Git Repository is empty.` is a repository with no commits, which is not 404 and needs its
-	// own sentence: there is nothing wrong with the address, there is simply nothing published there
+	// own sentence: there is nothing wrong with the address, there is simply no Ballastella work there
 	// yet. Reported as a missing repository it sends the user off to check a name that is fine.
 	if (response.status === 409) throw new RemoteTreeRefusedError('empty');
 	if (response.status === 404) throw new RemoteTreeRefusedError('no-repository');

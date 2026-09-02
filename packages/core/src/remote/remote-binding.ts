@@ -8,7 +8,7 @@
 // belongs to is a claim that can disagree with the one the installation acts on, and it travels —
 // into a Backup, into a fork, into a colleague's folder — where it would let a repository nobody
 // chose claim a Workspace. What a Published Site needs to name its own repository it carries in its
-// own record (`ballastella-site.json`), which publishing writes and which says nothing about any
+// own record (`ballastella-site.json`), which the site write puts there and which says nothing about any
 // Workspace.
 //
 // So what is left here are the rules every reader of a repository reference has to agree about, in
@@ -24,7 +24,7 @@
 // survives it and `fetch` normalises the traversal away afterwards. Checked here instead, so a
 // reference is safe by construction wherever it is interpolated.
 
-/** The one branch Ballastella publishes to. One branch, one commit per publish. */
+/** The one branch Ballastella sends to. One branch, one commit per send. */
 export const DEFAULT_REMOTE_BRANCH = 'main';
 
 /**

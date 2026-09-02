@@ -96,7 +96,7 @@ async function seedProject(
 }
 
 describe('where a Map Image’s tiles are', () => {
-	// ADR-0023's rule, and this is now its only implementation. It used to have five: `publish.ts`,
+	// ADR-0023's rule, and this is now its only implementation. It used to have five: `published-site.ts`,
 	// `partitionByOfflineCopy`, the viewer's 404 probe, and a derived set in each app's page. The rule
 	// itself is what they disagreed about most cheaply, so it is the thing that got one home.
 	it('is this Workspace when an info.json of ours is beside it', () => {
@@ -109,7 +109,7 @@ describe('where a Map Image’s tiles are', () => {
 
 	it('is this Workspace once a copy has been made, though the citation stays', () => {
 		// A copied map keeps its `remote.json` — that record is the citation ADR-0007 protects — so
-		// "both" is the offline copy, not an ambiguity. Reading it the other way is what made publishing
+		// "both" is the offline copy, not an ambiguity. Reading it the other way is what made the site write
 		// warn about a network dependency the Workspace no longer had.
 		expect(tileLocation({ infoJson: true, remoteJson: true })).toBe('in-workspace');
 	});
@@ -136,7 +136,7 @@ describe('listWorkspaceMapImages', () => {
 		expect(maps[0]?.bytes).toBeGreaterThan(40_000);
 		expect(maps[0]?.bytes).toBeLessThan(42_000);
 		// The count beside the weight, because "50 kB in 3 files" and "50 kB in 31 000 files" are
-		// different news for a scholar deciding what to publish — and because a referenced map is one
+		// different news for a scholar deciding what to share — and because a referenced map is one
 		// small record rather than a pyramid, which is the whole point of the figure.
 		expect(maps[0]?.files).toBe(3);
 		expect(maps[1]?.files).toBe(1);
@@ -319,9 +319,9 @@ describe('a Map Image’s thumbnail', () => {
 		);
 	});
 
-	it('is on the placeholder host even when the info.json carries a stamped published address', async () => {
+	it('is on the placeholder host even when the info.json carries a stamped address', async () => {
 		// ⚠ The reason only geometry is taken from the document. After an opt-in canonical stamp `id`
-		// holds the published address, which the ADR-0011 shim does not route — so a URL built on it
+		// holds the stamped address, which the ADR-0011 shim does not route — so a URL built on it
 		// would send the editor to the internet for a picture of a file it is already holding, working
 		// or broken according to whether the site happens to be live.
 		const store = new MemoryProjectStore();
@@ -329,7 +329,7 @@ describe('a Map Image’s thumbnail', () => {
 			store,
 			'aaa1',
 			{ width: 1200, height: 851 },
-			'https://example.test/published/aaa1'
+			'https://example.test/atlas/aaa1'
 		);
 
 		expect(await thumbnailOf(store, 'aaa1')).toBe(
@@ -558,7 +558,7 @@ describe('a Map Image whose only user is a Project from a newer version', () => 
 		await seedLocalMap(store, 'aaa1', 'Might be in use', 500_000);
 		await seedFutureProject(store, 'from-the-future');
 
-		// Publishing's warning would otherwise invite the user to reclaim half a gigabyte that a Project
+		// The hosting warning would otherwise invite the user to reclaim half a gigabyte that a Project
 		// they cannot open today is drawing.
 		expect(await unusedMapImageBytes(store)).toEqual({ bytes: 0, maps: 0 });
 	});
@@ -766,7 +766,7 @@ describe('deleting a Map Image', () => {
 
 describe('unusedMapImages', () => {
 	// One definition of the ticket's headline figure. The hub used to reduce this itself, so the
-	// reclaim list and publishing's hosting warning were two answers to one question.
+	// reclaim list and the hosting warning were two answers to one question.
 	const map = (imageId: string, bytes: number, users: number, unreadable = 0) => ({
 		imageId,
 		bytes,

@@ -86,7 +86,7 @@ const gcp = (resourceCoords: [number, number], coordinates: [number, number]) =>
  * `serviceId` is what the document declares its own `id` to be, and it is the **only** thing that decides
  * where a tiling viewer fetches this pyramid's tiles from — see
  * `apps/viewer/src/lib/unwarped-manifest.ts`. Unstamped it is the ADR-0004 placeholder; a Project the
- * author published with an address has it rewritten by `stampCanonicalUrl`, which is the case
+ * author stamped with an address has it rewritten by `stampCanonicalUrl`, which is the case
  * reading a Map Image as a document needs and the reason this is a parameter.
  */
 export const infoJson = (serviceId = `https://unset.invalid/${IMAGE_ID}`): string =>
@@ -167,7 +167,7 @@ export type ProjectFixture = {
 	 * The address the pyramid's `info.json` declares as its own image service `id`.
 	 *
 	 * Absent leaves the ADR-0004 placeholder, which is an unstamped Project. Supplying the site's own
-	 * address is what `stampCanonicalUrl` writes when an author publishes with one, and it
+	 * address is what `stampCanonicalUrl` writes when an author gives one, and it
 	 * is the only shape in which a tiling viewer can read the sheet — so a test that wants the unwarped
 	 * view to *work* has to say where the site is.
 	 */
@@ -212,7 +212,7 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 			...(fixture.projectOverrides ?? {})
 		}),
 		// At the Workspace root, shared by every Project (ADR-0023).
-		// alignment-write-is-the-fixture: the published Project the viewer specs read; the viewer never writes anything at all
+		// alignment-write-is-the-fixture: the Project on the site the viewer specs read; the viewer never writes anything at all
 		[`alignments/${IMAGE_ID}.json`]: alignmentJson(fixture.sheetAt),
 		[`${directory}/annotations/${ANNOTATION_LAYER_ID}.geojson`]: asJson({
 			type: 'FeatureCollection',

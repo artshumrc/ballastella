@@ -50,7 +50,7 @@ it('exposes the image pane projection to both apps', () => {
 // The tiler, reachable through the barrel and adding no dependency for `apps/viewer` to acquire.
 // That second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, and it used to be
 // possible for an import of `wasm-vips` anywhere under `src` to put a 5 MB WebAssembly module in
-// the published reader's dependency graph with nothing to make it loud. ADR-0027 removed the
+// the Reader's dependency graph with nothing to make it loud. ADR-0027 removed the
 // package; what is left is `createImageBitmap` and an `OffscreenCanvas`, injected by the app.
 it('exposes the tiler and its cap', () => {
 	expect(Object.keys(core)).toEqual(
@@ -127,16 +127,16 @@ it('exposes the git blob SHA and the fake GitHub', () => {
 	);
 });
 
-// The publish engine, reachable through the same barrel because the navigation bar drives it
+// The send engine, reachable through the same barrel because the navigation bar drives it
 // (ADR-0032). It adds no dependency: paths, byte counts, JSON, and an injected `fetch`.
-it('exposes the publish engine and its refusals', () => {
+it('exposes the send engine and its refusals', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([
-			'MAX_PUBLISHED_FILES',
-			'RemotePublishRateLimitedError',
-			'RemotePublishRefusedError',
-			'planRemotePublish',
-			'publishToRemote'
+			'MAX_SENT_FILES',
+			'RemoteSendRateLimitedError',
+			'RemoteSendRefusedError',
+			'planRemoteSend',
+			'sendToRemote'
 		])
 	);
 });

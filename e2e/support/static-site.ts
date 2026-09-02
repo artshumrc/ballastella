@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-// A static web server for a published Workspace, so that "the site works" can be asserted against a
+// A static web server for a Workspace served as a site, so that "the site works" can be asserted against a
 // site rather than against a directory listing.
 //
 // ADR-0006's whole claim is that **one build serves a domain root and a project subdirectory**, and
@@ -37,7 +37,7 @@ const MEDIA_TYPES: Record<string, string> = {
 export type StaticSite = {
 	/** The site's address, with a trailing slash. */
 	readonly url: string;
-	/** The path this site is published under — `''` for a domain root. */
+	/** The path this site is served under — `''` for a domain root. */
 	readonly prefix: string;
 	/** Every path this server was asked for, in order, as it arrived. */
 	readonly requests: string[];
@@ -66,7 +66,7 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 
 		const url = new URL(asked, 'http://localhost');
 		if (!url.pathname.startsWith(`${prefix}/`)) {
-			// Exactly what a static host does with a path outside the published folder. An asset
+			// Exactly what a static host does with a path outside the served folder. An asset
 			// referenced absolutely lands here, which is the failure ADR-0006 exists to prevent.
 			answer(404, `${url.pathname} is outside ${prefix}/`, 'text/plain; charset=utf-8');
 			return;
@@ -77,7 +77,7 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 		// `path.resolve` normalises `..` away; the containment check is what makes it safe to say so.
 		const file = path.resolve(directory, relative);
 		if (file !== directory && !file.startsWith(`${directory}${path.sep}`)) {
-			answer(403, 'outside the published folder', 'text/plain; charset=utf-8');
+			answer(403, 'outside the served folder', 'text/plain; charset=utf-8');
 			return;
 		}
 

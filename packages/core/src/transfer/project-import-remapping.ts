@@ -41,7 +41,7 @@
 //     Manifest and the Canvas are the citation ADR-0007 exists to protect and must arrive intact.
 //
 // `manifest.json` beside a pyramid is carried verbatim at its new path. Its `unset.invalid` ids are
-// inert — nothing resolves them, `readImageLabel` reads only the label — and publishing's own stamp
+// inert — nothing resolves them, `readImageLabel` reads only the label — and the canonical stamp
 // leaves them alone for the same reason.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -331,7 +331,7 @@ function readdressAlignment(
  *
  * One top-level field, and the rest of the document written back exactly as it was parsed — the same
  * rewrite `stampCanonicalUrl` makes on the same field of the same document, so a member a later build
- * added survives the Import as it survives a publish. An `info.json` that is not a JSON object is
+ * added survives the Import as it survives a Sync. An `info.json` that is not a JSON object is
  * carried verbatim: there is no `id` in it to reset, and refusing would refuse a pyramid over a file
  * nothing places anything by.
  */
