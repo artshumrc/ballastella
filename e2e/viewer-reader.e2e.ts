@@ -349,13 +349,15 @@ const EDITOR_INSTANCE = 'https://maps.example.edu/ballastella/';
  * (ADR-0044). A site whose record names none renders no link at all, which is the case below.
  */
 function publishedByEditor(): SiteFiles {
-	return oneProject(
-		{},
-		{
-			editorUrl: EDITOR_INSTANCE,
-			repository: { owner: 'ada', repository: 'atlas', branch: 'main' }
-		}
-	);
+	return oneProject({}, publishedFrom());
+}
+
+/** The half of that record that names where the site came back from, for a fixture of its own. */
+function publishedFrom(): Record<string, unknown> {
+	return {
+		editorUrl: EDITOR_INSTANCE,
+		repository: { owner: 'ada', repository: 'atlas', branch: 'main' }
+	};
 }
 
 /**
@@ -367,6 +369,20 @@ function publishedByEditor(): SiteFiles {
  * looking for the wrong one.
  */
 const RETURN_LINK = /^Open this (Project|Workspace) in Ballastella$/;
+
+/**
+ * The Front Page's whole content, once the site record has been read.
+ *
+ * For comparing one empty site's page against another's, which is a claim about the rendered DOM and
+ * not about any sentence in it (ADR-0045). The settle point is the *disappearance* of the prerendered
+ * file's own line: a page with nothing on it offers nothing else to wait for.
+ */
+async function frontPageContent(page: Page): Promise<string> {
+	const main = page.locator('main');
+	await expect(main).not.toContainText('Looking for the Projects on this site');
+	await expect(main).toHaveText('');
+	return main.innerHTML();
+}
 
 /** Wait until the Reader's map has built its stack, so assertions are about a drawn map. */
 async function mapReady(page: Page): Promise<void> {
@@ -1056,50 +1072,59 @@ test.describe('a Published Site a Reader arrives at', () => {
 	});
 
 	/**
-	 * An empty Front Page says which empty it is (ADR-0032).
+	 * Both kinds of empty Front Page render the same nothing (ADR-0045).
 	 *
-	 * "This site has no Projects on it yet" is true of a site nothing has been published to, and reads
-	 * as *the files are missing* — so an author who took every Project off their Front Page would go
-	 * looking for work that is exactly where they left it. The other sentence names what they did and
-	 * repeats what the editor's control promised: the Projects are here, and a link still opens one.
+	 * ⚠ **The two sites are compared against each other, not each against a sentence, because it is the
+	 * *difference* that would be the leak.** A site with no Projects at all and a site whose Projects are
+	 * all off the Front Page are two facts a Reader has no business telling apart: whoever knows the tool
+	 * would read a "none on the front page" wording as *there is unlisted work here*, which is exactly
+	 * what taking a Project off the Front Page was meant not to say. So the claim is byte identity of the
+	 * rendered page, which no pair of separate assertions can carry — collapse the branch that chooses
+	 * between two messages and each half stays green on whichever message survived.
 	 *
-	 * ⚠ **Both empty sites, in one test, each asserted to say its own sentence and not the other's.**
-	 * Either half alone is green on a page that has stopped telling the two apart: collapse the branch
-	 * that chooses between them and whichever sentence survived still matches its own assertion. It is
-	 * the pair that carries the claim.
+	 * Both fixtures record an editor and a repository, so the Workspace return link *would* be offered:
+	 * on a page with nothing else on it, that link is the signal, and its absence here is the other half
+	 * of the same decision. A Project's own page keeps its link, which
+	 * `leads back to the editor that published it` asserts.
 	 */
-	test('says which of the two empty Front Pages a Reader is looking at', async ({ page }) => {
+	test('renders the same blank Front Page for both kinds of empty site', async ({ page }) => {
 		site = await published({
-			'ballastella-site.json': siteRecord([
-				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false }
-			]),
+			'ballastella-site.json': siteRecord(
+				[{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false }],
+				publishedFrom()
+			),
 			...projectFiles()
 		});
 
 		await page.goto(site.sites[0]!.url);
 
-		const empty = page.getByTestId('none-on-front-page');
-		await expect(empty).toContainText('None of this site’s Projects are on the front page');
-		await expect(empty).toContainText('still published');
-		await expect(page.getByTestId('no-projects-yet')).toHaveCount(0);
 		await expect(page.getByTestId('published-projects')).toHaveCount(0);
+		await expect(page.getByRole('link', { name: RETURN_LINK })).toHaveCount(0);
+		await expect(page.getByTestId('site-problem')).toHaveCount(0);
+		const allUnlisted = await frontPageContent(page);
 
-		// And the Project itself is untouched by the wording: still there, still opening.
+		// And the Project itself is untouched by what the Front Page leaves out: still there, still
+		// opening, exactly as a listed one does.
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
+		await expect(layerStack(page)).toContainText('Blaeu’s plan of 1625');
+		// And it keeps its own way back, which the Front Page's blankness has nothing to do with:
+		// whoever is looking at this page already holds the link.
+		await expect(
+			page.getByRole('link', { name: 'Open this Project in Ballastella' })
+		).toHaveAttribute('href', `${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`);
 
 		// A site nothing has been published to: no Project files at all, and a record listing none.
 		await site.close();
-		site = await published({ 'ballastella-site.json': siteRecord([]) });
+		site = await published({ 'ballastella-site.json': siteRecord([], publishedFrom()) });
 		await page.goto(site.sites[0]!.url);
 
-		await expect(page.getByTestId('no-projects-yet')).toContainText(
-			'This site has no Projects on it yet'
-		);
-		await expect(page.getByTestId('none-on-front-page')).toHaveCount(0);
-		await expect(page.getByTestId('published-projects')).toHaveCount(0);
+		await expect(page.getByRole('link', { name: RETURN_LINK })).toHaveCount(0);
 		// Nothing published is not a fault: no alert, and no invitation to go looking for the files.
 		await expect(page.getByTestId('site-problem')).toHaveCount(0);
+		const nothingPublished = await frontPageContent(page);
+
+		expect(nothingPublished).toBe(allUnlisted);
 	});
 
 	/**
