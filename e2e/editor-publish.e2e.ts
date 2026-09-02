@@ -892,8 +892,8 @@ test.describe('publishing to a Remote', () => {
 		// machine's belief arrives as this one's evidence. Installation-local, keyed by Workspace and
 		// backing, and in IndexedDB rather than the origin's 5 MB of `localStorage`, which a Workspace of
 		// 40 000 files overran.
-		const manifest = await readBaseline(page);
-		expect(manifest?.commit).toBe(github.head(OWNER, REPOSITORY));
+		const baseline = await readBaseline(page);
+		expect(baseline?.commit).toBe(github.head(OWNER, REPOSITORY));
 		// ⚠ **What it holds is the *source* this publish wrote, and not merely the paths it uploaded** —
 		// the distinction the refusal rests on, because a file skipped as already-present is still a
 		// file this machine put there and may replace. Two things are excluded. `CNAME`, `README.md`
@@ -903,7 +903,7 @@ test.describe('publishing to a Remote', () => {
 		// `remote.json`, `ballastella-site.json`, the Base Map's fonts and sprites — is Publish-owned
 		// output: it is sent every time and it is never shared *source*, or two editor versions would
 		// read each other's chunk names as changed scholarship.
-		expect(manifest?.files.sort()).toEqual([
+		expect(baseline?.files.sort()).toEqual([
 			'alignments/aaa.json',
 			'amsterdam-1625/annotations/l2.geojson',
 			'amsterdam-1625/project.json',
@@ -911,13 +911,6 @@ test.describe('publishing to a Remote', () => {
 			'images/aaa/info.json'
 		]);
 		expect(arrived).toEqual(expect.arrayContaining(['CNAME', 'README.md', 'docs/guide.md']));
-		expect(Object.keys(await takeWorkspace(page))).not.toContain('publish-manifest.json');
-		// And nothing of it is in the origin's `localStorage` any more, which is the store this replaces.
-		expect(
-			await page.evaluate(() =>
-				Object.keys(localStorage).filter((name) => name.startsWith('ballastella.publish-manifest.'))
-			)
-		).toEqual([]);
 	});
 
 	test('says nothing needed changing on a second publish, and sends no blob', async ({ page }) => {

@@ -8,7 +8,6 @@ import {
 	LocalChangeIndex,
 	ManagedProjectStore,
 	MapImageInUseError,
-	PublishManifests,
 	SynchronizationMetadata,
 	MapImagePartlyDeletedError,
 	OpfsProjectStore,
@@ -438,16 +437,6 @@ export class EditorSession {
 	 */
 	readonly #deleted: DeletedProjects | undefined;
 	/**
-	 * The v1 `localStorage` publish manifest, kept only so migration can read it (ADR-0038).
-	 *
-	 * ⚠ **Not a runtime store any more.** What the Remote last held is the Synchronization Baseline in
-	 * {@link #synchronization}; this is consulted once, by `migrateSynchronizationMetadata`, to decide
-	 * whether a v1 Workspace's binding is corroborated by evidence this machine wrote itself.
-	 *
-	 * `undefined` where there can be no journal storage, exactly as {@link #deleted} is.
-	 */
-	readonly #manifests: PublishManifests | undefined;
-	/**
 	 * This Workspace's installation-local Remote relationship and Baseline, or `undefined` where there
 	 * is nowhere durable to keep them.
 	 */
@@ -833,10 +822,6 @@ export class EditorSession {
 			options.journalStorage && options.workspaceKey
 				? new DeletedProjects(options.journalStorage, options.workspaceKey)
 				: undefined;
-		this.#manifests =
-			options.journalStorage && options.workspaceKey
-				? new PublishManifests(options.journalStorage, options.workspaceKey)
-				: undefined;
 		this.#synchronization =
 			options.metadataStorage && options.workspaceKey
 				? new SynchronizationMetadata(options.metadataStorage, options.workspaceKey)
@@ -887,11 +872,6 @@ export class EditorSession {
 	 */
 	get localChanges(): ManagedProjectStore | null {
 		return this.#store instanceof ManagedProjectStore ? this.#store : null;
-	}
-
-	/** The v1 manifest reader migration corroborates a legacy binding against, or `null`. */
-	get legacyManifests(): PublishManifests | null {
-		return this.#manifests ?? null;
 	}
 
 	/** The default: a named workspace in OPFS, which every modern browser has (ADR-0001, ADR-0024). */

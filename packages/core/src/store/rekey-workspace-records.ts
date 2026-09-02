@@ -1,21 +1,21 @@
 // Moving every durable record of one Workspace to a new key — all of them, or none (ADR-0042).
 //
-// Five families hang off a Workspace key: the write-ahead journal and its held copies, interrupted
-// deletions, the publish manifest, the Remote relationship with its Synchronization Baseline, and
-// the local-change index. Nothing rekeyed them before, because nothing needed to: a Workspace's key
-// was its name and its name did not move. A folder Workspace is now keyed by a minted reference, so
-// the one folder a pre-plural installation could have has records under `folder:<folderName>` that
-// have to arrive under `folder:<reference>` exactly once.
+// Four families hang off a Workspace key: the write-ahead journal and its held copies, interrupted
+// deletions, the Remote relationship with its Synchronization Baseline, and the local-change index.
+// Nothing rekeyed them before, because nothing needed to: a Workspace's key was its name and its
+// name did not move. A folder Workspace is now keyed by a minted reference, so the one folder a
+// pre-plural installation could have has records under `folder:<folderName>` that have to arrive
+// under `folder:<reference>` exactly once.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY IT IS ALL OR NONE
 //
 // The families are evidence about each other. A Baseline is this installation's claim that the
-// Remote it names already holds these bytes; a publish manifest is what this machine last saw
-// there; the change index is what has happened since. Moved apart, they describe a Workspace that
-// never existed: a binding with no Baseline reads as `Cannot tell` — survivable — but a Baseline
-// whose binding stayed behind is a claim about a repository the Workspace is no longer bound to,
-// and a change index without its Baseline reports an author's own unpublished work as the Remote's.
+// Remote it names already holds these bytes; the change index is what has happened since. Moved
+// apart, they describe a Workspace that never existed: a binding with no Baseline reads as
+// `Cannot tell` — survivable — but a Baseline whose binding stayed behind is a claim about a
+// repository the Workspace is no longer bound to, and a change index without its Baseline reports
+// an author's own unpublished work as the Remote's.
 //
 // A lost Remote binding is recoverable: the author binds again and the next Publish establishes
 // evidence. A half-moved one is not, because nothing in the result says which half is missing. So
@@ -44,7 +44,6 @@ import {
 	workspaceScopedKey
 } from '../autosave/workspace-scoped-key.js';
 import { localChangeKey } from '../remote/local-change-index.js';
-import { publishManifestKey } from '../remote/publish-manifest.js';
 import {
 	baselineKey,
 	remoteRelationshipKey,
@@ -113,10 +112,8 @@ export async function rekeyWorkspaceRecords(options: RekeyWorkspaceRecords): Pro
 /**
  * Everything in `localStorage` filed under `from`, and the key it takes under `to`.
  *
- * The three families that live here are keyed two ways — the journal, its held copies and the
- * deletion records name a subject inside the Workspace, and the publish manifest is one record for
- * the whole of it — so the shapes are read through the same helpers that write them rather than
- * rebuilt by hand here.
+ * All three name a subject inside the Workspace, so the shapes are read through the same helpers
+ * that write them rather than rebuilt by hand here.
  */
 function localMoves(storage: JournalStorage, from: string, to: string): Move<string>[] {
 	const moves: Move<string>[] = [];
@@ -128,14 +125,6 @@ function localMoves(storage: JournalStorage, from: string, to: string): Move<str
 			if (value === null) continue;
 			moves.push({ from: key, to: workspaceScopedKey(prefix, to, named.subject), value });
 		}
-	}
-	const manifest = storage.getItem(publishManifestKey(from));
-	if (manifest !== null) {
-		moves.push({
-			from: publishManifestKey(from),
-			to: publishManifestKey(to),
-			value: manifest
-		});
 	}
 	return moves;
 }

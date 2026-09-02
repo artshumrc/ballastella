@@ -19,7 +19,6 @@ import { FakeJournalStorage } from '../autosave/fake-journal-storage.js';
 import { WriteAheadJournal, readJournal } from '../autosave/journal.js';
 import { FakeMetadataStorage } from '../remote/fake-metadata-storage.js';
 import { LocalChangeIndex } from '../remote/local-change-index.js';
-import { PublishManifests } from '../remote/publish-manifest.js';
 import { SynchronizationMetadata } from '../remote/synchronization-metadata.js';
 import type { StorePath } from './project-store.js';
 
@@ -60,15 +59,10 @@ async function remember(folder: FileSystemDirectoryHandle): Promise<void> {
 	await chooseWorkspaceFolder();
 }
 
-/** All five families, with something of the user's in each, under one Workspace key. */
+/** All four families, with something of the user's in each, under one Workspace key. */
 async function fillWorkspace(key: string): Promise<void> {
 	new WriteAheadJournal(journalStorage, key).record(PATH, new TextEncoder().encode('{"n":1}'));
 	new DeletedProjects(journalStorage, key).record('rotterdam-1690', null);
-	new PublishManifests(journalStorage, key).write({
-		remote: REMOTE,
-		commit: 'c0ffee',
-		files: new Map([[PATH, 'blob1']])
-	});
 	const synchronization = new SynchronizationMetadata(metadataStorage, key);
 	await synchronization.bindRemote(REMOTE);
 	await synchronization.writeBaseline({ remote: REMOTE, commit: 'c0ffee', files: new Map() });
@@ -77,13 +71,12 @@ async function fillWorkspace(key: string): Promise<void> {
 	await changes.flush();
 }
 
-/** What each of the five families answers for a Workspace key. */
+/** What each of the four families answers for a Workspace key. */
 async function familiesOf(key: string): Promise<Record<string, unknown>> {
 	const synchronization = new SynchronizationMetadata(metadataStorage, key);
 	return {
 		journalled: readJournal(journalStorage, key).entries.map((entry) => entry.path),
 		deletions: new DeletedProjects(journalStorage, key).pending().map((one) => one.directory),
-		manifest: new PublishManifests(journalStorage, key).read(REMOTE)?.commit ?? null,
 		remote: (await synchronization.readRemote())?.repository ?? null,
 		baseline: (await synchronization.readBaseline(REMOTE))?.commit ?? null,
 		changes: (await new LocalChangeIndex(metadataStorage, key).localChanges()).written
@@ -93,7 +86,6 @@ async function familiesOf(key: string): Promise<Record<string, unknown>> {
 const everything = {
 	journalled: [PATH],
 	deletions: ['rotterdam-1690'],
-	manifest: 'c0ffee',
 	remote: 'atlas',
 	baseline: 'c0ffee',
 	changes: [PATH]
@@ -102,7 +94,6 @@ const everything = {
 const nothing = {
 	journalled: [],
 	deletions: [],
-	manifest: null,
 	remote: null,
 	baseline: null,
 	changes: []

@@ -13,10 +13,10 @@
 // forked *from*, and an author who opened the fork would publish to the original.
 //
 // It is not `localStorage` either. A Workspace of 40 000 files is a Baseline of a couple of megabytes
-// against an origin-wide 5 MB budget already shared with the write-ahead journal, and the v1 publish
-// manifest could therefore fail to be stored *after* a publish had already reached GitHub. The seam
-// below is a structured-clone record store — IndexedDB in the app — so a complete path map is an
-// ordinary write rather than a gamble.
+// against an origin-wide 5 MB budget already shared with the write-ahead journal, so a record kept
+// there could fail to be stored *after* a transfer had already reached GitHub. The seam below is a
+// structured-clone record store — IndexedDB in the app — so a complete path map is an ordinary write
+// rather than a gamble.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EVERY FAILURE ANSWERS "CANNOT TELL"
@@ -33,10 +33,10 @@
 // having to remember to clear it — and survives a re-bind and a re-bind back, which clearing would
 // not.
 //
-// {@link SynchronizationMetadata.writeBaseline} answers *whether it was kept* rather than throwing,
-// for the reason `PublishManifests.write` does: if durable Baseline storage fails after Remote
-// publication succeeds, the Publish succeeded and the status is now Cannot tell — never the Publish
-// reported as failed, and never stale evidence retained.
+// {@link SynchronizationMetadata.writeBaseline} answers *whether it was kept* rather than throwing:
+// if durable Baseline storage fails after the Remote has been written, the transfer succeeded and the
+// status is now Cannot tell — never the transfer reported as failed, and never stale evidence
+// retained.
 
 import { isSameRemote, normaliseRemoteIdentity } from './remote-binding.js';
 import type { RemoteRepository } from './publish-to-remote.js';
@@ -47,7 +47,8 @@ import type { RemoteRepository } from './publish-to-remote.js';
  * A seam rather than IndexedDB directly, so that the failure modes the module exists to answer —
  * a store that throws, a record written by another build, a truncated path map — are reachable from a
  * test without a browser. Values are structured-clone data, not strings: a `Map` of tens of thousands
- * of paths is what this stores, and stringifying it is the v1 mistake.
+ * of paths is what this stores, and stringifying it into `localStorage` is what overran the origin's
+ * budget.
  */
 export interface MetadataStorage {
 	get(key: string): Promise<unknown>;
@@ -63,8 +64,8 @@ export const SYNCHRONIZATION_KEY_PREFIX = 'synchronization/';
 /**
  * The stored shape this build writes and understands.
  *
- * `2` because `1` is the `localStorage` publish manifest this supersedes, so a version number is
- * never ambiguous about which of the two records it describes.
+ * `1` is not this record: it numbered an earlier `localStorage` store of the same claim, so the
+ * sequence starts at `2` and a version number is never ambiguous about which store it describes.
  */
 export const SYNCHRONIZATION_FORMAT_VERSION = 2;
 
@@ -104,9 +105,9 @@ interface StoredBaseline extends StoredRelationship {
 /**
  * The installation-local synchronization metadata of **one** Workspace.
  *
- * Bound to a Workspace key at construction for the reason {@link PublishManifests} is: one click
- * switches Workspaces, and metadata keyed by nothing else would let what this machine knows about one
- * Remote stand as evidence about another. The key carries the backing as well as the name — `opfs:My
+ * Bound to a Workspace key at construction: one click switches Workspaces, and metadata keyed by
+ * nothing else would let what this machine knows about one Remote stand as evidence about another.
+ * The key carries the backing as well as the name — `opfs:My
  * Workspace` and `folder:maps` — so a browser-backed Workspace and a chosen folder that happen to
  * share a name are two subjects, and renaming the display text of one does not redirect the other's
  * evidence.
@@ -150,10 +151,10 @@ export class SynchronizationMetadata {
 	/**
 	 * Unbind this Workspace. Idempotent.
 	 *
-	 * ⚠ **The Baseline is deliberately left alone**, exactly as the v1 manifest was: it names the
-	 * Remote it is a claim about, so it is answered `null` while the Workspace is bound elsewhere and
-	 * is still good evidence if the same Remote is bound again. Clearing it here would throw away a
-	 * record that survives a re-bind and a re-bind back.
+	 * ⚠ **The Baseline is deliberately left alone**: it names the Remote it is a claim about, so it is
+	 * answered `null` while the Workspace is bound elsewhere and is still good evidence if the same
+	 * Remote is bound again. Clearing it here would throw away a record that survives a re-bind and a
+	 * re-bind back.
 	 */
 	async clearRemote(): Promise<void> {
 		await this.#delete(this.#remoteKey);

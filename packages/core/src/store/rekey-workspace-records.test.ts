@@ -8,7 +8,6 @@ import { FakeJournalStorage } from '../autosave/fake-journal-storage.js';
 import { WriteAheadJournal, readHeldCopies, readJournal } from '../autosave/journal.js';
 import { FakeMetadataStorage } from '../remote/fake-metadata-storage.js';
 import { LocalChangeIndex, localChangeKey } from '../remote/local-change-index.js';
-import { PublishManifests, publishManifestKey } from '../remote/publish-manifest.js';
 import {
 	SynchronizationMetadata,
 	baselineKey,
@@ -30,7 +29,7 @@ const DECLINED = 'amsterdam-1625/annotations.json' as StorePath;
 let journal: FakeJournalStorage;
 let metadata: FakeMetadataStorage;
 
-/** All five families, with something of the user's in each, under one Workspace key. */
+/** All four families, with something of the user's in each, under one Workspace key. */
 async function fillWorkspace(key: string): Promise<void> {
 	new WriteAheadJournal(journal, key).record(PATH, new TextEncoder().encode('{"n":1}'));
 	new WriteAheadJournal(journal, key).hold(
@@ -40,11 +39,6 @@ async function fillWorkspace(key: string): Promise<void> {
 		'it had been changed'
 	);
 	new DeletedProjects(journal, key).record('rotterdam-1690', null);
-	new PublishManifests(journal, key).write({
-		remote: REMOTE,
-		commit: 'c0ffee',
-		files: new Map([['amsterdam-1625/project.json', 'blob1']])
-	});
 	const synchronization = new SynchronizationMetadata(metadata, key);
 	await synchronization.bindRemote(REMOTE);
 	await synchronization.writeBaseline({
@@ -57,7 +51,7 @@ async function fillWorkspace(key: string): Promise<void> {
 	await changes.flush();
 }
 
-/** What each of the five families answers for a Workspace key, read the way the app reads them. */
+/** What each of the four families answers for a Workspace key, read the way the app reads them. */
 async function familiesOf(
 	key: string
 ): Promise<Record<string, readonly string[] | string | null | number>> {
@@ -67,7 +61,6 @@ async function familiesOf(
 		journalled: readJournal(journal, key).entries.map((entry) => entry.path),
 		held: readHeldCopies(journal, key).copies.map((copy) => copy.path),
 		deletions: new DeletedProjects(journal, key).pending().map((record) => record.directory),
-		manifest: new PublishManifests(journal, key).read(REMOTE)?.commit ?? null,
 		remote: remote === null ? null : `${remote.owner}/${remote.repository}`,
 		baseline: (await synchronization.readBaseline(REMOTE))?.commit ?? null,
 		changes: (await new LocalChangeIndex(metadata, key).localChanges()).written
@@ -78,7 +71,6 @@ const nothing = {
 	journalled: [],
 	held: [],
 	deletions: [],
-	manifest: null,
 	remote: null,
 	baseline: null,
 	changes: []
@@ -88,7 +80,6 @@ const everything = {
 	journalled: [PATH],
 	held: [DECLINED],
 	deletions: ['rotterdam-1690'],
-	manifest: 'c0ffee',
 	remote: 'ada/atlas',
 	baseline: 'c0ffee',
 	changes: ['amsterdam-1625/annotations.json']
@@ -187,7 +178,6 @@ it('leaves nothing of a refused migration at the new key', async () => {
 	expect(await familiesOf(NEW)).toEqual(nothing);
 	expect(await metadata.keys()).not.toContain(remoteRelationshipKey(NEW));
 	expect(await metadata.keys()).not.toContain(localChangeKey(NEW));
-	expect(journal.items.has(publishManifestKey(NEW))).toBe(false);
 });
 
 it('leaves the old records readable when the journal is full', async () => {
