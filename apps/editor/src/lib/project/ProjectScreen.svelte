@@ -43,6 +43,7 @@
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
 		canSolve,
+		mapImageTilesUnavailableNotice,
 		resolveBaseMap,
 		type Alignment,
 		type Annotation,
@@ -54,13 +55,19 @@
 		type BaseMapEntry,
 		type OpeningViewFit,
 		type OpeningViewOutcome,
-		type Place
+		type Place,
+		type TileSourceFailure
 	} from '@ballastella/core';
 	import {
+		canCaptureSnapshot,
+		initialSnapshotReadiness,
 		mapSnapshotFileName,
+		snapshotAvailability,
+		snapshotReadinessAfter,
 		type DrawnLayer,
 		type DrawnOutcome,
-		type ReadCachedTile
+		type ReadCachedTile,
+		type SnapshotReadinessEvent
 	} from '@ballastella/core/render';
 	import {
 		AnnotationInspector,
@@ -170,6 +177,33 @@
 	const borderStyle = $derived(session.openProject?.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE);
 
 	/**
+	 * Whether the map on screen can be handed over as a Map Snapshot, and which frame that is about.
+	 *
+	 * **The rules are `core`'s reducer**, not this component's: what invalidates a frame, which late
+	 * answers count, and that a capture is a busy overlay rather than a state of its own are all
+	 * decided in one place both applications will use. This screen only feeds it what it can see —
+	 * the pane's map events, the two asset outcomes below, and the press.
+	 *
+	 * `$state.raw` because the reducer replaces the whole value and returns the same object for an
+	 * event that changes nothing, which is most of them during a pan.
+	 */
+	let snapshot = $state.raw(initialSnapshotReadiness);
+
+	/**
+	 * Feed the readiness machine one event.
+	 *
+	 * ⚠ **`untrack` around the read.** Some of these are sent from inside an effect, and a tracked
+	 * read of `snapshot` there would make that effect a dependent of the state it is writing — the
+	 * Base Map reset below would then re-run, and clear `baseMapStatus`, every time the map settled.
+	 */
+	const onSnapshotEvent = (event: SnapshotReadinessEvent): void => {
+		snapshot = snapshotReadinessAfter(
+			untrack(() => snapshot),
+			event
+		);
+	};
+
+	/**
 	 * Whether the Base Map's own source is drawing, as the pane reports it.
 	 *
 	 * `null` until the pane has said anything, so the notice below appears when the archive has
@@ -183,6 +217,9 @@
 		void resolution?.entry.id;
 		void appearance;
 		baseMapStatus = null;
+		// The archive is about to be asked again, so whatever it said last time is no longer a fact
+		// about the frame being drawn.
+		onSnapshotEvent({ kind: 'base-map-assets', failed: false });
 	});
 
 	const layers = $derived<readonly Layer[]>(session.openProject?.layers ?? []);
@@ -444,7 +481,52 @@
 		return merged;
 	});
 
-	const fetchTile = $derived(session.imageServiceFetch());
+	/**
+	 * The Project map's own Map Image failure, or `null`.
+	 *
+	 * ⚠ **Only this shim reports.** `EditorSession#imageServiceFetch` hands out a fresh one per
+	 * caller for exactly this reason: `add-remote-map` probes a library with a request it *expects*
+	 * to be refused, and a listener wired to that one would leave a permanent "a Map Image stopped
+	 * drawing" over a Workspace where nothing is wrong. This is the Project map, where a refusal
+	 * really does mean a Layer has a hole in it.
+	 *
+	 * `ok` is "every URL that had been refused has come back", not "some bytes arrived", so the
+	 * notice comes down when the map is whole rather than when it is merely busy.
+	 */
+	let tileFailure = $state.raw<{
+		failure: TileSourceFailure;
+		imageId: string | null;
+	} | null>(null);
+
+	const fetchTile = $derived(
+		session.imageServiceFetch((outcome) => {
+			tileFailure = outcome.ok ? null : { failure: outcome.failure, imageId: outcome.imageId };
+			// A Map Image that is not drawing outranks a frame that has fallen quiet: quiet is not
+			// complete, and a Map Snapshot of a holed map is the one thing this feature must not hand over.
+			onSnapshotEvent({ kind: 'map-image-assets', failed: !outcome.ok });
+		})
+	);
+
+	/**
+	 * What to say when a Map Image's tiles stopped arriving, or `null`.
+	 *
+	 * ⚠ **The sentence is `mapImageTilesUnavailableNotice`'s, not this template's**, and the
+	 * published viewer renders the same function's output for the same failure — so the two
+	 * deployments cannot drift into describing one outage two ways at the same person.
+	 *
+	 * The Layer's name is resolved here rather than in core, because which Layer an `imageId` belongs
+	 * to is a fact about *this* Project. `null` when the failure named no image, or named one no
+	 * Layer of this Project draws: a sentence naming the wrong map sends a scholar to an Alignment
+	 * that is fine.
+	 */
+	const tilesUnavailable = $derived.by((): string | null => {
+		const failed = tileFailure;
+		if (!failed) return null;
+		const named = layers.find(
+			(layer): layer is MapLayer => layer.kind === 'map' && layer.imageId === failed.imageId
+		);
+		return mapImageTilesUnavailableNotice(failed.failure, named?.name ?? null);
+	});
 
 	/** How many Layers are actually on the map. Said, because "nothing is drawn" has many reasons. */
 	const drawnCount = $derived(
@@ -558,31 +640,28 @@
 	 */
 	let inspectorDock = $state<HTMLDivElement | undefined>();
 
-	/** Whether the pane says the frame on screen is complete enough to be captured. */
-	let snapshotFrameReady = $state(false);
-
-	/** Whether a Map Snapshot is being encoded, which is what keeps a second press from starting one. */
-	let capturingSnapshot = $state(false);
-
 	/**
 	 * Download the map on screen as a Map Snapshot.
 	 *
 	 * The pane owns the picture and this owns the file: the Blob reaches `saveFile` as a stream
 	 * because that is the shape it takes, and nothing is written into the Workspace on the way — a
 	 * Map Snapshot is an illustration the scholar keeps, not part of the Project.
+	 *
+	 * **Every way this can fail is one announcement**, because they are one thing to the scholar: a
+	 * refused framebuffer read, a `toBlob` that answered `null`, a download the browser would not
+	 * start. What none of them is is an asset failure — the frame is as complete as it was — so the
+	 * control comes back ready and the sentence offers the retry.
 	 */
 	async function downloadMapSnapshot(): Promise<void> {
 		const pane = baseMapPane;
-		if (!pane || capturingSnapshot) return;
-		capturingSnapshot = true;
+		if (!pane || !canCaptureSnapshot(snapshot)) return;
+		onSnapshotEvent({ kind: 'capture-started' });
 		try {
-			const snapshot = await pane.captureSnapshot();
-			await saveFile(mapSnapshotFileName(openDirectory), snapshot.stream());
+			const captured = await pane.captureSnapshot();
+			await saveFile(mapSnapshotFileName(openDirectory), captured.stream());
+			onSnapshotEvent({ kind: 'capture-finished' });
 		} catch {
-			// Nothing is said about a failure yet; the control simply returns to ready so the Author
-			// can press it again.
-		} finally {
-			capturingSnapshot = false;
+			onSnapshotEvent({ kind: 'capture-failed' });
 		}
 	}
 
@@ -1279,6 +1358,28 @@
 				/>
 
 				<!--
+					A Map Image in this Project stopped drawing. The same alert, the same heading and the
+					same sentence the Published Site shows a Reader, because it is the same outage: the
+					shim that met the refusal is `core`'s, and so is the wording.
+
+					**Deliberately not gated on being online**, unlike the Base Map's notice above, and the
+					difference is in the sentence rather than an oversight: that one claims the failing
+					server is at fault, which is a falsehood to hand somebody whose wifi is off, while the
+					`no-answer` row here says explicitly that it cannot tell the two apart.
+
+					This is also the whole account of an unavailable Map Snapshot for this cause. The
+					snapshot control stays disabled while it is up and says nothing of its own — one clear
+					account of the underlying problem rather than two.
+				-->
+				<MapNotice
+					shape="comes-and-goes"
+					class="m-2"
+					heading="A Map Image stopped drawing"
+					testid="map-image-tiles-unavailable"
+					text={tilesUnavailable}
+				/>
+
+				<!--
 					⚠ **A height of its own below `lg`, because there is no longer a screen's worth to take
 					a share of.** Stacked, this box's parent is as tall as its content, so `grow` alone
 					resolves against nothing and the pane collapses to zero — which is the same failure as
@@ -1309,8 +1410,13 @@
 						{fetchTile}
 						onbasemapstatus={(status) => {
 							baseMapStatus = status;
+							// Without the Base Map there is no frame to capture at all, and the notice above
+							// is the account of it — there is no second one about the snapshot.
+							onSnapshotEvent({ kind: 'base-map-assets', failed: status === 'unavailable' });
 						}}
-						onsnapshotready={(ready) => (snapshotFrameReady = ready)}
+						snapshotGeneration={snapshot.generation}
+						oninvalidateframe={(by) => onSnapshotEvent({ kind: 'frame-invalidated', by })}
+						onframesettled={(generation) => onSnapshotEvent({ kind: 'frame-settled', generation })}
 						overlayDocked={inspectorDock !== undefined}
 						onclickpoint={(point) => void annotations.placePoint(point)}
 						onclickannotation={(hit) => {
@@ -2209,7 +2315,9 @@
 			map would cost the map a line of its height at every width.
 		-->
 		<MapSnapshotButton
-			ready={snapshotFrameReady && !capturingSnapshot}
+			ready={snapshotAvailability(snapshot).state === 'ready'}
+			capturing={snapshot.capturing}
+			captureFailed={snapshot.captureFailed}
 			onclick={() => void downloadMapSnapshot()}
 		/>
 	</div>

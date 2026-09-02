@@ -319,3 +319,57 @@ export function updateAlignment(
 		// Nothing to report: there is no map to update, which is not a failure of updating one.
 	}
 }
+
+/**
+ * The little of a warped renderer that says whether it has asked for the frame on screen.
+ *
+ * Structural rather than `WebGL2Renderer`, so that {@link warpedTilesRequestedForViewport} can be
+ * driven at Seam 1 by a plain object — and so that reading this says what the question actually
+ * touches, which is three fields rather than a renderer.
+ */
+export interface WarpedViewportTiles {
+	/** The maps upstream last decided have tiles to draw in the current viewport. */
+	readonly mapsWithFetchableTilesForViewport: ReadonlySet<string>;
+	readonly warpedMapList: {
+		getWarpedMap(
+			mapId: string
+		): { readonly fetchableTilesForViewport: readonly { readonly tileUrl: string }[] } | undefined;
+	};
+	readonly tileCache: { getCacheableTile(tileUrl: string): unknown };
+}
+
+/**
+ * Whether this renderer has actually asked for every tile the current viewport and zoom need.
+ *
+ * ⚠ **An empty request counter is not the same question, and this is the difference.**
+ * `TileCache#allRequestedTilesLoaded()` resolves the moment nothing is in flight — *including*
+ * before the requests for the frame on screen have been made at all. A Map Snapshot taken on that
+ * evidence is the previous view's tiles under the new view's Base Map. So the current viewport's own
+ * fetchable tiles are checked against the cache: upstream records them per map in the same pass that
+ * requests them (`BaseRenderer#requestFetchableTiles`), and a tile enters the cache when it is
+ * requested rather than when it arrives.
+ *
+ * ⚠ **Deliberately "requested", not "decoded".** Requiring every needed tile to hold decoded content
+ * looks stricter and would leave this control permanently disabled: `@allmaps/iiif-parser` derives
+ * its own tile grid from `info.json` and asks for cells the tiler never planned, so a **complete,
+ * healthy pyramid answers 404 to some of the requests made against it on every load**
+ * (`injection/store-image-fetch.ts` records the same fact, and `e2e/viewer-reader.e2e.ts` has to
+ * exclude `/default.jpg` from its no-404 sweep because of it). Those cells never arrive and never
+ * will, and no frame containing that Map Image would ever be called complete. What tells a hole
+ * apart from that ordinary gap is the injection shim's own outcome — which is where the Map Image
+ * failure notice comes from, and which readiness consults separately. ADR-0028 holds the residual:
+ * a pyramid missing tile *files* draws with gaps and says nothing.
+ *
+ * Vacuously true for a renderer with nothing in the viewport — a stack of hidden Layers, or a map
+ * panned off the earth's edge — which is the right answer: there is nothing to wait for.
+ */
+export function warpedTilesRequestedForViewport(renderer: WarpedViewportTiles): boolean {
+	for (const mapId of renderer.mapsWithFetchableTilesForViewport) {
+		const warpedMap = renderer.warpedMapList.getWarpedMap(mapId);
+		if (!warpedMap) continue;
+		for (const fetchable of warpedMap.fetchableTilesForViewport) {
+			if (renderer.tileCache.getCacheableTile(fetchable.tileUrl) === undefined) return false;
+		}
+	}
+	return true;
+}
