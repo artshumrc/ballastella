@@ -57,6 +57,7 @@
 		annotationLayerIds,
 		annotationMarkBox,
 		cachedBaseMapTileTemplate,
+		captureMapFrame,
 		drawLayerStack,
 		isDrawnMap,
 		registerCachedBaseMapTiles,
@@ -65,6 +66,7 @@
 		themeColour,
 		type DrawnLayer,
 		type DrawnOutcome,
+		type FrameInvalidator,
 		type ReadCachedTile,
 		type ScreenBox,
 		type StackRender
@@ -95,6 +97,10 @@
 		onclickannotation,
 		onstack,
 		onbasemapstatus,
+		snapshotGeneration = 0,
+		oninvalidateframe,
+		onframesettled,
+		overlayDocked = false,
 		selectedAnnotationId = null,
 		controls,
 		overlay
@@ -222,6 +228,38 @@
 		 * back. The note on the `error` handler below has which failures recover and which cannot.
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
+		/**
+		 * Which frame the page is currently asking about — `SnapshotReadiness.generation`.
+		 *
+		 * **The page mints it and this pane carries it back**, the same arrangement as the editor's
+		 * `BaseMapPane`: two counters is two things that can disagree, and the whole use of the number
+		 * is that a late answer can be recognised as belonging to a picture no longer on screen.
+		 */
+		snapshotGeneration?: number;
+		/**
+		 * Something happened here that can change the pixels — see `FRAME_INVALIDATORS`.
+		 *
+		 * Reported rather than decided: the pane knows *what* moved, and the readiness machine in
+		 * `core` knows what that means. A Reader reaches fewer of them than an Author — there is no
+		 * drawing, no Alignment being edited and no border choice — but every source this pane has is
+		 * wired below, and one missing is a Map Snapshot of the view before this one.
+		 */
+		oninvalidateframe?: (by: FrameInvalidator) => void;
+		/**
+		 * {@link snapshotGeneration}'s frame has drawn everything it asked for.
+		 *
+		 * Carries the generation it was waiting on, because the wait is asynchronous and the answer
+		 * routinely arrives after the frame it describes has gone.
+		 */
+		onframesettled?: (generation: number) => void;
+		/**
+		 * Whether {@link overlay} is docked into the pane's top-right corner above `lg`.
+		 *
+		 * The pane cannot see it: the overlay is the page's snippet, positioned by the page's own
+		 * element, and it is drawn *above* this pane's control row. So the page says, and the row stops
+		 * short of that column while it is there — see the row's own note for the measurement.
+		 */
+		overlayDocked?: boolean;
 		/**
 		 * Which Annotation is open, so the map draws that one more strongly.
 		 *
@@ -463,9 +501,16 @@
 		// editor, because the leader over a Reader's map is the same line over the same component.
 		const cameraMoved = (): void => {
 			for (const watcher of cameraWatchers) watcher();
+			// Every frame of a gesture, not only its end. The whole point of the invalidation is that
+			// there is no moment during a pan at which the previous frame is still the one on screen,
+			// and `moveend` would leave exactly that window open.
+			oninvalidateframe?.('camera');
 		};
 		created.on('move', cameraMoved);
 		created.on('zoom', cameraMoved);
+		// The drawing buffer's own dimensions change with the container, so the frame that was
+		// complete is not even the same size as the one being drawn.
+		created.on('resize', () => oninvalidateframe?.('resize'));
 
 		// ──────────────────────────────────────────────────────────────────────────────────────
 		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
@@ -596,6 +641,9 @@
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;
+		// The theme, the Reader's tile choice and their three appearance switches all arrive here, and
+		// every one of them repaints the map from the ground up.
+		oninvalidateframe?.('base-map');
 		// One call, driven by one signal: the Base Map flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
@@ -766,6 +814,9 @@
 		const current = map;
 		const stackLayers = untrack(() => layers);
 		const readTiles = untrack(() => fetchTile);
+		// Whatever moved the structure key — a Layer shown, hidden or reordered — the stack is about to
+		// be torn down and built again, and nothing of the frame it was drawing survives that.
+		oninvalidateframe?.('layer-stack');
 		if (!current || stackLayers.length === 0) {
 			onstack?.({});
 			return;
@@ -832,6 +883,9 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		// A collection re-read, a recoloured title, a moved vertex: none of it rebuilds the stack, and
+		// all of it changes the picture.
+		oninvalidateframe?.('annotations');
 		for (const stacked of layers) {
 			if (!isDrawnMap(stacked)) {
 				built.setAnnotations(stacked.layer.id, stacked.annotations ?? { annotations: [] });
@@ -841,6 +895,9 @@
 
 	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
 	$effect(() => {
+		// A selected Annotation is drawn more strongly, and a Map Snapshot is taken without that
+		// emphasis — so a change of selection is a change of the frame a capture would have to make.
+		oninvalidateframe?.('selection');
 		stack?.setSelectedAnnotation(selectedAnnotationId ?? null);
 	});
 
@@ -848,10 +905,95 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		oninvalidateframe?.('layer-opacity');
 		for (const stacked of layers) {
 			if (isDrawnMap(stacked)) built.setOpacity(stacked.layer.id, stacked.layer.opacity);
 		}
 	});
+
+	/**
+	 * Resolve once MapLibre has nothing left to draw **and the camera has stopped**.
+	 *
+	 * `loaded()` first, because `idle` is an event and an event that has already fired is one a late
+	 * listener never hears — which for a map that settled before anybody asked is every time.
+	 *
+	 * ⚠ **`loaded()` is true in the middle of a flight**, and that is why the three camera questions
+	 * are asked beside it. It answers "is anything still being fetched or restyled", not "has the map
+	 * stopped": between the frames of an animated pan nothing is outstanding, so the short circuit
+	 * resolves once per frame and the Map Snapshot control flickers its way across the animation,
+	 * offering to capture a view the Reader is still moving away from. The `idle` path never had the
+	 * problem, because MapLibre withholds that event while the camera moves. `BaseMapPane`'s twin has
+	 * the measurement that produced this.
+	 */
+	const whenMapIdle = (target: MapLibreMap): Promise<void> =>
+		new Promise((resolve) => {
+			if (target.loaded() && !target.isMoving() && !target.isZooming() && !target.isRotating()) {
+				resolve();
+				return;
+			}
+			target.once('idle', () => resolve());
+		});
+
+	/**
+	 * Tell the page when the frame it is asking about has finished drawing.
+	 *
+	 * **Both halves, because neither is the whole answer.** MapLibre's own idleness covers the Base
+	 * Map and the Annotation layers; a warped Map Image is drawn by a custom layer with a tile cache
+	 * of its own, so the stack is asked as well (`whenTilesSettled`). The second idle is what puts
+	 * those tiles on screen: they arrive after the map has already fallen quiet once.
+	 *
+	 * **Keyed on the generation**, so an invalidation the page has recorded starts the wait again from
+	 * the top. The answer carries the generation it was waiting on and the reducer discards it if the
+	 * frame has moved on since; `live` is the same guard one step earlier, so an abandoned wait does
+	 * not even reach the page. Neither alone is enough — this effect re-runs for a new `map` or a
+	 * rebuilt `stack` as well, and those arrive with a generation of their own.
+	 */
+	$effect(() => {
+		const current = map;
+		const built = stack;
+		const generation = snapshotGeneration;
+		if (!current) return;
+		let live = true;
+		void (async () => {
+			await whenMapIdle(current);
+			await built?.whenTilesSettled();
+			await whenMapIdle(current);
+			if (live) onframesettled?.(generation);
+		})();
+		return () => {
+			live = false;
+		};
+	});
+
+	/**
+	 * The map as it is on screen, as a PNG — a Map Snapshot of this Reader's current view.
+	 *
+	 * **Exported rather than driven by a prop**, for the reason {@link annotationBox} is: the control
+	 * that asks for it is the page's, in the page's own control row, and what it needs back is one
+	 * value once rather than a stream of state.
+	 *
+	 * The captured frame is the *clean* one — nothing drawn emphasised — because a Map Snapshot is the
+	 * composition rather than the moment of reading it. The selection is written straight onto the
+	 * layers already on the map and put back in the `finally`, so no Reader state changes and the
+	 * Annotation Inspector, which is the page's and lives in the DOM, is neither closed nor touched.
+	 * What is drawn *over* the pane — the Inspector, the leader, the map's own controls — is outside
+	 * the framebuffer and needs no undoing.
+	 *
+	 * The wait is what makes the clean state the one captured: a feature state lands on the next
+	 * render, so capturing immediately would still catch the emphasis.
+	 */
+	export async function captureSnapshot(): Promise<Blob> {
+		const current = map;
+		if (!current) throw new Error('There is no Base Map on screen to capture.');
+		const built = stack;
+		built?.setSelectedAnnotation(null);
+		try {
+			await whenMapIdle(current);
+			return await captureMapFrame(current);
+		} finally {
+			built?.setSelectedAnnotation(selectedAnnotationId ?? null);
+		}
+	}
 </script>
 
 <!--
@@ -864,6 +1006,16 @@
 	which is what lets the Annotation Inspector be docked over the map rather than beside it
 	(ADR-0035). The same arrangement as the editor's `BaseMapPane`, deliberately: one panel, one dock.
 
+	⚠ **While the Inspector is docked over the pane's top-right corner, the control block stops short
+	of it — that is the conditional `max-width`.** The Inspector docks `right-2` at `w-80` above `lg`
+	and sits a layer above this block, so a control the row puts under that column is drawn but
+	unpressable: the pointer reaches the Inspector. The editor's `BaseMapPane` carries the same
+	reservation and the measurement behind it. Applied only while something is docked, because
+	unconditionally it costs the row a second line at every width — which is the single line ADR-0020's
+	options panel exists to buy. No floor under the subtraction, unlike the editor's: this pane is only
+	ever the Project map's column, which above `lg` is the viewport less a 24 rem sidebar and so is
+	never narrower than the reservation.
+
 	⚠ **`z-[6]` on the control block, the same number the editor's pane uses, and it is load-bearing.**
 	`.maplibregl-map` opens no stacking context, so one context holds the leader at 5, MapLibre's four
 	control corners at 6 (`packages/ui`'s `layout.css` has the rule and the reason) and the Annotation
@@ -873,7 +1025,11 @@
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="reader-map-pane"></div>
-	<div class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+	<div
+		class="absolute top-2 left-2 z-[6] flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2 {overlayDocked
+			? 'lg:max-w-[calc(100%-21.5rem)]'
+			: ''}"
+	>
 		{@render controls?.()}
 	</div>
 	{@render overlay?.()}

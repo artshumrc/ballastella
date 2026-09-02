@@ -96,7 +96,16 @@
 		type PublishedSite,
 		type TileSourceFailure
 	} from '@ballastella/core';
-	import { type DrawnLayer, type DrawnOutcome } from '@ballastella/core/render';
+	import {
+		canCaptureSnapshot,
+		initialSnapshotReadiness,
+		mapSnapshotFileName,
+		snapshotAvailability,
+		snapshotReadinessAfter,
+		type DrawnLayer,
+		type DrawnOutcome,
+		type SnapshotReadinessEvent
+	} from '@ballastella/core/render';
 	import {
 		ANNOTATION_INSPECTOR_ID,
 		AnnotationDescription,
@@ -107,6 +116,7 @@
 		LeaderLine,
 		MapCommentary,
 		MapNotice,
+		MapSnapshotButton,
 		ProjectCardList,
 		pageChrome,
 		type Box
@@ -118,6 +128,7 @@
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
 	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
 	import { returnLink } from '$lib/return-link.svelte.js';
+	import { saveFile } from '$lib/save-file';
 	import { readSiteFile, siteStore, sitePrefix } from '$lib/site-files';
 	import { startTheme } from '$lib/theme.svelte';
 	import UnwarpedView from '$lib/UnwarpedView.svelte';
@@ -541,6 +552,32 @@
 	}
 
 	/**
+	 * Whether the map on screen can be handed over as a Map Snapshot, and which frame that is about.
+	 *
+	 * **The rules are `core`'s reducer**, not this page's: what invalidates a frame, which late answers
+	 * count, and that a capture is a busy overlay rather than a state of its own are decided in one
+	 * place, and the editor's Project screen reads the same one. This page only feeds it what it can
+	 * see — the pane's map events, the two asset outcomes below, and the press.
+	 *
+	 * `$state.raw` because the reducer replaces the whole value and returns the same object for an
+	 * event that changes nothing, which is most of them during a pan.
+	 */
+	let snapshot = $state.raw(initialSnapshotReadiness);
+
+	/**
+	 * Feed the readiness machine one event.
+	 *
+	 * ⚠ **`untrack` around the read.** Some of these are sent from inside an effect, and a tracked read
+	 * of `snapshot` there would make that effect a dependent of the state it is writing.
+	 */
+	const onSnapshotEvent = (event: SnapshotReadinessEvent): void => {
+		snapshot = snapshotReadinessAfter(
+			untrack(() => snapshot),
+			event
+		);
+	};
+
+	/**
 	 * The most recent refusal of a Map Image's tiles, or `null` while they are arriving.
 	 *
 	 * ⚠ **Not a one-way flag**, and that shape is the failure to avoid: a notice that is only ever
@@ -588,6 +625,10 @@
 			// escaping into `@allmaps/render` as an uncaught page error nobody sees.
 			onOutcome: (outcome) => {
 				tileFailure = outcome.ok ? null : { failure: outcome.failure, imageId: outcome.imageId };
+				// A Map Image that is not drawing outranks a frame that has fallen quiet: quiet is not
+				// complete, and a Map Snapshot of a holed map is the one thing this feature must not
+				// hand over. The notice above is the whole account of it; the control says nothing.
+				onSnapshotEvent({ kind: 'map-image-assets', failed: !outcome.ok });
 			}
 		})
 	);
@@ -891,6 +932,9 @@
 	$effect(() => {
 		void baseMap.entry.id;
 		baseMapUnavailable = false;
+		// The archive is about to be asked again, so whatever it said last time is no longer a fact
+		// about the frame being drawn.
+		onSnapshotEvent({ kind: 'base-map-assets', failed: false });
 	});
 
 	/**
@@ -1051,6 +1095,43 @@
 
 	/** The map pane, for the one thing this page asks of its camera. */
 	let readerMapPane = $state<ReaderMapPane | undefined>();
+
+	/**
+	 * The Annotation Inspector's docked box, while it is in the document.
+	 *
+	 * **The element rather than {@link openAnnotation}**, because the pane's control row has to stop
+	 * short of this column for as long as the column is *drawn* — and the panel has a 220 ms out
+	 * transition, so the selection is already null while it is still on screen and still taking the
+	 * pointer. A `bind:this` is cleared when the element is destroyed, which is after the transition
+	 * rather than at the top of it. The editor's Project screen carries the same binding for the same
+	 * overlap.
+	 */
+	let inspectorDock = $state<HTMLDivElement | undefined>();
+
+	/**
+	 * Download the map on screen as a Map Snapshot.
+	 *
+	 * The pane owns the picture and this owns the file. Nothing is written to the site, to the
+	 * Reader's preferences or to Project data on the way — a Map Snapshot is an illustration the
+	 * scholar keeps, and this site is read-only anyway.
+	 *
+	 * **Every way this can fail is one announcement**, because they are one thing to the Reader: a
+	 * refused framebuffer read, a `toBlob` that answered `null`, a download the browser would not
+	 * start. What none of them is is an asset failure — the frame is as complete as it was — so the
+	 * control comes back ready and the sentence offers the retry.
+	 */
+	async function downloadMapSnapshot(): Promise<void> {
+		const pane = readerMapPane;
+		const directory = openProject?.directory;
+		if (!pane || directory === undefined || !canCaptureSnapshot(snapshot)) return;
+		onSnapshotEvent({ kind: 'capture-started' });
+		try {
+			saveFile(mapSnapshotFileName(directory), await pane.captureSnapshot());
+			onSnapshotEvent({ kind: 'capture-finished' });
+		} catch {
+			onSnapshotEvent({ kind: 'capture-failed' });
+		}
+	}
 	/** The two columns the leader is drawn between. `$state` for the reason `ProjectScreen` records. */
 	let layerColumn = $state<HTMLElement | undefined>();
 	let mapColumn = $state<HTMLElement | undefined>();
@@ -1455,7 +1536,18 @@
 										onstack={(reported) => (rendered = reported)}
 										onbasemapstatus={(status) => {
 											baseMapUnavailable = status === 'unavailable';
+											// Without the Base Map there is no frame to capture at all, and the notice
+											// above is the account of it — there is no second one about the snapshot.
+											onSnapshotEvent({
+												kind: 'base-map-assets',
+												failed: status === 'unavailable'
+											});
 										}}
+										snapshotGeneration={snapshot.generation}
+										oninvalidateframe={(by) => onSnapshotEvent({ kind: 'frame-invalidated', by })}
+										onframesettled={(generation) =>
+											onSnapshotEvent({ kind: 'frame-settled', generation })}
+										overlayDocked={inspectorDock !== undefined}
 										controls={mapControls}
 										overlay={mapOverlay}
 									/>
@@ -1579,6 +1671,19 @@
 		<Scan size={16} aria-hidden="true" />
 		Frame project
 	</button>
+
+	<!--
+		The view this Reader assembled, as an image they can put in a figure. The same control the
+		editor mounts from the same package, so the two applications cannot describe one action two
+		ways — and it captures what is on screen, which here means this Reader's Base Map choice, their
+		appearance switches, and their Layer visibility and opacity rather than the author's defaults.
+	-->
+	<MapSnapshotButton
+		ready={snapshotAvailability(snapshot).state === 'ready'}
+		capturing={snapshot.capturing}
+		captureFailed={snapshot.captureFailed}
+		onclick={() => void downloadMapSnapshot()}
+	/>
 {/snippet}
 
 <!--
@@ -1644,6 +1749,7 @@
 {#snippet mapOverlay()}
 	{#if openAnnotation}
 		<div
+			bind:this={inspectorDock}
 			class="absolute top-auto right-2 bottom-[6.25rem] left-2 z-[7] flex max-h-[60%] flex-col lg:top-2 lg:bottom-auto lg:left-auto lg:max-h-[calc(100%-3rem)] lg:w-80 lg:max-w-[calc(100%-1rem)]"
 		>
 			<AnnotationInspector
