@@ -210,6 +210,31 @@
 		})();
 	});
 
+	/**
+	 * The Projects the Front Page offers a Reader (ADR-0032).
+	 *
+	 * The record names every Project the site carries, listed or not, so the filter is here rather than
+	 * at publish time — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
+	 * files straight off the host without consulting this list, so one left out still opens and still
+	 * renders, which is what stops "not on the Front Page" from being mistaken for a privacy setting.
+	 */
+	const frontPage = $derived(site?.projects.filter((project) => project.onFrontPage) ?? []);
+
+	/**
+	 * Whether the Front Page has nothing to show a Reader (ADR-0045).
+	 *
+	 * A site with no Projects at all and a site whose Projects are all off the Front Page render the
+	 * same nothing, because the *difference* between them is the leak: a Reader who knows the tool would
+	 * read a "none on the front page" wording as *there is unlisted work here*, which is what taking a
+	 * Project off the Front Page was meant not to say. So one flag withholds the whole page — the prose
+	 * about the site, the invitation back to the Workspace, and the list — rather than each part
+	 * deciding for itself and the two states drifting into a pair a Reader can tell apart.
+	 *
+	 * A record that could not be read is a different screen and keeps its alert. The accepted cost is
+	 * that a Reader who mistypes an address cannot tell an empty site from a broken one.
+	 */
+	const blankFrontPage = $derived(site !== null && siteError === '' && frontPage.length === 0);
+
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE WAY BACK TO THE EDITOR
 	//
@@ -223,10 +248,11 @@
 	//
 	// Both are `null` unless the site records an instance **and** a repository, which is the
 	// degradation the record's reader is written for: no link rather than a broken one, and never a
-	// guess at a canonical deployment.
+	// guess at a canonical deployment. The whole-Workspace one is also `null` on a blank Front Page,
+	// where it would be the only thing on the page and would read as a signal ({@link blankFrontPage}).
 
 	const cloneLink = $derived(
-		site === null || remote === null
+		site === null || remote === null || blankFrontPage
 			? null
 			: returnLinkUrl(site.editorUrl, {
 					kind: 'clone',
@@ -1279,16 +1305,6 @@
 	}
 
 	/**
-	 * The Projects the Front Page offers a Reader (ADR-0032).
-	 *
-	 * The record names every Project the site carries, listed or not, so the filter is here rather than
-	 * at publish time — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
-	 * files straight off the host without consulting this list, so one left out still opens and still
-	 * renders, which is what stops "not on the Front Page" from being mistaken for a privacy setting.
-	 */
-	const frontPage = $derived(site?.projects.filter((project) => project.onFrontPage) ?? []);
-
-	/**
 	 * The Front Page's Projects as the shared card list takes them: the name, the folder, and the link.
 	 *
 	 * `resolve` stays in the app — the site's own base path is unknown at build time (ADR-0006) and
@@ -1357,94 +1373,84 @@
 	/>
 
 	{#if openDirectory === null}
-		<div class="mx-auto w-full max-w-6xl p-4 sm:p-8">
-			<!--
-			The site's own sentence about itself, as ordinary markup.
-
-			It was Markdown put through `renderAnnotationPopup` and `{@html}`-ed, which made this page's
-			marketing copy into a pseudo-Annotation: an Annotation is a scholar's content (CONTEXT.md), and
-			the shared renderer's job is a stranger's untrusted text rather than a string in this file. The
-			shared path is live in this bundle where it belongs — an Annotation's row renders its
-			description through `AnnotationDescription`, which is `renderDescription` and the package's one
-			`{@html}` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
-			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
+		<!--
+			⚠ **Nothing at all when the Front Page has nothing on it** ({@link blankFrontPage},
+			ADR-0045): not the prose, not the list, and not the way back to the Workspace, which the bar
+			drops with it. A sentence naming *which* empty this is would be the leak.
 		-->
-			<p class="max-w-prose">
-				These are the Projects published from one Ballastella Workspace. A Reader can look at the
-				work — the aligned Map Images and the Annotations written over them — and cannot change it.
-				Published with
-				<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
-			</p>
-
-			<!--
-			⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
-			way back to the editor, and it survived that paragraph's move into the navigation bar: a
-			student with no GitHub account is exactly the Reader who will not follow a link that looks
-			like it wants one, and the copy a get takes changes nothing on this site.
-
-			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
-			this expression and nothing else — because the sentence is *about* the invitation. A site
-			published into a folder, and any site published without them, records no instance or no
-			repository, so the bar carries no "Open this Workspace in Ballastella" and this would be
-			telling a Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
-			drift into a page that offers the link without the sentence or the sentence without the link.
-		-->
-			{#if cloneLink !== null}
-				<p class="mt-4 max-w-prose" data-testid="no-account-needed">
-					Opening this Workspace in Ballastella takes a copy of all of it onto your own computer.
-					You do not need an account, and nothing published here is changed.
-				</p>
-			{/if}
-
-			{#if siteError}
-				<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
-					<h2 class="font-semibold">This site has no list of Projects</h2>
-					<p data-testid="site-problem">{siteError}</p>
-				</div>
-			{:else if site === null}
-				<p class="mt-8">Looking for the Projects on this site…</p>
-			{:else if frontPage.length === 0}
+		{#if !blankFrontPage}
+			<div class="mx-auto w-full max-w-6xl p-4 sm:p-8">
 				<!--
-				Two different facts, and they must not share a sentence (ADR-0032). "No Projects on it yet"
-				is true of a site nothing has been published to, and reads as *the files are missing* — which
-				would send the author of a site whose Projects are all off the Front Page looking for work
-				that is exactly where they left it. The second sentence says what that author did, and
-				repeats the one thing the editor's control promised them: the Projects are still here, and a
-				link still opens one.
+				The site's own sentence about itself, as ordinary markup.
+
+				It was Markdown put through `renderAnnotationPopup` and `{@html}`-ed, which made this page's
+				marketing copy into a pseudo-Annotation: an Annotation is a scholar's content (CONTEXT.md), and
+				the shared renderer's job is a stranger's untrusted text rather than a string in this file. The
+				shared path is live in this bundle where it belongs — an Annotation's row renders its
+				description through `AnnotationDescription`, which is `renderDescription` and the package's one
+				`{@html}` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
+				stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 			-->
-				{#if site.projects.length === 0}
-					<p class="mt-8" data-testid="no-projects-yet">This site has no Projects on it yet.</p>
-				{:else}
-					<p class="mt-8 max-w-prose" data-testid="none-on-front-page">
-						None of this site’s Projects are on the front page. They are still published — anyone
-						with a link to one can open it.
+				<p class="max-w-prose">
+					These are the Projects published from one Ballastella Workspace. A Reader can look at the
+					work — the aligned Map Images and the Annotations written over them — and cannot change
+					it. Published with
+					<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
+				</p>
+
+				<!--
+				⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
+				way back to the editor, and it survived that paragraph's move into the navigation bar: a
+				student with no GitHub account is exactly the Reader who will not follow a link that looks
+				like it wants one, and the copy a get takes changes nothing on this site.
+
+				**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
+				this expression and nothing else — because the sentence is *about* the invitation. A site
+				published into a folder, and any site published without them, records no instance or no
+				repository, so the bar carries no "Open this Workspace in Ballastella" and this would be
+				telling a Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
+				drift into a page that offers the link without the sentence or the sentence without the link.
+			-->
+				{#if cloneLink !== null}
+					<p class="mt-4 max-w-prose" data-testid="no-account-needed">
+						Opening this Workspace in Ballastella takes a copy of all of it onto your own computer.
+						You do not need an account, and nothing published here is changed.
 					</p>
 				{/if}
-			{:else}
-				<!--
-				The same list of cards the editor's Hub renders, from the one component — so publishing does
-				not reformat a scholar's Projects into something else.
 
-				**A Reader gets it with nothing else passed to it**, and that is the whole of how the
-				authoring controls are absent: no New Project, no per-Project actions, no Front Page
-				choice, because none of them is a snippet this call hands over. The name is interpolated as
-				text by the card itself and never as markup, which
-				`packages/ui/src/project-card-list.dom.test.ts` asserts against the component
-				and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
-				published site (ADR-0009).
-			-->
-				<!--
-				`workspace-home-column` is the measure, and it is the editor's too: it is declared once in
-				`packages/ui/src/layout.css`, so a Project's row is the same width here as in the editor
-				rather than the two apps each stating a `max-w-*` of their own.
-			-->
-				<ProjectCardList
-					class="mt-8 workspace-home-column"
-					testid="published-projects"
-					projects={frontPageCards}
-				/>
-			{/if}
-		</div>
+				{#if siteError}
+					<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
+						<h2 class="font-semibold">This site has no list of Projects</h2>
+						<p data-testid="site-problem">{siteError}</p>
+					</div>
+				{:else if site === null}
+					<p class="mt-8">Looking for the Projects on this site…</p>
+				{:else}
+					<!--
+					The same list of cards the editor's Hub renders, from the one component — so publishing does
+					not reformat a scholar's Projects into something else.
+
+					**A Reader gets it with nothing else passed to it**, and that is the whole of how the
+					authoring controls are absent: no New Project, no per-Project actions, no Front Page
+					choice, because none of them is a snippet this call hands over. The name is interpolated as
+					text by the card itself and never as markup, which
+					`packages/ui/src/project-card-list.dom.test.ts` asserts against the component
+					and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
+					published site (ADR-0009).
+				-->
+					<!--
+					`workspace-home-column` is the measure, and it is the editor's too: it is declared once in
+					`packages/ui/src/layout.css`, so a Project's row is the same width here as in the editor
+					rather than the two apps each stating a `max-w-*` of their own.
+				-->
+					<ProjectCardList
+						class="mt-8 workspace-home-column"
+						testid="published-projects"
+						projects={frontPageCards}
+					/>
+				{/if}
+			</div>
+		{/if}
 	{:else}
 		{#if projectError}
 			<div role="alert" class="alert flex-col items-start alert-warning">
