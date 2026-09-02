@@ -227,6 +227,25 @@ function workspaceFiles(options: {
 		})
 	};
 	for (const layer of options.layers) {
+		if (layer.kind === 'map') {
+			// ⚠ **The pyramid's own `info.json`, which the framing does not need and the Workspace does.**
+			// A Layer whose Map Image has no `info.json` is a Workspace `assertReferencesPresent` refuses
+			// (ADR-0023), and the Project screen reports it — correctly — as “A Map Image stopped
+			// drawing”. That notice is a box above the map, and a shorter map is a different opening
+			// view: the sheet would not fit corner to corner, which is what this spec measures. Its
+			// tiles are deliberately still absent — a 404 for a tile *cell* is not reported
+			// (`store-image-fetch.ts`), because a complete pyramid answers some on every load.
+			files[`images/${IMAGE_ID}/info.json`] = asJson({
+				'@context': 'http://iiif.io/api/image/3/context.json',
+				id: `https://unset.invalid/${IMAGE_ID}`,
+				type: 'ImageService3',
+				protocol: 'http://iiif.io/api/image',
+				profile: 'level0',
+				width: IMAGE_WIDTH,
+				height: IMAGE_HEIGHT,
+				tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]
+			});
+		}
 		if (layer.kind === 'map' && !options.unaligned) {
 			// The Workspace root, with no Project in front of it — see the note above.
 			// alignment-write-is-the-fixture: the Workspace this spec opens; the opening view is computed from an Alignment already on disk

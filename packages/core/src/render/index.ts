@@ -36,6 +36,31 @@ export {
 	needleOrdinal,
 	needleSvg
 } from './needle.js';
+// A Map Snapshot of the map on screen. The pure and canvas-only halves of the capture, which is
+// what lets a browser test reach them without a map — see the module's header for why the read has
+// to happen inside a render callback.
+export {
+	captureMapFrame,
+	encodeSnapshotPng,
+	flipPixelRows,
+	mapSnapshotFileName,
+	readDrawingBuffer,
+	type DrawingBufferRead,
+	type SnapshotSource
+} from './map-snapshot.js';
+// Whether the frame on screen can be captured, as a reducer over the events that change the answer.
+// The pane feeds it map events and the page feeds it asset outcomes; neither owns the rules.
+export {
+	FRAME_INVALIDATORS,
+	canCaptureSnapshot,
+	initialSnapshotReadiness,
+	snapshotAvailability,
+	snapshotReadinessAfter,
+	type FrameInvalidator,
+	type SnapshotAvailability,
+	type SnapshotReadiness,
+	type SnapshotReadinessEvent
+} from './snapshot-readiness.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
 // Shaded relief and computed contour lines for the topographic Base Map. It adds `maplibre-contour`
 // to this package's dependencies, which both apps already needed to draw that entry at all.

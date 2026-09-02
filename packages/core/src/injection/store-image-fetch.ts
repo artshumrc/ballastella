@@ -119,25 +119,25 @@ export type StoreImageFetchOptions = {
 	/**
 	 * Told what became of each request, so the app can say when a Map Image stops drawing.
 	 *
-	 * ⚠ **Optional. The published viewer passes one; the editor does not yet.**
+	 * ⚠ **Optional, and each shim reports only to its own caller.** The published viewer passes one
+	 * for the map it draws, and so does the editor's Project screen; the editor's other readers of
+	 * this shim deliberately pass none.
 	 *
-	 * Until then the editor is no worse off than it was, and that is a measured claim rather than a
-	 * hope: its two readers of this shim — `MapImagePane.svelte`'s ADR-0008 catch and
-	 * `tile-protocol.ts` — already turned a refusal into a sentence a scholar reads, by throwing on a
-	 * non-ok `Response`, and {@link refusal} carries the store's own cause through in `statusText` so
-	 * that sentence still names it. An earlier version of this comment claimed the editor path "used
-	 * to throw an uncaught error"; it did not, and the shim was quietly degrading a working message
-	 * until that was measured.
+	 * **That is the answer to the trap, rather than a gap.** A refused URL keeps the notice up until
+	 * that URL comes back, and the editor makes requests through this shim that are *expected* to
+	 * fail and are never retried — `add-remote-map`'s cross-origin tile probe deliberately asks a
+	 * host for a tile to find out whether it will answer. Wired globally, one probe against an
+	 * unreachable library would leave a permanent "a Map Image stopped drawing" over a Workspace
+	 * where nothing is wrong. So `EditorSession#imageServiceFetch` hands out a shim per caller and
+	 * only the Project map asks to be told; a probe, an offline copy and a thumbnail each get one
+	 * that reports to nobody.
+	 *
+	 * The callers that report nothing are no worse off than a listener would make them:
+	 * `MapImagePane.svelte`'s ADR-0008 catch and `tile-protocol.ts` already turn a refusal into a
+	 * sentence a scholar reads, by throwing on a non-ok `Response`, and {@link refusal} carries the
+	 * store's own cause through in `statusText` so that sentence still names it.
 	 *
 	 * See {@link TileFetchOutcome} for which requests are reported and which are deliberately not.
-	 *
-	 * ⚠ **One thing to check before wiring this in the editor.** A refused URL keeps the
-	 * notice up until that URL comes back, and the editor makes requests through this shim that are
-	 * *expected* to fail and are never retried — `add-remote-map`'s cross-origin tile probe deliberately
-	 * asks a host for a tile to find out whether it will answer. Wired naively, one probe against an
-	 * unreachable library leaves a permanent "a Map Image stopped drawing" over a Workspace where
-	 * nothing is wrong. Either the probe stops going through this shim, or a probe is told apart from a
-	 * draw.
 	 */
 	readonly onOutcome?: (outcome: TileFetchOutcome) => void;
 };
