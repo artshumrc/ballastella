@@ -16,6 +16,7 @@ import {
 	forgetFolderWorkspace,
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
+	type AlignmentChoice,
 	type WorkspaceUpdate,
 	isFolderWorkspaceSupported,
 	listFolderWorkspaces,
@@ -2625,6 +2626,8 @@ export class WorkspaceStorage {
 	async getFromRemote(
 		options: {
 			onProgress?: (progress: { files: number; totalFiles: number }) => void;
+			/** What the author answered about each contested Alignment, by path (ADR-0046). */
+			alignmentChoices?: ReadonlyMap<string, AlignmentChoice>;
 		} = {}
 	): Promise<WorkspaceUpdate> {
 		const remote = this.remote;
@@ -2646,7 +2649,10 @@ export class WorkspaceStorage {
 				onProgress: (progress) => {
 					if (mine()) this.updateProgress = progress;
 					options.onProgress?.(progress);
-				}
+				},
+				...(options.alignmentChoices === undefined
+					? {}
+					: { alignmentChoices: options.alignmentChoices })
 			});
 			if (mine()) {
 				// Re-read rather than assumed: `writeBaseline` discards the previous record when it cannot

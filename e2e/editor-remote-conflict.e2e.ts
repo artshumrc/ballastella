@@ -678,10 +678,11 @@ test.describe('Remote Status on the navigation bar', () => {
 			'delft/project.json': '{"formatVersion":1,"name":"Delft, theirs"}'
 		});
 		await checkNow(page);
-		// ⚠ **The badge says which directions are outstanding and a Conflict has both**, so the clause
-		// is the both-ways one and the determination behind it is what tells the two apart.
+		// ⚠ **The badge says which directions are outstanding and a Conflict has both** — and it is not
+		// a determination of its own (ADR-0046): a Sync resolves it into a copy, so the state a scholar
+		// is in is the same both-ways one they were already in.
 		await expect(remoteStatus(page)).toContainText('changes both ways');
-		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'conflict');
+		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'changes-both-ways');
 
 		// ⚠ **A failed check is not agreement**. The last determination stays, dated,
 		// with an alert beside it saying it is no longer being confirmed — never relabelled `In sync`,
@@ -695,7 +696,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		const failure = page.getByTestId('remote-status-failure');
 		await expect(failure).toBeVisible();
 		await expect(failure).toContainText('the last one Ballastella was able to work out');
-		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'conflict');
+		await expect(remoteStatus(page)).toHaveAttribute('data-remote-status', 'changes-both-ways');
 		await expect(remoteStatus(page)).toContainText('changes both ways');
 		await expect(remoteStatus(page)).toContainText('Check failed');
 		expect(await page.getByTestId('remote-status-checked').textContent()).toBe(checkedBefore);

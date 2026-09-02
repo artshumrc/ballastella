@@ -49,7 +49,7 @@ import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
 import { classifyPath, recognisedProjectDirectories } from './synchronization-paths.js';
 import { planWorkspaceSync } from './synchronization-planner.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
-import type { PathChoice, PlanRefusal, SourcePath } from './synchronization-planner.js';
+import type { PathChoice, SourcePath } from './synchronization-planner.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -98,30 +98,6 @@ export type PlannedRemoteFile = {
  */
 export type RemotePublishWarning = {
 	readonly kind: 'hosting-limit' | 'request-budget';
-	readonly message: string;
-};
-
-/**
- * Why a send will not go ahead without being told to overwrite the repository (ADR-0038).
- *
- * One refusal with two remedies, never a per-file choice and never a merge: three-way merging
- * `project.json`, a GeoJSON or an Alignment is the collision ADR-0024 refuses to answer, and there
- * is no honest resolution for two Alignments of one sheet.
- *
- * ⚠ **A Conflict and nothing else.** A Remote holding work this Workspace has not taken in is no
- * longer a refusal: sending leaves it exactly where it is and it reads as changes to get instead,
- * which is what makes one Sync control safe. What is left is the one row of the three-way table with
- * no safe answer in either direction — the same path changed on both sides.
- *
- * ⚠ **The reason is {@link planWorkspaceSync}'s, not a second vocabulary.** The passive Remote
- * Status and this refusal are the same three-way table asked the same question, and a spelling of
- * its own here is how the bar comes to say one thing while the modal says another.
- */
-export type RemotePublishConflict = {
-	readonly reason: PlanRefusal;
-	/** The source paths at stake, sorted. Naming them is the whole of the reporting: there is no diff. */
-	readonly paths: readonly string[];
-	/** The refusal, in the words the user should see, naming the files and both remedies. */
 	readonly message: string;
 };
 
@@ -222,7 +198,14 @@ export type RemotePublishPlan = {
 	 * the Remote already holds at these very bytes, and belongs in neither column.
 	 */
 	readonly outgoing: readonly PathChoice[];
-	/** Paths changed on both sides since the two last agreed. Detected, never resolved here. */
+	/**
+	 * Paths changed on both sides since the two last agreed, detected and never resolved here.
+	 *
+	 * ⚠ **Reported rather than refused** (ADR-0046). A send leaves every one of them exactly as it is
+	 * on both sides — they are neither written nor removed — and the *get* is what resolves them, into
+	 * a second copy or, for an Alignment, a question. So a Sync that meets one still moves everything
+	 * else, in both directions.
+	 */
 	readonly conflicts: readonly SourcePath[];
 	/**
 	 * Owned source paths an `overwrite` would take down, sorted.
@@ -255,18 +238,6 @@ export type RemotePublishPlan = {
 	 * to reason about. Publishing nothing is done by not calling it.
 	 */
 	readonly unchanged: boolean;
-	/**
-	 * Why this publish would overwrite work this Workspace has never seen, or `null` (ADR-0033).
-	 *
-	 * ⚠ **A fact on the plan rather than a throw, because the refusal has a remedy the plan itself
-	 * carries out.** "Overwrite the repository" is one of the two remedies the user is offered,
-	 * and raising this at plan time would make taking it mean planning again — a second tree listing,
-	 * against a Remote that may have moved between the two, so the paths named in the refusal would
-	 * not be the paths replaced by the act of accepting it. {@link publishToRemote} is where the
-	 * refusal binds: it will not send a byte while this is set unless
-	 * {@link PublishToRemoteOptions.overwrite} says to.
-	 */
-	readonly conflict: RemotePublishConflict | null;
 	/**
 	 * How many blobs need uploading, and what they weigh: the two numbers a user wants.
 	 *
@@ -423,12 +394,11 @@ export type PublishToRemoteOptions = RemotePublishOptions & {
 	/**
 	 * *Overwrite the repository*: inside the owned namespace the Remote becomes exactly the Workspace.
 	 *
-	 * ⚠ **The default refuses a Conflict, and the refusal lives here rather than only in the
-	 * interface.** A caller that never looked at {@link RemotePublishPlan.conflict} would otherwise
-	 * overwrite another machine's afternoon in silence, which is the failure this whole check exists
-	 * for. Safe to offer because ADR-0033's owned namespace preserves everything outside itself: the
-	 * only thing an overwrite can destroy is other Ballastella work, which is what lets the refusal
-	 * name files rather than say "the remote has moved".
+	 * ⚠ **A send does not refuse a Conflict**, and has not since ADR-0046: a contested path is left
+	 * exactly as it is on both sides, and the get resolves it into a copy or a question. What this
+	 * flag switches on is the destruction — safe to *offer* because ADR-0033's owned namespace
+	 * preserves everything outside itself, so the only thing an overwrite can destroy is other
+	 * Ballastella work, which is what lets the refusal below name files.
 	 *
 	 * ⚠ **This is also what switches removal from Baseline-narrowed to Workspace-only.** An ordinary
 	 * send removes {@link RemotePublishPlan.removed} and carries {@link RemotePublishPlan.retained}
@@ -785,10 +755,6 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
  * since the last Sync, whose whole pyramid goes with it. One the Baseline never recorded is
  * somebody else's, and it is carried across untouched rather than refused.
  */
-function refusalOf(conflicts: readonly string[], remote: RemoteRepository): RemotePublishConflict {
-	const paths = [...conflicts].sort();
-	return { reason: 'conflict', paths, message: conflictMessage(remote, paths) };
-}
 
 /**
  * Work out what a publish would send, and everything the scholar has to be told first.
@@ -982,13 +948,6 @@ export async function planRemotePublish(
 		removed: settled.toSend.removed,
 		overwrites: settled.toOverwrite.removed,
 		overwriteSource: settled.toOverwrite.advances,
-		conflict:
-			settled.conflicts.length > 0
-				? refusalOf(
-						settled.conflicts.map((row) => row.path),
-						options.remote
-					)
-				: null,
 		uploads,
 		uploadBytes,
 		workspace,
@@ -1027,7 +986,7 @@ export async function planRemotePublish(
  * @returns the new commit; the source Baseline a caller persists so the next transfer can tell its
  *   own work from somebody else's; and the source paths whose local-change marks that Baseline now
  *   accounts for
- * @throws RemotePublishRefusedError when the plan carries a conflict `replace` does not cover
+ * @throws RemotePublishRefusedError when the Remote moved past what an `overwrite` agreed to
  * @throws RemotePublishRateLimitedError when the hourly budget runs out part way through
  */
 export async function publishToRemote(
@@ -1041,9 +1000,6 @@ export async function publishToRemote(
 	const { plan, remote } = options;
 	// Before anything is read, hashed, or sent — see {@link PublishToRemoteOptions.overwrite}.
 	const overwriting = options.overwrite !== undefined && options.overwrite !== false;
-	if (!overwriting && plan.conflict !== null) {
-		throw new RemotePublishRefusedError(plan.conflict.message);
-	}
 	if (overwriting && options.overwrite !== true) {
 		const consented = new Set(options.overwrite);
 		const unseen = plan.overwrites.filter((path) => !consented.has(path));
@@ -1237,30 +1193,6 @@ function readOnlyMessage(remote: RemoteRepository): string {
 		`fine-grained personal access token that has “Contents: Read and write” for ${where}, or ask ` +
 		`whoever owns it for write access. Getting a repository's changes needs no write access at ` +
 		`all, so bringing its work into this Workspace still works.`
-	);
-}
-
-/**
- * What a path changed on both sides says.
- *
- * ⚠ **It is the only refusal a send has left.** A Remote holding work this Workspace has not taken
- * in is no longer refused — sending leaves it exactly where it is and the Sync modal lists it under
- * *To get* — so the remaining case is the one row of the three-way table with no safe answer in
- * either direction. Getting is not offered as the remedy, because getting refuses it too:
- * Ballastella will not choose between two versions of an Annotation or two Alignments of one sheet
- * (ADR-0024). The way on is the deliberate local-wins overwrite.
- */
-function conflictMessage(remote: RemoteRepository, paths: readonly string[]): string {
-	const where = `${remote.owner}/${remote.repository}`;
-	const count = paths.length;
-	return (
-		`${count === 1 ? 'One file has' : `${count} files have`} been changed both here and on ` +
-		`${where} since the two last agreed: ${describePaths(paths)}. Ballastella will not ` +
-		`choose between two versions of your work, so nothing has been sent and getting these ` +
-		`changes will refuse this for the same reason. Open ${where} in a new Workspace to see what ` +
-		`is there — that changes nothing on either side — or overwrite the repository, replacing what ` +
-		`is there with this Workspace. Either way, nothing in ${where} that this Workspace has no ` +
-		`file for is touched.`
 	);
 }
 

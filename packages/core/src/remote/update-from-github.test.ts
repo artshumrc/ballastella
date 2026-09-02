@@ -14,14 +14,18 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { newAlignment, type Alignment, type ControlPoint } from '../alignment/alignment.js';
+import { serialiseAlignment } from '../alignment/georeference-annotation.js';
 import { newAnnotationLayer, newMapLayer } from '../project/layer.js';
-import { newProjectFile, serialiseProjectFile } from '../project/project-file.js';
+import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { gitBlobSha } from './blob-sha.js';
+import { compareWorkspace, type InventoryEntry } from './synchronization-planner.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import type { RemoteRelationship, SynchronizationBaseline } from './synchronization-metadata.js';
+import { readAlignmentQuestions, type AlignmentQuestion } from './conflict-resolution.js';
 import {
 	UPDATE_BEFORE_DIRECTORY,
 	UPDATE_TRANSACTION_FORMAT_VERSION,
@@ -99,6 +103,20 @@ async function workspace(files: Record<string, string>): Promise<MemoryProjectSt
 	return store;
 }
 
+/** One side's `path -> blob SHA` listing, from a store or from the fake's tree. */
+async function inventory(side: ProjectStore | FakeGitHub): Promise<InventoryEntry[]> {
+	const bytes: [string, Uint8Array][] =
+		'files' in side
+			? [...side.files()]
+			: await Promise.all(
+					(await side.list('')).map(async (path): Promise<[string, Uint8Array]> => [
+						path,
+						await side.read(path)
+					])
+				);
+	return Promise.all(bytes.map(async ([path, at]) => ({ path, sha: await gitBlobSha(at) })));
+}
+
 /** Every path in a store with its bytes as text: the before-and-after snapshot every refusal gets. */
 async function snapshot(store: ProjectStore): Promise<Record<string, string>> {
 	const held: Record<string, string> = {};
@@ -122,8 +140,12 @@ const baselineOf = async (files: Record<string, string>): Promise<Synchronizatio
 /** The source half of {@link SHARED}: a Baseline an Open would have written. */
 const sharedBaseline = () => baselineOf(SHARED);
 
-const update = (store: ProjectStore, fake: FakeGitHub, baseline: SynchronizationBaseline | null) =>
-	updateFromGitHub(store, { remote: REMOTE, baseline, fetch: fake.fetch });
+const update = (
+	store: ProjectStore,
+	fake: FakeGitHub,
+	baseline: SynchronizationBaseline | null,
+	options: Partial<Parameters<typeof updateFromGitHub>[1]> = {}
+) => updateFromGitHub(store, { remote: REMOTE, baseline, fetch: fake.fetch, ...options });
 
 /** The refusal an Update raised, having asserted it raised one at all. */
 async function refusal(run: Promise<unknown>): Promise<UpdateRefusedError> {
@@ -336,28 +358,6 @@ describe('updateFromGitHub', () => {
 
 	// ── Refusals, each against a complete before-snapshot ─────────────────────────────────────
 
-	it('refuses a path changed differently on both sides and changes neither', async () => {
-		const fake = await github(SHARED);
-		const store = await workspace({
-			...SHARED,
-			'amsterdam-1625/annotations/l2.geojson': '{"features":["mine"]}'
-		});
-		const baseline = await sharedBaseline();
-		await fake.commitFiles({
-			'amsterdam-1625/annotations/l2.geojson': '{"features":["theirs"]}'
-		});
-		const before = await snapshot(store);
-		const head = fake.head();
-
-		const refused = await refusal(update(store, fake, baseline));
-
-		expect(refused.refusal).toBe('conflict');
-		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l2.geojson']);
-		expect(await snapshot(store)).toEqual(before);
-		expect(fake.head()).toBe(head);
-		expect(fake.rawGets).toBe(0);
-	});
-
 	// ── Deletions, which are named on the Sync modal rather than confirmed here ────────────────
 	//
 	// There is no confirmer to pass any more (ADR-0044): every path a get would remove is on the modal
@@ -410,6 +410,9 @@ describe('updateFromGitHub', () => {
 		expect(await snapshot(store)).toEqual(before);
 	});
 
+	// ⚠ **A file this Workspace changed and the Remote deleted is a Conflict**, and a Conflict is
+	// never a removal: the author's work stays exactly where it is. There is no Remote version to
+	// copy, so nothing is copied either — the path simply stands as a change to send.
 	it('never removes a deleted path this Workspace changed: that is a Conflict', async () => {
 		const fake = await github(SHARED);
 		const store = await workspace({
@@ -420,10 +423,10 @@ describe('updateFromGitHub', () => {
 		await fake.commitFiles({ 'amsterdam-1625/annotations/l2.geojson': null });
 		const before = await snapshot(store);
 
-		const refused = await refusal(update(store, fake, baseline));
+		const result = await update(store, fake, baseline);
 
-		expect(refused.refusal).toBe('conflict');
-		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l2.geojson']);
+		expect(result.removed).toEqual([]);
+		expect(result.copies).toEqual([]);
 		expect(await snapshot(store)).toEqual(before);
 	});
 
@@ -442,8 +445,8 @@ describe('updateFromGitHub', () => {
 
 		const refused = await refusal(update(store, fake, baseline));
 
-		// `'invalid'` rather than `'conflict'`: no single path changed on both sides, and what is
-		// wrong is the Workspace the combination would leave rather than an argument about bytes.
+		// What is wrong is the Workspace the combination would leave, rather than an argument about
+		// any one file's bytes — so it is a refusal about the result and not about attribution.
 		expect(refused.refusal).toBe('invalid');
 		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l9.geojson']);
 		expect(await snapshot(store)).toEqual(before);
@@ -620,19 +623,20 @@ describe('updateFromGitHub', () => {
 		expect([...result.baseline.keys()].sort()).toEqual(Object.keys(SHARED).sort());
 	});
 
-	it('refuses a path the two non-empty sides hold differently as a Conflict', async () => {
+	it('copies a path the two non-empty sides hold differently, with no Baseline at all', async () => {
 		const fake = await github(SHARED);
 		const store = await workspace({
 			...SHARED,
 			'amsterdam-1625/annotations/l2.geojson': '{"features":["mine"]}'
 		});
-		const before = await snapshot(store);
 
-		const refused = await refusal(update(store, fake, null));
+		const result = await update(store, fake, null);
 
-		expect(refused.refusal).toBe('conflict');
-		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l2.geojson']);
-		expect(await snapshot(store)).toEqual(before);
+		expect(result.copies.map((copy) => copy.name)).toEqual(['Warehouses (from GitHub)']);
+		// The author's own bytes are exactly where they were.
+		expect(decode(await store.read('amsterdam-1625/annotations/l2.geojson' as StorePath))).toBe(
+			'{"features":["mine"]}'
+		);
 	});
 
 	it('brings in what the Remote has and this Workspace has not, with no Baseline at all', async () => {
@@ -719,5 +723,263 @@ describe('updateFromGitHub', () => {
 		expect(refused.refusal).toBe('unresolved-transaction');
 		// The marker is left exactly where it is, so the next attempt works from the same inventory.
 		expect(await store.list(UPDATE_TRANSACTION_PATH)).toEqual([UPDATE_TRANSACTION_PATH]);
+	});
+});
+
+// A Conflict is one path changed on both sides of the Baseline. It stops nothing: everything else
+// moves in both directions, and the Remote's version of the contested thing arrives as a **second
+// copy** the scholar can look at (ADR-0046). Ballastella never merges the two and never picks.
+describe('a conflict becomes a copy', () => {
+	/** Both sides have moved the same Annotation, and this Workspace has an unrelated change too. */
+	const contestedAnnotation = async () => {
+		const fake = await github(SHARED);
+		const store = await workspace({
+			...SHARED,
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["mine"]}'
+		});
+		const baseline = await sharedBaseline();
+		await fake.commitFiles({
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["theirs"]}',
+			// Something uncontested going the other way, so "everything else moves" is assertable.
+			...DELFT
+		});
+		return { fake, store, baseline };
+	};
+
+	const copy = (store: MemoryProjectStore, prefix: string): string =>
+		[...store.snapshot().keys()].find((path) => path.startsWith(prefix) && !SHARED[path]) ?? '';
+
+	it('leaves a second Layer in the Project and moves everything else', async () => {
+		const { fake, store, baseline } = await contestedAnnotation();
+
+		const result = await update(store, fake, baseline, { mintLayerId: () => 'copy-1' });
+
+		// The author's own version is untouched at the path it was always at.
+		expect(decode(await store.read('amsterdam-1625/annotations/l2.geojson' as StorePath))).toBe(
+			'{"features":["mine"]}'
+		);
+		// GitHub's version is here too, as a Layer of its own.
+		expect(decode(await store.read('amsterdam-1625/annotations/copy-1.geojson' as StorePath))).toBe(
+			'{"features":["theirs"]}'
+		);
+		const manifest = parseProjectFile(await store.read('amsterdam-1625/project.json' as StorePath));
+		expect(manifest.layers.map((layer) => layer.name)).toEqual([
+			'The sheet',
+			'Warehouses',
+			'Warehouses (from GitHub)'
+		]);
+		// ⚠ **And the four gigabytes moved.** One contested Annotation blocking a whole Sync is the
+		// behaviour ADR-0046 exists to remove.
+		expect(result.added).toEqual(
+			expect.arrayContaining(['delft/annotations/l3.geojson', 'delft/project.json'])
+		);
+	});
+
+	// ⚠ **The copy is an ordinary local change afterwards**, so the same Sync's outbound half carries
+	// it and the machine that wrote the other version gets it on its next get. The Baseline advances
+	// at the contested path to GitHub's blob — that version is now here — which leaves the author's
+	// own copy as a change to send rather than a standing Conflict.
+	it('leaves the copy and the author’s own version as changes to send', async () => {
+		const { fake, store, baseline } = await contestedAnnotation();
+
+		const result = await update(store, fake, baseline, { mintLayerId: () => 'copy-1' });
+
+		const remote = await shas({
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["theirs"]}'
+		});
+		expect(result.baseline.get('amsterdam-1625/annotations/l2.geojson')).toBe(
+			remote.get('amsterdam-1625/annotations/l2.geojson')
+		);
+		expect(result.shared).not.toContain('amsterdam-1625/annotations/l2.geojson');
+		expect(result.baseline.has('amsterdam-1625/annotations/copy-1.geojson')).toBe(false);
+	});
+
+	// ⚠ **Story 40, asserted where the badge's own words come from.** A Sync that made copies has not
+	// brought the two sides into agreement — the copy and the author's own version are both still to
+	// send — so the determination must not be `in-sync`.
+	it('leaves the Workspace reading “changes to send” rather than “in sync”', async () => {
+		const { fake, store, baseline } = await contestedAnnotation();
+
+		const result = await update(store, fake, baseline, { mintLayerId: () => 'copy-1' });
+
+		const comparison = compareWorkspace({
+			local: await inventory(store),
+			remote: await inventory(fake),
+			baseline: { remote: REMOTE, commit: result.commit, files: result.baseline }
+		});
+		expect(comparison.status).toBe('changes-to-send');
+	});
+
+	it('says what it made, and that nothing was combined', async () => {
+		const { fake, store, baseline } = await contestedAnnotation();
+
+		const result = await update(store, fake, baseline, { mintLayerId: () => 'copy-1' });
+
+		expect(result.notice).toContain('Warehouses (from GitHub)');
+		expect(result.notice).toContain('Nothing has been combined');
+	});
+
+	// ⚠ **The coarsest contested unit, and this is the test that pins it.** A Project whose manifest
+	// is contested doubles whole; its Layers do not also double, or the scholar has six things to read
+	// where two would have done.
+	it('doubles a Project whose manifest is contested, without doubling its Layers', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace({
+			...SHARED,
+			'amsterdam-1625/project.json': projectFile('Amsterdam, mine', [
+				newAnnotationLayer({ id: 'l2', name: 'Warehouses' })
+			]),
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["mine"]}'
+		});
+		const baseline = await sharedBaseline();
+		await fake.commitFiles({
+			'amsterdam-1625/project.json': projectFile('Amsterdam, theirs', [
+				newAnnotationLayer({ id: 'l2', name: 'Warehouses' })
+			]),
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["theirs"]}'
+		});
+
+		const result = await update(store, fake, baseline);
+
+		expect(result.copies).toEqual([
+			{
+				kind: 'project',
+				contested: 'amsterdam-1625/project.json',
+				name: 'Amsterdam, theirs (from GitHub)',
+				directory: 'amsterdam-theirs-from-github'
+			}
+		]);
+		const duplicate = parseProjectFile(
+			await store.read('amsterdam-theirs-from-github/project.json' as StorePath)
+		);
+		expect([duplicate.name, duplicate.onFrontPage]).toEqual([
+			'Amsterdam, theirs (from GitHub)',
+			false
+		]);
+		// The duplicate carries GitHub's whole Project, its Annotation included.
+		expect(
+			decode(await store.read('amsterdam-theirs-from-github/annotations/l2.geojson' as StorePath))
+		).toBe('{"features":["theirs"]}');
+		// ⚠ **And the original Project gained nothing.** Two things to read, not six.
+		const mine = parseProjectFile(await store.read('amsterdam-1625/project.json' as StorePath));
+		expect(mine.layers.map((layer) => layer.name)).toEqual(['Warehouses']);
+		expect(copy(store, 'amsterdam-1625/annotations/')).toBe('');
+	});
+
+	// A copy that would leave a dangling reference is a failure and not a copy: the whole point of a
+	// second copy is a Workspace the scholar can open and compare two things in.
+	it('refuses when the result including the copies would not open, writing nothing', async () => {
+		const fake = await github(SHARED);
+		const store = await workspace({
+			...SHARED,
+			// Locally a Layer whose Annotation the Remote is about to delete: the combination is a
+			// Project that cannot draw, and it is met while the Conflict Copy is being planned.
+			'amsterdam-1625/project.json': projectFile('Amsterdam 1625', [
+				newAnnotationLayer({ id: 'l2', name: 'Warehouses' }),
+				newAnnotationLayer({ id: 'l9', name: 'Newly needed' })
+			])
+		});
+		const baseline = await sharedBaseline();
+		await fake.commitFiles({
+			'amsterdam-1625/annotations/l2.geojson': '{"features":["theirs"]}'
+		});
+		const before = await snapshot(store);
+
+		const refused = await refusal(update(store, fake, baseline));
+
+		expect(refused.refusal).toBe('invalid');
+		expect(refused.paths).toEqual(['amsterdam-1625/annotations/l9.geojson']);
+		expect(await snapshot(store)).toEqual(before);
+	});
+});
+
+// ⚠ **There is exactly one Alignment per Map Image** (ADR-0023), so a second file at
+// `alignments/<image-id> (from GitHub).json` would be referenced by nothing and drawn nowhere. A copy
+// the scholar cannot look at is worse than a question, so the question is asked instead (ADR-0046).
+describe('a contested Alignment', () => {
+	/** A real Georeference Annotation, because the question *counts* the Control Points in one. */
+	const aligned = (points: number): string => {
+		const controlPoints: ControlPoint[] = Array.from({ length: points }, (_, index) => ({
+			id: `cp${index}`,
+			ordinal: index,
+			resource: { x: 100 * (index + 1), y: 200 * (index + 1) },
+			geo: { lng: 4.9 + index / 100, lat: 52.37 + index / 100 }
+		}));
+		const alignment: Alignment = {
+			...newAlignment('map-1', { width: 1024, height: 768 }),
+			controlPoints
+		};
+		return decode(serialiseAlignment(alignment));
+	};
+
+	const MINE = aligned(1);
+	const THEIRS = aligned(2);
+
+	const contested = async () => {
+		const fake = await github(SHARED);
+		// alignment-write-is-the-fixture: the two documents this question is about, seeded into the store and the fake rather than written by the code under test
+		const store = await workspace({ ...SHARED, 'alignments/map-1.json': MINE });
+		const baseline = await sharedBaseline();
+		// alignment-write-is-the-fixture: GitHub's side of the same pair, committed into the fake
+		await fake.commitFiles({ 'alignments/map-1.json': THEIRS, ...DELFT });
+		return { fake, store, baseline };
+	};
+
+	it('makes no second file, and does not stop the rest of the Sync', async () => {
+		const { fake, store, baseline } = await contested();
+
+		const result = await update(store, fake, baseline);
+
+		expect(result.copies).toEqual([]);
+		expect(result.unansweredAlignments).toEqual(['alignments/map-1.json']);
+		expect([...store.snapshot().keys()].filter((path) => path.startsWith('alignments/'))).toEqual([
+			'alignments/map-1.json'
+		]);
+		expect(decode(await store.read('alignments/map-1.json' as StorePath))).toBe(MINE);
+		// Everything else moved anyway.
+		expect(result.added).toContain('delft/project.json');
+	});
+
+	it('writes exactly one of the two when the author answers', async () => {
+		const takingTheirs = await contested();
+		const theirs = await update(takingTheirs.store, takingTheirs.fake, takingTheirs.baseline, {
+			alignmentChoices: new Map([['alignments/map-1.json', 'take-theirs']])
+		});
+		expect(decode(await takingTheirs.store.read('alignments/map-1.json' as StorePath))).toBe(
+			THEIRS
+		);
+		expect(theirs.unansweredAlignments).toEqual([]);
+
+		const keepingMine = await contested();
+		const mine = await update(keepingMine.store, keepingMine.fake, keepingMine.baseline, {
+			alignmentChoices: new Map([['alignments/map-1.json', 'keep-mine']])
+		});
+		expect(decode(await keepingMine.store.read('alignments/map-1.json' as StorePath))).toBe(MINE);
+		// ⚠ **And it is still a change to send.** The author has seen GitHub's version and decided
+		// against it, so the Baseline advances to it and their own becomes an ordinary outbound row —
+		// which is what puts their answer on the Remote rather than leaving a standing Conflict.
+		expect(mine.baseline.get('alignments/map-1.json')).toBe(
+			// alignment-write-is-the-fixture: hashing the fixture's bytes, which writes nothing anywhere
+			(await shas({ 'alignments/map-1.json': THEIRS })).get('alignments/map-1.json')
+		);
+		expect(mine.shared).not.toContain('alignments/map-1.json');
+	});
+
+	it('shows each side’s Control Point count and date', async () => {
+		const { fake, store } = await contested();
+
+		const questions = await readAlignmentQuestions({
+			contested: [{ imageId: 'map-1', path: 'alignments/map-1.json' }],
+			store,
+			readRemote: async (path) => (fake.files().get(path) ?? encode('')) as Bytes,
+			remoteAt: new Date('2026-02-03T04:05:06Z')
+		});
+
+		expect(questions).toHaveLength(1);
+		const question = questions[0] as AlignmentQuestion;
+		expect([question.mine.controlPoints, question.theirs.controlPoints]).toEqual([1, 2]);
+		expect(question.theirs.at?.toISOString()).toBe('2026-02-03T04:05:06.000Z');
+		// The Workspace's own file, dated by the store that holds it.
+		expect(question.mine.at).toBeInstanceOf(Date);
 	});
 });

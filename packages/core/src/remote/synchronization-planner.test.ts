@@ -14,7 +14,6 @@ import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import {
 	comparePath,
 	compareWorkspace,
-	describeConflict,
 	describeGraphViolations,
 	planWorkspaceSync,
 	type InventoryEntry,
@@ -149,14 +148,17 @@ describe('compareWorkspace', () => {
 		).toBe('changes-both-ways');
 	});
 
-	it('reports Conflict for one path changed differently on both sides', () => {
+	// ⚠ **A contested path is work outstanding in both directions, and not a state of its own**
+	// (ADR-0046). There is something here GitHub has not got and something there this Workspace has
+	// not got, which is exactly what `changes-both-ways` says.
+	it('reports Changes both ways for one path changed differently on both sides', () => {
 		expect(
 			status(
-				{ 'amsterdam-1625/project.json': SHA.b, 'leiden-1640/project.json': SHA.a },
-				{ 'amsterdam-1625/project.json': SHA.c, 'leiden-1640/project.json': SHA.b },
-				{ 'amsterdam-1625/project.json': SHA.a, 'leiden-1640/project.json': SHA.a }
+				{ 'amsterdam-1625/project.json': SHA.b },
+				{ 'amsterdam-1625/project.json': SHA.c },
+				{ 'amsterdam-1625/project.json': SHA.a }
 			)
-		).toBe('conflict');
+		).toBe('changes-both-ways');
 	});
 
 	it('reports Cannot tell with no valid Baseline, however the two sides look', () => {
@@ -249,7 +251,7 @@ const MAP_LAYER = [newMapLayer({ id: 'l1', name: 'The sheet', imageId: 'map-1' }
 const ANNOTATION_LAYER = [newAnnotationLayer({ id: 'l1', name: 'Notes' })];
 
 describe('prospective graph validation', () => {
-	it('is Conflict when two individually safe changes leave a Layer’s Map Image missing', async () => {
+	it('refuses when two individually safe changes leave a Layer’s Map Image missing', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
 		// Locally the map Layer is added; remotely the pyramid is deleted. Neither path changed on
 		// both sides, and the combination is a Project that cannot draw.
@@ -265,7 +267,6 @@ describe('prospective graph validation', () => {
 			}),
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
-		expect(comparison.status).toBe('conflict');
 		expect(comparison.graph.outcome).toBe('invalid');
 		if (comparison.graph.outcome !== 'invalid') return;
 		expect(comparison.graph.violations.map((violation) => violation.kind)).toEqual([
@@ -273,7 +274,7 @@ describe('prospective graph validation', () => {
 		]);
 	});
 
-	it('is Conflict when a Layer’s Annotation is missing from the prospective result', async () => {
+	it('refuses when a Layer’s Annotation is missing from the prospective result', async () => {
 		const project = await projectFile('Amsterdam', ANNOTATION_LAYER);
 		const comparison = compareWorkspace({
 			local: entries({ 'amsterdam-1625/project.json': project.sha }),
@@ -288,14 +289,13 @@ describe('prospective graph validation', () => {
 			// Locally the Annotation Layer was added and the Annotation deleted on the Remote.
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
-		expect(comparison.status).toBe('conflict');
 		if (comparison.graph.outcome !== 'invalid') throw new Error('expected an invalid graph');
 		expect(comparison.graph.violations.map((violation) => violation.kind)).toEqual([
 			'missing-annotation'
 		]);
 	});
 
-	it('is Conflict when the prospective result holds a Project’s files but no project.json', () => {
+	it('refuses when the prospective result holds a Project’s files but no project.json', () => {
 		const comparison = compareWorkspace({
 			local: entries({ 'amsterdam-1625/annotations/notes.geojson': SHA.b }),
 			remote: entries({
@@ -308,14 +308,13 @@ describe('prospective graph validation', () => {
 			}),
 			projectFiles: new Map()
 		});
-		expect(comparison.status).toBe('conflict');
 		if (comparison.graph.outcome !== 'invalid') throw new Error('expected an invalid graph');
 		expect(comparison.graph.violations.map((violation) => violation.kind)).toEqual([
 			'missing-project-file'
 		]);
 	});
 
-	it('is Conflict when an Alignment outlives the Map Image it places', async () => {
+	it('refuses when an Alignment outlives the Map Image it places', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
 		const comparison = compareWorkspace({
 			local: entries({
@@ -357,10 +356,9 @@ describe('prospective graph validation', () => {
 		expect(orphaned.graph.violations.map((violation) => violation.kind)).toEqual([
 			'orphan-alignment'
 		]);
-		expect(orphaned.status).toBe('conflict');
 	});
 
-	it('is Conflict when a prospective Map Image is a heap of tiles nothing can open', async () => {
+	it('refuses when a prospective Map Image is a heap of tiles nothing can open', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
 		// Remotely the `info.json` is deleted; locally a tile is added. Each is safe on its own, and
 		// what is left is a directory no IIIF client can read (ADR-0023).
@@ -381,7 +379,6 @@ describe('prospective graph validation', () => {
 		expect(comparison.graph.violations.map((violation) => violation.kind)).toEqual([
 			'incomplete-image'
 		]);
-		expect(comparison.status).toBe('conflict');
 	});
 
 	it('accepts a Map Image with no Alignment, which is an unplaced map and not a violation', async () => {
@@ -400,7 +397,7 @@ describe('prospective graph validation', () => {
 		expect(comparison.status).toBe('in-sync');
 	});
 
-	it('is an operation failure, not Conflict, when a Remote project.json will not parse', async () => {
+	it('is an operation failure, not a violation, when a Remote project.json will not parse', async () => {
 		const bytes = encode('{ not json');
 		const sha = await gitBlobSha(bytes);
 		const comparison = compareWorkspace({
@@ -411,7 +408,6 @@ describe('prospective graph validation', () => {
 		});
 		if (comparison.graph.outcome !== 'failed') throw new Error('expected an operation failure');
 		expect(comparison.graph.failures.map((failure) => failure.kind)).toEqual(['malformed']);
-		expect(comparison.status).not.toBe('conflict');
 		expect(comparison.status).not.toBe('in-sync');
 	});
 
@@ -551,12 +547,16 @@ describe('planWorkspaceSync', () => {
 		expect(plan.toGet.retires).toEqual(['a/dropped.geojson']);
 	});
 
-	it('reports a Conflict rather than refusing, and leaves the decision to the engine', () => {
+	it('reports a Conflict rather than refusing, and settles it in neither direction', () => {
 		const plan = planWorkspaceSync(
 			input({ 'a/project.json': SHA.b }, { 'a/project.json': SHA.c }, { 'a/project.json': SHA.a })
 		);
 		expect(plan.conflicts.map((row) => row.path)).toEqual(['a/project.json']);
-		expect(describeConflict(['a/project.json'])).toContain('a/project.json');
+		// Neither half writes it: the get resolves it into a copy, and until then both sides keep
+		// exactly what they hold (ADR-0046).
+		expect(plan.toGet.changes).toEqual([]);
+		expect(plan.toSend.changes).toEqual([]);
+		expect(plan.toSend.removed).toEqual([]);
 	});
 
 	it('never chooses generated Published Site output in either direction', () => {

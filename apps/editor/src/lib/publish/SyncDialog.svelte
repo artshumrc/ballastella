@@ -43,6 +43,7 @@
 	// the author is never told a Sync half happened without being told which half.
 
 	import { tick } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 
 	import {
 		MAX_PUBLISHED_FILES,
@@ -55,6 +56,8 @@
 		describeSyncPlan,
 		describeTokenProblem,
 		publishedSiteStaleness,
+		type AlignmentChoice,
+		type AlignmentQuestion,
 		type Change,
 		type OutboundDeletionPreview,
 		type ProjectSummary,
@@ -141,6 +144,16 @@
 	let outbound = $state<OutboundDeletionPreview | null>(null);
 	/** Whether GitHub is being asked whose the repository is, so a second press is not a second ask. */
 	let askingSharing = $state(false);
+	/**
+	 * The contested Alignments, each with both sides' Control Point counts and dates (ADR-0046).
+	 *
+	 * ⚠ **A question rather than a copy, because there is exactly one Alignment per Map Image**
+	 * (ADR-0023): a second file would be referenced by nothing and drawn nowhere, and a copy the
+	 * scholar cannot look at is worse than being asked.
+	 */
+	let alignmentQuestions = $state<readonly AlignmentQuestion[]>([]);
+	/** What the author has answered so far, by Alignment path. Unanswered ones stop nothing. */
+	const alignmentChoices = new SvelteMap<string, AlignmentChoice>();
 	/** Why the Sync stopped, or why there is nothing to do. */
 	let failure = $state('');
 	/** The Project state the current forecast was built from. */
@@ -178,6 +191,10 @@
 
 	const count = (many: number, thing: string): string => `${many} ${thing}${many === 1 ? '' : 's'}`;
 
+	/** A date a person reads, in their own locale. */
+	const describeWhen = (at: Date): string =>
+		at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 	const projectStateKey = (projects: readonly ProjectSummary[]): string =>
 		projects
 			.map(
@@ -200,6 +217,10 @@
 		askingSharing = false;
 		progress = null;
 		rightsNotice = '';
+		alignmentQuestions = [];
+		// A decision about one pair of Alignments is not a decision about the pair a later listing
+		// found, for the same reason the shared-Remote answer goes with its plan.
+		alignmentChoices.clear();
 	};
 
 	const reset = () => {
@@ -303,6 +324,15 @@
 				sending: rights.canPush
 			});
 			if (mine !== planning) return;
+			// ⚠ **The only bytes a forecast downloads**, and only where a Map Image's Alignment is
+			// contested: the question cannot be answered without both sides' Control Point counts.
+			const questions = await active.readAlignmentQuestions({
+				remote: bound,
+				commit: forecast.head,
+				conflicts: forecast.conflicts
+			});
+			if (mine !== planning) return;
+			alignmentQuestions = questions;
 			shareLinks = hasSite;
 			site = record;
 			plan = local;
@@ -379,6 +409,9 @@
 	const nothingToDo = $derived(
 		sync !== null && !somethingToGet && !somethingToSend && sync.conflicts.length === 0
 	);
+
+	/** Whether getting would resolve a Conflict, which is a reason to get with nothing else to get. */
+	const somethingToResolve = $derived(sync !== null && sync.conflicts.length > 0);
 
 	/**
 	 * The Conflicts the plan found, named rather than listed as paths.
@@ -468,7 +501,8 @@
 				const inbound = await storage.getFromRemote({
 					onProgress: (seen) => {
 						progress = { phase: 'getting', ...seen, requestsRemaining: null };
-					}
+					},
+					alignmentChoices
 				});
 				got = {
 					added: inbound.added.length,
@@ -1061,25 +1095,70 @@
 
 			{#if contested.length > 0}
 				<!--
-					⚠ **Reported, not resolved.** Ballastella will not choose between two versions of a
-					scholar's work (ADR-0024), so the same file changed on both sides stops both directions
-					— and the way on is the deliberate local-wins overwrite, which is on this screen.
+					⚠ **Resolved into a copy, never merged and never chosen between** (ADR-0046). The Sync
+					moves everything else in both directions and leaves GitHub's version of the contested
+					thing beside your own, for you to look at and delete one. Not a warning, because
+					nothing here is at risk: it is a notice about what getting will make.
 				-->
-				<div
-					role="alert"
-					class="alert alert-vertical items-start alert-warning"
-					data-testid="sync-conflicts"
-				>
+				<div class="alert alert-vertical items-start alert-info" data-testid="sync-conflicts">
 					<p>
 						{contested.length === 1 ? 'One thing has' : `${contested.length} things have`} changed both
-						here and on <code>{describeRemote(remote)}</code> since the two last agreed, so neither direction
-						can go ahead without choosing between two versions of your work.
+						here and on <code>{describeRemote(remote)}</code> since the two last agreed. Getting
+						brings GitHub's version in beside your own, named
+						<strong>(from GitHub)</strong>, so you can look at both and delete the one you do not
+						want. Nothing is combined and nothing of yours is replaced.
 					</p>
 					<ul class="text-sm">
 						{#each contested as change (change.kind + change.id)}{@render changeLine(change)}{/each}
 					</ul>
 				</div>
 			{/if}
+
+			{#each alignmentQuestions as question (question.path)}
+				<!--
+					⚠ **A question rather than a copy, and the only one in the product** (ADR-0046). There is
+					exactly one Alignment per Map Image, so a second file would be referenced by nothing and
+					drawn nowhere. Both counts and both dates are on screen because they are what makes the
+					question answerable without opening the two Alignments.
+
+					A `radiogroup` rather than two buttons: the two are exclusive, one is chosen before the
+					Sync runs, and leaving it unanswered is allowed — the rest of the Sync goes ahead.
+				-->
+				<fieldset
+					class="rounded-box border border-rule p-4"
+					data-testid="sync-alignment-question"
+					data-image={question.imageId}
+				>
+					<legend class="px-1 text-sm font-medium">
+						Two alignments of <code>{question.imageId}</code>
+					</legend>
+					<p class="text-sm">
+						This map has been aligned both here and on <code>{describeRemote(remote)}</code> since the
+						two last agreed. There is only one alignment per map, so Ballastella cannot keep both — choose
+						which to keep, or leave this and the rest of the Sync goes ahead without it.
+					</p>
+					<div class="mt-3 flex flex-col gap-2">
+						{#each [{ value: 'keep-mine', label: 'Keep mine', side: question.mine }, { value: 'take-theirs', label: 'Take the one from GitHub', side: question.theirs }] as const as option (option.value)}
+							<label class="flex items-baseline gap-2 text-sm">
+								<input
+									type="radio"
+									class="radio radio-sm"
+									name="alignment-{question.path}"
+									value={option.value}
+									checked={alignmentChoices.get(question.path) === option.value}
+									onchange={() => alignmentChoices.set(question.path, option.value)}
+								/>
+								<span>
+									{option.label} — {count(option.side.controlPoints, 'control point')}{option.side
+										.at
+										? `, ${describeWhen(option.side.at)}`
+										: ', no date recorded'}
+								</span>
+							</label>
+						{/each}
+					</div>
+				</fieldset>
+			{/each}
 
 			{#if sync.overwrites.length > 0 && canSend === true}
 				<!--
@@ -1255,8 +1334,8 @@
 		{#if signedIn && remote !== null && sync !== null}
 			<button
 				class="btn"
-				class:btn-disabled={syncing || !somethingToGet}
-				aria-disabled={syncing || !somethingToGet}
+				class:btn-disabled={syncing || !(somethingToGet || somethingToResolve)}
+				aria-disabled={syncing || !(somethingToGet || somethingToResolve)}
 				data-testid="sync-get"
 				onclick={() => void run('get')}
 			>
@@ -1265,8 +1344,8 @@
 			{#if canSend === true}
 				<button
 					class="btn"
-					class:btn-disabled={syncing || !somethingToSend || contested.length > 0}
-					aria-disabled={syncing || !somethingToSend || contested.length > 0}
+					class:btn-disabled={syncing || !somethingToSend}
+					aria-disabled={syncing || !somethingToSend}
 					data-testid="sync-send"
 					onclick={() => void run('send')}
 				>
@@ -1274,10 +1353,8 @@
 				</button>
 				<button
 					class="btn btn-primary"
-					class:btn-disabled={syncing ||
-						!(somethingToGet && somethingToSend) ||
-						contested.length > 0}
-					aria-disabled={syncing || !(somethingToGet && somethingToSend) || contested.length > 0}
+					class:btn-disabled={syncing || !(somethingToGet || somethingToSend)}
+					aria-disabled={syncing || !(somethingToGet || somethingToSend)}
 					data-testid="sync-both"
 					onclick={() => void run('both')}
 				>

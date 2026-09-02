@@ -515,7 +515,6 @@ export {
 	type PlanRemotePublishOptions,
 	type PlannedRemoteFile,
 	type PublishToRemoteOptions,
-	type RemotePublishConflict,
 	type RemotePublishOptions,
 	type RemotePublishPlan,
 	type RemotePublishWarning,
@@ -580,19 +579,18 @@ export {
 // writer still to be written is tracked without knowing it.
 export { ManagedProjectStore, manageProjectStore } from './store/managed-project-store.js';
 // Comparing a Workspace, its Remote and their Baseline (ADR-0038). Pure: the callers do the I/O, so
-// the six Remote Status values and every plan are decided by a table rather than by a transfer.
+// the five Remote Status values and every plan are decided by a table rather than by a transfer.
 export {
 	comparePath,
 	compareWorkspace,
-	describeConflict,
 	planWorkspaceSync,
+	validateProspectiveWorkspace,
 	type GraphFailure,
 	type GraphVerdict,
 	type GraphViolation,
 	type InventoryEntry,
 	type PathChoice,
 	type PathComparison,
-	type PlanRefusal,
 	type SourcePath,
 	type SourceStatus,
 	type SyncDirection,
@@ -661,6 +659,30 @@ export {
 	type UpdateTransactionState,
 	type WorkspaceUpdate
 } from './remote/update-from-github.js';
+// What a Sync does with a file changed on both sides: a second copy the scholar can look at, or —
+// for an Alignment, of which there is exactly one per Map Image — one question (ADR-0046). Never a
+// merge, and never a stop.
+export {
+	CONFLICT_COPY_SUFFIX,
+	classifyConflicts,
+	conflictCopyName,
+	readAlignmentQuestions,
+	readContestedAlignments,
+	resolveConflicts,
+	type AlignmentChoice,
+	type AlignmentQuestion,
+	type AlignmentQuestionsOptions,
+	type AlignmentSide,
+	type ConflictCopy,
+	type ConflictCopyFile,
+	type ConflictResolution,
+	type ContestedAlignment,
+	type ContestedLayer,
+	type ContestedProject,
+	type ContestedAlignmentsOptions,
+	type ContestedThings,
+	type ResolveConflictsOptions
+} from './remote/conflict-resolution.js';
 // Reviewing one Project out of a public repository (ADR-0024, ADR-0031). The Clone's sibling and
 // the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
 // unbound and unpublishable.

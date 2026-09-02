@@ -115,19 +115,19 @@
 	 * Which direction has something outstanding in it, one per determination.
 	 *
 	 * ⚠ **Only the agreeing clause names the repository**, and it is the only one that can: the other
-	 * five report a difference, and a repository named beside a difference says the Workspace was
+	 * four report a difference, and a repository named beside a difference says the Workspace was
 	 * pointed at it rather than that any work reached it (ADR-0044).
 	 *
-	 * ⚠ **`conflict` reads as the both-directions row it is.** There is work outstanding in both
-	 * directions and the badge says so; that one file is contested is the determination's own business
-	 * and is one press away.
+	 * ⚠ **There is no clause for a Conflict, because there is no such determination** (ADR-0046). One
+	 * file changed on both sides is work outstanding in both directions, which `changes both ways`
+	 * already says; what the Sync does about it — a second copy, or one question — is on the modal
+	 * that is one press away.
 	 */
 	const remoteStatusClauses: Record<SourceStatus, string> = $derived({
 		'in-sync': `in sync with ${describeRemote(repository)}`,
 		'changes-to-send': 'changes to send',
 		'changes-to-get': 'changes to get',
 		'changes-both-ways': 'changes both ways',
-		conflict: 'changes both ways',
 		'cannot-tell': "can't tell what's on GitHub"
 	});
 
@@ -143,24 +143,22 @@
 		'changes-to-send': 'This Workspace has changes GitHub has not got. Sync sends them.',
 		'changes-to-get': 'GitHub has changes this Workspace has not got. Sync brings them in.',
 		'changes-both-ways':
-			'Different files changed here and on GitHub since the two last agreed. Sync moves both directions in one act.',
-		conflict:
-			'The same file changed here and on GitHub since the two last agreed, so neither side can be brought to the other without a choice.',
+			'Something changed here and something changed on GitHub since the two last agreed. Sync moves both directions in one act.',
 		'cannot-tell':
 			'There is no trustworthy record of what this Workspace and GitHub last shared, so the differences cannot be attributed to either side.'
 	};
 
 	/**
-	 * The seventh clause, which is the absence of a determination rather than one of the six.
+	 * The sixth clause, which is the absence of a determination rather than one of the five.
 	 *
-	 * ⚠ **It is not one of the six and must not be projected onto them.** A signed-out author has
+	 * ⚠ **It is not one of the five and must not be projected onto them.** A signed-out author has
 	 * taken no reading yet: `in sync` would be a claim nothing here has made, and `Cannot tell` is a
 	 * *determination* about missing evidence rather than the absence of a determination. Naming the
 	 * gap is what makes the Sync control beside it mean something.
 	 */
 	const UNCHECKED_CLAUSE = 'not checked yet';
 
-	/** What the seventh sentence means, for the reader who presses on it. */
+	/** What the sixth sentence means, for the reader who presses on it. */
 	const UNCHECKED_DETAIL =
 		'Nothing has been read from GitHub in this Workspace yet. Sync reads both sides and says what it found.';
 

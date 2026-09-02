@@ -120,6 +120,21 @@ export interface ProjectStore {
 	size(path: StorePath): Promise<number>;
 
 	/**
+	 * When `path` was last written, in epoch milliseconds, or `null` where the backing does not say.
+	 *
+	 * ⚠ **Never portable document data, and that is what keeps it out of the file formats.** A
+	 * `project.json` records its own `updatedAt` because a clone or a Dropbox sync stamps every file
+	 * with the moment of checkout; this answers a different question — *when did this file last
+	 * change on this disk* — for one moment on one machine. The Alignment question a Sync asks when
+	 * both sides have moved the same sheet (ADR-0046) is the caller that needs it, and it is asked
+	 * about the Workspace in front of the author rather than about a document being carried anywhere.
+	 *
+	 * Optional, so a store with nothing behind it is not obliged to lie. An absent method and a `null`
+	 * answer mean the same thing to a caller, which is why every caller has to word that case.
+	 */
+	modifiedAt?(path: StorePath): Promise<number | null>;
+
+	/**
 	 * Remove every half-finished atomic write under `prefix`.
 	 *
 	 * A write interrupted between its two steps — a tab that died, a laptop that closed — leaves a

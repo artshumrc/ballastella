@@ -13,6 +13,16 @@ import { TempFileWriteStore } from './temp-file-write-store.js';
  */
 export class MemoryProjectStore extends TempFileWriteStore {
 	readonly #files = new Map<StorePath, Bytes>();
+	/**
+	 * When each path was last written, in epoch milliseconds and strictly increasing.
+	 *
+	 * `Date.now()` alone would stamp a whole test's worth of writes with one millisecond, and "the
+	 * one written later" is exactly what a caller comparing two files asks. A real backend's clock is
+	 * the operating system's and has the same resolution problem; this one is nudged forward instead
+	 * of being allowed to repeat.
+	 */
+	readonly #writtenAt = new Map<StorePath, number>();
+	#clock = 0;
 	#unreachable: Error | undefined;
 	#writes = 0;
 	#failAt: { readonly at: number; readonly step: 'bytes' | 'rename' } | undefined;
@@ -93,6 +103,7 @@ export class MemoryProjectStore extends TempFileWriteStore {
 	 */
 	plant(path: StorePath, bytes: Bytes): void {
 		this.#files.set(path, bytes.slice());
+		this.#writtenAt.set(path, this.#tick());
 	}
 
 	protected async readBytes(path: StorePath): Promise<Bytes> {
@@ -109,6 +120,7 @@ export class MemoryProjectStore extends TempFileWriteStore {
 		this.#writes += 1;
 		this.#failIfArmed('bytes');
 		this.#files.set(path, bytes.slice());
+		this.#writtenAt.set(path, this.#tick());
 	}
 
 	protected async renameTempFile(from: StorePath, to: StorePath): Promise<void> {
@@ -118,6 +130,8 @@ export class MemoryProjectStore extends TempFileWriteStore {
 		if (!bytes) throw new PathNotFoundError(from);
 		this.#files.set(to, bytes);
 		this.#files.delete(from);
+		this.#writtenAt.set(to, this.#writtenAt.get(from) ?? this.#tick());
+		this.#writtenAt.delete(from);
 	}
 
 	protected async listPaths(prefix: string): Promise<StorePath[]> {
@@ -132,6 +146,7 @@ export class MemoryProjectStore extends TempFileWriteStore {
 			throw new Error(`storage went away while ${path} was being deleted`);
 		}
 		this.#files.delete(path);
+		this.#writtenAt.delete(path);
 	}
 
 	protected async byteLength(path: StorePath): Promise<number> {
@@ -139,6 +154,19 @@ export class MemoryProjectStore extends TempFileWriteStore {
 		const bytes = this.#files.get(path);
 		if (!bytes) throw new PathNotFoundError(path);
 		return bytes.byteLength;
+	}
+
+	protected async modifiedAtOf(path: StorePath): Promise<number | null> {
+		this.#assertReachable();
+		const at = this.#writtenAt.get(path);
+		if (at === undefined) throw new PathNotFoundError(path);
+		return at;
+	}
+
+	/** The next distinct moment: real time, never repeating and never going backwards. */
+	#tick(): number {
+		this.#clock = Math.max(Date.now(), this.#clock + 1);
+		return this.#clock;
 	}
 
 	#assertReachable(): void {

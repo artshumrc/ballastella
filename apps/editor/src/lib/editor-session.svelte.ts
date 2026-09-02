@@ -74,6 +74,10 @@ import {
 	readImageLabel,
 	readRemoteInventory,
 	updateFromGitHub,
+	readContestedAlignments,
+	type AlignmentChoice,
+	type AlignmentQuestion,
+	type SourcePath,
 	referencedAlignmentAddress,
 	referencedImage,
 	referencedImagePath,
@@ -2733,6 +2737,21 @@ export class EditorSession {
 	}
 
 	/**
+	 * The Alignment questions this plan raises, with each side's Control Point count and date.
+	 *
+	 * ⚠ **Read here rather than in the modal, because it downloads.** There is one Alignment per Map
+	 * Image and a contested one is rare, so this is a handful of small files — but they are the only
+	 * bytes a forecast fetches, and keeping that fact in the session is what keeps it visible.
+	 */
+	async readAlignmentQuestions(options: {
+		remote: RemoteRepository;
+		commit: string | null;
+		conflicts: readonly SourcePath[];
+	}): Promise<readonly AlignmentQuestion[]> {
+		return readContestedAlignments(this.#store, options);
+	}
+
+	/**
 	 * What this Workspace and `remote` last shared, or `null` for `Cannot tell`.
 	 *
 	 * ⚠ **The Remote is handed to the record rather than assumed of it**, which is what makes a
@@ -2828,6 +2847,8 @@ export class EditorSession {
 	async updateFromRemote(options: {
 		remote: RemoteRepository;
 		onProgress?: (progress: { files: number; totalFiles: number }) => void;
+		/** What the author answered about each contested Alignment, by path (ADR-0046). */
+		alignmentChoices?: ReadonlyMap<string, AlignmentChoice>;
 	}): Promise<{ update: WorkspaceUpdate; baselineKept: boolean }> {
 		await this.flush();
 		await this.localChanges?.flushChanges();
@@ -2839,7 +2860,10 @@ export class EditorSession {
 			workspace: this.#workspaceKey,
 			...(options.onProgress
 				? { onProgress: ({ files, totalFiles }) => options.onProgress?.({ files, totalFiles }) }
-				: {})
+				: {}),
+			...(options.alignmentChoices === undefined
+				? {}
+				: { alignmentChoices: options.alignmentChoices })
 		});
 
 		// ⚠ **Every Edit History goes, and being generous here is the safe direction** (ADR-0039). An
