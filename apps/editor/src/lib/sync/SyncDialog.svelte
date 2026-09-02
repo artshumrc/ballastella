@@ -198,9 +198,10 @@
 	const projectStateKey = (projects: readonly ProjectSummary[]): string =>
 		projects
 			.map(
-				(project) => `${project.directory} ${project.name} ${project.onFrontPage} ${project.problem}`
+				(project) =>
+					`${project.directory}\u0000${project.name}\u0000${project.onFrontPage}\u0000${project.problem}`
 			)
-			.join('');
+			.join('\u0001');
 
 	/** Everything the opening pass is about to answer for itself, cleared before it runs. */
 	const forget = () => {
@@ -304,7 +305,7 @@
 		const credential = storage.credential;
 		if (bound === null) return;
 		try {
-			const [bundle, hasSite, record, rights] = await Promise.all([
+			const [bundle, hasSite, record, rights, withdrawing] = await Promise.all([
 				loadViewerBundle(),
 				storage.hasShareLinks(),
 				active.readPublishedSite(),
@@ -313,23 +314,36 @@
 				// all: rights cannot be read without a credential, and nothing here may claim them.
 				credential === null
 					? Promise.resolve({ canPush: false })
-					: storage.readRights().catch(() => ({ canPush: false }))
+					: storage.readRights().catch(() => ({ canPush: false })),
+				storage.withdrawingShareLinks()
 			]);
+			const sitePlan = (): Promise<PublishedSitePlan> =>
+				active.planPublishedSite({ bundle, editorUrl: deploymentRoot(), repository: bound });
 			// The viewer is only pending where there is a site to keep current, so the three budgets are
 			// about the Sync being offered rather than about one that is not going to happen.
-			const local = hasSite
-				? await active.planPublishedSite({
-						bundle,
-						editorUrl: deploymentRoot(),
-						repository: bound
-					})
-				: null;
-			const forecast = await active.planRemoteSend({
+			let local = hasSite ? await sitePlan() : null;
+			let forecast = await active.planRemoteSend({
 				token: credential,
 				remote: bound,
 				pending: local?.files ?? [],
 				sending: rights.canPush
 			});
+			// ⚠ **The Remote's own site counts, and learning of it costs the one extra listing here.**
+			// A Workspace got from a Remote that has Share Links carries no viewer files, so the local
+			// answer above is *no site* and the send that followed removed the Remote's — a live site
+			// taken down with every link handed out. Re-planned rather than patched, because the three
+			// budgets have to be about the Sync being offered: the viewer is thousands of files and
+			// megabytes, and a forecast quoting the numbers without it is wrong in the direction that
+			// ends at a rate limit part way through.
+			if (!hasSite && !withdrawing && forecast.shareLinks) {
+				local = await sitePlan();
+				forecast = await active.planRemoteSend({
+					token: credential,
+					remote: bound,
+					pending: local.files,
+					sending: rights.canPush
+				});
+			}
 			if (mine !== planning) return;
 			// ⚠ **The only bytes a forecast downloads**, and only where a Map Image's Alignment is
 			// contested: the question cannot be answered without both sides' Control Point counts.
@@ -340,7 +354,10 @@
 			});
 			if (mine !== planning) return;
 			alignmentQuestions = questions;
-			shareLinks = hasSite;
+			// What a send will *do* about a site, which is not the same as what this Workspace holds:
+			// a withdrawal removes the Remote's copy and writes nothing, and a Workspace got from a
+			// Remote that has one writes the viewer it does not yet carry.
+			shareLinks = local !== null;
 			site = record;
 			plan = local;
 			canSend = rights.canPush;
@@ -617,6 +634,10 @@
 				progress = { phase: 'sending', ...seen };
 			}
 		});
+		// The withdrawal was the asking and this send is the carrying out, so it is answered here and
+		// only on the path that succeeded: a send that threw leaves it outstanding for the next one,
+		// rather than turning it into a site the following Sync would rebuild.
+		await storage.finishWithdrawal();
 		return {
 			remote: describeRemote(bound),
 			files: result.plan.files.length,

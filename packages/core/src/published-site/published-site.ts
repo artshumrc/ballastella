@@ -814,7 +814,7 @@ function hostingWarning(
 				`${unused.maps === 1 ? 'one map' : `${unused.maps} maps`} you can delete from the hub to ` +
 				`reclaim that space — and`
 			: ' and') +
-		`writing it adds about ${describeBytes(adding)}, ` +
+		` writing it adds about ${describeBytes(adding)}, ` +
 		(already
 			? `so it is already past the ${limit} a free static host such as GitHub Pages will serve. `
 			: `which takes it past the ${limit} a free static host such as GitHub Pages will serve. `) +

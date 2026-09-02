@@ -2776,6 +2776,48 @@ export class WorkspaceStorage {
 	}
 
 	/**
+	 * Whether the author has asked for this Workspace's Published Site to come down (ADR-0045).
+	 *
+	 * The one thing the files cannot say. A Remote carrying a viewer set this Workspace does not is
+	 * either a withdrawal waiting to be carried out or a Workspace just got from a Remote that has a
+	 * site, and only the author's own asking tells them apart.
+	 */
+	async withdrawingShareLinks(): Promise<boolean> {
+		const remote = this.remote;
+		if (remote === null) return false;
+		return (await this.session.synchronization?.readWithdrawal(remote)) ?? false;
+	}
+
+	/**
+	 * Answer a withdrawal request, which a send that reached the Remote has carried out. Idempotent.
+	 *
+	 * Called after every successful send rather than only after one that was withdrawing: the state
+	 * being cleared is "the Remote still carries a site this Workspace does not", and a send that
+	 * succeeded has settled it either way.
+	 */
+	async finishWithdrawal(): Promise<void> {
+		await this.session.synchronization?.clearWithdrawal();
+	}
+
+	/**
+	 * Whether a send must write the Published Site into the Workspace first.
+	 *
+	 * ⚠ **The Remote's own copy counts, which is why this can cost a request.** A Workspace got from a
+	 * Remote that has Share Links holds no viewer files — a get brings the source namespace and
+	 * nothing else — so the local answer alone reads as *no site*, and the send that followed removed
+	 * the Remote's, taking a live site down with every link handed out. The local answer is asked
+	 * first and short-circuits, so the listing is paid for only on the first Sync after a get.
+	 *
+	 * The caller checks {@link withdrawingShareLinks} first: this reports what the two sides *hold*,
+	 * and holding is not wanting.
+	 */
+	async rebuildsPublishedSite(token: string, remote: RemoteRepository): Promise<boolean> {
+		if (await this.hasShareLinks()) return true;
+		const plan = await this.session.planRemoteSend({ token, remote });
+		return plan.shareLinks;
+	}
+
+	/**
 	 * How far one Project's own work has got towards the Remote (ADR-0045).
 	 *
 	 * ⚠ **Local records only, and no request.** The Baseline and the change index answer the outbound
@@ -2818,9 +2860,16 @@ export class WorkspaceStorage {
 					`it was.`
 			);
 		}
-		if (await this.hasShareLinks()) await this.#writePublishedSite();
+		const withdrawing = await this.withdrawingShareLinks();
+		if (!withdrawing && (await this.rebuildsPublishedSite(token, remote))) {
+			await this.#writePublishedSite();
+		}
 		try {
 			await this.session.sendToRemote({ token, remote });
+			// The request is the *asking*, and this send is the carrying out. Cleared only here, so a
+			// send that threw leaves the withdrawal outstanding for the next one rather than turning it
+			// into a site this machine would rebuild.
+			if (withdrawing) await this.session.synchronization?.clearWithdrawal();
 		} finally {
 			// Re-read rather than assumed, for `getFromRemote`'s reason: a refused `writeBaseline`
 			// discards the previous record, so the honest answer afterwards is the `null` this finds.
@@ -2853,6 +2902,9 @@ export class WorkspaceStorage {
 	 */
 	async enableShareLinks(): Promise<RemotePagesOutcome> {
 		const { remote, token } = this.#shareLinksRequest('turn Share Links on for');
+		// An author who withdrew and asked again before the Sync that would have carried it out: the
+		// request is answered by this press rather than left standing to remove the site being asked for.
+		await this.session.synchronization?.clearWithdrawal();
 		await this.#writePublishedSite();
 		return enableRemotePages({ token, remote });
 	}
@@ -2878,6 +2930,12 @@ export class WorkspaceStorage {
 	 */
 	async withdrawShareLinks(): Promise<RemotePagesWithdrawal> {
 		const { remote, token } = this.#shareLinksRequest('withdraw Share Links from');
+		// ⚠ **Recorded before the files go, and it is what makes their absence mean removal.** The
+		// Remote's copy is what the next Sync acts on, and a Remote holding a viewer set this Workspace
+		// does not is also what a Workspace just got from a shared repository looks like. Without the
+		// request the next Sync cannot tell the two apart — and rebuilding is the safe reading of the
+		// pair, so an unrecorded withdrawal would quietly put the site back.
+		await this.session.synchronization?.requestWithdrawal(remote);
 		await this.session.withdrawShareLinks();
 		return disableRemotePages({ token, remote });
 	}

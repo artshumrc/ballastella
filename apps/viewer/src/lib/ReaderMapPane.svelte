@@ -210,7 +210,7 @@
 		 * Whether the Base Map's own source is drawing, and that it is not when it is not.
 		 *
 		 * ─────────────────────────────────────────────────────────────────────────────────────
-		 * A ON_REMOTE SITE HAS NO CONSOLE ANYONE IS WATCHING
+		 * A PUBLISHED SITE HAS NO CONSOLE ANYONE IS WATCHING
 		 *
 		 * The editor's `BaseMapPane` reports the same status, for the same incident:
 		 * `demo-bucket.protomaps.com` began refusing the archive every entry in this deployment's catalog

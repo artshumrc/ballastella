@@ -346,8 +346,8 @@
 	function describeSiteRecordFailure(cause: unknown): string {
 		if (cause instanceof PathNotFoundError) {
 			return (
-				'This site has no list of Projects yet. The viewer’s own files are here, but nothing has ' +
-				'the list itself has not arrived — Sync from Ballastella to add it.'
+				'This site has no list of Projects yet. The viewer’s own files are here, but the list ' +
+				'itself has not arrived — Sync from Ballastella to add it.'
 			);
 		}
 		if (cause instanceof SiteFileUnreachableError) return cause.message;

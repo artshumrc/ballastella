@@ -538,6 +538,7 @@ export {
 	baselineKey,
 	discardSynchronizationMetadata,
 	remoteRelationshipKey,
+	withdrawalKey,
 	type MetadataStorage,
 	type RemoteRelationship,
 	type SynchronizationBaseline
@@ -602,7 +603,6 @@ export {
 // What a Sync found, grouped into the Projects and Map Images the modal names rather than the paths
 // behind them (ADR-0044).
 export {
-	EMPTY_SYNC_COLUMN,
 	describeChanges,
 	describeSyncPlan,
 	type Change,

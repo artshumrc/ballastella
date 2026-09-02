@@ -27,6 +27,7 @@ export function emptyForecast(over: Partial<RemoteSendPlan> = {}): RemoteSendPla
 		outgoing: [],
 		conflicts: [],
 		unchanged: true,
+		shareLinks: false,
 		source: new Map(),
 		removed: [],
 		overwrites: [],

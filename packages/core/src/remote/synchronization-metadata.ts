@@ -116,11 +116,13 @@ export class SynchronizationMetadata {
 	readonly #storage: MetadataStorage;
 	readonly #remoteKey: string;
 	readonly #baselineKey: string;
+	readonly #withdrawalKey: string;
 
 	constructor(storage: MetadataStorage, workspaceKey: string) {
 		this.#storage = storage;
 		this.#remoteKey = remoteRelationshipKey(workspaceKey);
 		this.#baselineKey = baselineKey(workspaceKey);
+		this.#withdrawalKey = withdrawalKey(workspaceKey);
 	}
 
 	/** The Remote this Workspace is bound to, or `null` for bound to nothing. Never throws. */
@@ -205,6 +207,52 @@ export class SynchronizationMetadata {
 		await this.#delete(this.#baselineKey);
 	}
 
+	/**
+	 * Whether the author has asked for `remote`'s Published Site to come down (ADR-0045).
+	 *
+	 * ⚠ **A request the next Sync carries out, and never a claim about which files exist.** Share
+	 * Links stay observed from the bytes; what is recorded here is the one thing the bytes cannot
+	 * say. A Remote carrying a viewer set the Workspace does not is two different situations — an
+	 * author who withdrew, and an author who has just got the Workspace from a Remote that has a site
+	 * — and a send that could not tell them apart deleted the site in both.
+	 *
+	 * ⚠ **Per installation, as the Baseline is.** It records what *this machine* was asked to do. What
+	 * is genuinely shared between machines is the repository's own Pages setting, which
+	 * `disableRemotePages` turns off at the moment of the asking.
+	 *
+	 * The Remote is an argument for {@link readBaseline}'s reason: a request recorded about another
+	 * repository is a request about somewhere else, and acting on it here would take down a site
+	 * nobody asked about.
+	 */
+	async readWithdrawal(remote: RemoteRelationship): Promise<boolean> {
+		const stored = await this.#read(this.#withdrawalKey);
+		const identity = stored === null ? null : decodeIdentity(stored);
+		return identity !== null && isSameRemote(identity, remote);
+	}
+
+	/**
+	 * Record that `remote`'s site is to be taken out of the tree by the next Sync.
+	 *
+	 * @returns whether it was kept. `false` is a store that refused, and the caller's answer to it is
+	 *   that the site files are out of the Workspace but the Remote's copy will be rebuilt rather than
+	 *   removed — which is a sentence to say, never a silent half-withdrawal.
+	 */
+	async requestWithdrawal(remote: RemoteRelationship): Promise<boolean> {
+		const stored: StoredRelationship = { ...versionStamp(), ...identityOf(remote) };
+		try {
+			await this.#storage.put(this.#withdrawalKey, stored);
+			return true;
+		} catch {
+			await this.clearWithdrawal();
+			return false;
+		}
+	}
+
+	/** Forget the request, which is what the Sync that carried it out does. Idempotent. */
+	async clearWithdrawal(): Promise<void> {
+		await this.#delete(this.#withdrawalKey);
+	}
+
 	async #read(key: string): Promise<unknown> {
 		try {
 			return (await this.#storage.get(key)) ?? null;
@@ -233,6 +281,10 @@ export const remoteRelationshipKey = (workspaceKey: string): string =>
 export const baselineKey = (workspaceKey: string): string =>
 	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/baseline`;
 
+/** The key one Workspace's pending Share Links withdrawal is filed under. */
+export const withdrawalKey = (workspaceKey: string): string =>
+	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/withdrawal`;
+
 /**
  * Throw away the synchronization metadata of a Workspace that is being deleted.
  *
@@ -248,6 +300,7 @@ export async function discardSynchronizationMetadata(
 	const metadata = new SynchronizationMetadata(storage, workspaceKey);
 	await metadata.clearRemote();
 	await metadata.clearBaseline();
+	await metadata.clearWithdrawal();
 }
 
 /**

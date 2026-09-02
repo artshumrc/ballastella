@@ -208,16 +208,6 @@ export async function openRepositorySettings(page: Page): Promise<void> {
 	await expect(page.getByTestId('workspace-remote')).toBeVisible();
 }
 
-/**
- * Reach the Workspace's repository settings the way the Sync modal offers them: **Repository
- * settings…**, which is the handoff from the transfer to everything that is not one.
- */
-export async function openRepositorySettingsFromSync(page: Page): Promise<void> {
-	await openSyncModal(page);
-	await page.getByTestId('sync-repository-settings').click();
-	await expect(page.getByTestId('workspace-remote')).toBeVisible();
-}
-
 /** Do something in the Workspace's repository settings, and close the dialog again. */
 export async function inRepositorySettings(
 	page: Page,
@@ -289,19 +279,6 @@ export async function expectRemoteNamed(page: Page, remote: string): Promise<voi
 	await expect(doorButton(page)).toHaveText('Sync');
 	await inRepositorySettings(page, async () => {
 		await expect(page.getByTestId('workspace-remote-repository')).toContainText(remote);
-	});
-}
-
-/**
- * What the Workspace's own row says about the Synchronization Baseline (ADR-0044).
- *
- * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
- * stating, and saying nothing when the two sides' history is known is what keeps the sentence
- * meaningful when it appears.
- */
-export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
-	await inRepositorySettings(page, async () => {
-		await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
 	});
 }
 
