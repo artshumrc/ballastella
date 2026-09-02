@@ -1,6 +1,6 @@
 # Import copies a Project into the current Workspace
 
-> **Amends [ADR-0008](./0008-projects-live-in-a-workspace.md), [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md), [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md), and [ADR-0032](./0032-publish-means-the-remote.md).**
+> **Amends [ADR-0008](./0008-projects-live-in-a-workspace.md), [ADR-0023](./0023-map-images-and-alignments-live-in-the-workspace.md), and [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md).**
 
 A Project from outside the current Workspace may be **imported** as detached work the user owns. Import accepts a Project Bundle, a Project from a Published Site, or the current state of a Project in a Review Workspace; unlike Review, it adds the Project to the current ordinary Workspace. A Review mark records the stable identity and backing of the ordinary Workspace review began from. Import from Review returns there and discards the Review Workspace only after the copy succeeds; if that destination is gone or cannot be reopened, Import refuses and preserves the review.
 

@@ -8,7 +8,7 @@ Alignment a "georeference" or a Control Point a "GCP" will be asked to change.
 Then read the [ADRs](docs/adr). They explain _why_ rather than _what_, and they are the
 standing record of every decision that would otherwise be surprising — read them on demand
 when a module's comments cite one, and read the whole of `docs/adr` before changing anything
-about storage, publishing, or the alignment model.
+about storage, syncing, or the alignment model.
 
 ## ⚠️ Do not copy code from the Allmaps applications
 
@@ -89,14 +89,14 @@ a borrowed host is named, clear once it is repointed — and prints which of the
 `pnpm check:deployment` itself before a production deployment.
 
 Three checks read **built output** rather than source, so they live in `.github/workflows/` instead
-of in `pnpm lint`, which does not build: the ADR-0006 scan for absolute asset paths,
+of in `pnpm lint`, which does not build: the ADR-0045 scan for absolute asset paths,
 `scripts/check-nojekyll.mjs`, and `scripts/check-deploy-artifact.mjs`. Run them by hand after a
-build if you have touched either app's `static/`, its adapter, the publish file set, or the routes.
+build if you have touched either app's `static/`, its adapter, the viewer file set, or the routes.
 
 ## Deploying
 
 `.github/workflows/pages.yml` builds the editor and deploys it to GitHub Pages on every push to
-`main`. What a forker has to do, what a *user* has to do to publish their own Workspace, and the
+`main`. What a forker has to do, what a *user* has to do to sync and share their own Workspace, and the
 outstanding Base Map decision are all in [`docs/hosting.md`](docs/hosting.md).
 
 **There are two editor builds, and the difference is one directory each.** `pnpm build` is what you
@@ -139,8 +139,8 @@ component needs from an app arrives as a prop.
 
 **No asset may be referenced by an absolute path.** `paths.relative: true` is set in both
 apps' `svelte.config.js` and is mandatory
-([ADR-0006](docs/adr/0006-the-project-directory-is-the-published-site.md)): the publish
-target — a domain root or a project subdirectory — is unknown at build time. CI greps the
+([ADR-0045](docs/adr/0045-a-repository-holds-the-work-and-a-site-is-asked-for.md)): where a site
+answers — a domain root or a repository subdirectory — is unknown at build time. CI greps the
 built output, because the config is not what ships.
 
 **No test may depend on the network.** A decision by the repository owner, enforced at both
