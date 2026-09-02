@@ -63,6 +63,7 @@
 		updateAlignment,
 		type DrawnLayer,
 		type DrawnOutcome,
+		type FrameInvalidator,
 		type ReadCachedTile,
 		type ScreenBox,
 		type StackRender,
@@ -102,7 +103,9 @@
 		onwarped,
 		onstack,
 		onbasemapstatus,
-		onsnapshotready,
+		snapshotGeneration = 0,
+		oninvalidateframe,
+		onframesettled,
 		overlayDocked = false,
 		selectedAnnotationId = null,
 		annotationDragPreview = null,
@@ -295,12 +298,28 @@
 		selectedAnnotationId?: string | null;
 		annotationDragPreview?: AnnotationDragPreview | null;
 		/**
-		 * Whether the frame on screen is complete enough to be captured — see {@link captureSnapshot}.
+		 * Which frame the page is currently asking about — `SnapshotReadiness.generation`.
 		 *
-		 * A callback rather than a bound value because the answer arrives from two asynchronous
-		 * sources at once, and the page's only use for it is to enable a control.
+		 * **The page mints it and this pane carries it back**, rather than each keeping a counter of
+		 * its own: two counters is two things that can disagree, and the whole use of the number is
+		 * that a late answer can be recognised as belonging to a picture no longer on screen.
 		 */
-		onsnapshotready?: (ready: boolean) => void;
+		snapshotGeneration?: number;
+		/**
+		 * Something happened here that can change the pixels — see `FRAME_INVALIDATORS`.
+		 *
+		 * Reported rather than decided: the pane knows *what* moved, and the readiness machine in
+		 * `core` knows what that means. Every source is wired below; one missing is a Map Snapshot of
+		 * the view before this one.
+		 */
+		oninvalidateframe?: (by: FrameInvalidator) => void;
+		/**
+		 * {@link snapshotGeneration}'s frame has drawn everything it asked for.
+		 *
+		 * Carries the generation it was waiting on, because the wait is asynchronous and the answer
+		 * routinely arrives after the frame it describes has gone.
+		 */
+		onframesettled?: (generation: number) => void;
 		/**
 		 * Page-owned controls placed beside the place search over the map.
 		 *
@@ -444,9 +463,16 @@
 		// check for, and the work behind it is idempotent.
 		const cameraMoved = (): void => {
 			for (const watcher of cameraWatchers) watcher();
+			// Every frame of a gesture, not only its end. The whole point of the invalidation is that
+			// there is no moment during a pan at which the previous frame is still the one on screen,
+			// and `moveend` would leave exactly that window open.
+			oninvalidateframe?.('camera');
 		};
 		created.on('move', cameraMoved);
 		created.on('zoom', cameraMoved);
+		// The drawing buffer's own dimensions change with the container, so the frame that was
+		// complete is not even the same size as the one being drawn.
+		created.on('resize', () => oninvalidateframe?.('resize'));
 
 		// ──────────────────────────────────────────────────────────────────────────────────────
 		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
@@ -565,6 +591,9 @@
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;
+		// The theme, the tile choice, the three appearance switches and the border choice all arrive
+		// here, and every one of them repaints the map from the ground up.
+		oninvalidateframe?.('base-map');
 		// One call, driven by one signal: the flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
@@ -1090,6 +1119,10 @@
 		const current = map;
 		const readTiles = fetchTile;
 		const stackLayers = untrack(() => layers);
+		// Whatever moved the structure key — a Layer shown, hidden, reordered, or its Alignment
+		// edited — the stack is about to be torn down and built again, and nothing of the frame it
+		// was drawing survives that.
+		oninvalidateframe?.('layer-stack');
 		if (!current || !readTiles || stackLayers.length === 0) {
 			onstack?.({});
 			return;
@@ -1155,6 +1188,9 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		// A title recoloured, a vertex moved, a drag preview appearing or going: none of it rebuilds
+		// the stack, and all of it changes the picture.
+		oninvalidateframe?.('annotations');
 		paintAnnotations(built, annotationDragPreview);
 	});
 
@@ -1181,6 +1217,9 @@
 
 	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
 	$effect(() => {
+		// A selected Annotation is drawn more strongly, and a Map Snapshot is taken without that
+		// emphasis — so a change of selection is a change of the frame a capture would have to make.
+		oninvalidateframe?.('selection');
 		stack?.setSelectedAnnotation(selectedAnnotationId ?? null);
 	});
 
@@ -1188,20 +1227,29 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		oninvalidateframe?.('layer-opacity');
 		for (const stacked of layers) {
 			if (isDrawnMap(stacked)) built.setOpacity(stacked.layer.id, stacked.layer.opacity);
 		}
 	});
 
 	/**
-	 * Resolve once MapLibre has nothing left to draw.
+	 * Resolve once MapLibre has nothing left to draw **and the camera has stopped**.
 	 *
 	 * `loaded()` first, because `idle` is an event and an event that has already fired is one a late
 	 * listener never hears — which for a map that settled before anybody asked is every time.
+	 *
+	 * ⚠ **`loaded()` is true in the middle of a flight**, and that is why the three camera questions
+	 * are asked beside it. It answers "is anything still being fetched or restyled", not "has the map
+	 * stopped": between the frames of an animated pan nothing is outstanding, so the short circuit
+	 * resolved once per frame and the Map Snapshot control flickered its way across the animation —
+	 * offering, sixty times a second, to capture a view the scholar was still moving away from.
+	 * Measured against `panBy`, which eases: twenty-odd ready/preparing pairs in one gesture. The
+	 * `idle` path never had the problem, because MapLibre withholds that event while the camera moves.
 	 */
 	const whenMapIdle = (target: MapLibreMap): Promise<void> =>
 		new Promise((resolve) => {
-			if (target.loaded()) {
+			if (target.loaded() && !target.isMoving() && !target.isZooming() && !target.isRotating()) {
 				resolve();
 				return;
 			}
@@ -1209,30 +1257,33 @@
 		});
 
 	/**
-	 * Tell the page when the frame on screen is complete, so it can offer a Map Snapshot of it.
+	 * Tell the page when the frame it is asking about has finished drawing.
 	 *
 	 * **Both halves, because neither is the whole answer.** MapLibre's own idleness covers the Base
 	 * Map and the Annotation layers; a warped Map Image is drawn by a custom layer with a tile cache
 	 * of its own, so the stack is asked as well (`whenTilesSettled`). The second idle is what puts
 	 * those tiles on screen: they arrive after the map has already fallen quiet once.
 	 *
-	 * Not ready again the moment anything about the stack or the map changes — that is what the
-	 * teardown says — and the effect then works its way back to ready for the replacement frame.
+	 * **Keyed on the generation**, so an invalidation the page has recorded starts the wait again from
+	 * the top. The answer carries the generation it was waiting on and the reducer discards it if the
+	 * frame has moved on since; `live` is the same guard one step earlier, so an abandoned wait does
+	 * not even reach the page. Neither alone is enough — this effect re-runs for a new `map` or a
+	 * rebuilt `stack` as well, and those arrive with a generation of their own.
 	 */
 	$effect(() => {
 		const current = map;
 		const built = stack;
+		const generation = snapshotGeneration;
 		if (!current) return;
 		let live = true;
 		void (async () => {
 			await whenMapIdle(current);
 			await built?.whenTilesSettled();
 			await whenMapIdle(current);
-			if (live) onsnapshotready?.(true);
+			if (live) onframesettled?.(generation);
 		})();
 		return () => {
 			live = false;
-			onsnapshotready?.(false);
 		};
 	});
 
