@@ -63,15 +63,19 @@ export abstract class TempFileWriteStore implements ProjectStore {
 		return this.byteLength(assertStorePath(path));
 	}
 
+	async modifiedAt(path: string): Promise<number | null> {
+		return this.modifiedAtOf(assertStorePath(path));
+	}
+
 	/**
 	 * Delete every abandoned temporary file under `prefix`.
 	 *
 	 * **Unconditional, so it must not be called while anything is writing.** There is no age check and
 	 * there is nowhere to get one: `ProjectStore` reports a byte length and nothing else, deliberately
 	 * (ADR-0001), so telling a dead tab's litter from a temporary file created a millisecond ago by
-	 * `write` would mean putting a modification time into the interface and into every adapter. Until
-	 * something needs that for its own sake, the cheaper guarantee is the caller's — sweep where nothing
-	 * else is writing.
+	 * `write` cannot be done from the store's own contract: {@link ProjectStore.modifiedAt} answers
+	 * `null` for a backing that keeps no such metadata, and a sweep may not turn on a distinction some
+	 * backings cannot make. The cheaper guarantee is the caller's — sweep where nothing else is writing.
 	 *
 	 * Which is the whole of the precondition, and it has been broken once: `workspaceSize` called this
 	 * before totalling, so a user clicking "Make an offline copy" swept the entire Workspace, and a sweep
@@ -107,6 +111,17 @@ export abstract class TempFileWriteStore implements ProjectStore {
 
 	/** Byte length from metadata. Rejects with {@link PathNotFoundError} when absent. */
 	protected abstract byteLength(path: StorePath): Promise<number>;
+
+	/**
+	 * When `path` was last written, from metadata, or `null` where the backing does not say.
+	 *
+	 * `null` by default so a backing that has no such metadata needs no code at all, and so that a
+	 * caller has one absent case to word rather than two.
+	 */
+	protected async modifiedAtOf(path: StorePath): Promise<number | null> {
+		void path;
+		return null;
+	}
 }
 
 /** `a/project.json` → `a/.project.json.<uuid>.ballastella-tmp`, alongside its destination. */

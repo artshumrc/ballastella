@@ -154,6 +154,12 @@ export class DirectoryHandleStore extends TempFileWriteStore {
 		return (await file.getFile()).size;
 	}
 
+	protected async modifiedAtOf(path: StorePath): Promise<number | null> {
+		const file = await this.#file(path);
+		if (!file) throw new PathNotFoundError(path);
+		return (await file.getFile()).lastModified;
+	}
+
 	async #file(path: StorePath): Promise<FileSystemFileHandle | undefined> {
 		const segments = pathSegments(path);
 		const name = segments.pop() as string;

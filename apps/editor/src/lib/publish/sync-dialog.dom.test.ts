@@ -327,6 +327,25 @@ describe('the sync modal for somebody who cannot write', () => {
 	});
 });
 
+/** A Workspace and its Remote that have both moved the same Map Image's Alignment. */
+const contestedAlignment = (): FakeSyncStorage => {
+	const storage = new FakeSyncStorage();
+	storage.session.forecast = emptyForecast({
+		unchanged: false,
+		conflicts: [
+			{
+				path: 'alignments/map-1.json',
+				comparison: 'conflict',
+				baseline: 'a'.repeat(40),
+				local: 'b'.repeat(40),
+				remote: 'c'.repeat(40)
+			}
+		],
+		overwrites: []
+	});
+	return storage;
+};
+
 describe('the sync modal’s Conflicts', () => {
 	const contested = (): FakeSyncStorage => {
 		const storage = new FakeSyncStorage();
@@ -347,7 +366,6 @@ describe('the sync modal’s Conflicts', () => {
 		return storage;
 	};
 
-	// ⚠ **Detected and reported, never resolved** — resolving one into a copy is the next Ticket's.
 	test('names what is contested, and by the Project rather than the path', async () => {
 		await open(contested());
 
@@ -355,13 +373,67 @@ describe('the sync modal’s Conflicts', () => {
 		expect(text('sync-conflicts')).not.toContain('amsterdam-1625/annotations/notes.json');
 	});
 
-	test('stops both directions until the author overwrites the repository', async () => {
+	// ⚠ **It says what getting will make, and that nothing is merged** (ADR-0046). A notice that only
+	// reported the collision would leave the scholar looking for the choice they have to make, and the
+	// choice they used to be given was *Overwrite the repository* — the one destructive control there
+	// is, reached by an obstruction they could not otherwise clear.
+	test('says GitHub’s version arrives beside the author’s, named and unmerged', async () => {
 		await open(contested());
 
-		expect(shown('sync-send').getAttribute('aria-disabled')).toBe('true');
-		expect(shown('sync-both').getAttribute('aria-disabled')).toBe('true');
-		// The way on is on the same screen.
-		expect(shown('sync-arm-overwrite')).toBeTruthy();
+		expect(text('sync-conflicts')).toContain('(from GitHub)');
+		expect(text('sync-conflicts')).toContain('Nothing is combined');
+	});
+
+	test('stops neither direction', async () => {
+		await open(contested());
+
+		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
+		expect(shown('sync-send').getAttribute('aria-disabled')).toBe('false');
+		expect(shown('sync-both').getAttribute('aria-disabled')).toBe('false');
+	});
+});
+
+// ⚠ **The one question in the product**, and the only Conflict without a copy: there is exactly one
+// Alignment per Map Image (ADR-0023), so a second file would be referenced by nothing and drawn
+// nowhere (ADR-0046).
+describe('the sync modal’s Alignment question', () => {
+	const twoAlignments = (): FakeSyncStorage => {
+		const storage = contestedAlignment();
+		storage.session.alignmentQuestions = [
+			{
+				imageId: 'map-1',
+				path: 'alignments/map-1.json',
+				mine: { controlPoints: 3, at: new Date('2026-08-30T09:00:00Z') },
+				theirs: { controlPoints: 12, at: new Date('2026-09-01T17:30:00Z') }
+			}
+		];
+		return storage;
+	};
+
+	test('shows each side’s control point count and date', async () => {
+		await open(twoAlignments());
+
+		const question = text('sync-alignment-question');
+		expect(question).toContain('3 control points');
+		expect(question).toContain('12 control points');
+		expect(question).toContain(new Date('2026-08-30T09:00:00Z').getFullYear().toString());
+		expect(question).toContain('Keep mine');
+		expect(question).toContain('Take the one from GitHub');
+	});
+
+	test('carries the answer to the get, and getting is offered unanswered', async () => {
+		const storage = twoAlignments();
+		await open(storage);
+
+		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
+		const chooseTheirs = shown('sync-alignment-question').querySelectorAll('input')[1];
+		chooseTheirs?.click();
+		press('sync-get');
+		await settle();
+
+		expect([...(storage.getChoices[0] ?? new Map())]).toEqual([
+			['alignments/map-1.json', 'take-theirs']
+		]);
 	});
 });
 

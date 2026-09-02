@@ -31,7 +31,6 @@ export function emptyForecast(over: Partial<RemotePublishPlan> = {}): RemotePubl
 		removed: [],
 		overwrites: [],
 		overwriteSource: new Map(),
-		conflict: null,
 		uploads: 0,
 		uploadBytes: 0,
 		workspace: { files: 0, bytes: 0 },

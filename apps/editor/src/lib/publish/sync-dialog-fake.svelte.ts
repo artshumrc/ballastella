@@ -22,7 +22,9 @@ import type {
 	RemoteRights,
 	RemoteSharing,
 	SynchronizationBaseline,
-	WorkspaceUpdate
+	WorkspaceUpdate,
+	AlignmentChoice,
+	AlignmentQuestion
 } from '@ballastella/core';
 
 import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -41,6 +43,12 @@ export class FakeSession {
 	published = 0;
 	sendAnswer: Error | null = null;
 	synchronization = { readBaseline: async () => null };
+	/** The Alignment questions the plan raises, which a spec sets to exercise the one question. */
+	alignmentQuestions: readonly AlignmentQuestion[] = [];
+
+	async readAlignmentQuestions(): Promise<readonly AlignmentQuestion[]> {
+		return this.alignmentQuestions;
+	}
 
 	async readPublishedSite(): Promise<PublishedSite | null> {
 		return this.siteRecord;
@@ -99,6 +107,8 @@ export class FakeSyncStorage {
 
 	/** Every mode a press asked for, in order. */
 	readonly gets: number[] = [];
+	/** What each get was told about the contested Alignments, so the answer can be asserted. */
+	readonly getChoices: (ReadonlyMap<string, AlignmentChoice> | undefined)[] = [];
 	checks = 0;
 	signOuts = 0;
 
@@ -118,8 +128,11 @@ export class FakeSyncStorage {
 		this.checks += 1;
 	}
 
-	async getFromRemote(): Promise<WorkspaceUpdate> {
+	async getFromRemote(
+		options: { alignmentChoices?: ReadonlyMap<string, AlignmentChoice> } = {}
+	): Promise<WorkspaceUpdate> {
 		this.gets.push(this.gets.length);
+		this.getChoices.push(options.alignmentChoices);
 		if (this.getAnswer instanceof Error) throw this.getAnswer;
 		return this.getAnswer;
 	}

@@ -18,6 +18,7 @@ import {
 	type SynchronizationBaseline
 } from './synchronization-metadata.js';
 import { publishWorkspaceToRemote } from './synchronization-publish.js';
+import { updateFromGitHub } from './update-from-github.js';
 
 // This module's own assertions and nothing the transport's tests already cover. The transport — the
 // resulting tree, the exact mirror, truncation, budgets, the branch move — is
@@ -168,7 +169,7 @@ describe('an ordinary Publish', () => {
 		);
 		const second = await publish(kit);
 
-		expect(second.plan.conflict).toBeNull();
+		expect(second.plan.conflicts).toEqual([]);
 		const baseline = await believed(kit);
 		expect(baseline?.files.get('amsterdam-1625/annotations/notes.json')).toBe(
 			await gitBlobSha(encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}'))
@@ -237,7 +238,7 @@ describe('a send the Remote has moved under', () => {
 
 		const published = await publish(kit);
 
-		expect(published.plan.conflict).toBeNull();
+		expect(published.plan.conflicts).toEqual([]);
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/l2.geojson') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[]}'
 		);
@@ -259,12 +260,12 @@ describe('a send the Remote has moved under', () => {
 		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
 	});
 
-	// Ballastella will not choose between two versions of an Annotation, so the row with no safe
-	// answer in either direction must not send the author round a loop to a get that refuses it for
-	// the same reason.
-	it('refuses a Conflict without offering a get that would refuse it too', async () => {
+	// ⚠ **A contested path stops nothing and is never chosen between** (ADR-0046). A send leaves the
+	// Remote's version exactly where it is and moves everything else; the get is what makes the second
+	// copy the scholar compares against.
+	it('leaves a Conflict alone on both sides and sends everything else', async () => {
 		const kit = await workspace();
-		const ours = await publish(kit);
+		await publish(kit);
 		await somebodyElsePublishes(kit, {
 			'amsterdam-1625/annotations/notes.json':
 				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
@@ -273,24 +274,75 @@ describe('a send the Remote has moved under', () => {
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}')
 		);
-		const before = snapshot(kit);
+		await kit.store.write('amsterdam-1625/annotations/canals.json', encode('{"canals":true}'));
 
-		const refusal = await publish(kit).catch((cause: unknown) => cause);
+		const published = await publish(kit);
 
-		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
-		const message = refusal instanceof Error ? refusal.message : '';
-		expect(message).toContain('changed both here and on ada/atlas');
-		expect(message).toContain('will refuse this for the same reason');
-		expect(message).toContain('overwrite the repository');
-		expect(snapshot(kit)).toEqual(before);
+		expect(published.plan.conflicts.map((row) => row.path)).toEqual([
+			'amsterdam-1625/annotations/notes.json'
+		]);
 		// Their bytes, still theirs.
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		);
-		// The Baseline is still the one *our* last publish left, at our commit rather than at the one
-		// the tree listing just saw: a refusal that advanced it would make the next send delete the
-		// file it has this moment declined to overwrite.
-		expect((await believed(kit))?.commit).toBe(ours.commit);
+		// And the uncontested file went, which is the whole of "one contested annotation does not
+		// block four gigabytes".
+		expect(decode(kit.github.files().get('amsterdam-1625/annotations/canals.json') ?? EMPTY)).toBe(
+			'{"canals":true}'
+		);
+		// ⚠ **And the Baseline does not claim the contested path.** Recorded as shared, the next send
+		// would be entitled to delete the version it has this moment declined to overwrite.
+		expect((await believed(kit))?.files.has('amsterdam-1625/annotations/notes.json')).toBe(false);
+	});
+});
+
+// ⚠ **A Conflict Copy exists on both sides, and this is what makes that true** (ADR-0046). It is
+// made in the Workspace by the get and carried by the *same* Sync's outbound half, so the machine
+// that wrote the other version meets the pair on its next get. A copy that lived on one machine would
+// leave the two scholars looking at different libraries.
+describe('a Sync that made Conflict Copies', () => {
+	/** The Annotation of a real Layer, so the Conflict has the Layer rule to resolve it by. */
+	const LAYER = 'amsterdam-1625/annotations/l1.geojson';
+
+	it('sends the copy in the same Sync, so the Remote tree carries it afterwards', async () => {
+		const kit = await workspace({
+			...WORKSPACE_FILES,
+			'amsterdam-1625/project.json': JSON.stringify({
+				formatVersion: 1,
+				name: 'Amsterdam',
+				layers: [
+					{ kind: 'annotation', id: 'l1', name: 'Notes', geojsonRef: 'annotations/l1.geojson' }
+				]
+			}),
+			[LAYER]: '{"type":"FeatureCollection","features":[]}'
+		});
+		await publish(kit);
+		await somebodyElsePublishes(kit, {
+			[LAYER]: '{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
+		});
+		await kit.store.write(LAYER, encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}'));
+
+		const got = await updateFromGitHub(kit.store, {
+			remote: REMOTE,
+			baseline: await kit.metadata.readBaseline(REMOTE),
+			fetch: kit.github.fetch,
+			mintLayerId: () => 'copy-1'
+		});
+		await kit.metadata.writeBaseline({
+			remote: REMOTE,
+			commit: got.commit,
+			files: got.baseline
+		});
+		await publish(kit);
+
+		expect(got.copies.map((copy) => copy.name)).toEqual(['Notes (from GitHub)']);
+		// Both versions, on the Remote, at two paths — and neither of them merged.
+		expect(decode(kit.github.files().get(LAYER) ?? EMPTY)).toBe(
+			'{"type":"FeatureCollection","features":[{"id":"mine"}]}'
+		);
+		expect(
+			decode(kit.github.files().get('amsterdam-1625/annotations/copy-1.geojson') ?? EMPTY)
+		).toBe('{"type":"FeatureCollection","features":[{"id":"theirs"}]}');
 	});
 });
 
@@ -305,7 +357,7 @@ describe('a Publish with no Baseline', () => {
 
 		const published = await publish(kit);
 
-		expect(published.plan.conflict).toBeNull();
+		expect(published.plan.conflicts).toEqual([]);
 		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
 		expect([...kit.github.files().keys()]).toContain('amsterdam-1625/project.json');
 		// The Baseline covers what this send wrote and not the Project it left alone.
@@ -319,7 +371,7 @@ describe('a Publish with no Baseline', () => {
 
 		const published = await publish(kit);
 
-		expect(published.plan.conflict).toBeNull();
+		expect(published.plan.conflicts).toEqual([]);
 		expect([...((await believed(kit))?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 	});
 
@@ -333,7 +385,7 @@ describe('a Publish with no Baseline', () => {
 
 		const published = await publish(kit);
 
-		expect(published.plan.conflict).toBeNull();
+		expect(published.plan.conflicts).toEqual([]);
 		expect((await believed(kit))?.commit).toBe(published.commit);
 	});
 });

@@ -96,6 +96,11 @@ export type FakeGitHubOptions = {
 	 * in that state, so a spec can start from nothing and watch a grant arrive.
 	 */
 	readonly grants?: FakeGrants;
+	/**
+	 * The clock every commit is dated by. Injected so a spec asserting on a date is not asserting on
+	 * the moment it happened to run.
+	 */
+	readonly now?: () => Date;
 };
 
 /** One repository in an installation, as {@link FakeGrants} takes it. */
@@ -357,6 +362,15 @@ type StoredCommit = {
 	readonly message: string;
 	readonly tree: string;
 	readonly parents: readonly string[];
+	/**
+	 * When the commit was made, ISO 8601 — the one fact about a Remote file's age GitHub will tell
+	 * anybody, and what the Alignment question shows for GitHub's side (ADR-0046).
+	 *
+	 * ⚠ **Outside {@link serialiseCommit}, so it is not part of the identity.** Two commits made in
+	 * the same test with the same tree, message and parents are one commit to git and must stay one
+	 * here; stamping the clock into the hash would make every fixture's SHAs depend on the clock.
+	 */
+	readonly date: string;
 };
 
 const encoder = new TextEncoder();
@@ -375,7 +389,7 @@ const serialiseTree = (tree: StoredTree): string =>
 		.map(([path, entry]) => `${entry.mode} ${path}\0${entry.sha}`)
 		.join('\n');
 
-const serialiseCommit = (commit: StoredCommit): string =>
+const serialiseCommit = (commit: Omit<StoredCommit, 'date'>): string =>
 	`tree ${commit.tree}\n${commit.parents.map((parent) => `parent ${parent}\n`).join('')}\n${commit.message}`;
 
 const byPath = (left: { path: string }, right: { path: string }): number =>
@@ -426,6 +440,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 	const blobs = new Map<string, Uint8Array<ArrayBuffer>>();
 	const trees = new Map<string, StoredTree>();
+	const now = options.now ?? ((): Date => new Date());
 	const commits = new Map<string, StoredCommit>();
 	const refs = new Map<string, string>();
 
@@ -501,9 +516,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		return sha;
 	};
 
-	const storeCommit = async (commit: StoredCommit): Promise<string> => {
+	const storeCommit = async (commit: Omit<StoredCommit, 'date'>): Promise<string> => {
 		const sha = await objectId(serialiseCommit(commit));
-		commits.set(sha, commit);
+		commits.set(sha, { ...commit, date: now().toISOString() });
 		return sha;
 	};
 
@@ -907,6 +922,21 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				sha: await objectId(serialiseTree(tree)),
 				tree: cut === null ? entries : entries.slice(0, cut),
 				truncated: cut !== null
+			});
+		}
+
+		if (rest[1] === 'commits' && rest.length === 3 && method === 'GET') {
+			// One commit, for its date: the only thing GitHub will tell anybody about when a Remote file
+			// was last touched, and what the Alignment question shows for GitHub's side (ADR-0046).
+			const commit = commits.get(rest[2] as string);
+			if (commit === undefined) return emptyOrMissing(rest[2] as string);
+			return json({
+				sha: rest[2],
+				message: commit.message,
+				tree: { sha: commit.tree },
+				parents: commit.parents.map((parent) => ({ sha: parent })),
+				author: { date: commit.date },
+				committer: { date: commit.date }
 			});
 		}
 

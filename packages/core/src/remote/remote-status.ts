@@ -16,8 +16,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE WORDS, HERE AND NOWHERE ELSE
 //
-// `SourceStatus` is six stable values and deliberately carries no sentence. {@link
-// REMOTE_STATUS_LABELS} is the projection into the six a user reads, and it lives beside the checker
+// `SourceStatus` is five stable values and deliberately carries no sentence. {@link
+// REMOTE_STATUS_LABELS} is the projection into the five a user reads, and it lives beside the checker
 // rather than in a component so that a second surface cannot spell one of them differently. The
 // meaning is in the text, never in a colour, an icon or a disabled button.
 //
@@ -44,7 +44,7 @@ import type { RemoteRepository } from './publish-to-remote.js';
 import type { InventoryEntry, SourceStatus } from './synchronization-planner.js';
 
 /**
- * The six words a scholar reads, one per {@link SourceStatus}.
+ * The five words a scholar reads, one per {@link SourceStatus}.
  *
  * ⚠ **Every one of them says which direction is outstanding**, because that is the only thing a
  * scholar can act on: something to send, something to get, both, or neither. Git's `ahead` and
@@ -62,11 +62,10 @@ export const REMOTE_STATUS_LABELS: Record<SourceStatus, string> = {
 	'changes-to-send': 'Changes to send',
 	'changes-to-get': 'Changes to get',
 	'changes-both-ways': 'Changes both ways',
-	conflict: 'Conflict',
 	'cannot-tell': 'Cannot tell'
 };
 
-/** What a control says before there has been a determination at all. Never one of the six. */
+/** What a control says before there has been a determination at all. Never one of the five. */
 export const REMOTE_STATUS_UNCHECKED = 'Not checked yet';
 
 // ── One observational listing ─────────────────────────────────────────────────────────────────
@@ -361,7 +360,7 @@ export interface RemoteStatusState {
 	 * check that succeeds, and never by one that does not.
 	 */
 	readonly failure: string;
-	/** Publish-owned drift from the last successful check. Separate from the six source states. */
+	/** Publish-owned drift from the last successful check. Separate from the five source states. */
 	readonly publishedSiteStale: readonly string[];
 }
 

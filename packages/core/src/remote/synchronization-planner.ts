@@ -31,16 +31,19 @@
 //
 // with `B` absent throughout where there is no Baseline at all — see below.
 //
-// The Workspace's status is that table aggregated: no Baseline is Cannot tell, then any conflict
-// wins, then outbound *and* inbound together is Changes both ways, then whichever of the two is
-// present alone, and otherwise In sync. `converged` is In sync on purpose — the two sides agree
-// about the bytes and only the Baseline is behind.
+// The Workspace's status is that table aggregated: no Baseline is Cannot tell, then outbound *and*
+// inbound together is Changes both ways, then whichever of the two is present alone, and otherwise
+// In sync. `converged` is In sync on purpose — the two sides agree about the bytes and only the
+// Baseline is behind. A `conflict` row counts as **both** directions at once, which is what it is:
+// there is something here the Remote has not got and something there this Workspace has not got.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE COMBINATION CAN BE BROKEN WHEN NO SINGLE PATH IS
 //
-// A combination of individually separate changes is reported as a Conflict when it would violate a
-// Workspace invariant. A map Layer added here while its pyramid is deleted there is two
+// A combination of individually separate changes is refused when it would violate a Workspace
+// invariant — as a {@link GraphVerdict} rather than as a status, because "these two changes do not
+// add up" is not a direction and a badge that reported it as one would be wrong about which side has
+// work outstanding. A map Layer added here while its pyramid is deleted there is two
 // perfectly attributable changes at two different paths, and the Workspace they add up to cannot
 // draw. So the plan's chosen bytes are assembled into a prospective path set and the Workspace's own
 // invariants are asked of it, through `gatherProjectClosure` — the same closure check Import uses, so
@@ -100,8 +103,13 @@ export type PathComparison =
  * The Workspace's Remote Status, as a stable value.
  *
  * ⚠ **These are not labels.** `remote-status.ts` owns the words a user reads — "In sync", "Cannot
- * tell" — and projects them from exactly these six. Nothing here should grow a sentence about a
+ * tell" — and projects them from exactly these five. Nothing here should grow a sentence about a
  * status.
+ *
+ * ⚠ **A Conflict is not one of them** (ADR-0046). A path changed on both sides is something a Sync
+ * *resolves*, into a second copy the scholar can look at or — for an Alignment — a question; so it
+ * is outstanding work in both directions, which is `changes-both-ways`, and never a state of its own
+ * that a badge could report as an obstruction.
  *
  * ⚠ **They are the scholar's directions, not Git's graph.** `ahead` and `behind` describe a commit
  * history nobody here is looking at, and *connected* reports that a repository was named rather than
@@ -109,12 +117,7 @@ export type PathComparison =
  * both, or neither.
  */
 export type SourceStatus =
-	| 'in-sync'
-	| 'changes-to-send'
-	| 'changes-to-get'
-	| 'changes-both-ways'
-	| 'conflict'
-	| 'cannot-tell';
+	'in-sync' | 'changes-to-send' | 'changes-to-get' | 'changes-both-ways' | 'cannot-tell';
 
 /** One source path, with the evidence the verdict was reached from. */
 export interface SourcePath {
@@ -210,11 +213,6 @@ export interface PathChoice {
 	readonly effect: 'add' | 'replace' | 'delete' | 'keep';
 }
 
-/** Why a Sync will not go ahead. Each has a remedy the caller words. */
-export type PlanRefusal =
-	/** One path changed differently on both sides, or the combination breaks the Workspace. */
-	'conflict';
-
 /** One side of a Sync: what it writes, what it removes, and what it may then record. */
 export interface SyncDirection {
 	/**
@@ -243,8 +241,8 @@ export interface SyncDirection {
  * What a Sync would settle, in both directions, from one three-way comparison.
  *
  * ⚠ **It never refuses.** A Conflict is *reported* here — {@link conflicts} — and the engine that
- * would move the bytes is what declines to. That is what lets one plan answer for all four modes:
- * `overwrite` acts on a plan a `send` would have refused.
+ * moves the bytes is what resolves it, into a copy or a question (ADR-0046). That is what lets one
+ * plan answer for all four modes.
  */
 export interface WorkspaceSyncPlan {
 	/** What getting would bring in and take away here. */
@@ -274,6 +272,14 @@ export interface WorkspaceSyncPlan {
 	readonly toOverwrite: SyncDirection;
 	/** One path changed on both sides of the Baseline. Detected here, never resolved here. */
 	readonly conflicts: readonly SourcePath[];
+	/**
+	 * The `path → blob SHA` set a get would leave behind, which is what the graph was judged against.
+	 *
+	 * On the plan so that a caller adding files of its own — the Conflict Copies of ADR-0046 — can ask
+	 * {@link validateProspectiveWorkspace} the same question of the result *including* them, rather
+	 * than assembling a second prospective set that could disagree with this one.
+	 */
+	readonly prospective: ReadonlyMap<string, string>;
 	/** Local-only changes a get leaves alone. Still changes to send afterwards. */
 	readonly retained: readonly string[];
 	readonly comparison: WorkspaceComparison;
@@ -391,9 +397,9 @@ const bucket = (comparison: SourceComparison, kind: Exclude<PathComparison, 'can
  * The path set a get would leave behind: the Remote's bytes where they are inbound, the
  * Workspace's everywhere else.
  *
- * A conflicting path takes the local side, which is arbitrary and does not matter: a conflict is
- * refused before any of this is acted on, and the prospective set exists so that the *other* rows
- * can be checked for a combination that breaks the Workspace.
+ * A contested path takes the local side, which is what a get leaves there: the Remote's version of
+ * it arrives as a Conflict Copy at a path of its own (ADR-0046), which the caller making those
+ * copies adds to this set before asking {@link validateProspectiveWorkspace} about the result.
  */
 function prospectiveSource(comparison: SourceComparison): Map<string, string> {
 	const prospective = new Map<string, string>();
@@ -407,9 +413,11 @@ function prospectiveSource(comparison: SourceComparison): Map<string, string> {
 /** The status of the whole Workspace, from the per-path table. */
 function aggregate(comparison: SourceComparison): SourceStatus {
 	if (!comparison.hasBaseline) return 'cannot-tell';
-	if (bucket(comparison, 'conflict').length > 0) return 'conflict';
-	const outbound = bucket(comparison, 'outbound').length > 0;
-	const inbound = bucket(comparison, 'inbound').length > 0;
+	// A contested path is work outstanding in both directions at once, so it counts in both buckets
+	// (ADR-0046). It is not a status of its own: a Sync resolves it rather than stopping at it.
+	const contested = bucket(comparison, 'conflict').length > 0;
+	const outbound = contested || bucket(comparison, 'outbound').length > 0;
+	const inbound = contested || bucket(comparison, 'inbound').length > 0;
 	if (outbound && inbound) return 'changes-both-ways';
 	if (outbound) return 'changes-to-send';
 	if (inbound) return 'changes-to-get';
@@ -420,20 +428,18 @@ function aggregate(comparison: SourceComparison): SourceStatus {
  * Compare a Workspace against its Remote: the Remote Status, the table behind it, and what else
  * differs.
  *
- * The status is the aggregated table, **escalated to Conflict when the prospective result would
- * break the Workspace**. It is deliberately *not* escalated for a
- * {@link GraphVerdict} `'failed'`: that is a transfer that cannot be judged, and calling it Conflict
- * would describe unreadable Remote bytes as changed scholarship.
+ * ⚠ **The status is the aggregated table and nothing else.** A prospective result that would break
+ * the Workspace is {@link WorkspaceComparison.graph}'s to report, and the caller about to write
+ * refuses on it — a badge cannot say "this combination would not open" in five words, and saying it
+ * as a *direction* would be a lie about which side has work outstanding.
  */
 export function compareWorkspace(input: SynchronizationInput): WorkspaceComparison {
 	const comparison = compareSource(input);
-	const graph = validateGraph(prospectiveSource(comparison), input.projectFiles);
-	const status = aggregate(comparison);
 	return {
-		status: graph.outcome === 'invalid' ? 'conflict' : status,
+		status: aggregate(comparison),
 		paths: comparison.paths,
 		publishedSiteStale: comparison.publishedSiteStale,
-		graph
+		graph: validateProspectiveWorkspace(prospectiveSource(comparison), input.projectFiles)
 	};
 }
 
@@ -457,7 +463,7 @@ const describesAnImage = (paths: ReadonlySet<string>, imageId: string): boolean 
  * individually safe: a Project's files surviving its `project.json`, and an Alignment surviving the
  * Map Image it places.
  */
-function validateGraph(
+export function validateProspectiveWorkspace(
 	prospective: ReadonlyMap<string, string>,
 	projectFiles: ReadonlyMap<string, Uint8Array> | undefined
 ): GraphVerdict {
@@ -576,15 +582,16 @@ function validateGraph(
  * {@link WorkspaceSyncPlan.preserved}, `both` on the first and then the second, and `overwrite` on
  * {@link WorkspaceSyncPlan.overwrites} — the only removal set computed from the Workspace alone.
  *
- * Nothing here refuses: a Conflict is reported and the engine that would move the bytes declines.
+ * Nothing here refuses: a Conflict is reported and the engine that moves the bytes resolves it.
  * Nothing here transfers a byte either — `update-from-github.ts` carries out a get and
  * `publish-to-remote.ts` a send.
  */
 export function planWorkspaceSync(input: SynchronizationInput): WorkspaceSyncPlan {
 	const comparison = compareSource(input);
-	const graph = validateGraph(prospectiveSource(comparison), input.projectFiles);
+	const prospective = prospectiveSource(comparison);
+	const graph = validateProspectiveWorkspace(prospective, input.projectFiles);
 	const workspace: WorkspaceComparison = {
-		status: graph.outcome === 'invalid' ? 'conflict' : aggregate(comparison),
+		status: aggregate(comparison),
 		paths: comparison.paths,
 		publishedSiteStale: comparison.publishedSiteStale,
 		graph
@@ -636,8 +643,9 @@ export function planWorkspaceSync(input: SynchronizationInput): WorkspaceSyncPla
 			continue;
 		}
 		if (row.comparison === 'conflict') {
-			// Local bytes win in the prospective set so the *other* rows can be judged; the engines
-			// refuse before any of it is acted on. `overwrite` is the mode that means it.
+			// Neither direction settles a contested path here. The get resolves it — the Remote's version
+			// becomes a Conflict Copy and the Baseline advances to it (ADR-0046) — and the row is an
+			// ordinary `outbound` one on the pass after that, which is what sends this Workspace's copy.
 			continue;
 		}
 		// `shared` and `converged` are both already agreed between the two sides.
@@ -690,6 +698,7 @@ export function planWorkspaceSync(input: SynchronizationInput): WorkspaceSyncPla
 		leftAlone: [...remoteSource.keys()].filter((path) => !settled.has(path)).sort(),
 		preserved: comparison.preserved,
 		conflicts: comparison.rows.filter((row) => row.comparison === 'conflict'),
+		prospective,
 		retained: [...bucket(comparison, 'outbound')].sort(),
 		comparison: workspace
 	};
@@ -701,25 +710,6 @@ const sortChoices = (choices: readonly PathChoice[]): readonly PathChoice[] =>
 	[...choices].sort((left, right) =>
 		left.path < right.path ? -1 : left.path > right.path ? 1 : 0
 	);
-
-/** At most five paths named, because a refusal nobody reads is a refusal nobody acts on. */
-function listPaths(paths: readonly string[]): string {
-	const named = [...paths].sort();
-	if (named.length <= 5) return named.join(', ');
-	return `${named.slice(0, 5).join(', ')} and ${named.length - 5} more`;
-}
-
-/**
- * What a Conflict says, in one place, so that a get and a send cannot word it differently.
- *
- * ⚠ **It promises no resolution, because there is none on offer yet.** Ballastella will not choose
- * between two versions of a scholar's work, and until a Conflict becomes a copy the honest answer is
- * that nothing has been changed.
- */
-export const describeConflict = (paths: readonly string[]): string =>
-	`${paths.length === 1 ? 'One file has' : `${paths.length} files have`} been changed both here and ` +
-	`on the Remote: ${listPaths(paths)}. Ballastella will not choose between two versions of your ` +
-	`work. Nothing has been changed.`;
 
 /** What an unreadable Remote says. Never a verdict about scholarship — see {@link GraphVerdict}. */
 export const describeGraphFailure = (failures: readonly GraphFailure[]): string =>

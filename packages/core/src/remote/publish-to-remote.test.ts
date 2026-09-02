@@ -597,7 +597,7 @@ describe('the owned namespace when Share Links are not asked for (ADR-0045)', ()
 		const { plan } = await publish(store, github);
 
 		expect(plan.removed).toEqual([]);
-		expect(plan.conflict).toBeNull();
+		expect(plan.conflicts).toEqual([]);
 		expect([...github.files().keys()]).toContain('index.html');
 		expect([...github.files().keys()]).toContain('_app/immutable/entry/start.OLD.js');
 	});
@@ -661,7 +661,7 @@ describe('the owned namespace once Share Links are asked for (ADR-0045)', () => 
 			'images/blaeu/0,0,256,256/256,256/0/default.jpg',
 			'images/blaeu/info.json'
 		]);
-		expect(plan.conflict).toBeNull();
+		expect(plan.conflicts).toEqual([]);
 	});
 
 	// And then it stays withdrawn: the Remote no longer carries a site record, so the marker the last
@@ -1138,7 +1138,7 @@ describe('a send against a Remote that has moved', () => {
 		const plan = await laptopPlan(laptop, github, lastSeen);
 		await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-		expect(plan.conflict).toBeNull();
+		expect(plan.conflicts).toEqual([]);
 		expect(plan.leftAlone).toEqual(['amsterdam-1625/annotations/notes.json']);
 		// The half that matters: the desktop's afternoon is still there, byte for byte, after a
 		// completed send from a laptop that has never seen it.
@@ -1211,8 +1211,10 @@ describe('a send against a Remote that has moved', () => {
 		expect(decode(github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 	});
 
-	// ⚠ **The one refusal a send has left.** The same path changed on both sides has no safe answer
-	// in either direction, and until a Conflict becomes a copy the honest thing is to stop.
+	// ⚠ **A contested path stops nothing** (ADR-0046). A send neither writes it nor removes it —
+	// the Remote's version stays exactly where it is — and the *get* is what resolves it, into a copy
+	// the scholar can look at. What this describe fences is that a send does not quietly overwrite it
+	// and does not refuse the rest of the Sync over it.
 	describe('one path changed on both sides', () => {
 		const contested = async () => {
 			const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
@@ -1220,46 +1222,29 @@ describe('a send against a Remote that has moved', () => {
 				'amsterdam-1625/annotations/notes.json',
 				encode('{"type":"FeatureCollection","features":[{"id":"my-afternoon"}]}')
 			);
+			await laptop.write('amsterdam-1625/annotations/canals.json', encode('{"canals":true}'));
 			return { github, laptop, lastSeen };
 		};
 
-		it('is refused, and costs the Remote nothing at all', async () => {
+		it('is reported, and the send goes ahead with everything else', async () => {
 			const { github, laptop, lastSeen } = await contested();
 
 			const plan = await laptopPlan(laptop, github, lastSeen);
-			const posted = github.blobPosts;
-			const head = github.head();
-
-			expect([plan.conflict?.reason, plan.conflict?.paths]).toEqual([
-				'conflict',
-				['amsterdam-1625/annotations/notes.json']
+			expect(plan.conflicts.map((row) => row.path)).toEqual([
+				'amsterdam-1625/annotations/notes.json'
 			]);
-			await expect(
-				publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
-			).rejects.toBeInstanceOf(RemotePublishRefusedError);
+
+			await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+
+			// The other machine's afternoon is still there, untouched — a send does not choose between
+			// two versions of the scholar's work.
 			expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 				'{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}'
 			);
-			expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
-		});
-
-		it('names the file, and does not send the author round a loop', async () => {
-			const { github, laptop, lastSeen } = await contested();
-
-			const message = (await laptopPlan(laptop, github, lastSeen)).conflict?.message ?? '';
-
-			expect(message).toContain('amsterdam-1625/annotations/notes.json');
-			// Getting refuses this for the same reason, so it is not offered as the remedy.
-			expect(message).toContain('getting these changes will refuse this for the same reason');
-			expect(message).toContain('overwrite the repository');
-			// The sentence that makes the remedy safe to press: the owned namespace preserves
-			// everything outside itself, so nothing but this app's own files is at stake (ADR-0033).
-			// ⚠ **And it promises about paths, never about names.** A send moves everything the store
-			// lists, so a folder-backed Workspace holding its own `README.md` or `CNAME` sends it like
-			// any other file — outside the owned namespace, so the refusal would not have flagged it
-			// either. "A README is left alone" is false for exactly the scholar it would most annoy.
-			expect(message).toContain('has no file for');
-			expect(message).not.toMatch(/anything else in the repository/);
+			// And the file that was not contested went, which is the whole point of not stopping.
+			expect(decode(github.files().get('amsterdam-1625/annotations/canals.json') ?? EMPTY)).toBe(
+				'{"canals":true}'
+			);
 		});
 
 		it('goes through once the author asks to overwrite the repository', async () => {
@@ -1310,7 +1295,7 @@ describe('a send against a Remote that has moved', () => {
 
 			// Absent from the Baseline and absent here, so the Remote gained them: `inbound`, which is
 			// what makes them somebody else's rather than ours to remove.
-			expect(plan.conflict).toBeNull();
+			expect(plan.conflicts).toEqual([]);
 			expect(plan.removed).toEqual([]);
 			expect(plan.incoming.map((choice) => choice.path)).toEqual([
 				'florida-1657/annotations/notes.json',
@@ -1537,7 +1522,7 @@ describe('a send against a Remote that has moved', () => {
 		});
 		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-		expect(plan.conflict).toBeNull();
+		expect(plan.conflicts).toEqual([]);
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"mine"}]}'
 		);
@@ -1562,7 +1547,7 @@ describe('a send against a Remote that has moved', () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '' } });
 
-			expect((await planWithNoEvidence(store, github)).conflict).toBeNull();
+			expect((await planWithNoEvidence(store, github)).conflicts).toEqual([]);
 		});
 
 		// The same rule, and the case that most invites a special one: a `.nojekyll` somebody typed into
@@ -1577,7 +1562,7 @@ describe('a send against a Remote that has moved', () => {
 			const plan = await planWithNoEvidence(store, github);
 			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-			expect(plan.conflict).toBeNull();
+			expect(plan.conflicts).toEqual([]);
 			expect(decode(github.files().get('.nojekyll') ?? EMPTY)).toBe('');
 		});
 
@@ -1600,7 +1585,7 @@ describe('a send against a Remote that has moved', () => {
 				fetch: github.fetch
 			});
 
-			expect(plan.conflict).toBeNull();
+			expect(plan.conflicts).toEqual([]);
 			expect([...recorded.baseline.keys()]).toContain('amsterdam-1625/project.json');
 		});
 
@@ -1622,7 +1607,7 @@ describe('a send against a Remote that has moved', () => {
 			const plan = await planWithNoEvidence(store, github);
 			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-			expect(plan.conflict).toBeNull();
+			expect(plan.conflicts).toEqual([]);
 			expect(plan.removed).toEqual([]);
 			expect([...github.files().keys()].filter((path) => path.startsWith('florida-1657/'))).toEqual(
 				['florida-1657/annotations/notes.json', 'florida-1657/project.json']
@@ -1632,27 +1617,24 @@ describe('a send against a Remote that has moved', () => {
 			expect([...github.files().keys()]).toContain('amsterdam-1625/project.json');
 		});
 
-		// ⚠ **The one thing a first Sync still refuses.** A file both sides hold differently with no
-		// record of what they last shared cannot be attributed to either, and Ballastella will not
-		// choose between two versions of a scholar's work.
-		it('refuses a file the two sides hold differently, naming it', async () => {
+		// ⚠ **A file both sides hold differently is reported and left alone, on both sides.** With no
+		// record of what the two last shared it cannot be attributed to either, so a send neither
+		// overwrites the Remote's copy nor removes it — the get is what makes the second copy.
+		it("names a file the two sides hold differently, and leaves the Remote's copy alone", async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 			await publish(store, github);
 			await github.commitFiles({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam, revised"}'
 			});
-			const posted = github.blobPosts;
-			const head = github.head();
 
 			const plan = await planWithNoEvidence(store, github);
+			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-			expect(plan.conflict?.reason).toBe('conflict');
-			expect(plan.conflict?.message).toContain('amsterdam-1625/project.json');
-			await expect(
-				publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
-			).rejects.toBeInstanceOf(RemotePublishRefusedError);
-			expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
+			expect(plan.conflicts.map((row) => row.path)).toEqual(['amsterdam-1625/project.json']);
+			expect(decode(github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
+				'{"formatVersion":1,"name":"Amsterdam, revised"}'
+			);
 		});
 
 		// The website the local publish is about to write is Publish-owned output on both sides, so it
@@ -1682,7 +1664,7 @@ describe('a send against a Remote that has moved', () => {
 				]
 			});
 
-			expect(plan.conflict).toBeNull();
+			expect(plan.conflicts).toEqual([]);
 		});
 
 		it('publishes to a repository with nothing of ours on it', async () => {

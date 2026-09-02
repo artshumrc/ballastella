@@ -184,6 +184,37 @@ export async function readRemoteHeadCommit(
 }
 
 /**
+ * When a commit was made, or `null` where GitHub would not say.
+ *
+ * ⚠ **It never throws, and that is the whole of its contract.** This answers a *date beside a
+ * question*, never whether a Sync may go ahead — so a rate limit, a proxy that mangles the response
+ * and a repository that has moved all come back as "no date", and the question is asked without one
+ * rather than the Sync refusing over a decoration.
+ */
+export async function readRemoteCommitDate(
+	remote: RemoteTreeReference,
+	commit: string,
+	fetchFn: FetchFn | undefined
+): Promise<Date | null> {
+	const url =
+		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
+		`/git/commits/${urlPath(commit)}`;
+	try {
+		const response = await anonymousGet(fetchFn, url);
+		const body = (await response.json()) as {
+			committer?: { date?: unknown };
+			author?: { date?: unknown };
+		};
+		const date = body.committer?.date ?? body.author?.date;
+		if (typeof date !== 'string') return null;
+		const at = new Date(date);
+		return Number.isNaN(at.getTime()) ? null : at;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Every file the branch's tip holds, from one unauthenticated tree listing.
  *
  * ⚠ **No `Authorization` header, and none may be added.** Reading a public repository is anonymous,

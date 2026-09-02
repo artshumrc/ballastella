@@ -109,16 +109,18 @@ import {
 	urlPath
 } from './remote-tree.js';
 import {
-	describeConflict,
 	describeGraphFailure,
 	describeGraphViolations,
-	planWorkspaceSync
+	planWorkspaceSync,
+	validateProspectiveWorkspace
 } from './synchronization-planner.js';
+import { resolveConflicts, type AlignmentChoice } from './conflict-resolution.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { EstimateStorage } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import type { RemoteRelationship, SynchronizationBaseline } from './synchronization-metadata.js';
 import type { InventoryEntry, PathChoice, WorkspaceSyncPlan } from './synchronization-planner.js';
+import type { ConflictCopy, ConflictResolution } from './conflict-resolution.js';
 
 /** The repository this reads from. Its branch is the Remote relationship's. */
 export type UpdateReference = {
@@ -409,8 +411,6 @@ export type UpdateRefusal =
 	| 'truncated'
 	/** Anything else GitHub said, or a request that never got an answer. */
 	| 'refused'
-	/** A path changed differently on both sides. Neither side is changed. */
-	| 'conflict'
 	/** A file the tree listed could not be fetched, or arrived as bytes the tree did not name. */
 	| 'incomplete'
 	/** What would arrive would not be a Workspace this app can open. */
@@ -472,6 +472,16 @@ export interface UpdateFromGitHubOptions {
 	readonly transaction?: () => string;
 	/** Which Workspace this is, recorded in the marker. See {@link UpdateTransaction.workspace}. */
 	readonly workspace?: string;
+	/**
+	 * What the author answered about each contested Alignment, by its path (ADR-0046).
+	 *
+	 * ⚠ **An unanswered one is left alone on both sides and does not stop the rest of the get.** There
+	 * is one Alignment per Map Image, so there is no second file to make; the question stands until the
+	 * author answers it, and everything else moves meanwhile.
+	 */
+	readonly alignmentChoices?: ReadonlyMap<string, AlignmentChoice>;
+	/** The fresh Layer id a Conflict Copy takes. Injected so a test's copy has a predictable path. */
+	readonly mintLayerId?: () => string;
 }
 
 /** What an Update brought in, and what it entitles the caller to record. */
@@ -488,6 +498,10 @@ export interface WorkspaceUpdate {
 	readonly removed: readonly string[];
 	/** Local-only changes this Update left alone. Still Changes to send afterwards. */
 	readonly retained: readonly string[];
+	/** The Conflict Copies this Update made, sorted by what they are copies of (ADR-0046). */
+	readonly copies: readonly ConflictCopy[];
+	/** Contested Alignments still waiting to be answered, by path. */
+	readonly unansweredAlignments: readonly string[];
 	readonly totalFiles: number;
 	readonly totalBytes: number;
 	/**
@@ -512,6 +526,11 @@ type PlannedFile = {
 	readonly bytes: number;
 	readonly effect: 'add' | 'replace';
 	readonly fetched: Bytes | null;
+	/**
+	 * Whether this path is here because the author answered the Alignment question with *take the one
+	 * from GitHub*, so the Alignment writer says what is being discarded truthfully.
+	 */
+	readonly answered?: boolean;
 };
 
 /**
@@ -605,10 +624,39 @@ export async function updateFromGitHub(
 			effect: change.effect === 'replace' ? 'replace' : 'add',
 			fetched: manifests.byPath.get(change.path) ?? null
 		}));
+
+	// ⚠ **A Conflict is resolved rather than refused, and the resolution is part of *this* get**
+	// (ADR-0046). The copies go through the same transaction as everything else, so a get that fails
+	// half way leaves neither the inbound files nor the copies behind.
+	const resolution = await resolveConflicts({
+		conflicts: plan.conflicts,
+		remote: blobs.map((blob) => blob.path),
+		local: local.map((entry) => entry.path),
+		...(options.baseline === null ? {} : { baseline: [...options.baseline.files.keys()] }),
+		readRemote: async (path) =>
+			fetchVerified(source, remote, path as StorePath, shaOnRemote(blobs, path)),
+		readManifest: async (path) =>
+			manifests.byPath.get(path) ?? (await store.read(path as StorePath)),
+		...(options.mintLayerId === undefined ? {} : { mintLayerId: options.mintLayerId })
+	});
+	const answered = await answerAlignments(source, remote, blobs, localShas, resolution, options);
+	files.push(...copiedFiles(resolution, localShas), ...answered.files);
+
+	// ⚠ **The result *including* the copies is judged before a byte of it is written.** A copy that
+	// would leave a dangling reference is a failure and not a copy — the whole point of the copies is
+	// a Workspace the scholar can open and compare two things in.
+	assertProspectiveWorkspace(remote, plan, files, manifests.byShaOnly);
+
 	const removals = plan.toGet.removed.map((path) => path as StorePath);
 
 	await assertRoomToUpdate(store, files, removals, options.estimateStorage);
 	const transferred = await transfer(store, source, remote, files, removals, commit, options);
+
+	const settled = new Map<string, string>();
+	for (const path of [...resolution.settled, ...answered.settled]) {
+		const sha = blobs.find((blob) => blob.path === path)?.sha;
+		if (sha !== undefined) settled.set(path, sha);
+	}
 
 	return {
 		remote,
@@ -623,12 +671,80 @@ export async function updateFromGitHub(
 			.sort(),
 		removed: removals,
 		retained: plan.retained,
+		copies: resolution.copies,
+		unansweredAlignments: answered.unanswered,
 		totalFiles: files.length,
 		totalBytes: transferred,
-		baseline: advancedBaseline(options.baseline, plan),
+		baseline: advancedBaseline(options.baseline, plan, settled),
+		// ⚠ **A settled path is *not* shared.** The Baseline advances to GitHub's blob because this
+		// Workspace has now taken that version in as a copy; the file at the contested path is still
+		// the author's own and still has to be sent.
 		shared: [...plan.toGet.advances.keys(), ...plan.toGet.retires].sort(),
-		notice: updateNotice(remote, plan, files, removals)
+		notice: updateNotice(remote, plan, files, removals, resolution)
 	};
+}
+
+/** The blob SHA the Remote's listing gave a path. Unreachable for a path the listing did not hold. */
+function shaOnRemote(blobs: readonly { path: string; sha: string }[], path: string): string {
+	return blobs.find((blob) => blob.path === path)?.sha ?? '';
+}
+
+/** The Conflict Copies as inbound files: bytes already in hand, at paths of their own. */
+function copiedFiles(
+	resolution: ConflictResolution,
+	localShas: ReadonlyMap<string, string>
+): PlannedFile[] {
+	return resolution.files.map((file) => ({
+		path: file.path as StorePath,
+		// The bytes are here already, so nothing downloads against this and it is only ever compared
+		// with itself: a copy's blob is the Remote's, and a rewritten manifest's is nobody's.
+		sha: localShas.get(file.path) ?? '',
+		bytes: file.bytes.byteLength,
+		effect: file.effect,
+		fetched: file.bytes
+	}));
+}
+
+/**
+ * What the author answered about each contested Alignment.
+ *
+ * *Take the one from GitHub* writes it at the Alignment's one path; *keep mine* writes nothing at
+ * all. **Both settle the row**, and that is the whole of how the question ends: the Baseline advances
+ * to GitHub's blob either way, because either way this Workspace has now seen that version and
+ * decided about it — so *keep mine* leaves an ordinary change to send rather than a standing Conflict.
+ */
+async function answerAlignments(
+	source: { read(path: StorePath): Promise<Bytes> },
+	remote: RemoteRelationship,
+	blobs: readonly { path: string; sha: string; bytes: number }[],
+	localShas: ReadonlyMap<string, string>,
+	resolution: ConflictResolution,
+	options: UpdateFromGitHubOptions
+): Promise<{ files: PlannedFile[]; settled: string[]; unanswered: string[] }> {
+	const files: PlannedFile[] = [];
+	const settled: string[] = [];
+	const unanswered: string[] = [];
+	for (const contested of resolution.alignments) {
+		const choice = options.alignmentChoices?.get(contested.path);
+		if (choice === undefined) {
+			unanswered.push(contested.path);
+			continue;
+		}
+		settled.push(contested.path);
+		if (choice === 'keep-mine') continue;
+		const blob = blobs.find((entry) => entry.path === contested.path);
+		/* v8 ignore next -- a contested path is one both sides hold, so its blob is in the listing. */
+		if (blob === undefined) continue;
+		files.push({
+			path: contested.path as StorePath,
+			sha: blob.sha,
+			bytes: blob.bytes,
+			effect: localShas.has(contested.path) ? 'replace' : 'add',
+			fetched: await fetchVerified(source, remote, contested.path as StorePath, blob.sha),
+			answered: true
+		});
+	}
+	return { files, settled, unanswered };
 }
 
 /**
@@ -640,12 +756,55 @@ export async function updateFromGitHub(
  */
 function advancedBaseline(
 	previous: SynchronizationBaseline | null,
-	plan: WorkspaceSyncPlan
+	plan: WorkspaceSyncPlan,
+	settled: ReadonlyMap<string, string>
 ): ReadonlyMap<string, string> {
 	const files = new Map(previous?.files ?? []);
 	for (const path of plan.toGet.retires) files.delete(path);
 	for (const [path, sha] of plan.toGet.advances) files.set(path, sha);
+	// A settled Conflict advances to *GitHub's* blob rather than to shared bytes: that version is now
+	// in this Workspace, as a copy or as the author's answer, so the row is an ordinary change to send.
+	for (const [path, sha] of settled) files.set(path, sha);
 	return files;
+}
+
+/**
+ * Refuse a get whose result — the inbound files and the Conflict Copies together — would not open.
+ *
+ * ⚠ **The same validator the plan used, asked again with the copies in the set.** A Conflict Copy is
+ * a Layer or a Project this Workspace has never held, so it is exactly the kind of addition that can
+ * dangle; and a copy that would leave a dangling reference is a failure rather than a copy.
+ */
+function assertProspectiveWorkspace(
+	remote: RemoteRelationship,
+	plan: WorkspaceSyncPlan,
+	files: readonly PlannedFile[],
+	manifests: ReadonlyMap<string, Bytes>
+): void {
+	const prospective = new Map(plan.prospective);
+	const bySha = new Map(manifests);
+	for (const file of files) {
+		// A copy's own bytes stand in for its blob SHA: nothing else compares them, and a manifest
+		// written here has a SHA on neither side.
+		const sha = file.sha === '' ? `written:${file.path}` : file.sha;
+		prospective.set(file.path, sha);
+		if (file.fetched !== null) bySha.set(sha, file.fetched);
+	}
+	const graph = validateProspectiveWorkspace(prospective, bySha);
+	if (graph.outcome === 'invalid') {
+		throw new UpdateRefusedError('invalid', describeGraphViolations(graph.violations), {
+			paths: graph.violations.map((violation) => violation.path).sort()
+		});
+	}
+	if (graph.outcome === 'failed') {
+		throw new UpdateRefusedError(
+			'invalid',
+			`What ${describeRemote(remote)} holds could not be checked over: ` +
+				`${describeGraphFailure(graph.failures)} Nothing has been changed, because a result this ` +
+				`app cannot check is one it cannot promise to open.`,
+			{ paths: graph.failures.map((failure) => failure.path).sort() }
+		);
+	}
 }
 
 /** Every file the Remote's commit holds, from one anonymous listing. */
@@ -841,7 +1000,12 @@ async function transfer(
 		}
 		await eachInTurn(files, UPDATE_DOWNLOAD_CONCURRENCY, async (file) => {
 			const content = file.fetched ?? (await fetchVerified(source, remote, file.path, file.sha));
-			await writeInbound(store, file.path, content, file.effect);
+			await writeInbound(
+				store,
+				file.path,
+				content,
+				file.answered === true ? 'answered' : file.effect
+			);
 			written += 1;
 			bytes += content.byteLength;
 			report(file.path);
@@ -927,14 +1091,16 @@ async function fetchVerified(
  *
  * The intent is the operation's, said out loud. An `'add'` is a Map Image this Workspace does not
  * have an Alignment for at all; a `'replace'` is one whose Alignment was byte-identical to the
- * Baseline, so the Control Points being written over are the ones the Remote already held; and a
- * `'restore'` is a rollback putting back the bytes this very operation displaced.
+ * Baseline, so the Control Points being written over are the ones the Remote already held; a
+ * `'restore'` is a rollback putting back the bytes this very operation displaced; and an
+ * `'answered'` is the one case where the author's *own* work is being written over, which they
+ * asked for by answering the Alignment question with *take the one from GitHub* (ADR-0046).
  */
 async function writeInbound(
 	store: ProjectStore,
 	path: StorePath,
 	bytes: Bytes,
-	effect: 'add' | 'replace' | 'restore'
+	effect: 'add' | 'replace' | 'restore' | 'answered'
 ): Promise<void> {
 	const imageId = alignmentImageId(path);
 	if (imageId === null) {
@@ -954,10 +1120,7 @@ async function writeInbound(
 					? { intent: 'create' }
 					: {
 							intent: 'replace',
-							discarding:
-								effect === 'replace'
-									? 'the Alignment this Workspace and GitHub last shared for this Map Image'
-									: 'the Alignment an Update from GitHub had written, which is being taken back'
+							discarding: DISCARDING[effect]
 						}
 		}
 	);
@@ -976,6 +1139,13 @@ async function writeInbound(
  * it does — so a rollback never starts while a write is still on its way to the disk it is about to
  * put back.
  */
+/** What each replacing write is putting aside, in the words the Alignment writer records. */
+const DISCARDING: Record<'replace' | 'restore' | 'answered', string> = {
+	replace: 'the Alignment this Workspace and GitHub last shared for this Map Image',
+	restore: 'the Alignment an Update from GitHub had written, which is being taken back',
+	answered: 'the Alignment held here, which you chose to replace with the one from GitHub'
+};
+
 async function eachInTurn<T>(
 	items: readonly T[],
 	limit: number,
@@ -1059,11 +1229,10 @@ function asUpdateRefusal(remote: RemoteRelationship, cause: unknown): UpdateRefu
 /**
  * Refuse a get the plan will not support, **before anything is written**.
  *
- * ⚠ **Three refusals and no others.** A Remote holding work this Workspace has not taken in is what
- * a get is *for*; a Workspace holding work the Remote has not got is left alone; and with no
- * Baseline nothing is removed in either direction. What is left is the Conflict — the one row of the
- * three-way table with no safe answer — and the two ways the prospective Workspace cannot be
- * judged at all.
+ * ⚠ **Two refusals and no others.** A Remote holding work this Workspace has not taken in is what a
+ * get is *for*; a Workspace holding work the Remote has not got is left alone; with no Baseline
+ * nothing is removed in either direction; and a Conflict is *resolved* rather than refused
+ * (ADR-0046). What is left is the two ways the prospective Workspace cannot be judged at all.
  *
  * ⚠ **No deletion confirmation.** Every removal a get would make is on the Sync modal the author
  * read before pressing, so a second question here would be the same question twice — and a
@@ -1091,15 +1260,6 @@ function assertGettable(remote: RemoteRelationship, plan: WorkspaceSyncPlan): vo
 		throw new UpdateRefusedError('invalid', describeGraphViolations(graph.violations), {
 			paths: graph.violations.map((violation) => violation.path).sort()
 		});
-	}
-	if (plan.conflicts.length > 0) {
-		const paths = plan.conflicts.map((row) => row.path);
-		throw new UpdateRefusedError(
-			'conflict',
-			`${describeConflict(paths)} Nothing on GitHub has been changed either, and both versions ` +
-				`are still where they were.`,
-			{ paths }
-		);
 	}
 }
 
@@ -1169,9 +1329,14 @@ function updateNotice(
 	remote: RemoteRelationship,
 	plan: WorkspaceSyncPlan,
 	files: readonly PlannedFile[],
-	removals: readonly StorePath[]
+	removals: readonly StorePath[],
+	resolution: ConflictResolution
 ): string {
 	const named = describeRemote(remote);
+	// ⚠ **Said first and named, because it is the one thing here the author has to *do* something
+	// about.** A Conflict Copy is two versions of one thing sitting beside each other until somebody
+	// deletes one, and a notice that reported it as "3 new files" would never be read as that.
+	const copied = describeConflictCopies(resolution.copies);
 	if (files.length === 0 && removals.length === 0) {
 		return (
 			`${named} holds nothing this Workspace does not already have, so nothing has been ` +
@@ -1179,7 +1344,8 @@ function updateNotice(
 			(plan.retained.length === 0
 				? ''
 				: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
-					`${plan.retained.length === 1 ? 'is' : 'are'} still here to publish.`)
+					`${plan.retained.length === 1 ? 'is' : 'are'} still here to publish.`) +
+			copied
 		);
 	}
 	const retained =
@@ -1191,7 +1357,7 @@ function updateNotice(
 	if (files.length === 0) {
 		return (
 			`Removed ${count(removals.length, 'file')} from this Workspace, which ${named} no longer ` +
-			`has. Nothing has been published: ${named} is exactly as it was.${retained}`
+			`has. Nothing has been published: ${named} is exactly as it was.${retained}${copied}`
 		);
 	}
 	const added = files.filter((file) => file.effect === 'add').length;
@@ -1209,7 +1375,28 @@ function updateNotice(
 		removals.length === 0 ? '' : ` Removed ${count(removals.length, 'file')} GitHub no longer has.`;
 	return (
 		`Brought ${brought} into this Workspace from ${named}.${took} Nothing has been published: ` +
-		`${named} is exactly as it was.${retained}`
+		`${named} is exactly as it was.${retained}${copied}`
+	);
+}
+
+/**
+ * What the Conflict Copies say, or `''`.
+ *
+ * ⚠ **It names them and it says nothing has been merged.** The two versions are both here and both
+ * intact; which to keep is the scholar's judgement and Ballastella has not made it.
+ */
+function describeConflictCopies(copies: readonly ConflictCopy[]): string {
+	if (copies.length === 0) return '';
+	const named = copies
+		.map((copy) =>
+			copy.kind === 'layer' ? `the Layer “${copy.name}”` : `the Project “${copy.name}”`
+		)
+		.join(', ');
+	return (
+		` ${copies.length === 1 ? 'One thing had' : `${copies.length} things had`} been changed here ` +
+		`and on GitHub since the two last agreed, so GitHub's version of ` +
+		`${copies.length === 1 ? 'it' : 'each'} is now here as well: ${named}. Nothing has been ` +
+		`combined — look at both and delete the one you do not want.`
 	);
 }
 

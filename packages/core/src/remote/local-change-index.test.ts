@@ -237,7 +237,7 @@ describe('checkSourceStatus', () => {
 		expect(status.status).toBe('changes-both-ways');
 	});
 
-	it('is Conflict when one path changed on both sides, because it cannot compare the bytes', async () => {
+	it('is Changes both ways when one path changed on both sides', async () => {
 		const status = await checkSourceStatus({
 			changes: source(['atlas/project.json']),
 			remote: [{ path: 'atlas/project.json', sha: 'r2' }],
@@ -246,8 +246,9 @@ describe('checkSourceStatus', () => {
 
 		// The two changes may well be identical. A passive check has no way to find out, and the
 		// deliberate pass hashes and may downgrade this — reporting `In sync` over an unexamined
-		// Conflict is the one direction there is no recovering from.
-		expect(status.status).toBe('conflict');
+		// Conflict is the one direction there is no recovering from. A Conflict is *not* a status of
+		// its own (ADR-0046): it is something to send and something to get at once.
+		expect(status.status).toBe('changes-both-ways');
 	});
 
 	it('reads no byte of the Workspace', async () => {

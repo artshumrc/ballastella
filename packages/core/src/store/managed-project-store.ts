@@ -98,6 +98,10 @@ export class ManagedProjectStore implements ProjectStore, LocalChangeSource {
 		return this.#store.size(path);
 	}
 
+	async modifiedAt(path: StorePath): Promise<number | null> {
+		return (await this.#store.modifiedAt?.(path)) ?? null;
+	}
+
 	async reclaimAbandonedWrites(prefix: string): Promise<void> {
 		// Nothing to mark: every path this removes is a temporary file no caller can name, and the
 		// reserved suffix keeps `list` and the classifier from ever having seen it as Workspace content.

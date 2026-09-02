@@ -63,16 +63,23 @@ function testClock(start = 1_000): { now: () => number; advance: (ms: number) =>
 describe('the Remote Status a scholar reads', () => {
 	// The six determinations are words, and one of them is the word for "there is no trustworthy
 	// evidence" — which a control showing nothing would render as safety.
-	it('gives every one of the six a distinct sentence a reader can act on', () => {
+	it('gives every one of the five a distinct sentence a reader can act on', () => {
 		expect(REMOTE_STATUS_LABELS).toEqual({
 			'in-sync': 'In sync',
 			'changes-to-send': 'Changes to send',
 			'changes-to-get': 'Changes to get',
 			'changes-both-ways': 'Changes both ways',
-			conflict: 'Conflict',
 			'cannot-tell': 'Cannot tell'
 		});
-		expect(new Set(Object.values(REMOTE_STATUS_LABELS)).size).toBe(6);
+		expect(new Set(Object.values(REMOTE_STATUS_LABELS)).size).toBe(5);
+	});
+
+	// ⚠ **There is no Conflict determination and there must not be one** (ADR-0046). A Sync resolves
+	// a contested path into a copy or a question, so what the badge has to say about one is which
+	// directions have work outstanding — which is both of them.
+	it('has no word for a Conflict, because a Conflict is not a state of the Workspace', () => {
+		expect(Object.keys(REMOTE_STATUS_LABELS)).not.toContain('conflict');
+		expect(Object.values(REMOTE_STATUS_LABELS).join(' ').toLowerCase()).not.toContain('conflict');
 	});
 
 	// ⚠ Git's vocabulary describes a graph the scholar never sees, and *connected* reports a
@@ -542,7 +549,7 @@ describe('RemoteStatusChecker', () => {
 		const running = checker.check('open');
 		// The switch: one click, while a listing of a large tree is still in flight.
 		checker.close();
-		release?.(determined('conflict'));
+		release?.(determined('changes-both-ways'));
 		await running;
 
 		// The arriving Workspace's control must not be handed the Workspace the user left.

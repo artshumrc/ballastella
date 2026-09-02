@@ -65,16 +65,15 @@ const BASELINE: SynchronizationBaseline = {
 /**
  * ADR-0044's table, verbatim, with `null` for the reading that has not been taken.
  *
- * ⚠ **`conflict` reads as the both-directions row it is.** The badge says which direction is
- * outstanding, and a Conflict has work outstanding in both; that the two sides contest one file is
- * the determination's own business and is one press away. Nothing here may promise agreement.
+ * ⚠ **There is no Conflict row, because there is no such determination** (ADR-0046). One file
+ * changed on both sides is work outstanding in both directions, so it reads as `changes both ways`;
+ * what a Sync does about it is on the modal one press away. Nothing here may promise agreement.
  */
 const TABLE: readonly (readonly [SourceStatus | null, string])[] = [
 	['in-sync', 'Saved here · in sync with ada/atlas'],
 	['changes-to-send', 'Saved here · changes to send'],
 	['changes-to-get', 'Saved here · changes to get'],
 	['changes-both-ways', 'Saved here · changes both ways'],
-	['conflict', 'Saved here · changes both ways'],
 	['cannot-tell', "Saved here · can't tell what's on GitHub"],
 	[null, 'Saved here · not checked yet']
 ];
@@ -182,7 +181,7 @@ describe('one badge, two clauses', () => {
 		expect(text('remote-status-determination')).toBe(REMOTE_STATUS_UNCHECKED);
 	});
 
-	test.each(['conflict', 'changes-both-ways', 'cannot-tell'] as const)(
+	test.each(['changes-both-ways', 'cannot-tell'] as const)(
 		'%s does not read as the two sides agreeing',
 		(status) => {
 			const agreement = badgeFor('in-sync');
@@ -194,10 +193,10 @@ describe('one badge, two clauses', () => {
 	);
 
 	test('keeps the determination readable by a spec without putting it on screen', () => {
-		bar(reading('conflict'));
+		bar(reading('changes-both-ways'));
 
-		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe('conflict');
-		expect(text('where-your-work-is')).not.toContain(REMOTE_STATUS_LABELS.conflict);
+		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe('changes-both-ways');
+		expect(text('where-your-work-is')).not.toContain(REMOTE_STATUS_LABELS['changes-both-ways']);
 	});
 });
 
@@ -282,26 +281,28 @@ describe('everything else, one press away', () => {
 });
 
 // ⚠ **A network failure is not agreement.** Reported as `In sync` it is the one reading that
-// licenses sending over somebody else's afternoon, and reported as a Conflict resolved it is the
-// one that licenses believing a Conflict is over.
+// licenses sending over somebody else's afternoon.
 describe('a check that failed', () => {
-	test.each(['in-sync', 'conflict'] as const)('%s keeps the determination it had', (status) => {
-		bar(reading(status));
-		press('remote-status-explain');
-		const determination = text('remote-status-determination');
-		const checked = text('remote-status-checked');
-		clear();
+	test.each(['in-sync', 'changes-both-ways'] as const)(
+		'%s keeps the determination it had',
+		(status) => {
+			bar(reading(status));
+			press('remote-status-explain');
+			const determination = text('remote-status-determination');
+			const checked = text('remote-status-checked');
+			clear();
 
-		bar({
-			...reading(status),
-			failure: 'GitHub could not be reached, so the status below is the last one read.'
-		});
-		press('remote-status-explain');
+			bar({
+				...reading(status),
+				failure: 'GitHub could not be reached, so the status below is the last one read.'
+			});
+			press('remote-status-explain');
 
-		expect(text('remote-status-determination')).toBe(determination);
-		expect(text('remote-status-checked')).toBe(checked);
-		expect(at('where-your-work-is')?.dataset.remoteStatus).toBe(status);
-	});
+			expect(text('remote-status-determination')).toBe(determination);
+			expect(text('remote-status-checked')).toBe(checked);
+			expect(at('where-your-work-is')?.dataset.remoteStatus).toBe(status);
+		}
+	);
 });
 
 // ⚠ **Never one of the six** (ADR-0033). A site built by another editor version has different chunk
