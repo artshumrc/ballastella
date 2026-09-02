@@ -6,16 +6,16 @@
 //
 // `open-project-bundle.ts` reads a Project out of a tar into a throwaway Workspace of its own; this
 // reads one out of somebody's Remote into the same kind of Workspace. What arrives is unbound,
-// unpublishable, and carries the banner that says so, because the reason has not changed with the
-// transport: a review copy is for reading somebody's work as they published it, and a Workspace that
+// unable to send, and carries the banner that says so, because the reason has not changed with the
+// transport: a review copy is for reading somebody's work as they shared it, and a Workspace that
 // is thrown away afterwards is what makes every refusal on this path free.
 //
 // ⚠ **Nothing reached from here writes into a Workspace of the user's own, and this module is the
-// most likely place for that to be helpfully introduced.** Copying a published Project into work the
+// most likely place for that to be helpfully introduced.** Copying a shared Project into work the
 // user owns is **Import** (ADR-0037), and it goes through `remote-project-source.ts` — a read-only
 // source capability with no destination store on it — into the Import engine, which is the one thing
 // allowed to hold a validated closure and a writable ordinary Workspace at the same time. What this
-// module makes is a review copy: unbound, unpublishable, and discarded when the reviewer has
+// module makes is a review copy: unbound, unable to send, and discarded when the reviewer has
 // finished.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@
 //      takes is either under a directory `projectDirectories` named or under `images/` or
 //      `alignments/`. `review-from-remote.test.ts` asserts the containment rather than this module
 //      claiming it.
-//   2. **No relationship is recorded.** A Workspace connected to a repository records it, as
+//   2. **No relationship is recorded.** A Workspace with a repository records it, as
 //      provenance. A Review Workspace belongs to no repository at all: `bindWorkspaceToRemote`
 //      would refuse it, and so this never asks.
 //   3. **A failure discards the whole Review Workspace**, where a get keeps what arrived. A get is
@@ -50,7 +50,7 @@
 //      refusals below all land before a Workspace has been made, and the mark is written once,
 //      complete, rather than twice.
 //
-// ⚠ **The Remote's paths are the Workspace's paths, and nothing is re-rooted.** A published tree is
+// ⚠ **The Remote's paths are the Workspace's paths, and nothing is re-rooted.** A Remote's tree is
 // a Workspace laid out as ADR-0008 lays one out, so `<dir>/project.json` and `images/<id>/info.json`
 // land at exactly the names they had. The bundle's hoisting rules (`hoistedImageId`) exist because a
 // *bundle* is Project-relative; there is nothing for them to do here, and applying them would be a
@@ -158,7 +158,7 @@ export class ReviewRefusedError extends Error {
 
 export type ReviewFromRemoteOptions = {
 	readonly remote: ReviewReference;
-	/** Defaulting to the page's own, as the publish engine and the HTTP store already do. */
+	/** Defaulting to the page's own, as the send engine and the HTTP store already do. */
 	readonly fetch?: FetchFn;
 	readonly onProgress?: TransferProgressListener;
 	readonly estimateStorage?: EstimateStorage;
@@ -206,7 +206,7 @@ export interface ReviewedProject {
 	/**
 	 * Files this Project's Layers name that the Remote did not hold, and that therefore did not come.
 	 *
-	 * Empty for a Project published whole, which is every ordinary one. Reported rather than
+	 * Empty for a Project sent whole, which is every ordinary one. Reported rather than
 	 * swallowed, for the reason every transfer here reports its declines — one that quietly delivers less
 	 * than it was given is the exact failure `restore-workspace-tar.ts`'s whole format change escaped
 	 * — and here the reviewer cannot discover it any other way: a Layer card has no missing-image
@@ -277,7 +277,7 @@ export async function reviewFromRemote(
 		// ⚠ **The bytes are checked against the SHA they were listed with**, which costs a Review
 		// almost nothing: it is one hash over bytes already in memory. Without it a proxy or a cache
 		// serving a rewritten copy produces a review copy that is silently not what the author
-		// published — and a reviewer's whole job is to say what the author published.
+		// sent — and a reviewer's whole job is to say what the author sent.
 		if ((await gitBlobSha(content)) !== entry.sha) {
 			throw new ReviewRefusedError('incomplete', corruptFileMessage(remote, entry.path));
 		}
@@ -436,7 +436,7 @@ function reviewRefusalFor(cause: unknown, remote: Required<ReviewReference>): Re
  * It is also the whole of the path validation. The answer is a set of top-level directory names read
  * out of the tree, so a `project` of `../secrets` or `images` is simply not in it.
  *
- * Exported for `remote-project-source.ts`: an Import of a published Project has to find it in the same
+ * Exported for `remote-project-source.ts`: an Import of a Project on a Remote has to find it in the same
  * tree, and it must be refused with the same sentence and the same list of alternatives.
  */
 export function findProject(
@@ -471,7 +471,7 @@ type Closure = {
  * ⚠ **What the Remote does not hold is *reported*, never dropped, and never refused over.** The
  * bundle path refuses the same situation by name — `assertReferencesPresent`, "this bundle is missing
  * X, which the Layer Y needs to be drawn" — and it can, because a bundle is one file its sender can
- * be asked to make again. Refusing here would punish a reviewer for their author's publishing
+ * be asked to make again. Refusing here would punish a reviewer for their author's own
  * mistake and leave them unable to read the Annotations that *did* arrive. Silently dropping it is
  * worse still: nothing on a Layer card says an image is missing, so the map Layer draws blank and is
  * indistinguishable from one nobody has aligned yet. So both loops below answer with what came *and*
@@ -498,10 +498,10 @@ function gather(blobs: readonly RemoteBlob[], directory: string, project: Projec
 		if (blob.path.startsWith(prefix)) {
 			if (blob.path === manifest) continue;
 			// ⚠ The predicate is asked of the **Project-relative** name, which is what it is a predicate
-			// about, and it is the same one the exporter asks. A published Project directory holds
+			// about, and it is the same one the exporter asks. A Project directory on a Remote holds
 			// `annotations/` and nothing else, so this removes nothing today — but a Workspace made by
 			// unpacking a Published Site into a Project folder has the viewer's own files inside it
-			// (ADR-0006), and those are publishing's rather than the author's.
+			// and those are the site's rather than the author's.
 			if (isViewerFile(blob.path.slice(prefix.length))) continue;
 			inProject.add(blob.path);
 			wanted.push(entry);
@@ -575,7 +575,7 @@ function gather(blobs: readonly RemoteBlob[], directory: string, project: Projec
  * Two sentences rather than one list, because the two lose different things: an image that did not
  * arrive is a Layer drawing nothing, and an Annotation document that did not arrive is a Layer with
  * no features in it. Both name the Layer, which is what a reviewer sees on screen, and the path,
- * which is what an author has to publish.
+ * which is what an author has to send.
  */
 function unmetSentence(unmet: readonly UnmetReference[]): string {
 	if (unmet.length === 0) return '';
@@ -701,7 +701,7 @@ function noRepositoryMessage(remote: Named): string {
 		`GitHub has no public repository at ${describeRemote(remote)}. Check the owner and the ` +
 		`repository name — the two parts after github.com in the address bar. Reviewing reads a ` +
 		`repository without signing in, so a private one looks exactly like a missing one from here; ` +
-		`if it is private, whoever published it has to make it public first.`
+		`if it is private, whoever owns it has to make it public first.`
 	);
 }
 
@@ -709,7 +709,7 @@ function notPublicMessage(remote: Named): string {
 	return (
 		`GitHub would not let this page read ${describeRemote(remote)} without signing in, so it is ` +
 		`not a public repository. Reviewing is deliberately an anonymous operation — it needs no ` +
-		`account and no token — so a private repository cannot be read at all. Whoever published it ` +
+		`account and no token — so a private repository cannot be read at all. Whoever owns it ` +
 		`has to make it public, or send you the Project as a bundle instead.`
 	);
 }
@@ -739,8 +739,8 @@ function rateLimitedMessage(remote: Named, resetAt: Date | null): string {
 function emptyMessage(remote: Named): string {
 	return (
 		`${describeRemote(remote)} exists but has nothing in it yet — no files, no branches, no ` +
-		`Projects. Nothing is wrong with the address. If somebody told you they had published there, ` +
-		`ask them to press Publish once.`
+		`Projects. Nothing is wrong with the address. If somebody told you their work was there, ` +
+		`ask them to Sync once.`
 	);
 }
 
@@ -803,7 +803,7 @@ function corruptFileMessage(remote: Named, path: string): string {
 	return (
 		`${path} arrived from ${describeRemote(remote)} as different bytes from the ones its file list ` +
 		`named, so this Review has stopped rather than show you work its author may not have ` +
-		`published. Something between this browser and GitHub — a proxy, or a cache — served a ` +
+		`sent. Something between this browser and GitHub — a proxy, or a cache — served a ` +
 		`rewritten copy. Opening it again starts afresh.`
 	);
 }

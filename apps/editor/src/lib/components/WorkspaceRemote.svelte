@@ -270,7 +270,7 @@
 		<!--
 			⚠ **What is said about sending here is only ever what is known** (ADR-0043). Push rights
 			cannot be read without a credential, so signed out this says that sending needs a sign-in
-			and **nothing whatever about rights** — a scholar who has connected to somebody else's
+			and **nothing whatever about rights** — a scholar whose Workspace belongs to somebody else's
 			public repository must not be told they may send to it, nor that they may not.
 		-->
 		{#if !storage.signedIn}
@@ -408,7 +408,7 @@
 		{/if}
 		<!--
 			⚠ **Withdrawal says what it cannot undo before it happens, and it is never called
-			unpublishing** (ADR-0045). A scholar who reads "turn the site off" as "make it unseen" will
+			taking the work back** (ADR-0045). A scholar who reads "turn the site off" as "make it unseen" will
 			act on that reading — with an embargoed photograph, or a manuscript under a library's
 			publication restriction — so the three things it cannot promise are on the screen where the
 			press is, rather than in a document nobody opens.

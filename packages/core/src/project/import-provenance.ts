@@ -61,7 +61,7 @@ export interface GitHubImportProvenance extends ImportProvenanceCommon {
 	readonly owner: string;
 	readonly repository: string;
 	readonly branch: string;
-	/** The Project's directory on the Remote: the address it was published at. */
+	/** The Project's directory on the Remote: the address it was read from. */
 	readonly directory: string;
 	/** The commit the branch stood at when the Project was read. */
 	readonly commit: string;

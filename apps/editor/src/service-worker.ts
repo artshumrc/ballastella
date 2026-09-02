@@ -32,7 +32,7 @@
 //      planet of tiles, and nothing here touches them.
 //   4. **The rest of `static/` is never cached.** This is the ADR-0019 hole a precaching worker
 //      opens: the editor's `static/` also holds the staged read-only viewer (`viewer-bundle/`),
-//      which Publish writes into a Workspace, and this repository's test fixtures.
+//      which a site write puts into a Workspace, and this repository's test fixtures.
 //      `check-viewer-deps.mjs` polices what the viewer *imports*; it cannot
 //      see what a service worker *caches*. Naming the one directory that is wanted, rather than
 //      taking `files` whole, is what closes it — and the offline suite asserts each cache's contents
@@ -83,7 +83,7 @@
 //
 // ⚠ **A new worker waits only where there is a client to protect.** A page loaded before this
 // browser had ever seen this worker is not controlled by it and is therefore not a client of the
-// registration, so a version published during that one page's life installs and activates
+// registration, so a version deployed during that one page's life installs and activates
 // immediately — the browser has nobody to wait for, and no code here or in the page can make it
 // wait. `activate` then runs, and the caches this build filled go. `$lib/pwa/installed-app.svelte.ts`
 // says so when it happens rather than pretending it did not; see `#considerNewer` there for why

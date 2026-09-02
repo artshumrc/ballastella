@@ -39,7 +39,7 @@
 //      `remote.json` has them on a Library's server. There is no flag to disagree with the bytes.
 //
 // This is not a contradiction of ADR-0004. That ADR is about *our own* tiles, whose address
-// depends on where the Workspace is later published and therefore cannot be baked in. A remote
+// depends on where the Workspace is later served and therefore cannot be baked in. A remote
 // service's URI is not our address; it is the citation, and it is the intent.
 
 import type { Alignment } from '../alignment/alignment.js';

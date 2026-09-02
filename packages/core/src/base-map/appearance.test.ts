@@ -26,7 +26,7 @@ const look = (patch: Partial<BaseMapAppearance> = {}): BaseMapAppearance => ({
 
 describe('the Base Map appearance', () => {
 	it('defaults to the map every Project drew before the field existed', () => {
-		// A build that started hiding the roads on upgrade would silently change what published maps
+		// A build that started hiding the roads on upgrade would silently change what a shared map
 		// assert, which is the same rule `borders` follows.
 		expect(DEFAULT_BASE_MAP_APPEARANCE).toEqual({ streets: true, relief: false, muted: false });
 		expect(isDefaultAppearance(look())).toBe(true);

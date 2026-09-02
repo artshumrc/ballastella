@@ -177,7 +177,7 @@ const ZUIDERZEE_GEOJSON = JSON.stringify({
 });
 
 /**
- * A Project that has been handed on twice: published on somebody's site, then sent as a bundle.
+ * A Project that has been handed on twice: read off somebody's site, then sent as a bundle.
  *
  * Written as the file spells it, because that is how a real imported Project arrives — the editor
  * reads this history rather than being told one.
@@ -620,7 +620,7 @@ test.describe('an Import that did not finish', () => {
 		await expect(page.getByTestId('unrecovered-import')).toBeVisible();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
-		// Nor is there a reader to reach: publishing is another walk of this Workspace, and it is absent
+		// Nor is there a reader to reach: a Sync is another walk of this Workspace, and it is absent
 		// rather than present and refused — the arrangement a review copy already has. What Backup says
 		// in this state is `keeping-your-work.dom.test.ts`'s, where the control lives.
 		await expect(page.getByTestId('connect-to-github')).toHaveCount(0);

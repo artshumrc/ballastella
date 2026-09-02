@@ -9,7 +9,7 @@ import { PMTiles } from 'pmtiles';
 
 // A static web server for the **editor's own build**, so that the PWA slice can be driven at a
 // domain root and in a project subdirectory, and so that a second version of the app can be
-// published under a running browser's feet.
+// redeployed under a running browser's feet.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY NOT `vite preview`, AND WHY NOT `support/static-site.ts`
@@ -21,8 +21,8 @@ import { PMTiles } from 'pmtiles';
 // update is a change to the *bytes a server hands out* while a browser is already running: nothing
 // that serves a fixed directory can express it.
 //
-// `support/static-site.ts` serves a published Workspace and is deliberately dumb about paths — no
-// index-guessing beyond a trailing slash — because that is what a published Workspace needs. The
+// `support/static-site.ts` serves a Workspace as a site and is deliberately dumb about paths — no
+// index-guessing beyond a trailing slash — because that is what such a site needs. The
 // editor's build is shaped differently: `trailingSlash: 'never'` means its pages are flat files
 // (`base-map.html`, not `base-map/index.html`), so a host has to resolve `/base-map` to
 // `base-map.html` and redirect `/base-map/` to `/base-map`, which is what GitHub Pages does and
@@ -68,7 +68,7 @@ const MEDIA_TYPES: Record<string, string> = {
 };
 
 /**
- * The marker a newly published version carries in its entry HTML.
+ * The marker a newly deployed version carries in its entry HTML.
  *
  * The point of it is that "the old version is still serving" and "the new version is serving now"
  * become questions about **what the browser rendered**, rather than about a cache name or a
@@ -530,7 +530,7 @@ export type EditorDeployment = {
 	 * a new worker, and its cache name changes with them — so which build answered a request is
 	 * decidable from `caches.keys()` as well as from the page.
 	 */
-	publishNewVersion(): void;
+	deployNewVersion(): void;
 	/**
 	 * Stop answering, in the middle of a test rather than at the end of one.
 	 *
@@ -559,7 +559,7 @@ export async function deployEditor(prefix = ''): Promise<EditorDeployment> {
  * two servers and the reason this exists.
  *
  * ADR-0006's subdirectory case is `user.github.io/` and `user.github.io/ballastella/`: one host, two
- * published folders, and — the part nothing else in this harness can express — *one* cache storage,
+ * served folders, and — the part nothing else in this harness can express — *one* cache storage,
  * *one* set of registrations, and one OPFS between them. A second `deployEditor` call gets a second
  * port and therefore a second origin, where every one of those is private again and the interesting
  * failure cannot happen.
@@ -590,7 +590,7 @@ export async function deployEditors(...prefixes: string[]): Promise<EditorDeploy
 		const asked = request.url ?? '/';
 		const url = new URL(asked, 'http://127.0.0.1');
 		const prefix = byDepth.find((candidate) => url.pathname.startsWith(`${candidate}/`));
-		// A path outside every published folder is nobody's and everybody's: it is the ADR-0006
+		// A path outside every served folder is nobody's and everybody's: it is the
 		// failure, and whichever deployment a test is looking at has to be able to see it.
 		const heard = prefix === undefined ? [...state.values()] : [state.get(prefix)!];
 		for (const record of heard) record.requests.push(asked);
@@ -609,7 +609,7 @@ export async function deployEditors(...prefixes: string[]): Promise<EditorDeploy
 		};
 
 		if (prefix === undefined) {
-			// What a static host does with a path outside the published folder. An asset referenced
+			// What a static host does with a path outside the served folder. An asset referenced
 			// absolutely lands here, which is the failure ADR-0006 exists to prevent.
 			answer(404, `${url.pathname} is outside ${prefixes.map((p) => `${p}/`).join(', ')}`, {
 				'content-type': 'text/plain; charset=utf-8'
@@ -691,7 +691,7 @@ export async function deployEditors(...prefixes: string[]): Promise<EditorDeploy
 			prefix,
 			requests: record.requests,
 			failures: record.failures,
-			publishNewVersion: () => {
+			deployNewVersion: () => {
 				record.nextVersion = true;
 			},
 			stopServing: stop,

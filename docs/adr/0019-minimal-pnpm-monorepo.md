@@ -11,7 +11,7 @@ apps/editor          the authoring app
 apps/viewer          the lean read-only viewer written into published sites
 ```
 
-ADR-0006 requires two builds. The question was how the viewer's leanness gets *enforced*, and that is what decides the structure.
+A Published Site carries a read-only viewer of its own ([ADR-0045](./0045-a-repository-holds-the-work-and-a-site-is-asked-for.md)), so there are two builds. The question was how the viewer's leanness gets *enforced*, and that is what decides the structure.
 
 **In a single app with two entry points, the viewer's leanness depends on tree-shaking, and tree-shaking is not a boundary.** One incautious import of a module that transitively reaches `terra-draw`, the tiler, or a `wasm-vips` chunk, and every published site silently grows by megabytes — no error, no failing test, nobody looking. With a separate app, `apps/viewer` simply does not list those dependencies, so the constraint is visible in the lockfile and in the bundle, and violating it requires deliberately adding a dependency rather than merely writing an import.
 

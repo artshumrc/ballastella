@@ -254,7 +254,7 @@ describe('unpacking streams rather than buffering the archive', () => {
 	// number that could not be trusted:
 	//
 	//   1. **Peak `heapUsed` growth** across a 512 MiB round trip. Reported 2.80 MiB, and that figure
-	//      was published in `pnpm-workspace.yaml` and in two module headers before review caught it. It
+	//      was declared in `pnpm-workspace.yaml` and in two module headers before review caught it. It
 	//      measured **nothing**: a `Uint8Array`'s payload is external memory and does not appear in
 	//      `heapUsed` at all. Measured against a consumer deliberately retaining every chunk — the
 	//      exact bug the assertion existed to catch:

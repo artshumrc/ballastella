@@ -201,7 +201,7 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * **THE LAYER ROW IS A TRANSIENT SIGNAL, NOT A SETTLED ONE** (the fourth copy of the same defect).
  *
- * `EditorSession.ingestImage` publishes the Layer — and therefore this row — from `#addMapLayer`,
+ * `EditorSession.ingestImage` announces the Layer — and therefore this row — from `#addMapLayer`,
  * and then keeps running: it lists the Workspace's pyramids and only then clears `ingest`, which
  * is what re-enables the file input. Returning at the row left this helper's caller inside that
  * window, and the *second* call then picked a file on a still-disabled input.

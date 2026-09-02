@@ -86,13 +86,13 @@
 			ADR-0007: the library's own rights statement, at the moment the user chooses to copy — long
 			after the Manifest was navigated away from, which is why both fields are written into
 			`remote.json` at add time. Absent is said rather than left blank, because "this library
-			published nothing about rights" is a different fact from "nobody has looked", and only one of
+			said nothing about rights" is a different fact from "nobody has looked", and only one of
 			them means the scholar has to go and find out.
 		-->
 		<dl class="mt-4 text-sm" data-testid="offline-copy-rights">
 			<dt class="font-medium">Rights</dt>
 			<dd class="break-all">
-				{image.rights || 'This library published no rights statement for this image.'}
+				{image.rights || 'This library states no rights for this image.'}
 			</dd>
 			<dt class="mt-2 font-medium">Required statement</dt>
 			<dd>{image.attribution || 'This library asked for no particular attribution.'}</dd>

@@ -2,7 +2,7 @@
 //
 // One database connection per operation rather than one held open for the session, matching what the
 // folder grant already does: a connection left open blocks the next version upgrade in another tab,
-// and these writes happen at Open, Update and Publish rather than on the path of an edit.
+// and these writes happen at Open and at a Sync rather than on the path of an edit.
 //
 // Nothing here catches. `SynchronizationMetadata` is the layer that turns a store which will not answer
 // into `Cannot tell`, and a second silent catch here would hide the difference between "no record" and

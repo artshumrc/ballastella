@@ -11,7 +11,7 @@
 // hourly request budget.
 //
 // **A refusal does not refuse the connection.** The relationship is also provenance — *this
-// Workspace came from there* — and a reader who connected to somebody's public repository has a
+// Workspace came from there* — and a reader who got somebody's public repository has a
 // legitimate connected-but-unable-to-push state. So a `permissions.push` of `false` is a sentence,
 // and the caller records the relationship anyway.
 //
@@ -75,7 +75,7 @@ export type BindRemoteOptions = {
 	 */
 	readonly token: string;
 	readonly remote: RemoteReference;
-	/** Defaulting to the page's own, as the publish engine and the place lookup already do. */
+	/** Defaulting to the page's own, as the send engine and the place lookup already do. */
 	readonly fetch?: FetchFn;
 };
 
@@ -117,7 +117,7 @@ export type RemoteRights = {
 	 *
 	 * `false` for a token with no write permission **and** for a response carrying no `permissions`
 	 * at all, which is what an unauthenticated read of a public repository answers. Both mean "this
-	 * publish would be refused", and that is the only question being asked.
+	 * send would be refused", and that is the only question being asked.
 	 */
 	readonly canPush: boolean;
 };
@@ -416,11 +416,7 @@ export async function bindWorkspaceToRemote(
 	workspaceName: string,
 	options: ConnectRemoteOptions
 ): Promise<RemoteBindOutcome> {
-	assertNotReviewing(
-		workspaceName,
-		await readReviewMark(store),
-		'connected to a repository on GitHub'
-	);
+	assertNotReviewing(workspaceName, await readReviewMark(store), 'given a repository on GitHub');
 	const rights = await readRemoteRights(options);
 
 	return {
@@ -493,9 +489,9 @@ function unreachableMessage(remote: RemoteReference, cause: unknown): string {
 
 function noPushMessage(remote: RemoteReference): string {
 	return (
-		`This token cannot push to ${describeRemote(remote)}, so publishing to it will be refused. ` +
+		`This token cannot push to ${describeRemote(remote)}, so sending to it will be refused. ` +
 		`The binding has been kept anyway, because it records where this Workspace belongs. To ` +
-		`publish, use a fine-grained personal access token with “Contents: Read and write” for this ` +
+		`send, use a fine-grained personal access token with “Contents: Read and write” for this ` +
 		`repository — or, if it is somebody else's, ask them for write access.`
 	);
 }
@@ -512,7 +508,7 @@ function noBranchYet(remote: RemoteReference, branch: string): string {
 	return (
 		`GitHub Pages is not on yet for ${describeRemote(remote)}, because the repository is empty — a ` +
 		`repository created without a README has no “${branch}” branch for a site to be served from. ` +
-		`Nothing is wrong with your token and nothing needs fixing. Publish once: that makes the ` +
+		`Nothing is wrong with your token and nothing needs fixing. Sync once: that makes the ` +
 		`branch. If the site still serves nothing afterwards, open ${describeRemote(remote)} → ` +
 		`Settings → Pages, set Source to “Deploy from a branch”, choose “${branch}” and “/ (root)”, ` +
 		`and press Save.`
@@ -559,7 +555,7 @@ function siteStillUpMessage(remote: RemoteReference): string {
 /**
  * What withdrawing Share Links cannot undo, said before it happens.
  *
- * ⚠ **It is not a way to unpublish, and it is never presented as one** (ADR-0045). A scholar who
+ * ⚠ **It is not a way to take the work back, and it is never presented as one** (ADR-0045). A scholar who
  * reads "turn the site off" as "make it unseen" will act on that reading — with an embargoed
  * photograph, or a manuscript under a library's restriction — so the three things it cannot promise
  * are named in the confirmation rather than in a document nobody opens.

@@ -14,7 +14,7 @@
 // promise made about a different failure:
 //
 //   - **One function, rendered by both deployments.** The published viewer renders it and the editor
-//     renders it. Two templates would be two answers to one outage, and the scholar who publishes a
+//     renders it. Two templates would be two answers to one outage, and the scholar who shares a
 //     site is the same person who reads it.
 //   - **Three things, in the order the questions arrive**: it is not you; your work is safe; here is
 //     what would fix it.
@@ -131,7 +131,7 @@ function remedy(failure: TileSourceFailure): string {
 			// re-request a file the site does not carry is advice that cannot work, which is the whole
 			// reason this row is told apart from the two that can recover.
 			return (
-				'Reconnecting will not help, because the file is not there to fetch. Whoever published ' +
+				'Reconnecting will not help, because the file is not there to fetch. Whoever made ' +
 				'this site has to restore it.'
 			);
 		case 'server-error':

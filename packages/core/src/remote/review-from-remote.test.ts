@@ -42,17 +42,17 @@ const projectJson = (name: string, imageId: string, annotation: string): string 
 		baseMap: null
 	});
 
-/** The publisher's own work on their own repository, which no reader of it may take (ADR-0033). */
+/** The author's own work on their own repository, which no reader of it may take (ADR-0033). */
 const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
 
 /**
- * A published Workspace holding **two** Projects and **three** Map Images.
+ * A Workspace on a Remote holding **two** Projects and **three** Map Images.
  *
  * `map-3` is drawn by no Layer of either Project — a Workspace holds a shared pool (ADR-0023) — and
  * `map-2` is drawn only by the Boston Project. Both are what make "only what this Project references
  * travels" assertable rather than merely true of a fixture with nothing else in it.
  */
-const PUBLISHED: Record<string, string> = {
+const ON_REMOTE: Record<string, string> = {
 	'.nojekyll': '',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/app.js': 'export const start = () => {};',
@@ -92,12 +92,12 @@ const AMSTERDAM_CLOSURE = [
 	'images/map-1/info.json'
 ];
 
-const github = (tree: Record<string, string> = PUBLISHED): Promise<FakeGitHub> =>
+const github = (tree: Record<string, string> = ON_REMOTE): Promise<FakeGitHub> =>
 	createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree });
 
-/** The published tree with some of it never published — an author's mistake, as it reaches a reviewer. */
+/** The Remote's tree with some of it never sent — an author's mistake, as it reaches a reviewer. */
 const withoutFiles = (...paths: string[]): Record<string, string> =>
-	Object.fromEntries(Object.entries(PUBLISHED).filter(([path]) => !paths.includes(path)));
+	Object.fromEntries(Object.entries(ON_REMOTE).filter(([path]) => !paths.includes(path)));
 
 /** A destination whose store and discards are inspectable. */
 function destinationFor(
@@ -189,7 +189,7 @@ describe('reviewFromRemote', () => {
 		expect(written).not.toContain(`${BOSTON}/project.json`);
 	});
 
-	it('takes nothing of the publisher’s own, and no path outside the owned namespace', async () => {
+	it('takes nothing of the author’s own, and no path outside the owned namespace', async () => {
 		// The closure is inside ADR-0033's namespace by construction rather than by a filter, so the
 		// containment is asserted here — with `isOwnedPath` itself, so the two cannot drift apart.
 		const fake = await github();
@@ -200,7 +200,7 @@ describe('reviewFromRemote', () => {
 			fetch: fake.fetch
 		});
 
-		const projects = projectDirectories(Object.keys(PUBLISHED));
+		const projects = projectDirectories(Object.keys(ON_REMOTE));
 		for (const path of await destination.store.list('')) {
 			if (path === 'review.json') continue;
 			expect(isOwnedPath(path, projects, true)).toBe(true);
@@ -338,7 +338,7 @@ describe('reviewFromRemote', () => {
 		const other = await createFakeGitHub({
 			owner: 'grace',
 			repository: 'harbours',
-			tree: PUBLISHED
+			tree: ON_REMOTE
 		});
 		const first = destinationFor(new MemoryProjectStore(), 'atlas');
 		const second = destinationFor(new MemoryProjectStore(), 'harbours');
@@ -389,7 +389,7 @@ describe('reviewFromRemote', () => {
 		// A heap of tiles with no `info.json` — and no `remote.json`, which is how a referenced image
 		// says its tiles are on somebody else's server — is a directory no client can open, so the map
 		// is missing whether or not the directory is there. `assertReferencesPresent` draws the same
-		// line, and the reference names the file an author has to publish.
+		// line, and the reference names the file an author has to send.
 		const fake = await github(withoutFiles('images/map-1/info.json'));
 
 		const result = await reviewFromRemote(destinationFor().open, {
@@ -545,7 +545,7 @@ describe('what a Review refuses', () => {
 		const fake = await github();
 
 		const refusal = await reviewFromRemote(destinationFor().open, {
-			remote: { owner: OWNER, repository: 'not-published', project: AMSTERDAM },
+			remote: { owner: OWNER, repository: 'nothing-sent', project: AMSTERDAM },
 			fetch: fake.fetch
 		}).catch((cause: unknown) => cause);
 
@@ -602,7 +602,7 @@ describe('what a Review refuses', () => {
 		// ADR-0010, re-ended for this path. It lands while there is still nothing to throw away,
 		// because a tree is an index and the manifest can be read before the destination exists.
 		const fake = await github({
-			...PUBLISHED,
+			...ON_REMOTE,
 			[`${AMSTERDAM}/project.json`]: JSON.stringify({
 				formatVersion: 99,
 				name: 'Next year’s',
@@ -648,7 +648,7 @@ describe('what a Review refuses', () => {
 		// difference bites: reviewing signs in to nothing, so the budget is GitHub's 60 requests an hour
 		// *per IP address* — and the scenario is a class of students reviewing one
 		// instructor's Project from one campus connection, where the 61st reader meets this having made
-		// no requests at all. "Ask whoever published it to make it public" is then an instruction about
+		// no requests at all. "Ask whoever owns it to make it public" is then an instruction about
 		// a repository none of them own, and following it would not help.
 		const fake = await github();
 		fake.rateLimit = { remaining: 0, reset: 1_800_000_000 };

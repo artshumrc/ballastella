@@ -5,18 +5,18 @@ import { fileURLToPath } from 'node:url';
 
 test('the hub page loads', async ({ page }) => {
 	// Served straight out of `apps/viewer/build`, with no site record beside it — which is what the
-	// bundle looks like before publishing has written one. It has to load and say something rather
+	// bundle looks like before a site record exists. It has to load and say something rather
 	// than throw: the same files are what a half-set-up GitHub Pages repository serves.
 	await page.goto('./');
 
 	await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 });
 
-test('the built bundle carries no publishing machinery and no alignment route', async () => {
-	// ADR-0019's boundary, from the viewer's side. The publish planner, its warnings,
+test('the built bundle carries no site-writing machinery and no alignment route', async () => {
+	// ADR-0019's boundary, from the viewer's side. The site planner, its warnings,
 	// and the canonical stamp all live in `@ballastella/core`, which `apps/viewer` imports **wholesale**
 	// — so `scripts/check-viewer-deps.mjs` cannot see them, exactly as a review of that fence found.
-	// Every published site ships this bundle and a Reader never publishes anything.
+	// Every Published Site ships this bundle and a Reader never sends anything.
 	//
 	// Marker strings rather than identifiers, because identifiers are minified away, and each one is
 	// present in the built *editor*, which is what makes them known-good positives. The build is here
@@ -26,7 +26,7 @@ test('the built bundle carries no publishing machinery and no alignment route', 
 
 	// ─── And no alignment route ──────────────────────────────────────────────────────────────────
 	//
-	// `/align` is the editor's, and a screen no Reader can use must not cost a published site bytes:
+	// `/align` is the editor's, and a screen no Reader can use must not cost a Published Site bytes:
 	// `AlignmentWorkspace` reaches two live map contexts, the pairing state, the transformation
 	// solver and the distortion overlay. It stays in `apps/editor` for that reason and is deliberately
 	// **not** in `packages/ui` — moving it there would put an alignment tool in every Published Site's
@@ -36,7 +36,7 @@ test('the built bundle carries no publishing machinery and no alignment route', 
 	// identifiers, so a minifier cannot rename them away, and the positive control at the bottom of
 	// this test is what says they are still the strings the editor ships.
 	const markers = [
-		'a free static host such as GitHub Pages will publish',
+		'a free static host such as GitHub Pages will serve',
 		'VIEWER_FILE_PATHS does not record',
 		'still fetched from the library that holds',
 		'is a Project whose folder has',

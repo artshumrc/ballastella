@@ -90,11 +90,11 @@ export function observedImportProvenance(
  *
  * ⚠ **`canonicalUrl` is cleared and survives only inside the entry**, where it is a historical route
  * rather than an address. Left in place it would be a copy claiming the source's citable IIIF
- * endpoint as its own, and the next publish would offer to stamp somebody else's site.
+ * endpoint as its own, and the next stamp would offer somebody else's site.
  *
  * ⚠ **`onFrontPage` is `false` whatever the source chose**, because the source's choice was about the
  * source's site. It is not privacy and nothing here should be read as making it privacy: the
- * imported Project is as publishable as any other, and the control that decides the listing says so
+ * imported Project can go on a Front Page like any other, and the control that decides the listing says so
  * in words.
  */
 export function detachImportedProject(

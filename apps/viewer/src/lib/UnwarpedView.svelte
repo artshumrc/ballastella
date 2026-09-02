@@ -16,11 +16,11 @@
 	//
 	// On a Published Site that limitation simply does not apply: the pyramid **is** a set of static files
 	// beside `index.html`, so it has a real URL and OpenSeadragon can fetch it with nothing injected. This
-	// is the one place where publishing makes a feature possible rather than merely visible, and it is why
+	// is the one place where a Published Site makes a feature possible rather than merely visible, and it is why
 	// reading a Map Image unwarped is a Reader's feature rather than an author's.
 	//
 	// What crosses into triiiceratops is a Manifest built by `$lib/unwarped-manifest` over this site's own
-	// address. It is not the published `manifest.json`: every `id` in that document is the ADR-0004
+	// address. It is not the site's `manifest.json`: every `id` in that document is the ADR-0004
 	// `unset.invalid` placeholder, so read verbatim it draws nothing — see that module.
 
 	import { TriiiceratopsViewer } from 'triiiceratops/svelte';

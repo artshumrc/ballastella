@@ -36,7 +36,7 @@ export const BASE_MAP_BORDERS: readonly BaseMapBorders[] = ['none', 'national', 
  * What a Project that says nothing draws.
  *
  * `all` because that is what every Project drew before this field existed, and a build that started
- * hiding borders on upgrade would silently change what published maps assert. It is also why
+ * hiding borders on upgrade would silently change what a shared map asserts. It is also why
  * `serialiseProjectFile` omits the field at this value: an unchanged Project's bytes stay what they
  * were (ADR-0010).
  */

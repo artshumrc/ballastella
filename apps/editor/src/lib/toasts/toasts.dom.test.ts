@@ -2,7 +2,7 @@
 //
 // ⚠ **The subject is the stack, not any one sentence.** What each message *says* is the business of
 // the component that states it, and where each of them used to sit is asserted where it sits now
-// (`editor-publish.e2e.ts`, `editor-github-signin.e2e.ts`, `editor-remote-conflict.e2e.ts` all find
+// (`editor-sync.e2e.ts`, `editor-github-signin.e2e.ts`, `editor-remote-conflict.e2e.ts` all find
 // their message by the name its line carried before it became a toast). What only this seam can say
 // cheaply is that a source states its current message and gets exactly one standing toast for it,
 // that the reader can put it away, that a source leaving the screen takes its message with it — and
@@ -50,9 +50,9 @@ const post = (props: {
 
 test('draws a source’s message in the stack, under the name its line carried', () => {
 	const page = render();
-	post({ text: 'Published: 53 files written into your Workspace.', testid: 'publish-status' });
+	post({ text: 'Sent: 53 files written into your Workspace.', testid: 'sync-status' });
 
-	const message = page.querySelector('[data-testid="publish-status"]');
+	const message = page.querySelector('[data-testid="sync-status"]');
 	expect(message).not.toBeNull();
 	expect(message?.textContent).toContain('53 files');
 	// A status is announced by the region it is inserted into, which is mounted before it has
@@ -127,20 +127,20 @@ test('withdraws a message when its source has nothing left to say', () => {
 });
 
 test('withdraws a message when the screen that stated it goes away', () => {
-	// A publish result belongs to the Workspace it was about: left standing under the bar of the next
+	// A Sync's result belongs to the Workspace it was about: left standing under the bar of the next
 	// one it is a statement about that Workspace, and it is false.
 	const page = render();
 	const source = mount(Toast, {
 		target: host as HTMLElement,
-		props: { text: 'Published: 53 files.', testid: 'publish-status' }
+		props: { text: 'Sent: 53 files.', testid: 'sync-status' }
 	});
 	flushSync();
-	expect(page.querySelector('[data-testid="publish-status"]')).not.toBeNull();
+	expect(page.querySelector('[data-testid="sync-status"]')).not.toBeNull();
 
 	unmount(source);
 	flushSync();
 
-	expect(page.querySelector('[data-testid="publish-status"]')).toBeNull();
+	expect(page.querySelector('[data-testid="sync-status"]')).toBeNull();
 });
 
 test('carries several sources at once without the screen coming down', () => {
@@ -155,7 +155,7 @@ test('carries several sources at once without the screen coming down', () => {
 		testid: 'remote-status-failure',
 		refusal: true
 	});
-	post({ text: 'Published: 53 files.', testid: 'publish-status' });
+	post({ text: 'Sent: 53 files.', testid: 'sync-status' });
 
 	expect(page.querySelectorAll('.toast > *')).toHaveLength(3);
 });

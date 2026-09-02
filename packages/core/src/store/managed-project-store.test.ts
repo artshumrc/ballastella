@@ -9,8 +9,8 @@ import type { LocalChanges } from '../remote/local-change-index.js';
 // What this seam is for is the question "has anything in this Workspace changed since GitHub last saw
 // it?", answered without reading a Workspace that may be several gigabytes. So the tests are about
 // what does and does not earn a mark: only what succeeded, and only scholarship. A mark on a
-// published `_app/` chunk would make every Workspace read `Changes to send` the moment it
-// published, and a *missing* mark is worse — it reports changed work as `In sync`.
+// site's `_app/` chunk would make every Workspace read `Changes to send` the moment a site was
+// written, and a *missing* mark is worse — it reports changed work as `In sync`.
 
 const WORKSPACE = 'opfs:Marking 2026';
 const FOLDER = 'folder:maps';
@@ -130,7 +130,7 @@ describe('ManagedProjectStore', () => {
 		expect(await store.localChanges()).toEqual({ written: [], deleted: [] });
 	});
 
-	it('marks nothing for the output a Publish generates', async () => {
+	it('marks nothing for the output a site write generates', async () => {
 		const workspace = new MemoryProjectStore();
 		const storage = new FakeMetadataStorage();
 		const store = manage(workspace, storage);
@@ -149,7 +149,7 @@ describe('ManagedProjectStore', () => {
 		expect(await store.localChanges()).toEqual({ written: [], deleted: [] });
 	});
 
-	it('marks the offline tile cache, which lives inside a Publish-owned directory', async () => {
+	it('marks the offline tile cache, which lives inside a site-owned directory', async () => {
 		const workspace = new MemoryProjectStore();
 		const storage = new FakeMetadataStorage();
 		const store = manage(workspace, storage);

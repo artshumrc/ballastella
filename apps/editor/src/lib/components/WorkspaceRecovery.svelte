@@ -31,7 +31,7 @@
 <!--
 	⚠ **First, and on its own**. An Import or an Update that did not finish leaves its provisional
 	files at ordinary Workspace paths under one durable marker, so a Workspace whose marker cannot be
-	resolved does not open at all — no Project list, no Map Image list, no size, no Backup, no Publish
+	resolved does not open at all — no Project list, no Map Image list, no size, no Backup, no Sync
 	and no Project. That is not one state among the two below but the absence of a Workspace to have
 	them about, so nothing else on this component renders beside it, and neither does the hub's list.
 

@@ -338,7 +338,7 @@ describe('Workspace', () => {
 	/**
 	 * The Front Page choice, from the Workspace's side (ADR-0032).
 	 *
-	 * The state a hub renders and the state a publish records both come from `project.json`, through
+	 * The state a hub renders and the state a site records both come from `project.json`, through
 	 * `listProjects`. Nothing caches it, which is what makes "the choice survives a reload" a property
 	 * of the file rather than of the page.
 	 */
@@ -371,7 +371,7 @@ describe('Workspace', () => {
 		 * list and touches nothing else, which is the whole of what the control promises the user.
 		 *
 		 * ⚠ **`toEqual`, not `toMatchObject`, and the clock has moved.** `updatedAt` is what the hub is
-		 * sorted by and what publishing writes the Front Page in the order of, so a stamp here jumps the
+		 * sorted by and what the site record writes the Front Page in the order of, so a stamp here jumps the
 		 * row to the top under the cursor that just clicked it and reorders the site — which ADR-0045
 		 * leaves alone. A `toMatchObject` assertion passes straight through that, which is how it was
 		 * missed; naming the whole object is what makes the absence of a stamp an assertion.
@@ -928,7 +928,7 @@ describe('Workspace', () => {
 
 		/**
 		 * ⚠ **A Project with an empty display name could never have its deletion finished**, and its
-		 * record leaked for ever. `#summarise` published `file.name || directory` and the deletion
+		 * record leaked for ever. `#summarise` announced `file.name || directory` and the deletion
 		 * check compared the raw `file.name`, so the two disagreed about exactly one Project: the one
 		 * whose manifest carries no name, which `parseProjectFile` renders as `''` and which a
 		 * hand-editable folder Workspace can hold. It was refused at every startup, and the sentence
@@ -1277,7 +1277,7 @@ describe('the Workspace’s shared Map Images (ADR-0023)', () => {
 
 	// The behaviour the whole ticket exists to demonstrate. Two Projects, two Layers with their own ids
 	// and their own display state, one `imageId` — and therefore **one pyramid and one Alignment on
-	// disk**, which is the difference between a semester's work publishing and failing under ADR-0008's
+	// disk**, which is the difference between a semester's work reaching GitHub and failing under ADR-0008's
 	// ~1 GB budget.
 	it('lets two Projects hold a map Layer for the same image, with one pyramid on disk', async () => {
 		await addMapImage('floride-1657');

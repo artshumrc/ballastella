@@ -339,12 +339,12 @@ describe('restoring reproduces the Workspace', () => {
 		expect(restored.workspaceName).toBe('Marking 2026 (2)');
 	});
 
-	it('says that publishing is needed before the Workspace is a site again', async () => {
+	it('says that Share Links are needed before the Workspace is a site again', async () => {
 		const store = seed({ 'a/project.json': projectJson(), 'index.html': '<!doctype html>' });
 		const there = destination('Marking 2026');
 		const restored = await restoreWorkspaceTar(streamOf(await archiveOf(store, 'W')), there.open);
 
-		expect(restored.notice).toMatch(/publish/i);
+		expect(restored.notice).toMatch(/Share Links/i);
 		// And the other half of what the exclusion cost, which is easy to leave unsaid: an offline
 		// copy's Base Map tiles are gone too, and a Reader of a Project that had one sees a blank map.
 		expect(restored.notice).toMatch(/offline/i);

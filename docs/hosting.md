@@ -46,7 +46,7 @@ deploys.
 It runs `pnpm build:deploy` rather than `pnpm build`. The two differ in one way: a deployment build
 reads a filtered source tree, so a public instance ships neither the `/image-pane` developer harness
 route nor the ~1 MB of test fixtures it reads. Both stay in the repository — a browser test suite
-drives them — and it is the published artifact that leaves them out. If you build by hand for another
+drives them — and it is the deployed artifact that leaves them out. If you build by hand for another
 host, use `pnpm build:deploy` for the same reason, and `node scripts/check-deploy-artifact.mjs` will
 tell you whether you got the build you meant.
 
@@ -301,7 +301,7 @@ reason to keep the fork current.
 ## Part 2 — Syncing your Workspace, and sharing what is in it
 
 Your Workspace is a folder on your computer holding your Projects. To **Sync** is to bring that folder
-and its **Remote** — the one GitHub repository your Workspace is connected to — into agreement, in
+and its **Remote** — the one GitHub repository your Workspace belongs to — into agreement, in
 whichever direction the difference lies. There is no `git` to learn and nothing to install: the editor
 talks to GitHub from the browser.
 

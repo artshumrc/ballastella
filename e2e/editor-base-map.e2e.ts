@@ -426,7 +426,7 @@ test.describe('the Base Map pane', () => {
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('app-wordmark')).toBeFocused();
 		// One GitHub control in the row and one in the order (ADR-0041): everything a scholar can do
-		// about GitHub — connecting, publishing, the Update and the check — is behind this one press,
+		// about GitHub — connecting, sending, getting and the check — is behind this one press,
 		// so the bar's main row is the Edit History slot, this, and the theme control.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('connect-to-github')).toBeFocused();
@@ -1278,7 +1278,7 @@ function expectDrawnOver(inner: Box, outer: Box): void {
  *
  * A test taking its number from the constant the application paces itself by would go on passing if
  * that constant were changed to a minute — which is the same reason `ANNOTATION_COLOR` spells its hex
- * out in `support/annotations.ts`. One second is the service's published limit.
+ * out in `support/annotations.ts`. One second is the service's stated limit.
  */
 const ONE_SECOND = 1_000;
 

@@ -1,4 +1,4 @@
-// One Update from GitHub, run against a real backing, and asserted the same way for every backing
+// One get from a Remote, run against a real backing, and asserted the same way for every backing
 // there is.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -36,8 +36,8 @@ import {
 	readUpdateTransaction,
 	recoverWorkspaceUpdate,
 	serialiseUpdateTransaction,
-	updateFromGitHub
-} from './update-from-github.js';
+	getFromRemote
+} from './get-from-remote.js';
 
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -150,7 +150,7 @@ export function describeUpdateTransaction(name: string, open: UpdateBacking): vo
 			const store = await seed(open);
 			const fake = await remoteWithChanges();
 
-			const result = await updateFromGitHub(store, {
+			const result = await getFromRemote(store, {
 				remote: REMOTE,
 				token: null,
 				baseline: await baseline(),

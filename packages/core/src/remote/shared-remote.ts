@@ -7,7 +7,7 @@
 // are a collaborator, and repositories that they can access through an organization membership", and
 // that an App acting for a user reaches the intersection of what the App may touch and what the user
 // may touch. So a write collaborator signs in, the repository is simply in their listing, and they
-// publish to it — they install nothing and ask nobody. There is no code for that, and there is not
+// send to it — they install nothing and ask nobody. There is no code for that, and there is not
 // meant to be.
 //
 // What there is code for is the one gesture whose blast radius is somebody else's afternoon.
@@ -169,7 +169,7 @@ export type OutboundDeletionPreview = {
 	readonly projects: readonly string[];
 	/** Map Image identities every one of whose Remote files would go, sorted. */
 	readonly mapImages: readonly string[];
-	/** Every path the publish would remove, sorted. */
+	/** Every path the overwrite would remove, sorted. */
 	readonly paths: readonly string[];
 	/**
 	 * Removed paths no removed Project or Map Image above accounts for, sorted.
@@ -188,9 +188,9 @@ export type OutboundDeletionOptions = {
 	readonly remote: RemoteReference;
 	/** Whose the Remote is, which is what the question has to name. */
 	readonly sharing: RemoteSharing;
-	/** `RemotePublishPlan.removed`: the owned Remote source paths this publish takes down. */
+	/** `RemoteSendPlan.removed`: the owned Remote source paths this send takes down. */
 	readonly removed: Iterable<string>;
-	/** The local source namespace this publish would write, `RemotePublishPlan.source`'s keys. */
+	/** The local source namespace this send would write, `RemoteSendPlan.source`'s keys. */
 	readonly source: Iterable<string>;
 };
 
@@ -305,7 +305,7 @@ function removalMessage(
 	const whose = whoseSentence(remote, sharing);
 	if (paths.length === 0) {
 		return (
-			`${whose} Publishing anyway takes nothing off ${describeRemote(remote)} — every file it ` +
+			`${whose} Overwriting anyway takes nothing off ${describeRemote(remote)} — every file it ` +
 			`holds is one this Workspace has too — but it replaces the files you were just shown with ` +
 			`this Workspace's own copies of them, and whatever anybody else put in those is lost.`
 		);
@@ -320,7 +320,7 @@ function removalMessage(
 			: ` ${named.length === 0 ? 'It removes' : 'It also removes'} ` +
 				`${count(remaining.length, 'file')}: ${remaining.join(', ')}.`;
 	return (
-		`${whose} Publishing anyway removes ${count(paths.length, 'file')} from ` +
+		`${whose} Overwriting anyway removes ${count(paths.length, 'file')} from ` +
 		`${describeRemote(remote)} that this Workspace has not got.` +
 		(named.length === 0 ? '' : ` That removes ${sentenceList(named)} completely.`) +
 		rest +

@@ -15,9 +15,9 @@
 // apart, they describe a Workspace that never existed: a binding with no Baseline reads as
 // `Cannot tell` — survivable — but a Baseline whose binding stayed behind is a claim about a
 // repository the Workspace is no longer bound to, and a change index without its Baseline reports
-// an author's own unpublished work as the Remote's.
+// an author's own unsent work as the Remote's.
 //
-// A lost Remote binding is recoverable: the author binds again and the next Publish establishes
+// A lost Remote binding is recoverable: the author binds again and the next Sync establishes
 // evidence. A half-moved one is not, because nothing in the result says which half is missing. So
 // every failure here leaves the records where they were and answers `false`, and the caller goes on
 // using the old key until the next visit tries again.

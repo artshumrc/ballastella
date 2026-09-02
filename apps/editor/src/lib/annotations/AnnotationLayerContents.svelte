@@ -21,7 +21,7 @@
 	// `contents`: what an author can change about one Annotation is no longer in this column at all.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
-	// WHAT IS SHARED WITH A PUBLISHED SITE, AND WHAT IS THIS APP'S ALONE
+	// WHAT IS SHARED WITH A ON_REMOTE SITE, AND WHAT IS THIS APP'S ALONE
 	//
 	// The list and the rows are `@ballastella/ui`'s: a Reader meets the same rows in the same order,
 	// selecting the same way, and the mechanics exist once. What stays here is what only an author can

@@ -57,7 +57,7 @@ export class FakeStorage {
 		projects: ['amsterdam-1625'],
 		declined: [],
 		notice:
-			'Restored 4 files into a new Workspace called “My Workspace 2”. Publish it again to make it a site.'
+			'Restored 4 files into a new Workspace called “My Workspace 2”. Turn Share Links on again to make it a site.'
 	};
 	/** What `moveIntoFolder` answers, or throws when it is an `Error`. */
 	moveAnswer: string | Error =

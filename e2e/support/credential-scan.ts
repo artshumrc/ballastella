@@ -13,7 +13,7 @@ import type { Page } from './test.js';
  * Everywhere in this browser that holds `secret`, as `label:key` strings, sorted.
  *
  * `export-workspace-tar.ts` walks the `ProjectStore` and hands the result to the user as a file they
- * mail to a colleague; the write-ahead journal copies edits into `localStorage`; a Publish uploads
+ * mail to a colleague; the write-ahead journal copies edits into `localStorage`; a Sync uploads
  * the Workspace. So the one place a credential may be is `sessionStorage`, and a test that only
  * checked "signing in works" would pass just as happily with the token in any of the other three.
  *

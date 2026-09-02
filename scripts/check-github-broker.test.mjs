@@ -125,7 +125,7 @@ test('does not fire on the slug as a bare word, which is this project’s own na
 	const run = runIn({
 		extraFiles: {
 			'apps/editor/src/lib/sign-in.ts':
-				`import { publishToRemote } from '@${APP_SLUG}/core';\n` +
+				`import { sendToRemote } from '@${APP_SLUG}/core';\n` +
 				`const KEY = '${APP_SLUG}.github-credential';\n`
 		}
 	});

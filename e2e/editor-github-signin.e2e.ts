@@ -38,8 +38,8 @@ import {
  *     starts — and not taking a token pasted since down with it;
  *   - a Review Workspace reading, offering and spending nothing;
  *   - a sign-in kept past the tab where the author asked for that and not where they did not, with
- *     the renewable half surviving the close, the token that publishes not, and neither reaching a
- *     Backup or a Publish;
+ *     the renewable half surviving the close, the token that sends not, and neither reaching a
+ *     Backup or a Sync;
  *   - and, with no broker, the sign-in failing legibly while the pasted token binds as it always did.
  *
  * ⚠ **No spec here reaches `github.com`, `api.github.com`, or a real broker.** Every one of those
@@ -212,7 +212,7 @@ async function bindFromTheDoor(page: Page): Promise<void> {
 /**
  * Ask for Share Links, which is what makes a Sync carry a website at all (ADR-0045).
  *
- * ⚠ **A repository holds the work until the author asks for an address**, so a publish from a
+ * ⚠ **A repository holds the work until the author asks for an address**, so a send from a
  * connected Workspace that never asked sends the scholar's own files and nothing else — which for an
  * empty Workspace is nothing, and leaves the dialog correctly saying so. Every test below that means
  * to assert on a *site* therefore asks for one first, from the press that exists for it.
@@ -306,7 +306,7 @@ test.describe('signing in with GitHub', () => {
 
 	// ADR-0033: the credential and the grant beside it live in `sessionStorage` and nowhere else.
 	// `localStorage` holds the write-ahead journal, and the Workspace is what a Backup packs and a
-	// Publish uploads.
+	// a Sync uploads.
 	//
 	// ⚠ **The refresh token is scanned for by value, and it is the one that matters most.** It
 	// outlives the eight-hour access token it mints and is the longer-lived credential of the two, so
@@ -500,7 +500,7 @@ test.describe('a callback this tab did not ask for', () => {
 	});
 });
 
-// A GitHub App's user token lasts eight hours, and the answer is never a publish that fails partway
+// A GitHub App's user token lasts eight hours, and the answer is never a send that fails partway
 // through — it is checked before work starts, renewed where it can be, and turned into "sign in
 // again" where it cannot.
 test.describe('a sign-in that has run out', () => {
@@ -510,7 +510,7 @@ test.describe('a sign-in that has run out', () => {
 		// The redirect closed the dialog on its way through, so there is nothing to close here.
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
 
-		// Opening this screen is what asks; a Publish asks the same question the same way.
+		// Opening this screen is what asks; a Sync asks the same question the same way.
 		await openTheDoor(page);
 
 		await expect(page.getByTestId('connect-signed-in')).toBeVisible();
@@ -518,7 +518,7 @@ test.describe('a sign-in that has run out', () => {
 		expect(github.requests).toContain('/github/refresh');
 	});
 
-	// End to end, and *before* a publish starts rather than during one. The fake's own tokens are aged
+	// End to end, and *before* a send starts rather than during one. The fake's own tokens are aged
 	// as eight hours would age them, so GitHub would now refuse the credential — and what has to be
 	// shown is that the app never presents it. The remedy comes from the check, and the only thing
 	// that reached GitHub was the refresh that was refused.
@@ -556,7 +556,7 @@ test.describe('a sign-in that has run out', () => {
 		await expect(page.getByTestId('connect-expiry')).toContainText('sign-in has expired');
 		await expect(page.getByTestId('connect-expiry')).toContainText('Sign in with GitHub');
 		// ⚠ Cleared, not merely reported: every screen must render the not-signed-in state, so that a
-		// publish started a moment later cannot pick up a credential GitHub has stopped honouring.
+		// send started a moment later cannot pick up a credential GitHub has stopped honouring.
 		expect(await holdsCredential(page)).toBe(false);
 		expect(github.requests).toContain('/github/refresh');
 	});
@@ -565,7 +565,7 @@ test.describe('a sign-in that has run out', () => {
 // ADR-0041: the credential rule narrows rather than falls. *Forgotten when the tab closes* becomes
 // *forgotten when the tab closes unless the author has asked otherwise on this machine* — and what
 // is kept is the renewable half, in the installation's own database, where neither a Backup nor a
-// Publish walks.
+// a Sync walks.
 test.describe('a sign-in kept past the tab', () => {
 	// The pair that has to stay true: the scholar on a shared or lab machine
 	// changes nothing, is changed by nothing, and is told which rule is in force while they decide.
@@ -594,7 +594,7 @@ test.describe('a sign-in kept past the tab', () => {
 		await expect(page.getByTestId('connect-sign-in-with-github')).toBeVisible();
 	});
 
-	// The refresh token is what survives; the eight-hour token that publishes is
+	// The refresh token is what survives; the eight-hour token that sends is
 	// kept nowhere at all, and the way back to one is the broker — which is what leaves the broker's
 	// `Origin` allowlist in the path of anybody who took the database.
 	test('keeps the renewable half only, and signs itself back in with it', async ({ page }) => {
@@ -691,10 +691,10 @@ test.describe('a sign-in kept past the tab', () => {
 	});
 
 	// Both places a held sign-in could leak from, out of one: `export-workspace-tar` walks a Workspace into a
-	// file the author mails to a colleague, and a Publish uploads one to a public repository. The
+	// file the author mails to a colleague, and a Sync uploads one to a public repository. The
 	// archive's own bytes and the fake's received files are what is asked — a list of paths would
 	// pass just as happily with the secret inside one of them.
-	test('is in no Backup the author mails and no Publish they upload', async ({ page }) => {
+	test('is in no Backup the author mails and no Sync they upload', async ({ page }) => {
 		const github = await start(page);
 		await signInWithGitHub(page);
 		await expect(page.getByTestId('sign-in-outcome')).toContainText('Signed in to GitHub');
@@ -798,17 +798,17 @@ test.describe('with no broker served at all', () => {
 
 // ⚠ **The last second door, and the state a scholar reaches it from is an ordinary arrival.** The
 // credential is this tab's and the binding is the installation's, so a bound Workspace reopened
-// tomorrow morning and pressed to Publish is signed out with somewhere to publish to. It is the
+// tomorrow morning and pressed to Sync is signed out with somewhere to send to. It is the
 // last screen in the editor that has a credential to ask for, so it is gated on the deployment's
 // own answer exactly as every other one is: where an App is configured, no token field.
 //
-// It gets one test in a browser, here rather than in `editor-publish.e2e.ts`, because the claim is
+// It gets one test in a browser, here rather than in `editor-sync.e2e.ts`, because the claim is
 // about the **real** `isGitHubAppConfigured(GITHUB_APP)`: the gate reads it through
 // `WorkspaceStorage.signInWithGitHubOffered`, and this is the spec where that value is the subject
 // rather than the setting. The round trip is the other half — a redirect off the page cannot be
-// asserted anywhere but a browser, and what it has to land on is a publish.
-test.describe('a bound Workspace pressed to Publish with no credential', () => {
-	test('offers the GitHub sign-in and no token field, and the return leg reaches a publish', async ({
+// asserted anywhere but a browser, and what it has to land on is a send.
+test.describe('a bound Workspace pressed to Sync with no credential', () => {
+	test('offers the GitHub sign-in and no token field, and the return leg reaches a send', async ({
 		page
 	}) => {
 		const github = await start(page, { login: OWNER });
@@ -874,7 +874,7 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 // It is one test rather than five because each leg's starting state is the state the leg before it
 // leaves: the sign-in has to have happened for the listing to be readable, the listing has to have
 // been read for a repository to be choosable, and the connection has to have been made for the
-// Publish it hands off to to have anywhere to go.
+// Sync it hands off to to have anywhere to go.
 test.describe('the guided sequence, wired to the real thing', () => {
 	test('goes from the navigation bar through sign-in and a chosen repository to a published site', async ({
 		page

@@ -5,7 +5,7 @@ import { CATALOG_WITH_STALE_DEFAULT, EMPTY_CATALOG, FORKED_CATALOG } from './fix
 import {
 	baseMapArchiveHost,
 	baseMapFallbackNotice,
-	baseMapNotPublishedNotice,
+	baseMapNotInSiteNotice,
 	baseMapOptions,
 	baseMapUnavailableNotice,
 	defaultEntry,
@@ -141,16 +141,16 @@ describe('baseMapUnavailableNotice', () => {
 
 	it('offers the reader a remedy for a remote archive, and the deployment one for its own', () => {
 		// The split is `needsNetwork`, and it is the whole reason this function branches: a scholar can
-		// switch Base Map or cache tiles while one works; nobody but the publisher can restore a file
+		// switch Base Map or cache tiles while one works; nobody but the site's author can restore a file
 		// this site was supposed to serve. Telling a reader to try another Base Map when every entry
 		// reads the same missing local file would be advice that cannot work.
 		const fromNetwork = baseMapUnavailableNotice(remote, 'tiles.example.invalid');
 		expect(fromNetwork).toContain('available offline');
-		expect(fromNetwork).not.toContain('Whoever published it');
+		expect(fromNetwork).not.toContain('Whoever made it');
 
 		const fromSite = baseMapUnavailableNotice(bundled, null);
 		expect(fromSite).toContain('this site');
-		expect(fromSite).toContain('Whoever published it');
+		expect(fromSite).toContain('Whoever made it');
 		expect(fromSite).not.toContain('available offline');
 	});
 });
@@ -164,11 +164,11 @@ describe('baseMapArchiveHost', () => {
 	});
 });
 
-describe('baseMapNotPublishedNotice', () => {
-	// The four rows of "this site does not carry the Base Map's files", which is a publish-time choice
+describe('baseMapNotInSiteNotice', () => {
+	// The four rows of "this site does not carry the Base Map's files", which is the author's own choice
 	// (ADR-0020) and therefore the state of a great many sites. Two of these are unreachable from the
 	// browser suite — one needs a catalog entry with a relative archive, which this deployment has
-	// none of, and one needs cached tiles alongside absent assets, which no published fixture builds —
+	// none of, and one needs cached tiles alongside absent assets, which no site fixture builds —
 	// and both were **false in the shipped sentence** until this function existed to be driven.
 	//
 	// `FORKED_CATALOG` rather than the real one, deliberately: this has to hold for the fork that
@@ -185,13 +185,13 @@ describe('baseMapNotPublishedNotice', () => {
 	it('says nothing at all when the site carries the files', () => {
 		for (const entry of [siteServed, remote]) {
 			for (const cachedTiles of [true, false]) {
-				expect(baseMapNotPublishedNotice(entry, { bundledAssets: true, cachedTiles })).toBe('');
+				expect(baseMapNotInSiteNotice(entry, { bundledAssets: true, cachedTiles })).toBe('');
 			}
 		}
 	});
 
 	it('says the reference map is absent when there is nothing to draw one from', () => {
-		const notice = baseMapNotPublishedNotice(siteServed, {
+		const notice = baseMapNotInSiteNotice(siteServed, {
 			bundledAssets: false,
 			cachedTiles: false
 		});
@@ -205,23 +205,23 @@ describe('baseMapNotPublishedNotice', () => {
 
 	it('says a map that draws has lost its labels, whichever of the two draws it', () => {
 		// The archive is somebody else's, so the geography comes over the network…
-		expect(baseMapNotPublishedNotice(remote, { bundledAssets: false, cachedTiles: false })).toMatch(
+		expect(baseMapNotInSiteNotice(remote, { bundledAssets: false, cachedTiles: false })).toMatch(
 			NO_PLACE_NAMES
 		);
 		// …and this is the row the shipped sentence got wrong. `styleFor` tries the site's own cached
 		// tiles **before** it falls back to the bare background, so a site that carries tiles and no
 		// display assets draws geography from its own files — while the notice went on saying only the
 		// Map Images and Annotations were drawn.
-		expect(
-			baseMapNotPublishedNotice(siteServed, { bundledAssets: false, cachedTiles: true })
-		).toMatch(NO_PLACE_NAMES);
-		expect(baseMapNotPublishedNotice(remote, { bundledAssets: false, cachedTiles: true })).toMatch(
+		expect(baseMapNotInSiteNotice(siteServed, { bundledAssets: false, cachedTiles: true })).toMatch(
+			NO_PLACE_NAMES
+		);
+		expect(baseMapNotInSiteNotice(remote, { bundledAssets: false, cachedTiles: true })).toMatch(
 			NO_PLACE_NAMES
 		);
 	});
 
 	it('names the author’s Labels among what such a site does not draw, in every absent-assets row', () => {
-		// A Label is the scholar's words shaped from the Base Map's own typefaces, so a site published
+		// A Label is the scholar's words shaped from the Base Map's own typefaces, so a site written
 		// without them draws none — `drawLayerStack` omits the Label bucket where the style carries no
 		// glyphs. These rows used to promise that "the Annotations are not affected", which stopped
 		// being true the day Labels shipped; the Pins, Lines and Shapes are what they can still promise.
@@ -232,7 +232,7 @@ describe('baseMapNotPublishedNotice', () => {
 		// so the Labels are missing there for a reason of their own and the row may not promise them.
 		for (const entry of [siteServed, remote]) {
 			for (const cachedTiles of [true, false]) {
-				const notice = baseMapNotPublishedNotice(entry, { bundledAssets: false, cachedTiles });
+				const notice = baseMapNotInSiteNotice(entry, { bundledAssets: false, cachedTiles });
 
 				expect(notice).toMatch(NO_LABELS);
 				expect(notice).toContain('Pins, Lines and Shapes');
@@ -241,17 +241,17 @@ describe('baseMapNotPublishedNotice', () => {
 		}
 		// And nothing of the sort on a site that carries the files, where a Label draws like anything
 		// else.
-		expect(baseMapNotPublishedNotice(remote, { bundledAssets: true, cachedTiles: true })).toBe('');
+		expect(baseMapNotInSiteNotice(remote, { bundledAssets: true, cachedTiles: true })).toBe('');
 	});
 
 	it('never claims the geography is here, in any row', () => {
 		// The failure this function was extracted to end. A Reader meets this notice while the archive
-		// is refusing — the state of every site this deployment publishes since 2026-08-07 — and, with
+		// is refusing — the state of every site this deployment writes since 2026-08-07 — and, with
 		// no connection, with the outage notice deliberately withheld and this one standing alone in
 		// front of an empty rectangle. Any sentence asserting what is on screen is false there.
 		for (const entry of [siteServed, remote]) {
 			for (const cachedTiles of [true, false]) {
-				const notice = baseMapNotPublishedNotice(entry, { bundledAssets: false, cachedTiles });
+				const notice = baseMapNotInSiteNotice(entry, { bundledAssets: false, cachedTiles });
 
 				expect(notice).not.toMatch(/are all here/);
 				expect(notice).not.toMatch(/geography/);

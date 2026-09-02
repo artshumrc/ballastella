@@ -1,7 +1,7 @@
 // The one file listing, read directly, because most of what it does is a reading of answers no
 // caller can produce.
 //
-// `clone-from-remote.test.ts` and `review-from-remote.test.ts` drive this through the shared fake and
+// `workspace-address.test.ts` and `review-from-remote.test.ts` drive this through the shared fake and
 // assert the *sentences* their callers write. What is here is the half the fake cannot reach: a body
 // that is not JSON, a `tree` that is not an array, a status neither reader has a name for, and the
 // 403 that is a spent anonymous budget rather than a private repository.
@@ -236,7 +236,7 @@ describe('what the listing refuses', () => {
 });
 
 describe('against the shared fake GitHub', () => {
-	it('lists what a published repository holds', async () => {
+	it('lists what a repository holds', async () => {
 		const fake = await createFakeGitHub({
 			owner: REMOTE.owner,
 			repository: REMOTE.repository,

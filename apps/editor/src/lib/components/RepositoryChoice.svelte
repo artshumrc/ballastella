@@ -13,7 +13,7 @@
 	 * Nothing here holds a credential, and nothing here connects anything.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ⚠ A REPOSITORY THAT CANNOT BE PUBLISHED TO IS SHOWN AND REFUSED, NEVER HIDDEN
+	 * ⚠ A REPOSITORY THAT CANNOT BE ON_REMOTE TO IS SHOWN AND REFUSED, NEVER HIDDEN
 	 *
 	 * That is the reason the marks are on every row rather than only the bad ones. Hiding a repository
 	 * the author owns and can see on GitHub reproduces the very mystery this screen exists to remove:
@@ -48,7 +48,7 @@
 		 * Listed first and marked, so the one they just made is the one they see.
 		 */
 		newly?: ReadonlySet<string>;
-		/** The repository chosen. Never called for a row that cannot be published to. */
+		/** The repository chosen. Never called for a row that cannot be sent to. */
 		onchoose: (repository: GrantedRepository) => void;
 	} = $props();
 
@@ -74,7 +74,7 @@
 		)
 	);
 
-	const chooseable = (repository: GrantedRepository): boolean => repository.canPublish;
+	const chooseable = (repository: GrantedRepository): boolean => repository.canPush;
 
 	/**
 	 * Why this row cannot be chosen, or `''` when it can.
@@ -86,7 +86,7 @@
 	 * than a fence.
 	 */
 	function why(repository: GrantedRepository): string {
-		return repository.canPublish
+		return repository.canPush
 			? ''
 			: `You cannot put work into this one. If it is somebody else’s, ask them for write access ` +
 					`to it.`;
@@ -181,11 +181,11 @@
 									on the bad rows would leave the good ones saying nothing, and a person cannot tell
 									"checked and fine" from "not checked" by absence.
 								-->
-								<span class="text-sm font-normal opacity-70" data-testid="publish-mark">
+								<span class="text-sm font-normal opacity-70" data-testid="push-mark">
 									{#if unselectable}
-										Cannot be published to
+										Cannot be sent to
 									{:else}
-										Can be published to
+										Can be sent to
 									{/if}
 								</span>
 							</button>

@@ -699,7 +699,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		await page.reload();
 	});
 
-	// Named for the sequence the indicator *actually* publishes, which has four steps and not three.
+	// Named for the sequence the indicator *actually* announces, which has four steps and not three.
 	// `unsaved` is the debounce window — ADR-0017 rule 2's 400 ms, during which the edit is in memory
 	// and the tool is saying so — and it is one of rule 5's three states, not an implementation
 	// detail. The old title said `saved → saving → saved` while the old assertions never looked at the

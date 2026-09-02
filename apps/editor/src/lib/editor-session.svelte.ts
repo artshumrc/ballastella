@@ -65,18 +65,18 @@ import {
 	parseAnnotations,
 	parseProjectFile,
 	partitionByOfflineCopy,
-	planPublish,
-	planRemotePublish as planWorkspaceUpload,
+	planPublishedSite,
+	planRemoteSend as planWorkspaceUpload,
 	projectFilePath,
-	publishSite,
+	writePublishedSite,
 	withdrawShareLinks,
-	publishWorkspaceToRemote as publishWorkspace,
+	sendWorkspaceToRemote as sendWorkspace,
 	readPublishedSite,
 	readImageLabel,
 	readRemoteInventory,
 	RemoteStatusUnavailableError,
 	type InventoryEntry,
-	updateFromGitHub,
+	getFromRemote,
 	readContestedAlignments,
 	type AlignmentChoice,
 	type AlignmentQuestion,
@@ -129,12 +129,12 @@ import {
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
-	type PublishPlan,
+	type PublishedSitePlan,
 	type PublishedRepository,
 	type PublishedSite,
 	type ReferencedImage,
 	type RemoteImageService,
-	type RemotePublishPlan,
+	type RemoteSendPlan,
 	type RemoteRepository,
 	type RemoteStatusObservation,
 	type SaveState,
@@ -863,7 +863,7 @@ export class EditorSession {
 	 * nowhere durable to keep them — which reads as unbound and `Cannot tell`.
 	 *
 	 * Exposed because the migration decision and the bind/unbind gestures live in
-	 * `WorkspaceStorage`, and both must act on the *same* record this session publishes against.
+	 * `WorkspaceStorage`, and both must act on the *same* record this session announces against.
 	 */
 	get synchronization(): SynchronizationMetadata | null {
 		return this.#synchronization ?? null;
@@ -945,7 +945,7 @@ export class EditorSession {
 			...report,
 			refused: report.refused.filter((entry) => entry.directory !== directory)
 		};
-		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// Through the same predicate the report was built by, so a panel holding nothing but the
 		// refusal just forgotten goes away rather than lingering empty.
 		this.deletionReport = deletionsAreNoteworthy(remaining) ? remaining : null;
 	}
@@ -1073,7 +1073,7 @@ export class EditorSession {
 			...report,
 			skipped: report.skipped.filter((entry) => entry.path !== path || entry.copy !== copy)
 		};
-		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// Through the same predicate the report was built by, so a panel holding nothing but the
 		// skip just forgotten goes away rather than lingering empty.
 		this.replayReport = replayIsNoteworthy(remaining) ? remaining : null;
 	}
@@ -1406,7 +1406,7 @@ export class EditorSession {
 		// below on the `images` listing already recorded the symptom ("picking the next file inside
 		// that window did nothing at all") and answered it by moving the *listing* last; but the
 		// signal the Project screen actually shows for "it is here" is the **Layer row**, which
-		// {@link #addMapLayer} publishes several awaits before this method's `finally` clears
+		// {@link #addMapLayer} announces several awaits before this method's `finally` clears
 		// {@link ingest}. So the window it was closing never closed, and the drop stayed silent.
 		//
 		// The file input beside it is `disabled` while an ingest runs, which is what keeps a person
@@ -1528,7 +1528,7 @@ export class EditorSession {
 	 *
 	 * **Read from the Workspace, so it is the same Alignment whichever Project asked** (ADR-0023). That
 	 * is the accepted risk of the move stated as code: refining it moves every Project that draws this
-	 * map, published ones included.
+	 * map, the ones on a site included.
 	 *
 	 * A file that exists and cannot be read is a different matter and is surfaced: it means an
 	 * Alignment the user made is not being shown, and silently replacing it with an empty one would
@@ -2504,7 +2504,7 @@ export class EditorSession {
 	 * Through `workspaceSize`, which uses `ProjectStore#size` and never `read`: a Workspace with a
 	 * offline copy's pyramid in it is tens of thousands of files, and opening every one of them to add up
 	 * their lengths would make this the slowest thing in the application. The whole Workspace rather
-	 * than the open Project, because the ~1 GB budget is shared by every Project published together.
+	 * than the open Project, because the ~1 GB budget is shared by every Project on one site.
 	 */
 	async workspaceBytes(): Promise<WorkspaceSize> {
 		return workspaceSize(this.#store);
@@ -2626,7 +2626,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * What publishing would write into this Workspace, and everything the user must read first
+	 * What writing the Published Site would put in this Workspace, and everything the user must read first
 	 * (ADR-0006, ADR-0008).
 	 *
 	 * **Writes nothing.** Two of the three required warnings are questions rather than reports — the
@@ -2634,27 +2634,27 @@ export class EditorSession {
 	 * a decision (ADR-0008) — so the plan is a separate step the dialog shows before its button does
 	 * anything.
 	 */
-	async planPublish(options: {
+	async planPublishedSite(options: {
 		bundle: ViewerBundle;
 		/**
 		 * This deployment's own address, which the site records so its Front Page can lead back here.
 		 *
 		 * Required rather than optional, and supplied by the app for `readAsset`'s reason: where this
 		 * deployment lives is `$lib/base-map/deployment-assets`'s business, and a caller that could
-		 * quietly omit it would publish a site with no way back and nothing to say so.
+		 * quietly omit it would write a site with no way back and nothing to say so.
 		 */
 		editorUrl: string;
 		/**
-		 * The repository this Workspace publishes to, so the site can point back at it — or `null` for
-		 * a publish into a folder.
+		 * The repository this Workspace syncs with, so the site can point back at it — or `null` for
+		 * a site written into a folder.
 		 *
 		 * Supplied by the app because the relationship is installation-local metadata held by
 		 * `WorkspaceStorage`, and generated *into* the site rather than synchronized: nothing a
 		 * Published Site says may bind a Workspace.
 		 */
 		repository: PublishedRepository | null;
-	}): Promise<PublishPlan> {
-		return planPublish(this.#store, {
+	}): Promise<PublishedSitePlan> {
+		return planPublishedSite(this.#store, {
 			bundle: options.bundle,
 			projects: await this.#workspace.listProjects(),
 			editorUrl: options.editorUrl,
@@ -2665,22 +2665,22 @@ export class EditorSession {
 	/**
 	 * Write the Published Site.
 	 *
-	 * Everything pending is flushed first, for the same reason exporting a zip flushes: publishing a
+	 * Everything pending is flushed first, for the same reason exporting a zip flushes: writing a site over a
 	 * Project whose last edit is still inside the autosave debounce would put a site on the web that
 	 * is missing the change the user just made — and unlike an export, they may not look at it again
 	 * for a week (ADR-0017 rule 1).
 	 *
 	 * `readAsset` comes from the app rather than from here, because where this deployment serves the
-	 * viewer's files from is `$lib/publish/viewer-bundle-source`'s business and must stay relative
+	 * viewer's files from is `$lib/sync/viewer-bundle-source`'s business and must stay relative
 	 * (ADR-0006).
 	 */
-	async publish(options: {
-		plan: PublishPlan;
+	async writePublishedSite(options: {
+		plan: PublishedSitePlan;
 		readAsset: (file: ViewerBundleFile) => Promise<Bytes>;
 		onProgress?: (progress: { files: number; totalFiles: number; path: string | null }) => void;
 	}): Promise<PublishedSite> {
 		await this.flush();
-		const site = await publishSite({
+		const site = await writePublishedSite({
 			store: this.#store,
 			plan: options.plan,
 			readAsset: options.readAsset,
@@ -2695,9 +2695,9 @@ export class EditorSession {
 	/**
 	 * Take the Published Site back out of the Workspace — the local half of withdrawing Share Links.
 	 *
-	 * The mirror of {@link publish}: exactly the recorded viewer file set, so no Project file, no
+	 * The mirror of {@link writePublishedSite}: exactly the recorded viewer file set, so no Project file, no
 	 * pyramid and no Alignment can be reached by it. Everything pending is flushed first, for
-	 * {@link publish}'s reason — a write landing after the sweep would put a file back.
+	 * {@link writePublishedSite}'s reason — a write landing after the sweep would put a file back.
 	 */
 	async withdrawShareLinks(): Promise<void> {
 		await this.flush();
@@ -2714,20 +2714,20 @@ export class EditorSession {
 	 * (ADR-0031, ADR-0033).
 	 *
 	 * **Sends nothing**, so both of its refusals — a truncated tree, a Workspace of more files than a
-	 * publish can list — reach the user with the Remote untouched. It is the forecast the dialog shows
+	 * a send can list — reach the user with the Remote untouched. It is the forecast the dialog shows
 	 * before the button does anything: how many blobs need uploading and what they weigh, the three
 	 * budgets, and whether there is anything to do at all.
 	 *
-	 * @throws RemotePublishRefusedError, RemotePublishCredentialError, RemotePublishFailedError
+	 * @throws RemoteSendRefusedError, RemoteSendCredentialError, RemoteSendFailedError
 	 */
-	async planRemotePublish(options: {
-		/** `null` for a plan read with nobody signed in; see {@link PlanRemotePublishOptions}. */
+	async planRemoteSend(options: {
+		/** `null` for a plan read with nobody signed in; see {@link PlanRemoteSendOptions}. */
 		token: string | null;
 		remote: RemoteRepository;
 		/**
-		 * What the local publish will write into the Workspace before the upload runs, so the three
-		 * budgets are about the publish being agreed to rather than about the folder as it stands.
-		 * `SyncDialog` hands it {@link PublishPlan.files}.
+		 * What the local site write will add to the Workspace before the upload runs, so the three
+		 * budgets are about the send being agreed to rather than about the folder as it stands.
+		 * `SyncDialog` hands it {@link PublishedSitePlan.files}.
 		 */
 		pending?: readonly PendingLocalFile[];
 		/**
@@ -2738,7 +2738,7 @@ export class EditorSession {
 		 * offered (ADR-0044).
 		 */
 		sending?: boolean;
-	}): Promise<RemotePublishPlan> {
+	}): Promise<RemoteSendPlan> {
 		return planWorkspaceUpload(this.#store, {
 			token: options.token,
 			remote: options.remote,
@@ -2783,12 +2783,12 @@ export class EditorSession {
 	 * ⚠ **Observational, and every clause of that is load-bearing.** It lists Remote metadata; it
 	 * downloads no file bytes, writes no Workspace path, writes no Remote path, and never advances a
 	 * Baseline. A check that recorded what it saw would adopt another machine's afternoon as this
-	 * one's evidence, and the next Publish would remove it as an ordinary deletion.
+	 * one's evidence, and the next send would remove it as an ordinary deletion.
 	 *
 	 * ⚠ **No local read, list or hash either.** The local half comes from the durable write index, so
 	 * the answer costs one GitHub request rather than a walk of tens of thousands of pyramid tiles.
 	 * That is what makes checking on every window focus affordable at all — and it is why a
-	 * *deliberate* Update or Publish still takes the complete read-and-hash pass, which is entitled to
+	 * *deliberate* Sync still takes the complete read-and-hash pass, which is entitled to
 	 * revise what this displayed.
 	 *
 	 * ⚠ **`mayRequest: false` is what keeps a signed-out session from polling GitHub.** An anonymous
@@ -2891,7 +2891,7 @@ export class EditorSession {
 		await this.flush();
 		await this.localChanges?.flushChanges();
 
-		const update = await updateFromGitHub(this.#store, {
+		const update = await getFromRemote(this.#store, {
 			remote: options.remote,
 			token: options.token,
 			baseline: (await this.#synchronization?.readBaseline(options.remote)) ?? null,
@@ -2952,30 +2952,30 @@ export class EditorSession {
 	 * ⚠ **It plans again rather than taking the plan the user was shown, and that is a correctness
 	 * requirement.** Confirming the dialog stamps the canonical address into every `info.json` and
 	 * writes the viewer's files into the Workspace — so by the time this is called the Workspace holds
-	 * files the forecast never saw, and `publishToRemote` uploads exactly the paths its plan names.
-	 * Handed the forecast it would publish a site with no `index.html` in it, silently, on the one
-	 * publish that most needs to work: the first.
+	 * files the forecast never saw, and `sendToRemote` uploads exactly the paths its plan names.
+	 * Handed the forecast it would send a site with no `index.html` in it, silently, on the one
+	 * send that most needs to work: the first.
 	 *
 	 * The Baseline is installation-local rather than a file in the Workspace, because it records what
 	 * *this machine* last shared with the Remote and a record that travelled with the Workspace would
 	 * be another machine's belief arriving as this one's evidence (ADR-0038).
 	 *
 	 * @returns the plan that ran, the commit the branch now holds, and whether the Baseline was kept
-	 * @throws RemotePublishRefusedError when the Remote moved past what `overwrite` agreed to
-	 * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
+	 * @throws RemoteSendRefusedError when the Remote moved past what `overwrite` agreed to
+	 * @throws RemoteSendRateLimitedError, RemoteSendCredentialError, RemoteSendFailedError
 	 */
-	async publishToRemote(options: {
+	async sendToRemote(options: {
 		token: string;
 		remote: RemoteRepository;
 		/**
 		 * The paths the scholar was shown as going, and agreed to: *Overwrite the repository*.
 		 *
 		 * ⚠ **The paths and not a `true`, because the plan this runs is not the plan they read.** The
-		 * forecast is made before the local publish writes; this replans afterwards, against a tree
+		 * forecast is made before the Published Site is written locally; this replans afterwards, against a tree
 		 * listing taken minutes later on a large Workspace. Handed a bare "yes" the engine would apply a
 		 * decision about one `notes.json` to whatever the second listing found — including a Project
-		 * another machine published in the window, deleted without anybody having seen its name. So the
-		 * agreement travels as the set it was about, and `publishToRemote` refuses when the second
+		 * another machine sent in the window, deleted without anybody having seen its name. So the
+		 * agreement travels as the set it was about, and `sendToRemote` refuses when the second
 		 * plan's removals are not a subset of it.
 		 *
 		 * Left out, a send removes only what the Baseline recorded and leaves everything the Remote has
@@ -2987,14 +2987,14 @@ export class EditorSession {
 			totalFiles: number;
 			requestsRemaining: number | null;
 		}) => void;
-	}): Promise<{ commit: string; plan: RemotePublishPlan; baselineKept: boolean }> {
-		// Everything pending on disk first, for the same reason `publish` flushes: an Annotation still
+	}): Promise<{ commit: string; plan: RemoteSendPlan; baselineKept: boolean }> {
+		// Everything pending on disk first, for the same reason `writePublishedSite` flushes: an Annotation still
 		// inside the autosave debounce would go to a public host missing the edit just made. The write
 		// index is flushed for the other direction: `clearShared` below narrows the record on disk, and
 		// marks still only in memory would survive it.
 		await this.flush();
 		await this.localChanges?.flushChanges();
-		const { commit, plan, baselineKept } = await publishWorkspace(this.#store, {
+		const { commit, plan, baselineKept } = await sendWorkspace(this.#store, {
 			token: options.token,
 			remote: options.remote,
 			...(this.#synchronization === undefined ? {} : { metadata: this.#synchronization }),
@@ -3030,7 +3030,7 @@ export class EditorSession {
 	 * its `resource.id`, which is what made it resolvable by Allmaps and what made the warped Layer
 	 * render at all. Left alone after a copy it would keep sending `@allmaps/maplibre` to the library for
 	 * tiles that are now in this folder — so the copy would work, the map would draw, and making an offline copy would
-	 * have bought nothing. It is also what publishing serves, and a self-contained site whose Alignment
+	 * have bought nothing. It is also what a site serves, and a self-contained site whose Alignment
 	 * points at a stranger's server is not self-contained.
 	 *
 	 * A failure before step 1 finishes leaves the map still fetched from the library, which is the state

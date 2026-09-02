@@ -50,7 +50,7 @@ export type GrantedRepository = {
 	readonly owner: string;
 	readonly repository: string;
 	/** `permissions.push` as GitHub reports it. */
-	readonly canPublish: boolean;
+	readonly canPush: boolean;
 	/**
 	 * `permissions.admin` as GitHub reports it, which is whether the author administers the
 	 * repository — and so whether widening a narrow grant is theirs to do or somebody else's.
@@ -80,7 +80,7 @@ export type GrantedRepositoriesOptions = {
 	 * a pasted fine-grained token and a broker-exchanged one are the same string here.
 	 */
 	readonly token: string;
-	/** Defaulting to the page's own, as `bind-remote` and the publish engine already do. */
+	/** Defaulting to the page's own, as `bind-remote` and the send engine already do. */
 	readonly fetch?: FetchFn;
 };
 
@@ -206,7 +206,7 @@ function narrow(reported: Record<string, unknown>): GrantedRepository | null {
 	return {
 		owner: fullName.slice(0, slash),
 		repository: fullName.slice(slash + 1),
-		canPublish: permissions?.push === true,
+		canPush: permissions?.push === true,
 		canGrantAccess: permissions?.admin === true,
 		isPrivate: reported.private === true
 	};

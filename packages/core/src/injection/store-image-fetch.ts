@@ -18,7 +18,7 @@
 // murky permission semantics inside a service worker, and that is the backend most users will
 // have. Do not reintroduce it as the cleaner approach.
 //
-// This module is deliberately free of the tiler (ADR-0019): `apps/viewer` will read published
+// This module is deliberately free of the tiler (ADR-0019): `apps/viewer` will read a site's
 // pyramids through this same shim, and it must not acquire one. What it
 // does import from the tiler's `pyramid.ts` is the pyramid *format* — where an image's files
 // live and what its placeholder `id` is — which is exactly the knowledge a reader has to share
@@ -155,12 +155,12 @@ export type StoreImageFetchOptions = {
  * mode a notice can least afford.
  *
  * A 404 for the pyramid's own `info.json` **is** reported, because without it there is no map at
- * all: that is a site that was published incomplete, and it is the `file-missing` remedy.
+ * all: that is a site that was written incomplete, and it is the `file-missing` remedy.
  *
  * ⚠ **That policy leaves a hole, and the hole is written down as a hole:** a Published Site carrying
  * its `info.json` while missing some of its *tile* files draws a map with gaps in it and says
  * nothing. It is a known residual rather than a settled trade-off, and closing it needs the
- * pyramid to carry a record of which cells were actually written — a change to what publishing
+ * pyramid to carry a record of which cells were actually written — a change to what the site write
  * emits, not to what the reader reports. **ADR-0028** states it, with the reason the obvious fix is
  * the wrong one.
  */
@@ -601,7 +601,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 			// derives its own grid from the `info.json` and asks for cells the tiler never planned, so
 			// a complete pyramid answers 404 to some requests on every single load — see
 			// {@link TileFetchOutcome}. Without the `info.json` there is no map at all, and that is a
-			// site published incomplete.
+			// site written incomplete.
 			if (failure.kind !== 'file-missing' || path === imageInfoPath(imageId)) {
 				refused(url, issuedAt, failure, imageId);
 			}

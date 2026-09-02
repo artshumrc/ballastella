@@ -91,7 +91,7 @@ export interface AutosaveOptions {
  * `commit` *is* such a caller and still reverted a newer edit, because between being handed the bytes
  * and installing them it called `#writeAhead`, which reports a refusal through `onJournalRefused`.
  * So the rule became about *when* rather than *who*. ⚠ **And then it was too narrow.** Round 3 found
- * the same inversion carrying a derived `SaveState` instead of bytes: `#publish` read `#derive()`
+ * the same inversion carrying a derived `SaveState` instead of bytes: `#announce` read `#derive()`
  * once and handed that snapshot to each listener in turn, so a subscriber was told `saved` while
  * `#states` held unwritten bytes. For ADR-0017 rule 5 that is not a lesser defect — the indicator is
  * the user's only signal, and one *told* a stale state is as wrong as one holding stale bytes.
@@ -107,8 +107,8 @@ export interface AutosaveOptions {
  *
  * | Reaches out | Where | Held by |
  * |---|---|---|
- * | listeners, via `#tell` | `#publish`, `subscribe` | **shape** — both read `this.#state` at the moment each listener is called, never before the loop |
- * | `onJournalRefused`, via `#tell` | `#publishJournalRefusal` | **shape** — reached only from `#writeAhead`, which takes no bytes |
+ * | listeners, via `#tell` | `#announce`, `subscribe` | **shape** — both read `this.#state` at the moment each listener is called, never before the loop |
+ * | `onJournalRefused`, via `#tell` | `#sendJournalRefusal` | **shape** — reached only from `#writeAhead`, which takes no bytes |
  * | `journal.record` | `#writeAhead` | **shape** — the bytes are read from `#states` on the line above and used for nothing else |
  * | `journal.forget` | `#forget`, from `#drainLoop` and `abandon` | **shape** — both re-read `#states` afterwards; `abandon` walks keys |
  * | `store.write` | `#drainLoop` | **shape** — the loop re-reads `#states` after every await and compares by identity |
@@ -127,7 +127,7 @@ export interface AutosaveOptions {
  * ⚠ **THIS LIST WAS DERIVED BY GREP, AND MUST BE RE-DERIVED RATHER THAN RE-READ.** An earlier
  * version called itself complete on the strength of a careful reading, and was not: the two rows
  * above were missing, and a mechanical sweep of every call expression in this file is what found
- * them. A read-derived enumeration published as complete is a claim that has outrun the code.
+ * them. A read-derived enumeration announced as complete is a claim that has outrun the code.
  * When this class changes, run the sweep again — grep every call
  * expression and every property read on caller-supplied objects, and subtract `this.#…`, the
  * `Map`/`Set`/`Promise` builtins, and the module-level pure helpers (`bytesOf`, `drainOf`,
@@ -135,7 +135,7 @@ export interface AutosaveOptions {
  *
  * ⚠ **AND THE SWEEP IS NOT ENOUGH ON ITS OWN — CHECK EACH ROW'S CLASSIFICATION SEPARATELY.** Round
  * 3's defect was in this table, in row 1, on a seam the sweep had enumerated correctly. The row said
- * `#publish` "takes no bytes and reads nothing but `#states`" — both halves true, and the conclusion
+ * `#announce` "takes no bytes and reads nothing but `#states`" — both halves true, and the conclusion
  * did not follow, because it read `#states` *once* and then called out *N* times. Finding it needed
  * a different question from "where does control leave": **for each row, what value is alive across
  * that call, and is it re-read after it?** Two rows were also classified **shape** when they were in
@@ -153,7 +153,7 @@ export interface AutosaveOptions {
  * `#owe` is handed a byte value by its caller. That is safe because `#owe` reaches nothing on the
  * list above — it touches `#states`, `drainOf` and `clearTimeout` and constructs a promise — so no
  * application code can run while the value is in flight. **Nothing enforces that it stays that way**:
- * a future edit adding a `#publish` to `#owe` would reopen the whole class of defect and no test
+ * a future edit adding a `#announce` to `#owe` would reopen the whole class of defect and no test
  * would say so. If that method grows, this table is what has to be re-derived.
  *
  * ⚠ **`journal.record` re-entering is a second argument, not a proof.** If a `record` implementation
@@ -349,7 +349,7 @@ export class Autosave {
 		// Synchronously, and reading what was just installed rather than what this method was passed.
 		// This is the one call in this class that a document being torn down will actually finish.
 		this.#writeAhead(path);
-		this.#publish();
+		this.#announce();
 	}
 
 	/**
@@ -455,7 +455,7 @@ export class Autosave {
 	 * works: `pagehide` can fire at any point after the click, including between the sweep and the
 	 * deletion resolving.
 	 *
-	 * Timers are cleared and the save state republished, so a Project deleted mid-debounce does not
+	 * Timers are cleared and the save state re-announced, so a Project deleted mid-debounce does not
 	 * leave the indicator reading "Unsaved" for a file that no longer exists.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -518,8 +518,8 @@ export class Autosave {
 				this.#states.delete(path);
 			}
 		}
-		this.#publishJournalRefusal();
-		this.#publish();
+		this.#sendJournalRefusal();
+		this.#announce();
 		return this.#quietUnder(inFlight);
 	}
 
@@ -564,7 +564,7 @@ export class Autosave {
 		// the Workspace, so one stuck write in a Project nobody is looking at would put the whole bound
 		// on every Map Image deletion — a pause with no cause the user could see.
 		const quiet = this.#bringToRest((path) => path.startsWith(prefix));
-		this.#publish();
+		this.#announce();
 		return this.#quietUnder(quiet);
 	}
 
@@ -577,7 +577,7 @@ export class Autosave {
 	 *
 	 * ⚠ **IT WALKS KEYS, AND IT MUST NEVER CARRY A STATE ACROSS AN ITERATION.** Reading
 	 * `[...this.#states]` — keys *and values* — and handing each value's bytes to `#drain` is the
-	 * inversion: draining the first path publishes, `#publish` runs subscribers synchronously, and a
+	 * inversion: draining the first path announces, `#announce` runs subscribers synchronously, and a
 	 * subscriber that writes to a path **later in this walk** has its edit overwritten by the value
 	 * read before it ran. Measured: `commit` resolved, the store held the older bytes,
 	 * `hasPendingWrite` was false, the indicator read `saved` and nothing was scheduled — ADR-0017
@@ -705,7 +705,7 @@ export class Autosave {
 		} catch (cause) {
 			this.#journalRefusals.set(path, cause);
 		}
-		this.#publishJournalRefusal();
+		this.#sendJournalRefusal();
 	}
 
 	/**
@@ -764,12 +764,12 @@ export class Autosave {
 	 * refused by the quota would have had its warning wiped by the very next keystroke into a
 	 * Project name — and the user would be told they were protected when one of their files was not.
 	 *
-	 * ⚠ **Residual, pre-existing and not fixed here.** A refusal is dropped without being republished
+	 * ⚠ **Residual, pre-existing and not fixed here.** A refusal is dropped without being re-announced
 	 * when the store finally takes the bytes, so the app keeps the last refusal it was told about
 	 * until the *next* edit anywhere re-derives it. The bytes are safe by then, so the staleness is in
 	 * the notification and not in the fact.
 	 */
-	#publishJournalRefusal(): void {
+	#sendJournalRefusal(): void {
 		let refusal: unknown = null;
 		for (const cause of this.#journalRefusals.values()) {
 			refusal = cause;
@@ -826,8 +826,8 @@ export class Autosave {
 	 * `#states`, `drainOf` and `clearTimeout`, and constructs a promise. Nothing here can call a
 	 * listener, a journal or the store. That is what makes it safe to hold a byte value across —
 	 * the only place in this class where a byte value may be held at all — and it is why `start`
-	 * comes back as a thunk rather than being called here: starting the loop publishes, and
-	 * publishing is application code that must not run until the caller has finished installing and
+	 * comes back as a thunk rather than being called here: starting the loop announces, and
+	 * announcing is application code that must not run until the caller has finished installing and
 	 * journalling. See {@link FileState}'s banner for the rule and {@link commit} for the defect.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -853,7 +853,7 @@ export class Autosave {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE DEFERRED IS LOAD-BEARING. DO NOT REPLACE IT WITH AN ASSIGNMENT AFTER THE CALL.
 	 *
-	 * ⚠ **`#drainLoop`'s very first act is to publish, and `#publish` runs subscribers
+	 * ⚠ **`#drainLoop`'s very first act is to announce, and `#announce` runs subscribers
 	 * synchronously.** A subscriber is application code: the editor's indicator, or anything that
 	 * reacts to it by writing. So a subscriber can re-enter `commit` — and therefore this method —
 	 * *before the loop that provoked it has run a second line*. The `writing` state has to be in the
@@ -894,7 +894,7 @@ export class Autosave {
 	async #drainLoop(path: StorePath): Promise<void> {
 		let failure: { readonly error: unknown } | undefined;
 		try {
-			this.#publish();
+			this.#announce();
 			for (;;) {
 				const state = this.#states.get(path);
 				// Anything but `writing` means there is nothing left owed: either the loop has just taken
@@ -941,15 +941,15 @@ export class Autosave {
 			// **The one stated exception to "if bytes are pending, a drain is scheduled or running": a
 			// loop that stopped by throwing.** Exactly one thing above this can throw — `store.write`.
 			// (`#forget` used to be a second and is not any more; a subscriber that throws used to be a
-			// third and is not any more, because `#publish` no longer lets one escape.) It leaves the
+			// third and is not any more, because `#announce` no longer lets one escape.) It leaves the
 			// bytes in `held`, on purpose. Restarting here would turn a full disk into a spin. The
 			// contract is that the bytes are **held**, so the next `commit`, `queue`, `flush` or
 			// `settled` still has them and the indicator reads "Unsaved" rather than "Saved". Retrying
 			// them without being asked is a separate change and is not made here.
 			//
-			// **Release first, publish last.** Measured: publishing first leaves the indicator on
+			// **Release first, announce last.** Measured: announcing first leaves the indicator on
 			// "Saving" for a drain that has stopped, because `#derive` reads the very state this line is
-			// about to replace — see `releases the drain before it publishes`.
+			// about to replace — see `releases the drain before it announces`.
 			const state = this.#states.get(path);
 			if (failure && state?.at === 'writing') {
 				this.#states.set(path, { at: 'held', bytes: state.bytes, error: failure.error });
@@ -959,14 +959,14 @@ export class Autosave {
 				// or `abandon` has thrown them away. Either way there is nothing left to be unprotected.
 				this.#journalRefusals.delete(path);
 			}
-			this.#publish();
+			this.#announce();
 		}
 	}
 
 	/**
 	 * Tell every listener, and **let none of them reach the code that called us**.
 	 *
-	 * ⚠ **A subscriber that threw has corrupted this class's state twice.** `#drainLoop` publishes
+	 * ⚠ **A subscriber that threw has corrupted this class's state twice.** `#drainLoop` announces
 	 * before it does anything else, so a throw from a listener used to abort the loop: once leaving a
 	 * rejected promise memoised for ever — every later write to that path dead — and once leaving the
 	 * bytes stranded with the indicator reading "Saving". Guarding the loop against it was a defence
@@ -981,7 +981,7 @@ export class Autosave {
 	 * Per listener, so one that throws no longer stops the rest being notified — a residual named
 	 * against the previous shape of this method and closed here.
 	 */
-	#publish(): void {
+	#announce(): void {
 		const next = this.#derive();
 		if (next === this.#state) return;
 		this.#state = next;
@@ -989,7 +989,7 @@ export class Autosave {
 		// Handing each listener the value derived before the loop began made this the sixth way out
 		// of this class, and the only one a sweep for *where control leaves* could not find, because
 		// nothing about the seam moved — a value did. A listener that reacts by editing runs a nested
-		// `#publish` that advances `#state` correctly; the outer loop then resumed and told every
+		// `#announce` that advances `#state` correctly; the outer loop then resumed and told every
 		// listener it had not yet reached the **pre-edit** state. The last thing such a subscriber
 		// heard was `saved`, with bytes pending.
 		//
@@ -1013,7 +1013,7 @@ export class Autosave {
 	/**
 	 * What the indicator should show, **derived from the states and from nothing else**.
 	 *
-	 * ⚠ **There is no way to force a value past this.** An override on `#publish` — announcing
+	 * ⚠ **There is no way to force a value past this.** An override on `#announce` — announcing
 	 * `'saving'` before the loop had done anything — would be a second source of truth for the one
 	 * field the user actually sees, and it is unnecessary: a drain puts its `writing` state in the map
 	 * before the loop runs, so the derivation already says `'saving'`.

@@ -290,7 +290,7 @@ describe('a write that does not land', () => {
 
 describe('discard', () => {
 	// A disturbed history simply leaves, in both directions at once.
-	it('empties both directions and publishes', async () => {
+	it('empties both directions and announces', async () => {
 		const { autosave, history } = seam();
 		await history.step('Undo edit one', [NOTES], async () => {
 			autosave.queue(NOTES, encode('one'));

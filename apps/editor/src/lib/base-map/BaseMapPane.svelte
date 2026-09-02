@@ -1136,7 +1136,7 @@
 				fetchTile: readTiles,
 				// The Playwright handle stays in this app rather than in `core`, which is why
 				// `drawLayerStack` takes it as a seam — a `declare global` on `Window` inside core would
-				// put the editor's test scaffolding into a published Reader's bundle.
+				// put the editor's test scaffolding into the Reader's bundle.
 				onBuilt: exposeLayerStackToBrowserTests
 			});
 			stack = built;

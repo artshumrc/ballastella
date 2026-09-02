@@ -12,15 +12,15 @@
 // And it is inbound only. Nothing in this module posts a blob, writes a tree, moves a ref, generates
 // a Published Site, or touches a repository file outside Ballastella's namespace. Receiving somebody
 // else's work must not be able to make this author's own work public, so there is deliberately no
-// code path from here to the publish engine at all.
+// code path from here to the send engine at all.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT NEEDS NO ACCOUNT, WHICH IS THE CASE IT IS MOST LIKELY TO BE USED FOR
 //
-// With {@link UpdateFromGitHubOptions.token} `null` the reads are an anonymous tree listing and
+// With {@link GetFromRemoteOptions.token} `null` the reads are an anonymous tree listing and
 // anonymous `raw.githubusercontent.com` bytes, and no `Authorization` header exists to be sent. The
-// case to keep in view is a student whose instructor publishes to a repository they cannot push to —
-// inbound synchronization is not publishing authority, and a refusal for want of write permission
+// case to keep in view is a student whose instructor sends to a repository they cannot push to —
+// getting is not authority to send, and a refusal for want of write permission
 // would be this app inventing a rule GitHub does not have.
 //
 // ⚠ **A private repository is the one thing anonymity cannot reach, so a token is *accepted* and
@@ -353,7 +353,7 @@ export async function recoverWorkspaceUpdate(store: ProjectStore): Promise<Updat
 	if (mark.state === 'unreadable') {
 		throw new UpdateRefusedError(
 			'unresolved-transaction',
-			'This Workspace has a record of an Update from GitHub that cannot be read, so Ballastella ' +
+			'This Workspace has a record of a get from GitHub that cannot be read, so Ballastella ' +
 				'cannot tell which files it had changed and will not start another until it can. Reload ' +
 				'this page to try again. Nothing has been lost.'
 		);
@@ -364,7 +364,7 @@ export async function recoverWorkspaceUpdate(store: ProjectStore): Promise<Updat
 	} catch (cause) {
 		throw new UpdateRefusedError(
 			'unresolved-transaction',
-			`An earlier Update from GitHub did not finish, and this Workspace's record of it could not ` +
+			`An earlier get from GitHub did not finish, and this Workspace's record of it could not ` +
 				'be resolved — so another Update will not start over the top of it. Reload this page to ' +
 				'try again.',
 			{ cause }
@@ -462,7 +462,7 @@ export class UpdateRefusedError extends Error {
 
 // ── The operation ─────────────────────────────────────────────────────────────────────────────
 
-export interface UpdateFromGitHubOptions {
+export interface GetFromRemoteOptions {
 	readonly remote: UpdateReference;
 	/**
 	 * The credential to read with, or `null` to read a public repository anonymously.
@@ -527,7 +527,7 @@ export interface WorkspaceUpdate {
 	 * ⚠ **The previous Baseline, advanced only where the two sides now share bytes.** A local-only
 	 * change keeps whatever the Baseline said about it, so it still reports as Changes to send; a
 	 * path neither side holds any more is dropped. Recording the whole prospective
-	 * inventory instead would claim the author's unpublished work had been shared.
+	 * inventory instead would claim the author's unsent work had been shared.
 	 */
 	readonly baseline: ReadonlyMap<string, string>;
 	/** Paths now shared, so their local-change marks may be cleared and **only** theirs. */
@@ -582,9 +582,9 @@ export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
  * @throws UpdateRefusedError for every refusal there is. Only `'unresolved-residue'` leaves the
  *   Workspace other than exactly as it was.
  */
-export async function updateFromGitHub(
+export async function getFromRemote(
 	store: ProjectStore,
-	options: UpdateFromGitHubOptions
+	options: GetFromRemoteOptions
 ): Promise<WorkspaceUpdate> {
 	const branch = options.remote.branch ?? DEFAULT_REMOTE_BRANCH;
 	const remote: RemoteRelationship = { ...options.remote, branch };
@@ -745,7 +745,7 @@ async function answerAlignments(
 	blobs: readonly { path: string; sha: string; bytes: number }[],
 	localShas: ReadonlyMap<string, string>,
 	resolution: ConflictResolution,
-	options: UpdateFromGitHubOptions
+	options: GetFromRemoteOptions
 ): Promise<{ files: PlannedFile[]; settled: string[]; unanswered: string[] }> {
 	const files: PlannedFile[] = [];
 	const settled: string[] = [];
@@ -908,7 +908,7 @@ async function hashWorkspace(store: ProjectStore): Promise<InventoryEntry[]> {
  *
  * The planner asks for `project.json` bytes by blob SHA and answers `'not-checked'` without them, so
  * a transfer that skipped this would write an inbound Layer whose Annotation the Remote never
- * published. An inbound manifest has to be *fetched* to be judged — it is small, and the bytes are
+ * sent. An inbound manifest has to be *fetched* to be judged — it is small, and the bytes are
  * kept so the transfer below does not ask GitHub for it twice.
  */
 async function prospectiveManifests(
@@ -1002,7 +1002,7 @@ async function transfer(
 	files: readonly PlannedFile[],
 	removals: readonly StorePath[],
 	commit: string,
-	options: UpdateFromGitHubOptions
+	options: GetFromRemoteOptions
 ): Promise<number> {
 	const now = options.now ?? (() => new Date());
 	const marker: UpdateTransaction = {
@@ -1189,7 +1189,7 @@ async function writeInbound(
 /** What each replacing write is putting aside, in the words the Alignment writer records. */
 const DISCARDING: Record<'replace' | 'restore' | 'answered', string> = {
 	replace: 'the Alignment this Workspace and GitHub last shared for this Map Image',
-	restore: 'the Alignment an Update from GitHub had written, which is being taken back',
+	restore: 'the Alignment a get from GitHub had written, which is being taken back',
 	answered: 'the Alignment held here, which you chose to replace with the one from GitHub'
 };
 
@@ -1381,7 +1381,7 @@ function declinedAlignmentMessage(path: string): string {
 
 function unresolvedResidueMessage(): string {
 	return (
-		`An Update from GitHub failed, and the files it had already changed could not be put back — so ` +
+		`A get from GitHub failed, and the files it had already changed could not be put back — so ` +
 		`this Workspace holds part of what GitHub sent. Nothing has been lost: reload this page and ` +
 		`Ballastella will finish undoing it before anything else touches this Workspace.`
 	);
@@ -1415,21 +1415,21 @@ function updateNotice(
 			`downloaded.` +
 			(plan.retained.length === 0
 				? ''
-				: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
-					`${plan.retained.length === 1 ? 'is' : 'are'} still here to publish.`) +
+				: ` Your own ${count(plan.retained.length, 'unsent change')} ` +
+					`${plan.retained.length === 1 ? 'is' : 'are'} still here to send.`) +
 			copied
 		);
 	}
 	const retained =
 		plan.retained.length === 0
 			? ''
-			: ` Your own ${count(plan.retained.length, 'unpublished change')} ` +
+			: ` Your own ${count(plan.retained.length, 'unsent change')} ` +
 				`${plan.retained.length === 1 ? 'was' : 'were'} left untouched and ` +
-				`${plan.retained.length === 1 ? 'is' : 'are'} still there to publish.`;
+				`${plan.retained.length === 1 ? 'is' : 'are'} still there to send.`;
 	if (files.length === 0) {
 		return (
 			`Removed ${count(removals.length, 'file')} from this Workspace, which ${named} no longer ` +
-			`has. Nothing has been published: ${named} is exactly as it was.${retained}${copied}`
+			`has. Nothing has been sent: ${named} is exactly as it was.${retained}${copied}`
 		);
 	}
 	const added = files.filter((file) => file.effect === 'add').length;
@@ -1446,7 +1446,7 @@ function updateNotice(
 	const took =
 		removals.length === 0 ? '' : ` Removed ${count(removals.length, 'file')} GitHub no longer has.`;
 	return (
-		`Brought ${brought} into this Workspace from ${named}.${took} Nothing has been published: ` +
+		`Brought ${brought} into this Workspace from ${named}.${took} Nothing has been sent: ` +
 		`${named} is exactly as it was.${retained}${copied}`
 	);
 }

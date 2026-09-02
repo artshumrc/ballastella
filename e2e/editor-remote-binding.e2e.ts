@@ -33,12 +33,12 @@ import {
  *   - the door states where the work will go and whether a sign-in is held, and signing out is beside
  *     giving the repository up, so the two gestures a person handing a machine over makes are together;
  *   - a credential is held in `sessionStorage` and nowhere else — not in the Workspace, which is where
- *     a Backup and a Publish would carry it from;
+ *     a Backup and a Sync would carry it from;
  *   - a folder Workspace binds exactly as a browser one does, because the binding code branches on
  *     neither backing;
  *   - a first visit is never asked to sign in, and asks GitHub nothing.
  *
- * Nothing here publishes; `editor-publish.e2e.ts` is where that is driven.
+ * Nothing here syncs; `editor-sync.e2e.ts` is where that is driven.
  */
 
 const HUB = './';
@@ -82,7 +82,7 @@ async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1]
 		// ⚠ **Granted, and a credential held, because binding is a press on GitHub's own answer now.**
 		// There is no address field and no token field anywhere on a deployment with an App
 		// (ADR-0042): the door lists what `GET /user/installations` reports, marks each row with
-		// whether it can be published to, and choosing one is the whole of binding. The sign-in round
+		// whether it can be sent to, and choosing one is the whole of binding. The sign-in round
 		// trip that would otherwise get the credential is `editor-github-signin.e2e.ts`'s subject.
 		signIn: true,
 		login: OWNER,
@@ -174,7 +174,7 @@ test.describe('binding a Workspace to a repository', () => {
 
 		// ⚠ **The relationship is installation-local and is written nowhere in the Workspace**
 		// (ADR-0044). It survives the reload below because this installation kept it, not because a
-		// file in the folder says so — which is what makes a copied Workspace arrive connected to
+		// file in the folder says so — which is what makes a copied Workspace arrive bound to
 		// nothing.
 		expect(await topLevelFiles(page)).toEqual([]);
 
@@ -195,11 +195,11 @@ test.describe('binding a Workspace to a repository', () => {
 
 // ADR-0033: *"Push rights are checked when a Remote is bound, not when 4,000 tiles have finished
 // uploading."* That check sits *in front of* the choice: a repository the author cannot
-// publish to is marked as such in the door's list and cannot be chosen at all, so there is no
+// send to is marked as such in the door's list and cannot be chosen at all, so there is no
 // binding-with-a-notice state left to drive from a browser. Which mark each row carries and why is
 // asserted at Seam 1c against a reactive fake (`repository-choice.dom.test.ts`), and what the rights
 // read answers at Seam 1 (`bind-remote.test.ts`).
-test.describe('a repository this credential cannot publish to', () => {
+test.describe('a repository this credential cannot send to', () => {
 	test('is marked in the list and cannot be chosen', async ({ page }) => {
 		await start(page, {
 			repositories: [{ owner: OWNER, name: REPOSITORY, push: false }],
@@ -213,7 +213,7 @@ test.describe('a repository this credential cannot publish to', () => {
 		await openTheDoor(page);
 
 		const row = page.getByTestId('granted-repository').first();
-		await expect(row.getByTestId('publish-mark')).toContainText('Cannot be published to', {
+		await expect(row.getByTestId('push-mark')).toContainText('Cannot be sent to', {
 			timeout: 30_000
 		});
 		await expect(row.getByTestId('choose-repository')).toHaveAttribute('aria-disabled', 'true');
@@ -244,7 +244,7 @@ test.describe('connecting does not turn Pages on', () => {
 });
 
 // ADR-0033. The credential is this tab's and nothing else's: `localStorage` holds the write-ahead
-// journal, and the Workspace is what a Backup packs and a Publish uploads.
+// journal, and the Workspace is what a Backup packs and a Sync uploads.
 //
 // ⚠ **Three tests came out of this describe with the Remote dialog** (ADR-0042), and all three were
 // about a *pasted* token: that a paste of the wrong shape is refused with no request, that a paste
@@ -301,14 +301,14 @@ test.describe('the credential this tab holds', () => {
 	});
 });
 
-// A local-first tool stays local-first: a scholar who never publishes must never meet a sign-in
+// A local-first tool stays local-first: a scholar who never syncs must never meet a sign-in
 // prompt, and is never asked for a credential they have no reason to hold.
 //
 // That is read as **a sign-in prompt specifically, not as the word "GitHub" being absent** —
 // decided 2026-08-14. The "Review from GitHub…" button sits on the hub of a Workspace that has
-// never published, and the two requirements conflict only under the broader reading. They are
+// never sent, and the two requirements conflict only under the broader reading. They are
 // different things: a button a scholar chooses is not a credential asked of one. What this protects
-// is that nothing *demands* identity before there is anything to publish, and the sibling test
+// is that nothing *demands* identity before there is anything to send, and the sibling test
 // below fences the other half by proving GitHub is not so much as spoken to.
 test.describe('a first visit', () => {
 	test('shows no sign-in affordance anywhere', async ({ page }) => {
@@ -385,7 +385,7 @@ test.describe('a folder Workspace', () => {
 	});
 });
 
-// ADR-0044: the relationship is installation-local, so a restored Backup arrives connected to
+// ADR-0044: the relationship is installation-local, so a restored Backup arrives bound to
 // nothing by construction rather than by a document being dropped on the way in. A scholar restoring
 // one is somebody recovering from something having gone wrong, and handing them a Sync aimed at their
 // live, cited address at that moment is the failure this makes unreachable.
@@ -405,7 +405,7 @@ test.describe('a restored Backup', () => {
 			mimeType: 'application/x-tar',
 			buffer: backup
 		});
-		await expect(page.getByTestId('transfer-outcome')).toContainText('publish', {
+		await expect(page.getByTestId('transfer-outcome')).toContainText('Share Links', {
 			timeout: 30_000
 		});
 

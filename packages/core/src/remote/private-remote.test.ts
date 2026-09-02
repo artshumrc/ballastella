@@ -6,15 +6,15 @@ import { enableRemotePages } from './bind-remote.js';
 import { createFakeGitHub } from './fake-github.js';
 import { FakeMetadataStorage } from './fake-metadata-storage.js';
 import { LocalChangeIndex, checkSourceStatus } from './local-change-index.js';
-import type { RemoteRepository } from './publish-to-remote.js';
+import type { RemoteRepository } from './send-to-remote.js';
 import {
 	RemoteStatusUnavailableError,
 	anonymousDetermination,
 	readRemoteInventory
 } from './remote-status.js';
 import { SynchronizationMetadata } from './synchronization-metadata.js';
-import { publishWorkspaceToRemote } from './synchronization-publish.js';
-import { UpdateRefusedError, updateFromGitHub } from './update-from-github.js';
+import { sendWorkspaceToRemote } from './synchronization-send.js';
+import { UpdateRefusedError, getFromRemote } from './get-from-remote.js';
 
 // A private repository, which until ADR-0044 could not be chosen at all. The claim is that it is the
 // same engine, the same namespace and the same Baseline — so what is asserted here is deliberately
@@ -63,7 +63,7 @@ async function workspace() {
 type Apparatus = Awaited<ReturnType<typeof workspace>>;
 
 const send = (kit: Apparatus) =>
-	publishWorkspaceToRemote(kit.store, {
+	sendWorkspaceToRemote(kit.store, {
 		token: TOKEN,
 		remote: REMOTE,
 		metadata: kit.metadata,
@@ -72,7 +72,7 @@ const send = (kit: Apparatus) =>
 	});
 
 const get = (kit: Apparatus, token: string | null) =>
-	updateFromGitHub(kit.store, {
+	getFromRemote(kit.store, {
 		remote: REMOTE,
 		token,
 		baseline: null,

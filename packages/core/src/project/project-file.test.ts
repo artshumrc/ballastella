@@ -214,7 +214,7 @@ describe('the boundary choice', () => {
 
 	// The upgrade case. Every `project.json` in existence was written before this field, and every one
 	// of them drew both boundary layers; reading their absence as anything else would change what a
-	// published map asserts on the day the app is updated.
+	// shared map asserts on the day the app is updated.
 	it('reads a Project with no such field as drawing every boundary', () => {
 		expect(parseProjectFile(withBorders()).borders).toBe('all');
 	});

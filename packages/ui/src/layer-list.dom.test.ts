@@ -962,7 +962,7 @@ describe('the two prop sets a real consumer passes', () => {
 
 	test('tells a Reader an empty Project is empty, and leaves the instructions to the editor', () => {
 		// ⚠ **The regression this pair exists for.** The empty state used to be the editor's guidance
-		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Map
+		// unconditionally, so a Project on a site with no Layers told a Reader to press *Add a Map
 		// Image* and mentioned "this Workspace" — two controls and a concept a published site does not
 		// have. The fact is shared; the instructions are the consumer's markup.
 		//
@@ -1024,7 +1024,7 @@ describe('the two prop sets a real consumer passes', () => {
 		offering(viewerProps(), { layers: foreign(), openLayerId: 'l-cartouche' });
 
 		expect(one('supplied-foreign-layer-note')).not.toBeInTheDocument();
-		// A site published by a newer version still opens, and the Layer it could not draw says which
+		// A site written by a newer version still opens, and the Layer it could not draw says which
 		// kind it was rather than going missing — in the app where nobody can open the file to find out.
 		expect(one('layer-kind')).toHaveTextContent('Not shown by this version (image-annotation)');
 		expect(one('layer-foreign-note')).toHaveTextContent(

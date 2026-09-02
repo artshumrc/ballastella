@@ -50,7 +50,7 @@ function fakeStorage(importTarget: ImportTarget | null = TARGET) {
 		})),
 		reviewFrom: vi.fn(async () => ({ notice: 'Reviewing Amsterdam 1625 in atlas.' })),
 		connectNewWorkspaceTo: vi.fn(async () => ({
-			notice: '“atlas” is a new Workspace connected to ada/atlas.'
+			notice: '“atlas” is a new Workspace for ada/atlas.'
 		}))
 	};
 	const storage = {
@@ -110,7 +110,7 @@ const press = async (testId: string): Promise<void> => {
 	});
 };
 
-describe('a link naming one published Project', () => {
+describe('a link naming one Project on a site', () => {
 	// Two deliberate outcomes, not one accept and a footnote.
 	test('offers Import into the named Workspace, a review copy, and a way out', () => {
 		const { storage } = fakeStorage();

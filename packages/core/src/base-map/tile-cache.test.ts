@@ -236,7 +236,7 @@ describe('the cache directory is keyed by archive', () => {
 	});
 
 	it('is stable for one archive, because a Published Site’s paths are already written', () => {
-		// The key is the published format: the tiles are copied verbatim into a site and read back by
+		// The key is a site's own format: the tiles are copied verbatim into a site and read back by
 		// the viewer over HTTP, which cannot list a directory to find them. A key that varied per call,
 		// per session, or per deployment would be a site whose own viewer cannot find its own tiles.
 		expect(baseMapArchiveKey(ARCHIVE)).toBe(baseMapArchiveKey(ARCHIVE));
@@ -274,7 +274,7 @@ describe('the cache directory is keyed by archive', () => {
 
 	it('reads the key back off a path, which is how a whole-Workspace walk finds every cache', () => {
 		// `baseMapCaches` has to answer for archives it is not holding — the hub's size and clear, and
-		// publishing's list — and the key is a one-way function, so the walk parses rather than guesses.
+		// the site's file list — and the key is a one-way function, so the walk parses rather than guesses.
 		const tile = { z: 3, x: 4, y: 5 };
 		expect(parseAnyCachedTilePath(cachedTilePath(ARCHIVE, tile))).toEqual({
 			key: baseMapArchiveKey(ARCHIVE),

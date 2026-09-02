@@ -128,7 +128,7 @@ export interface OpeningViewFit {
 /**
  * What the opening view settled on, for the sentence beside the map.
  *
- * Here rather than in either app because both publish that sentence and ADR-0026's whole point is
+ * Here rather than in either app because both say that sentence and ADR-0026's whole point is
  * that they answer one question the same way — the viewer used to re-declare this union inline, and
  * a union re-declared is a union that drifts.
  */

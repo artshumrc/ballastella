@@ -9,7 +9,7 @@
 // **this machine** believes about a Remote, and a record that travelled — into a Backup, into a
 // Project Bundle, up to the Remote and back down into a fork — would be somebody else's belief
 // arriving as this machine's evidence. That is the whole reason no document in the Workspace names
-// the Remote: such a file is inside the published tree, so a fork would carry a claim on the
+// the Remote: such a file is inside the Remote's tree, so a fork would carry a claim on the
 // repository it was forked *from*, and an author who opened the fork would sync to the original.
 //
 // It is not `localStorage` either. A Workspace of 40 000 files is a Baseline of a couple of megabytes
@@ -39,7 +39,7 @@
 // retained.
 
 import { isSameRemote, normaliseRemoteIdentity } from './remote-binding.js';
-import type { RemoteRepository } from './publish-to-remote.js';
+import type { RemoteRepository } from './send-to-remote.js';
 
 /**
  * The durable record store this module is kept in.

@@ -122,7 +122,7 @@
 	 * bundle said something it did not.
 	 *
 	 * ⚠ **`describeReviewSubject` rather than the same conditional written here**, which is what this
-	 * was. `assertNotReviewing` names the subject in the refusal a user meets when they try to publish
+	 * was. `assertNotReviewing` names the subject in the refusal a user meets when they try to send
 	 * or back one up, and this names it in the banner they are looking at while they do — two spellings
 	 * is how the two screens come to say different things about one Workspace. That function is in core
 	 * for exactly this, and it had no consumer.

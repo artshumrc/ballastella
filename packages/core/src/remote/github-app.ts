@@ -28,7 +28,7 @@
 // │ source and its deployment live in a separate repository (`infrastructure/github_broker`).   │
 // │                                                                                            │
 // │ **The pasted personal access token remains the path that needs none of this**, and it is    │
-// │ asserted rather than assumed: `github-sign-in.test.ts` publishes a Workspace with a pasted  │
+// │ asserted rather than assumed: `github-sign-in.test.ts` sends a Workspace with a pasted      │
 // │ token while every request to the broker fails, and asserts the broker was never on the      │
 // │ path. `editor-github-signin.e2e.ts` reaches that path in a browser with the broker          │
 // │ unreachable and binds by it. Both route the hosts named here rather than reaching them, so  │
@@ -37,11 +37,11 @@
 // │ ⚠ **It is not, however, always on screen.** The values below decide which door the          │
 // │ editor offers, through {@link isGitHubAppConfigured}: where an App is configured a          │
 // │ scholar is never shown a token field anywhere — not in the guided sequence, not in the      │
-// │ publish dialog, and nowhere else outside a disclosure that stays closed                     │
+// │ sync modal, and nowhere else outside a disclosure that stays closed                         │
 // │ until an instructor whose App installation has broken asks for it. Being asked to           │
 // │ choose between two credentials is the failure the sequence exists to remove. Where          │
 // │ **no** App is configured the paste is the sequence's first step, the plain content of       │
-// │ that dialog, and the plain content of the publish dialog — which is where a bound           │
+// │ that dialog, and the plain content of the sync modal — which is where a bound               │
 // │ Workspace reopened in a fresh tab meets the question. Gated, in one place, and nothing      │
 // │ here is deleted.                                                                            │
 // │                                                                                            │

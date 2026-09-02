@@ -13,7 +13,7 @@
 // WHY THE INSTALLATION DATABASE AND NOWHERE ELSE
 //
 // `export-workspace-tar` walks a Workspace into a file the author mails to a colleague, and a
-// Publish uploads one to a public repository — so a secret anywhere inside a Workspace leaves the
+// a send uploads one to a public repository — so a secret anywhere inside a Workspace leaves the
 // machine two ways that both look like a favour. `localStorage` holds the write-ahead journal. What
 // is left is the installation-local IndexedDB, which neither of those two walks (ADR-0033).
 //

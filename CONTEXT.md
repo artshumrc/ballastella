@@ -16,7 +16,7 @@ _Avoid_: workspace, document, map (for the whole), collection
 
 **Remote**:
 The one GitHub repository a Workspace can be bound to, holding the Workspace's files as their author owns them. It may be public or private. The relationship is local-only, never learned from repository content, and orthogonal to where the Workspace's own bytes are kept; a Review Workspace can never have one. A Remote implies no web address — whether the repository also answers as a Published Site is what Share Links decides.
-_Avoid_: origin, cloud, backend, server, sync target, host. Not "backup": a Backup restores *this* Workspace, where a Remote yields a new one hydrated from it (ADR-0024).
+_Avoid_: origin, cloud, backend, server, sync target, host. Not "backup": a Backup restores *this* Workspace, where a Remote fills a new one from what it holds (ADR-0024).
 
 **Sync**:
 To bring a Workspace and its Remote into agreement, in either direction or both. One act and one word, and never a silent one: it states what each side holds and what each choice would add and remove before anything moves, and the author chooses to get, to send, to do both, or to overwrite the Remote with the Workspace. Sending removes from the Remote only what the Synchronization Baseline recorded and the Workspace no longer has, so work that reached the Remote from elsewhere survives an author who has not yet seen it; overwriting is the exception that removes everything the Workspace does not have, and names it first. What travels is the author's own files — Map Images, Alignments, Projects, Annotations, offline Base Map tiles — and nothing about a website (ADR-0044).
@@ -27,7 +27,7 @@ The last state a Workspace and its Remote successfully shared through a Sync. Ch
 _Avoid_: last checked state, latest Remote state
 
 **Cannot tell**:
-The Remote Status of a Workspace that has a Remote and no trustworthy Synchronization Baseline. It says that Ballastella cannot attribute differences to the Workspace or the Remote, not that either side is unchanged or in Conflict.
+The Remote Status of a Workspace whose Remote cannot be told about: no trustworthy Synchronization Baseline, or a check that could not read the repository at all — a signed-out check of a private Remote, which GitHub answers exactly as it answers a repository that is not there. It says that Ballastella cannot attribute differences to the Workspace or the Remote, not that either side is unchanged or in Conflict.
 _Avoid_: unknown, in sync
 
 **Conflict**:

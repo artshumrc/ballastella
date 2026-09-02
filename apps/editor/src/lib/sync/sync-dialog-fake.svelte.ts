@@ -15,9 +15,9 @@
 
 import type {
 	ProjectSummary,
-	PublishPlan,
+	PublishedSitePlan,
 	PublishedSite,
-	RemotePublishPlan,
+	RemoteSendPlan,
 	RemoteRepository,
 	RemoteRights,
 	RemoteSharing,
@@ -34,13 +34,13 @@ export class FakeSession {
 	projects = $state<ProjectSummary[]>([]);
 	/** What the Workspace's own site record says, or `null` for a Workspace with no site. */
 	siteRecord: PublishedSite | null = null;
-	forecast: RemotePublishPlan | Error = emptyForecast();
-	/** What each `planRemotePublish` was asked, so the read-only path can be told from the ordinary. */
+	forecast: RemoteSendPlan | Error = emptyForecast();
+	/** What each `planRemoteSend` was asked, so the read-only path can be told from the ordinary. */
 	readonly forecasts: { sending: boolean | undefined }[] = [];
-	/** What each `publishToRemote` was asked, which is where the mode a press means is asserted. */
+	/** What each `sendToRemote` was asked, which is where the mode a press means is asserted. */
 	readonly sends: { overwrite: readonly string[] | undefined }[] = [];
 	/** How many times the viewer was written into the Workspace. */
-	published = 0;
+	siteWrites = 0;
 	sendAnswer: Error | null = null;
 	synchronization = { readBaseline: async () => null };
 	/** The Alignment questions the plan raises, which a spec sets to exercise the one question. */
@@ -54,24 +54,24 @@ export class FakeSession {
 		return this.siteRecord;
 	}
 
-	async planPublish(): Promise<PublishPlan> {
+	async planPublishedSite(): Promise<PublishedSitePlan> {
 		return localPlan();
 	}
 
-	async planRemotePublish(options: { sending?: boolean }): Promise<RemotePublishPlan> {
+	async planRemoteSend(options: { sending?: boolean }): Promise<RemoteSendPlan> {
 		this.forecasts.push({ sending: options.sending });
 		if (this.forecast instanceof Error) throw this.forecast;
 		return this.forecast;
 	}
 
-	async publish(): Promise<PublishedSite | null> {
-		this.published += 1;
+	async writePublishedSite(): Promise<PublishedSite | null> {
+		this.siteWrites += 1;
 		return this.siteRecord;
 	}
 
-	async publishToRemote(options: { overwrite?: readonly string[] }): Promise<{
+	async sendToRemote(options: { overwrite?: readonly string[] }): Promise<{
 		commit: string;
-		plan: RemotePublishPlan;
+		plan: RemoteSendPlan;
 		baselineKept: boolean;
 	}> {
 		this.sends.push({ overwrite: options.overwrite });

@@ -5,7 +5,7 @@
 //
 // `export-workspace-tar.ts` walks the `ProjectStore` and puts everything it finds in one file the
 // user downloads and mails to a colleague; the write-ahead journal copies edits into
-// `localStorage`; a Publish uploads the Workspace to a public repository. A token kept anywhere in
+// `localStorage`; a send uploads the Workspace to a public repository. A token kept anywhere in
 // the Workspace therefore leaves the machine three ways, and two of them look like a favour. So the
 // credential lives here, in a place none of those three walk.
 //
@@ -16,7 +16,7 @@
 // reload — and a durable "remember me" may replace it later. Nothing above this interface may assume
 // session scope: {@link CredentialStore} says only that a token can be put in, taken out, and thrown
 // away. The broker-exchanged token of a GitHub App sign-in is the same string through the same three
-// methods, which is what keeps the auth flow out of the publish engine.
+// methods, which is what keeps the auth flow out of the send engine.
 
 /** Where the credential is kept in whatever web storage the implementation uses. */
 export const CREDENTIAL_KEY = 'ballastella.github-credential';
@@ -95,7 +95,7 @@ export function memoryCredentialStore(): CredentialStore {
  *
  * Memory rather than `null`: unlike the write-ahead journal there is nothing here to warn a user
  * about. A credential that does not survive a reload is a sign-in they do again, and refusing to
- * hold one at all would refuse publishing outright on a browser where it would otherwise work.
+ * hold one at all would refuse sending outright on a browser where it would otherwise work.
  */
 export function browserCredentialStore(): CredentialStore {
 	try {

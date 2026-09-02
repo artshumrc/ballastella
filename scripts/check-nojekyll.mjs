@@ -36,29 +36,29 @@
 //      against `static/`, because the config is not what ships: a `publicDir` change or an adapter
 //      that filters dotfiles would leave the `static/` file in place and the deployed site broken.
 //
-//   2. **Every Workspace publishing writes** gets the marker from `publishSite`, which *authors* it
+//   2. **Every Workspace a site is written into** gets the marker from `writePublishedSite`, which *authors* it
 //      — zero bytes, `source: ''`, nothing fetched. It is deliberately **not** in the viewer's
-//      build. It was, once, and that made publishing `fetch` an empty file: dead Publish button
+//      build. It was, once, and that made the site write `fetch` an empty file: dead Share Links
 //      under `vite preview`, which serves no dotfiles, and the same on any static host that hides
-//      them. See the note on `JEKYLL_OFF_MARKER_FILE` in `publish/publish.ts`.
+//      them. See the note on `JEKYLL_OFF_MARKER_FILE` in `published-site/published-site.ts`.
 //
 //   3. **Every commit that carries a site** holds the marker at the tree root, authored by
-//      `planRemotePublish` whether or not the Workspace holds one. This is the end of the chain: the
+//      `planRemoteSend` whether or not the Workspace holds one. This is the end of the chain: the
 //      repository that needs the file is one this code now writes to, so it is the last point at
 //      which the property can be checked at all. A Sync from a Workspace with no Share Links carries
 //      neither the marker nor anything for it to protect (ADR-0045), and the marker that opened an
 //      empty repository is preserved rather than owned.
 //
-// Links 2 and 3 are asserted where they live, against what was actually written — `publish.test.ts`
-// checks `VIEWER_FILE_PATHS` against what `publishSite` wrote, and `publish-to-remote.test.ts` reads
-// the marker out of every commit a publish *with Share Links* sent to the fake GitHub, with a commit
-// that publish did not write as its control and a Sync with no Share Links as the other one. This
+// Links 2 and 3 are asserted where they live, against what was actually written — `published-site.test.ts`
+// checks `VIEWER_FILE_PATHS` against what `writePublishedSite` wrote, and `send-to-remote.test.ts` reads
+// the marker out of every commit a Sync *with Share Links* sent to the fake GitHub, with a commit
+// that Sync did not write as its control and a Sync with no Share Links as the other one. This
 // script re-asserts neither, because neither is visible to a script: it checks that the constant
 // still says `.nojekyll` and that the engine still spells its file from that constant, because
 // everything downstream is spelled from that name.
 //
 // **It also refuses the arrangement that broke**: a marker inside the staged viewer bundle means
-// somebody has put it back in `apps/viewer/static/`, and publishing is fetching it again.
+// somebody has put it back in `apps/viewer/static/`, and the site write is fetching it again.
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -101,7 +101,7 @@ const MARKER = markerName(repoRoot);
 
 const editorBuild = path.join(repoRoot, 'apps/editor/build');
 const bundleIndex = path.join(repoRoot, 'apps/editor/static/viewer-bundle/bundle.json');
-const publishEngine = 'packages/core/src/remote/publish-to-remote.ts';
+const sendEngine = 'packages/core/src/remote/send-to-remote.ts';
 
 const problems = [];
 
@@ -117,8 +117,8 @@ if (!existsSync(editorBuild) || !statSync(editorBuild).isDirectory()) {
 }
 
 // Link 2, from the other side: the marker must **not** be in the staged bundle. If it is, somebody
-// has put it back in `apps/viewer/static/` and publishing is fetching an empty file over HTTP again
-// — which is a dead Publish button on any host that hides dotfiles, `vite preview` among them.
+// has put it back in `apps/viewer/static/` and the site write is fetching an empty file over HTTP
+// again — which is dead Share Links on any host that hides dotfiles, `vite preview` among them.
 if (!existsSync(bundleIndex)) {
 	problems.push(
 		`${path.relative(repoRoot, bundleIndex)} does not exist, so this check could not run.\n` +
@@ -134,33 +134,31 @@ if (!existsSync(bundleIndex)) {
 	const carried = staged?.files?.find((file) => file?.path?.endsWith(MARKER));
 	if (carried) {
 		problems.push(
-			`The staged viewer bundle carries ${MARKER} as "${carried.path}", so publishing would ` +
+			`The staged viewer bundle carries ${MARKER} as "${carried.path}", so the site write would ` +
 				`fetch it.\n` +
-				`  An empty file is not worth a round trip, and it makes the Publish button depend on\n` +
+				`  An empty file is not worth a round trip, and it makes Share Links depend on\n` +
 				`  the authoring host serving dotfiles — which vite preview does not, and nor do many\n` +
-				`  static hosts. publishSite authors this file; see JEKYLL_OFF_MARKER_FILE.\n` +
+				`  static hosts. writePublishedSite authors this file; see JEKYLL_OFF_MARKER_FILE.\n` +
 				`  Remove apps/viewer/static/${MARKER}.`
 		);
 	}
 }
 
-// Link 3: the engine that publishes to a Remote authors the marker into every commit. What that
-// commit *held* is a runtime fact, asserted against the fake in `publish-to-remote.test.ts`; what a
+// Link 3: the engine that sends to a Remote authors the marker into every commit. What that
+// commit *held* is a runtime fact, asserted against the fake in `send-to-remote.test.ts`; what a
 // script can see is that the engine still names the constant at all. It stops naming it the moment
 // the block that writes it goes — the import would be unused, and the next hand to tidy that removes
 // the last mention.
-if (!existsSync(path.join(repoRoot, publishEngine))) {
-	problems.push(`${publishEngine} does not exist, so this check could not run.`);
-} else if (
-	!readFileSync(path.join(repoRoot, publishEngine), 'utf8').includes('JEKYLL_OFF_MARKER')
-) {
+if (!existsSync(path.join(repoRoot, sendEngine))) {
+	problems.push(`${sendEngine} does not exist, so this check could not run.`);
+} else if (!readFileSync(path.join(repoRoot, sendEngine), 'utf8').includes('JEKYLL_OFF_MARKER')) {
 	problems.push(
-		`${publishEngine} no longer names JEKYLL_OFF_MARKER, so a Sync may be sending commits\n` +
+		`${sendEngine} no longer names JEKYLL_OFF_MARKER, so a Sync may be sending commits\n` +
 			`  with no ${MARKER} in them.\n` +
 			`  Every commit that carries a site must hold it at the tree root, whether or not the\n` +
 			`  Workspace holds one — the Remote is served by a branch deploy, which runs Jekyll, and\n` +
 			`  a Reader would meet a blank page.\n` +
-			`  See the ${MARKER} assertions in packages/core/src/remote/publish-to-remote.test.ts.`
+			`  See the ${MARKER} assertions in packages/core/src/remote/send-to-remote.test.ts.`
 	);
 }
 
@@ -174,7 +172,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-	`OK: ${MARKER} ships in the editor's build, publishing authors it rather than fetching it, and ` +
+	`OK: ${MARKER} ships in the editor's build, the site write authors it rather than fetching it, and ` +
 		`the engine that syncs with a Remote still spells it from the constant for every commit that ` +
 		`carries a site.`
 );

@@ -12,7 +12,7 @@
 //
 // ADR-0007 is explicit: "the decision must not be made implicitly by a button labelled only
 // 'Download'." Copying somebody else's images is per-collection acceptable rather than universally so,
-// and the two things a scholar needs in order to decide are the rights statement the library published
+// and the two things a scholar needs in order to decide are the rights statement the library states
 // and what the copy costs — the host, in requests, and their own Workspace, in bytes against ADR-0008's
 // ~1 GB static-hosting cliff. Neither is knowable from the Layer list, and the Manifest they came from
 // has long since been navigated away from, which is why `rights` and `requiredStatement` are

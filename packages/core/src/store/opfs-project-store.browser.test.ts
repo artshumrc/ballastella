@@ -103,7 +103,7 @@ it('keeps two named Workspaces’ Projects apart, each invisible to the other', 
 });
 
 /**
- * Update from GitHub over real browser storage.
+ * Getting from a Remote over real browser storage.
  *
  * The engine and its fault matrix are exhausted at Seam 1 over the memory store. What this adds is
  * the backing an author's own Workspace actually uses underneath the transaction: real two-step
@@ -278,7 +278,7 @@ it('re-reads a directory that changed mid-listing rather than returning a short 
 	// **The failure mode that the obvious fix introduces.** Keeping the entries collected before a
 	// mid-drain `NotFoundError` and carrying on gives a listing that is short by an unknown number of
 	// files and reports success — quieter and worse than the throw it replaces, because `list('')`
-	// feeds the hub, publishing, and backup, where a short listing is an archive silently missing
+	// feeds the hub, the site write, and backup, where a short listing is an archive silently missing
 	// somebody's work.
 	//
 	// So the drain is restarted instead. The first read of `p/` throws after one of its three files;

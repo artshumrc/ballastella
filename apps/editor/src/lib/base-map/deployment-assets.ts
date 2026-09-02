@@ -2,11 +2,11 @@ import { base } from '$app/paths';
 
 /**
  * Turn a deployment-relative asset path — the Base Map catalog's, and the staged viewer bundle's
- * (`$lib/publish/viewer-bundle-source`) — into a URL that can be fetched or handed to MapLibre.
+ * (`$lib/sync/viewer-bundle-source`) — into a URL that can be fetched or handed to MapLibre.
  *
  * Two constraints meet here.
  *
- * ADR-0006 forbids absolute asset paths outright: the publish target — a domain root or a project
+ * Absolute asset paths are forbidden outright: a site's address — a domain root or a project
  * subdirectory — is unknown at build time, and `paths.base` is baked in, so `paths.relative: true`
  * is mandatory and CI greps the built output for violations. So the path must go through `base`.
  *
@@ -23,7 +23,7 @@ export function resolveDeploymentAsset(path: string): string {
 /**
  * Where this deployment of the editor lives, with a trailing slash.
  *
- * Recorded into a Published Site at publish time, so that the site's Front Page can lead a Reader
+ * Recorded into a Published Site when it is written, so that the site's Front Page can lead a Reader
  * back to the instance that made it. Nothing is configured and nothing is asked:
  * `location.origin` plus this app's base path is the whole of what an instance's address is,
  * and it is knowledge only the app has — `packages/core` must not read `location` (ADR-0006).
@@ -32,8 +32,8 @@ export function resolveDeploymentAsset(path: string): string {
  * mean something on **another origin**: the Published Site is a different host under ADR-0032.
  *
  * ⚠ **This is `location.origin`, which is often not an address a Reader could reach** — a `pnpm dev`
- * server, or an instance inside an institution's network. Publishing does not record such an address:
- * `parseEditorUrl` in `packages/core/src/publish/publish.ts` refuses loopback and single-label hosts,
+ * server, or an instance inside an institution's network. The site record leaves such an address out:
+ * `parseEditorUrl` in `packages/core/src/published-site/published-site.ts` refuses loopback and single-label hosts,
  * where the reasoning is written out, and the site degrades to carrying no return link at all.
  */
 export function deploymentRoot(): string {

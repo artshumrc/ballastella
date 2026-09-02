@@ -23,7 +23,7 @@
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * ONE LINK, TWO ANSWERS, AND THE VOCABULARY IS THE DIFFERENCE
 	 *
-	 * A Published *Project* carries one “Open this Project in Ballastella” rather than competing Import and Review
+	 * A *Project* link carries one “Open this Project in Ballastella” rather than competing Import and Review
 	 * links, because the choice between keeping somebody's work and looking at it is a decision to put
 	 * in front of a reader once they have arrived, not two links to tell them apart in a navbar. So the
 	 * Project invitation raises **both** offers here and names the Workspace an Import would go into,
@@ -230,7 +230,7 @@
 			{:else}
 				You followed a link from a published site, and there are two things you can do with that
 				Project. <strong>Import</strong> copies it into the Workspace you are in as work of your own
-				— yours to edit, publish and back up, with no connection back to where it came from.
+				— yours to edit, share and back up, with no connection back to where it came from.
 				<strong>A review copy</strong>
 				puts it in a separate throwaway Workspace, so you can look at it without adding it to anything.
 				Either way you do not need a GitHub account. Nothing has been downloaded yet.

@@ -10,7 +10,7 @@ import { parsePublishedSite, readReturnLink, returnLinkUrl, withoutReturnLink } 
 const INSTANCE = 'https://maps.example.edu/ballastella/';
 
 describe('the link a Published Site sends a Reader back with', () => {
-	it('addresses the publishing instance with the whole Workspace to clone', () => {
+	it('addresses the recorded instance with the whole Workspace to clone', () => {
 		expect(returnLinkUrl(INSTANCE, { kind: 'clone', owner: 'ada', repository: 'atlas' })).toBe(
 			'https://maps.example.edu/ballastella/?clone=ada/atlas'
 		);
@@ -33,7 +33,7 @@ describe('the link a Published Site sends a Reader back with', () => {
 	 * The alternative — guessing at a canonical deployment — would send a Reader to a stranger's
 	 * editor, offering to clone a repository into somebody else's tool.
 	 */
-	it('is nothing at all when the site does not say which instance published it', () => {
+	it('is nothing at all when the site does not say which instance wrote it', () => {
 		expect(returnLinkUrl('', { kind: 'clone', owner: 'ada', repository: 'atlas' })).toBeNull();
 	});
 
@@ -86,7 +86,7 @@ describe('a site record naming its own repository', () => {
 		]);
 	});
 
-	// A site published into a folder rather than to a Remote, and every site published before the
+	// A site written into a folder rather than sent to a Remote, and every site written before the
 	// field existed. The tolerant answer is "no repository on the record", never a refusal to read the
 	// record at all: the cost is a Front Page with one fewer link.
 	it('reads a record written before the field existed as naming no repository', () => {
@@ -106,7 +106,7 @@ describe('a site record naming its own repository', () => {
 		expect(record({ editorUrl: INSTANCE, repository }).repository).toBeNull();
 	});
 
-	it('normalises a record that names no branch to the branch a publish writes to', () => {
+	it('normalises a record that names no branch to the branch a send writes to', () => {
 		expect(
 			record({ editorUrl: INSTANCE, repository: { owner: 'ada', repository: 'atlas' } }).repository
 		).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });

@@ -54,7 +54,7 @@ export {
 	type ReplaySkipReason,
 	type ReplaySkipped
 } from './autosave/replay.js';
-// The Layer stack (CONTEXT.md, Layer; ADR-0002). Both apps: the editor edits it, and the published
+// The Layer stack (CONTEXT.md, Layer; ADR-0002). Both apps: the editor edits it, and the Reader's
 // viewer reads it to know what draws over what (ADR-0019), so it lives here and is free of
 // `terra-draw` and the tiler.
 export {
@@ -188,7 +188,7 @@ export {
 	type ReviewOriginBacking
 } from './project/review-workspace.js';
 // ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: a warning before a
-// Workspace grows and again at publish, from the same two functions rather than two answers to one
+// Workspace grows and again at a Sync, from the same two functions rather than two answers to one
 // question.
 export {
 	STATIC_HOSTING_LIMIT_BYTES,
@@ -439,12 +439,12 @@ export {
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
 	VIEWER_FILE_PATHS,
-	claimedByPublishing,
+	claimedByPublishedSite,
 	createViewerFileFilter,
 	isViewerFile
 } from './transfer/viewer-files.js';
 
-// Publishing (ADR-0006, ADR-0008). Both apps, for different halves of it: the editor
+// The Published Site (ADR-0008, ADR-0045). Both apps, for different halves of it: the editor
 // plans and writes a Published Site, and the viewer reads the site record to know which Projects
 // exist and which Base Maps it may offer (ADR-0020) — a static host has no directory listing, so
 // that record is the only way the hub page can list anything.
@@ -454,36 +454,36 @@ export {
 // the viewer's files are served from is the app's knowledge, not core's.
 export {
 	PUBLISHED_SITE_FORMAT_VERSION,
-	PublishRefusedError,
+	PublishedSiteRefusedError,
 	PublishedSiteUnreadableError,
 	canonicalImageServiceId,
 	normaliseCanonicalUrl,
 	parsePublishedSite,
-	planPublish,
-	publishSite,
+	planPublishedSite,
+	writePublishedSite,
 	publishedSiteStaleness,
 	readPublishedSite,
 	serialisePublishedSite,
 	stampCanonicalUrl,
 	withdrawShareLinks,
 	type CanonicalStamp,
-	type PlanPublishOptions,
-	type PublishPlan,
-	type PublishSiteOptions,
-	type PublishWarning,
+	type PlanPublishedSiteOptions,
+	type PublishedSitePlan,
+	type WritePublishedSiteOptions,
+	type PublishedSiteWarning,
 	type PublishedProject,
 	type PublishedRepository,
 	type PublishedSite
-} from './publish/publish.js';
+} from './published-site/published-site.js';
 export {
 	ViewerBundleUnreadableError,
 	bundleBytes,
 	parseViewerBundle,
 	type ViewerBundle,
 	type ViewerBundleFile
-} from './publish/viewer-bundle.js';
+} from './published-site/viewer-bundle.js';
 
-// Publishing to a Remote (ADR-0031, ADR-0032, ADR-0033). The name git gives a file's bytes, which
+// Sending to a Remote (ADR-0031, ADR-0033). The name git gives a file's bytes, which
 // is what makes an incremental send, a conflict refusal, and a resumed get possible at all.
 export { gitBlobSha } from './remote/blob-sha.js';
 export { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './remote/github-api.js';
@@ -500,37 +500,37 @@ export {
 	type FakeSignInOptions,
 	type FakeTreeEntry
 } from './remote/fake-github.js';
-// The publish engine: the Workspace becomes one tree, one commit, and one ref move (ADR-0033).
-// Editor-only — a Published Site publishes nothing — but here rather than in the app because the
-// owned-namespace rules, the incremental upload, and the three budgets are where publishing's silent
+// The send engine: the Workspace becomes one tree, one commit, and one ref move (ADR-0033).
+// Editor-only — a Published Site sends nothing — but here rather than in the app because the
+// owned-namespace rules, the incremental upload, and the three budgets are where the send's silent
 // failures live, and all of them are assertable with no browser.
 export {
-	MAX_PUBLISHED_FILES,
-	RemotePublishCredentialError,
-	RemotePublishFailedError,
-	RemotePublishRateLimitedError,
-	RemotePublishRefusedError,
-	planRemotePublish,
-	publishToRemote,
+	MAX_SENT_FILES,
+	RemoteSendCredentialError,
+	RemoteSendFailedError,
+	RemoteSendRateLimitedError,
+	RemoteSendRefusedError,
+	planRemoteSend,
+	sendToRemote,
 	type PendingLocalFile,
-	type PlanRemotePublishOptions,
+	type PlanRemoteSendOptions,
 	type PlannedRemoteFile,
-	type PublishToRemoteOptions,
-	type RemotePublishOptions,
-	type RemotePublishPlan,
-	type RemotePublishWarning,
+	type SendToRemoteOptions,
+	type RemoteSendOptions,
+	type RemoteSendPlan,
+	type RemoteSendWarning,
 	type RemoteRepository,
 	type RemoteTreeEntry
-} from './remote/publish-to-remote.js';
+} from './remote/send-to-remote.js';
 export {
-	publishWorkspaceToRemote,
-	type PublishWorkspaceOptions,
+	sendWorkspaceToRemote,
+	type SendWorkspaceOptions,
 	type SharedStateRecorder,
-	type WorkspacePublished
-} from './remote/synchronization-publish.js';
+	type WorkspaceSent
+} from './remote/synchronization-send.js';
 // Installation-local synchronization evidence. The relationship and the Baseline are what *this
 // machine* believes about a Remote, so neither travels in a Workspace, a Backup, a Project Bundle or
-// a published tree.
+// the Remote's tree.
 export {
 	SYNCHRONIZATION_FORMAT_VERSION,
 	SYNCHRONIZATION_KEY_PREFIX,
@@ -616,7 +616,7 @@ export {
 } from './store/indexeddb-metadata-storage.js';
 // The inbound half of a Sync: the explicit transfer that takes the Remote's own additions,
 // replacements and deletions, keeps local-only work, and sends nothing (ADR-0038, ADR-0044).
-// Anonymous, like the Open above — inbound synchronization is not publishing authority.
+// Anonymous, like the Open above — getting is not authority to send.
 export {
 	UPDATE_BEFORE_DIRECTORY,
 	UPDATE_DOWNLOAD_CONCURRENCY,
@@ -628,10 +628,10 @@ export {
 	readUpdateTransaction,
 	recoverWorkspaceUpdate,
 	serialiseUpdateTransaction,
-	updateFromGitHub,
+	getFromRemote,
 	type UnreadableUpdateTransaction,
 	type UpdateBeforeImage,
-	type UpdateFromGitHubOptions,
+	type GetFromRemoteOptions,
 	type UpdateRecovery,
 	type UpdateReference,
 	type UpdateRefusal,
@@ -639,7 +639,7 @@ export {
 	type UpdateTransactionMark,
 	type UpdateTransactionState,
 	type WorkspaceUpdate
-} from './remote/update-from-github.js';
+} from './remote/get-from-remote.js';
 // What a Sync does with a file changed on both sides: a second copy the scholar can look at, or —
 // for an Alignment, of which there is exactly one per Map Image — one question (ADR-0046). Never a
 // merge, and never a stop.
@@ -666,7 +666,7 @@ export {
 } from './remote/conflict-resolution.js';
 // Reviewing one Project out of a public repository (ADR-0024, ADR-0031). A get's sibling and
 // the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
-// unbound and unpublishable.
+// unbound and unable to send.
 export {
 	ReviewRefusedError,
 	reviewFromRemote,
@@ -676,7 +676,7 @@ export {
 	type ReviewedProject,
 	type UnmetReference
 } from './remote/review-from-remote.js';
-// Importing one published Project into the Workspace the user already has open (ADR-0037). The
+// Importing one Project off a site into the Workspace the user already has open (ADR-0037). The
 // Review's transport with the Import's contract: anonymous, blob-SHA checked, and refused whole rather
 // than reported incomplete.
 export {
@@ -762,7 +762,7 @@ export {
 	type ReturnLink
 } from './remote/return-link.js';
 // The credential lives behind this interface, outside `ProjectStore`, and is never reachable through
-// it: a token in the Workspace would be backed up, journalled, and published (ADR-0033). The two
+// it: a token in the Workspace would be backed up, journalled, and sent (ADR-0033). The two
 // implementations behind `browserCredentialStore` and the storage shape they take are deliberately
 // not here — the app composes the sealed store and asks it three questions, and the
 // broker-exchanged token has to be a swap underneath rather than a second surface above.
@@ -995,7 +995,7 @@ export { padTileToCell } from './image-pane/pad-tile-to-cell.js';
 
 // The injection layer (ADR-0011): the one `ProjectStore` → `Response` shim every consumer of a
 // stored pyramid resolves through. Free of the tiler, because `apps/viewer`
-// reads published pyramids through it too (ADR-0019).
+// reads a site's pyramids through it too (ADR-0019).
 export {
 	MissingImageServiceOverrideError,
 	createStoreImageFetch,
@@ -1151,7 +1151,7 @@ export * from './theme';
 // directory made every prerendered page evaluate `maplibre-gl` in Node: `SyntaxError: The requested
 // module 'maplibre-gl' does not provide an export named 'addProtocol'`, and `pnpm -r build` failed on
 // the editor's first route with a 500. A subpath keeps the barrel Node-safe — which is what
-// `publish.test.ts` and every other Seam 1 test depend on — and makes "this module needs a browser"
+// `published-site.test.ts` and every other Seam 1 test depend on — and makes "this module needs a browser"
 // legible at the import site.
 
 // The tiler (ADR-0003, ADR-0027). One implementation, decode-and-crop, injected rather than

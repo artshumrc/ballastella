@@ -27,7 +27,7 @@ import {
  *   - a real download arrives, named after the Workspace, and is a real tar when Node opens it;
  *   - a tar chosen through a file input reaches **OPFS**, in a Workspace that did not exist before;
  *   - the Workspace that was open is still there, untouched, with the app now looking at the new one;
- *   - the re-publish notice reaches a screen the user can read, and is announced.
+ *   - the Share Links notice reaches a screen the user can read, and is announced.
  *
  * ⚠ **Every claim about where work went is read out of OPFS behind the app's back**, the discipline
  * `editor-named-workspaces.e2e.ts` sets down: the save indicator says "Saved" before a save begins as
@@ -256,9 +256,9 @@ test.describe('restoring a Workspace', () => {
 			buffer: backup
 		});
 
-		// The notice, in words, saying a re-publish is needed and announced.
+		// The notice, in words, saying Share Links have to be turned on again, and announced.
 		const outcome = page.getByTestId('transfer-outcome');
-		await expect(outcome).toContainText('publish', { timeout: 30_000 });
+		await expect(outcome).toContainText('Share Links', { timeout: 30_000 });
 		await expect(outcome).toContainText('not been touched');
 
 		// **Switched to the new one**, which the bar says on every screen.
@@ -282,7 +282,7 @@ test.describe('restoring a Workspace', () => {
 		expect(paths).not.toContain(`${restoredName}/ballastella-site.json`);
 		expect(paths.filter((path) => path.startsWith(`${restoredName}/_app/`))).toEqual([]);
 
-		// ⚠ **And it arrives connected to nothing.** Nothing wrote an installation-local relationship
+		// ⚠ **And it arrives bound to nothing.** Nothing wrote an installation-local relationship
 		// for a Workspace this browser has never synced from, and the archive carries no claim of its
 		// own — so a Backup mailed to a colleague cannot aim their Sync at the sender's repository.
 		expect(await readRemoteRelationship(page, restoredName)).toBeNull();
@@ -307,7 +307,7 @@ test.describe('restoring a Workspace', () => {
 			mimeType: 'application/x-tar',
 			buffer: backup
 		});
-		await expect(page.getByTestId('transfer-outcome')).toContainText('publish', {
+		await expect(page.getByTestId('transfer-outcome')).toContainText('Share Links', {
 			timeout: 30_000
 		});
 		await expectWorkspaceNamed(page, `${DEFAULT_WORKSPACE} (2)`);
@@ -481,7 +481,7 @@ test.describe('backing up a folder Workspace', () => {
 			.setInputFiles({ name: `${LEGAL}.tar`, mimeType: 'application/x-tar', buffer: archive });
 
 		const outcome = page.getByTestId('transfer-outcome');
-		await expect(outcome).toContainText('publish', { timeout: 30_000 });
+		await expect(outcome).toContainText('Share Links', { timeout: 30_000 });
 
 		// A folder Workspace restores into browser storage beside it, with the folder untouched.
 		await expectWorkspaceNamed(page, LEGAL);

@@ -1,4 +1,4 @@
-// A plain image at a URL — a JPEG or a PNG published with no IIIF service in front of it — fetched
+// A plain image at a URL — a JPEG or a PNG served with no IIIF service in front of it — fetched
 // into the bytes the tiler cuts a pyramid from.
 //
 // **This is a download, not a reference.** A IIIF image service can be left where it is and drawn

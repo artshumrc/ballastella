@@ -7,7 +7,7 @@
  * reading it a second time in the layout would cost every Reader an extra round trip to say the same
  * thing.
  *
- * `null` is the ordinary state, not a failure: a site that records no editor, and a site published to
+ * `null` is the ordinary state, not a failure: a site that records no editor, and a site sent to
  * a folder rather than to a Remote, both have nothing to link to.
  */
 export type ReturnLink = {

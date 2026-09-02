@@ -15,27 +15,27 @@ import type { Bytes, StorePath } from '../store/project-store.js';
 import { exportProjectBundle } from '../transfer/export-project-bundle.js';
 import { VIEWER_FILE_PATHS, isViewerFile } from '../transfer/viewer-files.js';
 import {
-	PublishRefusedError,
+	PublishedSiteRefusedError,
 	canonicalImageServiceId,
 	PUBLISHED_SITE_RECORD_NAME,
 	normaliseCanonicalUrl,
 	parsePublishedSite,
-	planPublish,
-	publishSite,
+	planPublishedSite,
+	writePublishedSite,
 	publishedSiteStaleness,
 	readPublishedSite,
 	stampCanonicalUrl,
 	withdrawShareLinks,
-	type PublishPlan,
+	type PublishedSitePlan,
 	type PublishedRepository,
 	type ViewerBundle
 } from '../index.js';
 import { parseViewerBundle } from './viewer-bundle.js';
 
-// Seam 1. Publishing is a file-level behaviour end to end — "these paths now hold these
+// Seam 1. Writing the site is a file-level behaviour end to end — "these paths now hold these
 // bytes, and every Project file is exactly as it was" — so the in-memory ProjectStore is not
 // standing in for anything. What only a browser can settle is whether the files it wrote *serve a
-// working site*, at a domain root and at a subdirectory, and that is `e2e/editor-publish.e2e.ts`.
+// working site*, at a domain root and at a subdirectory, and that is `e2e/editor-sync.e2e.ts`.
 
 const encode = (text: string): Bytes => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
@@ -88,7 +88,7 @@ const bundle: ViewerBundle = {
 const asset = (file: { source: string }): Promise<Bytes> =>
 	Promise.resolve(encode(`bytes of ${file.source}`));
 
-describe('planning a publish', () => {
+describe('planning a site write', () => {
 	let store: MemoryProjectStore;
 	let workspace: Workspace;
 
@@ -98,8 +98,8 @@ describe('planning a publish', () => {
 		await workspace.createProject('Amsterdam 1625');
 	});
 
-	const plan = async (): Promise<PublishPlan> =>
-		planPublish(store, {
+	const plan = async (): Promise<PublishedSitePlan> =>
+		planPublishedSite(store, {
 			bundle,
 			projects: await workspace.listProjects()
 		});
@@ -235,7 +235,7 @@ describe('planning a publish', () => {
 	});
 
 	it('names the byte weight of the Map Images no Project uses', async () => {
-		// Publishing is additive: those maps are already in the directory the site is written into and
+		// Writing the site is additive: those maps are already in the directory the site is written into and
 		// cannot be left out of it. So the ADR-0008 warning has to say how much of the drop is dead
 		// weight, or the user is told they are stuck when they are one deletion from not being.
 		await store.write('images/nobody/info.json', encode('{"id":"https://unset.invalid/nobody"}'));
@@ -281,7 +281,7 @@ describe('planning a publish', () => {
 	});
 
 	it('carries this deployment’s Base Map catalog, so the site keeps working when it changes', async () => {
-		const planned = await planPublish(store, {
+		const planned = await planPublishedSite(store, {
 			bundle,
 			projects: await workspace.listProjects(),
 			catalog: FORKED_CATALOG
@@ -303,8 +303,8 @@ describe('planning a publish', () => {
 
 		expect(planned.collisions).toEqual(['base-map']);
 		expect(planned.warnings.map((entry) => entry.kind)).toContain('name-collision');
-		await expect(publishSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
-			PublishRefusedError
+		await expect(writePublishedSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
+			PublishedSiteRefusedError
 		);
 		// Refused before anything was written, so the Project it was protecting is still whole.
 		expect(await store.list('base-map/')).toEqual(['base-map/project.json']);
@@ -312,7 +312,7 @@ describe('planning a publish', () => {
 	});
 });
 
-describe('publishing', () => {
+describe('writing the site', () => {
 	let store: MemoryProjectStore;
 	let workspace: Workspace;
 
@@ -326,12 +326,12 @@ describe('publishing', () => {
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 	});
 
-	const publish = async (
+	const writeSite = async (
 		options: { at?: string; editorUrl?: string; repository?: PublishedRepository } = {}
 	) =>
-		publishSite({
+		writePublishedSite({
 			store,
-			plan: await planPublish(store, {
+			plan: await planPublishedSite(store, {
 				bundle,
 				projects: await workspace.listProjects(),
 				...(options.editorUrl === undefined ? {} : { editorUrl: options.editorUrl }),
@@ -349,7 +349,7 @@ describe('publishing', () => {
 	};
 
 	it('writes the viewer and the site record at the Workspace, beside the Projects', async () => {
-		await publish();
+		await writeSite();
 
 		expect(await store.list('')).toEqual(
 			[
@@ -373,14 +373,14 @@ describe('publishing', () => {
 	});
 
 	it('writes nothing at all inside a Project directory', async () => {
-		// Stronger than comparing bytes before and after, and it has to be. A publish that re-serialised
+		// Stronger than comparing bytes before and after, and it has to be. A site write that re-serialised
 		// `project.json` to the same bytes passes a byte comparison — while still touching the file's
 		// modification time, which is a Dropbox sync to every other machine and a rewrite in a folder
 		// Workspace, the two failures ADR-0010 names. So the claim asserted is that no write is even
 		// addressed at a Project.
 		const write = vi.spyOn(store, 'write');
 
-		await publish();
+		await writeSite();
 
 		expect(
 			write.mock.calls.map(([path]) => path).filter((path) => path.includes('/project.json'))
@@ -395,20 +395,20 @@ describe('publishing', () => {
 	it('modifies no Project data, asserted on the bytes of every Project file', async () => {
 		const before = await snapshot('amsterdam-1625/');
 
-		await publish();
+		await writeSite();
 
 		expect(await snapshot('amsterdam-1625/')).toEqual(before);
 	});
 
 	it('duplicates no image pyramid: nothing inside a Project is even read', async () => {
 		// ADR-0006 rejected copying the data outright, on tile bytes. The strongest form of that claim
-		// is not "the tiles are still there" — a copy leaves them there too — but that publishing
+		// is not "the tiles are still there" — a copy leaves them there too — but that the site write
 		// never opens one.
 		const read = vi.spyOn(store, 'read');
 
-		await publishSite({
+		await writePublishedSite({
 			store,
-			plan: await planPublish(store, {
+			plan: await planPublishedSite(store, {
 				bundle,
 				projects: await workspace.listProjects()
 			}),
@@ -426,12 +426,12 @@ describe('publishing', () => {
 
 	it('duplicates no tile bytes: the pyramid is in the Workspace exactly once', async () => {
 		// The other half of ADR-0006's refusal to copy, and the half a caller can check without a spy:
-		// after a publish the tile's bytes appear at one path and no other. The read-count test above
-		// says publishing never opened a tile; this says nothing carrying those bytes was written
+		// after a site write the tile's bytes appear at one path and no other. The read-count test above
+		// says the site write never opened a tile; this says nothing carrying those bytes was written
 		// either, which is what a scholar reading their own folder would look at.
 		const tile = decode(await store.read('images/x/0,0,256,256/256,256/0/default.jpg'));
 
-		await publish();
+		await writeSite();
 
 		const carrying: string[] = [];
 		for (const path of await store.list('')) {
@@ -441,17 +441,17 @@ describe('publishing', () => {
 	});
 
 	it('records exactly the paths it writes, so the data-only zip can exclude them', async () => {
-		await publish();
+		await writeSite();
 
 		// Everything that is not the user's data. Since ADR-0023 that means the Project's own directory *and*
-		// the shared `images/` and `alignments/` at the Workspace root — publishing must claim none of them.
+		// the shared `images/` and `alignments/` at the Workspace root — the site write must claim none of them.
 		const written = (await store.list('')).filter(
 			(path) =>
 				!path.startsWith('amsterdam-1625/') &&
 				!path.startsWith('images/') &&
 				!path.startsWith('alignments/')
 		);
-		// Every file publishing wrote is recognised by the recorded list…
+		// Every file the site write wrote is recognised by the recorded list…
 		expect(written.filter((path) => !isViewerFile(path))).toEqual([]);
 		// …and nothing in the list is idle: each recorded path matched something that was written.
 		expect(
@@ -467,7 +467,7 @@ describe('publishing', () => {
 	it('refuses to write a bundle file the recorded list does not name', async () => {
 		// The failure this guards is a chunk arriving in the bundle at a path nobody added to
 		// `VIEWER_FILE_PATHS`, after which a data-only zip carries it and nothing says so.
-		const planned = await planPublish(store, {
+		const planned = await planPublishedSite(store, {
 			bundle: {
 				...bundle,
 				files: [
@@ -478,7 +478,7 @@ describe('publishing', () => {
 			projects: await workspace.listProjects()
 		});
 
-		await expect(publishSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
+		await expect(writePublishedSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
 			'VIEWER_FILE_PATHS does not record'
 		);
 	});
@@ -486,7 +486,7 @@ describe('publishing', () => {
 	it('carries the version stamp and the Project list into the site record', async () => {
 		await workspace.createProject('Boston 1775');
 
-		const site = await publish();
+		const site = await writeSite();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 
 		expect(record).toEqual(site);
@@ -507,7 +507,7 @@ describe('publishing', () => {
 		await workspace.createProject('Boston 1775');
 		await workspace.setProjectOnFrontPage('amsterdam-1625', true);
 
-		const site = await publish();
+		const site = await writeSite();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 
 		expect(record).toEqual(site);
@@ -517,37 +517,37 @@ describe('publishing', () => {
 		]);
 	});
 
-	// The site says which instance published it, which is what lets its Front Page carry a link back
+	// The site says which instance wrote it, which is what lets its Front Page carry a link back
 	// to an editor that can clone it.
-	it('records the editor instance that published the site', async () => {
-		const site = await publish({ editorUrl: 'https://maps.example.edu/ballastella/' });
+	it('records the editor instance that wrote the site', async () => {
+		const site = await writeSite({ editorUrl: 'https://maps.example.edu/ballastella/' });
 
 		expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
 		expect(site.editorUrl).toBe('https://maps.example.edu/ballastella/');
 	});
 
-	// A publish that was not told an address says nothing rather than guessing at one: a Front Page with
+	// A site write that was not told an address says nothing rather than guessing at one: a Front Page with
 	// no link is the degradation the return links are designed for, and a canonical deployment invented
 	// here would send a Reader to somebody else's instance.
-	it('says nothing about the instance when publishing was not told one', async () => {
-		const site = await publish();
+	it('says nothing about the instance when writing the site was not told one', async () => {
+		const site = await writeSite();
 
 		expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
 		expect(site.editorUrl).toBe('');
 	});
 
 	/**
-	 * ⚠ **An address only the publishing machine can reach is not recorded at all.** The editor stamps
-	 * its own origin, so an author publishing to GitHub Pages out of `pnpm dev` would otherwise record
+	 * ⚠ **An address only the writing machine can reach is not recorded at all.** The editor stamps
+	 * its own origin, so an author sending to GitHub Pages out of `pnpm dev` would otherwise record
 	 * `http://localhost:5173/` — and every Reader's Front Page would offer a live link into whatever
-	 * is running on *their own* port 5173. Nothing in the publish dialog shows the address or offers
+	 * is running on *their own* port 5173. Nothing in the sync modal shows the address or offers
 	 * to override it, so the record refuses it, and the site degrades to the no-instance state the
 	 * test above describes.
 	 */
 	it.each([['http://localhost:5173/'], ['http://127.0.0.1:5173/'], ['http://atlas/ballastella/']])(
 		'records nothing for %s, which no Reader could reach',
 		async (editorUrl) => {
-			const site = await publish({ editorUrl });
+			const site = await writeSite({ editorUrl });
 
 			expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
 			expect(site.editorUrl).toBe('');
@@ -555,15 +555,15 @@ describe('publishing', () => {
 	);
 
 	/**
-	 * The repository the site was published to, so its Front Page can name it in a return link.
+	 * The repository the site was sent to, so its Front Page can name it in a return link.
 	 *
-	 * ⚠ **Generated by the Publish rather than read back as a relationship.** A static host cannot be
+	 * ⚠ **Generated by the site write rather than read back as a relationship.** A static host cannot be
 	 * asked what repository it is serving, so the coordinates have to be *in* the site — and the whole
 	 * point of putting them on the record and nowhere else (ADR-0044) is that a Published Site may
 	 * point back at its repository without any reader of it acquiring a Remote.
 	 */
-	it('records the repository it was published to, for the return links', async () => {
-		const site = await publish({
+	it('records the repository it was sent to, for the return links', async () => {
+		const site = await writeSite({
 			editorUrl: 'https://maps.example.edu/ballastella/',
 			repository: { owner: 'ada', repository: 'atlas', branch: 'main' }
 		});
@@ -572,20 +572,20 @@ describe('publishing', () => {
 		expect(site.repository).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 	});
 
-	it('records no repository when publishing was not told one, as a publish to a folder is', async () => {
-		const site = await publish({ editorUrl: 'https://maps.example.edu/ballastella/' });
+	it('records no repository when writing the site was not told one, as a site written into a folder is', async () => {
+		const site = await writeSite({ editorUrl: 'https://maps.example.edu/ballastella/' });
 
 		expect(site.repository).toBeNull();
 	});
 
 	/**
-	 * ⚠ **Nothing published can make this Workspace belong to a repository.** The coordinates on the
+	 * ⚠ **Nothing in a site record can make this Workspace belong to a repository.** The coordinates on the
 	 * record are evidence about a *site*; the relationship is installation-local (ADR-0044). A
 	 * Workspace holding a site record is what a restored Backup, a copied folder and a forked
-	 * repository's contents all look like, and every one of them must arrive connected to nothing.
+	 * repository's contents all look like, and every one of them must arrive bound to nothing.
 	 */
 	it('writes the repository into the record and into no document of its own', async () => {
-		await publish({
+		await writeSite({
 			editorUrl: 'https://maps.example.edu/ballastella/',
 			repository: { owner: 'ada', repository: 'atlas', branch: 'main' }
 		});
@@ -595,14 +595,14 @@ describe('publishing', () => {
 			repository: 'atlas',
 			branch: 'main'
 		});
-		// The site record is the only top-level JSON publishing writes: nothing beside it describes
+		// The site record is the only top-level JSON the site write puts there: nothing beside it describes
 		// which repository this Workspace belongs to.
 		expect(
 			(await store.list('')).filter((path) => !path.includes('/') && path.endsWith('.json'))
 		).toEqual([PUBLISHED_SITE_RECORD_NAME]);
 	});
 
-	it('writes the site record last, so an interrupted publish leaves a site that works', async () => {
+	it('writes the site record last, so an interrupted site write leaves a site that works', async () => {
 		const order: string[] = [];
 		vi.spyOn(store, 'write').mockImplementation(async function (
 			this: MemoryProjectStore,
@@ -613,18 +613,18 @@ describe('publishing', () => {
 			return MemoryProjectStore.prototype.write.call(this, path, bytes);
 		});
 
-		await publish();
+		await writeSite();
 
 		expect(order.at(-1)).toBe('ballastella-site.json');
 	});
 
-	it('extends the hub page on a second publish and leaves the first Project byte-identical', async () => {
+	it('extends the hub page on a second site write and leaves the first Project byte-identical', async () => {
 		// The semester-long, one-repository workflow.
-		await publish();
+		await writeSite();
 		const before = await snapshot('amsterdam-1625/');
 
 		await workspace.createProject('Boston 1775');
-		await publish({ at: '2026-03-04T05:06:07.000Z' });
+		await writeSite({ at: '2026-03-04T05:06:07.000Z' });
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.projects.map((project) => project.name)).toEqual([
@@ -635,9 +635,9 @@ describe('publishing', () => {
 		expect(record.publishedAt).toBe('2026-03-04T05:06:07.000Z');
 	});
 
-	it('includes Base Map display assets on every publish', async () => {
-		// Re-publishing must keep the display assets beside the viewer and the site record.
-		await publish();
+	it('includes Base Map display assets on every site write', async () => {
+		// Writing a site again must keep the display assets beside the viewer and the site record.
+		await writeSite();
 		expect(await store.list('base-map/')).toEqual([
 			'base-map/extract.pmtiles',
 			'base-map/fonts/Noto Sans Regular/0-255.pbf',
@@ -645,7 +645,7 @@ describe('publishing', () => {
 		]);
 		const project = await snapshot('amsterdam-1625/');
 
-		await publish();
+		await writeSite();
 
 		expect(await store.list('base-map/')).toEqual([
 			'base-map/extract.pmtiles',
@@ -660,17 +660,17 @@ describe('publishing', () => {
 		expect(decode(await store.read('index.html'))).toBe('bytes of viewer-bundle/index.html');
 	});
 
-	it('leaves the offline tile cache alone when publishing display assets', async () => {
+	it('leaves the offline tile cache alone when writing the display assets', async () => {
 		// ⚠ The one thing the sweep above must not reach. `base-map/` is a recorded viewer directory,
 		// and since ADR-0025 the opt-in tile cache lives inside it — bytes a user asked for and fetched
-		// from somebody else's server. Publishing must never delete them, or the Project would silently
+		// from somebody else's server. The site write must never delete them, or the Project would silently
 		// stop being available offline.
 		const first = cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 });
 		await store.write(first, new Uint8Array([1, 2, 3]));
 		await store.write(cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 }), new Uint8Array([4, 5]));
 
-		await publish();
-		await publish();
+		await writeSite();
+		await writeSite();
 
 		expect(await store.list('base-map/')).toEqual(
 			[
@@ -686,17 +686,17 @@ describe('publishing', () => {
 
 	it('records a Workspace carrying cached tiles as having its Base Map', async () => {
 		// ADR-0025's change of meaning: `baseMapBundled` is now an observation of the folder, and
-		// publishing copies nothing to make it true — the tiles are already in the published root. The
+		// the site write copies nothing to make it true — the tiles are already in the site's root. The
 		// glyphs and sprites are the separate display-asset half.
 		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
-		await publish();
+		await writeSite();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapBundled).toBe(true);
 		expect(record.baseMapAssetsBundled).toBe(true);
 	});
 
 	it('names which archives it carries tiles for, because the viewer cannot list a directory', async () => {
-		// The published half of the keyed cache. The tiles are at `base-map/tiles/<key>/…` and
+		// The site's half of the keyed cache. The tiles are at `base-map/tiles/<key>/…` and
 		// the key is one-way, so a Reader — whose store is HTTP over a static host (ADR-0006) — has no
 		// way to discover which catalog entry they belong to. Drawing them under whichever entry is
 		// selected is exactly the wrong-map failure the key exists to end, so the record says.
@@ -706,7 +706,7 @@ describe('publishing', () => {
 		await store.write(cachedTilePath(other, { z: 0, x: 0, y: 0 }), new Uint8Array([2]));
 		await writeCachedTileSource(store, { archive: other, maxZoom: 11 });
 
-		await publish();
+		await writeSite();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(
@@ -718,7 +718,7 @@ describe('publishing', () => {
 	});
 
 	it('reads an older record’s baseMapMaxZoom rather than drawing nothing', async () => {
-		// ⚠ The silent failure this fallback exists for. A site published before the cache was keyed
+		// ⚠ The silent failure this fallback exists for. A site written before the cache was keyed
 		// says `baseMapBundled: true` and carries `baseMapMaxZoom`, with its tiles at the unkeyed
 		// `base-map/tiles/{z}/…`. Read strictly, its `baseMapCaches` is empty, the viewer draws no
 		// geography at all, and nothing says why — indistinguishable from the archive being down.
@@ -740,13 +740,13 @@ describe('publishing', () => {
 		expect(record.baseMapCaches).toEqual([{ archive: null, maxZoom: 14 }]);
 	});
 
-	it('publishes a legacy unkeyed pile as what it is, rather than dropping it', async () => {
-		// Re-publishing must not take a working offline site away from a scholar. The depth comes off
+	it('writes a legacy unkeyed pile as what it is, rather than dropping it', async () => {
+		// Writing a site again must not take a working offline site away from a scholar. The depth comes off
 		// the files, which is exactly what the old `baseMapMaxZoom` was.
 		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1]));
 		await store.write('base-map/tiles/11/1054/675.mvt', new Uint8Array([2]));
 
-		await publish();
+		await writeSite();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapCaches).toEqual([{ archive: null, maxZoom: 11 }]);
@@ -754,11 +754,11 @@ describe('publishing', () => {
 	});
 
 	it('claims no archive for a cache whose provenance record is missing', async () => {
-		// The tiles are still served — publishing copies nothing and deletes nothing — but there is no
+		// The tiles are still served — the site write copies nothing and deletes nothing — but there is no
 		// honest thing to say about them, and attaching them to a guessed entry is worse than silence.
 		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
 
-		await publish();
+		await writeSite();
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapCaches).toEqual([]);
@@ -767,7 +767,7 @@ describe('publishing', () => {
 	});
 
 	it('records the glyphs and sprites separately from the tiles', async () => {
-		await publish();
+		await writeSite();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		// No tiles cached, so the geography still needs the network; the labels do not.
 		expect(record.baseMapBundled).toBe(false);
@@ -775,11 +775,11 @@ describe('publishing', () => {
 	});
 
 	it('records no display assets when the deployment bundle has none', async () => {
-		const withoutAssets = await planPublish(store, {
+		const withoutAssets = await planPublishedSite(store, {
 			bundle: { ...bundle, baseMap: [] },
 			projects: await workspace.listProjects()
 		});
-		await publishSite({ store, plan: withoutAssets, readAsset: asset });
+		await writePublishedSite({ store, plan: withoutAssets, readAsset: asset });
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapAssetsBundled).toBe(false);
@@ -788,11 +788,11 @@ describe('publishing', () => {
 	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
 		// The counterpart to the sweep above, and the reason it is not simply "delete what is not in
 		// the plan": `_app/` holds content-hashed names, so an edited viewer writes new ones beside the
-		// old and ADR-0006 takes that accumulation as the cost of publishing into the working folder.
+		// old and that accumulation is the cost of writing a site into the working folder.
 		// Changing that is a decision for the ADR, so a test holds the line rather than a comment.
 		await store.write('_app/immutable/nodes/0.FROM-AN-OLDER-BUILD.js', encode('older'));
 
-		await publish();
+		await writeSite();
 
 		expect(await store.list('_app/immutable/nodes/')).toContain(
 			'_app/immutable/nodes/0.FROM-AN-OLDER-BUILD.js'
@@ -800,7 +800,7 @@ describe('publishing', () => {
 	});
 
 	it('refreshes a version stamp that has gone stale, rather than leaving what is there', async () => {
-		await publish();
+		await writeSite();
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		await store.write(
 			'ballastella-site.json',
@@ -808,21 +808,21 @@ describe('publishing', () => {
 		);
 		expect((await readPublishedSite(store))?.viewerVersion).toBe('v0-an-older-viewer');
 
-		await publish();
+		await writeSite();
 
 		expect((await readPublishedSite(store))?.viewerVersion).toBe('v1-abcdef0123456789');
 	});
 
 	it('reports progress that reaches the total it announced, both authored files included', async () => {
-		// The two publishing authors rather than fetches — `ballastella-site.json` and `.nojekyll` —
+		// The two the site write authors rather than fetches — `ballastella-site.json` and `.nojekyll` —
 		// are counted like any other file. A total that omitted one would tick past its own maximum,
 		// which is the progress bar going backwards in front of the user.
 		const AUTHORED = 2;
 		const seen: { files: number; totalFiles: number; path: string | null }[] = [];
 
-		await publishSite({
+		await writePublishedSite({
 			store,
-			plan: await planPublish(store, {
+			plan: await planPublishedSite(store, {
 				bundle,
 				projects: await workspace.listProjects()
 			}),
@@ -845,10 +845,10 @@ describe('publishing', () => {
 		expect(seen.map((progress) => progress.path)).toContain('.nojekyll');
 	});
 
-	it('has never been published until it has, and says so as null rather than as a failure', async () => {
+	it('is null until a site has been written, rather than a failure', async () => {
 		expect(await readPublishedSite(store)).toBeNull();
 
-		await publish();
+		await writeSite();
 
 		expect(await readPublishedSite(store)).not.toBeNull();
 	});
@@ -860,8 +860,8 @@ describe('publishing', () => {
 	});
 
 	it('leaves the published viewer out of a Project bundle', async () => {
-		// The end-to-end form of ADR-0006's requirement, across the two features: publish, then
-		// export. The published files are at the Workspace and a bundle is rooted at the Project, so
+		// The end-to-end form of the requirement, across the two features: write the site, then
+		// export. The site's files are at the Workspace and a bundle is rooted at the Project, so
 		// this asserts the arrangement as much as the list.
 		// The Layer is what makes the export gather the shared material: a bundle carries the
 		// `images/<id>/` and `alignments/<id>.json` its Layers reference, out of the Workspace and in at
@@ -871,7 +871,7 @@ describe('publishing', () => {
 			...file,
 			layers: [newMapLayer({ id: 'l1', name: 'Blaeu’s plan', imageId: 'x' })]
 		});
-		await publish();
+		await writeSite();
 
 		const paths: string[] = [];
 		const entries = (await exportProjectBundle(store, 'amsterdam-1625')).body.pipeThrough(
@@ -891,7 +891,7 @@ describe('publishing', () => {
 	});
 });
 
-// ⚠ **Withdrawing Share Links is the mirror of publishing, and the control is the scholar's work**
+// ⚠ **Withdrawing Share Links is the mirror of the site write, and the control is the scholar's work**
 // (ADR-0045). What it must reach is exactly the recorded viewer file set; what it must not reach is
 // anything a Project, a pyramid, an Alignment or an author's opt-in tile cache is made of.
 describe('taking the Published Site back out of a Workspace', () => {
@@ -906,14 +906,14 @@ describe('taking the Published Site back out of a Workspace', () => {
 		await store.write('images/x/info.json', encode('{"id":"https://unset.invalid/x"}'));
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 		// The opt-in offline tile cache (ADR-0025), which lives *inside* a recorded viewer directory
-		// and is the author's own decision rather than anything publishing wrote.
+		// and is the author's own decision rather than anything the site write put there.
 		await store.write('base-map/tiles/9f8/12/2094/1330.mvt', encode('an mvt tile'));
 	});
 
 	const withSite = async (): Promise<void> => {
-		await publishSite({
+		await writePublishedSite({
 			store,
-			plan: await planPublish(store, { bundle, projects: await workspace.listProjects() }),
+			plan: await planPublishedSite(store, { bundle, projects: await workspace.listProjects() }),
 			readAsset: asset
 		});
 	};
@@ -993,7 +993,7 @@ describe('telling the author a Published Site is behind', () => {
 		).toBe('');
 	});
 
-	it('says nothing at all about a Workspace that has never been published', () => {
+	it('says nothing at all about a Workspace with no site', () => {
 		expect(publishedSiteStaleness(null, { viewerVersion: 'v1', projects: [] })).toBe('');
 	});
 
@@ -1022,7 +1022,7 @@ describe('telling the author a Published Site is behind', () => {
 	/**
 	 * ⚠ **A Front Page choice the site has not been told about is drift, like a rename** (ADR-0032).
 	 *
-	 * Taking a Project off writes `project.json` and nothing more; until the Workspace is published
+	 * Taking a Project off writes `project.json` and nothing more; until the site is written again
 	 * again the live site's Front Page still offers it to every Reader who arrives. Without this the
 	 * banner stays empty and the toggle looks live when it is not — the one failure that would make a
 	 * scholar believe they had taken something down.
@@ -1097,7 +1097,7 @@ describe('stamping a canonical URL', () => {
 	// **The address names no Project** (ADR-0023). A Map Image is shared, so there is one citable
 	// endpoint for it however many Projects draw it — and the per-Project spelling was a citation that
 	// broke the moment a second Project used the map or the first one was renamed.
-	it('rewrites every info.json id to the address the tiles are published at', async () => {
+	it('rewrites every info.json id to the address the tiles are served at', async () => {
 		const stamp = await stampCanonicalUrl(store, 'https://scholar.example/atlas/', ['aaa', 'bbb']);
 
 		expect(stamp.url).toBe('https://scholar.example/atlas');
@@ -1119,17 +1119,17 @@ describe('stamping a canonical URL', () => {
 	});
 
 	/**
-	 * The other state of the same field, and the one a publish is ordinarily in.
+	 * The other state of the same field, and the one a site write is ordinarily in.
 	 *
-	 * Stamping is opt-in, so a publish that was given no address must leave every `id` at ADR-0004's
+	 * Stamping is opt-in, so a site write that was given no address must leave every `id` at ADR-0004's
 	 * placeholder host rather than guessing at one. A stamp derived from the store's own location
 	 * would be a citation nobody could fetch, and it would be written into the user's folder on every
-	 * publish without their asking.
+	 * stamp without their asking.
 	 */
 	it('leaves an unstamped info.json id at the ADR-0004 placeholder', async () => {
-		await publishSite({
+		await writePublishedSite({
 			store,
-			plan: await planPublish(store, {
+			plan: await planPublishedSite(store, {
 				bundle,
 				projects: await workspace.listProjects()
 			}),
@@ -1138,7 +1138,7 @@ describe('stamping a canonical URL', () => {
 
 		expect((await infoJson('aaa')).id).toBe('https://unset.invalid/aaa');
 		expect((await infoJson('bbb')).id).toBe('https://unset.invalid/bbb');
-		// The site really was written, so this is not passing because publishing did nothing at all.
+		// The site really was written, so this is not passing because the site write did nothing at all.
 		expect(await store.list('index.html')).toEqual(['index.html']);
 	});
 
@@ -1187,7 +1187,9 @@ describe('stamping a canonical URL', () => {
 		const before = decode(await store.read(imageInfoPath('aaa')));
 
 		for (const bad of ['', '   ', 'scholar.example', 'ftp://scholar.example', 'not a url']) {
-			await expect(stampCanonicalUrl(store, bad, ['aaa'])).rejects.toThrow(PublishRefusedError);
+			await expect(stampCanonicalUrl(store, bad, ['aaa'])).rejects.toThrow(
+				PublishedSiteRefusedError
+			);
 		}
 
 		expect(decode(await store.read(imageInfoPath('aaa')))).toBe(before);
@@ -1220,7 +1222,7 @@ describe('reading the staged viewer bundle index', () => {
 		});
 	});
 
-	it('refuses an index that would publish an incomplete site', () => {
+	it('refuses an index that would write an incomplete site', () => {
 		// A staging step that half ran is the failure here, and its symptom without this check is a
 		// Published Site missing whichever chunks the index forgot — a blank page and a 404.
 		for (const bad of [
@@ -1260,7 +1262,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 
 	it('reads a record written before the field split as having its Base Map files', () => {
 		// ⚠ ADR-0025 moved `baseMapBundled` from "the deployment's Base Map files were copied" to "this
-		// Workspace carries cached tiles". A site published before that move records the old meaning and
+		// Workspace carries cached tiles". A site written before that move records the old meaning and
 		// has no `baseMapAssetsBundled` at all — and `ReaderMapPane` drops `glyphs`, `sprite`, and every
 		// symbol layer when that field is false. Read strictly, every already-published site reopened
 		// with no place names on its map and a notice saying the labels had not been copied, while
@@ -1296,7 +1298,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 	/**
 	 * ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032).
 	 *
-	 * Every site published before this field is in front of Readers now, and its entries carry none.
+	 * Every site written before this field is in front of Readers now, and its entries carry none.
 	 * Reading the field strictly would empty those Front Pages: every Project still on the host, still
 	 * fetchable, none of them listed, and nothing on the page to say why. `parsePublishedSite` is the
 	 * tolerant reader for exactly this class of thing, and this is the case where "must still list the
@@ -1339,7 +1341,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 	});
 
 	/**
-	 * A record published before the field existed says nothing about an instance, and a Front Page
+	 * A record written before the field existed says nothing about an instance, and a Front Page
 	 * that met one has to render no link rather than a broken one.
 	 */
 	it('reads no instance address out of a record written before there was one', () => {
@@ -1392,10 +1394,10 @@ describe('the site record a Reader’s page is drawn from', () => {
 	});
 
 	/**
-	 * ⚠ **An address only the machine that published the site can reach is refused, not rendered.**
+	 * ⚠ **An address only the machine that wrote the site can reach is refused, not rendered.**
 	 * The link would be live and would go somewhere — to whatever is on *the Reader's* port 5173, or
 	 * to a machine on somebody else's network — which is worse than the no-link state a record with no
-	 * instance already produces. The write side refuses the same addresses; see the publishing tests.
+	 * instance already produces. The write side refuses the same addresses; see the site-write tests.
 	 */
 	it.each([
 		['http://localhost:5173/'],

@@ -2,7 +2,7 @@
 	// Choosing a Base Map — the one control, rendered by both apps.
 	//
 	// It is driven by **the catalog it is handed** rather than by this build's, which is the whole of
-	// ADR-0020: a Published Site goes on offering what it was published with when the authoring
+	// ADR-0020: a Published Site goes on offering the entries it was written with when the authoring
 	// deployment later changes its own catalog, and the editor is simply the caller that passes
 	// `BASE_MAP_CATALOG`.
 	//
@@ -58,7 +58,7 @@
 		the platform's own keyboard handling — which on a phone is the OS picker, and this is the one
 		control in the interface with a real mobile requirement.
 
-		The published reader keeps the needs-network marking in visible option text, rather than in a
+		The Reader keeps the needs-network marking in visible option text, rather than in a
 		tooltip or colour. The editor can suppress that repeated caveat because its Project settings
 		contain the offline-management action and its map surface reports an unavailable Base Map.
 	-->

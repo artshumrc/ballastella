@@ -22,7 +22,7 @@
 // A mark says *this path may differ from the Baseline*. It does not say what the file now holds, and
 // it must never be read as though it did: {@link checkSourceStatus} therefore reports a path changed
 // on both sides as a Conflict rather than as `converged`, because two changes it cannot compare are
-// not evidence that they agree. A deliberate Update or Publish keeps the complete read-and-hash pass
+// not evidence that they agree. A deliberate Sync keeps the complete read-and-hash pass
 // and may revise the status that was already displayed.
 //
 // The gap is deliberate in the other direction too. An author who edits a file in their chosen
@@ -112,7 +112,7 @@ export interface LocalChangeIndexOptions {
  *
  * What that costs is bounded and is the right way round: a tab that dies inside a tiling burst loses
  * the last few marks, so status under-reports those tiles until the next deliberate Update or
- * Publish hashes the Workspace and finds them. {@link flush} is there for a caller that wants the
+ * A Sync hashes the Workspace and finds them. {@link flush} is there for a caller that wants the
  * guarantee at a moment it chooses.
  */
 export class LocalChangeIndex implements LocalChangeSource {
@@ -357,10 +357,10 @@ export interface AutomaticStatus {
 	readonly written: readonly string[];
 	readonly deleted: readonly string[];
 	/**
-	 * Where the Remote's Publish-owned output differs from what the Baseline last shared, sorted.
+	 * Where the Remote's site-owned output differs from what the Baseline last shared, sorted.
 	 *
 	 * **Never part of {@link status}**: a site built by another editor version has
-	 * different chunk names, which means "republish when you like" and never "somebody changed your
+	 * different chunk names, which means "the next Sync will rebuild it" and never "somebody changed your
 	 * scholarship". Empty where the Baseline is no evidence about generated output — see
 	 * {@link checkSourceStatus}.
 	 */
@@ -386,7 +386,7 @@ export interface AutomaticStatus {
  * Baseline holding no generated output at all is no evidence about generated output, and every
  * `_app/**` chunk on the Remote would otherwise be reported as drift by a Workspace that holds the
  * identical bytes — so {@link AutomaticStatus.publishedSiteStale} is empty in that case
- * rather than long and wrong. Both an Open and a Publish record source paths only (ADR-0038), so a
+ * rather than long and wrong. Both a get and a send record source paths only, so a
  * passive check answers nothing here today; a Baseline that did carry generated output would be
  * compared by the same rule.
  */

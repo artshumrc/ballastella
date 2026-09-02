@@ -20,12 +20,12 @@
 	 * `sign-in-ended` is not a step of the path so much as the one place the path can be thrown back
 	 * to from anywhere: an eight-hour sign-in that ran out and could not be renewed. It exists as a
 	 * step of its own so that an expiry reads as an expiry, rather than as a Workspace with no
-	 * repositories or as a publish that failed.
+	 * repositories or as a send that failed.
 	 *
 	 * `by-address` is the repository typed rather than chosen, and it sits **before the sign-in**
 	 * rather than behind it. Connecting to a public repository needs no account and sends no
 	 * credential, so making a student sign in to reach it would lock them out of the likeliest thing
-	 * this tool is used for: getting the Workspace their instructor published. Signing in only ever
+	 * this tool is used for: getting the Workspace their instructor shared. Signing in only ever
 	 * *adds* the list of the author's own repositories beside it, and it is what an organisation
 	 * repository GitHub will not list is reached by.
 	 *
@@ -376,7 +376,7 @@
 	const step = $derived<Step>(
 		// ⚠ **Ahead of the sign-in, because it needs no account.** A door whose first step is signing
 		// in locks out the person most likely to be standing at it: a student connecting to the public
-		// repository their instructor published, who has no GitHub account and needs none to get.
+		// repository their instructor shared, who has no GitHub account and needs none to get.
 		byAddress
 			? 'by-address'
 			: connecting !== null
@@ -783,7 +783,7 @@
 	function showOtherWayIn(showing: boolean): void {
 		otherWayIn = showing;
 		// The repository is not the question for a Workspace that already has one, and an instructor
-		// who reached this because publishing stopped working has one. Prefilled, not fixed: the field
+		// who reached this because sending stopped working has one. Prefilled, not fixed: the field
 		// is typed over freely, and an author who has already typed something keeps it.
 		if (showing && repository.trim() === '' && bound !== null) repository = describeRemote(bound);
 	}
@@ -837,7 +837,7 @@
 		{#if step === 'by-address'}
 			<!--
 				⚠ **The inbound door, in front of the sign-in rather than behind it** (ADR-0031, ADR-0043).
-				A student with no GitHub account opening their instructor's published Workspace is the
+				A student with no GitHub account opening their instructor's shared Workspace is the
 				likeliest thing this tool is asked to do, and it needs nothing: no account, no credential,
 				and no change to the Workspace they are in.
 
@@ -850,7 +850,7 @@
 			<section data-testid="connect-by-address">
 				<h3 class="font-semibold">Type a repository address</h3>
 				<p class="mt-1 max-w-prose text-sm opacity-70">
-					Paste the address — the web address of somebody's published map, the github.com address of
+					Paste the address — the web address of somebody's shared map, the github.com address of
 					the repository, or just <code>owner/repository</code>. It has to be a public repository.
 					You need no GitHub account to connect to one and get from it; sending needs a sign-in.
 					Nothing is sent anywhere but GitHub, and connecting on its own moves no files in either
@@ -962,9 +962,9 @@
 			<section data-testid="connect-no-app">
 				<h3 class="font-semibold">Put this Workspace on GitHub</h3>
 				<p class="mt-1 max-w-prose text-sm opacity-70">
-					This copy of Ballastella has no GitHub sign-in set up, so it publishes with a personal
-					access token you make on GitHub yourself. Nothing is sent anywhere but GitHub, and the
-					token is kept only in this tab and forgotten when you close it.
+					This copy of Ballastella has no GitHub sign-in set up, so it sends with a personal access
+					token you make on GitHub yourself. Nothing is sent anywhere but GitHub, and the token is
+					kept only in this tab and forgotten when you close it.
 				</p>
 				{@render pasteToConnect()}
 			</section>
@@ -1240,7 +1240,7 @@
 				<ol class="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-6">
 					<li data-testid="creating-instruction">
 						In the other tab, make the repository. <strong>It has to be public</strong>, or the
-						published map will not answer for anybody you send the address to.
+						shared map will not answer for anybody you send the address to.
 					</li>
 					{#if !coversEverything}
 						<li data-testid="creating-instruction">
@@ -1358,8 +1358,8 @@
 			-->
 			<section class="border-t border-base-300 pt-3" data-testid="connect-address-offer">
 				<p class="max-w-prose text-sm opacity-70">
-					Has somebody sent you the address of a map they published, or is your repository one
-					GitHub has not listed above? You can type the address instead, with no account.
+					Has somebody sent you the address of a map they shared, or is your repository one GitHub
+					has not listed above? You can type the address instead, with no account.
 				</p>
 				<button
 					class="btn mt-2 w-fit btn-sm"
@@ -1405,7 +1405,7 @@
 					</p>
 				{:else}
 					<p class="max-w-prose text-sm opacity-70" data-testid="connect-signed-out">
-						Not signed in to GitHub, so nothing can be published yet.
+						Not signed in to GitHub, so nothing can be sent yet.
 					</p>
 				{/if}
 				<!--
@@ -1425,9 +1425,9 @@
 					<span>
 						Keep me signed in on this computer.
 						<span class="block opacity-70">
-							Only the part that renews the sign-in is kept, never the part that publishes, and it
-							is kept outside every Workspace — nothing you download and nothing you publish carries
-							any of it. Leave this off on a shared or library computer.
+							Only the part that renews the sign-in is kept, never the part that sends, and it is
+							kept outside every Workspace — nothing you download and nothing you send carries any
+							of it. Leave this off on a shared or library computer.
 						</span>
 					</span>
 				</label>
@@ -1458,7 +1458,7 @@
 							<p class="mt-2 max-w-prose text-sm opacity-70">
 								If signing in cannot reach your repository — the app's access to it was removed, or
 								it was never granted and the account that could grant it is not yours to change —
-								connect with a personal access token you make yourself instead. It publishes
+								connect with a personal access token you make yourself instead. It sends
 								identically, and it is kept only in this tab.
 							</p>
 							{@render pasteToConnect()}
@@ -1549,7 +1549,7 @@
 			/>
 			<!--
 				⚠ **Both permissions and the owner, because all three are set on one form and only one of
-				them is obvious.** Contents is what publishing writes with and Pages is what turning the
+				them is obvious.** Contents is what a Sync writes with and Pages is what turning the
 				site on needs, so a token with the first alone gets an author all the way to a Published
 				Site that never appears. **Resource owner** is the trap: left on a personal account for a
 				repository an organisation owns, GitHub issues a token that cannot see it, and the symptom

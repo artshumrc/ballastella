@@ -125,7 +125,7 @@ describe('the HTTP ProjectStore adapter', () => {
 		});
 
 		it('revalidates rather than serving a stale Project from the browser cache', async () => {
-			// One repository for a whole semester, re-published in place. A Reader who looked last week must
+			// One repository for a whole semester, rewritten in place. A Reader who looked last week must
 			// not be shown last week's `project.json` beside this week's tiles.
 			const { fetch, init } = serving({ 'https://scholar.example/p/project.json': '{}' });
 			await createHttpProjectStore({
@@ -140,7 +140,7 @@ describe('the HTTP ProjectStore adapter', () => {
 	describe('a file that is not on the site', () => {
 		it('rejects a 404 with PathNotFoundError, the same as every other backend', async () => {
 			// The shared contract that makes this a `ProjectStore` backend at all: callers all over this
-			// codebase branch on `PathNotFoundError` to mean "not published / not written yet", and a
+			// codebase branch on `PathNotFoundError` to mean "no site / not written yet", and a
 			// static host says that with a status rather than by rejecting.
 			const store = createHttpProjectStore({
 				resolve: relativeTo('https://scholar.example/'),
@@ -173,7 +173,7 @@ describe('the HTTP ProjectStore adapter', () => {
 
 	describe('a host that is not answering', () => {
 		// Told apart from "not there" on purpose, and this is the distinction the viewer's degradation
-		// table needs: a Layer whose document is absent is a Project published incomplete, and one whose
+		// table needs: a Layer whose document is absent is a Project written incomplete, and one whose
 		// host refused the connection is a Project that is fine and a server that is not.
 
 		it.each([
@@ -262,7 +262,7 @@ describe('the HTTP ProjectStore adapter', () => {
 			const store = createHttpProjectStore({
 				resolve: (path) => `https://scholar.example/atlas/${path}`,
 				fetch: serving({
-					// At the site root, because a published pyramid is the Workspace's rather than a Project's
+					// At the site root, because a site's pyramid is the Workspace's rather than a Project's
 					// (ADR-0023) — one `images/<id>/` served to every Project of the site.
 					'https://scholar.example/atlas/images/aaa/info.json': '{"width":1024}'
 				}).fetch

@@ -1,7 +1,7 @@
 // The name git gives a file's bytes, computed in a browser.
 //
 // Three features rest on this one function agreeing with git exactly, and they are the three that
-// make publishing to a Remote bearable at all: a second publish that uploads only what changed, a
+// make sending to a Remote bearable at all: a second send that uploads only what changed, a
 // refusal to overwrite another machine's work, and a get that resumes rather than restarts. Each
 // of them compares a SHA computed here against one GitHub computed there. If the arithmetic is
 // wrong they are all wrong at once, in the same direction, and none of them says so — an unchanged

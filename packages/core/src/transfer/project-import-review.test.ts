@@ -5,7 +5,7 @@
 // copy names exactly one ordinary Workspace, that the name survives everything the reviewer does
 // afterwards, and that a copy naming none is refused rather than given a destination. The **source**
 // claim is that what an Import then reads is the review copy *as it stands now* — the reviewer's own
-// edits included — rather than the bundle or the published tree it arrived from.
+// edits included — rather than the bundle or the Remote's tree it arrived from.
 //
 // The shared closure matrix is `project-import-source.test.ts`'s and is deliberately not repeated
 // here: what is Imported is the same question for all three sources, and asking it three times would
@@ -98,7 +98,7 @@ function reviewCopy(files: Record<string, string> = {}): MemoryProjectStore {
 		'review.json': '',
 		[`${DIRECTORY}/project.json`]: projectJson('Amsterdam 1625', 'annotations/warehouses.geojson'),
 		[`${DIRECTORY}/annotations/warehouses.geojson`]:
-			'{"type":"FeatureCollection","features":["as published"]}',
+			'{"type":"FeatureCollection","features":["as sent"]}',
 		'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 		'images/amsterdam-1625/0/0/0.jpg': 'not really a jpeg, but bytes',
 		// alignment-write-is-the-fixture: the Alignment as the review copy received it, carried out verbatim by the source reader
@@ -233,9 +233,7 @@ describe('what a review Import reads is the review copy as it stands now', () =>
 		await expect(
 			readReviewWorkspaceSource({ store, mark: mark(BROWSER_ORIGIN) })
 		).rejects.toMatchObject({ refusal: 'missing-annotation' });
-		expect(await read(store, `${DIRECTORY}/annotations/warehouses.geojson`)).toContain(
-			'as published'
-		);
+		expect(await read(store, `${DIRECTORY}/annotations/warehouses.geojson`)).toContain('as sent');
 	});
 
 	// The detachment is the shared engine's and is asserted in full in

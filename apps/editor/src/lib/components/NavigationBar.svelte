@@ -3,7 +3,7 @@
 	//
 	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
 	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
-	// `workspace-storage.svelte.ts`, the door into the GitHub broker, publishing into the
+	// `workspace-storage.svelte.ts`, the door into the GitHub broker, syncing into the
 	// planner — and moving the bar itself into the shared package would put all of that in the
 	// viewer's reachable graph. So the shell is shared and the filling is not.
 	//
@@ -47,8 +47,8 @@
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
 	import { syncModal } from '$lib/sync-modal.svelte.js';
 	import { workspaceSettings } from '$lib/workspace-settings.svelte.js';
-	import SyncDialog from '$lib/publish/SyncDialog.svelte';
-	import { syncControlLabel, type SyncProgress } from '$lib/publish/sync-progress.js';
+	import SyncDialog from '$lib/sync/SyncDialog.svelte';
+	import { syncControlLabel, type SyncProgress } from '$lib/sync/sync-progress.js';
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 	import { theme } from '$lib/theme.svelte';
@@ -144,7 +144,7 @@
 	 * button used to be, and `packages/core` refuses the binding by any route regardless.
 	 *
 	 * Absent for the same reason over a Workspace whose interrupted Import or Update could not be
-	 * resolved. A publish plan is a walk of the Workspace, and until the marker is resolved that walk
+	 * resolved. A sync plan is a walk of the Workspace, and until the marker is resolved that walk
 	 * would include provisional files — which is what the whole gate exists to prevent, and the hub
 	 * is already saying why in words.
 	 */
@@ -577,9 +577,9 @@
 		<!--
 			5. The one GitHub control on the bar — and it opens the Sync modal directly (ADR-0044).
 
-			**One control where there were six.** A save badge, a Remote Status badge, *Check Remote
-			Status*, *Update from GitHub*, *Connect to GitHub* and *Publish…* all answered one question
-			— *is my work anywhere but this machine* — and a scholar had no way to choose between them.
+			**One control where a scholar had six.** A save badge, a Remote Status badge and four separate
+			GitHub actions all answered one question — *is my work anywhere but this machine* — and a
+			scholar had no way to choose between them.
 			The badge in the eyebrow answers it; this is where the answer is acted on.
 
 			**With a Remote it opens the Sync modal; with none it opens the guided sequence.** There is
@@ -699,7 +699,7 @@
 	count it, so a second would break them — this is an `<a>`, not a heading. And ADR-0036's rule that
 	this face never reaches a *control label* is about the text on a button or an input that names an
 	action: naming the app is one of the face's three sanctioned jobs, and a name that is also the way
-	home is still a name. The rule would be broken by setting `Publish` in Bluu Next, not by this.
+	home is still a name. The rule would be broken by setting `Sync` in Bluu Next, not by this.
 
 	**Hidden below `lg` on the old masthead; now always flex.** The eyebrow is compact, so the main
 	row has room to keep the wordmark centred at every desktop width the editor is used at. It hides

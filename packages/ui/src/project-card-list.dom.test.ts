@@ -7,9 +7,9 @@
 // is one test, and it lives beside the component rather than in either consumer.
 //
 // ⚠ **What stays in `e2e/`.** That the editor's Hub lists what is really in the Workspace, that
-// publishing writes a site whose Front Page lists what the author chose, and that a Project's name is
+// a site's Front Page lists what the author chose, and that a Project's name is
 // still text after a real build has been served over HTTP: `editor-workspace.e2e.ts`,
-// `editor-publish.e2e.ts` and `viewer-reader.e2e.ts` keep all of it. The two empty states are each
+// `editor-sync.e2e.ts` and `viewer-reader.e2e.ts` keep all of it. The two empty states are each
 // app's own prose rather than this component's, and are asserted where they are written.
 //
 // ⚠ **`apps/editor/src/lib/components/project-hub.dom.test.ts` did not move here**, and is not this
@@ -241,14 +241,14 @@ describe('a control the consumer does not ask for is not there', () => {
 		expect(document.querySelectorAll('[data-testid="hub-project-controls"]')).toHaveLength(2);
 
 		takeDown();
-		list({ projects: both(), testid: 'published-projects' });
+		list({ projects: both(), testid: 'front-page-projects' });
 
 		expect(one('hub-last-saved')).not.toBeInTheDocument();
 		expect(one('hub-front-page-choice')).not.toBeInTheDocument();
 		expect(one('hub-project-controls')).not.toBeInTheDocument();
 		// And the card a Reader is left with is still a card: the name, the link and the folder are
 		// what the Front Page keeps, so the absences above are not an empty list passing for a subtraction.
-		expect(one('published-projects')).toBeInTheDocument();
+		expect(one('front-page-projects')).toBeInTheDocument();
 		expect(cards()).toHaveLength(2);
 		expect(text(card(0).querySelector('a'))).toBe('Amsterdam 1625');
 		expect(text(card(0))).toContain('folder amsterdam-1625');

@@ -29,10 +29,10 @@ const call = (github: FakeGitHub, url: string, init: RequestInit = {}) =>
 	github.fetch(url, { ...init, headers: { Authorization: 'Bearer ghp_a-token' } });
 
 /**
- * The blob/tree/commit/ref sequence a publish makes, driven through the fake's own `fetch`.
+ * The blob/tree/commit/ref sequence a send makes, driven through the fake's own `fetch`.
  *
  * Written out longhand rather than hidden behind a helper the fake exports, because these five
- * calls in this order are the thing under test: a fixture that offered a `publish()` shortcut would
+ * calls in this order are the thing under test: a fixture that offered a `send()` shortcut would
  * be asserting its own shortcut.
  */
 async function commitThrough(
@@ -64,7 +64,7 @@ async function commitThrough(
 	const commit = await call(github, `${repository}/git/commits`, {
 		method: 'POST',
 		body: JSON.stringify({
-			message: options.message ?? 'Publish',
+			message: options.message ?? 'Sync',
 			tree: treeSha,
 			parents: head === null ? [] : [head]
 		})
@@ -194,11 +194,11 @@ describe('the fake GitHub', () => {
 			expect(github.rawGets - before).toBe(2);
 		});
 
-		it('counts blob posts, so "the second publish uploaded nothing" needs no call order', async () => {
+		it('counts blob posts, so "the second send uploaded nothing" needs no call order', async () => {
 			await commitThrough(github, { 'a.txt': utf8('a'), 'b.txt': utf8('b') });
 			const afterFirst = github.blobPosts;
 
-			// The second publish reuses both SHAs and posts neither, exactly as the engine will.
+			// The second send reuses both SHAs and posts neither, exactly as the engine will.
 			const { body } = await listTree(github);
 			const held = new Map(body.tree.map((entry) => [entry.path, entry.sha]));
 			const tree = await call(github, `${repository}/git/trees`, {
@@ -229,7 +229,7 @@ describe('the fake GitHub', () => {
 		});
 
 		it('reads an earlier commit’s files, not only the ones that survived to the head', async () => {
-			// A property claimed of *every* commit — `.nojekyll` in each one a publish writes — cannot
+			// A property claimed of *every* commit — `.nojekyll` in each one a send writes — cannot
 			// be asked of the branch alone, because the branch is one commit.
 			const first = await commitThrough(github, { 'a.txt': utf8('a') });
 			await commitThrough(github, { 'b.txt': utf8('b') });
@@ -240,7 +240,7 @@ describe('the fake GitHub', () => {
 			]);
 		});
 
-		it('answers the branch ref with the commit a publish has to parent onto', async () => {
+		it('answers the branch ref with the commit a send has to parent onto', async () => {
 			const { commit } = await commitThrough(github, { 'a.txt': utf8('a') });
 
 			const response = await call(github, `${repository}/git/ref/heads/main`);
@@ -251,7 +251,7 @@ describe('the fake GitHub', () => {
 			});
 		});
 
-		it('leaves the published tree alone until the ref moves', async () => {
+		it('leaves the Remote’s tree alone until the ref moves', async () => {
 			const before = github.head();
 
 			for (const bytes of [utf8('one'), utf8('two')]) {
@@ -356,7 +356,7 @@ describe('the fake GitHub', () => {
 
 		// ⚠ **409, not 404**, and the status is the whole point of the test. A repository made at
 		// `github.com/new` with no README has no commits, which is exactly what the "create it
-		// yourself" link hands a scholar back from — and a publish that read this as an ordinary
+		// yourself" link hands a scholar back from — and a send that read this as an ordinary
 		// failure would die at plan time on the one flow that walks a beginner through it.
 		it('answers 409 “Git Repository is empty.” for a repository with no commits', async () => {
 			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
@@ -425,7 +425,7 @@ describe('the fake GitHub', () => {
 		});
 
 		// ⚠ **This is the fake's most expensive mistake, corrected.** It used to accept blobs into a
-		// repository with no commits, so every first-publish test passed while the first publish
+		// repository with no commits, so every first-send test passed while the first send
 		// anybody made failed at its first blob — against the repository the tool's own link tells a
 		// scholar to create. Real GitHub answers 409 `Git Repository is empty.` to the whole Git Data
 		// API until one commit exists, and the Contents API is the only way to make that commit.
@@ -448,7 +448,7 @@ describe('the fake GitHub', () => {
 
 			const opened = await call(empty, `${repository}/contents/.nojekyll`, {
 				method: 'PUT',
-				body: JSON.stringify({ message: 'Publish', content: '', branch: 'main' })
+				body: JSON.stringify({ message: 'Sync', content: '', branch: 'main' })
 			});
 			expect(opened.status).toBe(201);
 			await commitThrough(empty, { 'index.html': utf8('<!doctype html>') });

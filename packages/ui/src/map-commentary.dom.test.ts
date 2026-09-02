@@ -117,7 +117,7 @@ describe('what is on the map, in words', () => {
 describe('where the map is looking', () => {
 	// The sentence is core's — the editor and a Published Site answer one question the same way — so
 	// it is asserted against `openingViewSentence` rather than re-spelled here.
-	test('publishes core’s sentence and the outcome it came from', () => {
+	test('renders core’s sentence and the outcome it came from', () => {
 		commentary({
 			layerCount: 1,
 			drawnCount: 1,

@@ -1087,7 +1087,7 @@ test.describe('the Alignment on disk', () => {
  * exactly what happened once: an author aligning a sheet had no way to change the Base Map but a
  * URL typed by hand or a button labelled with a Layer count.
  *
- * The detail an author needs *under a sheet* is not the detail they publish with — roads help place
+ * The detail an author needs *under a sheet* is not the detail they share with — roads help place
  * a street plan and get in the way of a coastline, and it is while aligning that you find out
  * which. So this test never navigates. It reaches the switches the way a scholar does, from the
  * workspace where the wrong Base Map is discovered, and that is the assertion.

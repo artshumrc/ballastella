@@ -1,4 +1,4 @@
-// Seam 1 for Update from GitHub: the inbound engine against the shared fake GitHub, with no browser.
+// Seam 1 for the get half of a Sync: the inbound engine against the shared fake GitHub, with no browser.
 //
 // What is asserted is what arrived and what did not — the bytes in the Workspace, the Baseline the
 // caller is handed, and the fake's own counters — rather than which calls were made in which order.
@@ -33,8 +33,8 @@ import {
 	UpdateRefusedError,
 	recoverWorkspaceUpdate,
 	serialiseUpdateTransaction,
-	updateFromGitHub
-} from './update-from-github.js';
+	getFromRemote
+} from './get-from-remote.js';
 
 const OWNER = 'ada';
 const REPOSITORY = 'atlas';
@@ -79,7 +79,7 @@ const DELFT: Record<string, string> = {
 	'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 };
 
-/** What a Publish generates, and what the scholar's own repository holds beside it. */
+/** What a site write generates, and what the scholar's own repository holds beside it. */
 const NOT_SOURCE: Record<string, string> = {
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/immutable/app.js': 'export const start = () => {};',
@@ -144,9 +144,8 @@ const update = (
 	store: ProjectStore,
 	fake: FakeGitHub,
 	baseline: SynchronizationBaseline | null,
-	options: Partial<Parameters<typeof updateFromGitHub>[1]> = {}
-) =>
-	updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch: fake.fetch, ...options });
+	options: Partial<Parameters<typeof getFromRemote>[1]> = {}
+) => getFromRemote(store, { remote: REMOTE, token: null, baseline, fetch: fake.fetch, ...options });
 
 /** The refusal an Update raised, having asserted it raised one at all. */
 async function refusal(run: Promise<unknown>): Promise<UpdateRefusedError> {
@@ -171,7 +170,7 @@ function rawAnswer(fake: FakeGitHub, path: string, answer: () => Response): Fetc
 		String(input).endsWith(`/${path}`) ? Promise.resolve(answer()) : fake.fetch(input, init);
 }
 
-describe('updateFromGitHub', () => {
+describe('getFromRemote', () => {
 	it('brings every kind of Remote-only source addition in byte for byte', async () => {
 		const added = {
 			'delft/project.json': projectFile('Delft', [newAnnotationLayer({ id: 'n1', name: 'Notes' })]),
@@ -253,7 +252,7 @@ describe('updateFromGitHub', () => {
 	});
 
 	it('leaves a local-only change on another path exactly as it was, and says so', async () => {
-		const mine = '{"type":"FeatureCollection","features":[{"id":"mine, unpublished"}]}';
+		const mine = '{"type":"FeatureCollection","features":[{"id":"mine, unsent"}]}';
 		const fake = await github(SHARED);
 		const store = await workspace({ ...SHARED, 'amsterdam-1625/annotations/l2.geojson': mine });
 		const baseline = await sharedBaseline();
@@ -266,7 +265,7 @@ describe('updateFromGitHub', () => {
 		expect(decode(await store.read('amsterdam-1625/annotations/l2.geojson' as StorePath))).toBe(
 			mine
 		);
-		expect(result.notice).toContain('Nothing has been published');
+		expect(result.notice).toContain('Nothing has been sent');
 	});
 
 	it('advances the Baseline only for the paths now shared', async () => {
@@ -324,7 +323,7 @@ describe('updateFromGitHub', () => {
 			return fake.fetch(input, init);
 		};
 
-		const result = await updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch });
+		const result = await getFromRemote(store, { remote: REMOTE, token: null, baseline, fetch });
 
 		expect(result.added).toEqual(['delft/project.json']);
 		expect(credentialed).toEqual([]);
@@ -340,7 +339,7 @@ describe('updateFromGitHub', () => {
 		});
 
 		const seen: { files: number; totalFiles: number; path: string | null }[] = [];
-		await updateFromGitHub(store, {
+		await getFromRemote(store, {
 			remote: REMOTE,
 			token: null,
 			baseline,
@@ -493,7 +492,7 @@ describe('updateFromGitHub', () => {
 		const before = await snapshot(store);
 
 		const refused = await refusal(
-			updateFromGitHub(store, {
+			getFromRemote(store, {
 				remote: REMOTE,
 				token: null,
 				baseline,
@@ -519,7 +518,7 @@ describe('updateFromGitHub', () => {
 		const before = await snapshot(store);
 
 		const refused = await refusal(
-			updateFromGitHub(store, {
+			getFromRemote(store, {
 				remote: REMOTE,
 				token: null,
 				baseline,
@@ -570,7 +569,7 @@ describe('updateFromGitHub', () => {
 				: fake.fetch(input, init);
 
 		const refused = await refusal(
-			updateFromGitHub(store, { remote: REMOTE, token: null, baseline, fetch })
+			getFromRemote(store, { remote: REMOTE, token: null, baseline, fetch })
 		);
 
 		expect(refused.refusal).toBe('no-repository');

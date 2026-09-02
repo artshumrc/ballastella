@@ -112,7 +112,7 @@ export interface ProjectStore {
 	/**
 	 * The byte length of `path`, **without reading it**.
 	 *
-	 * Publishing and offline copies both have to warn about the ~1 GB static-hosting cliff
+	 * A Published Site and offline copies both have to warn about the ~1 GB static-hosting cliff
 	 * (ADR-0008), and a multi-gigabyte pyramid is thousands of tile files. Summing sizes by reading each
 	 * one would be the slowest possible way to answer a question both real backends answer
 	 * for free from directory metadata.

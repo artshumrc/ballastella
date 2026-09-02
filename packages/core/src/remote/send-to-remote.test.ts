@@ -4,20 +4,20 @@ import type { FetchFn } from '../injection/store-image-fetch.js';
 import { STATIC_HOSTING_LIMIT_BYTES } from '../project/workspace-size.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
-import { withdrawShareLinks } from '../publish/publish.js';
+import { withdrawShareLinks } from '../published-site/published-site.js';
 import { gitBlobSha } from './blob-sha.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import {
-	MAX_PUBLISHED_FILES,
-	RemotePublishCredentialError,
-	RemotePublishFailedError,
-	RemotePublishRateLimitedError,
-	RemotePublishRefusedError,
-	planRemotePublish,
-	publishToRemote,
+	MAX_SENT_FILES,
+	RemoteSendCredentialError,
+	RemoteSendFailedError,
+	RemoteSendRateLimitedError,
+	RemoteSendRefusedError,
+	planRemoteSend,
+	sendToRemote,
 	type RemoteRepository
-} from './publish-to-remote.js';
+} from './send-to-remote.js';
 
 // The in-memory seam, and CONTRIBUTING.md's testing decision in as many words: *a good test here
 // asserts what arrived at the Remote, not which calls were made.* Every failure mode here is silent
@@ -41,32 +41,32 @@ const seeded = async (files: Record<string, string>): Promise<MemoryProjectStore
 	return store;
 };
 
-/** What a successful publish leaves this machine holding, as `readBaseline` would answer it. */
+/** What a successful send leaves this machine holding, as `readBaseline` would answer it. */
 const shared = (result: {
 	commit: string;
 	baseline: ReadonlyMap<string, string>;
 }): SynchronizationBaseline => ({ remote: REMOTE, commit: result.commit, files: result.baseline });
 
 /**
- * Plan and publish in one go, which is what every caller does and what the criteria are about.
+ * Plan and send in one go, which is what every caller does and what the criteria are about.
  *
  * `baseline` is what this machine last saw the two sides share. Left out it is *no record*, which is
- * right for a first publish and is what makes the refusal fire on a Remote already holding source
- * this app would publish over; a case about a *second* publish threads the first one's Baseline
+ * right for a first send and is what makes the refusal fire on a Remote already holding source
+ * this app would send over; a case about a *second* send threads the first one's Baseline
  * through, exactly as `EditorSession` does with `SynchronizationMetadata`.
  */
-const publish = async (
+const send = async (
 	store: MemoryProjectStore,
 	github: FakeGitHub,
 	baseline: SynchronizationBaseline | null = null
 ) => {
-	const plan = await planRemotePublish(store, {
+	const plan = await planRemoteSend(store, {
 		token: TOKEN,
 		remote: REMOTE,
 		fetch: github.fetch,
 		baseline
 	});
-	const result = await publishToRemote(store, {
+	const result = await sendToRemote(store, {
 		token: TOKEN,
 		remote: REMOTE,
 		plan,
@@ -131,16 +131,16 @@ const smallWorkspace = () =>
 		'amsterdam-1625/annotations/notes.json': '{"type":"FeatureCollection","features":[]}',
 		'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}',
 		'images/blaeu/0,0,256,256/256,256/0/default.jpg': 'jpeg-bytes',
-		// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the publish has one to send; nothing here edits Control Points
+		// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the send has one to send; nothing here edits Control Points
 		'alignments/blaeu.json': '{"type":"Annotation"}'
 	});
 
-describe('publishing a Workspace to its Remote', () => {
+describe('sending a Workspace to its Remote', () => {
 	it('sends every Workspace file at its Workspace-relative path, and `.nojekyll` with it', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		await publish(store, github);
+		await send(store, github);
 
 		expect([...github.files().keys()]).toEqual([
 			'.nojekyll',
@@ -158,7 +158,7 @@ describe('publishing a Workspace to its Remote', () => {
 		);
 	});
 
-	it('publishes an offline Base Map’s tiles along with everything else', async () => {
+	it('sends an offline Base Map’s tiles along with everything else', async () => {
 		// `base-map/tiles/` is inside the owned namespace on purpose (ADR-0033): excluded, the folder
 		// would say the site has geography and the Remote would not, and the two would disagree about
 		// what the site is.
@@ -169,7 +169,7 @@ describe('publishing a Workspace to its Remote', () => {
 		});
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		await publish(store, github);
+		await send(store, github);
 
 		expect([...github.files().keys()].filter((path) => path.startsWith('base-map/'))).toEqual([
 			'base-map/tiles/amsterdam-3f2a/12/2094/1339.mvt',
@@ -178,18 +178,18 @@ describe('publishing a Workspace to its Remote', () => {
 	});
 
 	// ⚠ **An empty repository refuses the Git Data API entirely**, `POST /git/blobs` included, so the
-	// branch has to exist before the first blob is sent. The publish opens it through the Contents
+	// branch has to exist before the first blob is sent. The send opens it through the Contents
 	// API with `.nojekyll` — the file it must write anyway — and then commits onto that.
-	it('opens an empty repository and publishes into it', async () => {
+	it('opens an empty repository and sends into it', async () => {
 		const store = await seeded({ ...SITE, 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
-		const { commit } = await publish(store, github);
+		const { commit } = await send(store, github);
 
 		const history = github.history();
 		expect([github.head(), history.length, [...github.files().keys()]]).toEqual([
 			commit,
-			// The seed, and the publish parented onto it. Nothing is force-pushed over.
+			// The seed, and the send parented onto it. Nothing is force-pushed over.
 			2,
 			['.nojekyll', 'ballastella-site.json', 'index.html']
 		]);
@@ -214,14 +214,14 @@ const SECOND_PUBLISH_PATHS = [
 	'index.html'
 ];
 
-describe('a second publish', () => {
+describe('a second send', () => {
 	it('sends no blob at all when nothing changed, and still moves the ref', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 		const posted = github.blobPosts;
 
-		const second = await publish(store, github, shared(first));
+		const second = await send(store, github, shared(first));
 
 		expect([github.blobPosts - posted, second.commit === first.commit]).toEqual([0, false]);
 		expect([github.head(), github.history().length]).toEqual([second.commit, 3]);
@@ -237,14 +237,14 @@ describe('a second publish', () => {
 	// whether the Remote holds a file's *bytes* anywhere at all, so a Workspace whose every file is
 	// `onRemote` may still be one a Project has been deleted from — the deletion is a path the Remote
 	// holds and the Workspace does not, and no file-by-file question can see it. A caller offering a
-	// scholar "nothing needed changing" and then not publishing has to be reading the whole tree.
+	// scholar "nothing needed changing" and then not sending has to be reading the whole tree.
 	describe('the plan’s account of whether anything would change', () => {
 		it('is unchanged when the Remote already holds exactly this Workspace', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			await send(store, github);
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch
@@ -256,13 +256,13 @@ describe('a second publish', () => {
 		it('is changed when a Project has been deleted here, which no blob count can see', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			const first = await publish(store, github);
+			const first = await send(store, github);
 			await store.delete('amsterdam-1625/project.json');
 			await store.delete('amsterdam-1625/annotations/notes.json');
 
 			// The Baseline threaded through, because it is what licenses the removal at all: with no
 			// record of what the two last shared a send takes nothing down (ADR-0044).
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -273,11 +273,11 @@ describe('a second publish', () => {
 			expect([plan.unchanged, plan.uploads]).toEqual([false, 0]);
 		});
 
-		it('is changed for a first publish, where there is no tree to be the same as', async () => {
+		it('is changed for a first send, where there is no tree to be the same as', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch
@@ -290,14 +290,14 @@ describe('a second publish', () => {
 	it('sends exactly one blob when one Annotation changed', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 		const posted = github.blobPosts;
 
 		await store.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"a1"}]}')
 		);
-		await publish(store, github, shared(first));
+		await send(store, github, shared(first));
 
 		expect(github.blobPosts - posted).toBe(1);
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
@@ -316,26 +316,26 @@ describe('a second publish', () => {
 	// This editor autosaves continuously and a pyramid upload runs for minutes. Committed under its
 	// plan-time SHA the failure is silent in both directions: the blob is not on the Remote and
 	// `POST /git/trees` 422s after every byte has been sent, or — worse, and what this test provokes —
-	// the *old* blob is there from the first publish, the commit succeeds, and the site serves the
-	// pre-edit content while the publish reports success.
-	it('commits the bytes it actually sent when a file changes during the publish', async () => {
+	// the *old* blob is there from the first send, the commit succeeds, and the site serves the
+	// pre-edit content while the send reports success.
+	it('commits the bytes it actually sent when a file changes during the send', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch,
 			baseline: shared(first)
 		});
-		// The edit lands after the plan has hashed the file and before the publish reads it — which is
+		// The edit lands after the plan has hashed the file and before the send reads it — which is
 		// what the autosave the scholar cannot see does.
 		await store.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"typed-while-uploading"}]}')
 		);
-		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"typed-while-uploading"}]}'
@@ -348,7 +348,7 @@ describe('a second publish', () => {
 		// read of the path, which is what a save between the two passes amounts to.
 		const store = await seeded({ ...SITE, 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 
 		const posted = github.blobPosts;
 		const read = store.read.bind(store);
@@ -356,18 +356,18 @@ describe('a second publish', () => {
 		vi.spyOn(store, 'read').mockImplementation(async (path) => {
 			if (path !== 'index.html') return read(path);
 			readsOfIndex += 1;
-			// The plan sees what the Remote already holds; the publish sees the save that happened in
+			// The plan sees what the Remote already holds; the send sees the save that happened in
 			// between.
 			return readsOfIndex > 1 ? encode('<!doctype html><title>Atlas</title>') : read(path);
 		});
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch,
 			baseline: shared(first)
 		});
-		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		expect(plan.uploads).toBe(0);
 
@@ -389,12 +389,12 @@ describe('a second publish', () => {
 		});
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
 		});
-		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		// Five paths, four blobs: the two tiles are one between them, beside `index.html`, the site
 		// record, and the empty `.nojekyll`.
@@ -422,7 +422,7 @@ describe('the owned namespace (ADR-0033)', () => {
 			}
 		});
 
-		await publish(store, github);
+		await send(store, github);
 
 		const files = github.files();
 		expect([
@@ -432,7 +432,7 @@ describe('the owned namespace (ADR-0033)', () => {
 		]).toEqual(['atlas.example\n', '# Atlas\n', 'How to read this edition\n']);
 	});
 
-	// ⚠ **The Baseline is a claim of authorship, so it may hold only source this publish sent.** A
+	// ⚠ **The Baseline is a claim of authorship, so it may hold only source this send sent.** A
 	// preserved path's SHA comes straight from the tree listing and nothing here has read its bytes —
 	// harmless while a preserved path is outside the namespace by construction, and licence to delete
 	// the moment a path changes hands: the Remote gains a `project.json` for a directory whose files
@@ -446,7 +446,7 @@ describe('the owned namespace (ADR-0033)', () => {
 			tree: { 'README.md': '# Atlas\n', CNAME: 'atlas.example\n' }
 		});
 
-		const { baseline } = await publish(store, github);
+		const { baseline } = await send(store, github);
 
 		expect([...baseline.keys()].sort()).toEqual([
 			'alignments/blaeu.json',
@@ -462,7 +462,7 @@ describe('the owned namespace (ADR-0033)', () => {
 	it('carries a submodule the Remote holds into the new tree', async () => {
 		// A gitlink is `type: 'commit'`, mode 160000, and matches no rule in the owned namespace, so it
 		// is preserve-by-default — ADR-0033's one unconditional promise. A tree read filtered to blobs
-		// drops it before `preserved` is computed, and every publish then deletes it silently.
+		// drops it before `preserved` is computed, and every send then deletes it silently.
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({
 			...REMOTE,
@@ -470,7 +470,7 @@ describe('the owned namespace (ADR-0033)', () => {
 			submodules: { theme: 'f'.repeat(40) }
 		});
 
-		await publish(store, github);
+		await send(store, github);
 
 		expect([...github.gitlinks()]).toEqual([['theme', 'f'.repeat(40)]]);
 		expect([...github.files().keys()]).toContain('README.md');
@@ -496,7 +496,7 @@ describe('the owned namespace (ADR-0033)', () => {
 
 		// This machine put every one of those paths there, which is what makes removing them a
 		// deletion rather than an overwrite of somebody else's work — see the conflict refusal.
-		await publish(store, github, await claimingEverythingOnTheRemote(github));
+		await send(store, github, await claimingEverythingOnTheRemote(github));
 
 		const paths = [...github.files().keys()];
 		expect(paths.filter((path) => path.startsWith('florida-1657/'))).toEqual([]);
@@ -509,12 +509,12 @@ describe('the owned namespace (ADR-0033)', () => {
 	 * A site an older editor version left on the Remote is replaced, not accumulated beside.
 	 *
 	 * The chunk names in `_app/` are content hashes, so this is the ordinary state of a Remote two
-	 * machines on different builds publish to — and Publish-owned output is exactly the class of path
+	 * machines on different builds send to — and site-owned output is exactly the class of path
 	 * where being superseded is not a Conflict and not somebody's scholarship. The Workspace's cached
-	 * tile is the control: it is inside `base-map/` and it is *source*, so it survives a republish
+	 * tile is the control: it is inside `base-map/` and it is *source*, so it survives a later send
 	 * that removes the glyphs beside it.
 	 */
-	it('removes the Publish-owned output a previous site left and this one does not write', async () => {
+	it('removes the site-owned output a previous site left and this one does not write', async () => {
 		const store = await seeded({
 			...SITE,
 			'index.html': '<!doctype html>',
@@ -532,7 +532,7 @@ describe('the owned namespace (ADR-0033)', () => {
 			}
 		});
 
-		await publish(store, github, await claimingEverythingOnTheRemote(github));
+		await send(store, github, await claimingEverythingOnTheRemote(github));
 
 		const paths = [...github.files().keys()];
 		expect(paths).toEqual([
@@ -558,7 +558,7 @@ describe('the owned namespace when Share Links are not asked for (ADR-0045)', ()
 			'amsterdam-1625/annotations/notes.json': '{"type":"FeatureCollection","features":[]}',
 			'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}',
 			'images/blaeu/0,0,256,256/256,256/0/default.jpg': 'jpeg-bytes',
-			// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the publish has one to send
+			// alignment-write-is-the-fixture: an Alignment already in the Workspace, seeded so the send has one to send
 			'alignments/blaeu.json': '{"type":"Annotation"}'
 		});
 
@@ -568,7 +568,7 @@ describe('the owned namespace when Share Links are not asked for (ADR-0045)', ()
 		const store = await workOnly();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const { plan } = await publish(store, github);
+		const { plan } = await send(store, github);
 
 		expect(plan.files.map((file) => file.path)).toEqual([
 			'alignments/blaeu.json',
@@ -594,7 +594,7 @@ describe('the owned namespace when Share Links are not asked for (ADR-0045)', ()
 			}
 		});
 
-		const { plan } = await publish(store, github);
+		const { plan } = await send(store, github);
 
 		expect(plan.removed).toEqual([]);
 		expect(plan.conflicts).toEqual([]);
@@ -602,21 +602,21 @@ describe('the owned namespace when Share Links are not asked for (ADR-0045)', ()
 		expect([...github.files().keys()]).toContain('_app/immutable/entry/start.OLD.js');
 	});
 
-	// ⚠ **The seed is scaffolding here and a published file with Share Links, which is the one
+	// ⚠ **The seed is scaffolding here and a site file with Share Links, which is the one
 	// difference between the two.** `PUT /contents/` is the only endpoint that writes to a repository
 	// with no commits (ADR-0045), so the marker opens the branch one commit early — and then the
-	// publish's own commit does not carry it, because a repository holding only work has no `_app/`
+	// send's own commit does not carry it, because a repository holding only work has no `_app/`
 	// for Jekyll to drop. What a scholar browsing github.com sees is their own files.
 	it('opens an empty repository with the marker and does not commit it', async () => {
 		const store = await workOnly();
 		const github = await createFakeGitHub({ owner: REMOTE.owner, repository: REMOTE.repository });
 
-		const { plan } = await publish(store, github);
+		const { plan } = await send(store, github);
 
 		expect(plan.files.map((file) => file.path)).not.toContain('.nojekyll');
 		expect([...github.files().keys()]).not.toContain('.nojekyll');
 		// It was there, in the commit that opened the branch: the scaffolding happened, and only the
-		// publish parented onto it declines to carry it forward.
+		// send parented onto it declines to carry it forward.
 		expect([...github.files(github.history()[1] ?? '').keys()]).toEqual(['.nojekyll']);
 	});
 });
@@ -627,7 +627,7 @@ describe('the owned namespace once Share Links are asked for (ADR-0045)', () => 
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		await publish(store, github);
+		await send(store, github);
 
 		expect([...github.files().keys()]).toEqual([
 			'.nojekyll',
@@ -648,10 +648,10 @@ describe('the owned namespace once Share Links are asked for (ADR-0045)', () => 
 	it('removes the viewer set the Workspace no longer holds, and no source file with it', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 
 		await withdrawShareLinks(store);
-		const { plan } = await publish(store, github, shared(first));
+		const { plan } = await send(store, github, shared(first));
 
 		expect([...github.files().keys()]).toEqual([
 			'.nojekyll',
@@ -669,11 +669,11 @@ describe('the owned namespace once Share Links are asked for (ADR-0045)', () => 
 	it('leaves the repository alone on the Sync after a withdrawal', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 		await withdrawShareLinks(store);
-		const second = await publish(store, github, shared(first));
+		const second = await send(store, github, shared(first));
 
-		const { plan } = await publish(store, github, shared(second));
+		const { plan } = await send(store, github, shared(second));
 
 		expect(plan.unchanged).toBe(true);
 		expect(plan.files.map((file) => file.path)).not.toContain('.nojekyll');
@@ -688,14 +688,14 @@ describe('the refusals, both of which cost the Remote nothing', () => {
 			tree: { CNAME: 'atlas.example\n', 'README.md': '# Atlas\n', 'docs/guide.md': 'How to\n' }
 		});
 		// The real endpoint truncates at 100 000 entries or a 7 MB response and **answers 200**, so a
-		// publish that did not look would upload everything again and commit a tree missing most of a
+		// send that did not look would upload everything again and commit a tree missing most of a
 		// Workspace.
 		github.truncateAfter = 3;
 		const before = github.head();
 
-		const refusal = planRemotePublish(store, { token: TOKEN, remote: REMOTE, fetch: github.fetch });
+		const refusal = planRemoteSend(store, { token: TOKEN, remote: REMOTE, fetch: github.fetch });
 
-		await expect(refusal).rejects.toThrow(RemotePublishRefusedError);
+		await expect(refusal).rejects.toThrow(RemoteSendRefusedError);
 		// Two, not three: a recursive listing carries an entry per directory as well, so the first
 		// three entries here are `CNAME`, `README.md`, and the `docs` folder. The ticket asks for the
 		// file count, and quoting the folder would tell a scholar to delete files they do not have.
@@ -710,26 +710,26 @@ describe('the refusals, both of which cost the Remote nothing', () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas', tree: {} });
 
-		const refusal = planRemotePublish(store, {
+		const refusal = planRemoteSend(store, {
 			token: TOKEN,
 			remote: { owner: 'ada', repository: 'atals', branch: 'main' },
 			fetch: github.fetch
 		});
 
-		await expect(refusal).rejects.toThrow(RemotePublishRefusedError);
+		await expect(refusal).rejects.toThrow(RemoteSendRefusedError);
 		await expect(refusal).rejects.toThrow(/ada\/atals/);
 		expect(github.blobPosts).toBe(0);
 	});
 
 	// ⚠ **A repository with no commits answers 409 `Git Repository is empty.`, not 404**, and reading
-	// that as an ordinary refusal kills the *first* publish to a repository the scholar created a
+	// that as an ordinary refusal kills the *first* send to a repository the scholar created a
 	// moment ago — which is precisely the repository the "create it yourself" link hands them back
-	// from, and the only publish that cannot have gone wrong yet.
-	it('plans a first publish to a repository with no commits rather than refusing it', async () => {
+	// from, and the only send that cannot have gone wrong yet.
+	it('plans a first send to a repository with no commits rather than refusing it', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -738,19 +738,19 @@ describe('the refusals, both of which cost the Remote nothing', () => {
 		expect([plan.head, plan.uploads, plan.preserved]).toEqual([null, 9, []]);
 	});
 
-	it('refuses a Workspace of more files than a publish can list, quoting both numbers', async () => {
+	it('refuses a Workspace of more files than a send can list, quoting both numbers', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 		// A spy rather than 40 001 real files: what is asserted is the ceiling and the sentence, not
 		// the walk — and the point of counting first is that nothing is read on the way to a refusal.
-		const paths = Array.from({ length: MAX_PUBLISHED_FILES + 1 }, (_, at) => `images/x/${at}.jpg`);
+		const paths = Array.from({ length: MAX_SENT_FILES + 1 }, (_, at) => `images/x/${at}.jpg`);
 		vi.spyOn(store, 'list').mockResolvedValue(paths);
 		vi.spyOn(store, 'size').mockResolvedValue(10);
 		const read = vi.spyOn(store, 'read');
 
-		const refusal = planRemotePublish(store, { token: TOKEN, remote: REMOTE, fetch: github.fetch });
+		const refusal = planRemoteSend(store, { token: TOKEN, remote: REMOTE, fetch: github.fetch });
 
-		await expect(refusal).rejects.toThrow(RemotePublishRefusedError);
+		await expect(refusal).rejects.toThrow(RemoteSendRefusedError);
 		await expect(refusal).rejects.toThrow(/40001 files/);
 		await expect(refusal).rejects.toThrow(/40000/);
 		expect([read.mock.calls.length, github.blobPosts]).toEqual([0, 0]);
@@ -766,7 +766,7 @@ describe('the three budgets (ADR-0033)', () => {
 		// arithmetic and the sentence are what is under test.
 		vi.spyOn(store, 'size').mockResolvedValue(STATIC_HOSTING_LIMIT_BYTES / 4);
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -783,7 +783,7 @@ describe('the three budgets (ADR-0033)', () => {
 		// Five, of which the plan's own permission, ref and tree calls spend three.
 		github.rateLimit = { remaining: 5, reset: 1_800_000_000 };
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -802,11 +802,11 @@ describe('the three budgets (ADR-0033)', () => {
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 		// Twelve, of which the plan's own permission, ref and tree calls spend three, leaving exactly
 		// the nine blobs this Workspace sends. Room for every blob and none for the commit: uncounted,
-		// this publish uploads all nine and then meets the 403 at `POST /git/trees` — the most
+		// this send uploads all nine and then meets the 403 at `POST /git/trees` — the most
 		// expensive possible place to stop, with the bytes spent and nothing visible.
 		github.rateLimit = { remaining: 12, reset: 1_800_000_000 };
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -821,7 +821,7 @@ describe('the three budgets (ADR-0033)', () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: withoutBudgetHeaders(github)
@@ -833,16 +833,16 @@ describe('the three budgets (ADR-0033)', () => {
 	});
 
 	/**
-	 * ⚠ **The forecast runs before the local publish writes, which is the whole of the dialog's flow.**
+	 * ⚠ **The forecast runs before the Published Site is written locally, which is the whole of the dialog's flow.**
 	 * The dialog shows these three numbers and *then* writes `index.html`, `_app/**`,
 	 * `ballastella-site.json` and — when the box is ticked — the Base Map's five megabytes into the
-	 * Workspace. Counted only off the store as it stands, all three understate a first publish: the
+	 * Workspace. Counted only off the store as it stands, all three understate a first send: the
 	 * files line is short by the whole website, the byte line by its bytes, and the request warning by
 	 * its blobs, which is the one that decides whether a scholar is told to wait for the reset.
 	 */
-	describe('what the local publish is about to write', () => {
-		/** A Workspace with no website in it yet, which is what a first publish plans against. */
-		const beforeTheFirstPublish = () =>
+	describe('what the local site write is about to add', () => {
+		/** A Workspace with no website in it yet, which is what a first send plans against. */
+		const beforeTheFirstSend = () =>
 			seeded({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}',
 				'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}'
@@ -857,15 +857,15 @@ describe('the three budgets (ADR-0033)', () => {
 		];
 
 		it('counts into the files, the bytes and the blobs it will need', async () => {
-			const store = await beforeTheFirstPublish();
+			const store = await beforeTheFirstSend();
 			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-			const bare = await planRemotePublish(store, {
+			const bare = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch
 			});
-			const whole = await planRemotePublish(store, {
+			const whole = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -882,13 +882,13 @@ describe('the three budgets (ADR-0033)', () => {
 		});
 
 		it('warns about the hour’s budget on a count the website is in', async () => {
-			const store = await beforeTheFirstPublish();
+			const store = await beforeTheFirstSend();
 			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 			// Room for the two files the Workspace holds, the tree, the commit and the ref move — and
-			// none for the website. Uncounted, this publish is forecast to fit and stops part way.
+			// none for the website. Uncounted, this send is forecast to fit and stops part way.
 			github.rateLimit = { remaining: 8, reset: 1_800_000_000 };
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -903,9 +903,9 @@ describe('the three budgets (ADR-0033)', () => {
 		it('is not "nothing needs changing" when a website is about to arrive', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			await send(store, github);
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -918,18 +918,18 @@ describe('the three budgets (ADR-0033)', () => {
 			]);
 		});
 
-		// A second publish rewrites the whole viewer over the copy already in the Workspace, so the
+		// A second send rewrites the whole viewer over the copy already in the Workspace, so the
 		// same list arrives held and adds nothing at all: "nothing needed changing" has to survive it.
 		it('ignores what the Workspace already holds', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			await send(store, github);
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
-				// `.nojekyll` among them: a publish authors it, and the local plan lists it too.
+				// `.nojekyll` among them: a send authors it, and the local plan lists it too.
 				pending: [
 					{ path: 'index.html', bytes: 400 },
 					{ path: '.nojekyll', bytes: 0 },
@@ -945,7 +945,7 @@ describe('the three budgets (ADR-0033)', () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -959,7 +959,7 @@ describe('a budget spent part way through', () => {
 	it('stops, says how many files went and when it resets, and leaves the ref where it was', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -968,7 +968,7 @@ describe('a budget spent part way through', () => {
 		github.rateLimit = { remaining: 2, reset: 1_800_000_000 };
 		const seen: number[] = [];
 
-		const raised = await publishToRemote(store, {
+		const raised = await sendToRemote(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
@@ -976,8 +976,8 @@ describe('a budget spent part way through', () => {
 			onProgress: (progress) => seen.push(progress.files)
 		}).catch((cause: unknown) => cause);
 
-		expect(raised).toBeInstanceOf(RemotePublishRateLimitedError);
-		const error = raised as RemotePublishRateLimitedError;
+		expect(raised).toBeInstanceOf(RemoteSendRateLimitedError);
+		const error = raised as RemoteSendRateLimitedError;
 		expect([error.filesSent, error.totalFiles, error.resetAt?.getTime()]).toEqual([
 			2, 9, 1_800_000_000_000
 		]);
@@ -991,19 +991,19 @@ describe('a budget spent part way through', () => {
 	it('does not offer to pick up where it stopped, because it cannot', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
 		});
 		github.rateLimit = { remaining: 2, reset: 1_800_000_000 };
 
-		const raised = (await publishToRemote(store, {
+		const raised = (await sendToRemote(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
 			fetch: github.fetch
-		}).catch((cause: unknown) => cause)) as RemotePublishRateLimitedError;
+		}).catch((cause: unknown) => cause)) as RemoteSendRateLimitedError;
 
 		// The two blobs that landed are loose objects in no tree, so the next plan's tree listing
 		// cannot see them and `plan.files` — sorted and deterministic — re-sends the same two first.
@@ -1014,7 +1014,7 @@ describe('a budget spent part way through', () => {
 	it('names the tree rather than the upload when the budget runs out after the last blob', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
@@ -1024,14 +1024,14 @@ describe('a budget spent part way through', () => {
 		// is the request refused. "Ran out after 9 of 9 files" would describe a phase that completed.
 		github.rateLimit = { remaining: 9, reset: 1_800_000_000 };
 
-		const raised = (await publishToRemote(store, {
+		const raised = (await sendToRemote(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
 			fetch: github.fetch
-		}).catch((cause: unknown) => cause)) as RemotePublishRateLimitedError;
+		}).catch((cause: unknown) => cause)) as RemoteSendRateLimitedError;
 
-		expect(raised).toBeInstanceOf(RemotePublishRateLimitedError);
+		expect(raised).toBeInstanceOf(RemoteSendRateLimitedError);
 		expect([raised.phase, raised.filesSent, raised.totalFiles]).toEqual(['tree', 9, 9]);
 		expect(raised.message).toContain('All 9 files had been sent');
 		expect(raised.message).toContain('building the tree');
@@ -1041,23 +1041,23 @@ describe('a budget spent part way through', () => {
 	it('tells a credential GitHub will not look at apart from a repository it will not write', async () => {
 		// ⚠ The stale-sign-in question. Rights are read at a bind and at a paste and at no other
 		// moment, so a token that has since expired still reads "Signed in to GitHub" — and collapsed
-		// into the general refusal it reaches the scholar as "GitHub refused this publish: Bad
+		// into the general refusal it reaches the scholar as "GitHub refused this send: Bad
 		// credentials", sending them to check a repository that is fine. The remedy is a sign-in, and
 		// the sentence has to say so.
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 		github.rejectCredential = true;
 
-		const raised = await planRemotePublish(store, {
+		const raised = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch
 		}).catch((cause: unknown) => cause);
 
-		expect(raised).toBeInstanceOf(RemotePublishCredentialError);
+		expect(raised).toBeInstanceOf(RemoteSendCredentialError);
 		expect((raised as Error).message).toContain('sign-in has expired');
 		expect((raised as Error).message).toContain('ada/atlas');
-		// It arrives before a byte is sent, because a publish asks GitHub a credentialed question
+		// It arrives before a byte is sent, because a send asks GitHub a credentialed question
 		// before it uploads anything — which is what makes "leave the label, let the refusal carry it"
 		// a safe answer for a Workspace of four thousand tiles.
 		expect(github.blobPosts).toBe(0);
@@ -1070,18 +1070,18 @@ describe('a budget spent part way through', () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 		const fetch = withoutBudgetHeaders(github);
-		const plan = await planRemotePublish(store, { token: TOKEN, remote: REMOTE, fetch });
+		const plan = await planRemoteSend(store, { token: TOKEN, remote: REMOTE, fetch });
 		github.refuseWrites = true;
 
-		const raised = await publishToRemote(store, {
+		const raised = await sendToRemote(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
 			fetch
 		}).catch((cause: unknown) => cause);
 
-		expect(raised).toBeInstanceOf(RemotePublishFailedError);
-		expect(raised).not.toBeInstanceOf(RemotePublishRateLimitedError);
+		expect(raised).toBeInstanceOf(RemoteSendFailedError);
+		expect(raised).not.toBeInstanceOf(RemoteSendRateLimitedError);
 		expect((raised as Error).message).toContain('Resource not accessible by personal access token');
 	});
 });
@@ -1107,12 +1107,12 @@ describe('a send against a Remote that has moved', () => {
 		const laptop = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 
-		const first = await publish(desktop, github);
+		const first = await send(desktop, github);
 		await desktop.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}')
 		);
-		await publish(desktop, github, shared(first));
+		await send(desktop, github, shared(first));
 
 		return { github, laptop, lastSeen: shared(first) };
 	};
@@ -1122,7 +1122,7 @@ describe('a send against a Remote that has moved', () => {
 		github: FakeGitHub,
 		lastSeen: SynchronizationBaseline
 	) =>
-		planRemotePublish(laptop, {
+		planRemoteSend(laptop, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch,
@@ -1136,7 +1136,7 @@ describe('a send against a Remote that has moved', () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
-		await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		expect(plan.conflicts).toEqual([]);
 		expect(plan.leftAlone).toEqual(['amsterdam-1625/annotations/notes.json']);
@@ -1161,7 +1161,7 @@ describe('a send against a Remote that has moved', () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
-		const sent = await publishToRemote(laptop, {
+		const sent = await sendToRemote(laptop, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
@@ -1180,7 +1180,7 @@ describe('a send against a Remote that has moved', () => {
 		await laptop.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"Mine"}'));
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
-		await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		// Story 32's easy half: changes on both sides at different paths both survive one Sync.
 		expect(decode(github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
@@ -1195,7 +1195,7 @@ describe('a send against a Remote that has moved', () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
-		await publishToRemote(laptop, {
+		await sendToRemote(laptop, {
 			token: TOKEN,
 			remote: REMOTE,
 			plan,
@@ -1234,7 +1234,7 @@ describe('a send against a Remote that has moved', () => {
 				'amsterdam-1625/annotations/notes.json'
 			]);
 
-			await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			// The other machine's afternoon is still there, untouched — a send does not choose between
 			// two versions of the scholar's work.
@@ -1251,7 +1251,7 @@ describe('a send against a Remote that has moved', () => {
 			const { github, laptop, lastSeen } = await contested();
 
 			const plan = await laptopPlan(laptop, github, lastSeen);
-			await publishToRemote(laptop, {
+			await sendToRemote(laptop, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan,
@@ -1270,11 +1270,11 @@ describe('a send against a Remote that has moved', () => {
 	// the mirror removes; one the Baseline never recorded is somebody else's. Turn the
 	// Baseline-narrowing into a no-op and the second test below is the one that fails.
 	describe('a Project on the Remote this Workspace has never had', () => {
-		/** A first publish, and then another machine adding a Project of its own. */
+		/** A first send, and then another machine adding a Project of its own. */
 		const aProjectFromSomewhereElse = async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			const first = await publish(store, github);
+			const first = await send(store, github);
 			await github.commitFiles({
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}',
 				'florida-1657/annotations/notes.json': '{"type":"FeatureCollection","features":[]}'
@@ -1285,13 +1285,13 @@ describe('a send against a Remote that has moved', () => {
 		it('is left alone by a send, and listed as work to get', async () => {
 			const { store, github, lastSeen } = await aProjectFromSomewhereElse();
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
 				baseline: lastSeen
 			});
-			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			// Absent from the Baseline and absent here, so the Remote gained them: `inbound`, which is
 			// what makes them somebody else's rather than ours to remove.
@@ -1311,7 +1311,7 @@ describe('a send against a Remote that has moved', () => {
 		it('is removed once the scholar asks to overwrite the repository', async () => {
 			const { store, github, lastSeen } = await aProjectFromSomewhereElse();
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -1322,7 +1322,7 @@ describe('a send against a Remote that has moved', () => {
 				'florida-1657/annotations/notes.json',
 				'florida-1657/project.json'
 			]);
-			await publishToRemote(store, {
+			await sendToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan,
@@ -1351,13 +1351,13 @@ describe('a send against a Remote that has moved', () => {
 			await store.delete('florida-1657/project.json');
 			await store.delete('florida-1657/annotations/notes.json');
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
 				baseline: agreed
 			});
-			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			expect(plan.removed).toEqual([
 				'florida-1657/annotations/notes.json',
@@ -1370,7 +1370,7 @@ describe('a send against a Remote that has moved', () => {
 	});
 
 	// ⚠ **The consent is about a set of files, not about a moment.** An interface that forecasts,
-	// publishes locally and then plans again — which `EditorSession.publishToRemote` must, or it would
+	// sends locally and then plans again — which `EditorSession.sendToRemote` must, or it would
 	// commit a site with no `index.html` — hands this a plan the scholar never read. A bare `true`
 	// would apply their answer about one Project to whatever the second listing found, and the ref
 	// move cannot catch it: the second plan is parented on the new head, so its commit is an ordinary
@@ -1380,7 +1380,7 @@ describe('a send against a Remote that has moved', () => {
 		const somebodyElsesProject = async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			const first = await publish(store, github);
+			const first = await send(store, github);
 			await github.commitFiles({
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 			});
@@ -1388,7 +1388,7 @@ describe('a send against a Remote that has moved', () => {
 		};
 
 		const planFor = (store: MemoryProjectStore, github: FakeGitHub, at: SynchronizationBaseline) =>
-			planRemotePublish(store, {
+			planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -1400,7 +1400,7 @@ describe('a send against a Remote that has moved', () => {
 			const shown = await planFor(store, github, lastSeen);
 
 			const again = await planFor(store, github, lastSeen);
-			await publishToRemote(store, {
+			await sendToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan: again,
@@ -1415,12 +1415,12 @@ describe('a send against a Remote that has moved', () => {
 			const { store, github, lastSeen } = await somebodyElsesProject();
 			const shown = await planFor(store, github, lastSeen);
 
-			// The window is the local publish and the upload, which on a large Workspace is minutes.
+			// The window is the local site write and the upload, which on a large Workspace is minutes.
 			await github.commitFiles({ 'delft/project.json': '{"formatVersion":1,"name":"Delft"}' });
 			const head = github.head();
 			const again = await planFor(store, github, lastSeen);
 
-			const raised = await publishToRemote(store, {
+			const raised = await sendToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan: again,
@@ -1428,7 +1428,7 @@ describe('a send against a Remote that has moved', () => {
 				overwrite: shown.overwrites
 			}).catch((cause: unknown) => cause);
 
-			expect(raised).toBeInstanceOf(RemotePublishRefusedError);
+			expect(raised).toBeInstanceOf(RemoteSendRefusedError);
 			// It names what was *not* agreed to, and not the file that was: the scholar has decided about
 			// that one already, and repeating it would bury the news underneath it.
 			expect((raised as Error).message).toContain('delft/project.json');
@@ -1448,13 +1448,13 @@ describe('a send against a Remote that has moved', () => {
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 			github.permissions = { push: false, admin: false };
 
-			const raised = await planRemotePublish(store, {
+			const raised = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch
 			}).catch((cause: unknown) => cause);
 
-			expect(raised).toBeInstanceOf(RemotePublishRefusedError);
+			expect(raised).toBeInstanceOf(RemoteSendRefusedError);
 			expect((raised as Error).message).toContain('cannot push to it');
 		});
 
@@ -1469,7 +1469,7 @@ describe('a send against a Remote that has moved', () => {
 			});
 			github.permissions = { push: false, admin: false };
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -1486,15 +1486,15 @@ describe('a send against a Remote that has moved', () => {
 	it('is not triggered by a file changed outside the owned namespace', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 
-		// The scholar edits their README on github.com, which no publish here has ever written.
+		// The scholar edits their README on github.com, which no send here has ever written.
 		await github.commitFiles({ 'README.md': '# Atlas\n\nA collection of city plans.\n' });
 		await store.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"a1"}]}')
 		);
-		await publish(store, github, shared(first));
+		await send(store, github, shared(first));
 
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"a1"}]}'
@@ -1508,19 +1508,19 @@ describe('a send against a Remote that has moved', () => {
 	it('replaces a path whose Remote SHA is the one the Baseline last saw', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-		const first = await publish(store, github);
+		const first = await send(store, github);
 
 		await store.write(
 			'amsterdam-1625/annotations/notes.json',
 			encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}')
 		);
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch,
 			baseline: shared(first)
 		});
-		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+		await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 		expect(plan.conflicts).toEqual([]);
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
@@ -1531,18 +1531,18 @@ describe('a send against a Remote that has moved', () => {
 	describe('with no Baseline at all', () => {
 		/** A plan made with no evidence about the Remote, which is what `Cannot tell` is. */
 		const planWithNoEvidence = (store: MemoryProjectStore, github: FakeGitHub) =>
-			planRemotePublish(store, {
+			planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
 				baseline: null
 			});
 
-		// ⚠ **The publish's own seed must not read as somebody else's work.** An empty repository is
-		// opened by writing `.nojekyll` through the Contents API, so a first publish that does not
-		// finish leaves that one file behind with no Baseline beside it. `.nojekyll` is Publish-owned
+		// ⚠ **The send's own seed must not read as somebody else's work.** An empty repository is
+		// opened by writing `.nojekyll` through the Contents API, so a first send that does not
+		// finish leaves that one file behind with no Baseline beside it. `.nojekyll` is site-owned
 		// output, so it is not source, cannot be inbound change, and is
-		// rewritten by this publish like every other generated path.
+		// rewritten by this send like every other generated path.
 		it('goes ahead against a Remote holding only the seed it wrote itself', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '' } });
@@ -1551,34 +1551,34 @@ describe('a send against a Remote that has moved', () => {
 		});
 
 		// The same rule, and the case that most invites a special one: a `.nojekyll` somebody typed into
-		// is still Publish-owned output, so it is overwritten rather than treated as scholarship this
+		// is still site-owned output, so it is overwritten rather than treated as scholarship this
 		// Workspace has never seen. Generated output contributes Published Site staleness and nothing
-		// else, which is what stops two editor versions refusing to publish at each other over chunk
+		// else, which is what stops two editor versions refusing to send at each other over chunk
 		// names.
-		it('overwrites a Publish-owned marker somebody edited, without calling it a source change', async () => {
+		it('overwrites a site-owned marker somebody edited, without calling it a source change', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '# mine\n' } });
 
 			const plan = await planWithNoEvidence(store, github);
-			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			expect(plan.conflicts).toEqual([]);
 			expect(decode(github.files().get('.nojekyll') ?? EMPTY)).toBe('');
 		});
 
-		// An empty side, or a deliberate Update or Publish plan whose two sides are byte-for-byte equal,
+		// An empty side, or a deliberate Update or Send plan whose two sides are byte-for-byte equal,
 		// establishes a Baseline safely. This is the commonest case — a Workspace whose browser storage
-		// was cleared, or the first publish from a complete Open — and refusing
-		// it is a dead Publish button over a Remote that is already exactly this Workspace.
+		// was cleared, or the first send from a complete Open — and refusing
+		// it is a dead Send button over a Remote that is already exactly this Workspace.
 		it('establishes a Baseline where the two source namespaces are already equal', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			await send(store, github);
 			// The evidence is lost — a cleared browser, a second machine, a restored Backup. The
 			// Workspace and the Remote still agree exactly; only what this machine knows has gone.
 
 			const plan = await planWithNoEvidence(store, github);
-			const recorded = await publishToRemote(store, {
+			const recorded = await sendToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan,
@@ -1605,7 +1605,7 @@ describe('a send against a Remote that has moved', () => {
 			});
 
 			const plan = await planWithNoEvidence(store, github);
-			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			expect(plan.conflicts).toEqual([]);
 			expect(plan.removed).toEqual([]);
@@ -1623,13 +1623,13 @@ describe('a send against a Remote that has moved', () => {
 		it("names a file the two sides hold differently, and leaves the Remote's copy alone", async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			await send(store, github);
 			await github.commitFiles({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam, revised"}'
 			});
 
 			const plan = await planWithNoEvidence(store, github);
-			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+			await sendToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			expect(plan.conflicts.map((row) => row.path)).toEqual(['amsterdam-1625/project.json']);
 			expect(decode(github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
@@ -1637,9 +1637,9 @@ describe('a send against a Remote that has moved', () => {
 			);
 		});
 
-		// The website the local publish is about to write is Publish-owned output on both sides, so it
+		// The website the local site write is about to write is site-owned output on both sides, so it
 		// is no part of the source comparison at all — which is what keeps the warning above away from
-		// the *first* publish from a complete Open.
+		// the *first* send from a complete Open.
 		it('does not read the website the Remote already serves as source it cannot attribute', async () => {
 			const store = await seeded({
 				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}'
@@ -1653,7 +1653,7 @@ describe('a send against a Remote that has moved', () => {
 				}
 			});
 
-			const plan = await planRemotePublish(store, {
+			const plan = await planRemoteSend(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				fetch: github.fetch,
@@ -1667,50 +1667,50 @@ describe('a send against a Remote that has moved', () => {
 			expect(plan.conflicts).toEqual([]);
 		});
 
-		it('publishes to a repository with nothing of ours on it', async () => {
+		it('sends to a repository with nothing of ours on it', async () => {
 			const store = await smallWorkspace();
 			// A `README.md` and nothing else: outside the owned namespace, so there is nothing here to
-			// be uncertain about and a first publish must not be refused over it.
+			// be uncertain about and a first send must not be refused over it.
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 
-			await publish(store, github);
+			await send(store, github);
 
 			expect([...github.files().keys()]).toContain('amsterdam-1625/project.json');
 			expect(decode(github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 		});
 
-		it('publishes to a repository with no commits at all', async () => {
+		it('sends to a repository with no commits at all', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ owner: REMOTE.owner, repository: REMOTE.repository });
 
-			await publish(store, github);
+			await send(store, github);
 
 			expect([...github.files().keys()]).toContain('index.html');
 		});
 	});
 });
 
-// The `.nojekyll` decision asserted from the outside rather than trusted: *written by every publish,
+// The `.nojekyll` decision asserted from the outside rather than trusted: *written by every send,
 // unconditionally*. The chain `scripts/check-nojekyll.mjs` follows ends here — in a repository this
 // code writes to — so this is the last point at which the property can be checked at all. Its absence
 // is a blank page on a scholar's own domain with the reason only in a browser console, and nothing in
 // this repository's own deployment would ever show it.
-describe('the Jekyll marker every publish writes', () => {
+describe('the Jekyll marker every send writes', () => {
 	/** A commit's root entries, which is the only place a branch deploy reads `.nojekyll` from. */
 	const rootPaths = (github: FakeGitHub, commit: string): string[] =>
 		[...github.files(commit).keys()].filter((path) => !path.includes('/'));
 
-	it('is at the root of every commit a publish writes, and of no commit it did not', async () => {
+	it('is at the root of every commit a send writes, and of no commit it did not', async () => {
 		const store = await smallWorkspace();
 		// The case the engine authors one for: nothing in the Workspace is called this.
 		expect(await store.list('')).not.toContain('.nojekyll');
 		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
 		const ancestor = github.head() ?? '';
 
-		const first = await publish(store, github);
-		// The manifest a real second publish carries: without it the conflict check has no record of
+		const first = await send(store, github);
+		// The manifest a real second send carries: without it the conflict check has no record of
 		// this Remote and refuses, which is the conflict check's behaviour and not this test's subject.
-		const second = await publish(store, github, shared(first));
+		const second = await send(store, github, shared(first));
 
 		expect(github.history()).toEqual([second.commit, first.commit, ancestor]);
 		expect([rootPaths(github, first.commit), rootPaths(github, second.commit)]).toEqual([
@@ -1732,7 +1732,7 @@ describe('the Jekyll marker every publish writes', () => {
 		const store = await seeded({ ...SITE, '.nojekyll': '', 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const plan = await planRemotePublish(store, {
+		const plan = await planRemoteSend(store, {
 			token: TOKEN,
 			remote: REMOTE,
 			fetch: github.fetch

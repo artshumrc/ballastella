@@ -5,7 +5,7 @@
 //
 // A send asked "is this mine to overwrite?", a get asked "is this mine to download?", and
 // nothing asked "is this scholarship or is it a rebuilt viewer?" — so `_app/**` counted as
-// Workspace content, which is the same question with the worst possible answer once Update exists.
+// Workspace content, which is the same question with the worst possible answer once a get exists.
 // Two editor versions synchronizing would then trade obsolete bundles forever, each side seeing the
 // other's chunk names as inbound change.
 //
@@ -15,7 +15,7 @@
 //   source              Scholarship, and the only thing a status or a transfer compares. Projects
 //                       and their Annotations, Workspace Map Images, Offline Copies, Alignments,
 //                       and cached Base Map tiles.
-//   published-output    What publishing generates: the read-only viewer, its site record, and the
+//   published-output    What a Published Site is made of: the read-only viewer, its site record, and the
 //                       display assets it serves. It may be stale — a site written by another editor
 //                       version is — but staleness is a Published Site fact, never source drift and
 //                       never a Conflict.
@@ -26,9 +26,9 @@
 // `base-map/` IS SPLIT, AND THAT IS THE ONE RULE THAT LOOKS LIKE A MISTAKE
 //
 // `VIEWER_FILE_PATHS` claims the whole directory, because its glyphs, sprites and extract are
-// written by every publish. But ADR-0025 put the opt-in offline tile cache inside it, and those
+// written by every site write. But ADR-0025 put the opt-in offline tile cache inside it, and those
 // bytes are the author's own decision to make a Project work without a network. Treating them as
-// generated output would let an Update delete every cached tile as obsolete viewer machinery, so
+// generated output would let a get delete every cached tile as obsolete viewer machinery, so
 // `base-map/tiles/**` is source and everything else under `base-map/` is not.
 
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
@@ -139,7 +139,7 @@ export const isOwnedPath = (
 export type ClassifiedInventory<E> = {
 	/** Scholarship: the only bucket a status or a transfer compares. */
 	readonly source: readonly E[];
-	/** What a Publish generates here. Compared only to decide whether the site needs republishing. */
+	/** What a Published Site is made of here. Compared only to decide whether the site is stale. */
 	readonly publishedOutput: readonly E[];
 	/** Somebody else's files in the same repository. Preserved, and never transferred either way. */
 	readonly outside: readonly E[];
@@ -170,11 +170,11 @@ export function classifyInventory<E extends { readonly path: string }>(
 }
 
 /**
- * Where two sides' Publish-owned output disagrees: the paths, sorted, or empty for none.
+ * Where two sides' site-owned output disagrees: the paths, sorted, or empty for none.
  *
  * **This is Published Site staleness and nothing else.** A viewer built by another
  * editor version has different chunk names, so this list is routinely long and routinely means only
- * "republish when you like". It is deliberately not a Conflict, not inbound change, and not part of
+ * "the next Sync will rebuild it". It is deliberately not a Conflict, not inbound change, and not part of
  * any source comparison: the two sides never have to agree here, and an Update that tried to make
  * them agree would trade obsolete `_app` bundles forever.
  *

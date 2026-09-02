@@ -45,7 +45,7 @@ export function exposeBaseMapToBrowserTests(map: MapLibreMap): () => void {
  *
  * **Here rather than in `@ballastella/core`**, which is the rule `StackBuiltListener` states: a
  * `declare global` on `Window` inside core would put this app's test scaffolding into the viewer's
- * types and into a published Reader's bundle, and `ReaderMapPane` imports that module. So core takes
+ * types and into the Reader's bundle, and `ReaderMapPane` imports that module. So core takes
  * the listeners and this file owns the arrays.
  */
 export const recordCachedBaseMapTiles = () => ({

@@ -3,11 +3,11 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AN IMPORT INTO A SYNCHRONIZED WORKSPACE IS STILL ORDINARY LOCAL WORK
 //
-// Nothing here gives an imported Project a Remote, a Baseline, a status or a Publish action of its
+// Nothing here gives an imported Project a Remote, a Baseline, a status or a send of its
 // own: synchronization stays one whole Workspace to at most one Remote (ADR-0038), and an Import is
 // a copy that keeps no relationship with where it came from (ADR-0037). The imported files cross the
 // managed store like any other write, so they are in the local-change index and the next Remote
-// Status reads `Changes to send`; the next deliberate Publish carries them because Publish owns
+// Status reads `Changes to send`; the next deliberate Sync carries them because a Sync owns
 // the whole Workspace namespace and has never needed to be told about a particular Project.
 //
 // So there are exactly two things a Remote adds to an Import, and both of them happen *before* the
@@ -16,16 +16,16 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE: THE REMOTE IS EVIDENCE, AND A REMOTE THAT CANNOT BE READ IS NOT "EMPTY"
 //
-// A bound Workspace's Remote may hold a Project this installation has never seen — published from
+// A bound Workspace's Remote may hold a Project this installation has never seen — sent from
 // another machine, or added by a collaborator. `allocateProjectImport` reserves those directories
 // when it is told about them, and this is what tells it: one tree listing, taken before a byte is
 // allocated.
 //
 // ⚠ **A listing that failed is refused rather than read as an empty Remote.** Allocating
 // `amsterdam-1625` because a truncated tree did not happen to mention it manufactures a Conflict the
-// author did not create, cannot see, and meets weeks later at a Publish — two unrelated Projects at
+// author did not create, cannot see, and meets weeks later at a Sync — two unrelated Projects at
 // one directory. The cost of refusing is that the author tries again when GitHub answers; the cost of
-// guessing is somebody's afternoon, discovered by whoever publishes second. The Baseline is *not* a
+// guessing is somebody's afternoon, discovered by whoever sends second. The Baseline is *not* a
 // substitute for the listing either: it is what the two sides last shared, so a Project that exists
 // only on GitHub is exactly what it cannot know about.
 //
@@ -38,7 +38,7 @@
 // Workspace already tracks: the same Project twice on the hub, one of them with no route back to the
 // Remote, and an author who edits whichever they open.
 //
-// The refusal names what to do instead — the Project they already have, or **Update from GitHub** —
+// The refusal names what to do instead — the Project they already have, or a **Sync** —
 // and deliberately does *not* offer to import a detached copy anyway. There is no version of that
 // offer a reader can act on well.
 //
@@ -54,7 +54,7 @@
 // an own-Remote source unless directly observed evidence can establish that it is one.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import type { RemoteRepository } from '../remote/publish-to-remote.js';
+import type { RemoteRepository } from '../remote/send-to-remote.js';
 import { describeRemote, isSameRemote } from '../remote/remote-binding.js';
 import { RemoteStatusUnavailableError, readRemoteInventory } from '../remote/remote-status.js';
 import type { RemoteStatusRefusal } from '../remote/remote-status.js';
@@ -71,7 +71,7 @@ export interface ImportIntoWorkspace {
 	 *
 	 * The installation-local relationship (ADR-0044) and the only account of it there is:
 	 * nothing in a Workspace's own files names a repository, so a restored Backup and a fork's
-	 * published tree both arrive connected to nothing, and neither can make an Import ask GitHub about
+	 * the Remote's tree both arrive bound to nothing, and neither can make an Import ask GitHub about
 	 * a repository this installation has no relationship with.
 	 */
 	readonly remote: RemoteRepository | null;
@@ -125,9 +125,9 @@ export interface OwnRemoteCheck {
  *
  * ⚠ **The directory clause is not redundant, and it is what makes the refusal *nameable*.** A
  * refusal has to say what to do instead, and it can only say "the Project you already have" or
- * "Update from GitHub" about a Project one of the three inventories has actually seen. A directory
+ * a Sync about a Project one of the three inventories has actually seen. A directory
  * none of them recognises is a Project this Workspace's Remote relationship has never held — nothing
- * a Publish would collide with and nothing an Update would bring — so it is an ordinary Import.
+ * a send would collide with and nothing a get would bring — so it is an ordinary Import.
  *
  * @throws ImportRefusedError `'own-remote'`, with nothing written and no Baseline touched
  */
@@ -154,7 +154,7 @@ export function assertNotOwnRemote(check: OwnRemoteCheck): void {
 					`them synchronized. Open it from your Projects instead. Nothing has been added to your ` +
 					`Workspace.`
 			: `“${origin.projectName}” is a Project of ${named}, which is this Workspace's own Remote, ` +
-					`so it is not somebody else's work to copy in. Use Update from GitHub to bring it into ` +
+					`so it is not somebody else's work to copy in. Use Sync to bring it into ` +
 					`this Workspace. Nothing has been added to your Workspace.`
 	);
 }

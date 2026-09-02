@@ -14,9 +14,9 @@
 //     the compiler will not argue with, and the failure it produces is a Reader being shown an
 //     error at the end of a gesture that should never have been offered.
 //   * **`list`.** *There is no directory listing on a static host*, which is the fact the whole of
-//     publishing is shaped around: `ballastella-site.json` exists because the hub page cannot
+//     a Published Site is shaped around: `ballastella-site.json` exists because the hub page cannot
 //     enumerate the Workspace, and that record deliberately holds no file paths (see
-//     `publish/publish.ts`). So `list` is not merely unimplemented, it is **unanswerable** — and an
+//     `published-site/published-site.ts`). So `list` is not merely unimplemented, it is **unanswerable** — and an
 //     implementation returning `[]` would be a lie in the worst direction, since every caller reads
 //     an empty list as "there is nothing there" rather than as "I cannot see". A Reader's page
 //     therefore follows the references it is given — a map Layer's `imageId` and an Annotation Layer's
@@ -68,7 +68,7 @@ export type HttpProjectStoreOptions = {
  *
  * Distinct from {@link PathNotFoundError} because the two mean opposite things to a Reader, and
  * conflating them is a defect this codebase has met in another form: a Layer whose document is
- * *absent* is a Project that was published incomplete, and one whose host answered 500 or refused the
+ * *absent* is a Project that was written incomplete, and one whose host answered 500 or refused the
  * connection is a Project that is fine and a server that is not. Told apart, the page can say which;
  * folded together, a Reader on a train is told their scholar's work is missing.
  *
@@ -109,7 +109,7 @@ const hostOf = (url: string): string => {
  * Read a Published Site's files over HTTP.
  *
  * `cache: 'no-cache'` — revalidate rather than serve blind from the browser cache. A Published Site
- * is re-published in place — one repository for a whole semester — so a Reader who looked at it last
+ * is rewritten in place — one repository for a whole semester — so a Reader who looked at it last
  * week must not be shown last week's `project.json` beside this week's tiles. It is
  * `no-cache` and not `no-store` deliberately: a conditional request that comes back 304 costs
  * nothing, and a pyramid is thousands of files.

@@ -40,14 +40,14 @@ packages/ui            @ballastella/ui — the Svelte components and the stylesh
                        both apps render
 apps/editor            @ballastella/editor — the authoring app
 apps/viewer            @ballastella/viewer — the read-only viewer written into
-                       published sites
+                       Published Sites
 e2e/                   Playwright browser tests, run against both built apps
 scripts/               repository checks
 ```
 
 Two packages, and the second one waited for its seam to prove itself
 ([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md), amended by
-[ADR-0034](docs/adr/0034-a-shared-ui-package-for-the-components-both-apps-render.md)). Both publish
+[ADR-0034](docs/adr/0034-a-shared-ui-package-for-the-components-both-apps-render.md)). Both expose
 their source rather than a build artefact, so there is no build step to keep in sync and no stale
 `dist` to debug; the apps' bundlers compile them. That is why each has `check` and `test` scripts but
 no `build`.

@@ -16,10 +16,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import RepositoryChoice from './RepositoryChoice.svelte';
 
-const publishable: GrantedRepository = {
+const writable: GrantedRepository = {
 	owner: 'ada',
 	repository: 'atlas',
-	canPublish: true,
+	canPush: true,
 	canGrantAccess: true,
 	isPrivate: false
 };
@@ -27,7 +27,7 @@ const publishable: GrantedRepository = {
 const readOnly: GrantedRepository = {
 	owner: 'grace',
 	repository: 'shared-maps',
-	canPublish: false,
+	canPush: false,
 	canGrantAccess: false,
 	isPrivate: false
 };
@@ -35,7 +35,7 @@ const readOnly: GrantedRepository = {
 const priv: GrantedRepository = {
 	owner: 'ada',
 	repository: 'diary',
-	canPublish: true,
+	canPush: true,
 	canGrantAccess: true,
 	isPrivate: true
 };
@@ -94,31 +94,31 @@ describe('the repositories a person may put their map in', () => {
 	// An absent repository has to read as access not granted rather than as a repository that is not
 	// there, and only the list itself can say so.
 	test('says the list is what has been given access, before the list', () => {
-		choice([publishable]);
+		choice([writable]);
 
 		expect(said()).toContain('given Ballastella access to');
 		expect(said()).toContain('has not been given access yet');
 	});
 
 	// Every row, not only the refused ones — absence is not a mark.
-	test('marks each repository with whether it can be published to', () => {
-		choice([publishable, readOnly]);
+	test('marks each repository with whether it can be sent to', () => {
+		choice([writable, readOnly]);
 
-		expect(rowFor('ada/atlas').textContent).toContain('Can be published to');
-		expect(rowFor('grace/shared-maps').textContent).toContain('Cannot be published to');
+		expect(rowFor('ada/atlas').textContent).toContain('Can be sent to');
+		expect(rowFor('grace/shared-maps').textContent).toContain('Cannot be sent to');
 	});
 
 	test('reports the repository chosen', () => {
-		const onchoose = choice([publishable, readOnly]);
+		const onchoose = choice([writable, readOnly]);
 
 		buttonIn(rowFor('ada/atlas')).click();
 		flushSync();
 
-		expect(onchoose).toHaveBeenCalledWith(publishable);
+		expect(onchoose).toHaveBeenCalledWith(writable);
 	});
 
 	test('filters repositories by their full name without changing their order', () => {
-		choice([publishable, readOnly]);
+		choice([writable, readOnly]);
 
 		filterBy('SHARED');
 
@@ -127,7 +127,7 @@ describe('the repositories a person may put their map in', () => {
 	});
 
 	test('says when the filter matches no repository', () => {
-		choice([publishable]);
+		choice([writable]);
 
 		filterBy('not-a-repository');
 
@@ -136,7 +136,7 @@ describe('the repositories a person may put their map in', () => {
 	});
 
 	test('keeps the repository rows in their own bounded scroller', () => {
-		choice([publishable]);
+		choice([writable]);
 
 		expect(document.querySelector('[data-testid="repository-list"]')).toHaveClass(
 			'max-h-64',
@@ -150,9 +150,9 @@ describe('the repositories a person may put their map in', () => {
  * looking for the repository they made and cannot tell a permission they did not grant from a
  * repository that is not there — so each is present, marked, and refused.
  */
-describe('a repository that cannot be published to', () => {
+describe('a repository that cannot be sent to', () => {
 	test('is present and unselectable rather than hidden', () => {
-		const onchoose = choice([publishable, readOnly]);
+		const onchoose = choice([writable, readOnly]);
 
 		const row = rowFor('grace/shared-maps');
 		expect(buttonIn(row)).toHaveAttribute('aria-disabled', 'true');
@@ -174,7 +174,7 @@ describe('a repository that cannot be published to', () => {
 			{
 				owner: 'grace',
 				repository: 'notes',
-				canPublish: false,
+				canPush: false,
 				canGrantAccess: false,
 				isPrivate: true
 			}
@@ -197,7 +197,7 @@ describe('a repository that cannot be published to', () => {
  */
 describe('a repository that is private', () => {
 	test('is chooseable, because it syncs exactly as a public one does', () => {
-		const onchoose = choice([publishable, priv]);
+		const onchoose = choice([writable, priv]);
 
 		const row = rowFor('ada/diary');
 		expect(buttonIn(row)).not.toHaveAttribute('aria-disabled', 'true');
@@ -210,7 +210,7 @@ describe('a repository that is private', () => {
 	});
 
 	test('carries the paid-plan note about Share Links, beside the row', () => {
-		choice([publishable, priv]);
+		choice([writable, priv]);
 
 		const note = rowFor('ada/diary').querySelector('[data-testid="repository-note"]');
 		expect(note?.textContent).toContain('paid GitHub plan');
@@ -221,7 +221,7 @@ describe('a repository that is private', () => {
 	});
 
 	test('is the only kind of row the note appears on', () => {
-		choice([publishable, readOnly, priv]);
+		choice([writable, readOnly, priv]);
 
 		expect(
 			[...document.querySelectorAll('[data-testid="repository-note"]')].map((note) =>

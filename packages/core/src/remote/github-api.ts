@@ -1,6 +1,6 @@
 // The two GitHub hosts Ballastella talks to, and what every response of theirs says about the budget.
 //
-// A leaf of their own rather than constants inside `fake-github.ts`, because the publish engine
+// A leaf of their own rather than constants inside `fake-github.ts`, because the send engine
 // needs the API origin and a fixture must never be something production code imports. The rate-limit
 // reading lives here for the same reason it is one function: the send, the get and the Review
 // all meet the same 403 and would otherwise each decide for themselves what an absent header means.

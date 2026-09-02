@@ -1,23 +1,23 @@
-// The enumerable, recorded set of files publishing writes, so the data-only zip can leave them out —
+// The enumerable, recorded set of files a Published Site is made of, so the data-only zip can leave them out —
 // and so that a Sync can tell what to remove when Share Links are withdrawn (ADR-0045).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY THE LIST LIVES HERE RATHER THAN BESIDE THE REST OF PUBLISHING
+// WHY THE LIST LIVES HERE RATHER THAN BESIDE THE SITE WRITE
 //
 // Three callers need it and they are at opposite ends of the codebase: `export-project-bundle.ts`
 // and `export-workspace-tar.ts`, to hand a colleague or a librarian clean data, and
-// `publish/publish.ts`, which writes exactly these paths. Put in
-// the publish module it would be reached through the Project bundle exporter, which the barrel exports and
-// `apps/viewer` therefore imports wholesale — dragging the publish machinery into every Published
+// `published-site/published-site.ts`, which writes exactly these paths. Put in
+// the site module it would be reached through the Project bundle exporter, which the barrel exports and
+// `apps/viewer` therefore imports wholesale — dragging the site-writing machinery into every Published
 // Site's bundle for the sake of one array of strings (ADR-0019). So the names live in this leaf
-// module, which imports nothing, and publishing imports them.
+// module, which imports nothing, and the site write imports them.
 //
 // ADR-0008 amended ADR-0006: the shared bundle lives at the **Workspace** rather than inside each
 // Project, so these paths are relative to the Workspace. That has a consequence worth stating,
 // because it looks like a gap otherwise: a Project-rooted export never walks the Workspace, so on
 // an ordinary Workspace these files are already outside every archive. What `isViewerFile` still
 // does is refuse them from a Project directory that *does* hold them — the shape a Project has when
-// somebody unpacks a Published Site into one, or copies a published folder in to work on it, which
+// somebody unpacks a Published Site into one, or copies a site's folder in to work on it, which
 // is exactly the case ADR-0006's "the two export flavours are indistinguishable" warns about.
 
 /** The site record's own name, at the Workspace (ADR-0008). */
@@ -25,7 +25,7 @@ export const PUBLISHED_SITE_RECORD_NAME = 'ballastella-site.json';
 
 /**
  * Where the viewer's own directory of hashed assets goes. SvelteKit's `appDir`, and the one
- * directory name publishing claims for machinery rather than for content.
+ * directory name a Published Site claims for machinery rather than for content.
  */
 export const PUBLISHED_APP_DIRECTORY = '_app/';
 
@@ -33,23 +33,23 @@ export const PUBLISHED_APP_DIRECTORY = '_app/';
  * The empty file that turns GitHub Pages' Jekyll build off, so that {@link PUBLISHED_APP_DIRECTORY}
  * is served rather than excluded for beginning with `_`.
  *
- * A constant because two very different places need the same string — this list, and `publishSite`,
+ * A constant because two very different places need the same string — this list, and `writePublishedSite`,
  * which writes the file — and because `scripts/check-nojekyll.mjs` reads it out of here rather than
  * spelling it a third time.
  */
 export const JEKYLL_OFF_MARKER = '.nojekyll';
 
 /**
- * Paths publishing writes, relative to the directory it publishes into. A trailing `/` means a
+ * Paths a Published Site is made of, relative to the directory it is written into. A trailing `/` means a
  * whole directory.
  *
  * **A fixed list rather than whatever a particular bundle happens to contain**, because the
  * question it answers — "is this file mine or the user's?" — has to be answerable about a Workspace
- * this build did not publish: one published by a newer viewer with different chunk names in it, or
+ * this build did not write: one written by a newer viewer with different chunk names in it, or
  * one whose bundle has since been deleted. The hashed names inside `_app/` are therefore not
  * enumerated one by one; the directory is claimed instead.
  *
- * `publish.test.ts` asserts this list against what `publishSite` actually wrote, so a file added to
+ * `published-site.test.ts` asserts this list against what `writePublishedSite` actually wrote, so a file added to
  * the site without being recorded here fails a test rather than escaping into a data archive.
  */
 export const VIEWER_FILE_PATHS: readonly string[] = [
@@ -60,14 +60,14 @@ export const VIEWER_FILE_PATHS: readonly string[] = [
 	// branch-deployed Pages site serves `index.html` and 404s every script and stylesheet it asks
 	// for. The Reader gets a blank page and the browser console is the only place that says why.
 	//
-	// **It is the author's own repository that needs it, which is why it is published rather than
+	// **It is the author's own repository that needs it, which is why it is written rather than
 	// merely built.** A fork deployed through `.github/workflows/pages.yml` never meets Jekyll at
-	// all; the scholar pushing a Workspace by hand, which is the flow the Publish dialog describes,
+	// all; the scholar pushing a Workspace by hand, which is the flow the hosting guide describes,
 	// is the one this protects — and that repository holds no workflow of ours to protect them with.
 	//
-	// **`publishSite` authors it, like the site record and unlike every other path here** — see the
+	// **`writePublishedSite` authors it, like the site record and unlike every other path here** — see the
 	// empty-marker note there. It is not in the viewer's build and must not be: an empty file
-	// fetched over HTTP makes publishing depend on the *authoring* host serving a dotfile, and
+	// fetched over HTTP makes the site write depend on the *authoring* host serving a dotfile, and
 	// plenty do not.
 	JEKYLL_OFF_MARKER,
 	// The Base Map's glyphs and sprites, written with every Published Site. Recorded whether or not
@@ -95,17 +95,17 @@ export function createViewerFileFilter(paths: Iterable<string>): (relativePath: 
 		exact.has(relativePath) || directories.some((prefix) => relativePath.startsWith(prefix));
 }
 
-/** Whether a Project-relative path is something publishing wrote rather than the user's data. */
+/** Whether a Project-relative path is something the site write wrote rather than the user's data. */
 export const isViewerFile = createViewerFileFilter(VIEWER_FILE_PATHS);
 
 /**
- * Whether a top-level name in a Workspace is one publishing claims.
+ * Whether a top-level name in a Workspace is one a Published Site claims.
  *
- * Asked of Project *directory* names before publishing writes anything: a Project that happens to
+ * Asked of Project *directory* names before the site write puts anything there: a Project that happens to
  * live in a folder called `index.html` or `base-map` would be overwritten by the site, and
- * publishing refuses instead (see `publishSite`).
+ * the site write refuses instead (see `writePublishedSite`).
  */
-export const claimedByPublishing = (name: string): boolean =>
+export const claimedByPublishedSite = (name: string): boolean =>
 	VIEWER_FILE_PATHS.some((path) => (path.endsWith('/') ? path.slice(0, -1) : path) === name);
 
 /**
@@ -119,9 +119,9 @@ export const claimedByPublishing = (name: string): boolean =>
  *
  * ⚠ **The site record and nothing else, though the whole set is what the answer is about.** Two of
  * the recorded paths are evidence of nothing: `base-map/` holds the opt-in offline tile cache of a
- * Workspace that has never been published, and {@link JEKYLL_OFF_MARKER} is written into a
+ * Workspace with no site in it, and {@link JEKYLL_OFF_MARKER} is written into a
  * repository that has to be seeded before it has a branch (ADR-0045). {@link
- * PUBLISHED_SITE_RECORD_NAME} is written by `publishSite` and by nothing else, and it is the file a
+ * PUBLISHED_SITE_RECORD_NAME} is written by `writePublishedSite` and by nothing else, and it is the file a
  * Reader's first request resolves through — so its presence is exactly the claim being made.
  */
 export const carriesPublishedSite = (paths: Iterable<string>): boolean => {

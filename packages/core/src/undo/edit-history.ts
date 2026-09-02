@@ -110,7 +110,7 @@ export class EditHistory {
 	 * the scholar never saw.
 	 *
 	 * `paths` is what the gesture *will* write, declared by the caller rather than inferred from the
-	 * store — which is what keeps publish output, Update from GitHub and journal replay out of a
+	 * store — which is what keeps site output, an inbound Sync and journal replay out of a
 	 * history that never asked for them.
 	 */
 	async step<T>(label: string, paths: readonly StorePath[], gesture: () => Promise<T>): Promise<T> {
@@ -155,7 +155,7 @@ export class EditHistory {
 	discard(): void {
 		this.#steps = [];
 		this.#cursor = 0;
-		this.#publish();
+		this.#announce();
 	}
 
 	async #walk(direction: -1 | 1): Promise<boolean> {
@@ -171,7 +171,7 @@ export class EditHistory {
 			// scholar can retry.
 			if (!landed) return false;
 			this.#cursor += direction;
-			this.#publish();
+			this.#announce();
 			return true;
 		} finally {
 			this.#writing = false;
@@ -216,7 +216,7 @@ export class EditHistory {
 		// touched.
 		while (this.#steps.length > 1 && this.#weight() > this.#byteCeiling) this.#evictOldest();
 
-		this.#publish();
+		this.#announce();
 	}
 
 	#evictOldest(): void {
@@ -238,7 +238,7 @@ export class EditHistory {
 		return { undoable: this.undoable, redoable: this.redoable };
 	}
 
-	#publish(): void {
+	#announce(): void {
 		// Read afresh for each listener rather than snapshotted before the loop: a listener that
 		// discards, undoes, or resubscribes changes what the next one must be told.
 		for (const listener of this.#listeners) listener(this.#state());

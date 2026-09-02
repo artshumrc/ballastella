@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createFakeGitHub } from '../remote/fake-github.js';
-import type { RemoteRepository } from '../remote/publish-to-remote.js';
+import type { RemoteRepository } from '../remote/send-to-remote.js';
 import type { SynchronizationBaseline } from '../remote/synchronization-metadata.js';
 import { parseProjectFile } from '../project/project-file.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
@@ -280,7 +280,7 @@ describe('Importing the Workspace’s own Remote Project', () => {
 		expect(refused.message).not.toMatch(/anyway|second copy of your own|Import it as/i);
 	});
 
-	it('directs the author to Update from GitHub when only the Remote has the Project', () => {
+	it('directs the author to Sync when only the Remote has the Project', () => {
 		const refused = ownRemoteRefusal({
 			origin: githubOrigin(),
 			remote: BOUND,
@@ -288,12 +288,12 @@ describe('Importing the Workspace’s own Remote Project', () => {
 			remotePaths: Object.keys(ON_REMOTE)
 		});
 		expect(refused.refusal).toBe('own-remote');
-		expect(refused.message).toContain('Update from GitHub');
+		expect(refused.message).toContain('Use Sync');
 	});
 
-	it('names the local Project rather than Update from GitHub when the Workspace holds it', () => {
+	it('names the local Project rather than Sync when the Workspace holds it', () => {
 		expect(ownRemoteRefusal({ origin: githubOrigin(), ...synchronized }).message).not.toContain(
-			'Update from GitHub'
+			'Use Sync'
 		);
 	});
 

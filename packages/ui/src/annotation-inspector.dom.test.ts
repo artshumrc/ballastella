@@ -18,7 +18,7 @@
 // answers "supported" against happy-dom and then returns its input essentially untouched, so a
 // sanitiser claim at this seam is green whatever the sanitiser does — this package's
 // `vitest.config.ts` records the measurement. That claim lives in `e2e/viewer-reader.e2e.ts`, in a
-// real browser, against a real published build. What the Inspector does with the description is in
+// real browser, against the real Reader build. What the Inspector does with the description is in
 // any case nothing: the Text face is the consumer's snippet, and `AnnotationDescription` is asserted
 // in `annotation-list.dom.test.ts`.
 //

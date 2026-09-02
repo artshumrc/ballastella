@@ -6,7 +6,7 @@ import { describeImportEvidence, describeImportProvenance } from './import-prove
 const AT = '2026-08-22T09:30:00.000Z';
 
 describe('what a transfer is said to have been', () => {
-	it('names the repository, branch, Project folder and commit of a published Project', () => {
+	it('names the repository, branch, Project folder and commit of a Project on a Remote', () => {
 		const entry: ImportProvenanceEntry = {
 			kind: 'github',
 			owner: 'ada',

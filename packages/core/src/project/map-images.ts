@@ -8,7 +8,7 @@
 // with the bytes on disk, and repairing that disagreement is what the deleted interrupted-copy path
 // existed for. But it did not give the *derived* answer a home, so "is this map's pyramid here, or is
 // it on a Library's server?" acquired five implementations: a private `referencedImageIds` in
-// `publish.ts`, `partitionByOfflineCopy` in `remote-iiif/referenced-image.ts`, a 404 probe in the
+// `published-site.ts`, `partitionByOfflineCopy` in `remote-iiif/referenced-image.ts`, a 404 probe in the
 // viewer's `readMapLayer`, and a `$derived` set in each app's page. Five spellings of one rule is how
 // a Workspace ends up telling a user two different things about the same map.
 //
@@ -16,7 +16,7 @@
 // *observing* its two inputs, and the observation genuinely does differ by backend:
 //
 //   * **A store that can list** — OPFS, a folder, the in-memory adapter — answers by walking
-//     `images/` once. That is `scanImages`, and it is what the editor and publishing use.
+//     `images/` once. That is `scanImages`, and it is what the editor and the site write use.
 //   * **A store that cannot** — ADR-0006's HTTP adapter, because a static host has no directory
 //     listing — answers by asking for the two files by name and reading the 404. That is the viewer's
 //     `readMapLayer`, which builds the same {@link MapImageFiles} pair and hands it to the same
@@ -45,18 +45,18 @@
 // because an image id is a random identifier (ADR-0015) and a reclaim list naming maps after hashes
 // would be unusable; and one `info.json` per Workspace-held map, for the picture the hub shows beside
 // each name (ADR-0030) — the pyramid's *description*, which is three numbers, and never one of the
-// tiles it describes. {@link unusedMapImageBytes}, which publishing calls on every plan, skips the
+// tiles it describes. {@link unusedMapImageBytes}, which the site write calls on every plan, skips the
 // labels and the pictures entirely and weighs only the directories of maps nothing uses — usually none
 // of them.
 //
-// **What this does cost, stated plainly.** Each public question below walks for itself. On a publish
+// **What this does cost, stated plainly.** Each public question below walks for itself. On a site write
 // plan that is `list('')` twice — once for `workspaceSize` and once for the usage read — and
 // `list('images/')` twice, once for {@link unusedMapImageBytes} and once for
 // {@link referencedMapImages}. On a Workspace holding thirty thousand tiles that is four
 // enumerations of thirty thousand entries, beside the thirty thousand `size` calls `workspaceSize`
 // already makes; the enumerations are the cheaper half, and it is `size` that would have to go first
 // if this ever needs to be faster. Sharing one walk between the questions was considered and not
-// done: it would make every caller carry a scan object so that publishing — the only caller that asks
+// done: it would make every caller carry a scan object so that the site write — the only caller that asks
 // more than one question at a time — could save two enumerations.
 
 import { alignmentPath } from '../alignment/alignment.js';
@@ -104,7 +104,7 @@ export interface MapImageFiles {
  * **Both files means the tiles are here**, and that is making an offline copy working rather than an ambiguity: an
  * offline copy writes a pyramid into the directory and deliberately leaves the `remote.json`, because
  * that record is the citation ADR-0007 exists to protect. Reading "both" the other way is the defect
- * this rule was gathered to stop — publishing warned about a network dependency the Workspace no
+ * this rule was gathered to stop — the site write warned about a network dependency the Workspace no
  * longer had, and the editor's Layers pane sent the renderer back to a library for tiles already on
  * the disk.
  */
@@ -217,7 +217,7 @@ async function mapImageFiles(
 /**
  * The Map Images whose tiles are on somebody else's server, by image id.
  *
- * What publishing warns from (ADR-0007) and what the editor's Layers pane
+ * What the site write warns from (ADR-0007) and what the editor's Layers pane
  * hands the renderer an address for. Both used to work it out for themselves.
  */
 export async function referencedMapImages(
@@ -252,7 +252,7 @@ export interface MapImageUsage {
  * A Project counted **once** however many of its Layers draw the same map, because the sentence this
  * feeds is "used by Amsterdam 1625 and Boston 1775" and naming a Project twice reads as a bug.
  *
- * **A Project whose document is corrupt is skipped in silence**, the same call `publish.ts` makes:
+ * **A Project whose document is corrupt is skipped in silence**, the same call `published-site.ts` makes:
  * the hub already lists it with its own problem, and a second message about its Layers would say
  * nothing a user could act on. It does mean a map used only by an unreadable Project can be deleted —
  * which is the better of the two errors, since the alternative is a map that can never be deleted
@@ -360,9 +360,9 @@ interface Reclaimable {
  * The Map Images in a listing that no Project draws, and what they weigh.
  *
  * **The single definition of this ticket's headline figure**, so the hub's "of which 340 MB is used
- * by no Project" and publishing's warning cannot disagree. It was written twice — once here and once
+ * by no Project" and the site write's warning cannot disagree. It was written twice — once here and once
  * as a pair of `$derived` reductions in `ProjectHub.svelte` — which is how the reclaim list and the
- * publish warning end up quoting different numbers for the same Workspace on the same screen.
+ * site warning end up quoting different numbers for the same Workspace on the same screen.
  *
  * A Project this build cannot read counts as a user, so a Workspace holding one has nothing unused:
  * see {@link WorkspaceMapImage.mightBeUsedBy}.
@@ -375,9 +375,9 @@ export function unusedMapImages<T extends Reclaimable>(
 }
 
 /**
- * The byte weight of the Map Images no Project uses, for ADR-0008's publish warning.
+ * The byte weight of the Map Images no Project uses, for ADR-0008's hosting warning.
  *
- * **Weighs only the unused maps**, which is what keeps this cheap enough to run on every publish plan:
+ * **Weighs only the unused maps**, which is what keeps this cheap enough to run on every site plan:
  * the classification and the usage cost one walk of `images/` and one read per Project, and the `size`
  * calls — the part that scales with the number of tiles — happen only for directories nothing draws.
  * In the ordinary Workspace, where every map is in use, there are none. The filter and the sum are
@@ -663,7 +663,7 @@ async function readManifestLabel(
  * `null` when its `info.json` will not yield the geometry to name it (ADR-0030).
  *
  * ⚠ **The base is always `imageServiceId(imageId)`, and never the `id` field of the document just
- * read.** After an opt-in canonical stamp that field holds the *published* address, which the ADR-0011
+ * read.** After an opt-in canonical stamp that field holds the *stamped* address, which the ADR-0011
  * shim does not route — so a URL built on it would send the editor to the internet for a picture of a
  * file it is holding, working or broken according to whether the site happens to be live. Only
  * `width`, `height` and `tiles[0].width` are taken from the document.

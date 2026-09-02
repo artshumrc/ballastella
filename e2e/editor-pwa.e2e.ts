@@ -199,7 +199,7 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	// `TypeError … reading 'id'` for the same absence read one line later. Both were downstream of
 	// here and neither was in this function, which is what made it look like contention.
 	//
-	// Two published steps, because the row can precede either. The preparing card leaves the stack
+	// Two deployed steps, because the row can precede either. The preparing card leaves the stack
 	// when the ingest is over, so a pyramid that is still being written cannot be reloaded out from
 	// under. Asked of the card rather than of the file input, which is inside a closed dialog.
 	await expectNothingPreparing(page, 30_000);
@@ -363,7 +363,7 @@ test.describe('the web app manifest and the service worker scope', () => {
 				}
 
 				// ADR-0019, the half the dependency fence cannot see. The editor's `static/` holds the
-				// staged read-only viewer that Publish writes into a Workspace, and its test fixtures. A
+				// staged read-only viewer a site is written from, and its test fixtures. A
 				// worker that swept that directory whole would put megabytes a Reader never asked for into
 				// a cache, which no `package.json` check can observe.
 				//
@@ -475,7 +475,7 @@ test.describe('two deployments of this app on one origin', () => {
 	 * this file rests on that. **Cache storage is not scoped.** `caches.keys()` answers for the whole
 	 * origin, so each deployment sees the other's caches, and unless the deployment is written into
 	 * the names, `activate` reads them as some other app's litter and deletes them. Whichever
-	 * deployment was published second then takes the first one's offline shell with it — silently,
+	 * deployment was deployed second then takes the first one's offline shell with it — silently,
 	 * on a deployment nobody touched, discovered by a scholar in a reading room with no network.
 	 *
 	 * **Two sibling directories rather than a domain root and a subdirectory**, which is the same
@@ -1127,15 +1127,15 @@ test.describe('an update, and who decides when', () => {
 	});
 
 	/**
-	 * Publish a new version and wait until the browser has it installed and waiting.
+	 * Deploy a new version and wait until the browser has it installed and waiting.
 	 *
 	 * `registration.update()` is a browser API called from the test, not an app affordance: what is
 	 * under test is what the app does *when* an update appears, and provoking one any other way means
 	 * reloading the page — which would destroy the mid-alignment state the interesting assertion is
 	 * about.
 	 */
-	async function publishAndDiscover(page: Page): Promise<void> {
-		await publishAndCheck(page);
+	async function syncAndDiscover(page: Page): Promise<void> {
+		await syncAndCheck(page);
 		await page.waitForFunction(
 			async () => (await navigator.serviceWorker.getRegistration())?.waiting !== null,
 			undefined,
@@ -1148,10 +1148,10 @@ test.describe('an update, and who decides when', () => {
 	 *
 	 * On an uncontrolled page it never will: there is no client using the registration for the
 	 * browser to protect, so the new worker activates the moment it has installed. That is the case
-	 * the test below is about, and `publishAndDiscover` would time out on it.
+	 * the test below is about, and `syncAndDiscover` would time out on it.
 	 */
-	async function publishAndCheck(page: Page): Promise<void> {
-		site.publishNewVersion();
+	async function syncAndCheck(page: Page): Promise<void> {
+		site.deployNewVersion();
 		await page.evaluate(async () => {
 			const registration = await navigator.serviceWorker.getRegistration();
 			await registration?.update();
@@ -1191,7 +1191,7 @@ test.describe('an update, and who decides when', () => {
 		const controllerBefore = (await registrationState(page)).controller;
 		const focusBefore = await focusedDescription(page);
 
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 
 		// The prompt is on screen, and it says so in a live region rather than a dialog: a modal would
 		// take focus off the pane the user is clicking in, which is the interruption itself.
@@ -1232,14 +1232,14 @@ test.describe('an update, and who decides when', () => {
 		const before = (await cacheNames(page)).sort();
 		expect(before).toHaveLength(2);
 
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 		await expect(page.getByTestId('update-prompt')).toBeVisible();
 
 		await page.getByTestId('update-dismiss').click();
 		await expect(page.getByTestId('update-prompt')).toBeHidden();
 
 		// **The artefact, not the state.** After a reload the page must still be the *old* build's HTML,
-		// which is decidable because the newly published entry HTML carries a marker the old one does
+		// which is decidable because the newly deployed entry HTML carries a marker the old one does
 		// not. A worker that had activated silently, or a fetch handler that consulted the network for a
 		// shell asset, would put the marker on screen here.
 		await page.reload();
@@ -1266,7 +1266,7 @@ test.describe('an update, and who decides when', () => {
 
 	test('the prompt does not come back after it is dismissed', async ({ page }) => {
 		await installAndControl(page, site.url);
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 		await page.getByTestId('update-dismiss').click();
 		await expect(page.getByTestId('update-prompt')).toBeHidden();
 
@@ -1282,7 +1282,7 @@ test.describe('an update, and who decides when', () => {
 
 	test('the prompt is reachable and operable by keyboard', async ({ page }) => {
 		await installAndControl(page, site.url);
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 		await expect(page.getByTestId('update-prompt')).toBeVisible();
 
 		// Both actions are real buttons with accessible names, reachable by tab from the page rather
@@ -1306,7 +1306,7 @@ test.describe('an update, and who decides when', () => {
 
 	test('taking the update is what applies it, and only when asked', async ({ page }) => {
 		await installAndControl(page, site.url);
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 
 		await page.getByTestId('update-reload').click();
 
@@ -1326,7 +1326,7 @@ test.describe('an update, and who decides when', () => {
 		await expect.poll(() => cacheNames(page), { timeout: INSTALL_MS }).toHaveLength(2);
 	});
 
-	test('a version published to a page that no worker controls is still announced', async ({
+	test('a version deployed to a page that no worker controls is still announced', async ({
 		page
 	}) => {
 		// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1338,7 +1338,7 @@ test.describe('an update, and who decides when', () => {
 		// from the reload, and so none of them could see what this one is about.
 		//
 		// The consequence is the sharp end of ADR-0012. An uncontrolled page is not a client of the
-		// registration, so a version published during this session has nothing to wait behind: the
+		// registration, so a version deployed during this session has nothing to wait behind: the
 		// browser installs it, activates it, and `activate` deletes the caches the previous build
 		// filled. Nothing a page can do prevents that — but being told is the whole point, and
 		// the guard that asked "is there a waiting worker *and* am I controlled" answered no to both
@@ -1350,7 +1350,7 @@ test.describe('an update, and who decides when', () => {
 			'this page is already controlled, so it is not the case under test'
 		).toBe(true);
 
-		await publishAndCheck(page);
+		await syncAndCheck(page);
 
 		await expect(page.getByTestId('update-prompt')).toBeVisible({ timeout: INSTALL_MS });
 		await expect(page.getByTestId('update-prompt')).toContainText('new version');
@@ -1367,7 +1367,7 @@ test.describe('an update, and who decides when', () => {
 		page
 	}) => {
 		await installAndControl(page, site.url);
-		await publishAndDiscover(page);
+		await syncAndDiscover(page);
 		await expect(page.getByTestId('update-prompt')).toBeVisible();
 
 		// A mark that survives nothing: if this page reloads at all, it is gone.

@@ -34,7 +34,7 @@ export const SYNCHRONIZATION_STORE = 'synchronization';
  * What this installation keeps of a sign-in past the tab, when the author has asked for it.
  *
  * ⚠ **Here rather than in a Workspace, and that is the whole reason it is in IndexedDB at all.**
- * `export-workspace-tar` walks a Workspace into a file the author mails to a colleague and a Publish
+ * `export-workspace-tar` walks a Workspace into a file the author mails to a colleague and a Sync
  * uploads one to a public repository, so a secret anywhere inside one leaves the machine two ways
  * that look like a favour; `localStorage` holds the write-ahead journal (ADR-0033). This database is
  * installation-local and walked by neither.
@@ -69,7 +69,7 @@ export async function openInstallationDatabase(): Promise<IDBDatabase | null> {
  * ⚠ **Resolved on the transaction's commit, not on the request's success.** A `put` succeeds long
  * before the transaction commits, and IndexedDB checks quota at commit — so a Baseline written by a
  * browser at its quota would report itself durable and be rolled back a tick later. Everything the
- * caller then does on the strength of it (narrowing the change index, calling the Publish's evidence
+ * caller then does on the strength of it (narrowing the change index, calling the Sync's evidence
  * kept) is done over a record that is not there. A failed write must read as failed, so that Remote
  * Status says `Cannot tell` rather than describing work GitHub has never seen as shared.
  */

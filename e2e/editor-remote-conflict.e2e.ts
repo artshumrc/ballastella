@@ -13,18 +13,18 @@ import {
 	openSyncModal,
 	openTheDoor,
 	showRemoteStatusDetail,
-	updateFromGitHub,
+	getFromRemote,
 	switchToWorkspace
 } from './support/workspace.js';
 import { gitBlobSha } from '../packages/core/src/remote/blob-sha.js';
-import { UPDATE_DOWNLOAD_CONCURRENCY } from '../packages/core/src/remote/update-from-github.js';
+import { UPDATE_DOWNLOAD_CONCURRENCY } from '../packages/core/src/remote/get-from-remote.js';
 
 /**
  * What stops one machine deleting another's afternoon (ADR-0033, ADR-0044).
  *
  * Seam 2, driving Seam 1's fake through Playwright routes. The comparison itself — per file and
  * never by commit SHA, the Baseline read both ways round, and what an overwrite settles — is
- * asserted in `packages/core/src/remote/publish-to-remote.test.ts`, where the assertion is the
+ * asserted in `packages/core/src/remote/send-to-remote.test.ts`, where the assertion is the
  * resulting tree rather than a screen. What only a browser can settle is here: that the Sync modal
  * shows an author what it found before it moves a byte, that a completed send leaves work it has
  * never seen exactly where it is, and that the one gesture which does remove that work names it
@@ -68,11 +68,11 @@ const projectFiles = (directory: string, name: string): Record<string, string> =
 	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
 });
 
-/** A site record as a published Remote carries one, listing whichever Projects it was given. */
+/** A site record as a Remote with a site carries one, listing whichever Projects it was given. */
 const siteRecord = (projects: { directory: string; name: string }[]): string =>
 	JSON.stringify({
 		formatVersion: 2,
-		viewerVersion: 'published-earlier',
+		viewerVersion: 'written-earlier',
 		publishedAt: '2026-08-01T09:00:00.000Z',
 		projects: projects.map((project) => ({ ...project, onFrontPage: true })),
 		baseMap: { entries: [] },
@@ -96,7 +96,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		const inside: string[] = [];
 		for await (const name of open.keys()) inside.push(name);
 		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
-		// ⚠ The publish manifest lives in `localStorage`, so a test that emptied only OPFS would
+		// ⚠ The Baseline lives in `localStorage`, so a test that emptied only OPFS would
 		// inherit the previous one's evidence about this very repository.
 		localStorage.clear();
 		sessionStorage.clear();
@@ -224,7 +224,7 @@ async function send(page: Page, dialog: ReturnType<Page['getByRole']>): Promise<
 	});
 }
 
-// ⚠ **A repository already carrying Ballastella work is connected to, not refused** (ADR-0044).
+// ⚠ **A repository already carrying Ballastella work is bound to, not refused** (ADR-0044).
 // ADR-0033's subset refusal existed because a first send would have deleted every Project the
 // Workspace had not got; it cannot, because a send removes only what the Synchronization Baseline
 // recorded. What that repository holds reads as *To get* on the Sync modal instead, which is
@@ -306,15 +306,15 @@ test.describe('a send against a Remote this browser has never seen', () => {
 		const github = await start(page, {
 			workspace: projectFiles('amsterdam-1625', 'Amsterdam 1625'),
 			connected: true,
-			// A Remote somebody has already published to, and a browser that has never published to it:
+			// A Remote somebody has already sent to, and a browser that has never sent to it:
 			// an Open from GitHub, a second machine, or storage cleared since. All three look the same
 			// from here.
 			onRemote: {
 				'ballastella-site.json': siteRecord([
 					{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }
 				]),
-				'florida-1657/project.json': '{"formatVersion":1,"name":"published elsewhere"}',
-				'index.html': '<!doctype html><title>Published earlier</title>'
+				'florida-1657/project.json': '{"formatVersion":1,"name":"sent elsewhere"}',
+				'index.html': '<!doctype html><title>Written earlier</title>'
 			}
 		});
 
@@ -332,7 +332,7 @@ test.describe('a send against a Remote this browser has never seen', () => {
 		// Their Project is still there, whole, after a completed send from a Workspace that has never
 		// held it — and this Workspace's own work arrived beside it.
 		expect(github.fileText(OWNER, REPOSITORY, 'florida-1657/project.json')).toBe(
-			'{"formatVersion":1,"name":"published elsewhere"}'
+			'{"formatVersion":1,"name":"sent elsewhere"}'
 		);
 		expect(github.files(OWNER, REPOSITORY)).toContain('amsterdam-1625/project.json');
 	});
@@ -485,9 +485,9 @@ test.describe('a send against a Remote this browser has never seen', () => {
 // stand for it; that an authenticated session checks by itself and a signed-out one does not; and
 // that a failed check leaves the last answer on screen rather than reporting agreement.
 //
-// The Baseline is seeded rather than earned through a Publish: a spec that had to publish to reach
-// each state would be testing publishing five times over to arrive at the thing it wanted to assert.
-// That a Publish advances the Baseline is asserted where publishing is.
+// The Baseline is seeded rather than earned through a Sync: a spec that had to send to reach
+// each state would be testing the send five times over to arrive at the thing it wanted to assert.
+// That a send advances the Baseline is asserted where the send is.
 
 /** `path → blob SHA` for bytes seeded on the Remote, which is what a Baseline records. */
 async function sharedShas(files: Record<string, string>): Promise<Record<string, string>> {
@@ -526,7 +526,7 @@ const listings = (github: GitHubHosts) =>
 /**
  * The same count, once it has stopped moving.
  *
- * ⚠ **The status control is not the only thing here that lists a tree**: the publish dialog takes one
+ * ⚠ **The status control is not the only thing here that lists a tree**: the sync modal takes one
  * of its own for the breakdown, and closing the dialog does not cancel it. Sampled the moment the
  * dialog goes, the number can be one short of the truth — and the bound asserted against it then
  * fails on a request the spec itself caused rather than on a poll the product made.
@@ -612,7 +612,7 @@ test.describe('Remote Status on the navigation bar', () => {
 		await seedBaseline(page, {
 			owner: OWNER,
 			repository: REPOSITORY,
-			// A Baseline a Publish wrote: the source paths *and* the generated output it sent, which is
+			// A Baseline a send wrote: the source paths *and* the generated output it sent, which is
 			// what makes Published Site staleness answerable at all.
 			files: await sharedShas({
 				...AMSTERDAM,
@@ -643,7 +643,9 @@ test.describe('Remote Status on the navigation bar', () => {
 		});
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('in sync with ada/atlas');
-		await expect(page.getByTestId('published-site-stale')).toContainText('Publish again');
+		await expect(page.getByTestId('published-site-stale')).toContainText(
+			'The next Sync rebuilds it'
+		);
 
 		// The author's own work, which GitHub has never seen.
 		await page.getByRole('button', { name: 'New Project' }).click();
@@ -756,11 +758,11 @@ test.describe('Remote Status on the navigation bar', () => {
 //
 // **One complete inbound workflow, and the matrix stays at Seam 1.** Every three-way decision, every
 // refusal, the SHA verification, the rollback and the Baseline arithmetic are exhausted in
-// `packages/core/src/remote/update-from-github.test.ts` against the same fake GitHub, with no
+// `packages/core/src/remote/get-from-remote.test.ts` against the same fake GitHub, with no
 // browser and with complete before-and-after snapshots of the Workspace. What no seam below can
 // falsify is that the *application* performs the operation it offers: that the control on the bar is
 // the only thing that applies anything, that a real OPFS Workspace ends up holding the Remote's
-// Project as ordinary work while the author's own unpublished Project is still there, that the
+// Project as ordinary work while the author's own unsent Project is still there, that the
 // Remote's head has not moved, and that the status beside it is recomputed against what the Update
 // left rather than what was there before.
 
@@ -790,7 +792,7 @@ const syncProject = (directory: string, name: string): Record<string, string> =>
 	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}'
 });
 
-/** The same Project with a second Annotation Layer, as another machine would publish it. */
+/** The same Project with a second Annotation Layer, as another machine would send it. */
 const withSecondLayer = (directory: string, name: string): string => {
 	const project = JSON.parse(syncProject(directory, name)[`${directory}/project.json`] as string);
 	project.layers.push({
@@ -865,7 +867,7 @@ test.describe('getting a Remote’s changes', () => {
 		await page.getByRole('button', { name: 'Create Project' }).click();
 		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
 
-		// And somebody else's: a Project published from another machine, and a change to a file this
+		// And somebody else's: a Project sent from another machine, and a change to a file this
 		// Workspace has not touched. Two safe changes on different paths.
 		await github.commitFiles(OWNER, REPOSITORY, {
 			...syncProject('delft', 'Delft'),
@@ -925,7 +927,7 @@ test.describe('getting a Remote’s changes', () => {
 
 		const outcome = page.getByTestId('update-outcome');
 		await expect(outcome).toContainText('Brought');
-		await expect(outcome).toContainText('Nothing has been published');
+		await expect(outcome).toContainText('Nothing has been sent');
 		await expect(modal).toBeHidden();
 
 		// ⚠ **Bounded, and the outcome agrees with the count.** No assertion on the paths requested or
@@ -944,7 +946,7 @@ test.describe('getting a Remote’s changes', () => {
 		expect(github.fileText(OWNER, REPOSITORY, 'atlas-1625/annotations/l2.geojson')).toBe(THEIRS);
 		expect(github.fileText(OWNER, REPOSITORY, 'leiden/project.json')).toBe(null);
 
-		// The author's unpublished Project is still here, and the Remote's is here as
+		// The author's unsent Project is still here, and the Remote's is here as
 		// ordinary work that opens.
 		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
 		await page.getByRole('link', { name: 'Delft' }).click();
@@ -959,7 +961,7 @@ test.describe('getting a Remote’s changes', () => {
 		// writes to, and the one that arrives wears none of it.
 		await github.commitFiles(OWNER, REPOSITORY, { 'atlas-1625/annotations/l9.geojson': '{}' });
 		const holdAgain = await holdRawFile(page, 'atlas-1625/annotations/l9.geojson');
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 		// The line itself, not its count: whether the plan has resolved by now decides between "file"
 		// and "files", and what this needs is only that a transfer is under way to switch out of.
 		await expect(page.getByTestId('sync-progress')).toContainText('Getting');
@@ -991,7 +993,7 @@ test.describe('getting a Remote’s changes', () => {
 			'delft/annotations/l3.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
@@ -1016,7 +1018,7 @@ test.describe('getting a Remote’s changes', () => {
 			'delft/annotations/l4.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
 		await checkNow(page);
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 		await expect(page.getByTestId('update-outcome')).toContainText('Brought');
 
 		await expect(page.getByTestId('edit-history-undo')).toHaveCount(0);
@@ -1082,7 +1084,7 @@ test.describe('getting a Remote’s changes', () => {
 		await expect(remoteStatus(page)).toContainText('changes to get');
 
 		// ── Get changes: the Project goes, and the one the Remote kept does not ───────────────────
-		await updateFromGitHub(page);
+		await getFromRemote(page);
 
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);

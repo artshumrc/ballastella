@@ -4,12 +4,12 @@
 // truncation refusal and the blob-SHA check are `review-from-remote.ts`'s and are shared rather than
 // restated — `readReviewTree` for the file list and its refusals, `findProject` for the namespace
 // question, `gitBlobSha` for the byte check. What differs is what happens to the result: a Review
-// fills a throwaway Workspace and *reports* what the author failed to publish, while an Import hands
+// fills a throwaway Workspace and *reports* what the author failed to send, while an Import hands
 // a validated closure to the engine that will make it the user's own work, so a Project the Remote
 // cannot supply whole is refused before a destination path is allocated.
 //
 // ⚠ **No credential, and none may be added.** Reading a public repository is anonymous (ADR-0031), so
-// importing a published Project needs no GitHub account — the same property the Review has, for the
+// importing a Project off a Remote needs no GitHub account — the same property the Review has, for the
 // same reason, and the reason there is no credential anywhere in this module's types.
 //
 // ⚠ **Nothing here connects anything.** The repository coordinates travel out on the origin as
@@ -42,7 +42,7 @@ import {
 /** Which Project on which Remote to Import. The Review's reference, unchanged. */
 export interface RemoteProjectSourceOptions {
 	readonly remote: ReviewReference;
-	/** Defaulting to the page's own, as the publish engine and the HTTP store already do. */
+	/** Defaulting to the page's own, as the send engine and the HTTP store already do. */
 	readonly fetch?: FetchFn;
 }
 
@@ -104,13 +104,13 @@ export async function readRemoteProjectSource(
 /**
  * What the Remote holds for this Project, Project-relative.
  *
- * **The Remote's paths are a Workspace's paths** — a published tree is a Workspace laid out as
+ * **The Remote's paths are a Workspace's paths** — a Remote's tree is a Workspace laid out as
  * ADR-0008 lays one out — so the Project's own files lose their directory prefix and the shared pool
  * keeps the names it already has. That is the same mapping `hoistedImageId` performs on a bundle's
  * entries in the other direction, which is what makes the three sources report one closure.
  *
  * Everything outside the Project's directory and outside the shared pool is simply not offered:
- * another Project's files, the publisher's own `README.md`, the site record beside them. The closure
+ * another Project's files, the author's own `README.md`, the site record beside them. The closure
  * is then taken out of what is offered, so a file the Project never references cannot travel even if
  * it is under a name that looks shared.
  */
@@ -147,7 +147,7 @@ async function* fetchClosure(
 /**
  * Fetch one file from the raw host and refuse it if the bytes are not the ones the tree named.
  *
- * ⚠ **The check is what makes an Import of somebody's published Project trustworthy**, and it costs
+ * ⚠ **The check is what makes an Import of somebody's shared Project trustworthy**, and it costs
  * one hash over bytes already in memory. Without it a proxy or a cache serving a rewritten copy
  * becomes permanent work in the user's own Workspace, indistinguishable from what its author wrote.
  */
@@ -179,7 +179,7 @@ function checkedReader(
 				'incomplete',
 				`“${path}” arrived as different bytes from the ones ` +
 					`${remote.owner}/${remote.repository} lists for it, so it is not what its author ` +
-					`published.`
+					`sent.`
 			);
 		}
 		return content;
