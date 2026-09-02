@@ -41,6 +41,8 @@ export class FakeSession {
 	readonly sends: { overwrite: readonly string[] | undefined }[] = [];
 	/** How many times the viewer was written into the Workspace. */
 	siteWrites = 0;
+	/** Which Projects each site write's plan named, so a plan made before a get can be told apart. */
+	readonly siteProjectsWritten: string[][] = [];
 	sendAnswer: Error | null = null;
 	synchronization = { readBaseline: async () => null };
 	/** The Alignment questions the plan raises, which a spec sets to exercise the one question. */
@@ -54,8 +56,9 @@ export class FakeSession {
 		return this.siteRecord;
 	}
 
+	/** The Project list the site would carry, which is a reading of the Workspace at plan time. */
 	async planPublishedSite(): Promise<PublishedSitePlan> {
-		return localPlan();
+		return { ...localPlan(), projects: [...this.projects] } as PublishedSitePlan;
 	}
 
 	async planRemoteSend(options: { sending?: boolean }): Promise<RemoteSendPlan> {
@@ -64,8 +67,9 @@ export class FakeSession {
 		return this.forecast;
 	}
 
-	async writePublishedSite(): Promise<PublishedSite | null> {
+	async writePublishedSite(options: { plan: PublishedSitePlan }): Promise<PublishedSite | null> {
 		this.siteWrites += 1;
+		this.siteProjectsWritten.push(options.plan.projects.map((project) => project.directory));
 		return this.siteRecord;
 	}
 

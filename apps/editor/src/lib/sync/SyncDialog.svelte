@@ -520,6 +520,16 @@
 			site: PublishedSite | null;
 		} | null = null;
 		let baselineKept = true;
+		/**
+		 * What the site would carry, read before the get and remade after one.
+		 *
+		 * ⚠ **Held here rather than read off the render at the moment of the write** (ADR-0045). A get
+		 * changes the Project list, the effect above re-plans the moment it does, and the re-plan
+		 * clears `plan` — so a `both` that brought a Project in reached the write with nothing to
+		 * write and skipped the site entirely.
+		 */
+		const wantsSite = shareLinks === true;
+		let sitePlan = plan;
 		/** Whether the viewer reached the Workspace, so a later refusal does not deny it. */
 		let written = false;
 		try {
@@ -542,9 +552,21 @@
 				// having Share Links *is* carrying the viewer file set, writing it here would grant them
 				// — silently, on a press about GitHub.
 				let site: PublishedSite | null = null;
-				if (shareLinks === true && plan !== null) {
+				if (wantsSite && got !== null) {
+					// ⚠ **Re-planned after a get, never the plan the columns were drawn from** (Story 63).
+					// The site record names every Project the Workspace holds, so a record written from
+					// the plan made before the get leaves out whatever the get just brought in — and the
+					// send that follows puts that record over the one the other machine wrote, taking a
+					// Project off the front page on the very Sync that fetched it.
+					sitePlan = await session.planPublishedSite({
+						bundle: await loadViewerBundle(),
+						editorUrl: deploymentRoot(),
+						repository: remote
+					});
+				}
+				if (wantsSite && sitePlan !== null) {
 					site = await session.writePublishedSite({
-						plan,
+						plan: sitePlan,
 						readAsset: readBundleAsset,
 						onProgress: (seen) => {
 							progress = { phase: 'writing', ...seen, requestsRemaining: null };

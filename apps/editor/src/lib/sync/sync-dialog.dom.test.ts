@@ -581,4 +581,35 @@ describe('the sync modal and Share Links', () => {
 		expect(storage.session.siteWrites).toBe(0);
 		expect(storage.withdrawalsFinished).toBe(1);
 	});
+
+	// ⚠ **A `both` rebuilds the site from the Workspace the get left behind, not from the one the
+	// columns were drawn from** (Story 63). The record names every Project the Workspace holds, so a
+	// record written from the earlier plan leaves out what the get has just brought in — and the send
+	// that follows puts it over the record the other machine wrote, taking a Project off the front
+	// page on the very Sync that fetched it.
+	test('rebuilds the site from what the get brought in, on a get and send in one press', async () => {
+		const storage = new FakeSyncStorage();
+		storage.shareLinks = true;
+		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
+		storage.session.forecast = emptyForecast({
+			unchanged: false,
+			incoming: [{ path: 'delft/project.json', sha: 'b'.repeat(40), effect: 'add' }],
+			outgoing: [{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' }]
+		});
+		// What a get does to a Workspace: the Project list it leaves behind has the new one in it.
+		storage.getFromRemote = async () => {
+			storage.gets.push(storage.gets.length);
+			storage.session.projects = [
+				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never,
+				{ directory: 'delft', name: 'Delft' } as never
+			];
+			return { added: ['delft/project.json'], replaced: [], removed: [] } as never;
+		};
+		await open(storage);
+
+		press('sync-both');
+		await settle();
+
+		expect(storage.session.siteProjectsWritten).toEqual([['amsterdam-1625', 'delft']]);
+	});
 });
