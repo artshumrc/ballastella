@@ -72,6 +72,7 @@
 	import { deploymentRoot } from '../base-map/deployment-assets';
 	import ModalDialog from '../components/ModalDialog.svelte';
 	import { connectSequence } from '../connect-sequence.svelte.js';
+	import { workspaceSettings } from '../workspace-settings.svelte.js';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import Toast from '../toasts/Toast.svelte';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -296,16 +297,23 @@
 	 */
 	async function readBothSides(active: EditorSession, mine: number): Promise<void> {
 		const bound = storage.remote;
+		// ⚠ **`null` is a plan read anonymously, and it is not a reason to read nothing** (ADR-0044).
+		// A public repository is readable by anyone, so a signed-out author gets a *To get* column and
+		// the three affordances that send are simply not on the screen — which is the whole of how a
+		// student with no GitHub account gets their instructor's Workspace.
 		const credential = storage.credential;
-		if (bound === null || credential === null) return;
+		if (bound === null) return;
 		try {
 			const [bundle, hasSite, record, rights] = await Promise.all([
 				loadViewerBundle(),
 				storage.hasShareLinks(),
 				active.readPublishedSite(),
 				// A question GitHub would not answer is read as *cannot write*, which is the direction
-				// that offers a control that can only refuse to nobody.
-				storage.readRights().catch(() => ({ canPush: false }))
+				// that offers a control that can only refuse to nobody. Signed out it is not asked at
+				// all: rights cannot be read without a credential, and nothing here may claim them.
+				credential === null
+					? Promise.resolve({ canPush: false })
+					: storage.readRights().catch(() => ({ canPush: false }))
 			]);
 			// The viewer is only pending where there is a site to keep current, so the three budgets are
 			// about the Sync being offered rather than about one that is not going to happen.
@@ -479,8 +487,10 @@
 	 * single-commit property; folded into one they would have neither.
 	 */
 	const run = async (mode: SyncMode) => {
-		if (syncing || remote === null || !signedIn) return;
-		if (mode !== 'get' && canSend !== true) return;
+		if (syncing || remote === null) return;
+		// ⚠ **Getting is the one mode a signed-out author may run** (ADR-0044): it reads a public
+		// repository anonymously and writes only this computer. Everything else writes to GitHub.
+		if (mode !== 'get' && (!signedIn || canSend !== true)) return;
 		if (mode === 'overwrite' && !overwriteAgreed) return;
 		running = mode;
 		syncing = true;
@@ -827,8 +837,9 @@
 		{#if remote !== null}
 			<!--
 				Where the work goes, and the way to everything about the relationship that is not a
-				transfer: Share Links, choosing a different repository, giving it up. The bar's one control
-				opens *this* modal directly (ADR-0044), so the guided sequence is reached from here.
+				transfer: Share Links, choosing a different repository, giving it up. Those are settings of
+				the Workspace and live on its roster row (ADR-0042); the bar's one control opens *this*
+				modal directly (ADR-0044), so this is the handoff to them rather than a second copy.
 
 				⚠ **Outside every gate below, and that is not a layout preference.** A forecast that
 				refused — an expired sign-in, a repository GitHub cannot show, no network at all — is
@@ -857,7 +868,7 @@
 					data-testid="sync-repository-settings"
 					onclick={() => {
 						open = false;
-						connectSequence.start();
+						workspaceSettings.start();
 					}}
 				>
 					Repository settings…
@@ -885,8 +896,14 @@
 				This Workspace belongs to no repository yet. <strong>Sync with GitHub</strong> on the bar connects
 				it to one.
 			</p>
-		{:else if !signedIn}
+		{:else}
 			<!--
+				⚠ **The sign-in is offered beside the plan, never instead of it** (ADR-0044). Getting
+				needs no credential — a public repository is readable by anyone — so a signed-out author
+				reads the same two columns as anybody else and it is *sending* that the offer below is
+				about. Rendered in place of the plan, this was the screen that told a student with no
+				GitHub account to sign up before they could take their instructor's Workspace.
+
 				⚠ **One door, and which one is a fact about the deployment rather than about this modal.**
 				A student on a deployment with an App is never asked to choose between two credentials, so
 				where the front door exists the paste is not on this screen at all — absent, not empty and
@@ -896,11 +913,14 @@
 				this tab's and the relationship is not, so a connected Workspace reopened in a fresh tab
 				and pressed to Sync lands here.
 			-->
-			{#if storage.signInWithGitHubOffered}
+			{#if signedIn}
+				<!-- Said only where it is true, by the branches below that own the plan. -->
+			{:else if storage.signInWithGitHubOffered}
 				<div class="flex flex-col gap-1" data-testid="sync-signed-out">
 					<p class="text-sm" data-testid="sync-sign-in-needed">
-						Sign in to GitHub to sync with <code>{describeRemote(remote)}</code>. This takes you to
-						GitHub and brings you back here. Nothing is kept on this computer beyond this tab.
+						Sign in to GitHub to send this Workspace to <code>{describeRemote(remote)}</code>.
+						Getting from it needs no sign-in. This takes you to GitHub and brings you back here.
+						Nothing is kept on this computer beyond this tab.
 					</p>
 					<button
 						class="btn mt-2 w-fit btn-primary btn-sm"
@@ -914,7 +934,8 @@
 			{:else}
 				<form data-testid="sync-signed-out" onsubmit={(event) => void signIn(event)}>
 					<p class="text-sm" data-testid="sync-sign-in-needed">
-						Sign in to sync with <code>{describeRemote(remote)}</code> with a token that has
+						Getting from <code>{describeRemote(remote)}</code> needs no sign-in. To send to it, sign
+						in with a token that has
 						<strong>Contents: Read and write</strong>
 						and <strong>Pages: Read and write</strong>, made under the account that owns the
 						repository. Kept only in this tab.
@@ -947,27 +968,27 @@
 					</div>
 				</form>
 			{/if}
-		{:else if problem}
-			<!--
-				The refusal is rendered above, outside these branches, so that it stands beside the
-				sign-in it is the reason for. Nothing further belongs here: its own sentence names the
-				remedy, and a truncated tree or a repository GitHub cannot show has no control to offer.
-			-->
-		{:else if sync === null}
-			<p class="flex items-center gap-2 text-sm opacity-70" data-testid="sync-reading">
-				<span aria-hidden="true" class="loading loading-xs loading-spinner"></span>
-				Reading <code>{describeRemote(remote)}</code> and this Workspace…
-			</p>
-		{:else}
-			{#if nothingToDo}
-				<p data-testid="sync-nothing-to-do">
-					Nothing needs changing. <code>{describeRemote(remote)}</code> holds this Workspace exactly as
-					it is here.
-				</p>
-			{/if}
-
-			{#if shareLinks === true && plan !== null}
+			{#if problem}
 				<!--
+					The refusal is rendered above, outside these branches, so that it stands beside the
+					sign-in it is the reason for. Nothing further belongs here: its own sentence names the
+					remedy, and a truncated tree or a repository GitHub cannot show has no control to offer.
+				-->
+			{:else if sync === null}
+				<p class="flex items-center gap-2 text-sm opacity-70" data-testid="sync-reading">
+					<span aria-hidden="true" class="loading loading-xs loading-spinner"></span>
+					Reading <code>{describeRemote(remote)}</code> and this Workspace…
+				</p>
+			{:else}
+				{#if nothingToDo}
+					<p data-testid="sync-nothing-to-do">
+						Nothing needs changing. <code>{describeRemote(remote)}</code> holds this Workspace exactly
+						as it is here.
+					</p>
+				{/if}
+
+				{#if shareLinks === true && plan !== null}
+					<!--
 					What the site this Sync keeps current would weigh and carry — the total first and
 					largest, with the breakdown under it as a ledger: label left, figures right, a hairline
 					between the rows. The figures are tabular in the text face — ADR-0036 leaves no
@@ -976,61 +997,61 @@
 					⚠ **Only for a Workspace that has Share Links** (ADR-0045). Without them a Sync carries
 					the scholar's own files and there is no site for any of this to be about.
 				-->
-				<section data-testid="sync-site-breakdown">
-					<h3 class="text-sm font-medium opacity-70">Published site</h3>
-					<p class="mt-1 flex flex-wrap items-baseline gap-x-3">
-						<strong class="text-4xl leading-none font-semibold tabular-nums"
-							>{describeBytes(siteBreakdown.totalBytes)}</strong
+					<section data-testid="sync-site-breakdown">
+						<h3 class="text-sm font-medium opacity-70">Published site</h3>
+						<p class="mt-1 flex flex-wrap items-baseline gap-x-3">
+							<strong class="text-4xl leading-none font-semibold tabular-nums"
+								>{describeBytes(siteBreakdown.totalBytes)}</strong
+							>
+							<span class="text-sm tabular-nums opacity-70"
+								>{siteBreakdown.totalFiles} files total</span
+							>
+						</p>
+						<p class="mt-2 text-sm" data-testid="sync-site-projects">
+							This site will carry {count(plan.projects.length, 'Project')}.
+						</p>
+						<dl
+							class="mt-4 grid grid-cols-[1fr_auto_6rem] items-baseline border-t border-rule text-sm [&>*]:border-b [&>*]:border-rule [&>*]:py-2"
 						>
-						<span class="text-sm tabular-nums opacity-70"
-							>{siteBreakdown.totalFiles} files total</span
-						>
-					</p>
-					<p class="mt-2 text-sm" data-testid="sync-site-projects">
-						This site will carry {count(plan.projects.length, 'Project')}.
-					</p>
-					<dl
-						class="mt-4 grid grid-cols-[1fr_auto_6rem] items-baseline border-t border-rule text-sm [&>*]:border-b [&>*]:border-rule [&>*]:py-2"
-					>
-						{#if siteBreakdown.mapImageFiles > 0}
-							<dt class="pe-6">Map Images</dt>
+							{#if siteBreakdown.mapImageFiles > 0}
+								<dt class="pe-6">Map Images</dt>
+								<dd class="pe-6 text-right tabular-nums opacity-70">
+									{siteBreakdown.mapImageFiles} files
+								</dd>
+								<dd class="text-right font-medium tabular-nums">
+									{describeBytes(siteBreakdown.mapImageBytes)}
+								</dd>
+							{/if}
+							<dt class="pe-6">Viewer and site data</dt>
 							<dd class="pe-6 text-right tabular-nums opacity-70">
-								{siteBreakdown.mapImageFiles} files
+								{siteBreakdown.viewerFiles} files
 							</dd>
 							<dd class="text-right font-medium tabular-nums">
-								{describeBytes(siteBreakdown.mapImageBytes)}
+								{describeBytes(siteBreakdown.viewerBytes)}
 							</dd>
-						{/if}
-						<dt class="pe-6">Viewer and site data</dt>
-						<dd class="pe-6 text-right tabular-nums opacity-70">
-							{siteBreakdown.viewerFiles} files
-						</dd>
-						<dd class="text-right font-medium tabular-nums">
-							{describeBytes(siteBreakdown.viewerBytes)}
-						</dd>
-						{#if siteBreakdown.baseMapFiles > 0}
-							<dt class="pe-6">Base Map labels and symbols</dt>
-							<dd class="pe-6 text-right tabular-nums opacity-70">
-								{siteBreakdown.baseMapFiles} files
-							</dd>
-							<dd class="text-right font-medium tabular-nums">
-								{describeBytes(siteBreakdown.baseMapBytes)}
-							</dd>
-						{/if}
-					</dl>
-				</section>
-				{#each plan.warnings.filter((warning) => warning.kind !== 'base-map-size') as warning (warning.kind)}
-					<div
-						role="alert"
-						class="alert flex-col items-start alert-warning"
-						data-warning={warning.kind}
-					>
-						<p>{warning.message}</p>
-					</div>
-				{/each}
-			{/if}
+							{#if siteBreakdown.baseMapFiles > 0}
+								<dt class="pe-6">Base Map labels and symbols</dt>
+								<dd class="pe-6 text-right tabular-nums opacity-70">
+									{siteBreakdown.baseMapFiles} files
+								</dd>
+								<dd class="text-right font-medium tabular-nums">
+									{describeBytes(siteBreakdown.baseMapBytes)}
+								</dd>
+							{/if}
+						</dl>
+					</section>
+					{#each plan.warnings.filter((warning) => warning.kind !== 'base-map-size') as warning (warning.kind)}
+						<div
+							role="alert"
+							class="alert flex-col items-start alert-warning"
+							data-warning={warning.kind}
+						>
+							<p>{warning.message}</p>
+						</div>
+					{/each}
+				{/if}
 
-			<!--
+				<!--
 				The two columns, which is what pressing Sync is *for*: what it found, before it does
 				anything. Side by side above `sm` and stacked below it, so the comparison is a comparison
 				wherever it is read.
@@ -1039,64 +1060,66 @@
 				column headed *To send* beside actions that are not there is a screen describing a
 				capability the reader has not got.
 			-->
-			<div class="flex flex-col gap-6 sm:flex-row sm:gap-8">
-				{@render column(
-					sync.toGet,
-					'to-get',
-					'To get',
-					`On ${describeRemote(remote)} and not in this Workspace.`
-				)}
-				{#if canSend === true}
+				<div class="flex flex-col gap-6 sm:flex-row sm:gap-8">
 					{@render column(
-						sync.toSend,
-						'to-send',
-						'To send',
-						`In this Workspace and not on ${describeRemote(remote)}.`
+						sync.toGet,
+						'to-get',
+						'To get',
+						`On ${describeRemote(remote)} and not in this Workspace.`
 					)}
-				{/if}
-			</div>
+					{#if canSend === true}
+						{@render column(
+							sync.toSend,
+							'to-send',
+							'To send',
+							`In this Workspace and not on ${describeRemote(remote)}.`
+						)}
+					{/if}
+				</div>
 
-			{#if canSend === false}
-				<!--
+				{#if canSend === false}
+					<!--
 					Said once, plainly, where the second column would be. Nothing on this screen offers a
 					send, so this explains an absence rather than a refusal.
 				-->
-				<div
-					role="alert"
-					class="alert flex-col items-start alert-info"
-					data-testid="sync-read-only"
-				>
-					<p>
-						Your GitHub account can read <code>{describeRemote(remote)}</code> but cannot write to it,
-						so this Workspace can take its changes and not send any. Ask whoever owns it for write access
-						if you need to send.
-					</p>
-				</div>
-			{/if}
+					<div
+						role="alert"
+						class="alert flex-col items-start alert-info"
+						data-testid="sync-read-only"
+					>
+						<p>
+							Your GitHub account can read <code>{describeRemote(remote)}</code> but cannot write to it,
+							so this Workspace can take its changes and not send any. Ask whoever owns it for write access
+							if you need to send.
+						</p>
+					</div>
+				{/if}
 
-			{#if contested.length > 0}
-				<!--
+				{#if contested.length > 0}
+					<!--
 					⚠ **Resolved into a copy, never merged and never chosen between** (ADR-0046). The Sync
 					moves everything else in both directions and leaves GitHub's version of the contested
 					thing beside your own, for you to look at and delete one. Not a warning, because
 					nothing here is at risk: it is a notice about what getting will make.
 				-->
-				<div class="alert alert-vertical items-start alert-info" data-testid="sync-conflicts">
-					<p>
-						{contested.length === 1 ? 'One thing has' : `${contested.length} things have`} changed both
-						here and on <code>{describeRemote(remote)}</code> since the two last agreed. Getting
-						brings GitHub's version in beside your own, named
-						<strong>(from GitHub)</strong>, so you can look at both and delete the one you do not
-						want. Nothing is combined and nothing of yours is replaced.
-					</p>
-					<ul class="text-sm">
-						{#each contested as change (change.kind + change.id)}{@render changeLine(change)}{/each}
-					</ul>
-				</div>
-			{/if}
+					<div class="alert alert-vertical items-start alert-info" data-testid="sync-conflicts">
+						<p>
+							{contested.length === 1 ? 'One thing has' : `${contested.length} things have`} changed both
+							here and on <code>{describeRemote(remote)}</code> since the two last agreed. Getting
+							brings GitHub's version in beside your own, named
+							<strong>(from GitHub)</strong>, so you can look at both and delete the one you do not
+							want. Nothing is combined and nothing of yours is replaced.
+						</p>
+						<ul class="text-sm">
+							{#each contested as change (change.kind + change.id)}{@render changeLine(
+									change
+								)}{/each}
+						</ul>
+					</div>
+				{/if}
 
-			{#each alignmentQuestions as question (question.path)}
-				<!--
+				{#each alignmentQuestions as question (question.path)}
+					<!--
 					⚠ **A question rather than a copy, and the only one in the product** (ADR-0046). There is
 					exactly one Alignment per Map Image, so a second file would be referenced by nothing and
 					drawn nowhere. Both counts and both dates are on screen because they are what makes the
@@ -1105,138 +1128,140 @@
 					A `radiogroup` rather than two buttons: the two are exclusive, one is chosen before the
 					Sync runs, and leaving it unanswered is allowed — the rest of the Sync goes ahead.
 				-->
-				<fieldset
-					class="rounded-box border border-rule p-4"
-					data-testid="sync-alignment-question"
-					data-image={question.imageId}
-				>
-					<legend class="px-1 text-sm font-medium">
-						Two alignments of <code>{question.imageId}</code>
-					</legend>
-					<p class="text-sm">
-						This map has been aligned both here and on <code>{describeRemote(remote)}</code> since the
-						two last agreed. There is only one alignment per map, so Ballastella cannot keep both — choose
-						which to keep, or leave this and the rest of the Sync goes ahead without it.
-					</p>
-					<div class="mt-3 flex flex-col gap-2">
-						{#each [{ value: 'keep-mine', label: 'Keep mine', side: question.mine }, { value: 'take-theirs', label: 'Take the one from GitHub', side: question.theirs }] as const as option (option.value)}
-							<label class="flex items-baseline gap-2 text-sm">
-								<input
-									type="radio"
-									class="radio radio-sm"
-									name="alignment-{question.path}"
-									value={option.value}
-									checked={alignmentChoices.get(question.path) === option.value}
-									onchange={() => alignmentChoices.set(question.path, option.value)}
-								/>
-								<span>
-									{option.label} — {count(option.side.controlPoints, 'control point')}{option.side
-										.at
-										? `, ${describeWhen(option.side.at)}`
-										: ', no date recorded'}
-								</span>
-							</label>
-						{/each}
-					</div>
-				</fieldset>
-			{/each}
+					<fieldset
+						class="rounded-box border border-rule p-4"
+						data-testid="sync-alignment-question"
+						data-image={question.imageId}
+					>
+						<legend class="px-1 text-sm font-medium">
+							Two alignments of <code>{question.imageId}</code>
+						</legend>
+						<p class="text-sm">
+							This map has been aligned both here and on <code>{describeRemote(remote)}</code> since the
+							two last agreed. There is only one alignment per map, so Ballastella cannot keep both —
+							choose which to keep, or leave this and the rest of the Sync goes ahead without it.
+						</p>
+						<div class="mt-3 flex flex-col gap-2">
+							{#each [{ value: 'keep-mine', label: 'Keep mine', side: question.mine }, { value: 'take-theirs', label: 'Take the one from GitHub', side: question.theirs }] as const as option (option.value)}
+								<label class="flex items-baseline gap-2 text-sm">
+									<input
+										type="radio"
+										class="radio radio-sm"
+										name="alignment-{question.path}"
+										value={option.value}
+										checked={alignmentChoices.get(question.path) === option.value}
+										onchange={() => alignmentChoices.set(question.path, option.value)}
+									/>
+									<span>
+										{option.label} — {count(option.side.controlPoints, 'control point')}{option.side
+											.at
+											? `, ${describeWhen(option.side.at)}`
+											: ', no date recorded'}
+									</span>
+								</label>
+							{/each}
+						</div>
+					</fieldset>
+				{/each}
 
-			{#if sync.overwrites.length > 0 && canSend === true}
-				<!--
+				{#if sync.overwrites.length > 0 && canSend === true}
+					<!--
 					⚠ **Overwrite names what it would remove before it will proceed** (ADR-0044, Story 15).
 					This is the one mode whose removals come from the Workspace alone, so the *To send*
 					column above does not carry them: they are not what a send would do.
 				-->
-				<section data-testid="sync-overwrite-removals">
-					<h3 class="text-sm font-medium opacity-70">
-						Overwriting the repository would also remove
-					</h3>
-					<ul class="mt-1 text-sm">
-						{#each sync.overwrites as change (change.kind + change.id)}{@render changeLine(
-								change
-							)}{/each}
-					</ul>
-				</section>
-			{/if}
+					<section data-testid="sync-overwrite-removals">
+						<h3 class="text-sm font-medium opacity-70">
+							Overwriting the repository would also remove
+						</h3>
+						<ul class="mt-1 text-sm">
+							{#each sync.overwrites as change (change.kind + change.id)}{@render changeLine(
+									change
+								)}{/each}
+						</ul>
+					</section>
+				{/if}
 
-			{#if outbound !== null && !overwriteAgreed}
-				<!--
+				{#if outbound !== null && !overwriteAgreed}
+					<!--
 					⚠ **A second press rather than a louder first one, and only where the repository is not
 					the author's alone** (ADR-0043). On a solo repository an overwrite can only discard the
 					author's own work; on a shared one it deletes a colleague's, so what would go is named
 					and whose the repository is is said first.
 				-->
-				<div
-					role="alert"
-					class="alert alert-vertical items-start alert-warning"
-					data-testid="sync-shared-remote"
-				>
-					<p>{outbound.message}</p>
-					<p class="text-sm">
-						The version you replace stays in the repository's history on GitHub.
-					</p>
-					<div class="flex flex-wrap gap-2">
-						<button
-							class="btn btn-sm btn-warning"
-							data-testid="confirm-shared-overwrite"
-							onclick={() => (overwriteAgreed = true)}
-						>
-							{outbound.paths.length === 0
-								? 'Yes, replace their work'
-								: 'Yes, remove them and overwrite'}
-						</button>
-						<!-- The way out of the question, which is what stops it being a full stop. -->
-						<button
-							class="btn btn-sm"
-							data-testid="cancel-shared-overwrite"
-							onclick={() => (outbound = null)}
-						>
-							Leave it as it is
-						</button>
+					<div
+						role="alert"
+						class="alert alert-vertical items-start alert-warning"
+						data-testid="sync-shared-remote"
+					>
+						<p>{outbound.message}</p>
+						<p class="text-sm">
+							The version you replace stays in the repository's history on GitHub.
+						</p>
+						<div class="flex flex-wrap gap-2">
+							<button
+								class="btn btn-sm btn-warning"
+								data-testid="confirm-shared-overwrite"
+								onclick={() => (overwriteAgreed = true)}
+							>
+								{outbound.paths.length === 0
+									? 'Yes, replace their work'
+									: 'Yes, remove them and overwrite'}
+							</button>
+							<!-- The way out of the question, which is what stops it being a full stop. -->
+							<button
+								class="btn btn-sm"
+								data-testid="cancel-shared-overwrite"
+								onclick={() => (outbound = null)}
+							>
+								Leave it as it is
+							</button>
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
 
-			{#if canSend === true}
-				<!--
+				{#if canSend === true}
+					<!--
 					The three budgets, stated separately because the two kinds of content load them
 					oppositely (ADR-0033): offline Base Map tiles are byte-heavy and file-cheap, and a Map
 					Image's pyramid is the other way round. Shown whether or not they warn, so that "how
 					many files and how many bytes will this move" is answerable before the button is
 					pressed rather than only when something is already wrong.
 				-->
-				<ul
-					class="border-t border-rule text-sm tabular-nums [&>li]:py-2 [&>li+li]:border-t [&>li+li]:border-rule"
-					data-testid="sync-budget"
-				>
-					<li data-budget="files">
-						{sync.size.files} of {upload === null ? 0 : upload.files.length + upload.pending.length} files
-						need uploading (limit: {MAX_PUBLISHED_FILES}).
-					</li>
-					<li data-budget="bytes">
-						Sending would move {describeBytes(sync.size.bytes)}; the repository would hold
-						{describeBytes(upload?.bytes ?? 0)} / {describeBytes(STATIC_HOSTING_LIMIT_BYTES)}
-						GitHub Pages limit.
-					</li>
-					<li data-budget="requests">
-						{#if sync.budget.remaining === null}
-							Requests this hour: unavailable.
-						{:else}
-							Requests this hour: {sync.budget.remaining} left{resetsAt === ''
-								? ''
-								: `; resets at ${resetsAt}`}.
-						{/if}
-					</li>
-				</ul>
-				{#each upload?.warnings ?? [] as warning (warning.kind)}
-					<div
-						role="alert"
-						class="alert flex-col items-start alert-warning"
-						data-remote-warning={warning.kind}
+					<ul
+						class="border-t border-rule text-sm tabular-nums [&>li]:py-2 [&>li+li]:border-t [&>li+li]:border-rule"
+						data-testid="sync-budget"
 					>
-						<p>{warning.message}</p>
-					</div>
-				{/each}
+						<li data-budget="files">
+							{sync.size.files} of {upload === null
+								? 0
+								: upload.files.length + upload.pending.length} files need uploading (limit: {MAX_PUBLISHED_FILES}).
+						</li>
+						<li data-budget="bytes">
+							Sending would move {describeBytes(sync.size.bytes)}; the repository would hold
+							{describeBytes(upload?.bytes ?? 0)} / {describeBytes(STATIC_HOSTING_LIMIT_BYTES)}
+							GitHub Pages limit.
+						</li>
+						<li data-budget="requests">
+							{#if sync.budget.remaining === null}
+								Requests this hour: unavailable.
+							{:else}
+								Requests this hour: {sync.budget.remaining} left{resetsAt === ''
+									? ''
+									: `; resets at ${resetsAt}`}.
+							{/if}
+						</li>
+					</ul>
+					{#each upload?.warnings ?? [] as warning (warning.kind)}
+						<div
+							role="alert"
+							class="alert flex-col items-start alert-warning"
+							data-remote-warning={warning.kind}
+						>
+							<p>{warning.message}</p>
+						</div>
+					{/each}
+				{/if}
 			{/if}
 		{/if}
 
@@ -1257,9 +1282,11 @@
 	<!--
 		The four choices, and Cancel. Never `disabled`, for the reason decision 3 gives.
 
-		⚠ **The three that send are absent where the author cannot write** (Story 50). Overwrite is
-		absent as well until the shared-Remote question has been answered, which is what makes that
-		question a gate rather than a notice.
+		⚠ **The three that send are absent where the author cannot write** (Story 50), and signed out
+		nobody can. Getting is offered either way: a public repository is readable by anyone, so the
+		one press a signed-out student needs is on the screen. Overwrite is absent as well until the
+		shared-Remote question has been answered, which is what makes that question a gate rather than
+		a notice.
 	-->
 	{#snippet actions()}
 		<button
@@ -1272,7 +1299,13 @@
 		>
 			{nothingToDo ? 'Close' : 'Cancel'}
 		</button>
-		{#if signedIn && remote !== null && sync !== null}
+		{#if remote !== null && sync !== null}
+			<!--
+				⚠ **Getting is offered signed out, and that is the property this whole flow exists for**
+				(ADR-0044). A public repository is readable by anyone, so a student with no GitHub account
+				connects to their instructor's repository and presses this. The three below it send, and
+				they are absent rather than present-and-refusing.
+			-->
 			<button
 				class="btn"
 				class:btn-disabled={syncing || !(somethingToGet || somethingToResolve)}
@@ -1282,7 +1315,7 @@
 			>
 				{running === 'get' ? 'Getting…' : 'Get changes'}
 			</button>
-			{#if canSend === true}
+			{#if signedIn && canSend === true}
 				<button
 					class="btn"
 					class:btn-disabled={syncing || !somethingToSend}

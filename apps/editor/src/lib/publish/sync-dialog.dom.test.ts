@@ -327,6 +327,48 @@ describe('the sync modal for somebody who cannot write', () => {
 	});
 });
 
+// ⚠ **Getting needs no credential, and this is where that property is held** (ADR-0044). A public
+// repository is readable by anyone, so a student with no GitHub account connects to their
+// instructor's repository and presses *Get changes* — and the three affordances that send are
+// absent rather than present-and-refusing.
+describe('the sync modal with nobody signed in', () => {
+	/** A student who has signed up for nothing, whose Workspace is connected to a public repository. */
+	const signedOut = (): FakeSyncStorage => {
+		const storage = somethingToGet();
+		storage.signedIn = false;
+		storage.credential = null;
+		return storage;
+	};
+
+	test('reads both sides anyway, and offers the get', async () => {
+		const storage = await open(signedOut());
+
+		// Planned without a credential and not in order to send, which is what skips the push check.
+		expect(storage.session.forecasts).toEqual([{ sending: false }]);
+		expect(text('to-get')).toContain('delft');
+		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
+	});
+
+	test('offers no send affordance at all, and says the sign-in is what sending needs', async () => {
+		await open(signedOut());
+
+		expect(absent('sync-send')).toBe(true);
+		expect(absent('sync-both')).toBe(true);
+		expect(absent('sync-arm-overwrite')).toBe(true);
+		expect(text('sync-sign-in-needed')).toContain('Getting from');
+	});
+
+	test('gets, with no credential read on the way', async () => {
+		const storage = await open(signedOut());
+
+		press('sync-get');
+		await settle();
+
+		expect(storage.gets).toHaveLength(1);
+		expect(storage.credential).toBeNull();
+	});
+});
+
 /** A Workspace and its Remote that have both moved the same Map Image's Alignment. */
 const contestedAlignment = (): FakeSyncStorage => {
 	const storage = new FakeSyncStorage();

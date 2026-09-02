@@ -2718,7 +2718,8 @@ export class EditorSession {
 	 * @throws RemotePublishRefusedError, RemotePublishCredentialError, RemotePublishFailedError
 	 */
 	async planRemotePublish(options: {
-		token: string;
+		/** `null` for a plan read with nobody signed in; see {@link PlanRemotePublishOptions}. */
+		token: string | null;
 		remote: RemoteRepository;
 		/**
 		 * What the local publish will write into the Workspace before the upload runs, so the three

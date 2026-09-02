@@ -251,46 +251,6 @@ export async function discardSynchronizationMetadata(
 }
 
 /**
- * Every Workspace key this installation holds a relationship for, and the repository it names.
- *
- * The hook under the installation-local reverse lookup that makes reopening a repository select its
- * existing synchronized Workspace rather than create another. `open-workspace-from-github.ts` owns
- * that flow; this only answers the question, and answers it with an empty list rather than throwing
- * when the store will not be read.
- */
-export async function listRemoteRelationships(
-	storage: MetadataStorage
-): Promise<readonly { workspaceKey: string; remote: RemoteRelationship }[]> {
-	let keys: readonly string[];
-	try {
-		keys = await storage.keys();
-	} catch {
-		return [];
-	}
-	const found: { workspaceKey: string; remote: RemoteRelationship }[] = [];
-	for (const key of keys) {
-		const workspaceKey = workspaceKeyOfRelationship(key);
-		if (workspaceKey === null) continue;
-		const remote = await new SynchronizationMetadata(storage, workspaceKey).readRemote();
-		if (remote !== null) found.push({ workspaceKey, remote });
-	}
-	return found;
-}
-
-/** The Workspace a relationship key names, or `null` when the key is not one. */
-function workspaceKeyOfRelationship(key: string): string | null {
-	if (!key.startsWith(SYNCHRONIZATION_KEY_PREFIX) || !key.endsWith('/remote')) return null;
-	const body = key.slice(SYNCHRONIZATION_KEY_PREFIX.length, -'/remote'.length);
-	try {
-		return decodeURIComponent(body) || null;
-	} catch {
-		// A malformed `%` escape: somebody else's key under our prefix, or a truncated one. It names no
-		// Workspace, so it is not one to report as a relationship.
-		return null;
-	}
-}
-
-/**
  * The three fields of a repository identity, and nothing else the caller happened to be carrying.
  *
  * ⚠ **Spelled out rather than spread.** A `RemoteBinding` read off disk carries its *own*

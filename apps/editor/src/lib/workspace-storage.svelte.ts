@@ -8,7 +8,6 @@ import {
 	assertReviewing as refuseOutsideReview,
 	chooseWorkspaceFolder,
 	copyWorkspaceFiles,
-	openWorkspaceFromGitHub,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
@@ -102,7 +101,6 @@ import {
 	GitHubSignInError,
 	RemoteStatusChecker,
 	UNCHECKED_REMOTE_STATUS,
-	type CloneReference,
 	type CredentialStorage,
 	type CredentialStore,
 	type DurableCredentialStorage,
@@ -663,7 +661,7 @@ export class WorkspaceStorage {
 	 *
 	 * Read off the Workspace itself on every switch, exactly as {@link review} is and for the same
 	 * reason: the binding is a fact about the Workspace rather than about this tab, so it survives a
-	 * reload, travels into a folder on disk, and comes back out of a Clone.
+	 * reload, travels into a folder on disk, and comes back out of a get.
 	 *
 	 * **Orthogonal to {@link backing}.** A Workspace in browser storage and a Workspace in a folder
 	 * may each have one, and nothing on this path asks which — `WorkspaceBacking` stays a two-member
@@ -1435,7 +1433,7 @@ export class WorkspaceStorage {
 	 * Move the open browser Workspace into a folder the author picks, and switch into it.
 	 *
 	 * ⚠ **The only way work that already exists reaches a folder on disk.** {@link restoreFrom} and
-	 * {@link openFromGitHub} both always make a browser Workspace, and a folder Workspace can
+	 * {@link connectNewWorkspaceTo} both always make a browser Workspace, and a folder Workspace can
 	 * otherwise be made only empty and new — so without this a scholar's existing Projects could
 	 * never become files they can see (ADR-0042).
 	 *
@@ -2724,18 +2722,17 @@ export class WorkspaceStorage {
 	 * which clears the grant record: the binding would succeed and take the refresh token with it,
 	 * leaving an eight-hour credential that cannot renew and reports itself as an expired sign-in.
 	 *
+	 * ⚠ **With nothing held at all this connects anonymously rather than refusing** (ADR-0044).
+	 * Getting needs no credential, so a student with no GitHub account connects a Workspace to their
+	 * instructor's public repository and gets from it; what a sign-in adds is sending, and the rights
+	 * check that goes with it. Refusing here would put an account in front of the one operation that
+	 * is meant to need none.
+	 *
 	 * @throws ReviewWorkspaceError for a review copy, RemoteBindRefusedError for GitHub's refusals
 	 */
 	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {
-		const held = token ?? this.credential;
-		if (held === null) {
-			throw new Error(
-				`Binding “${this.name}” needs a credential, and none is held. Sign in with GitHub, or ` +
-					`paste a personal access token.`
-			);
-		}
 		const outcome = await bindWorkspaceToRemote(this.session.store, this.name, {
-			token: held,
+			token: token ?? this.credential,
 			remote
 		});
 		if (token !== null) this.#keepPasted(token);
@@ -3337,125 +3334,41 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Open a Workspace from GitHub: return to the one this installation already keeps for that
-	 * repository, or download, validate and adopt a new one.
+	 * Make a Workspace of its own for a repository, and connect it — the whole of *get a Workspace
+	 * from GitHub* (ADR-0044).
 	 *
-	 * ⚠ **No credential is sent, and none is needed.** Nothing on this path takes a token and this
-	 * passes none — a student with no GitHub account can seed a Workspace from their instructor's
-	 * Remote, which is what this path is most likely to be used for. The credential store is
-	 * deliberately not consulted: reading it would make the flow behave differently for somebody who
-	 * happened to be signed in, and the difference would never show up in a test that signs in first.
+	 * ⚠ **There is no separate act that downloads a repository into a Workspace, because Sync is
+	 * that act.** Make a Workspace, connect it, get: what this does is the first two, and the caller
+	 * opens the Sync modal on the third, where the repository's whole contents stand in the **To
+	 * get** column and nothing has moved yet.
+	 *
+	 * ⚠ **No credential is needed.** A public repository is readable by anyone, so a student with no
+	 * GitHub account can seed a Workspace from their instructor's repository — which is what this
+	 * path is most likely to be used for. A sign-in that happens to be held is used, because it is
+	 * what lets the connection report whether this author may send as well as get.
 	 *
 	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, for the reason
 	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
 	 * cannot, and a subdirectory of the current folder would be a Workspace inside a Workspace.
 	 *
-	 * The quota check happens before the Workspace is created, against the byte total the Remote's own
-	 * tree listing reports.
+	 * The Workspace the author is in is untouched, including when connecting is refused: the new one
+	 * is made first and switched into only once GitHub has answered, so a refusal leaves them where
+	 * they were with an empty Workspace on the roster rather than inside one.
 	 *
 	 * @returns the sentence to show, which says which Workspace the user is now in
-	 * @throws CloneRefusedError with no Workspace adopted and no synchronization evidence recorded
+	 * @throws Error whose message is for the author to read — no such public repository, a review
+	 *   copy, or a browser that would not keep the relationship
 	 */
-	async openFromGitHub(remote: CloneReference): Promise<{ notice: string }> {
+	async connectNewWorkspaceTo(remote: RemoteReference): Promise<{ notice: string }> {
 		const subject = describeRemote(remote);
-		// Announced for `openBundle`'s reason: a Map Image's pyramid is thousands of files over
-		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
-		const announce = (files: number, totalFiles: number, finished: boolean) => {
-			this.transfer = { kind: 'open', subject, files, totalFiles, finished };
-		};
-		try {
-			const opened = await openWorkspaceFromGitHub({
-				remote,
-				metadata: this.#metadataStorage,
-				workspaceKey: opfsWorkspaceKey,
-				open: (preferred) => this.#makeOpenDestination(preferred),
-				estimateStorage: estimateStorage,
-				onProgress: ({ files, totalFiles }) => announce(files, totalFiles, false)
-			});
-			if (opened.outcome === 'selected') {
-				this.transfer = null;
-				return { notice: await this.#selectOpened(opened.workspaceKey, opened.remote) };
-			}
-			// Only once everything has arrived and validated. Switching first would leave the user
-			// looking at a half-filled Workspace, and `#adopt` tears down the session they are in.
-			await this.openWorkspace(opened.workspaceName);
-			announce(opened.transfer.totalFiles, opened.transfer.totalFiles, true);
-			return {
-				notice: opened.baselineRecorded
-					? opened.transfer.notice
-					: // A durable store that refused *after* the transfer succeeded is never reported as a
-						// failed Open. The Workspace is bound; what it cannot say is what has changed since.
-						`${opened.transfer.notice} This browser would not keep a record of what the two of ` +
-						`them hold in common, so Ballastella cannot tell what has changed on either side ` +
-						`until the next Publish.`
-			};
-		} catch (cause) {
-			// The progress line must not be left mid-count saying a download is still running. What the
-			// user needs is the refusal, which the dialog renders as an alert.
-			this.transfer = null;
-			throw cause;
-		}
-	}
-
-	/**
-	 * Go to the Workspace this installation already keeps for a repository, and say so.
-	 *
-	 * ⚠ **The key names the backing as well as the name**, so a Workspace bound by hand to a chosen
-	 * folder is not selectable from here: this app can open a folder only when the user picks it, and
-	 * guessing would be a silent switch to somebody else's directory. Named rather than ignored — the
-	 * whole point of the lookup is that a second synchronized copy is not made, so the answer to
-	 * "which one" has to be legible even when Ballastella cannot go there itself.
-	 */
-	async #selectOpened(workspaceKey: string, remote: RemoteRelationship): Promise<string> {
-		if (this.backing === 'folder' && folderKeyOf(this) === workspaceKey) {
-			return (
-				`${describeRemote(remote)} is already open: this Workspace folder is the one this ` +
-				`computer keeps for it. Nothing has been downloaded.`
-			);
-		}
-		// Re-read the directory rather than trust the list this session started with: the record is
-		// durable, so it can name a Workspace another tab of the same installation made.
+		const name = await createOpfsWorkspace(remote.repository);
 		await this.refreshWorkspaces();
-		const named = this.workspaces.find((name) => opfsWorkspaceKey(name) === workspaceKey);
-		if (named === undefined) {
-			return (
-				`${describeRemote(remote)} is already the Remote of a Workspace folder on this computer, ` +
-				`so nothing has been downloaded — one computer keeps one Workspace for one repository. ` +
-				`Open that folder to go on working in it.`
-			);
-		}
-		if (named !== this.workspaceName || this.backing === 'folder') {
-			await this.openWorkspace(named);
-		}
-		return (
-			`Went back to “${named}”, which is the Workspace this computer already keeps for ` +
-			`${describeRemote(remote)}. Nothing has been downloaded and nothing in it has changed.`
-		);
-	}
-
-	/**
-	 * A brand new browser-storage Workspace for an Open to fill, named after the repository.
-	 *
-	 * `createOpfsWorkspace` rather than `ensureOpfsWorkspace`, which is what makes a name collision
-	 * produce `atlas (2)` beside `atlas` rather than a download writing into a Workspace the user
-	 * already had. Reopening the *same* repository never reaches this — the reverse lookup selects the
-	 * Workspace it already has — so what this now guards is a Workspace of the user's own that happens
-	 * to share the repository's name.
-	 */
-	async #makeOpenDestination(preferred: string): Promise<RestoreDestination> {
-		const name = await createOpfsWorkspace(preferred);
-		await this.refreshWorkspaces();
+		await this.openWorkspace(name);
+		await this.bindRemote(remote, null);
 		return {
-			name,
-			store: openOpfsWorkspace(name),
-			// ⚠ **Never called by the download engine, unlike a restore's, and that is deliberate.** An
-			// Open keeps what it has downloaded so that running it again resumes rather than starting
-			// a pyramid over. It is here because `RestoreDestination` requires it, and it is real: were
-			// a caller ever to want the restore behaviour, this is what it would do.
-			discard: async () => {
-				await deleteOpfsWorkspace(name);
-				await this.refreshWorkspaces();
-			}
+			notice:
+				`“${this.name}” is a new Workspace connected to ${subject}. Nothing has been ` +
+				`downloaded yet — everything ${subject} holds is waiting under To get.`
 		};
 	}
 

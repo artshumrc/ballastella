@@ -1,5 +1,9 @@
 /**
- * The members of `WorkspaceStorage` the guided sequence reads, as a reactive fake.
+ * The members of `WorkspaceStorage` the two GitHub surfaces read, as a reactive fake.
+ *
+ * Shared by the guided sequence (`ConnectToGitHub`) and by the standing relationship on the
+ * Workspace's own row (`WorkspaceRemote`), because they read one storage between them: the sequence
+ * connects and the row is what the connection comes to rest as.
  *
  * A `.svelte.ts` module rather than a plain one because the sequence's whole contract is that its step
  * is *derived*: `remote` and `signedIn` have to be signals or every assertion about the sequence moving
@@ -16,7 +20,6 @@ import {
 	signInDepartureUrl,
 	UNCHECKED_REMOTE_STATUS,
 	type AddressResolution,
-	type CloneReference,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
 	type RemoteBindOutcome,
@@ -83,7 +86,7 @@ export class FakeStorage {
 	/**
 	 * The transfer the bar's progress line is a reading of, or `null` between transfers.
 	 *
-	 * A signal because the hydrate step's count is one: the real storage writes it per file over
+	 * A signal because the progress count is one: the real storage writes it per file over
 	 * minutes, and a plain field could not show that the line follows the download rather than
 	 * being written once when it starts.
 	 */
@@ -131,24 +134,12 @@ export class FakeStorage {
 	/** What `unbindRemote` answers, or throws when it is an `Error`. */
 	unbindAnswer: Error | null = null;
 	/**
-	 * Every repository {@link openFromGitHub} was asked for, in order.
-	 *
-	 * ⚠ **The shape is the claim.** The Open takes the repository and nothing else — no token, no
-	 * option that could carry one — which is what makes "no credential is sent on this path" a thing
-	 * the type system holds rather than a thing a test has to remember to check.
-	 */
-	readonly openCalls: CloneReference[] = [];
-	/** What `openFromGitHub` answers, or throws when it is an `Error`. */
-	openAnswer: { notice: string } | Error = {
-		notice: 'Opened ada/atlas into a new Workspace called “atlas”.'
-	};
-	/**
 	 * How many times the push-rights read was made, and what it answers.
 	 *
 	 * ⚠ **The default is `canPush: true`, and the count is what a spec asserts the signed-out case
-	 * with.** Push rights cannot be read without a credential, so "the door says nothing about rights
-	 * while signed out" is a claim about a request that was never made — and an answer that defaulted
-	 * to *cannot publish* would make every existing spec's connected step render the pull-only state.
+	 * with.** Push rights cannot be read without a credential, so "nothing is said about rights while
+	 * signed out" is a claim about a request that was never made — and an answer that defaulted to
+	 * *cannot send* would make every other spec render the read-only state.
 	 */
 	rightsReads = 0;
 	/** What `readRights` answers, or throws when it is an `Error`. */
@@ -265,31 +256,13 @@ export class FakeStorage {
 		await Promise.resolve();
 	}
 
-	/**
-	 * Open a Workspace from GitHub, exactly as the real one does: a new Workspace, switched to.
-	 *
-	 * The real one adopts the Workspace it made and that Workspace is bound to the repository it came
-	 * from, so `remote` moves — which is what the door reads next, and why this fake has to move it
-	 * too rather than leaving the sequence sitting on the offer it has just taken.
-	 */
-	async openFromGitHub(remote: CloneReference): Promise<{ notice: string }> {
-		this.openCalls.push(remote);
-		await Promise.resolve();
-		if (this.openAnswer instanceof Error) throw this.openAnswer;
-		this.remote = {
-			owner: remote.owner,
-			repository: remote.repository,
-			branch: remote.branch ?? 'main'
-		};
-		return this.openAnswer;
-	}
-
 	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {
 		this.bindCalls.push({ remote, token });
 		await Promise.resolve();
 		if (this.bindAnswer instanceof Error) throw this.bindAnswer;
-		// The real one records the binding on the Workspace, and the sequence's `connected` step is a
-		// reading of exactly that rather than of anything this call returned.
+		// The real one records the binding on the Workspace, and every surface that says which
+		// repository this Workspace has is a reading of exactly that rather than of anything this call
+		// returned.
 		this.remote = { ...this.bindAnswer.remote };
 		return this.bindAnswer;
 	}

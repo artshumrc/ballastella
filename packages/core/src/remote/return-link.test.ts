@@ -143,7 +143,8 @@ describe('the link an editor is landed on', () => {
 	);
 
 	// A Review is *of a Project*, and the whole repository is what the other parameter is for. Without
-	// `?p=` there is nothing to offer, and quietly turning it into a Clone would take a Reader who
+	// `?p=` there is nothing to offer, and quietly turning it into a whole-repository invitation
+	// would take a Reader who
 	// asked to look at one piece of work and hand them everything.
 	it('offers nothing for a review that names no Project', () => {
 		expect(read('?review=ada/atlas')).toBeNull();
@@ -151,7 +152,7 @@ describe('the link an editor is landed on', () => {
 
 	/**
 	 * ⚠ **A link is a thing anyone can send.** Both fields are interpolated into a GitHub API path by
-	 * the Clone and Review engines, where an owner of `ada/../../orgs` retargets every request they
+	 * the inbound and Review engines, where an owner of `ada/../../orgs` retargets every request they
 	 * make — the trap `parseRemoteBinding` records, and the reason the same checked reader is used
 	 * here rather than a split on `/`.
 	 */
@@ -164,7 +165,7 @@ describe('the link an editor is landed on', () => {
 
 	// A URL carrying both is one nobody writes: they are two different invitations, and this says
 	// which one arrives rather than leaving it to parameter order.
-	it('takes the Clone when a link somehow carries both', () => {
+	it('takes the whole-repository invitation when a link somehow carries both', () => {
 		expect(read('?clone=ada/atlas&review=ada/atlas&p=amsterdam-1625')).toEqual({
 			kind: 'clone',
 			owner: 'ada',

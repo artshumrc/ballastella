@@ -345,7 +345,17 @@ export type RemotePublishOptions = {
 	readonly fetch?: FetchFn;
 };
 
-export type PlanRemotePublishOptions = RemotePublishOptions & {
+export type PlanRemotePublishOptions = Omit<RemotePublishOptions, 'token'> & {
+	/**
+	 * The credential, or `null` for a plan read with nobody signed in.
+	 *
+	 * ⚠ **Planning is the one half of a Sync that may be anonymous** (ADR-0044). A public repository
+	 * is readable by anyone, so a signed-out author's *To get* column is read with no
+	 * `Authorization` header at all — which is what lets a student with no GitHub account get their
+	 * instructor's Workspace. {@link PublishToRemoteOptions} keeps the credential required, because
+	 * everything it does writes.
+	 */
+	readonly token: string | null;
 	/**
 	 * What the local publish will write into the Workspace before the upload runs — see
 	 * {@link RemotePublishPlan.pending}. Paths the Workspace already holds are ignored, so handing
@@ -465,7 +475,7 @@ type RemoteApi = {
 	call(path: string, init?: RequestInit): Promise<Response>;
 };
 
-function createRemoteApi(options: RemotePublishOptions, budget: Budget): RemoteApi {
+function createRemoteApi(options: PlanRemotePublishOptions, budget: Budget): RemoteApi {
 	const request = options.fetch ?? ((input, init) => fetch(input, init));
 	const base = `${GITHUB_API_ORIGIN}/repos/${options.remote.owner}/${options.remote.repository}`;
 
@@ -477,7 +487,10 @@ function createRemoteApi(options: RemotePublishOptions, budget: Budget): RemoteA
 				...init,
 				headers: {
 					Accept: 'application/vnd.github+json',
-					Authorization: `Bearer ${options.token}`,
+					// Omitted rather than sent empty for a plan read with nobody signed in: GitHub
+					// answers `401` to a `Bearer` with nothing after it, where it answers a public
+					// repository's tree to a request that carries no header at all.
+					...(options.token === null ? {} : { Authorization: `Bearer ${options.token}` }),
 					...init.headers
 				}
 			});

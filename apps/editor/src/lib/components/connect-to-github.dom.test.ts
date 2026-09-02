@@ -29,8 +29,7 @@ import {
 	type GrantedRepositoriesOutcome,
 	type GrantedRepository,
 	type RemoteBindOutcome,
-	type RemoteReference,
-	type SynchronizationBaseline
+	type RemoteReference
 } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -44,7 +43,6 @@ import {
 	FAKE_STATE,
 	FakeStorage,
 	outcome,
-	pagesGuided,
 	sequenceProps,
 	type SequenceProps
 } from './connect-to-github-fake.svelte.js';
@@ -210,6 +208,23 @@ async function settle(): Promise<void> {
 	flushSync();
 }
 
+/** A store whose bind waits to be let go, which is the only way `connecting` stays on screen. */
+class PausedBind extends FakeStorage {
+	private readonly gate = deferred<void>();
+
+	letGo(): void {
+		this.gate.settle();
+	}
+
+	override async bindRemote(
+		remote: RemoteReference,
+		token: string | null
+	): Promise<RemoteBindOutcome> {
+		await this.gate.promise;
+		return super.bindRemote(remote, token);
+	}
+}
+
 const at = (testId: string): HTMLElement => {
 	const found = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 	if (!found) throw new Error(`nothing is rendered with data-testid="${testId}"`);
@@ -356,14 +371,18 @@ describe('which step the sequence shows', () => {
 
 	// A Workspace that is already on GitHub is not asked to connect again, and nothing is read from
 	// GitHub to find that out.
-	test('opens on the connected step for a Workspace that already has a Remote', () => {
+	// ⚠ **A Workspace that already has a Remote is offered the choice again, not a step about the
+	// Remote it has** (ADR-0044). The sequence survives only for connecting: the bar opens the Sync
+	// modal for a Workspace with a repository, and the standing relationship is on the Workspace's
+	// own row — so the one way back here is *Choose a different repository*, which is the list.
+	test('offers the repository list again for a Workspace that already has a Remote', async () => {
 		const storage = signedIn();
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		const { list } = open(storage);
+		await settle();
 
-		expect(at('connect-connected')).toBeTruthy();
-		expect(absent('connect-choosing')).toBe(true);
-		expect(list).not.toHaveBeenCalled();
+		expect(at('connect-choosing')).toBeTruthy();
+		expect(list).toHaveBeenCalled();
 	});
 
 	// ⚠ **A sign-in that ended mid-sequence.** The step is a reading rather than a position, so
@@ -841,12 +860,15 @@ describe('connecting, which is one act', () => {
 		]);
 	});
 
-	test('says the repository is connected, and that setting up is over', async () => {
-		open(signedIn());
+	// ⚠ **The sequence ends on the Sync modal, and there is no step saying it worked** (ADR-0044).
+	// Connecting moves no bytes; what the author came for is the work, and the modal that opens is
+	// where both sides are compared with everything the repository holds under To get.
+	test('closes and hands off to the Sync modal', async () => {
+		const opened = open(signedIn());
 		await choose();
 
-		expect(text(at('connect-outcome'))).toContain('ada/atlas');
-		expect(text(at('connect-outcome'))).toContain('Setting up is over');
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
+		expect(opened.props.open).toBe(false);
 	});
 
 	// ⚠ Turning a site on is a question about who may read this, and connecting is not
@@ -864,356 +886,24 @@ describe('connecting, which is one act', () => {
 	});
 
 	// The rights refusal is the other outcome the connection stands *with*, and it is deliberate: the
-	// binding records where this Workspace belongs whether or not this author may publish there.
+	// binding records where this Workspace belongs whether or not this author may send there.
 	//
-	// ⚠ **One statement, not two.** `bind-remote`'s own `rightsNotice` is the same fact as the
-	// connected step's pull-only sentence, and one fact stated twice on one screen is one question with
-	// two answers — so the notice is suppressed and the standing statement is what the author reads
-	// (ADR-0043). It is also the only one of the two that renders on a hydrated Remote, where no bind
-	// happened at all.
-	test('reports that the author cannot publish there, and stays connected', async () => {
+	// ⚠ **The connection stands, so the sequence ends the way every other connection does.** That the
+	// relationship is read-only is a standing fact about the Workspace and is stated on its own row
+	// (`WorkspaceRemote`, ADR-0043) — a second saying of it here would be one question with two
+	// answers, on a screen the author is leaving.
+	test('connects anyway where the credential cannot send, rather than refusing', async () => {
 		const storage = signedIn();
 		storage.bindAnswer = outcome({
 			canPush: false,
 			rightsNotice: 'This token cannot push to ada/atlas, so publishing to it will be refused.'
 		});
-		// The same fact from the live read the connected step makes: GitHub says it once, and both
-		// answers here are that one saying. A fixture where the two disagreed would leave the screen
-		// showing whichever arrived last.
-		storage.rightsAnswer = { canPush: false };
-		open(storage);
+		const opened = open(storage);
 		await choose();
 
-		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
-		expect(absent('connect-notice')).toBe(true);
-		expect(at('connect-connected')).toBeTruthy();
-	});
-});
-
-describe('the address, and the handoff', () => {
-	/** A Workspace already connected to `owner/repository`, which is the connected step's whole input. */
-	function connected(owner: string, repository: string): FakeStorage {
-		const storage = signedIn();
-		storage.remote = { owner, repository, branch: 'main' };
-		return storage;
-	}
-
-	// The address is the thing the assignment actually asked for.
-	test('names the address the Published Site will answer at', () => {
-		open(connected('ada', 'atlas'));
-
-		expect(text(at('published-site-address'))).toBe('https://ada.github.io/atlas/');
-	});
-
-	// ⚠ **A person's own `<login>.github.io` repository is served at the domain root**, so the folder
-	// form of the address would name a page that answers nothing.
-	test('names the domain root for the account’s own site repository', () => {
-		open(connected('Ada', 'Ada.github.io'));
-
-		expect(text(at('published-site-address'))).toBe('https://ada.github.io/');
-	});
-
-	// Pasting it into a submission form is the use, and the visible text is what a browser that
-	// refuses the clipboard leaves behind.
-	test('puts the address on the clipboard', async () => {
-		const writeText = vi.fn(async () => {});
-		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-		open(connected('ada', 'atlas'));
-
-		press('copy-published-site-address');
-		await settle();
-
-		expect(writeText).toHaveBeenCalledWith('https://ada.github.io/atlas/');
-		expect(text(at('copied-address'))).toContain('clipboard');
-	});
-
-	// The sequence ends at the button that was always there rather than at a second one.
-	test('hands off to Publish and closes', () => {
-		const opened = open(connected('ada', 'atlas'));
-
-		press('connect-sync');
-
+		expect(storage.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 		expect(opened.onsync).toHaveBeenCalledTimes(1);
-	});
-});
-
-// ⚠ **A Remote is a place the work lives before it is a site anybody reads** (ADR-0045).
-// Share Links are asked for here, once, after the connection is made and never during it — and the
-// refusal is a *step* rather than an error: the screen, the branch, the folder, and a Check again
-// that polls until the site answers. The sentences themselves are `bind-remote.ts`'s at Seam 1; what
-// is here is that a press asks for it, that each outcome is rendered with the control it needs, and
-// that nothing asks before the press.
-describe('letting other people see it, which is a later act', () => {
-	/** A Workspace already connected to `ada/atlas`, which is the connected step's whole input. */
-	function connected(): FakeStorage {
-		const storage = signedIn();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		return storage;
-	}
-
-	/** GitHub's ordinary refusal, which is what ADR-0040 buys by not asking for `Administration`. */
-	const REFUSAL =
-		'GitHub Pages could not be turned on for ada/atlas — that needs both “Pages: Read and ' +
-		'write” and “Administration: Read and write”, and this credential does not have them.';
-
-	// ⚠ **The connected step and nowhere else.** There is no site to turn on before there is a
-	// repository to serve it, and the address the offer names would name nothing.
-	test.each([
-		['the sign-in step', () => openPastAccount(new FakeStorage())],
-		['the choice step', () => open(signedIn())]
-	])('is not offered on %s', async (_name, arrange) => {
-		arrange();
-		await settle();
-
-		expect(absent('enable-pages')).toBe(true);
-	});
-
-	test('offers it on the connected step, and asks GitHub nothing until it is pressed', async () => {
-		const storage = connected();
-		open(storage);
-		await settle();
-
-		expect(at('enable-pages')).toBeTruthy();
-		expect(storage.pagesAsks).toBe(0);
-		expect(absent('pages-notice')).toBe(true);
-	});
-
-	test('asks for it once when pressed, and says the site will answer', async () => {
-		const storage = connected();
-		open(storage);
-		await settle();
-
-		press('enable-pages');
-		await settle();
-
-		expect(storage.pagesAsks).toBe(1);
-		expect(text(at('pages-enabled'))).toContain('https://ada.github.io/atlas/');
-		// Done once and done: the offer goes, because pressing it again asks GitHub to turn on
-		// something that is already on.
-		expect(absent('enable-pages')).toBe(true);
-	});
-
-	// ⚠ **A Workspace that already carries a site is never offered the press again.** Share Links are
-	// the site record's presence and nothing else (ADR-0045), so the offer is a reading of the
-	// Workspace rather than of what happened in this session.
-	test('offers withdrawal rather than the press for a Workspace that already has a site', async () => {
-		const storage = connected();
-		storage.shareLinks = true;
-		open(storage);
-		await settle();
-
-		expect(absent('enable-pages')).toBe(true);
-		expect(at('withdraw-share-links')).toBeTruthy();
-		expect(storage.pagesAsks).toBe(0);
-	});
-
-	// ⚠ **Both permissions, and the guided step stays.** ADR-0040 refuses `Administration` for the
-	// App, so this is the ordinary answer rather than a rare one.
-	test('renders the refusal, and stays connected', async () => {
-		const storage = connected();
-		storage.pagesAnswer = pagesGuided(REFUSAL);
-		open(storage);
-		await settle();
-
-		press('enable-pages');
-		await settle();
-
-		const notice = text(at('pages-notice'));
-		expect(notice).toContain('Pages: Read and write');
-		expect(notice).toContain('Administration: Read and write');
-		expect(at('connect-connected')).toBeTruthy();
-	});
-
-	// ⚠ **One click and not a search** (story 59): the screen, the branch and the folder are handed
-	// over. The link is the outcome's own, so nothing here can build an address the sentence beside it
-	// disagrees with.
-	test('hands over the settings screen, the branch and the folder', async () => {
-		const storage = connected();
-		storage.pagesAnswer = pagesGuided(REFUSAL);
-		open(storage);
-		await settle();
-
-		press('enable-pages');
-		await settle();
-
-		expect(at('pages-settings-link')).toHaveAttribute(
-			'href',
-			'https://github.com/ada/atlas/settings/pages'
-		);
-		expect(text(at('pages-branch'))).toBe('main');
-		expect(text(at('pages-notice')?.parentElement)).toContain('/ (root)');
-	});
-
-	// ⚠ **The waiting and the verifying are ours** (story 60). The author changes one setting on
-	// github.com; one press polls until the site answers and then carries on by itself.
-	test('polls on Check again, and carries on when the site answers', async () => {
-		const storage = connected();
-		storage.pagesAnswer = pagesGuided(REFUSAL);
-		open(storage);
-		await settle();
-		press('enable-pages');
-		await settle();
-
-		expect(at('check-pages')).toBeTruthy();
-		press('check-pages');
-		await settle();
-
-		expect(storage.pagesChecks).toBe(1);
-		expect(text(at('pages-enabled'))).toContain('https://ada.github.io/atlas/');
-		expect(absent('check-pages')).toBe(true);
-	});
-
-	// A poll that came back "not yet" leaves the author on the same screen, which is a screen they can
-	// press again — never a refusal whose only sequel is Close.
-	test('leaves the guided step in place when the site still does not answer', async () => {
-		const storage = connected();
-		storage.pagesAnswer = pagesGuided(REFUSAL);
-		storage.checkAnswer = pagesGuided(REFUSAL);
-		open(storage);
-		await settle();
-		press('enable-pages');
-		await settle();
-
-		press('check-pages');
-		await settle();
-
-		expect(at('check-pages')).toBeTruthy();
-		expect(text(at('pages-notice'))).toContain('Administration: Read and write');
-	});
-
-	// ⚠ **An empty repository is a Sync away from being fine, and is never reported as a permission
-	// problem** (story 61). There is nothing to check again for, because nothing has been asked of the
-	// author — so the guided step's controls are absent.
-	test('reports an empty repository as needing a Sync, with nothing to go and change', async () => {
-		const storage = connected();
-		storage.pagesAnswer = {
-			enabled: false,
-			next: 'sync-first',
-			instruction:
-				'GitHub Pages is not on yet for ada/atlas, because the repository is empty. Nothing is ' +
-				'wrong with your token and nothing needs fixing. Publish once: that makes the branch.',
-			settingsUrl: 'https://github.com/ada/atlas/settings/pages',
-			branch: 'main'
-		};
-		open(storage);
-		await settle();
-
-		press('enable-pages');
-		await settle();
-
-		expect(text(at('pages-notice'))).toContain('repository is empty');
-		expect(text(at('pages-notice'))).not.toContain('Administration');
-		expect(absent('check-pages')).toBe(true);
-		expect(absent('pages-settings-link')).toBe(true);
-	});
-
-	// The one thing the Share Links acts throw over is a credential that is not there, and it is a
-	// refusal about this press rather than about the connection, which stands.
-	test('says why it could not be asked at all, and stays connected', async () => {
-		const storage = connected();
-		storage.pagesAnswer = new Error('Sign in with GitHub first.');
-		open(storage);
-		await settle();
-
-		press('enable-pages');
-		await settle();
-
-		expect(text(at('connect-problem'))).toContain('Sign in with GitHub first.');
-		expect(at('connect-connected')).toBeTruthy();
-	});
-
-	// ⚠ **What a close must not leave behind**, for the same reason the bind notices must not: the
-	// answer is about the Workspace that was on screen, and the next one opened may be another.
-	test('leaves no answer of its own behind on a close', async () => {
-		const storage = connected();
-		const opened = open(storage);
-		await settle();
-		press('enable-pages');
-		await settle();
-		expect(at('pages-enabled')).toBeTruthy();
-
-		press('close-connect-sequence');
-		opened.props.open = true;
-		flushSync();
-
-		expect(absent('pages-enabled')).toBe(true);
-	});
-});
-
-// ⚠ **Withdrawal is not a way to unpublish and is never presented as one** (ADR-0045, stories 65-67).
-describe('withdrawing Share Links', () => {
-	function withSite(): FakeStorage {
-		const storage = signedIn();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		storage.shareLinks = true;
-		return storage;
-	}
-
-	// ⚠ **The three things it cannot promise, before the press that does it.** A scholar who reads
-	// "turn the site off" as "make it unseen" will act on that reading.
-	test('says plainly what cannot be undone before it happens', async () => {
-		const storage = withSite();
-		open(storage);
-		await settle();
-
-		press('withdraw-share-links');
-		flushSync();
-
-		const said = text(at('withdraw-warning'));
-		expect(said).toContain('already given out stops working');
-		expect(said).toContain('cache');
-		expect(said).toContain('forked');
-		expect(said).toContain('repository and your own files are untouched');
-		// Nothing has happened yet: the warning is a question, not a report.
-		expect(storage.pagesWithdrawals).toBe(0);
-	});
-
-	test('does nothing at all when the author keeps them', async () => {
-		const storage = withSite();
-		open(storage);
-		await settle();
-		press('withdraw-share-links');
-		flushSync();
-
-		press('withdraw-share-links-cancel');
-		flushSync();
-
-		expect(storage.pagesWithdrawals).toBe(0);
-		expect(at('withdraw-share-links')).toBeTruthy();
-	});
-
-	test('withdraws on the confirmation, and offers Share Links again', async () => {
-		const storage = withSite();
-		open(storage);
-		await settle();
-		press('withdraw-share-links');
-		flushSync();
-
-		press('withdraw-share-links-confirm');
-		await settle();
-
-		expect(storage.pagesWithdrawals).toBe(1);
-		expect(at('enable-pages')).toBeTruthy();
-		expect(absent('withdraw-share-links')).toBe(true);
-	});
-
-	// GitHub refusing to take the site down is a sentence rather than an error: the viewer still
-	// leaves the repository on the next Sync, and the author is told what is left to do by hand.
-	test('says the site may still answer when GitHub would not take it down', async () => {
-		const storage = withSite();
-		storage.withdrawalAnswer = {
-			disabled: false,
-			notice: 'GitHub would not turn the site off for ada/atlas, so it may still answer.'
-		};
-		open(storage);
-		await settle();
-		press('withdraw-share-links');
-		flushSync();
-
-		press('withdraw-share-links-confirm');
-		await settle();
-
-		expect(text(at('withdrawal-notice'))).toContain('may still answer');
+		expect(absent('connect-problem')).toBe(true);
 	});
 });
 
@@ -1325,10 +1015,12 @@ describe('the student who has never heard of GitHub', () => {
 	});
 });
 
-// ⚠ **The one path through this sequence that needs no account at all** (ADR-0031, ADR-0043). A
-// student opening their instructor's published Workspace is the likeliest thing this tool is asked
-// to do, and a door whose first step is signing in locks exactly that person out of it.
-describe('opening somebody else’s published Workspace, by its address', () => {
+// ⚠ **The one path through this sequence that needs no account at all** (ADR-0031, ADR-0044). A
+// student getting their instructor's published Workspace is the likeliest thing this tool is asked
+// to do, and a door whose first step is signing in locks exactly that person out of it. It is also
+// how an organisation repository GitHub will not list is reached, which is the other half of why the
+// field survives the sign-in.
+describe('reaching a repository by typing its address', () => {
 	test.each([
 		['the account step', () => open(new FakeStorage())],
 		['the sign-in step', () => openPastAccount(new FakeStorage())]
@@ -1362,8 +1054,16 @@ describe('opening somebody else’s published Workspace, by its address', () => 
 	// ⚠ **The confirmation is what stands between an address and a download of gigabytes**, and an
 	// ambiguous Pages address has two real answers — so the repository that was chosen is named, with
 	// why, and nothing is transferred until somebody says yes.
-	test('names the repository it resolved, and downloads nothing until that is confirmed', async () => {
-		const { storage, resolve } = open(new FakeStorage());
+	// ⚠ **The typed address and the chosen repository are one act** (ADR-0044). The confirmation
+	// connects through the same `bindRemote` the list's own choices use, so there is no second door
+	// with its own rules about a Workspace that already has content — and the get that follows is the
+	// ordinary Sync modal.
+	//
+	// ⚠ **No credential is handed over**, which is what makes the student with no account the person
+	// this path is for.
+	test('connects this Workspace to the repository it resolved, once that is confirmed', async () => {
+		const opened = open(new FakeStorage());
+		const { storage, resolve } = opened;
 		press('open-by-address');
 
 		fill('workspace-address-field', 'ada.github.io/atlas');
@@ -1373,13 +1073,15 @@ describe('opening somebody else’s published Workspace, by its address', () => 
 		expect(resolve).toHaveBeenCalledWith('ada.github.io/atlas');
 		expect(text(at('resolved-address'))).toContain('ada/atlas');
 		expect(text(at('resolved-address-why'))).toContain('ada/atlas');
-		expect(storage.openCalls).toEqual([]);
+		expect(storage.bindCalls).toEqual([]);
 
 		press('open-resolved-address');
 		await settle();
 
-		expect(storage.openCalls).toEqual([{ owner: 'ada', repository: 'atlas' }]);
-		expect(text(at('connect-notice'))).toContain('new Workspace');
+		expect(storage.bindCalls).toEqual([
+			{ remote: { owner: 'ada', repository: 'atlas' }, token: null }
+		]);
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
 	});
 
 	// The other answer to the confirmation, which is what makes it one: the address is ambiguous and
@@ -1522,23 +1224,23 @@ describe('leaving the sequence, and coming back to it', () => {
 
 	// ⚠ **What a close must not leave behind.** The notice from a connection made a moment ago says
 	// nothing about the Workspace whoever opens the sequence next is looking at.
-	test('leaves no notice from the last time behind it', async () => {
+	test('leaves no refusal from the last time behind it', async () => {
 		const storage = signedIn();
+		storage.bindAnswer = new RemoteBindRefusedError(
+			'no-repository',
+			'GitHub has no repository at ada/atlas.'
+		);
 		const opened = open(storage);
 		await settle();
 		press('choose-repository');
 		await settle();
-		// Giving the repository up leaves a sentence behind saying what it did and did not do, which is
-		// as good a notice as any and one the connected step actually produces.
-		press('unbind-remote');
-		await settle();
-		expect(text(at('connect-notice'))).toContain('no longer publishes to ada/atlas');
+		expect(text(at('connect-problem'))).toContain('no repository at ada/atlas');
 
 		press('close-connect-sequence');
 		opened.props.open = true;
 		flushSync();
 
-		expect(absent('connect-notice')).toBe(true);
+		expect(absent('connect-problem')).toBe(true);
 	});
 });
 
@@ -1713,18 +1415,18 @@ describe('every refusal names what to do next', () => {
 		expect(opened.storage.signInsBegun).toBe(1);
 	});
 
-	// ⚠ **The same decline lands on the `connected` step whenever the Workspace is already bound**, and
-	// that is where the publish dialog's own door sends it: the door is a redirect off the page, so the
-	// return leg reopens the sequence over a Workspace that has a Remote, which derives this step. Said
-	// only on the page behind, the refusal would be behind the dialog the return leg reopens.
-	test('a sign-in GitHub declined is said on the connected step too', async () => {
+	// ⚠ **The same decline lands on the sign-in step for a Workspace that already has a Remote too.**
+	// The trip is a redirect off the page, so the return leg reopens the sequence over whatever the
+	// Workspace's state is — and the refusal has to be said over the button that starts the trip
+	// again, wherever that is, rather than on the page the dialog is in front of.
+	test('a sign-in GitHub declined is said over the button that starts the trip again', async () => {
 		connectSequence.signInRefusal = 'GitHub refused the sign-in, so nothing has been signed in to.';
 		const storage = new FakeStorage();
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		open(storage);
+		openPastAccount(storage);
 		await settle();
 
-		expect(at('connect-connected')).toBeTruthy();
+		expect(at('connect-sign-in')).toBeTruthy();
 		expect(text(at('connect-sign-in-refused'))).toContain('GitHub refused the sign-in');
 	});
 });
@@ -1734,32 +1436,20 @@ describe('every refusal names what to do next', () => {
 // of the whole union, so a fourteenth step added without them is the regression worth catching —
 // which is why `CONNECT_STEPS` is a list the component exports and this table is keyed by it. A step
 // added to the union and not to the table does not compile.
+//
+// ⚠ **There is no step at the end.** The steps that stated a standing relationship are gone with
+// the doors they were the end of (ADR-0044): connecting hands off to the Sync modal, and what is
+// true afterwards is a setting of the Workspace on its own row.
 describe('every step of the sequence, enumerated', () => {
 	/**
 	 * A step reached, with the request it is waiting on where it is waiting on one.
 	 *
 	 * `answers` is present for the two steps the author passes *through* rather than lands on — a
 	 * listing GitHub has not replied to, and a connection under way. Neither has anything to press,
-	 * and what makes that not a dead end is that both end.
+	 * and what makes that not a dead end is that both end: the first on a list, the second on the
+	 * Sync modal, with this surface closed behind it.
 	 */
 	type Arrived = { readonly answers?: () => Promise<void> };
-
-	/** A store whose bind waits to be let go, which is the only way `connecting` stays on screen. */
-	class PausedBind extends FakeStorage {
-		private readonly gate = deferred<void>();
-
-		letGo(): void {
-			this.gate.settle();
-		}
-
-		override async bindRemote(
-			remote: RemoteReference,
-			token: string | null
-		): Promise<RemoteBindOutcome> {
-			await this.gate.promise;
-			return super.bindRemote(remote, token);
-		}
-	}
 
 	const RAN_OUT = 'Your GitHub sign-in has expired, so nothing has been published.';
 	const COULD_NOT_BE_READ = 'GitHub could not be reached, so your repositories could not be read.';
@@ -1881,16 +1571,6 @@ describe('every step of the sequence, enumerated', () => {
 					}
 				};
 			}
-		},
-		connected: {
-			shows: 'connect-connected',
-			go: async () => {
-				const storage = signedIn();
-				storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-				open(storage);
-				await settle();
-				return {};
-			}
 		}
 	};
 
@@ -2000,15 +1680,13 @@ describe('signing out, and changing where the work goes', () => {
 		expect(absent('connect-sign-out')).toBe(true);
 	});
 
-	// ⚠ **Connecting once is not permanent.** A Workspace with a Remote derives the connected step
-	// from having one, so the way back to the choice has to be a press — and it lands on the same
-	// listing, read again, rather than on a remembered one.
-	test('a connected Workspace can choose a different repository', async () => {
+	// ⚠ **Connecting once is not permanent**, and the sequence is where a repository is chosen however
+	// often. *Choose a different repository* on the Workspace's own row opens this, which lands on the
+	// listing read again rather than on a remembered one.
+	test('a connected Workspace connects to a different repository through the same act', async () => {
 		const storage = signedIn();
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		const opened = open(storage, listed([{ ...ATLAS, repository: 'notebook' }]));
-
-		press('change-repository');
 		await settle();
 		expect(at('connect-choosing')).toBeTruthy();
 
@@ -2018,293 +1696,7 @@ describe('signing out, and changing where the work goes', () => {
 		expect(opened.storage.bindCalls).toEqual([
 			{ remote: { owner: 'ada', repository: 'notebook' }, token: null }
 		]);
-	});
-
-	// Closing forgets the asking, so a Workspace that has a Remote opens on the Remote it has.
-	test('reopening a connected Workspace shows the repository it has', async () => {
-		const storage = signedIn();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		const opened = open(storage);
-
-		press('change-repository');
-		await settle();
-		press('close-connect-sequence');
-		opened.props.open = true;
-		flushSync();
-
-		expect(at('connect-connected')).toBeTruthy();
-	});
-});
-
-// ⚠ **The whole GitHub relationship is behind one control, and the two gestures stay two presses**
-// (ADR-0041). A Publish mirrors an owned namespace and removes Projects the author deleted locally;
-// an Update can remove work from the Workspace. Those consequences differ in kind, so what is
-// unified is the place and never the act — and both of them close this surface on the press, because
-// what they say is said by the badge in the bar and a `showModal()` dialog makes the bar inert.
-describe('the standing state, and the gestures on it', () => {
-	/** A Workspace connected to `ada/atlas`, which is the connected step's whole input. */
-	function connected(): FakeStorage {
-		const storage = signedIn();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		return storage;
-	}
-
-	const baseline = (files: readonly string[]): SynchronizationBaseline => ({
-		remote: { owner: 'ada', repository: 'atlas', branch: 'main' },
-		commit: 'c0ffeec0ffee',
-		files: new Map(files.map((path) => [path, 'aaaa']))
-	});
-
-	test('states what this Workspace and GitHub last agreed on', () => {
-		const storage = connected();
-		storage.baseline = baseline(['amsterdam-1625/project.json', 'base-map/style.json']);
-		open(storage);
-
-		expect(text(at('remote-baseline'))).toContain('c0ffeec0ffee');
-		expect(text(at('remote-baseline'))).toContain('2 files');
-	});
-
-	// ⚠ **`Cannot tell` is a determination rather than a silence** (ADR-0038). A Workspace whose
-	// Remote nothing here has evidence about must not read as one that agrees with it.
-	test('says so in words when there is no record of an agreement', () => {
-		open(connected());
-
-		expect(text(at('remote-baseline'))).toContain('Cannot tell what has changed');
-	});
-
-	test('asks for a check, and gets out of the way of the answer', async () => {
-		const opened = open(connected());
-
-		press('check-remote-status');
-		await settle();
-
-		expect(opened.storage.checks).toBe(1);
-		expect(opened.props.open).toBe(false);
-	});
-
-	// ⚠ **There is no separate inbound gesture here any more** (ADR-0044). Getting the Remote's
-	// changes is one of the Sync modal's four choices, and the modal reads both sides and shows what
-	// it found before it moves a byte — so this step hands off to it rather than offering a press
-	// whose consequences the author has not been shown.
-	test('hands off to the Sync modal, and asks for nothing on the way', async () => {
-		const opened = open(connected());
-
-		press('connect-sync');
-		await settle();
-
 		expect(opened.onsync).toHaveBeenCalledTimes(1);
-		expect(opened.storage.updates).toBe(0);
-		expect(opened.storage.checks).toBe(0);
-		expect(opened.props.open).toBe(false);
-	});
-
-	// ⚠ **The only caller of `unbindRemote` there is.** Connecting once is not permanent, and giving
-	// the repository up belongs beside the standing fact rather than in a settings dialog.
-	test('gives the repository up, once, and says what was and was not changed', async () => {
-		const opened = open(connected(), listed([]));
-
-		press('unbind-remote');
-		await settle();
-
-		expect(opened.storage.unbinds).toBe(1);
-		expect(opened.storage.remote).toBeNull();
-		expect(text(at('connect-notice'))).toContain('no longer publishes to ada/atlas');
-		expect(text(at('connect-notice'))).toContain('Nothing there has been changed');
-	});
-
-	// No step of this surface is a full stop: a Workspace that has just given its repository up is
-	// back at the start of the path to another one, with the control that takes it there on screen.
-	test('leaves the author on a step with something to do', async () => {
-		const opened = open(connected(), listed([]));
-
-		press('unbind-remote');
-		await settle();
-
-		expect(opened.props.open).toBe(true);
-		expect(at('connect-no-choices')).toBeTruthy();
-	});
-
-	// ⚠ **`aria-disabled`, never `disabled`.** A `disabled` button leaves the tab order the instant it
-	// is pressed, dropping a keyboard user to `<body>` — and these are the controls a scholar is most
-	// likely to be pressing when they are made busy (WCAG 2.4.3).
-	test('says a check already running with aria-disabled, and keeps it in the tab order', () => {
-		const storage = connected();
-		storage.remoteStatusState = { ...storage.remoteStatusState, checking: true };
-		const opened = open(storage);
-
-		expect(at('check-remote-status')).toHaveAttribute('aria-disabled', 'true');
-		expect(at('check-remote-status').hasAttribute('disabled')).toBe(false);
-
-		press('check-remote-status');
-
-		expect(opened.storage.checks).toBe(0);
-		expect(opened.props.open).toBe(true);
-	});
-
-	/**
-	 * ⚠ **Opening a public Remote by address is reachable from a Workspace that has one** (ADR-0042).
-	 * The door is the whole of where that capability lives now, and the surface it came from offered
-	 * it outside every condition it had — a Conflict, whose stated remedy is to open the Remote in a
-	 * Workspace of its own, is met by an author whose Workspace is bound. Offered only behind the
-	 * sign-in path, that remedy would be an instruction to find a control that is nowhere.
-	 */
-	test('offers the inbound door on a Workspace that already has a repository', async () => {
-		const opened = open(connected());
-
-		expect(at('connect-address-offer')).toBeTruthy();
-		press('open-by-address');
-		await settle();
-
-		expect(at('connect-by-address')).toBeTruthy();
-		// The Workspace it was pressed from is untouched by reaching the step: the Open makes a second
-		// Workspace beside it, and nothing here unbinds anything.
-		expect(opened.storage.remote).not.toBeNull();
-		expect(opened.storage.unbinds).toBe(0);
-	});
-
-	test('uses `disabled` on no control of the connected step, busy or not', async () => {
-		const storage = connected();
-		storage.pagesAnswer = new Error('GitHub would not answer');
-		open(storage);
-		// The Share Links offer is a reading of the Workspace's own files (ADR-0045), so it arrives one
-		// turn after the step does.
-		await settle();
-
-		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
-
-		press('enable-pages');
-		expect(at('enable-pages')).toHaveAttribute('aria-disabled', 'true');
-		expect(at('connect-sequence').querySelectorAll('[disabled]')).toHaveLength(0);
-		await settle();
-	});
-});
-
-// ⚠ **A Remote may be somebody else's, and the door says only what is known about that** (ADR-0043).
-// Push rights cannot be read without a credential, so there are three states rather than two, and
-// the middle one — signed out — is the one that must claim nothing at all. Every assertion here is
-// about which of the three the door is in and what it renders there; whose the repository is and
-// what a Publish anyway would remove are Seam 1's, in `shared-remote.test.ts`.
-describe('a Remote that may not be the author’s to publish to', () => {
-	/** A Workspace already connected to `ada/atlas`, which is the connected step's whole input. */
-	function connected(): FakeStorage {
-		const storage = signedIn();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		return storage;
-	}
-
-	/** The same Workspace with nobody signed in: a public Remote hydrated on this computer. */
-	function hydrated(): FakeStorage {
-		const storage = new FakeStorage();
-		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
-		return storage;
-	}
-
-	// ⚠ **The second assertion is the whole of this.** Nothing may be claimed about rights
-	// from an absent credential — not that the author may publish, and not that they may not — and the
-	// only way to hold that is for the question never to be asked.
-	test('says publishing needs a sign-in, and nothing about rights, while signed out', async () => {
-		const storage = hydrated();
-		open(storage);
-		await settle();
-
-		expect(text(at('publish-needs-sign-in'))).toContain('needs you to be signed in to GitHub');
-		expect(absent('pull-only-remote')).toBe(true);
-		expect(storage.rightsReads).toBe(0);
-		expect(said()).not.toContain('write access');
-	});
-
-	test('states the pull-only relationship once GitHub has said so, and offers the way on', async () => {
-		const storage = connected();
-		storage.rightsAnswer = { canPush: false };
-		open(storage);
-		await settle();
-
-		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
-		// Absent rather than refusing. A control that will certainly turn the author down is
-		// worse than no control, and there is no second path to the publish dialog (ADR-0041).
-		expect(absent('connect-sync')).toBe(true);
-		// The way forward is on the same screen as the limitation, and it is the main action.
-		expect(at('publish-to-your-own')).toBeTruthy();
-		expect(absent('publish-needs-sign-in')).toBe(true);
-	});
-
-	test('takes the author to the repository list from the main action', async () => {
-		const storage = connected();
-		storage.rightsAnswer = { canPush: false };
-		const opened = open(storage);
-		await settle();
-
-		press('publish-to-your-own');
-		await settle();
-
-		expect(at('connect-choosing')).toBeTruthy();
-		expect(opened.list).toHaveBeenCalledTimes(1);
-	});
-
-	test('leaves the ordinary state exactly as it was where the author may publish', async () => {
-		const storage = connected();
-		open(storage);
-		await settle();
-
-		expect(at('connect-sync')).toBeTruthy();
-		expect(absent('pull-only-remote')).toBe(true);
-		expect(absent('publish-to-your-own')).toBe(true);
-		expect(storage.rightsReads).toBe(1);
-	});
-
-	// ⚠ **A read that failed is not an answer.** Withdrawing Publish over a network blip would deny a
-	// publish the author is entitled to make, and the publish engine checks the permission itself
-	// before a byte moves — so the ordinary state stands and nothing unprompted is said.
-	test('says nothing and withdraws nothing when the rights could not be read', async () => {
-		const storage = connected();
-		storage.rightsAnswer = new Error('GitHub could not be reached.');
-		open(storage);
-		await settle();
-
-		expect(at('connect-sync')).toBeTruthy();
-		expect(absent('pull-only-remote')).toBe(true);
-		expect(absent('connect-problem')).toBe(true);
-		// ⚠ **Once, and the guard has to be separate from the answer for it to be once.** `rights`
-		// stays `null` after a failure, so an effect guarded on it alone asks again the moment the
-		// request settles — one `GET` per microtask for as long as GitHub is unreachable.
-		expect(storage.rightsReads).toBe(1);
-	});
-
-	// The standing rule of this whole surface: nothing is remembered, because write access is
-	// somebody else's to grant and to take away between two openings of the door.
-	test('asks again on the next opening rather than remembering the answer', async () => {
-		const storage = connected();
-		const opened = open(storage);
-		await settle();
-		expect(storage.rightsReads).toBe(1);
-
-		press('close-connect-sequence');
-		opened.props.open = true;
-		flushSync();
-		await settle();
-
-		expect(storage.rightsReads).toBe(2);
-	});
-
-	// ⚠ **The boundary stated up front rather than met as a Conflict.** ADR-0024 refuses to
-	// answer two Alignments of one sheet, so this is a limit rather than a defect — and a limit
-	// discovered at the end of an afternoon is the same sentence one afternoon later.
-	test('states the one thing two people cannot both do, before either of them does it', () => {
-		open(connected());
-
-		const limit = text(at('shared-remote-limit'));
-		expect(limit).toContain('different Projects at the same time');
-		expect(limit).toContain('cannot both do is align the same Map Image');
-		expect(limit).toContain('Conflict');
-	});
-
-	test('states it whether or not anybody may publish there', async () => {
-		const storage = connected();
-		storage.rightsAnswer = { canPush: false };
-		open(storage);
-		await settle();
-
-		expect(at('shared-remote-limit')).toBeTruthy();
 	});
 });
 
@@ -2312,7 +1704,12 @@ describe('reaching every step without sight and without a pointer', () => {
 	// One region, in the document from the first frame, whose words change with the step — a region
 	// inserted at the moment its text first exists is not reliably announced (ADR-0016).
 	test('announces each step as it changes', async () => {
-		const storage = signedIn();
+		// A bind held open, so the step the press moves to is one the sequence is standing on rather
+		// than one it has already handed off from.
+		const storage = new PausedBind();
+		storage.signedIn = true;
+		storage.identity = 'ada';
+		storage.credential = 'a-credential-this-component-never-renders';
 		const opened = open(storage);
 		expect(at('connect-step')).toHaveAttribute('role', 'status');
 
@@ -2321,8 +1718,12 @@ describe('reaching every step without sight and without a pointer', () => {
 
 		press('choose-repository');
 		await settle();
-		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
-		expect(opened.storage.bindCalls).toHaveLength(1);
+		expect(text(at('connect-step'))).toContain('connecting to ada/atlas');
+		expect(at('connect-connecting')).toBeTruthy();
+
+		storage.letGo();
+		await settle();
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
 	});
 
 	// `disabled` takes a control out of the tab order, so a keyboard user reaching the sequence
@@ -2443,7 +1844,7 @@ describe('a fork that has registered no GitHub App', () => {
 				token: 'github_pat_11ABCDE0000abcdefghijklmnop'
 			}
 		]);
-		expect(at('connect-connected')).toBeTruthy();
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
 	});
 
 	// Both refusals are `packages/core`'s and neither costs a request, which is what makes a mistyped
@@ -2498,19 +1899,22 @@ describe('a fork that has registered no GitHub App', () => {
 
 	// The derivation again: a fork's step is a reading of the deployment, so a Workspace that is
 	// already connected shows the connected step rather than a form asking for a token.
-	test('opens on the connected step for a Workspace that already has a Remote', () => {
+	// The fork's own door has no list to fall back to, so a Workspace with a Remote opens on the
+	// paste — which is where its author changes the repository as well as chooses the first one.
+	test('opens on the paste for a Workspace that already has a Remote', () => {
 		const storage = noApp();
 		storage.remote = { owner: 'ada', repository: 'atlas', branch: 'main' };
 		open(storage);
 
-		expect(at('connect-connected')).toBeTruthy();
-		expect(absent('connect-no-app')).toBe(true);
+		expect(at('connect-no-app')).toBeTruthy();
 	});
 
 	// The announcement, in a sequence that has one step fewer: it counts the steps this door has
 	// rather than the ones the other one has.
 	test('announces the fork’s own steps', async () => {
-		open(noApp());
+		const storage = new PausedBind();
+		storage.signInWithGitHubOffered = false;
+		open(storage);
 		expect(text(at('connect-step'))).toContain('Step 1 of 2');
 
 		fill('connect-repository-field', 'ada/atlas');
@@ -2518,7 +1922,7 @@ describe('a fork that has registered no GitHub App', () => {
 		submit();
 		await settle();
 
-		expect(text(at('connect-step'))).toContain('this Workspace is on GitHub at ada/atlas');
+		expect(text(at('connect-step'))).toContain('Step 2 of 2: connecting to ada/atlas');
 	});
 });
 

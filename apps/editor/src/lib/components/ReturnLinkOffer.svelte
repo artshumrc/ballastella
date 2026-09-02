@@ -3,6 +3,8 @@
 
 	import { describeRemote, type ReturnLink } from '@ballastella/core';
 
+	import { syncModal } from '$lib/sync-modal.svelte.js';
+
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
@@ -25,8 +27,8 @@
 	 * links, because the choice between keeping somebody's work and looking at it is a decision to put
 	 * in front of a reader once they have arrived, not two links to tell them apart in a navbar. So the
 	 * Project invitation raises **both** offers here and names the Workspace an Import would go into,
-	 * in words. The whole-repository invitation keeps its single answer: opening a Workspace from
-	 * GitHub is one operation, and there is nothing to choose between.
+	 * in words. The whole-repository invitation keeps its single answer: a Workspace is made and
+	 * connected, and there is nothing to choose between.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * NOT A DIALOG, AND NOT A CREDENTIAL
@@ -125,15 +127,24 @@
 		}
 	}
 
-	const openWorkspace = (): Promise<void> =>
+	/**
+	 * Make a Workspace for the repository, connect it, and open the Sync modal on what it holds.
+	 *
+	 * ⚠ **Connecting moves no bytes, so the press ends on a plan rather than on a download**
+	 * (ADR-0044). Everything the repository holds stands in the Sync modal's **To get** column, with
+	 * its size and its request cost, and the visitor presses *Get changes* having read it — which is
+	 * the same shape every other Sync has, rather than a second downloading act with its own rules.
+	 */
+	const connectNewWorkspace = (): Promise<void> =>
 		choose('accept', async () => {
 			if (link.kind !== 'clone') return '';
-			// The engine's own sentence, which says which Workspace the visitor is now in — the one
+			// The storage's own sentence, which says which Workspace the visitor is now in — the one
 			// thing they cannot work out for themselves after the screen has changed underneath them.
-			const { notice } = await storage.openFromGitHub({
+			const { notice } = await storage.connectNewWorkspaceTo({
 				owner: link.owner,
 				repository: link.repository
 			});
+			syncModal.start();
 			return notice;
 		});
 
@@ -205,18 +216,17 @@
 	{:else}
 		<h2 class="font-semibold">
 			{#if link.kind === 'clone'}
-				Open a Workspace from GitHub: {remote}?
+				Get a Workspace from {remote}?
 			{:else}
 				Open “{link.project}” from {remote}?
 			{/if}
 		</h2>
 		<p class="mt-1 max-w-prose text-sm opacity-70">
 			{#if link.kind === 'clone'}
-				You followed a link from a published site. This downloads that whole Workspace into a
-				<strong>new Workspace of your own</strong>, which you can then go on working in. Nothing you
-				already have is changed, and you do not need a GitHub account. If this computer has already
-				opened {remote}, it takes you back to that Workspace instead of downloading a second copy.
-				Nothing has been downloaded yet.
+				You followed a link from a published site. This makes a
+				<strong>new Workspace of your own</strong>, connects it to {remote}, and shows you what is
+				there to get — you choose whether to fetch it. Nothing you already have is changed, and you
+				do not need a GitHub account. Nothing has been downloaded yet.
 			{:else}
 				You followed a link from a published site, and there are two things you can do with that
 				Project. <strong>Import</strong> copies it into the Workspace you are in as work of your own
@@ -259,12 +269,12 @@
 				class:btn-disabled={busy}
 				aria-disabled={busy}
 				data-testid="accept-return-link"
-				onclick={() => void (link.kind === 'clone' ? openWorkspace() : review())}
+				onclick={() => void (link.kind === 'clone' ? connectNewWorkspace() : review())}
 			>
 				{#if running === 'accept'}
-					Downloading…
+					{link.kind === 'clone' ? 'Connecting…' : 'Downloading…'}
 				{:else if link.kind === 'clone'}
-					Open a Workspace from GitHub
+					Make a Workspace and connect it
 				{:else}
 					Open in a review copy
 				{/if}

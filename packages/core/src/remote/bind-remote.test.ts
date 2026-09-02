@@ -466,8 +466,91 @@ describe('connecting a Workspace', () => {
 
 		expect(await store.list('')).toEqual([]);
 	});
+});
 
-	it('is refused for a Review Workspace before a single request is made', async () => {
+// ── Connecting with no credential at all (ADR-0044) ───────────────────────────────────────────
+//
+// ⚠ **The property this suite exists to hold is that getting needs no account.** A public
+// repository is readable by anyone, so a student can seed a Workspace from their instructor's
+// repository having signed up for nothing — and every request below carries no `Authorization`
+// header, which the fake answers exactly as GitHub does.
+describe('connecting a Workspace with nobody signed in', () => {
+	it('connects to a public repository, so a student with no GitHub account can get from it', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+
+		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: null,
+			remote: REMOTE,
+			fetch: remote.fetch
+		});
+
+		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
+		expect(await store.list('')).toEqual([]);
+	});
+
+	// ⚠ **`canPush: false` here means "nobody asked", and the empty notice is what says so.**
+	// `noPushMessage` is a report that GitHub turned this author down, and nothing has been turned
+	// down: the screen states that sending needs a sign-in instead (ADR-0043).
+	it('claims nothing about push rights, because it could not have checked them', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+
+		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: null,
+			remote: REMOTE,
+			fetch: remote.fetch
+		});
+
+		expect(outcome.canPush).toBe(false);
+		expect(outcome.rightsNotice).toBe('');
+	});
+
+	it('sends no Authorization header, so nothing about the reader reaches GitHub', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+		const sent: (string | null)[] = [];
+		const watched = (input: Request | string | URL, init?: RequestInit) => {
+			const headers = new Headers(init?.headers);
+			sent.push(headers.get('Authorization'));
+			return remote.fetch(input, init);
+		};
+
+		await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: null,
+			remote: REMOTE,
+			fetch: watched
+		});
+
+		expect(sent).not.toEqual([]);
+		expect(sent.every((one) => one === null)).toBe(true);
+	});
+
+	// A private repository and a missing one are one answer to somebody who has signed in to nothing,
+	// and the sentence says so rather than sending them to check a name that is fine.
+	it('names the sign-in as the remedy when GitHub answers nothing at that address', async () => {
+		const store = new MemoryProjectStore();
+		const remote = await github();
+
+		const refusal = await bindWorkspaceToRemote(store, 'My Workspace', {
+			token: null,
+			remote: { owner: 'ada', repository: 'private-atlas' },
+			fetch: remote.fetch
+		}).catch((cause: unknown) => cause);
+
+		expect(refusal).toBeInstanceOf(RemoteBindRefusedError);
+		expect((refusal as RemoteBindRefusedError).refusal).toBe('no-repository');
+		expect((refusal as Error).message).toMatch(/no public repository at ada\/private-atlas/);
+		expect((refusal as Error).message).toMatch(/sign in/i);
+	});
+});
+
+// ── A Review Workspace can never be bound (ADR-0024) ──────────────────────────────────────────
+//
+// Somebody else's Project in a throwaway Workspace, and putting it at your own address is promotion
+// by another route. A hard refusal with a test, at this layer and at the app's.
+describe('a Review Workspace can never be bound', () => {
+	it('is refused before a single request is made', async () => {
 		const store = reviewCopy();
 		const remote = await github();
 		// A fake that would answer perfectly well, so the refusal below is the domain rule rather than
@@ -490,6 +573,29 @@ describe('connecting a Workspace', () => {
 
 		expect(asked).toBe(0);
 		expect(remote.pagesEnabled).toBe(false);
+	});
+
+	// ⚠ **The refusal is about the Workspace and not about the credential**, so taking the credential
+	// away does not turn it into a permitted act: connecting anonymously is exactly what a Review
+	// Workspace would otherwise be able to do unaided.
+	it('is refused with no credential either, so anonymity is not a way round it', async () => {
+		const store = reviewCopy();
+		const remote = await github();
+		let asked = 0;
+		const counted = (input: Request | string | URL, init?: RequestInit) => {
+			asked += 1;
+			return remote.fetch(input, init);
+		};
+
+		await expect(
+			bindWorkspaceToRemote(store, 'assignment 7', {
+				token: null,
+				remote: REMOTE,
+				fetch: counted
+			})
+		).rejects.toThrow(ReviewWorkspaceError);
+
+		expect(asked).toBe(0);
 	});
 });
 

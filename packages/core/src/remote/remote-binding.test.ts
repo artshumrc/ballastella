@@ -109,7 +109,7 @@ describe('what a scholar pastes as a repository address', () => {
 	});
 
 	// ⚠ Both match the character set GitHub allows and neither names a repository: typed into the
-	// Clone form, `ada/..` builds a tree URL that normalises to an endpoint about the *user* `ada`,
+	// inbound form, `ada/..` builds a tree URL that normalises to an endpoint about the *user* `ada`,
 	// and the refusal the user then reads is about the wrong thing entirely. Refused as the two exact
 	// strings rather than by banning the dot, because `.github` and `foo.js` are real repositories —
 	// see the test above that keeps them.

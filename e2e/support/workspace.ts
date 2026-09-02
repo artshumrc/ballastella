@@ -168,22 +168,65 @@ export async function createFolderWorkspace(page: Page, name: string): Promise<v
 export const doorButton = (page: Page) => page.getByTestId('connect-to-github');
 
 /**
- * Open the guided sequence, and wait for whichever of its landings is true.
+ * Open the guided sequence, by whichever route the Workspace on screen has to it.
  *
- * ⚠ **Two routes, because the bar's one control opens the Sync modal for a Workspace that already
- * has a repository** (ADR-0044): pressing Sync reads both sides and shows what it found, which is
- * what an author with a repository presses for. Everything about the relationship that is *not* a
- * transfer — Share Links, changing the repository, giving it up — is reached from that modal.
+ * ⚠ **The sequence survives only for connecting** (ADR-0044), so the bar opens it for a Workspace
+ * with no repository and opens the Sync modal for one that has one. From there the way back to the
+ * sequence is *Choose a different repository*, on the Workspace's own row — which is where every
+ * standing fact about the relationship lives (ADR-0042). Both routes are a person's, not a
+ * shortcut: this is the path a scholar takes to change repository or to sign out.
  *
  * A `<dialog>` opened with `showModal()`, so everything behind it is inert until it is closed —
- * which is why this and {@link closeTheDoor} are paired, and why {@link checkRemoteStatus} closes
- * it on the press rather than reporting from behind it.
+ * which is why this and {@link closeTheDoor} are paired.
  */
 export async function openTheDoor(page: Page): Promise<void> {
 	await doorButton(page).click();
+	const sequence = page.getByTestId('connect-sequence');
 	const settings = page.getByTestId('sync-repository-settings');
-	if (await settings.isVisible().catch(() => false)) await settings.click();
-	await expect(page.getByTestId('connect-sequence')).toBeVisible();
+	// ⚠ **Waited for by *either* landing before the branch is taken.** Which of the two the press
+	// opens is a fact about the Workspace, and reading it out of the frame before the dialog has
+	// rendered makes this a race rather than a reading. Polled rather than `or`-ed: the sequence's
+	// `<dialog>` is mounted for the page's life, so both are *in* the document and a locator that
+	// matched either would be two elements.
+	await expect
+		.poll(async () => (await settings.isVisible()) || (await sequence.isVisible()))
+		.toBe(true);
+	if (await settings.isVisible().catch(() => false)) {
+		await settings.click();
+		await expect(page.getByTestId('workspace-remote')).toBeVisible();
+		await page.getByTestId('change-repository').click();
+	}
+	await expect(sequence).toBeVisible();
+}
+
+/**
+ * Open the standing relationship: the repository this Workspace belongs to and everything about it
+ * but the transfer, on the Workspace's own row (ADR-0042, ADR-0044).
+ */
+export async function openRepositorySettings(page: Page): Promise<void> {
+	await editOpenWorkspace(page);
+	await expect(page.getByTestId('workspace-remote')).toBeVisible();
+}
+
+/**
+ * Reach the Workspace's repository settings the way the Sync modal offers them: **Repository
+ * settings…**, which is the handoff from the transfer to everything that is not one.
+ */
+export async function openRepositorySettingsFromSync(page: Page): Promise<void> {
+	await openSyncModal(page);
+	await page.getByTestId('sync-repository-settings').click();
+	await expect(page.getByTestId('workspace-remote')).toBeVisible();
+}
+
+/** Do something in the Workspace's repository settings, and close the dialog again. */
+export async function inRepositorySettings(
+	page: Page,
+	act: () => Promise<void>,
+	options: { closeAfter?: boolean } = {}
+): Promise<void> {
+	await openRepositorySettings(page);
+	await act();
+	if (options.closeAfter !== false) await closeWorkspaceDialog(page);
 }
 
 export async function closeTheDoor(page: Page): Promise<void> {
@@ -205,13 +248,13 @@ export async function inTheDoor(
 /**
  * Ask GitHub what it holds now, from the one place that asks.
  *
- * The door closes on the press, because the answer is the badge's: a `showModal()` dialog makes the
- * bar inert, and a check whose result is behind the dialog that asked for it is a full stop.
+ * The dialog closes on the press, because the answer is the badge's: a `showModal()` dialog makes
+ * the bar inert, and a check whose result is behind the dialog that asked for it is a full stop.
  */
 export async function checkRemoteStatus(page: Page): Promise<void> {
-	await openTheDoor(page);
+	await openRepositorySettings(page);
 	await page.getByTestId('check-remote-status').click();
-	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+	await expect(page.getByRole('dialog', { name: 'Rename this Workspace' })).toBeHidden();
 }
 
 /**
@@ -240,14 +283,14 @@ export async function expectRemoteNamed(page: Page, remote: string): Promise<voi
 }
 
 /**
- * What the door says about the Synchronization Baseline (ADR-0038).
+ * What the Workspace's own row says about the Synchronization Baseline (ADR-0044).
  *
  * `''` is the state where there *is* trustworthy evidence: `Cannot tell` is the determination worth
  * stating, and saying nothing when the two sides' history is known is what keeps the sentence
  * meaningful when it appears.
  */
 export async function expectRemoteStatus(page: Page, sentence: string): Promise<void> {
-	await inTheDoor(page, async () => {
+	await inRepositorySettings(page, async () => {
 		await expect(page.getByTestId('remote-baseline')).toContainText(sentence);
 	});
 }

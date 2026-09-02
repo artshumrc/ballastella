@@ -7,7 +7,7 @@
 // user site repository `ada/ada.github.io`. Both are ordinary GitHub Pages layouts and the address
 // carries nothing that separates them, so no parser can answer this and no author should be asked
 // to: the question is GitHub's, and GitHub is asked. The candidates are probed in order against the
-// same unauthenticated tree listing a Clone reads, and the first that holds a Workspace wins.
+// same unauthenticated tree listing a get reads, and the first that holds a Workspace wins.
 //
 // ⚠ **This is beside {@link parseRemoteReference} rather than inside it.** That one guards a *bind* —
 // the address a Workspace will publish to — where one answer or none is the only safe shape, and a
@@ -148,14 +148,23 @@ function publishedSite(owner: string, rest: readonly string[]): readonly Address
 /**
  * Which repository a pasted address means, asked of GitHub rather than of the author.
  *
- * Each candidate's file list is read anonymously and in order, and the first that holds a Project is
- * the answer. A repository that is missing, private or empty is simply not the one and the next is
- * tried; anything that says nothing about *which* candidate is right — the hourly limit, a truncated
- * listing, a GitHub that could not be reached — stops the probe and is reported, because carrying on
- * would end in "no Workspace anywhere" over a question that was never answered.
+ * Each candidate's file list is read anonymously and in order, and anything that says nothing about
+ * *which* candidate is right — the hourly limit, a truncated listing, a GitHub that could not be
+ * reached — stops the probe and is reported, because carrying on would end in "nothing anywhere"
+ * over a question that was never answered.
  *
- * ⚠ **This resolves and does not transfer.** What comes back is confirmed by the author before a
- * download that may run to gigabytes begins.
+ * ⚠ **What counts as the answer depends on whether there is a question to settle**, and that is the
+ * whole of the difference between the two branches below.
+ *
+ * - **Two candidates** — a Pages address, which is two real GitHub layouts — are told apart by
+ *   which of them holds a Workspace. That is the only fact that separates them, and offering
+ *   somebody's `ada.github.io` full of prose because it existed would open the wrong repository.
+ * - **One candidate** — `owner/repository`, or a github.com address — has nothing to disambiguate,
+ *   so the question is only whether GitHub has it. A repository with no Ballastella work in it is
+ *   the ordinary case of connecting an existing Workspace to a repository made a moment ago
+ *   (ADR-0044), and one with no commits at all is what `github.com/new` leaves behind.
+ *
+ * ⚠ **This resolves and does not connect.** What comes back is confirmed by the author first.
  */
 export async function resolveWorkspaceAddress(
 	pasted: string,
@@ -163,6 +172,7 @@ export async function resolveWorkspaceAddress(
 ): Promise<AddressResolution> {
 	const candidates = workspaceAddressCandidates(pasted);
 	if (candidates.length === 0) return { kind: 'refused', message: notAnAddressMessage(pasted) };
+	const named = candidates.length === 1;
 
 	for (const candidate of candidates) {
 		const remote = { ...candidate, branch: DEFAULT_REMOTE_BRANCH };
@@ -170,14 +180,20 @@ export async function resolveWorkspaceAddress(
 		try {
 			paths = (await readRemoteTree(remote, fetchFn)).map((blob) => blob.path);
 		} catch (cause) {
+			// A repository with no commits is one somebody has just made, which is a real answer to an
+			// address that names exactly one — and never one to an address that names two, where being
+			// empty is what rules a candidate out.
+			if (named && cause instanceof RemoteTreeRefusedError && cause.refusal === 'empty') {
+				return { kind: 'resolved', remote: candidate, why: candidate.why };
+			}
 			const stop = stopsTheProbe(candidate, cause);
 			if (stop !== null) return { kind: 'refused', message: stop };
 			continue;
 		}
-		// The same question a Clone asks of the same listing: a top-level directory holding a
+		// The same question a get asks of the same listing: a top-level directory holding a
 		// `project.json` is a Project, and a repository with none of them holds no Workspace whatever
 		// else it is serving.
-		if (projectDirectories(paths).size > 0) {
+		if (named || projectDirectories(paths).size > 0) {
 			return { kind: 'resolved', remote: candidate, why: candidate.why };
 		}
 	}

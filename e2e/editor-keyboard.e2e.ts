@@ -2,6 +2,7 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 import { type Locator } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { routeGitHubHosts } from './support/github-hosts.js';
 import { createWorkspace, seedRemoteRelationship, switchToWorkspace } from './support/workspace.js';
 
 /**
@@ -31,10 +32,17 @@ import { createWorkspace, seedRemoteRelationship, switchToWorkspace } from './su
 
 const HUB = './';
 
-// The default-deny network fence covers every spec here, and Workspace Home draws nothing from
-// GitHub — the badge reports `unchecked` until somebody asks — but the Base Map catalog is routed
-// for the whole file so that a navigation into a Project screen is never a network failure.
-test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
+// The default-deny network fence covers every spec here, and the Base Map catalog is routed for the
+// whole file so that a navigation into a Project screen is never a network failure.
+//
+// ⚠ **GitHub is routed too, because the Sync modal reads both sides when it opens** (ADR-0044).
+// The badge still asks for nothing until somebody presses, but the modal the bar's control opens
+// plans the Sync — which is a listing, and an unrouted one is a fence violation rather than a
+// finding about the keyboard.
+test.beforeEach(async ({ context, page }) => {
+	await routeBaseMapArchive(context);
+	await routeGitHubHosts(page, { repositories: [{ owner: 'ada', name: 'atlas' }] });
+});
 
 /** Empty the whole of browser storage — every named Workspace — so no test sees another's. */
 async function emptyBrowserStorage(page: Page): Promise<void> {
@@ -147,7 +155,11 @@ test.describe('the bar, from the keyboard alone', () => {
 		await expect(page.getByTestId('sync-modal')).toBeVisible();
 		// `showModal()` traps focus, so this walk cannot leave the dialog — which is itself the claim
 		// that it is a real `<dialog>` rather than one of the two spellings ADR-0016 bans.
-		const cancel = page.getByRole('button', { name: 'Cancel' });
+		//
+		// ⚠ **Either word, because the modal's first action reads the plan it has just made**: it is
+		// *Cancel* while there is something a press would do and *Close* once both sides agree, and
+		// which of the two is on screen depends on whether the listing has landed yet.
+		const cancel = page.getByRole('button', { name: /^(Cancel|Close)$/ });
 		await tabTo(page, cancel, 30);
 		await page.keyboard.press('Enter');
 

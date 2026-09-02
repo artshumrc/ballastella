@@ -198,7 +198,7 @@ export interface FakeGitHub {
 	 * How many byte reads have arrived at `raw.githubusercontent.com`, counting those answered 404.
 	 *
 	 * {@link blobPosts}'s counterpart on the read side, and it measures the same thing for the same
-	 * reason: what the engine *asked for*, not what it got. A Clone resumes by skipping paths it
+	 * reason: what the engine *asked for*, not what it got. A get resumes by skipping paths it
 	 * already holds (`clone-from-remote.ts`), and "already holds" is a claim only this counter can
 	 * check — an engine that re-downloaded every file and then wrote the same bytes back would leave a
 	 * Workspace indistinguishable from a resumed one, and pass any assertion made on the result.
@@ -264,7 +264,7 @@ export interface FakeGitHub {
 	 * An expired or revoked token, which is a different failure from {@link refuseWrites}: that one
 	 * is a good token without a permission, and this one is a token GitHub will not look at. Requests
 	 * carrying **no** credential are unaffected, as on the real API — a public repository's metadata
-	 * and file list stay readable, which is what Clone and Review depend on.
+	 * and file list stay readable, which is what a get and a Review depend on.
 	 */
 	rejectCredential: boolean;
 
@@ -303,7 +303,7 @@ export interface FakeGitHub {
 	 *
 	 * ⚠ **Default `false`, and that matters as much as the knob.** A public repository's bytes are
 	 * read here with no credential at all, so the ordinary raw host must not so much as *look* at an
-	 * `Authorization` header — a fake that demanded one everywhere would hide a Clone sending a token
+	 * `Authorization` header — a fake that demanded one everywhere would hide a get sending a token
 	 * it has no business sending.
 	 */
 	privateRepository: boolean;
@@ -547,7 +547,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 * The tree a `{ref}` names: a branch, a commit, or a tree, in that order.
 	 *
 	 * The real endpoint takes all three, and an engine that hands it a commit SHA — which a resumed
-	 * Clone reasonably might — must not meet a fake that only knows branch names.
+	 * a get reasonably might — must not meet a fake that only knows branch names.
 	 */
 	const resolveTree = (ref: string): StoredTree | null => {
 		const branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
@@ -752,7 +752,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		 *
 		 * **The reads below are answered unauthenticated on purpose.** A public repository's file list
 		 * and its metadata are readable with no credential at all, and the Import operations depend on
-		 * that: Clone and Review are unauthenticated, so a fake that demanded a token everywhere would
+		 * that: a get and a Review are unauthenticated, so a fake that demanded a token everywhere would
 		 * refuse the very flow a student with no GitHub account is promised. Whether the credential is
 		 * any *good* is still not modelled — only that one was sent, which is enough to catch an engine
 		 * that forgets the header on a write.
@@ -1250,7 +1250,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 		// The raw host spends none of the hourly budget and, unless this repository is private, does not
 		// so much as look at a credential: a public repository's bytes are read there with none at all,
-		// and a fake that demanded one would hide a Clone sending a token it has no business sending.
+		// and a fake that demanded one would hide a get sending a token it has no business sending.
 		if (url.origin === GITHUB_RAW_ORIGIN) return answerRaw(url, request);
 		if (url.origin !== GITHUB_API_ORIGIN) {
 			return notFound(`${url.origin} is not a host this fake implements.`);

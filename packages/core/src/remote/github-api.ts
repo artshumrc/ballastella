@@ -2,13 +2,13 @@
 //
 // A leaf of their own rather than constants inside `fake-github.ts`, because the publish engine
 // needs the API origin and a fixture must never be something production code imports. The rate-limit
-// reading lives here for the same reason it is one function: the publish, the Clone and the Review
+// reading lives here for the same reason it is one function: the send, the get and the Review
 // all meet the same 403 and would otherwise each decide for themselves what an absent header means.
 
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 
-/** Where a public repository's bytes are read from, unauthenticated, by Clone and Review. */
+/** Where a public repository's bytes are read from, unauthenticated, by a get and by Review. */
 export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
 
 /**

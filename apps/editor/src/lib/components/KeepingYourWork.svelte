@@ -181,7 +181,8 @@
 	/**
 	 * Move this Workspace's files into a folder on the author's own computer.
 	 *
-	 * ⚠ **A one-way move, not a toggle between two backings.** Restore and hydrate both always make a
+	 * ⚠ **A one-way move, not a toggle between two backings.** A restore and a Workspace made for a
+	 * repository both always make a
 	 * browser Workspace and a folder Workspace can otherwise only be made new and empty, so this is
 	 * the only route existing work has onto disk (ADR-0042). What was beside it — *Use browser storage
 	 * instead* — is the roster's job now: a browser Workspace is a row in the list, and switching to

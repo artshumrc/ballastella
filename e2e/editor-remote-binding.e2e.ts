@@ -8,11 +8,13 @@ import { routeGitHubHosts } from './support/github-hosts.js';
 import {
 	closeTheDoor,
 	backUpWorkspace,
+	closeWorkspaceDialog,
 	createFolderWorkspace,
 	expectCredential,
 	expectNoRemote,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
+	openRepositorySettings,
 	openTheDoor,
 	seedGitHubCredential
 } from './support/workspace';
@@ -99,15 +101,23 @@ async function start(page: Page, options: Parameters<typeof routeGitHubHosts>[1]
 }
 
 /**
- * Choose the granted repository from the door, and wait for the connection to be stated.
+ * Choose the granted repository from the door, and wait for the Sync modal it hands off to.
  *
- * Leaves the door open, because what a bind said is said inside it — each test closes when it is
- * done reading.
+ * ⚠ **The sequence ends at the connection** (ADR-0044). There is no step saying it worked: what
+ * opens is the Sync modal, on both sides compared, with nothing moved — so that is what waiting for
+ * the connection means here. The modal is left on screen; each test dismisses it when it is done.
  */
 async function bind(page: Page): Promise<void> {
 	await openTheDoor(page);
 	await page.getByTestId('choose-repository').first().click();
-	await expect(page.getByTestId('connect-outcome')).toContainText(REMOTE, { timeout: 30_000 });
+	await expect(page.getByTestId('sync-modal')).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+}
+
+/** Dismiss the Sync modal a connection hands off to, so the bar behind it can be reached. */
+async function leaveSync(page: Page): Promise<void> {
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('sync-modal')).toBeHidden();
 }
 
 /**
@@ -138,7 +148,7 @@ test.describe('binding a Workspace to a repository', () => {
 		await start(page);
 
 		await bind(page);
-		await closeTheDoor(page);
+		await leaveSync(page);
 
 		// ⚠ **The relationship is installation-local and is written nowhere in the Workspace**
 		// (ADR-0044). It survives the reload below because this installation kept it, not because a
@@ -154,7 +164,7 @@ test.describe('binding a Workspace to a repository', () => {
 		await start(page);
 
 		await bind(page);
-		await closeTheDoor(page);
+		await leaveSync(page);
 
 		await expectRemoteNamed(page, REMOTE);
 		await expectCredential(page, 'Signed in to GitHub');
@@ -207,7 +217,7 @@ test.describe('connecting does not turn Pages on', () => {
 
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
 		await expect(page.getByTestId('pages-notice')).toHaveCount(0);
-		await closeTheDoor(page);
+		await leaveSync(page);
 	});
 });
 
@@ -225,7 +235,7 @@ test.describe('the credential this tab holds', () => {
 	test('survives a reload and is forgotten on signing out', async ({ page }) => {
 		await start(page);
 		await bind(page);
-		await closeTheDoor(page);
+		await leaveSync(page);
 
 		await page.reload();
 		await expectCredential(page, 'Signed in to GitHub');
@@ -251,12 +261,16 @@ test.describe('the credential this tab holds', () => {
 	test('can still be signed out of after unbinding', async ({ page }) => {
 		await start(page);
 		await bind(page);
+		await leaveSync(page);
 
-		// Giving the repository up is the door's, beside the standing fact it undoes (ADR-0041), and
-		// signing out is beside it on the same surface.
+		// Giving the repository up is on the Workspace's own row, beside the standing fact it undoes
+		// (ADR-0042); signing out is on the door, which is where every gesture about a sign-in is.
+		await openRepositorySettings(page);
 		await page.getByTestId('unbind-remote').click();
-		await expect(page.getByTestId('connect-notice')).toContainText('no longer publishes');
+		await expect(page.getByTestId('workspace-remote-notice')).toContainText('no longer syncs');
+		await closeWorkspaceDialog(page);
 
+		await openTheDoor(page);
 		await page.getByTestId('connect-sign-out').click();
 
 		expect(await whereverTheTokenIs(page, TOKEN)).toEqual([]);
@@ -340,7 +354,7 @@ test.describe('a folder Workspace', () => {
 		await createFolderWorkspace(page, 'e2e-remote-folder');
 
 		await bind(page);
-		await closeTheDoor(page);
+		await leaveSync(page);
 
 		await expectRemoteNamed(page, REMOTE);
 		// And nothing about it is in the folder, exactly as nothing about it is in browser storage's
@@ -357,7 +371,7 @@ test.describe('a restored Backup', () => {
 	test('arrives unbound', async ({ page }) => {
 		await start(page);
 		await bind(page);
-		await closeTheDoor(page);
+		await leaveSync(page);
 		await expectRemoteNamed(page, REMOTE);
 
 		// Backup and Restore are in the Workspace's own dialog, beside its name (ADR-0042), and the
