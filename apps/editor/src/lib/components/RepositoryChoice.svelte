@@ -21,6 +21,10 @@
 	 * did not grant from a repository they did not make. So it is present, marked with why, and
 	 * unselectable.
 	 *
+	 * ⚠ **Being private is not one of those reasons** (ADR-0044). A private repository syncs like any
+	 * other and is chosen like any other; what it costs is Share Links, and that is said beside the
+	 * row at the moment of choosing rather than discovered a week later.
+	 *
 	 * ⚠ **Unselectable is `aria-disabled` rather than `disabled`.** A `disabled` button leaves the tab
 	 * order, so the one row a keyboard or screen-reader user most needs to *read* — the one they
 	 * expected to pick — would be the one row they cannot reach. The press is refused in the handler
@@ -70,30 +74,45 @@
 		)
 	);
 
-	const chooseable = (repository: GrantedRepository): boolean =>
-		repository.canPublish && !repository.isPrivate;
+	const chooseable = (repository: GrantedRepository): boolean => repository.canPublish;
 
 	/**
 	 * Why this row cannot be chosen, or `''` when it can.
 	 *
-	 * ⚠ **Both reasons, when both hold.** A private repository somebody cannot publish to is two
-	 * separate things to put right, and a sentence naming one of them sends them to fix half.
+	 * ⚠ **Being private is not a reason, and used to be one** (ADR-0044). A private repository syncs
+	 * exactly as a public one does — the same engine, the same namespace, the same Baseline — and
+	 * refusing it here left a scholar under embargo with one honest option, which was to keep their
+	 * work on the laptop. What being private costs is Share Links, and that is a {@link note} rather
+	 * than a fence.
 	 */
 	function why(repository: GrantedRepository): string {
-		const reasons: string[] = [];
-		if (!repository.canPublish) {
-			reasons.push(
-				`You cannot put work into this one. If it is somebody else’s, ask them for write ` +
-					`access to it.`
-			);
-		}
-		if (repository.isPrivate) {
-			reasons.push(
-				`This one is private, so a map published in it would not be visible to anybody you sent ` +
-					`the address to. Make it public on GitHub, or choose another.`
-			);
-		}
-		return reasons.join(' ');
+		return repository.canPublish
+			? ''
+			: `You cannot put work into this one. If it is somebody else’s, ask them for write access ` +
+					`to it.`;
+	}
+
+	/**
+	 * What choosing this row will cost, said before it is chosen. `''` where there is nothing to say.
+	 *
+	 * ⚠ **The moment of choosing is the only moment this is worth saying** (ADR-0044, ADR-0045). Share
+	 * Links on a private repository need GitHub Pages, and Pages on a private repository needs a paid
+	 * GitHub plan — so a scholar on a free account who picks one here and asks for Share Links a week
+	 * later meets GitHub's refusal then, having chosen without the one fact that would have changed
+	 * the choice.
+	 *
+	 * ⚠ **A note and never a refusal.** The plan is not read, guessed at, or worked around: an author
+	 * who has paid must not be locked out of the repository they pay for, and nothing in the App's
+	 * token can say which of the two this is. So Share Links stay offered on a private repository and
+	 * GitHub's own refusal is handled where refusals are handled.
+	 */
+	function note(repository: GrantedRepository): string {
+		return repository.isPrivate
+			? `This one is private. Your work syncs to it exactly as it would to a public one, and ` +
+					`nobody can read it without being signed in and given access. Share Links are the one ` +
+					`thing that costs you: a reading site on a private repository needs a paid GitHub plan, ` +
+					`and on a free account it is public repositories only.`
+			: '';
 	}
 
 	const choose = (repository: GrantedRepository): void => {
@@ -144,6 +163,7 @@
 					{#each matching as repository (describeRemote(repository))}
 						{@const reason = why(repository)}
 						{@const unselectable = reason !== ''}
+						{@const cost = note(repository)}
 						<li data-testid="granted-repository">
 							<button
 								class="btn btn-block w-full justify-start text-left"
@@ -172,6 +192,11 @@
 							{#if unselectable}
 								<p class="mt-1 max-w-prose text-sm opacity-70" data-testid="unselectable-reason">
 									{reason}
+								</p>
+							{/if}
+							{#if cost !== ''}
+								<p class="mt-1 max-w-prose text-sm opacity-70" data-testid="repository-note">
+									{cost}
 								</p>
 							{/if}
 						</li>

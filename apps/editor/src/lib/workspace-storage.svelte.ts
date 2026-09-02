@@ -2647,6 +2647,10 @@ export class WorkspaceStorage {
 		try {
 			const { update, baselineKept } = await session.updateFromRemote({
 				remote,
+				// ⚠ **Whatever sign-in is held, and `null` where there is none.** A public repository is
+				// read anonymously — that is the whole of a student getting their instructor's Workspace —
+				// and a private one cannot be read at all without this (ADR-0044).
+				token: this.credential,
 				onProgress: (progress) => {
 					if (mine()) this.updateProgress = progress;
 					options.onProgress?.(progress);

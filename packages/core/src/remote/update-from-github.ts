@@ -17,10 +17,18 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT NEEDS NO ACCOUNT, WHICH IS THE CASE IT IS MOST LIKELY TO BE USED FOR
 //
-// The reads are an anonymous tree listing and anonymous `raw.githubusercontent.com` bytes. Nothing here takes a token, and none may be added. The case to
-// keep in view is a student whose instructor publishes to a repository they cannot push to — inbound
-// synchronization is not publishing authority, and a refusal for want of write permission would be
-// this app inventing a rule GitHub does not have.
+// With {@link UpdateFromGitHubOptions.token} `null` the reads are an anonymous tree listing and
+// anonymous `raw.githubusercontent.com` bytes, and no `Authorization` header exists to be sent. The
+// case to keep in view is a student whose instructor publishes to a repository they cannot push to —
+// inbound synchronization is not publishing authority, and a refusal for want of write permission
+// would be this app inventing a rule GitHub does not have.
+//
+// ⚠ **A private repository is the one thing anonymity cannot reach, so a token is *accepted* and
+// never required** (ADR-0044). GitHub answers 404 to every anonymous read of a private repository,
+// so getting from one is signed in or not at all — and the anonymous half stays anonymous rather
+// than becoming conditionally authenticated: `null` takes `remote-tree.ts`'s credential-free readers,
+// which have no parameter to put a header in. A signed-out get of a private repository is therefore
+// a *sign-in prompt* rather than a repository reported missing; see {@link asUpdateRefusal}.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE PLAN IS THE PLANNER'S, AND IT IS REPLANNED HERE RATHER THAN INHERITED
@@ -105,6 +113,8 @@ import {
 	RemoteTreeRefusedError,
 	readRemoteHeadCommit,
 	readRemoteTree,
+	readSignedInRemoteHeadCommit,
+	readSignedInRemoteTree,
 	urlPath
 } from './remote-tree.js';
 import {
@@ -455,6 +465,14 @@ export class UpdateRefusedError extends Error {
 export interface UpdateFromGitHubOptions {
 	readonly remote: UpdateReference;
 	/**
+	 * The credential to read with, or `null` to read a public repository anonymously.
+	 *
+	 * Required rather than optional, so that every caller says which of the two gets this is: a get
+	 * that quietly defaulted to anonymous would work on every public repository and 404 on the one
+	 * kind of Remote that needs the header, which is the failure that is hardest to notice.
+	 */
+	readonly token: string | null;
+	/**
 	 * What this installation last saw the two sides share, or `null` for no valid Baseline.
 	 *
 	 * `null` is not a refusal. Nothing may be removed in either direction without a Baseline, so a
@@ -577,13 +595,17 @@ export async function updateFromGitHub(
 	// `/git/trees/{ref}` both resolve a commit SHA, so pinning here is what makes the inventory and
 	// the bytes describe one state of the repository rather than whatever the branch held at each
 	// moment of a transfer that takes minutes.
+	const token = options.token;
 	let commit: string;
 	try {
-		commit = await readRemoteHeadCommit(remote, options.fetch);
+		commit =
+			token === null
+				? await readRemoteHeadCommit(remote, options.fetch)
+				: await readSignedInRemoteHeadCommit(remote, token, options.fetch);
 	} catch (cause) {
-		throw asUpdateRefusal(remote, cause);
+		throw asUpdateRefusal(remote, token, cause);
 	}
-	const blobs = await readRemoteInventoryAt(remote, commit, options.fetch);
+	const blobs = await readRemoteInventoryAt(remote, commit, token, options.fetch);
 	const bytesOf = new Map(blobs.map((blob) => [blob.path, blob.bytes]));
 
 	const local = await hashWorkspace(store);
@@ -594,13 +616,18 @@ export async function updateFromGitHub(
 	const planned = planWorkspaceSync({ ...inventory, baseline: options.baseline });
 	assertGettable(remote, planned);
 
+	// ⚠ **The raw host takes the credential too, and it has to.** `raw.githubusercontent.com` answers
+	// 404 rather than 401 to an anonymous read of a private repository, so a get that listed the tree
+	// signed in and then fetched the bytes anonymously would not fail — it would refuse every file as
+	// missing, one plausible sentence at a time.
+	const reader = readerFetch(token, options.fetch);
 	const source = createHttpProjectStore({
 		resolve: (path) =>
 			`${GITHUB_RAW_ORIGIN}/${urlPath(remote.owner)}/${urlPath(remote.repository)}/` +
 			`${urlPath(commit)}/${urlPath(path)}`,
 		// Spread rather than assigned: under `exactOptionalPropertyTypes` an explicit `undefined` is
 		// not the same as an absent property, and the store's default is "the page's own `fetch`".
-		...(options.fetch === undefined ? {} : { fetch: options.fetch })
+		...(reader === undefined ? {} : { fetch: reader })
 	});
 
 	const manifests = await prospectiveManifests(store, source, remote, planned, localShas);
@@ -806,19 +833,40 @@ function assertProspectiveWorkspace(
 	}
 }
 
-/** Every file the Remote's commit holds, from one anonymous listing. */
+/** Every file the Remote's commit holds, from one listing — anonymous where there is no credential. */
 async function readRemoteInventoryAt(
 	remote: RemoteRelationship,
 	commit: string,
+	token: string | null,
 	fetchFn: FetchFn | undefined
 ): Promise<readonly { path: string; sha: string; bytes: number }[]> {
+	// The commit stands in for the branch deliberately: `/git/trees/{ref}` takes any ref, and this one
+	// cannot move under the download the way a branch name can.
+	const at = { ...remote, branch: commit };
 	try {
-		// The commit stands in for the branch deliberately: `/git/trees/{ref}` takes any ref, and this
-		// one cannot move under the download the way a branch name can.
-		return await readRemoteTree({ ...remote, branch: commit }, fetchFn);
+		return token === null
+			? await readRemoteTree(at, fetchFn)
+			: await readSignedInRemoteTree(at, token, fetchFn);
 	} catch (cause) {
-		throw asUpdateRefusal(remote, cause);
+		throw asUpdateRefusal(remote, token, cause);
 	}
+}
+
+/**
+ * The `fetch` the file bytes are read with: the caller's own, or one that adds the credential.
+ *
+ * `undefined` where there is neither, so the HTTP store falls back to the page's own `fetch` — the
+ * store has no header of its own and must not grow one, since a Published Site is read by a Reader
+ * who signs in to nothing.
+ */
+function readerFetch(token: string | null, fetchFn: FetchFn | undefined): FetchFn | undefined {
+	if (token === null) return fetchFn;
+	const request: FetchFn = fetchFn ?? ((input, init) => fetch(input, init));
+	return (input, init) =>
+		request(input, {
+			...init,
+			headers: { ...init?.headers, Authorization: `Bearer ${token}` }
+		});
 }
 
 /**
@@ -1169,8 +1217,20 @@ async function eachInTurn<T>(
 
 // ── What the refusals say ─────────────────────────────────────────────────────────────────────
 
-/** A listing or a ref read that could not be had, in this module's own words. */
-function asUpdateRefusal(remote: RemoteRelationship, cause: unknown): UpdateRefusedError {
+/**
+ * A listing or a ref read that could not be had, in this module's own words.
+ *
+ * ⚠ **A signed-out reader is offered a sign-in rather than told the repository is gone.** GitHub
+ * answers 404 to an anonymous read of a private repository, so from here a private Remote and a
+ * deleted one are one answer (ADR-0044) — and of the two, the one a scholar can act on is the sign-in.
+ * With a credential held that ambiguity is gone: GitHub has answered 404 to somebody it knows, so the
+ * repository really is missing or out of this account's reach.
+ */
+function asUpdateRefusal(
+	remote: RemoteRelationship,
+	token: string | null,
+	cause: unknown
+): UpdateRefusedError {
 	const named = describeRemote(remote);
 	if (!(cause instanceof RemoteTreeRefusedError)) {
 		return new UpdateRefusedError('refused', unreachableMessage(remote, cause));
@@ -1179,26 +1239,39 @@ function asUpdateRefusal(remote: RemoteRelationship, cause: unknown): UpdateRefu
 		case 'no-repository':
 			return new UpdateRefusedError(
 				'no-repository',
-				`GitHub has no public repository at ${named} any more, so there is nothing to update ` +
-					`from. Nothing in this Workspace has been changed — your work is all still here.`
+				token === null
+					? `Getting reads GitHub without signing in, and from there ${named} could not be read ` +
+							`at all — which is what both a private repository and a missing one look like. If it ` +
+							`is private, sign in to GitHub and get again: a private repository can only be read ` +
+							`by somebody it has been shared with. Otherwise check the address. Nothing in this ` +
+							`Workspace has been changed — your work is all still here.`
+					: `GitHub has no repository at ${named} that this sign-in can see, so there is nothing ` +
+							`to get. Nothing in this Workspace has been changed — your work is all still here.`
 			);
 		case 'not-public':
 			return new UpdateRefusedError(
 				'no-repository',
-				`GitHub would not let this page read ${named} without signing in, so it is no longer a ` +
-					`public repository. Updating reads GitHub anonymously and deliberately sends no ` +
-					`credential, so a private Remote cannot be updated from. Nothing has been changed.`
+				token === null
+					? `GitHub would not let this page read ${named} without signing in. Sign in to GitHub ` +
+							`and get again. Nothing has been changed.`
+					: `GitHub would not let this sign-in read ${named}. Sign in again, or ask whoever owns ` +
+							`${named} for access to it. Nothing has been changed.`
 			);
 		case 'rate-limited': {
 			const at = describeReset(cause.resetAt);
 			return new UpdateRefusedError(
 				'rate-limited',
-				`GitHub's hourly limit for anonymous readers has been used up, so ${named} could not be ` +
-					`read. Nothing is wrong with it: updating reads GitHub without signing in, which allows ` +
-					`60 requests an hour for each internet connection, so on a shared one — a university ` +
-					`network, a classroom — everybody's reading counts together. ` +
-					`${at === '' ? 'Wait until the limit resets and try again' : `Try again after ${at}`}. ` +
-					`Nothing has been changed.`
+				token === null
+					? `GitHub's hourly limit for anonymous readers has been used up, so ${named} could not ` +
+							`be read. Nothing is wrong with it: getting without signing in allows 60 requests an ` +
+							`hour for each internet connection, so on a shared one — a university network, a ` +
+							`classroom — everybody's reading counts together. Signing in to GitHub raises the ` +
+							`limit. ` +
+							`${at === '' ? 'Or wait until it resets and try again' : `Or try again after ${at}`}. ` +
+							`Nothing has been changed.`
+					: `GitHub's hourly request limit is used up, so ${named} could not be read. ` +
+							`${at === '' ? 'Wait until the limit resets and try again' : `Try again after ${at}`}. ` +
+							`Nothing has been changed.`
 			);
 		}
 		case 'empty':

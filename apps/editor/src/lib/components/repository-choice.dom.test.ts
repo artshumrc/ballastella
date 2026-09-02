@@ -169,27 +169,7 @@ describe('a repository that cannot be published to', () => {
 		expect(rowFor('grace/shared-maps').textContent).toContain('write access');
 	});
 
-	// A private repository is publishable and still no use: the map would arrive and nobody sent the
-	// address could open it.
-	test('a private one is present, unselectable, and says why', () => {
-		const onchoose = choice([publishable, priv]);
-
-		const row = rowFor('ada/diary');
-		expect(row.textContent).toContain('private');
-		expect(row.textContent).toContain('would not be visible');
-		expect(buttonIn(row)).toHaveAttribute('aria-disabled', 'true');
-
-		buttonIn(row).click();
-		flushSync();
-
-		expect(onchoose).not.toHaveBeenCalled();
-	});
-
-	/**
-	 * Two things to put right are two sentences. A row that named only one would send the author to
-	 * fix half of it and come back to the same refusal.
-	 */
-	test('names both reasons when both hold', () => {
+	test('says what would put it right, and nothing about being private', () => {
 		choice([
 			{
 				owner: 'grace',
@@ -200,9 +180,54 @@ describe('a repository that cannot be published to', () => {
 			}
 		]);
 
+		// Being private is not a second thing to put right — it is a cost, and it is stated as one
+		// beside every private row whether or not this author may write to it.
 		const row = rowFor('grace/notes');
-		expect(row.textContent).toContain('write access');
-		expect(row.textContent).toContain('private');
+		expect(row.querySelector('[data-testid="unselectable-reason"]')?.textContent).toContain(
+			'write access'
+		);
+		expect(row.querySelector('[data-testid="repository-note"]')?.textContent).toContain('private');
+	});
+});
+
+/**
+ * ADR-0044: a private repository is chosen like any other, and ADR-0045: it is offered Share Links
+ * on the same terms. What being private costs is one sentence, and the moment of choosing is the only
+ * moment it is worth saying — a scholar who learns it a week later has already chosen without it.
+ */
+describe('a repository that is private', () => {
+	test('is chooseable, because it syncs exactly as a public one does', () => {
+		const onchoose = choice([publishable, priv]);
+
+		const row = rowFor('ada/diary');
+		expect(buttonIn(row)).not.toHaveAttribute('aria-disabled', 'true');
+		expect(row.querySelector('[data-testid="unselectable-reason"]')).toBeNull();
+
+		buttonIn(row).click();
+		flushSync();
+
+		expect(onchoose).toHaveBeenCalledWith(priv);
+	});
+
+	test('carries the paid-plan note about Share Links, beside the row', () => {
+		choice([publishable, priv]);
+
+		const note = rowFor('ada/diary').querySelector('[data-testid="repository-note"]');
+		expect(note?.textContent).toContain('paid GitHub plan');
+		// ⚠ **Offered, never refused.** The note says what it costs; it must not read as Share Links
+		// being unavailable, because the plan is never read and an author who has paid must not be
+		// locked out of the repository they pay for.
+		expect(note?.textContent).toContain('syncs to it exactly as it would to a public one');
+	});
+
+	test('is the only kind of row the note appears on', () => {
+		choice([publishable, readOnly, priv]);
+
+		expect(
+			[...document.querySelectorAll('[data-testid="repository-note"]')].map((note) =>
+				note.closest('[data-testid="granted-repository"]')?.textContent?.slice(0, 9)
+			)
+		).toEqual(['ada/diary']);
 	});
 });
 

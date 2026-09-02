@@ -139,10 +139,10 @@ describe('what the listing refuses', () => {
 		}
 	});
 
-	it('the anonymous hourly limit, told apart from a private repository by the count', async () => {
-		// ⚠ **60 requests an hour per IP address, answered 403 — the same status a private repository
-		// gives.** A class of students on one campus connection all reading their instructor's
-		// repository spends that between them, and reported as "not public" it tells a
+	it('the anonymous hourly limit, told apart by the count from a refused credential', async () => {
+		// ⚠ **60 requests an hour per IP address, answered 403 — the same status a credential GitHub
+		// will not act on gives.** A class of students on one campus connection all reading their
+		// instructor's repository spends that between them, and reported as "not public" it tells a
 		// room full of people to change a setting on a repository none of them own.
 		const { fetch } = answering(() =>
 			jsonResponse({ message: 'API rate limit exceeded' }, 403, {
