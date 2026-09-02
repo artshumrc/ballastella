@@ -80,6 +80,21 @@ given out stops working, the address may keep answering from cache for a while, 
 fetched or forked is beyond reach. The repository and the data are untouched. It is not a way to
 unpublish, and it is never presented as one.
 
+**Whether a Workspace has Share Links is observed from the bytes; whether the author wants them gone
+is recorded.** Having them is carrying the viewer file set, on either side — a site first reaches a
+Remote from a Workspace, and a Workspace that has just got one from a Remote carries none of it,
+because a get brings the source namespace and nothing else. So the two facts a Sync can read are *the
+Remote has a site* and *this Workspace does not*, and they are true of two opposite situations: an
+author who withdrew, and an author on their second machine. Read as one, a Sync from the second
+machine takes down a live site with every link handed out.
+
+The asking is what separates them, so the asking is what is kept: a **withdrawal request**,
+installation-local beside the Synchronization Baseline, naming the repository it is about, cleared by
+the Sync that carries it out. It is an instruction with a lifetime, never a claim about which files
+exist — nothing here can come to disagree with the tree. Every other Sync writes the viewer into the
+Workspace before it sends, which is what keeps a site current from whichever machine the author is
+sitting at.
+
 ## A Project is on the Front Page because somebody put it there
 
 **`onFrontPage` defaults to off**, is set one Project at a time in that Project's own settings, and is

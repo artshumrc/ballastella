@@ -43,7 +43,7 @@ The last checked relationship between a Workspace and its Remote: in sync, chang
 _Avoid_: ahead, behind, dirty, diverged, connected, published, up to date
 
 **Share Links**:
-What a Workspace's Remote gains when its author asks for it: a Published Site at a web address, so that a Project can be opened by a link. Asked for once, in the Workspace's own settings, and separate from a Sync in both directions — a Workspace syncs perfectly well with no address at all. Withdrawing them takes the site down and breaks every link already given out; it is never a way to make what was public private again (ADR-0045).
+What a Workspace's Remote gains when its author asks for it: a Published Site at a web address, so that a Project can be opened by a link. Asked for once, in the Workspace's own settings, and separate from a Sync in both directions — a Workspace syncs perfectly well with no address at all. A Workspace has them when either it or its Remote carries the viewer, so a second machine that has got the Workspace has them too and its Syncs keep the site current. Withdrawing them takes the site down and breaks every link already given out; it is never a way to make what was public private again (ADR-0045).
 _Avoid_: publish, deploy, go live, hosting, website
 
 **Published Site**:

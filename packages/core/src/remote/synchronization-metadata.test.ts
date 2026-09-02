@@ -315,22 +315,77 @@ describe('installation-local synchronization metadata', () => {
 		});
 	});
 
+	// The one fact about Share Links that is not observable from the bytes. A Remote carrying the
+	// viewer set over a Workspace that does not is both a withdrawal waiting to be carried out and a
+	// Workspace just got from a Remote that has a site; without this the send read them the same way
+	// and took a live site down.
+	describe('a pending Share Links withdrawal', () => {
+		it('is not asked for by default', async () => {
+			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
+
+			expect(await metadata.readWithdrawal(ATLAS)).toBe(false);
+		});
+
+		it('reads back for the repository it was asked about', async () => {
+			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
+
+			expect(await metadata.requestWithdrawal(ATLAS)).toBe(true);
+
+			expect(await metadata.readWithdrawal(ATLAS)).toBe(true);
+		});
+
+		// A request about somewhere else is no request about here, exactly as a Baseline naming
+		// another repository is no Baseline. Read the other way it would take down a site nobody
+		// asked about.
+		it('is not a request about another repository, or another branch of the same one', async () => {
+			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
+			await metadata.requestWithdrawal(ATLAS);
+
+			expect(await metadata.readWithdrawal(ATLAS_2)).toBe(false);
+			expect(await metadata.readWithdrawal(ATLAS_DRAFT)).toBe(false);
+		});
+
+		it('is answered by the Sync that carries it out', async () => {
+			const metadata = new SynchronizationMetadata(new FakeMetadataStorage(), WORKSPACE);
+			await metadata.requestWithdrawal(ATLAS);
+
+			await metadata.clearWithdrawal();
+
+			expect(await metadata.readWithdrawal(ATLAS)).toBe(false);
+		});
+
+		// One Workspace's asking is not another's, for the reason every record here is keyed: one
+		// click switches Workspaces, and a withdrawal is an instruction to remove somebody's site.
+		it('belongs to the Workspace that asked and to no other', async () => {
+			const storage = new FakeMetadataStorage();
+			const asked = new SynchronizationMetadata(storage, WORKSPACE);
+			const other = new SynchronizationMetadata(storage, OTHER);
+			await asked.requestWithdrawal(ATLAS);
+
+			expect(await other.readWithdrawal(ATLAS)).toBe(false);
+		});
+	});
+
 	describe('the records of a Workspace being deleted', () => {
-		it('are both thrown away, leaving another Workspace’s alone', async () => {
+		it('are all thrown away, leaving another Workspace’s alone', async () => {
 			const storage = new FakeMetadataStorage();
 			const kept = new SynchronizationMetadata(storage, OTHER);
 			await kept.bindRemote(ATLAS_2);
 			await kept.writeBaseline(baseline(ATLAS_2));
+			await kept.requestWithdrawal(ATLAS_2);
 			const going = new SynchronizationMetadata(storage, WORKSPACE);
 			await going.bindRemote(ATLAS);
 			await going.writeBaseline(baseline());
+			await going.requestWithdrawal(ATLAS);
 
 			await discardSynchronizationMetadata(storage, WORKSPACE);
 
 			expect(await going.readRemote()).toBeNull();
 			expect(await going.readBaseline(ATLAS)).toBeNull();
+			expect(await going.readWithdrawal(ATLAS)).toBe(false);
 			expect(await kept.readRemote()).toEqual(ATLAS_2);
 			expect(await kept.readBaseline(ATLAS_2)).toEqual(baseline(ATLAS_2));
+			expect(await kept.readWithdrawal(ATLAS_2)).toBe(true);
 		});
 	});
 });
