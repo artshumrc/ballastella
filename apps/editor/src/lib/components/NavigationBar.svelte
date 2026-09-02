@@ -33,7 +33,7 @@
 	// thing a user must never be in doubt about.
 
 	import { resolve } from '$app/paths';
-	import { describeBytes, describeRemote, type WorkspaceSize } from '@ballastella/core';
+	import { describeBytes, type WorkspaceSize } from '@ballastella/core';
 	import { AppBar, BallastellaMark, MenuPopover, pageChrome } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
@@ -592,6 +592,11 @@
 			want it different, and not where anybody looks for *is my work safe*. The bar is on every
 			screen including Workspace Home, so a student meets it before they have opened a Project.
 
+			**The repository is not named here** (ADR-0044). Its name belongs to the badge's agreeing
+			clause and to nothing else: read beside a control that has moved no bytes it reports which
+			repository was chosen rather than that any work reached it, which is the reading the badge
+			was rewritten to stop.
+
 			**A Sync under way is said here**, because this is the one GitHub control on the bar and a
 			Sync is the one GitHub act that runs for minutes — including after the modal that started
 			it was dismissed with Escape. `aria-disabled` and never `disabled`: a `disabled` button
@@ -617,7 +622,7 @@
 					? syncControlLabel(syncProgress)
 					: storage.remote === null
 						? 'Sync with GitHub'
-						: `Sync with ${describeRemote(storage.remote)}`}
+						: 'Sync'}
 			</button>
 		{/if}
 	{/if}

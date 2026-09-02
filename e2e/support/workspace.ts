@@ -277,9 +277,19 @@ export async function openSyncModal(page: Page): Promise<void> {
 	await expect(page.getByTestId('sync-modal')).toBeVisible();
 }
 
-/** What the bar's door says this Workspace syncs with — a standing fact, not unfinished work. */
+/**
+ * That this Workspace belongs to a repository, and which one (ADR-0044).
+ *
+ * Two readings, because the bar deliberately makes only the first of them. The door offers the act
+ * and never names the repository — a name beside a control that has moved no bytes reports which
+ * repository was chosen rather than that any work reached it — so the name is read where the
+ * standing relationship lives, on the Workspace's own row.
+ */
 export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await expect(doorButton(page)).toHaveText(`Sync with ${remote}`);
+	await expect(doorButton(page)).toHaveText('Sync');
+	await inRepositorySettings(page, async () => {
+		await expect(page.getByTestId('workspace-remote-repository')).toContainText(remote);
+	});
 }
 
 /**

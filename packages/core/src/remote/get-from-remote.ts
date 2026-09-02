@@ -365,7 +365,7 @@ export async function recoverWorkspaceUpdate(store: ProjectStore): Promise<Updat
 		throw new UpdateRefusedError(
 			'unresolved-transaction',
 			`An earlier get from GitHub did not finish, and this Workspace's record of it could not ` +
-				'be resolved — so another Update will not start over the top of it. Reload this page to ' +
+				'be resolved — so another get will not start over the top of it. Reload this page to ' +
 				'try again.',
 			{ cause }
 		);
@@ -981,7 +981,7 @@ async function assertRoomToUpdate(
 
 	throw new UpdateRefusedError(
 		'insufficient-quota',
-		`This Update needs about ${describeBytes(needed)} — the files coming from GitHub, and a copy ` +
+		`This get needs about ${describeBytes(needed)} — the files coming from GitHub, and a copy ` +
 			`of each file it replaces or removes so it can be undone — and there is ${describeBytes(
 				Math.max(0, free)
 			)} free. Nothing has been changed. Delete a Workspace you no longer need, or free space on ` +
@@ -1339,7 +1339,7 @@ function missingFileMessage(remote: RemoteRelationship, path: string, cause: unk
 	const detail = cause instanceof Error ? cause.message : String(cause);
 	return (
 		`${describeRemote(remote)} listed ${path}, but it could not be downloaded: ${detail}. The ` +
-		`Update has stopped rather than leave this Workspace holding half of somebody's changes, and ` +
+		`get has stopped rather than leave this Workspace holding half of somebody's changes, and ` +
 		`everything it had already written has been put back exactly as it was.`
 	);
 }
@@ -1347,16 +1347,16 @@ function missingFileMessage(remote: RemoteRelationship, path: string, cause: unk
 function corruptFileMessage(remote: RemoteRelationship, path: string): string {
 	return (
 		`${path} arrived from ${describeRemote(remote)} as different bytes from the ones its file list ` +
-		`named, so the Update has stopped rather than keep a file it cannot vouch for. Something ` +
+		`named, so the get has stopped rather than keep a file it cannot vouch for. Something ` +
 		`between this browser and GitHub — a proxy, or a cache — served a rewritten copy. Everything ` +
-		`this Update had already written has been put back, and trying again fetches that file afresh.`
+		`this get had already written has been put back, and trying again fetches that file afresh.`
 	);
 }
 
 function unreadableWorkspaceMessage(cause: unknown): string {
 	const detail = cause instanceof Error ? cause.message : String(cause);
 	return (
-		`Updating from GitHub reads every file in this Workspace first, so that a change made outside ` +
+		`Getting from GitHub reads every file in this Workspace first, so that a change made outside ` +
 		`Ballastella is never mistaken for one of GitHub's — and this Workspace could not be read: ` +
 		`${detail}. Nothing has been changed.`
 	);
@@ -1365,7 +1365,7 @@ function unreadableWorkspaceMessage(cause: unknown): string {
 function writeFailedMessage(cause: unknown): string {
 	const detail = cause instanceof Error ? cause.message : String(cause);
 	return (
-		`A file could not be written into this Workspace, so the Update has stopped: ${detail}. ` +
+		`A file could not be written into this Workspace, so the get has stopped: ${detail}. ` +
 		`Everything it had already written has been put back exactly as it was, and nothing on GitHub ` +
 		`has been touched.`
 	);
@@ -1374,7 +1374,7 @@ function writeFailedMessage(cause: unknown): string {
 function declinedAlignmentMessage(path: string): string {
 	return (
 		`${path} could not be written, because this Workspace turned out to already hold an Alignment ` +
-		`for that Map Image. The Update has stopped and everything it had already written has been put ` +
+		`for that Map Image. The get has stopped and everything it had already written has been put ` +
 		`back, rather than record work as shared with GitHub that is not.`
 	);
 }
