@@ -91,12 +91,12 @@ export interface ProjectSummary {
 	/** ISO 8601, or `''` for a Project whose manifest never recorded one. */
 	readonly updatedAt: string;
 	/**
-	 * Whether the Project is listed on a Published Site's Front Page (ADR-0032).
+	 * Whether the Project is listed on a Published Site's Front Page (ADR-0045).
 	 *
 	 * Read from `project.json` even when the rest of it cannot be parsed — the field is
 	 * version-independent by construction, so a Project from the future still says what its author
-	 * chose. `true` only when the file says so, says nothing, or cannot be fetched at all, which is
-	 * the answer an absent field gets. See {@link readOnFrontPage}.
+	 * chose. `true` only where the file says so; absence, a value of another shape, and a manifest
+	 * that cannot be fetched at all are all off. See {@link readOnFrontPage}.
 	 */
 	readonly onFrontPage: boolean;
 	/**
@@ -457,7 +457,7 @@ export class Workspace {
 	 *
 	 * **`updatedAt` is left alone.** It records when the *work* was last touched, and the hub is
 	 * ordered by it: stamping here would jump the row to the top under the cursor of the user who
-	 * just clicked it, and would reorder the Front Page itself, which ADR-0032 leaves fixed.
+	 * just clicked it, and would reorder the Front Page itself, which ADR-0045 leaves fixed.
 	 */
 	async setProjectOnFrontPage(directory: string, onFrontPage: boolean): Promise<ProjectSummary> {
 		const file = await this.readProject(directory);
@@ -465,7 +465,13 @@ export class Workspace {
 		return this.#summarise(directory);
 	}
 
-	/** Copy every file of a Project into a new directory. */
+	/**
+	 * Copy every file of a Project into a new directory.
+	 *
+	 * **The copy is off the Front Page whatever the original chose** (ADR-0045). A Project is listed
+	 * because somebody put it there, and nobody has put this one anywhere — the same rule Import and a
+	 * Conflict Copy follow.
+	 */
 	async duplicateProject(directory: string): Promise<ProjectSummary> {
 		const file = await this.readProject(directory);
 		const name = `${file.name} (copy)`;
@@ -476,7 +482,7 @@ export class Workspace {
 			const destination = `${copy}/${path.slice(directory.length + 1)}`;
 			await this.#store.write(destination, await this.#store.read(path));
 		}
-		await this.writeProject(copy, { ...file, name });
+		await this.writeProject(copy, { ...file, name, onFrontPage: false });
 		return this.#summarise(copy);
 	}
 
@@ -820,9 +826,9 @@ export class Workspace {
 				// Nothing to say about a manifest that will not read; the row shows its problem instead.
 				description: '',
 				// Read out of the bytes even though nothing else here could be. See
-				// {@link readOnFrontPage}: the field is version-independent by construction, and the
-				// author's answer to "is this on my front page?" is the one thing about a Project from the
-				// future that must not be guessed in the disclosure direction.
+				// {@link readOnFrontPage}: the field is version-independent by construction, so a Project
+				// from the future is listed exactly where its author listed it rather than dropped off a
+				// front page this build could not read.
 				onFrontPage: await this.#onFrontPageOf(directory),
 				problem
 			};
@@ -833,14 +839,14 @@ export class Workspace {
 	 * The Front Page choice of a Project whose manifest {@link readProject} could not deliver.
 	 *
 	 * Reads the bytes directly rather than through `readProject`, so the content observer is not told
-	 * about them twice, and answers "on the Front Page" for a file that cannot be fetched at all —
-	 * the same answer an absent field gets.
+	 * about them twice, and answers "off the Front Page" for a file that cannot be fetched at all —
+	 * the same answer an absent field gets, and the only one nothing here has evidence against.
 	 */
 	async #onFrontPageOf(directory: string): Promise<boolean> {
 		try {
 			return readOnFrontPage(await this.#store.read(projectFilePath(directory)));
 		} catch {
-			return true;
+			return false;
 		}
 	}
 

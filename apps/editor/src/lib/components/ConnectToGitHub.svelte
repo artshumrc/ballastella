@@ -62,6 +62,7 @@
 		describeRemote,
 		describeTokenProblem,
 		parseRemoteReference,
+		publishedSiteUrl,
 		readGrantedRepositories,
 		resolveWorkspaceAddress,
 		shareLinksWithdrawalMessage,
@@ -546,18 +547,11 @@
 	/**
 	 * The address the Published Site will answer at.
 	 *
-	 * GitHub Pages serves a user or organisation's own `<login>.github.io` repository at the domain
-	 * root and every other repository in a folder beneath it, so the two cases are one line apart and
-	 * the wrong one is an address that answers nothing. Case-insensitively, because GitHub's own
-	 * comparison is: `Ada/Ada.github.io` is the root site too.
+	 * Composed in `packages/core` rather than here, because *Share Project* builds a `?p=` on top of
+	 * the same address: two implementations of GitHub Pages' root-versus-subpath rule is one address
+	 * that answers nothing.
 	 */
-	const publishedSiteAddress = $derived.by(() => {
-		if (bound === null) return '';
-		const host = `${bound.owner.toLowerCase()}.github.io`;
-		return bound.repository.toLowerCase() === host
-			? `https://${host}/`
-			: `https://${host}/${bound.repository}/`;
-	});
+	const publishedSiteAddress = $derived(bound === null ? '' : publishedSiteUrl(bound));
 
 	/**
 	 * What withdrawing Share Links cannot undo, in `packages/core`'s own words.

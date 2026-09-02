@@ -51,6 +51,14 @@
 	let editedDescription = $state('');
 
 	let deleting = $state<ProjectSummary | null>(null);
+	/**
+	 * Whether deleting the Project now being confirmed would break links people already hold.
+	 *
+	 * ⚠ **Both halves, or the warning is silent** (ADR-0045): the Workspace has to have Share Links,
+	 * and this Project's work has to have actually reached the Remote. A warning that fires where it
+	 * cannot be true is one people learn to click past, which costs the warning that matters.
+	 */
+	let deletingBreaksLinks = $state(false);
 
 	/**
 	 * The "review a Project somebody sent you" dialog.
@@ -252,9 +260,21 @@
 	 * into the fields is dropped rather than saved on the way out, because the gesture that follows is
 	 * "delete this", not "save this and then delete it".
 	 */
-	const askToDeleteProject = (project: ProjectSummary) => {
+	const askToDeleteProject = async (project: ProjectSummary) => {
 		editing = null;
+		deletingBreaksLinks = false;
 		deleting = project;
+		const held = storage;
+		if (!held) return;
+		const [shareLinks, reach] = await Promise.all([
+			held.hasShareLinks(),
+			held.projectReach(project.directory)
+		]);
+		// Still the same question: a confirmation dismissed and reopened on another Project while these
+		// two reads were in flight must not be answered by the first Project's evidence.
+		if (deleting?.directory === project.directory) {
+			deletingBreaksLinks = shareLinks && reach.synced;
+		}
 	};
 
 	const remove = async () => {
@@ -1146,7 +1166,7 @@ What else the Hub says about a Project: whether this build can read it.
 		</button>
 		<button
 			class="btn ms-auto btn-outline btn-error btn-sm"
-			onclick={() => editing && askToDeleteProject(editing)}
+			onclick={() => editing && void askToDeleteProject(editing)}
 		>
 			Delete Project…
 		</button>
@@ -1413,6 +1433,15 @@ What else the Hub says about a Project: whether this build can read it.
 		The Map Images it drew stay in the Workspace, with their Alignments, because other Projects may
 		use them. Delete those from the Map Images list if you no longer want them.
 	</p>
+	<!-- ADR-0045: a Project's link is something anybody can have been given, and a citation is
+	     something somebody else has printed. Said only where both halves are true — see
+	     `deletingBreaksLinks`. -->
+	{#if deletingBreaksLinks}
+		<p class="mt-3 text-sm" data-testid="delete-breaks-share-link">
+			Anyone you have given this Project's link to will find it stops working after the next Sync,
+			including a link in something already published.
+		</p>
+	{/if}
 	{#snippet actions()}
 		<button class="btn" onclick={() => (deleting = null)}>Cancel</button>
 		<button class="btn btn-error" onclick={remove}>Delete Project</button>

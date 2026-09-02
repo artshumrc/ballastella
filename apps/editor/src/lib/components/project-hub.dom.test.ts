@@ -53,7 +53,7 @@ const project = (directory: string, over: Partial<ProjectSummary> = {}): Project
 	name: directory,
 	description: '',
 	updatedAt: '2026-01-02T03:04:05.000Z',
-	onFrontPage: true,
+	onFrontPage: false,
 	problem: null,
 	...over
 });
@@ -70,6 +70,8 @@ const hub = (props: {
 	mapImages?: readonly WorkspaceMapImage[];
 	projects?: readonly ProjectSummary[];
 	mapImagesLoading?: boolean;
+	shareLinks?: boolean;
+	synced?: readonly string[];
 }): void => {
 	mounted = mount(ProjectHubHarness, { target: document.body, props });
 	flushSync();
@@ -395,6 +397,67 @@ describe('a row’s actions, and the one that is destructive', () => {
 		expect(buttons).toHaveLength(1);
 		expect(buttons[0]).toHaveAccessibleName('Delete Blaeu’s plan of Amsterdam');
 		expect(buttons[0].className).toContain('btn-error');
+	});
+
+	/**
+	 * The one sentence a Project's delete confirmation gains where the link could really break.
+	 *
+	 * ⚠ **Both halves, or silence.** A warning that fires where it cannot be true is one people learn
+	 * to click past, and this one has to survive being read the day it matters (ADR-0045).
+	 */
+	describe('the warning about a link that would stop working', () => {
+		/** Open the Edit dialog, then its Delete, and let the two reads behind the warning finish. */
+		const askToDelete = async (name: string): Promise<void> => {
+			[...projectRow().querySelectorAll('button')]
+				.find((button) => text(button).startsWith('Edit'))
+				?.click();
+			flushSync();
+			[...document.querySelectorAll('button')]
+				.find((button) => text(button) === 'Delete Project…')
+				?.click();
+			flushSync();
+			for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+			flushSync();
+			expect(text(document.body)).toContain(name);
+		};
+
+		// Story 78: a citation somebody else has printed is what is at stake.
+		test('warns about the link where the Workspace shares links and the Project is on GitHub', async () => {
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				shareLinks: true,
+				synced: ['amsterdam-1625']
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(text(at('delete-breaks-share-link'))).toContain('stops working');
+		});
+
+		// Story 79: a Project nobody can have a link to.
+		test('says nothing of the kind about a Project the Remote has never held', async () => {
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				shareLinks: true,
+				synced: []
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(document.querySelector('[data-testid="delete-breaks-share-link"]')).toBeNull();
+		});
+
+		test('says nothing of the kind in a Workspace with no Share Links at all', async () => {
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				shareLinks: false,
+				synced: ['amsterdam-1625']
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(document.querySelector('[data-testid="delete-breaks-share-link"]')).toBeNull();
+		});
 	});
 
 	// ⚠ **ADR-0036: emphasis and selection are a ground tint, never a coloured left edge.** A row is

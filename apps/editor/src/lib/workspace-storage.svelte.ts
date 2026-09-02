@@ -72,6 +72,8 @@ import {
 	closedWhileReviewing,
 	describeRemote,
 	describeReviewSubject,
+	projectRemoteReach,
+	projectShareUrl,
 	readRemoteRights,
 	readRemoteSharing,
 	GITHUB_API_ORIGIN,
@@ -111,6 +113,7 @@ import {
 	type FolderWorkspaceRecord,
 	type OpenedBundle,
 	type ProjectImportSource,
+	type ProjectRemoteReach,
 	type ProjectStore,
 	type RemoteBindOutcome,
 	type MetadataStorage,
@@ -2771,6 +2774,67 @@ export class WorkspaceStorage {
 			() => true,
 			() => false
 		);
+	}
+
+	/**
+	 * How far one Project's own work has got towards the Remote (ADR-0045).
+	 *
+	 * ⚠ **Local records only, and no request.** The Baseline and the change index answer the outbound
+	 * half between them, so *Share Project* and a Project's delete confirmation can both ask without
+	 * putting a GitHub request behind opening a dialog. Absent evidence reads as *not sent*, which is
+	 * the direction that offers a Sync rather than a link to last week.
+	 */
+	async projectReach(directory: string): Promise<ProjectRemoteReach> {
+		return projectRemoteReach({
+			directory,
+			baseline: this.baseline,
+			changes: (await this.session.localChanges?.localChanges()) ?? null
+		});
+	}
+
+	/**
+	 * Send this Workspace's own files to the Remote: the *send* of the four Sync choices, with no
+	 * forecast in front of it.
+	 *
+	 * ⚠ **Safe to press unread because removal is baseline-narrowed** (ADR-0044). A send removes from
+	 * the Remote only what the last agreement recorded and the Workspace no longer holds, so nothing
+	 * another machine has put there since can be caught up in it — which is the whole reason one
+	 * gesture can carry both directions at all. Widening that removal re-opens the case for splitting
+	 * the act, and would make this press something a scholar has to read a plan before taking.
+	 *
+	 * The site record is regenerated first where the Workspace has Share Links, so a Reader's front
+	 * page reflects the choice the author has just made rather than the one before it.
+	 *
+	 * @returns nothing; every refusal is thrown, in `packages/core`'s own words
+	 */
+	async sendToRemote(): Promise<void> {
+		const remote = this.remote;
+		if (remote === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to send to.`
+			);
+		}
+		const token = this.credential;
+		if (token === null) {
+			throw new Error(
+				`Nothing was sent, because you are not signed in to GitHub. The repository is exactly as ` +
+					`it was.`
+			);
+		}
+		if (await this.hasShareLinks()) await this.#writePublishedSite();
+		try {
+			await this.session.publishToRemote({ token, remote });
+		} finally {
+			// Re-read rather than assumed, for `getFromRemote`'s reason: a refused `writeBaseline`
+			// discards the previous record, so the honest answer afterwards is the `null` this finds.
+			this.baseline = (await this.session.synchronization?.readBaseline(remote)) ?? null;
+			await this.checkRemoteStatus();
+		}
+	}
+
+	/** The link *Share Project* hands over, or `''` where the Workspace has no repository. */
+	projectShareLink(directory: string): string {
+		return this.remote === null ? '' : projectShareUrl(this.remote, directory);
 	}
 
 	/**

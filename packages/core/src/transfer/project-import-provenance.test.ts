@@ -156,7 +156,8 @@ describe('the publication reset', () => {
 			const detached = detachImportedProject(source, BUNDLE, AT);
 
 			expect(detached.onFrontPage).toBe(false);
-			expect(written(detached).onFrontPage).toBe(false);
+			// Off is written as *absence* (ADR-0045), so the copy carries no field at all.
+			expect(written(detached)).not.toHaveProperty('onFrontPage');
 		}
 	});
 

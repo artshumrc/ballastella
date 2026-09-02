@@ -1153,16 +1153,24 @@ export class EditorSession {
 	}
 
 	/**
-	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0032).
+	 * Put a Project on a site's Front Page, or take it off (ADR-0045).
 	 *
 	 * Through `#mutate` like every other hub action, so the list on screen comes back from the
 	 * Workspace rather than from a value flipped here — which is what makes the control's state a
 	 * reading of `project.json` and therefore something that survives a reload.
+	 *
+	 * ⚠ **The open Project's own copy of the manifest is corrected from that re-listing**, and from
+	 * the argument on no account: the control lives in the Project's own settings, so a write that
+	 * refused would otherwise leave a toggle showing what the file does not say.
 	 */
 	async setProjectOnFrontPage(directory: string, onFrontPage: boolean): Promise<void> {
 		await this.#mutate(directory, () =>
 			this.#workspace.setProjectOnFrontPage(directory, onFrontPage)
 		);
+		const listed = this.projects.find((project) => project.directory === directory);
+		if (this.openDirectory === directory && this.openProject !== null && listed !== undefined) {
+			this.openProject = { ...this.openProject, onFrontPage: listed.onFrontPage };
+		}
 	}
 
 	/**

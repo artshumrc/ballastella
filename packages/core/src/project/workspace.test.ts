@@ -93,7 +93,7 @@ describe('Workspace', () => {
 					name: 'Newer',
 					description: '',
 					updatedAt: '2026-06-01T00:00:00.000Z',
-					onFrontPage: true,
+					onFrontPage: false,
 					problem: null
 				},
 				{
@@ -101,7 +101,7 @@ describe('Workspace', () => {
 					name: 'Older',
 					description: '',
 					updatedAt: '2026-01-01T00:00:00.000Z',
-					onFrontPage: true,
+					onFrontPage: false,
 					problem: null
 				}
 			]);
@@ -126,7 +126,7 @@ describe('Workspace', () => {
 					name: 'from-the-future',
 					description: '',
 					updatedAt: '',
-					onFrontPage: true,
+					onFrontPage: false,
 					problem: 'format-too-new'
 				}
 			]);
@@ -343,24 +343,27 @@ describe('Workspace', () => {
 	 * of the file rather than of the page.
 	 */
 	describe('choosing whether a Project is on the Front Page', () => {
-		it('starts on it, so publishing lists everything as it always did', async () => {
+		it('starts off it, so turning a site on exposes nothing nobody listed', async () => {
 			const created = await workspace.createProject('Amsterdam 1625');
 
-			expect(created.onFrontPage).toBe(true);
-			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(true);
+			expect(created.onFrontPage).toBe(false);
+			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(false);
 		});
 
-		it('takes a Project off and puts it back, in the file the list is read from', async () => {
+		it('puts a Project on and takes it back off, in the file the list is read from', async () => {
 			const { directory } = await workspace.createProject('Amsterdam 1625');
 
-			expect((await workspace.setProjectOnFrontPage(directory, false)).onFrontPage).toBe(false);
-			expect(await readJson(store, `${directory}/project.json`)).toMatchObject({
-				onFrontPage: false
-			});
-			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(false);
-
 			expect((await workspace.setProjectOnFrontPage(directory, true)).onFrontPage).toBe(true);
+			expect(await readJson(store, `${directory}/project.json`)).toMatchObject({
+				onFrontPage: true
+			});
 			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(true);
+
+			// Off again removes the field rather than writing `false`: absence *is* off, so a Project
+			// nobody has listed keeps the bytes it would have had if it had never been listed.
+			expect((await workspace.setProjectOnFrontPage(directory, false)).onFrontPage).toBe(false);
+			expect(await readJson(store, `${directory}/project.json`)).not.toHaveProperty('onFrontPage');
+			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(false);
 		});
 
 		/**
@@ -369,7 +372,7 @@ describe('Workspace', () => {
 		 *
 		 * ⚠ **`toEqual`, not `toMatchObject`, and the clock has moved.** `updatedAt` is what the hub is
 		 * sorted by and what publishing writes the Front Page in the order of, so a stamp here jumps the
-		 * row to the top under the cursor that just clicked it and reorders the site — which ADR-0032
+		 * row to the top under the cursor that just clicked it and reorders the site — which ADR-0045
 		 * leaves alone. A `toMatchObject` assertion passes straight through that, which is how it was
 		 * missed; naming the whole object is what makes the absence of a stamp an assertion.
 		 */
@@ -384,7 +387,7 @@ describe('Workspace', () => {
 			await store.write('p/annotations/a.geojson', new TextEncoder().encode('{"w":1}'));
 			clock = new Date('2026-09-09T09:09:09.000Z');
 
-			await workspace.setProjectOnFrontPage('p', false);
+			await workspace.setProjectOnFrontPage('p', true);
 
 			expect(await readJson(store, 'p/project.json')).toEqual({
 				formatVersion: 1,
@@ -392,26 +395,25 @@ describe('Workspace', () => {
 				updatedAt: '2026-01-01T00:00:00.000Z',
 				layers: [],
 				baseMap: 'protomaps-light',
-				onFrontPage: false
+				onFrontPage: true
 			});
 			expect((await workspace.listProjects())[0]?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
 			expect(await store.list('p/')).toEqual(['p/annotations/a.geojson', 'p/project.json']);
 		});
 
 		/**
-		 * ⚠ **A Project this build cannot parse still gets to say where it belongs** (ADR-0032).
+		 * ⚠ **A Project this build cannot parse still gets to say where it belongs** (ADR-0045).
 		 *
 		 * The reason `CURRENT_FORMAT_VERSION` was not bumped for this field is that the field is
-		 * version-independent: a manifest from a newer build says `"onFrontPage": false` in the same
-		 * plain way, and this build can read that one key whatever it makes of the rest. Defaulting it
-		 * to `true` reverses the author's choice in the *disclosure* direction — the Project is put back
-		 * onto a public Front Page — and disclosure is the one direction ADR-0010's tolerance does not
-		 * already guard, because everywhere else the safe answer is "show it".
+		 * version-independent: a manifest from a newer build says `"onFrontPage": true` in the same
+		 * plain way, and this build can read that one key whatever it makes of the rest. Dropping the
+		 * Project off the list instead would take a colleague's Project off their own front page over a
+		 * `formatVersion` this build did not like.
 		 */
 		it('honours the choice in a manifest this build cannot otherwise read', async () => {
 			await store.write(
 				'from-the-future/project.json',
-				new TextEncoder().encode('{"formatVersion":99,"name":"Later","onFrontPage":false}')
+				new TextEncoder().encode('{"formatVersion":99,"name":"Later","onFrontPage":true}')
 			);
 
 			expect(await workspace.listProjects()).toEqual([
@@ -420,16 +422,15 @@ describe('Workspace', () => {
 					name: 'from-the-future',
 					description: '',
 					updatedAt: '',
-					onFrontPage: false,
+					onFrontPage: true,
 					problem: 'format-too-new'
 				}
 			]);
 		});
 
-		// Nothing readable to go on is the one case that defaults, and it defaults to listed — the same
-		// answer an absent field gets, because a Project we cannot open is not one we can claim its
-		// author took off the list.
-		it('leaves a manifest that is not JSON at all on the Front Page', async () => {
+		// Nothing readable to go on defaults to off, which is the same answer an absent field gets: a
+		// Project whose manifest will not open holds no evidence that anybody asked for it to be offered.
+		it('leaves a manifest that is not JSON at all off the Front Page', async () => {
 			await store.write('broken/project.json', new TextEncoder().encode('{ not json'));
 
 			expect((await workspace.listProjects())[0]).toEqual({
@@ -437,16 +438,16 @@ describe('Workspace', () => {
 				name: 'broken',
 				description: '',
 				updatedAt: '',
-				onFrontPage: true,
+				onFrontPage: false,
 				problem: 'unreadable'
 			});
 		});
 
-		// A copy is the author's own Project again, so it arrives wherever the original was: a duplicate
-		// of something deliberately kept off the Front Page must not appear on it.
-		it('travels with a duplicate', async () => {
+		// A duplicate is a new Project, and a new Project is on nobody's front page: the copy has to be
+		// put there deliberately, exactly as the original was.
+		it('does not travel with a duplicate', async () => {
 			const { directory } = await workspace.createProject('Amsterdam 1625');
-			await workspace.setProjectOnFrontPage(directory, false);
+			await workspace.setProjectOnFrontPage(directory, true);
 
 			expect((await workspace.duplicateProject(directory)).onFrontPage).toBe(false);
 		});

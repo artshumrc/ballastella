@@ -82,8 +82,6 @@ export class FakeSession {
 			baselineKept: true
 		};
 	}
-
-	async setProjectOnFrontPage(): Promise<void> {}
 }
 
 export class FakeSyncStorage {

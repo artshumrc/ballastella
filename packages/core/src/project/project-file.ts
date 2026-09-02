@@ -172,11 +172,15 @@ export interface ProjectFile {
 	 * decides one list and nothing else. The control that sets it says so in words, because a scholar
 	 * with embargoed material will act on the reading the interface invites.
 	 *
+	 * **Off by default, and `true` is written explicitly** (ADR-0045). A Project is on a front page
+	 * because somebody put it there, so absence of the field is absence of that decision — and a
+	 * newly created Project is offered to nobody until its author says otherwise.
+	 *
 	 * **This field did not bump `CURRENT_FORMAT_VERSION`, deliberately.** ADR-0010 refuses a newer
 	 * version outright, and one repository read by several instances at several versions multiplies
 	 * exactly the skew that ADR names — so a build that has never heard of this carries it through
-	 * {@link unknownFields} and writes it back untouched, rather than refusing the Project or silently
-	 * taking a colleague's work off their own front page.
+	 * {@link unknownFields} and writes it back untouched. Where it does not, a Project falls *off* a
+	 * front page, which is the conservative direction and changes nothing about who may read it.
 	 */
 	readonly onFrontPage: boolean;
 	/**
@@ -240,38 +244,36 @@ export class ProjectFileUnreadableError extends Error {
 }
 
 /**
- * The Front Page choice a `project.json` records, from the field's raw value (ADR-0032).
+ * The Front Page choice a `project.json` records, from the field's raw value (ADR-0045).
  *
- * Only a literal `false` takes a Project off the Front Page. Absence is the default and the
- * pre-ADR-0032 behaviour, and a value of some other shape is a file somebody else's build wrote —
- * reading it as "not listed" would take a Project off a site over a field this parser could not make
- * sense of, which is the destructive direction.
+ * Only a literal `true` puts a Project on the Front Page. Absence is the default, and so is a value
+ * of some other shape: a Project is on a front page because somebody put it there, and reading a
+ * field this parser cannot make sense of as consent would offer work its author never listed.
  *
  * One implementation, so that {@link parseProjectFile} and {@link readOnFrontPage} cannot come to
  * different answers about the same file — the disagreement `readBaseMapId` exists to prevent.
  */
-const onFrontPageOf = (value: unknown): boolean => value !== false;
+const onFrontPageOf = (value: unknown): boolean => value === true;
 
 /**
  * The Front Page choice out of bytes this build may not be able to parse as a `project.json`.
  *
  * ⚠ **Read rather than assumed, and that is the whole point.** `onFrontPage` is version-independent
  * by construction — the argument for not bumping `CURRENT_FORMAT_VERSION` for it (ADR-0010,
- * ADR-0032) — so a manifest from a newer build still says plainly what its author chose. Assuming
- * the default for one this build cannot otherwise read would put a Project its author took off the
- * Front Page back onto a public site, which is the one direction the format contract's tolerance
- * does not already guard.
+ * ADR-0045) — so a manifest from a newer build still says plainly what its author chose, and a
+ * Project this build cannot otherwise read is still listed exactly where its author listed it.
  *
- * Bytes that are not a JSON object at all are on the Front Page, which is what an absent field means.
+ * Bytes that are not a JSON object at all are off the Front Page, which is what an absent field
+ * means: nothing here can show that anybody asked for the Project to be offered.
  */
 export function readOnFrontPage(bytes: Uint8Array): boolean {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 	} catch {
-		return true;
+		return false;
 	}
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return true;
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
 	return onFrontPageOf((raw as Record<string, unknown>).onFrontPage);
 }
 
@@ -450,13 +452,14 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
 			// Workspace kept in git from gaining a diff on every Project the day the app is updated.
 			...(canonicalUrl === null ? {} : { canonicalUrl }),
-			// Written only when the author took the Project off the Front Page, for the same reason and
-			// with the same effect: absence *is* the default, so every Project on the Front Page keeps the
-			// bytes it had before ADR-0032 and a Workspace in git gains no diff on the day of the upgrade.
+			// Written only when the author put the Project on the Front Page, for the same reason and with
+			// the same effect: absence *is* the default (ADR-0045), so every Project nobody has listed
+			// carries no byte for the field and a Workspace in git gains no diff from the decision not to
+			// list it.
 			//
 			// Last of the named fields, so a Project that already carries a canonical stamp keeps its
 			// existing key order too.
-			...(onFrontPage ? {} : { onFrontPage: false }),
+			...(onFrontPage ? { onFrontPage: true } : {}),
 			// Written only by a Project that has been imported, for the third time and for the same
 			// reason: a Project nobody transferred keeps the bytes it had before Import existed.
 			...(history === null ? {} : { [IMPORT_PROVENANCE_KEY]: serialiseImportProvenance(history) }),
@@ -485,7 +488,7 @@ export function newProjectFile(name: string, updatedAt: Date, description = ''):
 		borders: DEFAULT_BASE_MAP_BORDERS,
 		borderStyle: DEFAULT_BASE_MAP_BORDER_STYLE,
 		canonicalUrl: null,
-		onFrontPage: true,
+		onFrontPage: false,
 		unknownFields: {}
 	};
 }

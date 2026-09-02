@@ -472,15 +472,18 @@ describe('the sync modal and Share Links', () => {
 		await settle();
 
 		expect(storage.session.published).toBe(0);
-		expect(absent('sync-project-selection')).toBe(true);
 	});
 
-	test('writes the viewer, and offers the front page, where the Workspace has Share Links', async () => {
+	// ⚠ **And no front-page question either, here or with Share Links on.** Which Projects a Reader
+	// meets first is set in a Project's own settings and nowhere else (ADR-0045); a list of every
+	// Project offered at the moment of a Sync is the second place that made a scholar unsure which
+	// one won.
+	test('writes the viewer where the Workspace has Share Links, and asks nothing about the front page', async () => {
 		const storage = somethingToSend();
 		storage.shareLinks = true;
 		await open(storage);
 
-		expect(shown('sync-project-selection')).toBeTruthy();
+		expect(absent('sync-project-selection')).toBe(true);
 		press('sync-send');
 		await settle();
 
