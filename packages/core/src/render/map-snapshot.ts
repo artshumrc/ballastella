@@ -97,8 +97,7 @@ export function flipPixelRows(
  * would give a Map Snapshot of that layer's intermediate texture rather than of the map.
  */
 export function readDrawingBuffer(canvas: HTMLCanvasElement): DrawingBufferRead {
-	const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as
-		WebGL2RenderingContext | WebGLRenderingContext | null;
+	const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
 	if (gl === null) throw new Error('This canvas has no WebGL context to read a frame from.');
 	const width = gl.drawingBufferWidth;
 	const height = gl.drawingBufferHeight;

@@ -2,7 +2,7 @@
 //
 // Seam 1c and not Seam 2, because everything asserted here is markup — the element, its accessible
 // name, whether it is in the tab order — and none of it needs a map. What a real map adds is the
-// picture, which is the manual checklist's.
+// picture, which is checked by hand in a real browser.
 //
 // Everything is read straight off the document; there is no component-testing library.
 
@@ -103,7 +103,7 @@ describe('what is announced when the browser will not produce the file', () => {
 		expect(region().textContent?.trim()).toBe('');
 	});
 
-	test('is the Epic’s sentence, exactly', () => {
+	test('is the failure sentence, exactly', () => {
 		render({ captureFailed: true });
 
 		expect(region().textContent?.trim()).toBe(

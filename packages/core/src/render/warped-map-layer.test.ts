@@ -1,7 +1,7 @@
 // Whether a warped renderer has asked for the frame on screen.
 //
 // The rest of this module talks to `@allmaps/maplibre` and is asserted through what a real map draws
-// (`e2e/editor-annotations.e2e.ts`, and the Epic's manual checklist for the Map Snapshot itself).
+// (`e2e/editor-annotations.e2e.ts`, and manual checks in a real browser for the Map Snapshot itself).
 // This one question is arithmetic over three fields, and it decides whether a scholar is offered a
 // picture of the view they are looking at or of the one before it — so it is driven here, against a
 // renderer that is a plain object.

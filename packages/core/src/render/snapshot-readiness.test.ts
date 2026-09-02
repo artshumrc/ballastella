@@ -1,9 +1,9 @@
 // Every rule the Map Snapshot control's availability is made of.
 //
-// This is the whole of the readiness machine's coverage, by design: the Epic adds no Playwright
-// test, so the claim "the control is never ready for a frame that has gone" is proved here or
-// nowhere. A reducer is what makes that affordable — the invalidators, the late answers and the
-// capture are all just events, and there is no map, no canvas and no clock anywhere below.
+// This is the whole of the readiness machine's coverage, by design: no Playwright spec drives it, so
+// the claim "the control is never ready for a frame that has gone" is proved here or nowhere. A
+// reducer is what makes that affordable — the invalidators, the late answers and the capture are all
+// just events, and there is no map, no canvas and no clock anywhere below.
 
 import { describe, expect, test } from 'vitest';
 
