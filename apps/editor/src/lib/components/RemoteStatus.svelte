@@ -14,12 +14,15 @@
 	// is kept in the text, where it does the work, rather than in two badges side by side, where it
 	// only cost height.
 	//
-	// ⚠ **The check and the Update are not here: they are behind the door** (ADR-0041). An Update is
-	// the only way Remote work reaches a Workspace and an explicit check is the only status a
-	// signed-out author can get, so they moved rather than went — to the one surface that holds the
-	// whole GitHub relationship, beside the Publish they must never be merged with. What stays here is
-	// what an Update *says*: its progress, its outcome and its refusals, and the question it stops to
-	// ask before it removes anything.
+	// ⚠ **The check and the transfer are not here: they are on the Sync modal** (ADR-0041, ADR-0044).
+	// Getting is the only way Remote work reaches a Workspace and an explicit check is the only status a
+	// signed-out author can get, so they moved rather than went — to the Sync modal, which reads both
+	// sides and shows what it found before it moves a byte. What stays here is what a get *says*: its
+	// progress, its outcome and its refusals.
+	//
+	// ⚠ **And no deletion confirmation, because there is nothing left to confirm** (ADR-0044). Every
+	// removal either side would suffer is named on the Sync modal the author read before pressing, so
+	// a question raised from here would be the second asking of one already answered.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE MEANING IS IN THE TEXT
@@ -61,13 +64,11 @@
 		type RemoteStatusState,
 		type SaveState,
 		type SourceStatus,
-		type SynchronizationBaseline,
-		type UpdateDeletionPreview
+		type SynchronizationBaseline
 	} from '@ballastella/core';
 
 	import Toast from '$lib/toasts/Toast.svelte';
 
-	import ModalDialog from './ModalDialog.svelte';
 	import WhereYourWorkIs from './WhereYourWorkIs.svelte';
 
 	/**
@@ -83,10 +84,7 @@
 		baseline,
 		update,
 		notice,
-		failure,
-		deletionPreview,
-		onAnswerDeletions,
-		restoreFocusTo
+		failure
 	}: {
 		/** The local clause of the one badge, passed straight through. */
 		saveState: SaveState;
@@ -99,18 +97,6 @@
 		notice: string;
 		/** Why the last Update did not happen, or `''`. */
 		failure: string;
-		/** What the Update in flight would remove, while it waits to be told. */
-		deletionPreview: UpdateDeletionPreview | null;
-		/** Answer that question. `false` for every way of not saying yes. */
-		onAnswerDeletions: (confirmed: boolean) => void;
-		/**
-		 * Where focus goes if the control that started the Update is no longer in the document.
-		 *
-		 * The bar's door control, which is what the Update was pressed from — the door closes on that
-		 * press, so by the time this question arrives focus is already back on it and this is the
-		 * fallback rather than the ordinary path.
-		 */
-		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	/**
@@ -361,90 +347,3 @@
 	testid="published-site-stale"
 	tone="info"
 />
-
-<!--
-	What the Update would remove, before it removes any of it.
-
-	⚠ **A modal, and it has to be.** This is the last point at which the answer is still no, and the
-	rest of the application — the Project links behind it, the Publish button, the Workspace switcher —
-	is all things whose consequences the author has not yet been asked about. `ModalDialog` brings the
-	focus trap, Escape and focus restoration with it (ADR-0016), and restoration lands on the Update
-	button that opened it, which is where a keyboard user expects to be put back.
-
-	⚠ **Every way out that is not the confirm button answers `false`.** Escape, the backdrop and
-	Cancel all mean the same thing, and the transfer is waiting on an answer — so a route out that
-	settled nothing would leave the Update running for ever behind a dialog that has gone.
-
-	⚠ **Mounted whatever the answer is, and never inside an `{#if}`.** `ModalDialog` closes the native
-	`<dialog>` and restores focus from an effect on `open`; unmounted at the moment of the answer it
-	never runs either, the element leaves the document while it is still the top layer, and a keyboard
-	user is dropped on `<body>` — which is exactly the restoration this dialog was given
-	`restoreFocusTo` for. `editor-remote-conflict.e2e.ts` asserts where the answer leaves focus, so
-	wrapping this in an `{#if}` fails there rather than only in a screen reader.
-
-	The Projects and Map Images are named, not counted: "3 files will be removed" is not a question
-	anybody can answer, and the whole reason `UpdateDeletionPreview` exists is that "the Project
-	*Amsterdam 1625*" is.
--->
-<ModalDialog
-	bind:open={() => deletionPreview !== null, (open) => !open && onAnswerDeletions(false)}
-	title="Update will remove work from this Workspace"
-	{restoreFocusTo}
->
-	{#if deletionPreview !== null}
-		<p data-testid="deletion-preview-message">{deletionPreview.message}</p>
-
-		{#if deletionPreview.projects.length > 0}
-			<h3 class="mt-4 font-semibold">
-				{deletionPreview.projects.length === 1 ? 'Project' : 'Projects'} that will be removed
-			</h3>
-			<ul class="list-disc pl-6" data-testid="deletion-preview-projects">
-				{#each deletionPreview.projects as project (project.directory)}
-					<li>{project.name} <span class="opacity-70">({project.directory})</span></li>
-				{/each}
-			</ul>
-		{/if}
-
-		{#if deletionPreview.mapImages.length > 0}
-			<h3 class="mt-4 font-semibold">
-				{deletionPreview.mapImages.length === 1 ? 'Map Image' : 'Map Images'} that will be removed
-			</h3>
-			<ul class="list-disc pl-6" data-testid="deletion-preview-map-images">
-				{#each deletionPreview.mapImages as imageId (imageId)}
-					<li>{imageId}</li>
-				{/each}
-			</ul>
-		{/if}
-
-		{#if deletionPreview.remaining.length > 0}
-			<h3 class="mt-4 font-semibold">
-				And {deletionPreview.remaining.length}
-				other {deletionPreview.remaining.length === 1 ? 'file' : 'files'}
-			</h3>
-			<ul class="list-disc pl-6 text-sm" data-testid="deletion-preview-remaining">
-				{#each deletionPreview.remaining as path (path)}
-					<li>{path}</li>
-				{/each}
-			</ul>
-		{/if}
-	{/if}
-
-	{#snippet actions()}
-		<button
-			type="button"
-			class="btn btn-sm"
-			data-testid="cancel-deletions"
-			onclick={() => onAnswerDeletions(false)}
-		>
-			Cancel
-		</button>
-		<button
-			type="button"
-			class="btn btn-error btn-sm"
-			data-testid="confirm-deletions"
-			onclick={() => onAnswerDeletions(true)}
-		>
-			Remove them and update
-		</button>
-	{/snippet}
-</ModalDialog>

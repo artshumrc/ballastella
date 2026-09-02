@@ -19,7 +19,7 @@ import {
 	type SynchronizationBaseline
 } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 
 import { toasts } from '$lib/toasts/toasts.svelte.js';
 
@@ -78,9 +78,7 @@ function bar(
 			baseline: extra.baseline ?? null,
 			update: null,
 			notice: '',
-			failure: '',
-			deletionPreview: null,
-			onAnswerDeletions: vi.fn()
+			failure: ''
 		}
 	});
 	flushSync();

@@ -332,7 +332,7 @@ export const pagesGuided = (instruction: string): RemotePagesOutcome => ({
 export type SequenceProps = {
 	open: boolean;
 	storage: WorkspaceStorage;
-	onpublish: () => void;
+	onsync: () => void;
 	list: (token: string) => Promise<GrantedRepositoriesOutcome>;
 	/**
 	 * Which repository a pasted address means.

@@ -1,13 +1,13 @@
-// Update from GitHub: bringing a Remote's own additions, replacements and confirmed deletions into a
-// Workspace that is already synchronized with it (ADR-0038).
+// The inbound half of a Sync: bringing a Remote's own additions, replacements and deletions into a
+// Workspace that is already synchronized with it (ADR-0038, ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EXPLICIT, INBOUND, AND NEITHER HALF OF THAT IS NEGOTIABLE
 //
 // A Remote Status check lists metadata and stops. This is the operation that acts on what the check
-// found, and it happens because somebody pressed a control that says so. Nothing here is reachable
-// from a status check, a window focus, an open or a publish. An Update from GitHub remains an
-// explicit inbound action, so that Remote work never changes a Workspace silently.
+// found, and it happens because somebody pressed *Get changes* on the Sync modal having read what
+// it found. Nothing here is reachable from a status check, a window focus, an open or a send. Work
+// coming in from a Remote never changes a Workspace silently.
 //
 // And it is inbound only. Nothing in this module posts a blob, writes a tree, moves a ref, generates
 // a Published Site, or touches a repository file outside Ballastella's namespace. Receiving somebody
@@ -41,23 +41,22 @@
 //     against the SHA the listing named, which is what catches a rewritten copy from a proxy.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// A DELETION IS APPLIED ONLY AFTER SOMEBODY HAS BEEN SHOWN WHAT GOES
+// A DELETION IS SHOWN BEFORE THE PRESS, NOT CONFIRMED AFTER IT
 //
-// A plan carrying a Remote deletion is not refused and not applied quietly. It is described —
-// {@link UpdateDeletionPreview}, which names the Projects by the name their author gave them and the
-// Map Images by their identity — and handed to {@link UpdateFromGitHubOptions.confirmDeletion}
-// before a byte is written or a before-image taken. Declining is a no-op on all three states: this
-// Workspace, the Remote, and the Baseline.
+// Every path this would remove is named in the Sync modal the author read before pressing — Projects
+// and Map Images rather than paths (ADR-0044) — so there is no confirmation here and no preview type
+// for one. A deletion discovered *after* a press is the failure the modal's shape exists to prevent,
+// and a second question in front of a decision already taken is the confirmation people learn to
+// press through.
 //
-// ⚠ **A caller that passes no confirmer cannot delete.** The plan is refused `'deletion'` instead,
-// which is the same direction the confirmation itself points: applying the additions and dropping
-// the deletions would report an Update as complete over two sides that still differ, and the next
-// status check would say so with nothing to explain it.
+// ⚠ **A removal is Baseline-narrowed, which is what makes showing it enough.** A path is removed
+// from here only where the Baseline recorded it and the Remote no longer holds it, so with no
+// Baseline nothing is removed at all — and the plan's own construction, not a check here, is what
+// guarantees it.
 //
 // A path the Remote deleted whose local bytes have *changed* is not a deletion at all. It is
-// `comparePath`'s Conflict row — baseline, local and remote all differ — so the whole Update is
-// refused and neither side is touched, and no confirmation is asked for something that is not on
-// offer.
+// `comparePath`'s Conflict row — baseline, local and remote all differ — so the whole get is
+// refused and neither side is touched.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE TRANSACTION, AND WHY IT IS NOT IMPORT'S
@@ -89,10 +88,9 @@
 // opposite instructions. So a reader of this Workspace sees the complete old state or the complete
 // new one, never a Project list assembled out of both.
 
-import { ALIGNMENT_DIRECTORY, alignmentImageId } from '../alignment/alignment.js';
+import { alignmentImageId } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
-import { IMAGE_DIRECTORY } from '../project/image-files.js';
-import { PROJECT_FILE_NAME, parseProjectFile } from '../project/project-file.js';
+import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import { describeBytes } from '../project/workspace-size.js';
 import { createHttpProjectStore } from '../store/http-project-store.js';
 import {
@@ -110,13 +108,17 @@ import {
 	readRemoteTree,
 	urlPath
 } from './remote-tree.js';
-import { projectDirectories } from './synchronization-paths.js';
-import { planWorkspaceUpdate } from './synchronization-planner.js';
+import {
+	describeConflict,
+	describeGraphFailure,
+	describeGraphViolations,
+	planWorkspaceSync
+} from './synchronization-planner.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { EstimateStorage } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import type { RemoteRelationship, SynchronizationBaseline } from './synchronization-metadata.js';
-import type { InventoryEntry, PathChoice, WorkspaceUpdatePlan } from './synchronization-planner.js';
+import type { InventoryEntry, PathChoice, WorkspaceSyncPlan } from './synchronization-planner.js';
 
 /** The repository this reads from. Its branch is the Remote relationship's. */
 export type UpdateReference = {
@@ -409,27 +411,6 @@ export type UpdateRefusal =
 	| 'refused'
 	/** A path changed differently on both sides. Neither side is changed. */
 	| 'conflict'
-	/** No Baseline, and two non-empty sides that cannot be attributed. */
-	| 'unknown-history'
-	/**
-	 * The plan removes something and the caller offered no way to confirm it.
-	 *
-	 * ⚠ **A refusal rather than a partial Update**, and the paths are named. Applying the additions
-	 * and quietly dropping the deletions would report an Update as complete over two sides that still
-	 * differ, and the next status check would say so with nothing to explain it. The application
-	 * always passes {@link UpdateFromGitHubOptions.confirmDeletion}, so this is what a caller that has
-	 * no screen to ask on gets.
-	 */
-	| 'deletion'
-	/**
-	 * The deletions were shown and declined. Nothing was written, and nothing is wrong.
-	 *
-	 * Its own member rather than one of the failures above, because it is the one refusal whose remedy
-	 * is nothing at all: an author who looked at what would go and decided against it has been served
-	 * exactly, and a caller announcing this the way it announces `'conflict'` would be reporting their
-	 * own decision back to them as a problem.
-	 */
-	| 'cancelled'
 	/** A file the tree listed could not be fetched, or arrived as bytes the tree did not name. */
 	| 'incomplete'
 	/** What would arrive would not be a Workspace this app can open. */
@@ -477,9 +458,10 @@ export interface UpdateFromGitHubOptions {
 	/**
 	 * What this installation last saw the two sides share, or `null` for no valid Baseline.
 	 *
-	 * `null` is not a refusal by itself: {@link planWorkspaceUpdate} establishes a Baseline where the
-	 * two sides can still be attributed — one of them empty, or the two byte-for-byte equal — and
-	 * refuses `'unknown-history'` only where they cannot.
+	 * `null` is not a refusal. Nothing may be removed in either direction without a Baseline, so a
+	 * get against a populated repository with no record of what the two last shared brings in what
+	 * this Workspace has not got and takes nothing away — and a path the two hold differently is a
+	 * Conflict, which is refused for the reason every Conflict is.
 	 */
 	readonly baseline: SynchronizationBaseline | null;
 	readonly fetch?: FetchFn;
@@ -490,63 +472,6 @@ export interface UpdateFromGitHubOptions {
 	readonly transaction?: () => string;
 	/** Which Workspace this is, recorded in the marker. See {@link UpdateTransaction.workspace}. */
 	readonly workspace?: string;
-	/**
-	 * Show what the Update would remove and answer whether to go ahead.
-	 *
-	 * ⚠ **Called before the marker exists, before a before-image is taken, and before a byte is
-	 * fetched.** `false` is not a failure: nothing has been written, nothing on GitHub has been
-	 * touched, and the Baseline is the one the Workspace already had. Asked only when the plan
-	 * actually removes something — an Update that adds and replaces is not a destructive one and does
-	 * not stop to ask.
-	 *
-	 * Absent, the plan is refused `'deletion'` rather than applied. See {@link UpdateRefusal}.
-	 */
-	readonly confirmDeletion?: (preview: UpdateDeletionPreview) => boolean | Promise<boolean>;
-}
-
-/** One Project a confirmed Update would remove completely, named the way its author knows it. */
-export interface RemovedProject {
-	/** The Workspace directory, which is what a file browser and the Remote's tree both call it. */
-	readonly directory: string;
-	/**
-	 * The display name in its own `project.json`.
-	 *
-	 * The directory again when that manifest cannot be read or parsed: a name is what the author
-	 * recognises, and refusing to describe a Project whose manifest is broken would withhold the
-	 * confirmation over exactly the Project most worth confirming.
-	 */
-	readonly name: string;
-}
-
-/**
- * What a confirmed Update would take away, in the terms the author has to be asked in.
- *
- * ⚠ **Projects and Map Images rather than paths, and that is the whole reason this type exists.** A
- * list of forty tile paths under `images/map-1/` is not a question anybody can answer; "the Map Image
- * `map-1` and everything drawn on it" is. Paths are still carried — {@link paths} for the operation's
- * own record and {@link remaining} for what neither of the two groupings accounts for — so nothing is
- * described away.
- */
-export interface UpdateDeletionPreview {
-	/** The repository the deletions are coming from. */
-	readonly remote: RemoteRelationship;
-	/** Projects every one of whose files goes, by directory and display name, sorted. */
-	readonly projects: readonly RemovedProject[];
-	/** Map Image identities every one of whose files goes, sorted. */
-	readonly mapImages: readonly string[];
-	/** Every path the Update would remove, sorted. */
-	readonly paths: readonly string[];
-	/**
-	 * Removed paths that no removed Project or Map Image above accounts for, sorted.
-	 *
-	 * A Project losing one Annotation, an Alignment for a Map Image that stays, a cached Base Map
-	 * tile. Listed rather than summed away: the two groupings above are the *legible* part of a
-	 * deletion and this is the rest of it, and a confirmation that showed only the legible part would
-	 * be asking about less than it was about to do.
-	 */
-	readonly remaining: readonly string[];
-	/** The question, in the words the author should be asked it in. Says that Update will remove them. */
-	readonly message: string;
 }
 
 /** What an Update brought in, and what it entitles the caller to record. */
@@ -600,7 +525,7 @@ type PlannedFile = {
 export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
 
 /**
- * Bring a Remote's own additions, replacements and confirmed deletions into this Workspace.
+ * Bring a Remote's own additions, replacements and deletions into this Workspace.
  *
  * The order is the design, and it is what makes every refusal before step 7 free:
  *
@@ -609,21 +534,14 @@ export const UPDATE_DOWNLOAD_CONCURRENCY = 6;
  * 3. **The Workspace is listed, read and hashed completely.** The write index cannot see an
  *    out-of-band edit to a chosen folder, and this pass is entitled to revise the status the author
  *    was shown.
- * 4. **The plan** — `synchronization-planner.ts`'s, which owns every three-way decision. A Conflict,
- *    a graph-invalid combination and an unattributable pair of sides are refused here. A path the
- *    Remote deleted and this Workspace changed is one of those Conflicts and never reaches step 6.
+ * 4. **The plan** — `synchronization-planner.ts`'s, which owns every three-way decision, for both
+ *    directions at once. Only the inbound half is acted on. A Conflict is refused here; a path the
+ *    Remote deleted and this Workspace changed is one of those.
  * 5. **Every prospective `project.json` is gathered and the whole graph validated**, so a combination
  *    that would not open is refused before a byte of it is visible.
- * 6. **The deletions, if any, are described and confirmed** — and a decline stops here, having
- *    written nothing at all.
- * 7. **The transaction**: the marker, the before-images, the fetch-and-verify, the deletions, the
+ * 6. **The transaction**: the marker, the before-images, the fetch-and-verify, the deletions, the
  *    commit.
- * 8. **The Baseline the caller may record**, advanced only where the two sides now share bytes.
- *
- * ⚠ **The confirmation is step 6 rather than step 5, and it is not a free reordering.** The graph
- * check is what decides whether the deletions are even on offer: a combination that would leave the
- * Workspace incomplete is a Conflict, and asking somebody to confirm removing a Project and *then*
- * refusing the Update is a question that was never real.
+ * 7. **The Baseline the caller may record**, advanced only where the two sides now share bytes.
  *
  * @throws UpdateRefusedError for every refusal there is. Only `'unresolved-residue'` leaves the
  *   Workspace other than exactly as it was.
@@ -655,8 +573,8 @@ export async function updateFromGitHub(
 	const inventory = { local, remote: blobs.map(({ path, sha }) => ({ path, sha })) };
 
 	// The first plan settles what would change; the second, below, judges the result it would leave.
-	const planned = planWorkspaceUpdate({ ...inventory, baseline: options.baseline });
-	if (planned.outcome !== 'planned') throw asPlanRefusal(remote, planned);
+	const planned = planWorkspaceSync({ ...inventory, baseline: options.baseline });
+	assertGettable(remote, planned);
 
 	const source = createHttpProjectStore({
 		resolve: (path) =>
@@ -667,19 +585,18 @@ export async function updateFromGitHub(
 		...(options.fetch === undefined ? {} : { fetch: options.fetch })
 	});
 
-	const manifests = await prospectiveManifests(store, source, remote, planned.plan, localShas);
+	const manifests = await prospectiveManifests(store, source, remote, planned, localShas);
 	// ⚠ **The same planner, asked again with the material to judge the result.** A second reading of
-	// the Workspace's invariants here is how the Update and the Open come to disagree about what a
-	// valid Workspace is; there is exactly one, and this is the call that uses it.
-	const judged = planWorkspaceUpdate({
+	// the Workspace's invariants here is how a get and an Open come to disagree about what a valid
+	// Workspace is; there is exactly one, and this is the call that uses it.
+	const plan = planWorkspaceSync({
 		...inventory,
 		baseline: options.baseline,
 		projectFiles: manifests.byShaOnly
 	});
-	if (judged.outcome !== 'planned') throw asPlanRefusal(remote, judged);
-	const plan = judged.plan;
+	assertGettable(remote, plan);
 
-	const files: PlannedFile[] = plan.changes
+	const files: PlannedFile[] = plan.toGet.changes
 		.filter((change): change is PathChoice & { sha: string } => change.sha !== null)
 		.map((change) => ({
 			path: change.path as StorePath,
@@ -688,12 +605,8 @@ export async function updateFromGitHub(
 			effect: change.effect === 'replace' ? 'replace' : 'add',
 			fetched: manifests.byPath.get(change.path) ?? null
 		}));
-	const removals = plan.changes
-		.filter((change) => change.effect === 'delete')
-		.map((change) => change.path as StorePath)
-		.sort();
+	const removals = plan.toGet.removed.map((path) => path as StorePath);
 
-	await confirmRemovals(store, remote, local, removals, options.confirmDeletion);
 	await assertRoomToUpdate(store, files, removals, options.estimateStorage);
 	const transferred = await transfer(store, source, remote, files, removals, commit, options);
 
@@ -713,7 +626,7 @@ export async function updateFromGitHub(
 		totalFiles: files.length,
 		totalBytes: transferred,
 		baseline: advancedBaseline(options.baseline, plan),
-		shared: [...plan.advances.keys(), ...plan.retires].sort(),
+		shared: [...plan.toGet.advances.keys(), ...plan.toGet.retires].sort(),
 		notice: updateNotice(remote, plan, files, removals)
 	};
 }
@@ -721,17 +634,17 @@ export async function updateFromGitHub(
 /**
  * The Baseline a successful Update may record: the previous one, advanced where the sides now agree.
  *
- * ⚠ **Not the prospective inventory.** `plan.advances` is exactly the paths the two sides now share
- * and `plan.retires` exactly those neither holds; every other path keeps whatever the Baseline said,
+ * ⚠ **Not the prospective inventory.** `toGet.advances` is exactly the paths the two sides now share
+ * and `toGet.retires` exactly those neither holds; every other path keeps whatever the Baseline said,
  * which is what leaves a local-only change reporting as Changes to publish afterwards.
  */
 function advancedBaseline(
 	previous: SynchronizationBaseline | null,
-	plan: WorkspaceUpdatePlan
+	plan: WorkspaceSyncPlan
 ): ReadonlyMap<string, string> {
 	const files = new Map(previous?.files ?? []);
-	for (const path of plan.retires) files.delete(path);
-	for (const [path, sha] of plan.advances) files.set(path, sha);
+	for (const path of plan.toGet.retires) files.delete(path);
+	for (const [path, sha] of plan.toGet.advances) files.set(path, sha);
 	return files;
 }
 
@@ -796,11 +709,11 @@ async function prospectiveManifests(
 	store: ProjectStore,
 	source: { read(path: StorePath): Promise<Bytes> },
 	remote: RemoteRelationship,
-	plan: WorkspaceUpdatePlan,
+	plan: WorkspaceSyncPlan,
 	localShas: ReadonlyMap<string, string>
 ): Promise<{ byShaOnly: Map<string, Bytes>; byPath: Map<string, Bytes> }> {
 	const prospective = new Map(localShas);
-	for (const change of plan.changes) {
+	for (const change of plan.toGet.changes) {
 		if (change.sha === null) prospective.delete(change.path);
 		else prospective.set(change.path, change.sha);
 	}
@@ -828,112 +741,6 @@ const isProjectManifest = (path: string): boolean => {
 	const segments = path.split('/');
 	return segments.length === 2 && segments[1] === PROJECT_FILE_NAME;
 };
-
-/**
- * Ask about the deletions and refuse unless they are confirmed. **Before anything is written.**
- *
- * Silent when the plan removes nothing: an Update that only adds and replaces is not a destructive
- * one, and a confirmation raised over it would train the author to click through the one that matters.
- */
-async function confirmRemovals(
-	store: ProjectStore,
-	remote: RemoteRelationship,
-	local: readonly InventoryEntry[],
-	removals: readonly StorePath[],
-	confirm: UpdateFromGitHubOptions['confirmDeletion']
-): Promise<void> {
-	if (removals.length === 0) return;
-	if (confirm === undefined) {
-		throw new UpdateRefusedError('deletion', deletionMessage(remote, removals), {
-			paths: [...removals]
-		});
-	}
-	const preview = await describeRemovals(store, remote, local, removals);
-	if (await confirm(preview)) return;
-	throw new UpdateRefusedError('cancelled', cancelledMessage(remote), { paths: [...removals] });
-}
-
-/**
- * What the deletions come to, in Projects and Map Images.
- *
- * ⚠ **Grouped from the Workspace as it is now, not from the Remote's tree.** A Project is removed
- * *completely* when every file this Workspace holds under its directory is going, and that is a claim
- * about the local side: the Remote is precisely the side that no longer has them. The same for a Map
- * Image and its pyramid.
- */
-async function describeRemovals(
-	store: ProjectStore,
-	remote: RemoteRelationship,
-	local: readonly InventoryEntry[],
-	removals: readonly StorePath[]
-): Promise<UpdateDeletionPreview> {
-	const going = new Set<string>(removals);
-	const held = local.map((entry) => entry.path);
-	const emptied = (prefix: string): boolean => {
-		const under = held.filter((path) => path.startsWith(prefix));
-		return under.length > 0 && under.every((path) => going.has(path));
-	};
-
-	// Every removed path one of the two groupings below already speaks for, so {@link
-	// UpdateDeletionPreview.remaining} is the rest of the deletion rather than a second telling of it.
-	const accounted = new Set<string>();
-	const claim = (prefix: string): void => {
-		for (const path of held) if (path.startsWith(prefix)) accounted.add(path);
-	};
-
-	const projects: RemovedProject[] = [];
-	for (const directory of [...projectDirectories(held)].sort()) {
-		if (!emptied(`${directory}/`)) continue;
-		projects.push({ directory, name: await displayName(store, directory) });
-		claim(`${directory}/`);
-	}
-
-	const identities = new Set(
-		held
-			.filter((path) => path.startsWith(`${IMAGE_DIRECTORY}/`))
-			.map((path) => path.split('/')[1] ?? '')
-	);
-	const mapImages: string[] = [];
-	for (const imageId of [...identities].sort()) {
-		if (imageId === '' || !emptied(`${IMAGE_DIRECTORY}/${imageId}/`)) continue;
-		mapImages.push(imageId);
-		claim(`${IMAGE_DIRECTORY}/${imageId}/`);
-		// ⚠ **The Alignment belongs to the Map Image, not to the leftovers.** It lives beside the
-		// pyramid rather than inside it, so a purely prefix-shaped accounting would list
-		// `alignments/map-1.json` as an unexplained extra file in the same breath as saying the Map Image
-		// it is the Alignment *for* is going.
-		accounted.add(`${ALIGNMENT_DIRECTORY}/${imageId}.json`);
-	}
-
-	const remaining = removals.filter((path) => !accounted.has(path)).sort();
-
-	return {
-		remote,
-		projects,
-		mapImages,
-		paths: [...removals],
-		remaining,
-		message: removalMessage(remote, projects, mapImages, remaining, removals)
-	};
-}
-
-/**
- * The name in a Project's own `project.json`, or its directory when that cannot be had.
- *
- * The directory is a real answer rather than a placeholder — it is what the author sees in a file
- * browser and what the Remote's tree calls it — and withholding the confirmation because a manifest
- * will not parse would withhold it over exactly the Project most worth asking about.
- */
-async function displayName(store: ProjectStore, directory: string): Promise<string> {
-	try {
-		const file = parseProjectFile(
-			await store.read(`${directory}/${PROJECT_FILE_NAME}` as StorePath)
-		);
-		return file.name === '' ? directory : file.name;
-	} catch {
-		return directory;
-	}
-}
 
 /**
  * Refuse an Update there is no room for, **before the marker exists**.
@@ -1249,99 +1056,51 @@ function asUpdateRefusal(remote: RemoteRelationship, cause: unknown): UpdateRefu
 	}
 }
 
-/** A plan that will not go ahead, in the words a scholar acts on. */
-function asPlanRefusal(
-	remote: RemoteRelationship,
-	result: Exclude<ReturnType<typeof planWorkspaceUpdate>, { outcome: 'planned' }>
-): UpdateRefusedError {
+/**
+ * Refuse a get the plan will not support, **before anything is written**.
+ *
+ * ⚠ **Three refusals and no others.** A Remote holding work this Workspace has not taken in is what
+ * a get is *for*; a Workspace holding work the Remote has not got is left alone; and with no
+ * Baseline nothing is removed in either direction. What is left is the Conflict — the one row of the
+ * three-way table with no safe answer — and the two ways the prospective Workspace cannot be
+ * judged at all.
+ *
+ * ⚠ **No deletion confirmation.** Every removal a get would make is on the Sync modal the author
+ * read before pressing, so a second question here would be the same question twice — and a
+ * confirmation people meet twice is one they learn to press through (ADR-0044).
+ */
+function assertGettable(remote: RemoteRelationship, plan: WorkspaceSyncPlan): void {
 	const named = describeRemote(remote);
-	if (result.outcome === 'failed') {
-		const unsupported = result.failures.find((failure) => failure.kind === 'unsupported');
-		return new UpdateRefusedError(
+	const graph = plan.comparison.graph;
+	if (graph.outcome === 'failed') {
+		const unsupported = graph.failures.find((failure) => failure.kind === 'unsupported');
+		throw new UpdateRefusedError(
 			unsupported ? 'unsupported' : 'invalid',
 			unsupported
 				? `${unsupported.path} on ${named} was written by a newer version of Ballastella than ` +
 						`this one, so this browser cannot tell whether the result would be complete. Update ` +
 						`Ballastella and try again; updating with this version could silently drop work its ` +
 						`author can see. Nothing has been changed.`
-				: `What ${named} holds could not be checked over: ` +
-						`${result.failures.map((failure) => failure.detail).join(' ')} Nothing has been ` +
-						`changed, because a result this app cannot check is one it cannot promise to open.`,
-			{ paths: result.failures.map((failure) => failure.path).sort() }
+				: `What ${named} holds could not be checked over: ${describeGraphFailure(graph.failures)} ` +
+						`Nothing has been changed, because a result this app cannot check is one it cannot ` +
+						`promise to open.`,
+			{ paths: graph.failures.map((failure) => failure.path).sort() }
 		);
 	}
-	if (result.reason === 'conflict') {
-		return new UpdateRefusedError(
+	if (graph.outcome === 'invalid') {
+		throw new UpdateRefusedError('invalid', describeGraphViolations(graph.violations), {
+			paths: graph.violations.map((violation) => violation.path).sort()
+		});
+	}
+	if (plan.conflicts.length > 0) {
+		const paths = plan.conflicts.map((row) => row.path);
+		throw new UpdateRefusedError(
 			'conflict',
-			`${result.message} Nothing on GitHub has been ` +
-				`changed either, and both versions are still where they were.`,
-			{ paths: result.paths }
+			`${describeConflict(paths)} Nothing on GitHub has been changed either, and both versions ` +
+				`are still where they were.`,
+			{ paths }
 		);
 	}
-	if (result.reason === 'unknown-history') {
-		return new UpdateRefusedError('unknown-history', result.message, { paths: result.paths });
-	}
-	// `'remote-changes'` and `'changes-on-both-sides'` are publishing's refusals: an Update is the
-	// remedy for both, so `planWorkspaceUpdate` never answers either. Said rather than silently
-	// mapped onto something else, because a new refusal reaching here should be legible.
-	return new UpdateRefusedError('refused', result.message, { paths: result.paths });
-}
-
-function deletionMessage(remote: RemoteRelationship, paths: readonly string[]): string {
-	return (
-		`${describeRemote(remote)} has had ${paths.length === 1 ? 'a file' : `${paths.length} files`} ` +
-		`deleted since this Workspace last agreed with it, and removing work from your Workspace is a ` +
-		`step Ballastella will not take without asking you about it by name first. There is nowhere to ` +
-		`ask, so nothing has been changed — not the deletions, and not the other changes that came ` +
-		`with them. ${paths.length === 1 ? 'The file is' : 'The files are'}: ${paths.join(', ')}.`
-	);
-}
-
-function cancelledMessage(remote: RemoteRelationship): string {
-	return (
-		`The Update was not carried out, so nothing in this Workspace has been removed or changed. ` +
-		`${describeRemote(remote)} is exactly as it was too, and the record of what the two of them ` +
-		`last shared is unchanged — so asking again shows you the same thing.`
-	);
-}
-
-/**
- * The question the author is asked before anything goes.
- *
- * ⚠ **It says what Update will do, not what it might do.** The confirmation is the last point at
- * which the answer is still no, so the sentence has to be the whole of the consequence: which
- * Projects, which Map Images, how much else, and that Update removes them from this Workspace.
- */
-function removalMessage(
-	remote: RemoteRelationship,
-	projects: readonly RemovedProject[],
-	mapImages: readonly string[],
-	remaining: readonly string[],
-	paths: readonly string[]
-): string {
-	const named = [
-		...projects.map((project) => `the Project “${project.name}” (${project.directory})`),
-		...mapImages.map((imageId) => `the Map Image ${imageId}`)
-	];
-	const rest =
-		remaining.length === 0
-			? ''
-			: ` ${named.length === 0 ? 'It removes' : 'It also removes'} ` +
-				`${count(remaining.length, 'file')}: ${remaining.join(', ')}.`;
-	return (
-		`${describeRemote(remote)} no longer holds ${count(paths.length, 'file')} this Workspace and ` +
-		`GitHub last agreed on, and Update will remove ${paths.length === 1 ? 'it' : 'them'} from this ` +
-		`Workspace.` +
-		(named.length === 0 ? '' : ` That removes ${sentenceList(named)} completely.`) +
-		rest +
-		` Nothing on GitHub is changed either way, and your own unpublished work is left alone.`
-	);
-}
-
-/** `a`, `a and b`, `a, b and c` — a list a person reads rather than one a program prints. */
-function sentenceList(parts: readonly string[]): string {
-	if (parts.length <= 1) return parts[0] ?? '';
-	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1] as string}`;
 }
 
 function missingFileMessage(remote: RemoteRelationship, path: string, cause: unknown): string {
@@ -1408,7 +1167,7 @@ function unreachableMessage(remote: RemoteRelationship, cause: unknown): string 
 /** What a successful Update says it did, in the words a scholar reads. */
 function updateNotice(
 	remote: RemoteRelationship,
-	plan: WorkspaceUpdatePlan,
+	plan: WorkspaceSyncPlan,
 	files: readonly PlannedFile[],
 	removals: readonly StorePath[]
 ): string {

@@ -584,8 +584,8 @@ export { ManagedProjectStore, manageProjectStore } from './store/managed-project
 export {
 	comparePath,
 	compareWorkspace,
-	planWorkspacePublish,
-	planWorkspaceUpdate,
+	describeConflict,
+	planWorkspaceSync,
 	type GraphFailure,
 	type GraphVerdict,
 	type GraphViolation,
@@ -593,15 +593,24 @@ export {
 	type PathChoice,
 	type PathComparison,
 	type PlanRefusal,
-	type PlanResult,
 	type SourcePath,
 	type SourceStatus,
+	type SyncDirection,
 	type SynchronizationInput,
 	type WorkspaceComparison,
-	type WorkspacePublishOptions,
-	type WorkspacePublishPlan,
-	type WorkspaceUpdatePlan
+	type WorkspaceSyncPlan
 } from './remote/synchronization-planner.js';
+// What a Sync found, grouped into the Projects and Map Images the modal names rather than the paths
+// behind them (ADR-0044).
+export {
+	EMPTY_SYNC_COLUMN,
+	describeChanges,
+	describeSyncPlan,
+	type Change,
+	type SyncColumn,
+	type SyncMode,
+	type SyncPlan
+} from './remote/sync-plan.js';
 export {
 	IndexedDbMetadataStorage,
 	browserMetadataStorage
@@ -626,8 +635,8 @@ export {
 	type OpenWorkspaceFromGitHubOptions,
 	type OpenedWorkspace
 } from './remote/open-workspace-from-github.js';
-// Update from GitHub: the explicit inbound transfer, which takes the Remote's own additions,
-// replacements and confirmed deletions, keeps local-only work, and publishes nothing (ADR-0038).
+// The inbound half of a Sync: the explicit transfer that takes the Remote's own additions,
+// replacements and deletions, keeps local-only work, and sends nothing (ADR-0038, ADR-0044).
 // Anonymous, like the Open above — inbound synchronization is not publishing authority.
 export {
 	UPDATE_BEFORE_DIRECTORY,
@@ -641,10 +650,8 @@ export {
 	recoverWorkspaceUpdate,
 	serialiseUpdateTransaction,
 	updateFromGitHub,
-	type RemovedProject,
 	type UnreadableUpdateTransaction,
 	type UpdateBeforeImage,
-	type UpdateDeletionPreview,
 	type UpdateFromGitHubOptions,
 	type UpdateRecovery,
 	type UpdateReference,
@@ -709,7 +716,7 @@ export {
 	type GrantedRepository,
 	type GrantedInstallation
 } from './remote/github-installations.js';
-// Whether a Remote belongs to somebody else as well, and what a confirmed Publish anyway would take
+// Whether a Remote belongs to somebody else as well, and what a confirmed overwrite would take
 // off it (ADR-0043). Collaboration needs nothing built to allow it; what it needs is that the one
 // local-wins escape hatch names the work it would delete when the Remote is not the author's alone.
 export {

@@ -39,8 +39,7 @@ import {
 	UpdateRefusedError,
 	readUpdateTransaction,
 	recoverWorkspaceUpdate,
-	updateFromGitHub,
-	type UpdateDeletionPreview
+	updateFromGitHub
 } from './update-from-github.js';
 
 const OWNER = 'ada';
@@ -128,19 +127,13 @@ async function remoteWithChanges(): Promise<FakeGitHub> {
 	return fake;
 }
 
-/** The Update the whole file is about: the four changes above, with the deletions confirmed. */
-const updateConfirming = (
-	store: ProjectStore,
-	fake: FakeGitHub,
-	base: SynchronizationBaseline,
-	confirm: (preview: UpdateDeletionPreview) => boolean = () => true
-) =>
+/** The get the whole file is about: the four changes above. */
+const getChanges = (store: ProjectStore, fake: FakeGitHub, base: SynchronizationBaseline) =>
 	updateFromGitHub(store, {
 		remote: REMOTE,
 		baseline: base,
 		fetch: fake.fetch,
-		workspace: 'Atlas',
-		confirmDeletion: confirm
+		workspace: 'Atlas'
 	});
 
 /**
@@ -214,7 +207,7 @@ describe('an Update applied as one transaction', () => {
 	it('adds, replaces and removes in one operation and leaves no residue', async () => {
 		const store = seed();
 
-		const result = await updateConfirming(store, await remoteWithChanges(), await baseline());
+		const result = await getChanges(store, await remoteWithChanges(), await baseline());
 
 		expect(snapshot(store)).toEqual(AFTER);
 		expect(result.added).toEqual(['images/map-1/0/0/1.jpg']);
@@ -230,7 +223,7 @@ describe('an Update applied as one transaction', () => {
 	it('advances the Baseline for what is now shared and retires what neither side holds', async () => {
 		const store = seed();
 
-		const result = await updateConfirming(store, await remoteWithChanges(), await baseline());
+		const result = await getChanges(store, await remoteWithChanges(), await baseline());
 
 		// Exactly the Workspace the Update left, and nothing about the paths it removed.
 		expect([...result.baseline.keys()].sort()).toEqual(Object.keys(AFTER).sort());
@@ -243,7 +236,7 @@ describe('an Update applied as one transaction', () => {
 		const fake = await remoteWithChanges();
 		const head = fake.head();
 
-		await updateConfirming(store, fake, await baseline());
+		await getChanges(store, fake, await baseline());
 
 		expect(fake.head()).toBe(head);
 		expect(fake.files().has('amsterdam-1625/project.json')).toBe(false);
@@ -260,7 +253,7 @@ describe('fault injection at every durable boundary', () => {
 	 */
 	const boundaries = async (): Promise<number> => {
 		const counting = new Interrupted(seed(), Number.MAX_SAFE_INTEGER);
-		await updateConfirming(counting, await remoteWithChanges(), await baseline());
+		await getChanges(counting, await remoteWithChanges(), await baseline());
 		return counting.mutations;
 	};
 
@@ -279,9 +272,7 @@ describe('fault injection at every durable boundary', () => {
 			// It may refuse and it may succeed — a backing that died while the *residue* was being swept
 			// has already committed everything the caller was promised. What it may never do is either of
 			// those over a Workspace that is half of each.
-			await updateConfirming(store, await remoteWithChanges(), await baseline()).catch(
-				() => undefined
-			);
+			await getChanges(store, await remoteWithChanges(), await baseline()).catch(() => undefined);
 
 			const restarted = restart(dead);
 			await recoverWorkspaceUpdate(restarted);
@@ -295,11 +286,9 @@ describe('fault injection at every durable boundary', () => {
 		const dead = seed();
 		// Killed inside the deletions, which is the state with something restored *and* something
 		// removed: the one where a second, differently-interrupted recovery could disagree with the first.
-		await updateConfirming(
-			new Interrupted(dead, 8),
-			await remoteWithChanges(),
-			await baseline()
-		).catch(() => undefined);
+		await getChanges(new Interrupted(dead, 8), await remoteWithChanges(), await baseline()).catch(
+			() => undefined
+		);
 
 		// A recovery that is itself interrupted, then run again, then run again over nothing.
 		const halfWay = restart(dead);
@@ -320,9 +309,7 @@ describe('fault injection at every durable boundary', () => {
 		// as it was without anybody reloading anything.
 		store.failWriteAt(7, 'rename');
 
-		const refused = await refusal(
-			updateConfirming(store, await remoteWithChanges(), await baseline())
-		);
+		const refused = await refusal(getChanges(store, await remoteWithChanges(), await baseline()));
 
 		expect(refused.refusal).toBe('write-failed');
 		expect(snapshot(store)).toEqual(BEFORE);
@@ -333,9 +320,7 @@ describe('fault injection at every durable boundary', () => {
 		const dead = seed();
 		const store = new Interrupted(dead, 6);
 
-		const refused = await refusal(
-			updateConfirming(store, await remoteWithChanges(), await baseline())
-		);
+		const refused = await refusal(getChanges(store, await remoteWithChanges(), await baseline()));
 
 		// The one refusal that does not promise the Workspace is as it was — and the marker is still
 		// there, which is the durable evidence the restart above works from.
@@ -354,7 +339,6 @@ describe('before it will start at all', () => {
 				remote: REMOTE,
 				baseline: await baseline(),
 				fetch: (await remoteWithChanges()).fetch,
-				confirmDeletion: () => true,
 				estimateStorage: async () => ({ quota: 1_000_000, usage: 999_950 })
 			})
 		);
@@ -372,16 +356,14 @@ describe('before it will start at all', () => {
 
 	it('will not plan over an unresolved record, so nothing reads a mixed Workspace', async () => {
 		const dead = seed();
-		await updateConfirming(
-			new Interrupted(dead, 6),
-			await remoteWithChanges(),
-			await baseline()
-		).catch(() => undefined);
+		await getChanges(new Interrupted(dead, 6), await remoteWithChanges(), await baseline()).catch(
+			() => undefined
+		);
 
 		// A second Update, without a restart in between: the evidence is unresolved and the backing is
 		// gone, so the answer is the refusal that keeps the Workspace shut rather than a second attempt.
 		const refused = await refusal(
-			updateConfirming(
+			getChanges(
 				new Interrupted(dead, Number.MAX_SAFE_INTEGER),
 				await remoteWithChanges(),
 				await baseline()

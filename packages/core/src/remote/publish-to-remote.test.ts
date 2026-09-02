@@ -256,14 +256,17 @@ describe('a second publish', () => {
 		it('is changed when a Project has been deleted here, which no blob count can see', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
+			const first = await publish(store, github);
 			await store.delete('amsterdam-1625/project.json');
 			await store.delete('amsterdam-1625/annotations/notes.json');
 
+			// The Baseline threaded through, because it is what licenses the removal at all: with no
+			// record of what the two last shared a send takes nothing down (ADR-0044).
 			const plan = await planRemotePublish(store, {
 				token: TOKEN,
 				remote: REMOTE,
-				fetch: github.fetch
+				fetch: github.fetch,
+				baseline: shared(first)
 			});
 
 			// Every remaining file's bytes are on the Remote, so the upload is empty and the tree is not.
@@ -1083,13 +1086,13 @@ describe('a budget spent part way through', () => {
 	});
 });
 
-// ── The conflict refusal (ADR-0033, "The publish manifest, and the two refusals") ──────────────
+// ── What a send is allowed to touch (ADR-0033, ADR-0044) ──────────────────────────────────────
 //
-// ⚠ **A manifest compared the wrong way round overwrites another machine's Annotation, and no
-// count of requests can see it.** So every case below asserts what is on the Remote afterwards —
-// whose bytes are at the path, and whether the paths a Workspace does not have are still there —
-// and the refusal's own words are asserted only where the words are the deliverable.
-describe('a publish that would overwrite another machine', () => {
+// ⚠ **A comparison made the wrong way round overwrites another machine's Annotation, and no count
+// of requests can see it.** So every case below asserts what is on the Remote afterwards — whose
+// bytes are at the path, and whether the paths a Workspace does not have are still there — and the
+// refusal's own words are asserted only where the words are the deliverable.
+describe('a send against a Remote that has moved', () => {
 	/**
 	 * The desktop's afternoon, arriving on the Remote after the laptop last looked.
 	 *
@@ -1126,52 +1129,69 @@ describe('a publish that would overwrite another machine', () => {
 			baseline: lastSeen
 		});
 
-	it('refuses, names the changed path, and leaves the other machine’s work on the Remote', async () => {
+	// ⚠ **The single most important behaviour in this file.** Sending is not refused any more, and it
+	// is not a refusal that protects the desktop's afternoon: the path is simply not one this send
+	// touches, and the resulting tree is where that is asserted.
+	it('leaves the other machine’s work exactly as it is, and offers it to get instead', async () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
-		const posted = github.blobPosts;
-		const head = github.head();
+		await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-		expect([plan.conflict?.reason, plan.conflict?.paths]).toEqual([
-			'remote-changes',
-			['amsterdam-1625/annotations/notes.json']
-		]);
-		await expect(
-			publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
-		).rejects.toBeInstanceOf(RemotePublishRefusedError);
-		// The half that matters: the desktop's afternoon is still there, and the refusal cost the
-		// Remote nothing at all — not a blob, not a commit, not a ref move.
+		expect(plan.conflict).toBeNull();
+		expect(plan.leftAlone).toEqual(['amsterdam-1625/annotations/notes.json']);
+		// The half that matters: the desktop's afternoon is still there, byte for byte, after a
+		// completed send from a laptop that has never seen it.
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}'
 		);
-		expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
+		// And it is in the other column, which is where the author can act on it.
+		expect(plan.incoming).toEqual([
+			{
+				path: 'amsterdam-1625/annotations/notes.json',
+				sha: await gitBlobSha(
+					encode('{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}')
+				),
+				effect: 'replace'
+			}
+		]);
 	});
 
-	it('offers both remedies in the refusal, naming the file it is about', async () => {
+	it('does not record the path it left alone, so it still reads as work to get', async () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
-		const message = (await laptopPlan(laptop, github, lastSeen)).conflict?.message ?? '';
+		const plan = await laptopPlan(laptop, github, lastSeen);
+		const sent = await publishToRemote(laptop, {
+			token: TOKEN,
+			remote: REMOTE,
+			plan,
+			fetch: github.fetch
+		});
 
-		expect(message).toContain('amsterdam-1625/annotations/notes.json');
-		// The Remote has work this Workspace has not taken in, so the first remedy is Update from
-		// GitHub — it brings that work in and leaves this Workspace's own unpublished edits alone
-		// Opening a second Workspace is the answer to `unknown-history`, not to this.
-		expect(message).toContain('Update from GitHub first');
-		expect(message).toContain('publish anyway');
-		// The sentence that makes the second remedy safe to press: the owned namespace preserves
-		// everything outside itself, so nothing but this app's own files is at stake (ADR-0033).
-		expect(message).toContain('CNAME');
-		// ⚠ **And it promises about paths, never about names.** A publish sends everything the store
-		// lists, so a folder-backed Workspace holding its own `README.md` or `CNAME` publishes it like
-		// any other file — outside the owned namespace, so the refusal would not have flagged it either.
-		// "A README is left alone" is false for exactly the scholar it would most annoy, and this
-		// sentence is load-bearing for the decision it sits under.
-		expect(message).toContain('has no file for');
-		expect(message).not.toMatch(/anything else in the repository/);
+		// The Baseline a send may record covers what it wrote and nothing else. Claiming the path it
+		// left alone would report the desktop's afternoon as already agreed with.
+		expect(sent.baseline.has('amsterdam-1625/annotations/notes.json')).toBe(false);
+		expect([...sent.baseline.keys()]).toContain('amsterdam-1625/project.json');
 	});
 
-	it('publishes anyway when told to, replacing what was there', async () => {
+	it('sends the Workspace’s own outstanding work in the same commit', async () => {
+		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
+		// The laptop's own afternoon, at a different path from the desktop's.
+		await laptop.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"Mine"}'));
+
+		const plan = await laptopPlan(laptop, github, lastSeen);
+		await publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+
+		// Story 32's easy half: changes on both sides at different paths both survive one Sync.
+		expect(decode(github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
+			'{"formatVersion":1,"name":"Mine"}'
+		);
+		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
+			'{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}'
+		);
+	});
+
+	it('overwrites the repository when told to, replacing what was there', async () => {
 		const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
 
 		const plan = await laptopPlan(laptop, github, lastSeen);
@@ -1180,22 +1200,90 @@ describe('a publish that would overwrite another machine', () => {
 			remote: REMOTE,
 			plan,
 			fetch: github.fetch,
-			replace: true
+			overwrite: true
 		});
 
 		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[]}'
 		);
-		// Replacing is still ADR-0033's mirror and not a force push: everything outside the owned
-		// namespace survives a replace exactly as it survives an ordinary publish.
+		// Overwriting is still ADR-0033's mirror and not a force push: everything outside the owned
+		// namespace survives it exactly as it survives an ordinary send.
 		expect(decode(github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 	});
 
-	// ⚠ **A publish that would *delete*, which is the destructive half of the same comparison.** An
-	// owned path on the Remote that this publish would not write is a path the mirror removes, and the
-	// second filter is the only thing between "a Project deleted here goes there too" and "a Project
-	// this Workspace has never had is taken down by somebody who cannot see it". Turn that filter into
-	// a no-op and every other test in this file still passes.
+	// ⚠ **The one refusal a send has left.** The same path changed on both sides has no safe answer
+	// in either direction, and until a Conflict becomes a copy the honest thing is to stop.
+	describe('one path changed on both sides', () => {
+		const contested = async () => {
+			const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
+			await laptop.write(
+				'amsterdam-1625/annotations/notes.json',
+				encode('{"type":"FeatureCollection","features":[{"id":"my-afternoon"}]}')
+			);
+			return { github, laptop, lastSeen };
+		};
+
+		it('is refused, and costs the Remote nothing at all', async () => {
+			const { github, laptop, lastSeen } = await contested();
+
+			const plan = await laptopPlan(laptop, github, lastSeen);
+			const posted = github.blobPosts;
+			const head = github.head();
+
+			expect([plan.conflict?.reason, plan.conflict?.paths]).toEqual([
+				'conflict',
+				['amsterdam-1625/annotations/notes.json']
+			]);
+			await expect(
+				publishToRemote(laptop, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
+			).rejects.toBeInstanceOf(RemotePublishRefusedError);
+			expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
+				'{"type":"FeatureCollection","features":[{"id":"a-whole-afternoon"}]}'
+			);
+			expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
+		});
+
+		it('names the file, and does not send the author round a loop', async () => {
+			const { github, laptop, lastSeen } = await contested();
+
+			const message = (await laptopPlan(laptop, github, lastSeen)).conflict?.message ?? '';
+
+			expect(message).toContain('amsterdam-1625/annotations/notes.json');
+			// Getting refuses this for the same reason, so it is not offered as the remedy.
+			expect(message).toContain('getting these changes will refuse this for the same reason');
+			expect(message).toContain('overwrite the repository');
+			// The sentence that makes the remedy safe to press: the owned namespace preserves
+			// everything outside itself, so nothing but this app's own files is at stake (ADR-0033).
+			// ⚠ **And it promises about paths, never about names.** A send moves everything the store
+			// lists, so a folder-backed Workspace holding its own `README.md` or `CNAME` sends it like
+			// any other file — outside the owned namespace, so the refusal would not have flagged it
+			// either. "A README is left alone" is false for exactly the scholar it would most annoy.
+			expect(message).toContain('has no file for');
+			expect(message).not.toMatch(/anything else in the repository/);
+		});
+
+		it('goes through once the author asks to overwrite the repository', async () => {
+			const { github, laptop, lastSeen } = await contested();
+
+			const plan = await laptopPlan(laptop, github, lastSeen);
+			await publishToRemote(laptop, {
+				token: TOKEN,
+				remote: REMOTE,
+				plan,
+				fetch: github.fetch,
+				overwrite: true
+			});
+
+			expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
+				'{"type":"FeatureCollection","features":[{"id":"my-afternoon"}]}'
+			);
+		});
+	});
+
+	// ⚠ **A send that would *delete*, which is the destructive half of the same comparison.** An
+	// owned path on the Remote that the Baseline recorded and this Workspace no longer has is a path
+	// the mirror removes; one the Baseline never recorded is somebody else's. Turn the
+	// Baseline-narrowing into a no-op and the second test below is the one that fails.
 	describe('a Project on the Remote this Workspace has never had', () => {
 		/** A first publish, and then another machine adding a Project of its own. */
 		const aProjectFromSomewhereElse = async () => {
@@ -1209,7 +1297,7 @@ describe('a publish that would overwrite another machine', () => {
 			return { store, github, lastSeen: shared(first) };
 		};
 
-		it('is refused, and is still on the Remote afterwards', async () => {
+		it('is left alone by a send, and listed as work to get', async () => {
 			const { store, github, lastSeen } = await aProjectFromSomewhereElse();
 
 			const plan = await planRemotePublish(store, {
@@ -1218,23 +1306,24 @@ describe('a publish that would overwrite another machine', () => {
 				fetch: github.fetch,
 				baseline: lastSeen
 			});
+			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
 			// Absent from the Baseline and absent here, so the Remote gained them: `inbound`, which is
 			// what makes them somebody else's rather than ours to remove.
-			expect([plan.conflict?.reason, plan.conflict?.paths]).toEqual([
-				'remote-changes',
-				['florida-1657/annotations/notes.json', 'florida-1657/project.json']
+			expect(plan.conflict).toBeNull();
+			expect(plan.removed).toEqual([]);
+			expect(plan.incoming.map((choice) => choice.path)).toEqual([
+				'florida-1657/annotations/notes.json',
+				'florida-1657/project.json'
 			]);
-			await expect(
-				publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
-			).rejects.toBeInstanceOf(RemotePublishRefusedError);
-			// The assertion the refusal exists for: the Project is still there, whole.
+			// The assertion the rule exists for: the Project is still there, whole, after a completed
+			// send from a Workspace that has never held it.
 			expect([...github.files().keys()].filter((path) => path.startsWith('florida-1657/'))).toEqual(
 				['florida-1657/annotations/notes.json', 'florida-1657/project.json']
 			);
 		});
 
-		it('is removed once the scholar says to replace it', async () => {
+		it('is removed once the scholar asks to overwrite the repository', async () => {
 			const { store, github, lastSeen } = await aProjectFromSomewhereElse();
 
 			const plan = await planRemotePublish(store, {
@@ -1243,12 +1332,17 @@ describe('a publish that would overwrite another machine', () => {
 				fetch: github.fetch,
 				baseline: lastSeen
 			});
+			// Named before it is carried out, which is the whole of what makes the mode safe to offer.
+			expect(plan.overwrites).toEqual([
+				'florida-1657/annotations/notes.json',
+				'florida-1657/project.json'
+			]);
 			await publishToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan,
 				fetch: github.fetch,
-				replace: true
+				overwrite: true
 			});
 
 			expect([...github.files().keys()].filter((path) => path.startsWith('florida-1657/'))).toEqual(
@@ -1256,60 +1350,149 @@ describe('a publish that would overwrite another machine', () => {
 			);
 			expect(decode(github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 		});
+
+		it('is removed by a send once the Baseline records it, which is a deletion here', async () => {
+			const { store, github } = await aProjectFromSomewhereElse();
+			// The Workspace gets the Project, agrees with the Remote about it, and then deletes it.
+			const agreed = await claimingEverythingOnTheRemote(github);
+			await store.write(
+				'florida-1657/project.json',
+				encode('{"formatVersion":1,"name":"Florida"}')
+			);
+			await store.write(
+				'florida-1657/annotations/notes.json',
+				encode('{"type":"FeatureCollection","features":[]}')
+			);
+			await store.delete('florida-1657/project.json');
+			await store.delete('florida-1657/annotations/notes.json');
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				baseline: agreed
+			});
+			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+
+			expect(plan.removed).toEqual([
+				'florida-1657/annotations/notes.json',
+				'florida-1657/project.json'
+			]);
+			expect([...github.files().keys()].filter((path) => path.startsWith('florida-1657/'))).toEqual(
+				[]
+			);
+		});
 	});
 
 	// ⚠ **The consent is about a set of files, not about a moment.** An interface that forecasts,
 	// publishes locally and then plans again — which `EditorSession.publishToRemote` must, or it would
 	// commit a site with no `index.html` — hands this a plan the scholar never read. A bare `true`
-	// would apply their answer about one Annotation to whatever the second listing found, and the ref
+	// would apply their answer about one Project to whatever the second listing found, and the ref
 	// move cannot catch it: the second plan is parented on the new head, so its commit is an ordinary
 	// fast-forward.
-	describe('an agreement to replace, carried across a re-plan', () => {
-		it('goes ahead when the second plan’s conflict is the one that was agreed to', async () => {
-			const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
-			const shown = await laptopPlan(laptop, github, lastSeen);
-
-			const again = await laptopPlan(laptop, github, lastSeen);
-			await publishToRemote(laptop, {
-				token: TOKEN,
-				remote: REMOTE,
-				plan: again,
-				fetch: github.fetch,
-				replace: shown.conflict?.paths ?? []
-			});
-
-			expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
-				'{"type":"FeatureCollection","features":[]}'
-			);
-		});
-
-		it('refuses when the Remote gained a Project between the offer and the acceptance', async () => {
-			const { github, laptop, lastSeen } = await afternoonOnTheOtherMachine();
-			const shown = await laptopPlan(laptop, github, lastSeen);
-
-			// The window is the local publish and the upload, which on a large Workspace is minutes.
+	describe('an agreement to overwrite, carried across a re-plan', () => {
+		/** A Remote holding a Project this Workspace has never had, which an overwrite takes down. */
+		const somebodyElsesProject = async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			const first = await publish(store, github);
 			await github.commitFiles({
 				'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 			});
-			const head = github.head();
-			const again = await laptopPlan(laptop, github, lastSeen);
+			return { store, github, lastSeen: shared(first) };
+		};
 
-			const raised = await publishToRemote(laptop, {
+		const planFor = (store: MemoryProjectStore, github: FakeGitHub, at: SynchronizationBaseline) =>
+			planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				baseline: at
+			});
+
+		it('goes ahead when the second plan takes down exactly what was agreed to', async () => {
+			const { store, github, lastSeen } = await somebodyElsesProject();
+			const shown = await planFor(store, github, lastSeen);
+
+			const again = await planFor(store, github, lastSeen);
+			await publishToRemote(store, {
 				token: TOKEN,
 				remote: REMOTE,
 				plan: again,
 				fetch: github.fetch,
-				replace: shown.conflict?.paths ?? []
+				overwrite: shown.overwrites
+			});
+
+			expect([...github.files().keys()]).not.toContain('florida-1657/project.json');
+		});
+
+		it('refuses when the Remote gained a Project between the offer and the acceptance', async () => {
+			const { store, github, lastSeen } = await somebodyElsesProject();
+			const shown = await planFor(store, github, lastSeen);
+
+			// The window is the local publish and the upload, which on a large Workspace is minutes.
+			await github.commitFiles({ 'delft/project.json': '{"formatVersion":1,"name":"Delft"}' });
+			const head = github.head();
+			const again = await planFor(store, github, lastSeen);
+
+			const raised = await publishToRemote(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				plan: again,
+				fetch: github.fetch,
+				overwrite: shown.overwrites
 			}).catch((cause: unknown) => cause);
 
 			expect(raised).toBeInstanceOf(RemotePublishRefusedError);
 			// It names what was *not* agreed to, and not the file that was: the scholar has decided about
 			// that one already, and repeating it would bury the news underneath it.
-			expect((raised as Error).message).toContain('florida-1657/project.json');
-			expect((raised as Error).message).not.toContain('amsterdam-1625/annotations/notes.json');
+			expect((raised as Error).message).toContain('delft/project.json');
+			expect((raised as Error).message).not.toContain('florida-1657/project.json');
 			// And the Project nobody was shown is still there, on a branch that never moved.
 			expect(github.head()).toBe(head);
-			expect([...github.files().keys()]).toContain('florida-1657/project.json');
+			expect([...github.files().keys()]).toContain('delft/project.json');
+		});
+	});
+
+	// ⚠ **A collaborator who cannot write still gets the comparison** (ADR-0044). Refusing to plan at
+	// all would leave a read-only reader looking at nothing where the *To get* column should be; what
+	// their account cannot do is answered by leaving the send affordances off the screen.
+	describe('an account that cannot push', () => {
+		it('is refused a plan made in order to send', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			github.permissions = { push: false, admin: false };
+
+			const raised = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch
+			}).catch((cause: unknown) => cause);
+
+			expect(raised).toBeInstanceOf(RemotePublishRefusedError);
+			expect((raised as Error).message).toContain('cannot push to it');
+		});
+
+		it('is given the comparison when the plan is only being read', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({
+				...REMOTE,
+				tree: {
+					'README.md': '# Atlas\n',
+					'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
+				}
+			});
+			github.permissions = { push: false, admin: false };
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				baseline: null,
+				sending: false
+			});
+
+			expect(plan.incoming.map((choice) => choice.path)).toEqual(['florida-1657/project.json']);
 		});
 	});
 
@@ -1421,41 +1604,11 @@ describe('a publish that would overwrite another machine', () => {
 			expect([...recorded.baseline.keys()]).toContain('amsterdam-1625/project.json');
 		});
 
-		it('refuses a Remote holding source it cannot attribute, saying we cannot tell', async () => {
-			const store = await smallWorkspace();
-			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
-			await publish(store, github);
-			// Somebody's edit to a file this Workspace also holds, with no record of what the two last
-			// shared: an older copy of this work, or newer work from elsewhere, and nothing can say.
-			await github.commitFiles({
-				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam, revised"}'
-			});
-			const posted = github.blobPosts;
-			const head = github.head();
-
-			const plan = await planWithNoEvidence(store, github);
-
-			expect(plan.conflict?.reason).toBe('unknown-history');
-			expect(plan.conflict?.message).toContain('nothing here can tell');
-			// Said as the ordinary state it is, because every Workspace opened from a Remote is in it
-			// until it has published once.
-			expect(plan.conflict?.message).toContain('not a sign that anything has gone wrong');
-			// ⚠ **And it does not threaten a deletion, because there is none.** Every source path on the
-			// Remote is one this Workspace holds, so nothing would come down — which is what makes the
-			// plain wording honest here and is the fact that separates this reader from the one below.
-			expect(plan.conflict?.message).toContain('take nothing down');
-			expect(plan.conflict?.message).not.toMatch(/would delete/);
-			await expect(
-				publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
-			).rejects.toBeInstanceOf(RemotePublishRefusedError);
-			expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
-		});
-
-		// ⚠ **The same refusal, and the reader it must not be reassuring to.** With no Baseline the two
-		// cases are told apart by one number: how many source paths on the Remote this publish would
-		// not write, which is how many it would *remove*. A partial Open, a second machine, and a
-		// stale Backup are all here and none of them is ordinary.
-		it('names what would be taken down when the Remote holds work this Workspace has not got', async () => {
+		// ⚠ **What used to be `unknown-history`, and what makes a first Sync safe.** With no record of
+		// what the two last shared, nothing is removed in either direction and nothing is overwritten:
+		// a path the two hold differently is the one Conflict a send refuses, and a path only one side
+		// has is offered in the direction it is missing from.
+		it('leaves a Remote it cannot attribute exactly as it is, and refuses nothing over it', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({
 				...REMOTE,
@@ -1467,13 +1620,39 @@ describe('a publish that would overwrite another machine', () => {
 			});
 
 			const plan = await planWithNoEvidence(store, github);
+			await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
 
-			expect(plan.conflict?.reason).toBe('unknown-history');
-			expect(plan.conflict?.message).toContain('2 of them are not in this Workspace');
-			expect(plan.conflict?.message).toContain('would delete');
-			expect(plan.conflict?.message).toContain('florida-1657/project.json');
-			// The reassurance the other reader gets is exactly what must not be said to this one.
-			expect(plan.conflict?.message).not.toContain('not a sign that anything has gone wrong');
+			expect(plan.conflict).toBeNull();
+			expect(plan.removed).toEqual([]);
+			expect([...github.files().keys()].filter((path) => path.startsWith('florida-1657/'))).toEqual(
+				['florida-1657/annotations/notes.json', 'florida-1657/project.json']
+			);
+			// And this Workspace's own work reached it in the same commit, which is the whole point of
+			// retiring the refusal: connecting an existing Workspace to an existing repository works.
+			expect([...github.files().keys()]).toContain('amsterdam-1625/project.json');
+		});
+
+		// ⚠ **The one thing a first Sync still refuses.** A file both sides hold differently with no
+		// record of what they last shared cannot be attributed to either, and Ballastella will not
+		// choose between two versions of a scholar's work.
+		it('refuses a file the two sides hold differently, naming it', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			await publish(store, github);
+			await github.commitFiles({
+				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam, revised"}'
+			});
+			const posted = github.blobPosts;
+			const head = github.head();
+
+			const plan = await planWithNoEvidence(store, github);
+
+			expect(plan.conflict?.reason).toBe('conflict');
+			expect(plan.conflict?.message).toContain('amsterdam-1625/project.json');
+			await expect(
+				publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch })
+			).rejects.toBeInstanceOf(RemotePublishRefusedError);
+			expect([github.blobPosts - posted, github.head()]).toEqual([0, head]);
 		});
 
 		// The website the local publish is about to write is Publish-owned output on both sides, so it

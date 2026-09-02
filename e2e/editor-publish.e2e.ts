@@ -15,8 +15,10 @@ import {
 import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
 import {
+	closeTheDoor,
 	createWorkspace,
 	expectCredential,
+	openSyncModal,
 	openTheDoor,
 	readBaseline,
 	seedGitHubCredential,
@@ -283,20 +285,25 @@ async function withShareLinks(page: Page): Promise<void> {
 }
 
 /**
- * Open the Publish dialog and wait for the plan it computed.
+ * Open the Sync modal and wait for the plan it computed.
  *
- * Two presses from the bar rather than one (ADR-0041): the door names the repository, and
- * **Publish…** is one of the two gestures behind it — beside **Update from GitHub**, which it must
- * never be merged with.
+ * The door is opened first because these specs need Share Links — a Sync from a Workspace that never
+ * asked for them carries no website at all (ADR-0045) — and the door is where that press is. The bar
+ * opens this modal directly for a Workspace with a repository, which `editor-remote-binding` asserts.
  */
-async function openPublishDialog(page: Page) {
+async function openSyncFromTheBar(page: Page) {
+	await openSyncModal(page);
+	return page.getByRole('dialog', { name: 'Sync with GitHub' });
+}
+
+async function openSyncModalWithShareLinks(page: Page) {
 	await openTheDoor(page);
 	await withShareLinks(page);
-	await page.getByTestId('connect-publish').click();
+	await page.getByTestId('connect-sync').click();
 	// Named, because the door's own `<dialog>` stays in the document behind this one and a bare
 	// `getByRole('dialog')` is then two elements rather than one.
-	const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-	await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+	const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+	await expect(dialog.getByTestId('sync-modal')).toBeVisible();
 	return dialog;
 }
 
@@ -336,17 +343,17 @@ async function preparePublish(page: Page, dialog: ReturnType<Page['getByRole']>)
 	await routeGitHubOnce(page);
 	// The credential came with the Workspace (see `openWorkspace`), so what is waited for here is the
 	// forecast the dialog asks GitHub for the moment it opens.
-	await expect(dialog.getByTestId('publish-budget')).toBeVisible({ timeout: 60_000 });
+	await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 60_000 });
 }
 
 async function publish(page: Page, existingDialog?: ReturnType<Page['getByRole']>) {
-	const dialog = existingDialog ?? (await openPublishDialog(page));
+	const dialog = existingDialog ?? (await openSyncModalWithShareLinks(page));
 	await preparePublish(page, dialog);
-	await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-	// Generous, because publishing fetches every file of the bundle and writes it into OPFS: real work,
+	await dialog.getByTestId('sync-send').click();
+	// Generous, because a Sync fetches every file of the bundle and writes it into OPFS: real work,
 	// and the suite runs four workers each driving a real map against the same origin's storage. The
-	// default 5 s here is a measurement of the machine rather than of publishing.
-	await expect(page.getByTestId('publish-status')).toContainText('Published:', { timeout: 30_000 });
+	// default 5 s here is a measurement of the machine rather than of a Sync.
+	await expect(page.getByTestId('sync-status')).toContainText('Sent to', { timeout: 30_000 });
 }
 
 test.describe('publishing a Workspace', () => {
@@ -422,11 +429,11 @@ test.describe('publishing a Workspace', () => {
 			...projectFiles('boston-1775', { name: 'Boston 1775' })
 		});
 
-		const dialog = await openPublishDialog(page);
+		const dialog = await openSyncModalWithShareLinks(page);
 		const boston = dialog.getByTestId('on-front-page-boston-1775');
 		await expect(boston).toBeChecked();
 		await expect(boston).toHaveAccessibleName('On the front page — Boston 1775');
-		const description = dialog.locator('#publish-project-description');
+		const description = dialog.locator('#sync-project-description');
 		await expect(boston).toHaveAttribute(
 			'aria-describedby',
 			(await description.getAttribute('id')) ?? ''
@@ -434,17 +441,17 @@ test.describe('publishing a Workspace', () => {
 
 		await boston.uncheck();
 		await expect(description).toContainText('All Projects stay published.');
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
 		// ⚠ **The forecast, not the checkbox.** Unchecking writes `project.json`, and the plan the
 		// dialog holds is re-made from the Projects afterwards — so pressing Publish on the strength of
 		// the checkbox alone publishes whichever plan happened to be in hand.
-		await expect(dialog.getByTestId('publish-projects')).toContainText(
+		await expect(dialog.getByTestId('sync-site-projects')).toContainText(
 			'2 Projects, 1 of them on the front page'
 		);
 
 		await publish(page, dialog);
 
-		await expect(page.getByTestId('publish-status')).toContainText(
+		await expect(page.getByTestId('sync-status')).toContainText(
 			'carrying 2 Projects, 1 of them on the front page.',
 			{ timeout: 30_000 }
 		);
@@ -453,11 +460,11 @@ test.describe('publishing a Workspace', () => {
 	test('states the Base Map’s size before publishing, and adds those files', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
-		const dialog = await openPublishDialog(page);
+		const dialog = await openSyncModalWithShareLinks(page);
 		// The display assets' size is on screen before publishing spends it.
-		await expect(dialog.getByTestId('publish-breakdown')).toContainText(/[0-9.]+ (kB|MB)/);
+		await expect(dialog.getByTestId('sync-site-breakdown')).toContainText(/[0-9.]+ (kB|MB)/);
 		await publish(page, dialog);
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 30_000
 		});
 
@@ -489,10 +496,10 @@ test.describe('publishing a Workspace', () => {
 			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
 			...publishedSite({ baseMapAssetsBundled: false })
 		});
-		const dialog = await openPublishDialog(page);
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		const dialog = await openSyncModalWithShareLinks(page);
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
 		await publish(page, dialog);
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 30_000
 		});
 		expect(
@@ -504,7 +511,7 @@ test.describe('publishing a Workspace', () => {
 		page
 	}) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		const dialog = await openPublishDialog(page);
+		const dialog = await openSyncModalWithShareLinks(page);
 
 		// `showModal()` makes every node outside the open `<dialog>` inert, and an inert live region is
 		// not a quiet one — it is never announced. So *where* the region sits is the accessibility
@@ -526,7 +533,7 @@ test.describe('publishing a Workspace', () => {
 				// anything to say — is the stack that will hold it. There is no result yet at this point
 				// in the publish, which is the whole reason the region is asked about rather than the
 				// message: a region raised together with its first text is not announced.
-				return { progress: region('publish-progress'), result: region('toast-stack') };
+				return { progress: region('sync-progress'), result: region('toast-stack') };
 			})
 		).toEqual({
 			progress: { insideTheModal: true, live: 'polite', atomic: 'true' },
@@ -543,17 +550,17 @@ test.describe('publishing a Workspace', () => {
 			await route.continue();
 		});
 		await preparePublish(page, dialog);
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(dialog.getByTestId('publish-progress')).toContainText(
-			/Publishing: \d+ of \d+ files\./
+		await dialog.getByTestId('sync-send').click();
+		await expect(dialog.getByTestId('sync-progress')).toContainText(
+			/Writing the viewer: \d+ of \d+ files\./
 		);
 
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 60_000
 		});
 		// One region speaks at a time: the progress line is emptied rather than left holding a sentence
 		// a screen reader would read out again on the next publish.
-		await expect(page.getByTestId('publish-progress')).toHaveText('');
+		await expect(page.getByTestId('sync-progress')).toHaveText('');
 	});
 
 	test('warns that a referenced Map Image leaves a Reader with no network seeing nothing', async ({
@@ -564,14 +571,14 @@ test.describe('publishing a Workspace', () => {
 			projectFiles('amsterdam-1625', { name: 'Amsterdam 1625', referenced: true })
 		);
 
-		const dialog = await openPublishDialog(page);
+		const dialog = await openSyncModalWithShareLinks(page);
 
 		const warning = dialog.locator('[data-warning="referenced-images"]');
 		await expect(warning).toContainText('Blaeu’s plan, from the library');
 		await expect(warning).toContainText('no network');
 		// And the Reader is told too, on the site itself.
 		await publish(page, dialog);
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 30_000
 		});
 
@@ -652,9 +659,9 @@ test.describe('publishing a Workspace', () => {
 			'ballastella-site.json': JSON.stringify({ ...stamped, viewerVersion: 'an-older-viewer' })
 		});
 		await page.reload();
-		await openPublishDialog(page);
+		await openSyncModalWithShareLinks(page);
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('publish-stale')).toContainText('an older version of the viewer');
+		await expect(page.getByTestId('sync-stale')).toContainText('an older version of the viewer');
 
 		await publish(page);
 
@@ -662,7 +669,7 @@ test.describe('publishing a Workspace', () => {
 			Buffer.from((await takeWorkspace(page))['ballastella-site.json']!, 'base64').toString('utf8')
 		);
 		expect(refreshed.viewerVersion).toBe(stamped.viewerVersion);
-		await expect(page.getByTestId('publish-stale')).toBeHidden();
+		await expect(page.getByTestId('sync-stale')).toBeHidden();
 	});
 
 	test('renders a Project’s name as text, never as markup, on the published site', async ({
@@ -842,7 +849,9 @@ test.describe('publishing to a Remote', () => {
 		await seedGitHubCredential(page, TOKEN);
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-		return openPublishDialog(page);
+		// Through the door, because every claim in this describe is about a *site* reaching the Remote
+		// and a Sync from a Workspace that never asked for Share Links carries none (ADR-0045).
+		return openSyncModalWithShareLinks(page);
 	}
 
 	/**
@@ -852,9 +861,9 @@ test.describe('publishing to a Remote', () => {
 	 * namespace either way (ADR-0033), and the remote tests assert on the resulting bytes.
 	 */
 	async function publishToRemote(page: Page, dialog: ReturnType<Page['getByRole']>) {
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
+		await dialog.getByTestId('sync-send').click();
+		await expect(page.getByTestId('sync-status')).toContainText(`Sent to ${REMOTE}`, {
 			timeout: 120_000
 		});
 	}
@@ -878,7 +887,7 @@ test.describe('publishing to a Remote', () => {
 			}
 		});
 		const dialog = await signedIn(page);
-		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible();
 
 		await publishToRemote(page, dialog);
 
@@ -936,9 +945,9 @@ test.describe('publishing to a Remote', () => {
 		const sent = github.blobPosts();
 		const commit = github.head(OWNER, REPOSITORY);
 
-		const again = await openPublishDialog(page);
+		const again = await openSyncFromTheBar(page);
 
-		await expect(again.getByTestId('publish-nothing-to-do')).toContainText(REMOTE);
+		await expect(again.getByTestId('sync-nothing-to-do')).toContainText(REMOTE);
 		// Nothing to press, because there is nothing to do — and nothing was sent finding that out
 		// beyond the two requests the plan itself makes.
 		//
@@ -946,7 +955,7 @@ test.describe('publishing to a Remote', () => {
 		// `disabled` one does, dropping a keyboard user's focus to `<body>` — the failure decision 4 in
 		// `PublishDialog`'s header rules out, and this is the same rule applied to the other way of
 		// taking a control away (WCAG 2.4.3).
-		const confirm = again.getByRole('button', { name: 'Publish', exact: true });
+		const confirm = again.getByTestId('sync-send');
 		await expect(confirm).toHaveAttribute('aria-disabled', 'true');
 		expect(github.blobPosts() - sent).toBe(0);
 		expect(github.head(OWNER, REPOSITORY)).toBe(commit);
@@ -965,7 +974,7 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		const github = await start(page);
 		const dialog = await signedIn(page);
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
 		// Slow every GitHub request down so the progress line is on screen long enough to assert rather
 		// than long enough to be lucky. Installed *after* the fake's own handler, so it is consulted
 		// first and falls back to it — the delay is the whole of what this adds.
@@ -974,11 +983,11 @@ test.describe('publishing to a Remote', () => {
 			await route.fallback();
 		});
 
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await dialog.getByTestId('sync-send').click();
 
-		const progress = dialog.getByTestId('publish-progress');
+		const progress = dialog.getByTestId('sync-progress');
 		await expect(progress).toContainText(
-			/Uploading: \d+ of \d+ files\. \d+ GitHub requests left this hour\./,
+			/Sending: \d+ of \d+ files\. \d+ GitHub requests left this hour\./,
 			{ timeout: 60_000 }
 		);
 		// The total the line is counting towards, kept so the finished publish can be held to it.
@@ -990,19 +999,19 @@ test.describe('publishing to a Remote', () => {
 		// on the press — and it is the only one on the bar that could say it.
 		await expect(page.getByTestId('connect-to-github')).toHaveAttribute('aria-disabled', 'true');
 		await expect(page.getByTestId('connect-to-github')).toContainText(
-			/(Publishing|Uploading)… \d+\/\d+/
+			/(Writing the viewer|Sending)… \d+\/\d+/
 		);
 		expect(await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')).not.toBe('BODY');
 
-		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+		await expect(page.getByTestId('sync-status')).toContainText(`Sent to ${REMOTE}`, {
 			timeout: 120_000
 		});
 		// The outcome is outside the dialog, where the dialog no longer is — and it stays there.
-		await expect(page.getByTestId('publish-status')).toBeVisible();
-		await expect(page.getByRole('dialog', { name: 'Publish this Workspace' })).toBeHidden();
+		await expect(page.getByTestId('sync-status')).toBeVisible();
+		await expect(page.getByRole('dialog', { name: 'Sync with GitHub' })).toBeHidden();
 		// One region speaks at a time: the progress line is emptied rather than left holding a sentence
 		// a screen reader would read out again on the next publish.
-		await expect(page.getByTestId('publish-progress')).toHaveText('');
+		await expect(page.getByTestId('sync-progress')).toHaveText('');
 		expect(github.files(OWNER, REPOSITORY)).toContain('index.html');
 		// ⚠ **And the count it was climbing towards is the transfer that happened**, not the plan it
 		// started from: every file the line promised was uploaded, one blob apiece. A progress line
@@ -1037,7 +1046,7 @@ test.describe('publishing to a Remote', () => {
 
 		// Two, not three: a recursive listing carries an entry per directory as well, and quoting the
 		// folder would tell a scholar to delete files they do not have.
-		const refusal = dialog.getByTestId('publish-upload-problem');
+		const refusal = dialog.getByTestId('sync-problem');
 		await expect(refusal).toContainText('first 2 files');
 		await expect(refusal).toContainText('deleting Map Images no Project uses');
 		expect(github.blobPosts()).toBe(0);
@@ -1047,8 +1056,8 @@ test.describe('publishing to a Remote', () => {
 		// thing on this screen the scholar has to act on, and dismissing the modal is how they get back
 		// to the Workspace to act on it.
 		await page.keyboard.press('Escape');
-		await expect(page.getByRole('dialog', { name: 'Publish this Workspace' })).toBeHidden();
-		const refusalToast = page.getByTestId('publish-failure');
+		await expect(page.getByRole('dialog', { name: 'Sync with GitHub' })).toBeHidden();
+		const refusalToast = page.getByTestId('sync-failure');
 		// In the app's one toast stack, which is what makes it dismissible and what keeps it from
 		// pushing the Workspace down the screen behind it.
 		await expect(page.locator('.toast')).toContainText('first 2 files');
@@ -1091,7 +1100,7 @@ test.describe('publishing to a Remote', () => {
 		// every byte it is about to send: the fixture that stands the local warning up is a sparse file
 		// `ProjectStore#size` reports without reading, and this path would read all of it.
 		await expect(dialog.locator('[data-budget="bytes"]')).toContainText(
-			/Site size: [\d.]+ (bytes|kB|MB|GB) \/ 1\.0 GB GitHub\s+Pages limit\./
+			/the repository would hold\s+[\d.]+ (bytes|kB|MB|GB) \/ 1\.0 GB\s+GitHub Pages limit\./
 		);
 	});
 
@@ -1108,8 +1117,8 @@ test.describe('publishing to a Remote', () => {
 	test('states the file count it will send, and the outcome agrees with it', async ({ page }) => {
 		const github = await start(page);
 		const dialog = await signedIn(page);
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
-		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible();
 
 		const stated = await dialog.locator('[data-budget="files"]').innerText();
 		const [, uploads, total] = stated.match(/(\d+) of (\d+) files need uploading/) ?? [];
@@ -1124,7 +1133,7 @@ test.describe('publishing to a Remote', () => {
 		// other — so a forecast that counted paths would send a scholar to wait for a rate-limit reset
 		// they were never going to meet.
 		expect(Number(uploads)).toBeLessThan(Number(total));
-		await expect(page.getByTestId('publish-status')).toContainText(`${uploads} of them uploaded`);
+		await expect(page.getByTestId('sync-status')).toContainText(`${uploads} of them uploaded`);
 	});
 
 	test('stops legibly when the budget runs out part way, leaving the site as it was', async ({
@@ -1143,9 +1152,9 @@ test.describe('publishing to a Remote', () => {
 		const before = github.files(OWNER, REPOSITORY);
 		const commit = github.head(OWNER, REPOSITORY);
 		const dialog = await signedIn(page);
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
+		await expect(dialog.getByTestId('sync-site-breakdown')).toBeVisible();
 
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await dialog.getByTestId('sync-send').click();
 
 		const stopped = dialog.getByRole('alert').first();
 		await expect(stopped).toContainText('hourly request budget ran out', { timeout: 120_000 });
@@ -1158,7 +1167,7 @@ test.describe('publishing to a Remote', () => {
 		// It survives the dialog, and it says the website itself did reach the Workspace — the half a
 		// message about the Remote alone would leave a scholar unable to account for.
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('publish-failure')).toContainText('written into this Workspace');
+		await expect(page.getByTestId('sync-failure')).toContainText('written into this Workspace');
 	});
 
 	// An unbound Workspace must be connected to a GitHub repository before publishing is offered —
@@ -1183,8 +1192,8 @@ test.describe('publishing to a Remote', () => {
 		// The path to a repository, and no publish anywhere on it: there is nowhere to send this
 		// Workspace, so nothing offers to.
 		await expect(page.getByTestId('connect-needs-account')).toBeVisible();
-		await expect(page.getByTestId('connect-publish')).toBeHidden();
-		await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+		await expect(page.getByTestId('connect-sync')).toBeHidden();
+		await expect(page.getByTestId('sync-send')).toHaveCount(0);
 		// ⚠ **And nothing is asked of GitHub to find that out.** A Workspace with nowhere to publish
 		// is asked for no credential at all until the author says they have an account, because a
 		// credential would answer a question nobody has yet put. The *signed-out bound* state is the
@@ -1206,11 +1215,11 @@ test.describe('publishing to a Remote', () => {
 	test('requires sign-in before publishing a bound Workspace', async ({ page }) => {
 		const github = await start(page);
 
-		const dialog = await openPublishDialog(page);
-		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
-		await expect(dialog.getByTestId('publish-sign-in-with-github')).toBeVisible();
-		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
-		await expect(dialog.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+		const dialog = await openSyncFromTheBar(page);
+		await expect(dialog.getByTestId('sync-sign-in-needed')).toContainText(REMOTE);
+		await expect(dialog.getByTestId('sync-sign-in-with-github')).toBeVisible();
+		await expect(dialog.getByTestId('sync-token-field')).toHaveCount(0);
+		await expect(dialog.getByTestId('sync-send')).toHaveCount(0);
 		expect(github.requests).toEqual([]);
 	});
 
@@ -1242,13 +1251,22 @@ test.describe('publishing to a Remote', () => {
 		// The relationship stated once, where the author is standing, rather than discovered at a
 		// refusal after the whole website has been written into the Workspace.
 		await expect(page.getByTestId('pull-only-remote')).toContainText('you cannot publish to it');
-		await expect(page.getByTestId('connect-publish')).toHaveCount(0);
+		await expect(page.getByTestId('connect-sync')).toHaveCount(0);
 		// The way forward is on the same screen as the limitation.
 		await expect(page.getByTestId('publish-to-your-own')).toBeVisible();
-		// Update from GitHub is untouched: taking changes from a repository needs no write access, and
-		// this is exactly the relationship the pull-only sentence describes.
-		await expect(page.getByTestId('update-from-github')).toBeVisible();
 		expect(github.head(OWNER, REPOSITORY)).toBe(before);
+
+		// And getting is untouched: taking changes from a repository needs no write access, so the
+		// Sync modal offers that one choice and none of the three that send (ADR-0044).
+		await closeTheDoor(page);
+		await openSyncModal(page);
+		const modal = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(modal.getByTestId('sync-read-only')).toContainText('cannot write to it');
+		await expect(modal.getByTestId('sync-get')).toBeVisible();
+		await expect(modal.getByTestId('sync-send')).toHaveCount(0);
+		await expect(modal.getByTestId('sync-both')).toHaveCount(0);
+		await expect(modal.getByTestId('sync-arm-overwrite')).toHaveCount(0);
+		await expect(modal.getByTestId('to-send')).toHaveCount(0);
 	});
 
 	/**
@@ -1263,13 +1281,13 @@ test.describe('publishing to a Remote', () => {
 	}) => {
 		await start(page);
 		await publishToRemote(page, await signedIn(page));
-		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`);
+		await expect(page.getByTestId('sync-status')).toContainText(`Sent to ${REMOTE}`);
 
 		await createWorkspace(page, 'Marking 2026');
 
-		await expect(page.getByTestId('publish-status')).toHaveCount(0);
-		await expect(page.getByTestId('publish-stale')).toHaveCount(0);
-		await expect(page.getByTestId('publish-failure')).toHaveCount(0);
+		await expect(page.getByTestId('sync-status')).toHaveCount(0);
+		await expect(page.getByTestId('sync-stale')).toHaveCount(0);
+		await expect(page.getByTestId('sync-failure')).toHaveCount(0);
 	});
 
 	/**
@@ -1288,7 +1306,7 @@ test.describe('publishing to a Remote', () => {
 		// Waited out rather than merely started: the forecast that follows a sign-in is what would meet
 		// the revoked token below, and closing the dialog on top of one still in flight would be a test
 		// asserting a race rather than the behaviour.
-		await expect((await signedIn(page)).getByTestId('publish-budget')).toBeVisible();
+		await expect((await signedIn(page)).getByTestId('sync-budget')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await expectCredential(page, 'Signed in to GitHub');
 
@@ -1301,9 +1319,9 @@ test.describe('publishing to a Remote', () => {
 			rejectCredential: true
 		});
 
-		const dialog = await openPublishDialog(page);
+		const dialog = await openSyncFromTheBar(page);
 
-		const refusal = dialog.getByTestId('publish-upload-problem');
+		const refusal = dialog.getByTestId('sync-problem');
 		await expect(refusal).toContainText('sign-in has expired');
 		await expect(refusal).toContainText(REMOTE);
 		// Not "GitHub refused this publish", which sends a scholar off to check a repository that is
@@ -1316,8 +1334,8 @@ test.describe('publishing to a Remote', () => {
 		// screen beside the refusal — the menu tells the truth from here on, because there is now
 		// genuinely no credential held. On this deployment that door is the sign-in and never a token
 		// field: an expiry is not an occasion to ask a student to choose between two credentials.
-		await expect(dialog.getByTestId('publish-sign-in-with-github')).toBeVisible();
-		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
+		await expect(dialog.getByTestId('sync-sign-in-with-github')).toBeVisible();
+		await expect(dialog.getByTestId('sync-token-field')).toHaveCount(0);
 		await page.keyboard.press('Escape');
 		await expectCredential(page, 'Not signed in');
 	});

@@ -14,7 +14,7 @@ import {
 	expectCredential,
 	expectRemoteNamed,
 	expectWorkspaceNamed,
-	openPublishFromTheDoor,
+	openSyncModal,
 	openTheDoor
 } from './support/workspace';
 
@@ -706,11 +706,11 @@ test.describe('a sign-in kept past the tab', () => {
 		await bindFromTheDoor(page);
 		await turnShareLinksOn(page);
 
-		await openPublishFromTheDoor(page);
-		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 60_000 });
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await openSyncModal(page);
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 60_000 });
+		await dialog.getByTestId('sync-send').click();
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 60_000
 		});
 
@@ -820,14 +820,14 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await expectRemoteNamed(page, REMOTE);
 		expect(await holdsCredential(page)).toBe(false);
 
-		await openPublishFromTheDoor(page);
-		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
+		await openSyncModal(page);
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-sign-in-needed')).toContainText(REMOTE);
 		// ⚠ **Absent, not empty and not disabled**, and this is the deployment's own answer rather than
 		// a fake's: nothing in this spec configures `GITHUB_APP`, it is what the app was built with.
-		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
+		await expect(dialog.getByTestId('sync-token-field')).toHaveCount(0);
 
-		await dialog.getByTestId('publish-sign-in-with-github').click();
+		await dialog.getByTestId('sync-sign-in-with-github').click();
 
 		// The redirect replaces the document, so nothing in the dialog resumes: the mark reopens the
 		// door, and a Workspace that is already bound derives its `connected` step — whose **Publish…**
@@ -841,10 +841,10 @@ test.describe('a bound Workspace pressed to Publish with no credential', () => {
 		await page.getByTestId('enable-pages').click();
 		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
 
-		await page.getByTestId('connect-publish').click();
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await page.getByTestId('connect-sync').click();
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
+		await dialog.getByTestId('sync-send').click();
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 60_000
 		});
 
@@ -945,11 +945,11 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 
 		// The handoff is the door's own **Publish…**, and it reaches GitHub.
-		await page.getByTestId('connect-publish').click();
-		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible({ timeout: 30_000 });
-		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+		await page.getByTestId('connect-sync').click();
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
+		await dialog.getByTestId('sync-send').click();
+		await expect(page.getByTestId('sync-status')).toContainText('Sent to', {
 			timeout: 60_000
 		});
 

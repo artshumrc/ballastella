@@ -9,7 +9,7 @@ import {
 import type { RemoteReference } from './bind-remote.js';
 
 // Seam 1 for a Remote that may be somebody else's (ADR-0043): the determination against the shared
-// fake GitHub, and the sentence a `Publish anyway` has to be confirmed through.
+// fake GitHub, and the sentence an overwrite has to be confirmed through.
 //
 // ⚠ **What this suite cannot settle, and does not claim to**: that a write collaborator's own
 // listing surfaces an Installation owned by another account. That is an inference from GitHub's
@@ -153,7 +153,7 @@ describe('whether a Remote is the signed-in author’s alone', () => {
 	});
 });
 
-describe('what a confirmed Publish anyway would take off a shared Remote', () => {
+describe('what a confirmed overwrite would take off a shared Remote', () => {
 	const shared: RemoteSharing = {
 		shared: true,
 		known: true,
@@ -241,7 +241,7 @@ describe('what a confirmed Publish anyway would take off a shared Remote', () =>
 		expect(answer.message).toContain('could not establish whether anybody else works in ada/atlas');
 	});
 
-	// Publish anyway with nothing to remove is still an overwrite of the files the refusal named, so
+	// An overwrite with nothing to remove still replaces the files the refusal named, so
 	// the confirmation is still owed one — and it must not claim files are going when none are.
 	it('says what it does when it would remove nothing at all', () => {
 		const answer = preview([], ['amsterdam-1625/project.json']);

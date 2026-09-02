@@ -33,13 +33,11 @@
 	 * becomes `choices-refused`, and a bind that throws clears `connecting` and goes back to the
 	 * choice — which is why neither renders a control of its own and why nothing here waits for ever.
 	 *
-	 * `hydrate` is the one refusal that has a step rather than a sentence. Every other way a bind can
-	 * be refused leaves the author with the list to choose from again; the Remote that carries
-	 * Projects this Workspace has not got is the one where the author's actual question — *is this
-	 * mine, and can I have it here* — has an operation that answers it. The refusal is not softened
-	 * into a warning by having one (ADR-0033: publishing there would delete somebody's work), and the
-	 * operation offered is not a merge (ADR-0024): it opens the Remote into a **new** Workspace and
-	 * leaves the current one alone.
+	 * ⚠ **Every refusal is a sentence over the list the author chooses from again.** There used to be
+	 * a step for one of them — a Remote carrying Projects this Workspace had not got, which a send
+	 * would have deleted — and it is gone with the refusal: a send removes only what the
+	 * Synchronization Baseline recorded, so that repository is one to connect to and get from
+	 * (ADR-0044).
 	 */
 	export const CONNECT_STEPS = [
 		'by-address',
@@ -53,7 +51,6 @@
 		'choices-refused',
 		'creating',
 		'connecting',
-		'hydrate',
 		'connected'
 	] as const;
 
@@ -66,7 +63,6 @@
 		describeTokenProblem,
 		parseRemoteReference,
 		readGrantedRepositories,
-		RemoteBindRefusedError,
 		resolveWorkspaceAddress,
 		shareLinksWithdrawalMessage,
 		type AddressResolution,
@@ -90,23 +86,27 @@
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
-	 * The one door to GitHub: the whole relationship, behind one control in the bar (ADR-0041).
+	 * Getting a Workspace a repository, and everything about that relationship but the transfer.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ONE PLACE, AND THE GESTURES STAY SEPARATE INSIDE IT
+	 * THE SEQUENCE, AND THE STANDING STATE AT THE END OF IT
 	 *
 	 * The guided sequence that gets a Workspace a repository is the path through here, and what waits
-	 * at the end of it is the standing state: which repository this Workspace publishes to, what it and
-	 * GitHub last agreed on, **Publish**, **Update from GitHub**, **Check Remote Status**, and the way
-	 * to give the repository up. A single *Sync* is refused, and not for taste: a Publish mirrors an
-	 * owned namespace and removes Projects the author deleted locally (ADR-0033), and an Update can
-	 * remove work from the Workspace. Those consequences differ in kind, so the author decides. What is
-	 * unified is the *place*, never the act.
+	 * at the end of it is the standing state: which repository this Workspace belongs to, what it and
+	 * GitHub last agreed on, Share Links, **Check Remote Status**, the way to a different repository,
+	 * and the way to give this one up.
+	 *
+	 * ⚠ **The transfer is not here at all** (ADR-0044). The bar's one control opens the Sync modal
+	 * directly for a Workspace that has a repository — pressing Sync reads both sides and shows what
+	 * it found, which moves nothing and is therefore safe to be one press away — and **Sync…** on the
+	 * connected step is a handoff to that same modal rather than a second path to it. What was two
+	 * gestures whose consequences differed in kind is one screen that states both before either
+	 * happens.
 	 *
 	 * ⚠ **The determination itself is not restated here.** Whether GitHub agrees with this Workspace is
-	 * the badge's one sentence (`RemoteStatus`), so the two gestures that answer it close this surface
-	 * on the press rather than reporting behind a modal: a `showModal()` dialog makes everything outside
-	 * it inert, and an inert live region is not a quiet one but a silent one.
+	 * the badge's one sentence (`RemoteStatus`), so the check closes this surface on the press rather
+	 * than reporting behind a modal: a `showModal()` dialog makes everything outside it inert, and an
+	 * inert live region is not a quiet one but a silent one.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * THE STEP IS DERIVED FROM WHAT IS TRUE, NEVER FROM A POSITION IT REMEMBERS
@@ -191,14 +191,14 @@
 	let {
 		open = $bindable(false),
 		storage,
-		onpublish,
+		onsync,
 		list = (token: string) => readGrantedRepositories({ token }),
 		resolveAddress = (pasted: string) => resolveWorkspaceAddress(pasted)
 	}: {
 		open?: boolean;
 		storage: WorkspaceStorage;
 		/** Hand off to the Publish button that already exists. Called with the sequence closing. */
-		onpublish: () => void;
+		onsync: () => void;
 		/**
 		 * The listing read, injectable so every step of the sequence is a test costing milliseconds.
 		 * Defaults to the one read of GitHub's installation endpoints there is.
@@ -260,15 +260,6 @@
 	let listing = $state<GrantedRepositoriesOutcome | null>(null);
 	/** The repository being connected, which is what makes `connecting` a state of the world. */
 	let connecting = $state<RemoteReference | null>(null);
-	/**
-	 * The repository whose work this Workspace has not got, and the refusal that named it.
-	 *
-	 * ⚠ **A fact about a press, and it survives nothing.** Closing the sequence forgets it, because
-	 * the step is a reading of the world and the world's answer is that this Workspace is not
-	 * connected to anything — the offer is what the author gets *while* the refusal they just met is
-	 * the last thing that happened.
-	 */
-	let notHere = $state<{ remote: RemoteReference; refusal: string } | null>(null);
 	/** Whether the Open is running, so a second press is not a second download. */
 	let hydrating = $state(false);
 	/** What the connection succeeded *with*: rights that cannot publish. */
@@ -362,8 +353,6 @@
 	const boundName = $derived(bound === null ? '' : describeRemote(bound));
 	/** Whether a status check is running, which is the only thing that makes its control busy. */
 	const checking = $derived(storage.remoteStatusState.checking);
-	/** Whether an Update is running, which is the only thing that makes its control busy. */
-	const updating = $derived(storage.updateProgress !== null);
 	/**
 	 * Whether the author may publish to the Remote they have: `null` until GitHub has said.
 	 *
@@ -378,7 +367,6 @@
 	/** Whether the relationship is known to be pull-only, which is the one state that says so. */
 	const pullOnly = $derived(canPush === false);
 	const connectingName = $derived(connecting === null ? '' : describeRemote(connecting));
-	const notHereName = $derived(notHere === null ? '' : describeRemote(notHere.remote));
 	const resolvedName = $derived(resolved === null ? '' : describeRemote(resolved.remote));
 
 	/** What GitHub last said the author has granted, and `[]` while it has said nothing or refused. */
@@ -457,51 +445,46 @@
 	});
 
 	const step = $derived<Step>(
-		// ⚠ **Ahead of `connected`, because a Workspace that already has a Remote can meet this too**:
-		// an author who pressed *Choose a different repository* and picked one carrying work they have
-		// not got is owed the same offer as an author with no Remote at all.
-		notHere !== null
-			? 'hydrate'
-			: // ⚠ **Ahead of `connected` as well as of the sign-in, because it needs neither.** It sits
-				// in front of the sign-in because a door whose first step is signing in locks out the
-				// person most likely to be standing at it. And a Workspace that already has a Remote is
-				// not a Workspace that may not ask — this operation touches the one the author is in not
-				// at all, and the Conflict whose stated remedy it is arrives on a bound Workspace.
-				byAddress
-				? 'by-address'
-				: bound !== null && !changing
-					? 'connected'
-					: connecting !== null
-						? 'connecting'
-						: // A deployment with no App of its own opens on the paste: a sign-in button with no client
-							// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
-							!storage.signInWithGitHubOffered
-							? 'no-app'
-							: !storage.signedIn
-								? expiry !== ''
-									? 'sign-in-ended'
-									: accountKnown
-										? 'needs-sign-in'
-										: 'needs-account'
-								: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
-									// refusal as well as for a grant of nothing, and every state under here treats that
-									// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
-									// will not act on as a refusal rather than as an empty list precisely so that nothing tells
-									// a student their repository is missing when the read is what failed — and `creating` is
-									// where that misreading does the most damage, since its own account of a listing that did
-									// not grow is that access to the new repository was never granted.
-									listing?.kind === 'refused'
-									? 'choices-refused'
-									: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
-										// instructions for the other tab off the screen and replace them with “asking GitHub…”.
-										// The step ends when GitHub answers with something that was not there before.
-										madeAgainst !== null && newlyGranted.size === 0
-										? 'creating'
-										: listing === null
-											? 'loading-choices'
-											: granted.length === 0
-												? 'no-choices'
-												: 'choosing'
+		// ⚠ **Ahead of `connected` as well as of the sign-in, because it needs neither.** It sits
+		// in front of the sign-in because a door whose first step is signing in locks out the
+		// person most likely to be standing at it. And a Workspace that already has a Remote is
+		// not a Workspace that may not ask — this operation touches the one the author is in not
+		// at all, and the Conflict whose stated remedy it is arrives on a bound Workspace.
+		byAddress
+			? 'by-address'
+			: bound !== null && !changing
+				? 'connected'
+				: connecting !== null
+					? 'connecting'
+					: // A deployment with no App of its own opens on the paste: a sign-in button with no client
+						// ID behind it takes the author to GitHub to be refused about a thing they cannot fix.
+						!storage.signInWithGitHubOffered
+						? 'no-app'
+						: !storage.signedIn
+							? expiry !== ''
+								? 'sign-in-ended'
+								: accountKnown
+									? 'needs-sign-in'
+									: 'needs-account'
+							: // ⚠ **A refusal is read before anything below it**, because `granted` is empty for a
+								// refusal as well as for a grant of nothing, and every state under here treats that
+								// emptiness as a fact about the grant. `readGrantedRepositories` answers a sign-in GitHub
+								// will not act on as a refusal rather than as an empty list precisely so that nothing tells
+								// a student their repository is missing when the read is what failed — and `creating` is
+								// where that misreading does the most damage, since its own account of a listing that did
+								// not grow is that access to the new repository was never granted.
+								listing?.kind === 'refused'
+								? 'choices-refused'
+								: // ⚠ **Ahead of the listing's remaining states**, so a re-read under way does not put the
+									// instructions for the other tab off the screen and replace them with “asking GitHub…”.
+									// The step ends when GitHub answers with something that was not there before.
+									madeAgainst !== null && newlyGranted.size === 0
+									? 'creating'
+									: listing === null
+										? 'loading-choices'
+										: granted.length === 0
+											? 'no-choices'
+											: 'choosing'
 	);
 
 	/**
@@ -629,9 +612,7 @@
 												? 'Step 3 of 4: making a repository on GitHub, in the other tab.'
 												: step === 'connecting'
 													? `${lastStep}: syncing ${connectingName}.`
-													: step === 'hydrate'
-														? `${notHereName} carries work this Workspace has not got, so it cannot publish there. It can be opened as a new Workspace instead.`
-														: `Done: this Workspace is on GitHub at ${boundName}.`
+													: `Done: this Workspace is on GitHub at ${boundName}.`
 	);
 
 	const title = $derived(step === 'connected' ? 'Your repository on GitHub' : 'Sync with GitHub');
@@ -705,9 +686,6 @@
 			repository = '';
 			token = '';
 			working = false;
-			// The offer is what an author gets while the refusal they just met is the last thing that
-			// happened, so reopening reads the world instead: an unconnected Workspace, and the list.
-			notHere = null;
 			// The address step is a press like any other here, so a reopened sequence reads the world
 			// rather than the field somebody typed into an hour ago.
 			byAddress = false;
@@ -961,18 +939,6 @@
 	}
 
 	/**
-	 * Bring the Remote's changes in, and get out of the way of what it says.
-	 *
-	 * Closing for the reason the check closes, and one more: the progress line and every outcome an
-	 * Update has are in the bar, and a `showModal()` dialog makes the whole document outside it inert
-	 * — an inert `aria-live` region is not a quiet one, it is not announced at all.
-	 */
-	function update(): void {
-		open = false;
-		void storage.updateFromRemote();
-	}
-
-	/**
 	 * Connect the chosen repository: the rights and the binding, as one press.
 	 *
 	 * ⚠ **A refusal leaves `connecting` cleared, so the sequence goes back to the choice.** That is what
@@ -1002,51 +968,12 @@
 			// author's own (ADR-0043).
 			notices = outcome.canPush && outcome.rightsNotice ? [outcome.rightsNotice] : [];
 		} catch (cause) {
-			// ⚠ **One refusal of the several has an operation that answers it**, and this is where the
-			// two part. Everything else is a sentence over the list the author chooses from again; a
-			// Remote carrying Projects this Workspace has not got is a second device meeting its own
-			// work, and what they asked for is that work here.
-			if (cause instanceof RemoteBindRefusedError && cause.refusal === 'projects-not-here') {
-				notHere = { remote, refusal: cause.message };
-			} else {
-				problem = cause instanceof Error ? cause.message : String(cause);
-			}
+			// Every refusal is a sentence over the list the author chooses from again.
+			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			connecting = null;
 			// Whatever came back, the request for a different repository has been answered.
 			changing = false;
-		}
-	}
-
-	/**
-	 * Open the Remote as a Workspace of its own, which is what the author was actually asking for.
-	 *
-	 * ⚠ **It touches the current Workspace not at all**, which is why it is offered whether or not
-	 * that Workspace is empty: refusing somebody with work of their own would make them create an
-	 * empty Workspace before they were allowed to ask a question about a different one.
-	 *
-	 * ⚠ **`openFromGitHub` unchanged, and its properties are load-bearing** — no credential is sent
-	 * and none is read, the new Workspace is always browser-backed, and this installation keeps at
-	 * most one synchronized Workspace per repository, so a repository already opened here goes back
-	 * to the Workspace it has rather than downloading a second copy. Nothing is merged: ADR-0024
-	 * refuses to answer two Alignments of one sheet, and a new way in does not reopen it.
-	 */
-	async function openAsNewWorkspace(): Promise<void> {
-		const offered = notHere;
-		if (offered === null || hydrating) return;
-		problem = '';
-		notices = [];
-		hydrating = true;
-		try {
-			const { notice } = await storage.openFromGitHub(offered.remote);
-			// Cleared only once it worked, so the step the outcome is read on is the standing state of
-			// the Workspace the author is now in rather than the refusal that sent them there.
-			notHere = null;
-			notices = [notice];
-		} catch (cause) {
-			problem = cause instanceof Error ? cause.message : String(cause);
-		} finally {
-			hydrating = false;
 		}
 	}
 
@@ -1213,9 +1140,9 @@
 		await connect(remote, token.trim());
 	}
 
-	function publish(): void {
+	function sync(): void {
 		open = false;
-		onpublish();
+		onsync();
 	}
 </script>
 
@@ -1738,74 +1665,6 @@
 					</div>
 				{/if}
 			</section>
-		{:else if step === 'hydrate'}
-			<!--
-				⚠ **The refusal stands, and it gains a way forward.** Publishing this Workspace over that
-				Remote would delete work the Remote has and this Workspace has not (ADR-0033), so the
-				connection did not happen and is not offered again here. What is offered is the operation
-				the author was actually reaching for: bring that repository down into a Workspace of its
-				own, beside the one they are in.
-
-				⚠ **Not a merge, and not an offer to proceed anyway.** ADR-0024 refuses to answer two
-				Alignments of one sheet, and this entry point does not reopen it.
-
-				⚠ **Offered whether or not this Workspace has anything in it.** An operation that touches
-				the current Workspace not at all has no business asking whether it is empty first.
-			-->
-			<section data-testid="connect-hydrate">
-				<h3 class="font-semibold">Your work is already on {notHereName}</h3>
-				<!--
-					`packages/core`'s own sentence, rendered as it arrives: it names the Projects, says what
-					publishing there would do, and a second wording here would be a second account of a rule
-					`bind-remote.ts` owns.
-				-->
-				<p class="mt-3 max-w-prose" data-testid="connect-projects-not-here">{notHere?.refusal}</p>
-				<p class="mt-3 max-w-prose text-sm opacity-70">
-					Opening it makes a second Workspace on this computer and fills it from
-					{notHereName}. The Workspace you are in now is left exactly as it is — nothing in it is
-					changed, moved or combined with anything. If you have opened {notHereName} on this computer
-					before, this takes you back to the Workspace you made then rather than downloading it again.
-				</p>
-				<div class="mt-3 flex flex-wrap items-center gap-2">
-					<!-- `aria-disabled` and never `disabled` while it runs: a `disabled` button leaves the
-					     tab order the instant it is pressed, dropping a keyboard user to `<body>` for the
-					     length of a download that runs in minutes (WCAG 2.4.3). -->
-					<button
-						class="btn btn-primary btn-sm"
-						class:btn-disabled={hydrating}
-						aria-disabled={hydrating}
-						data-testid="open-as-new-workspace"
-						onclick={() => {
-							if (!hydrating) void openAsNewWorkspace();
-						}}
-					>
-						{hydrating ? 'Opening…' : `Open ${notHereName} as a new Workspace`}
-					</button>
-					<!--
-						The other way on, which is the one this refusal has always had: a different repository.
-						It puts the list back rather than closing anything, so neither answer is a full stop.
-					-->
-					<button
-						class="btn btn-sm"
-						data-testid="choose-another-repository"
-						onclick={() => (notHere = null)}
-					>
-						Choose a different repository
-					</button>
-				</div>
-				<!--
-					Per-file progress, announced. A Map Image's pyramid is thousands of files over real
-					minutes, and this is one of the places a scholar is waiting on something they cannot see.
-					`role="status"` so it reaches assistive technology without interrupting, which is
-					CONTRIBUTING's mandated method for exactly this.
-				-->
-				{#if hydrating && storage.transfer}
-					<p role="status" class="mt-3 text-sm" data-testid="hydrate-progress">
-						{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
-						{storage.transfer.subject}.
-					</p>
-				{/if}
-			</section>
 		{:else if step === 'connecting'}
 			<section data-testid="connect-connecting">
 				<h3 class="font-semibold">Syncing your repository</h3>
@@ -2036,24 +1895,23 @@
 					</div>
 				{/if}
 				<!--
-					⚠ **Two presses, and they stay two** (ADR-0041). A Publish mirrors an owned namespace and
-					removes Projects the author deleted locally (ADR-0033); an Update can remove work from
-					this Workspace, which is what `UpdateDeletionPreview` exists to name. Those consequences
-					differ in kind, so the author decides — a single verb would decide for them in exactly
-					the states where deciding matters. What is unified is the *place*.
+					⚠ **One press where there were two** (ADR-0044). A Publish removed Projects the author
+					had deleted locally and an Update removed work from the Workspace, and a scholar had to
+					know which to press first. Sync reads both sides and shows what it found before it moves
+					a byte, so there is nothing left for the author to decide in advance.
 				-->
 				<div class="mt-3 flex flex-wrap items-center gap-2">
 					<!--
-						The handoff. It is the same Publish dialog there has always been, opened from here
-						rather than reimplemented — the sequence's job ends where publishing begins.
+						The handoff. It is the same Sync modal the bar opens, opened from here rather than
+						reimplemented — the sequence's job ends where syncing begins.
 					-->
 					{#if !pullOnly}
 						<button
 							class="btn btn-primary btn-sm"
-							data-testid="connect-publish"
-							onclick={() => publish()}
+							data-testid="connect-sync"
+							onclick={() => sync()}
 						>
-							Publish…
+							Sync…
 						</button>
 					{:else}
 						<!--
@@ -2067,29 +1925,9 @@
 							data-testid="publish-to-your-own"
 							onclick={() => (changing = true)}
 						>
-							Publish to a repository of your own
+							Use a repository of your own
 						</button>
 					{/if}
-					<!--
-						The inbound half, and the *only* way Remote work reaches a Workspace.
-
-						**Never armed by a status.** An Update is refused with a sentence when there is nothing
-						to take and when a path changed on both sides, and it stops to ask when the Remote has
-						deleted something — so hiding it against the last determination would replace legible
-						refusals and one real question with a control that does nothing and says nothing about
-						why.
-					-->
-					<button
-						class="btn btn-sm"
-						class:btn-disabled={updating}
-						aria-disabled={updating}
-						data-testid="update-from-github"
-						onclick={() => {
-							if (!updating) update();
-						}}
-					>
-						Update from GitHub
-					</button>
 					<!--
 						The explicit check. **Always offered, not only while signed out**: signed out it is the
 						only way to a status at all, since automatic anonymous polling is ruled out by GitHub's

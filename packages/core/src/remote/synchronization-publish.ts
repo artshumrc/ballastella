@@ -1,5 +1,4 @@
-// Publish as a step in a continuing relationship: the transfer, and the evidence it leaves behind
-// (ADR-0038).
+// The outbound half of a Sync: the transfer, and the evidence it leaves behind (ADR-0038, ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE ONLY OUTBOUND ACTION, AND THE ONLY PLACE A PUBLISHED BASELINE IS WRITTEN
@@ -10,8 +9,8 @@
 // resulting tree and the evidence be asserted on the record, without either test having to arrange
 // the other's fixtures.
 //
-// Nothing here is reachable from saving, checking status, opening, or updating.
-// There is exactly one caller and it is a control that says Publish.
+// Nothing here is reachable from saving, checking status, opening, or getting. There is exactly one
+// caller and it is the Sync modal's *Send changes*.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE ORDER IS THE DESIGN, AND EVERY REFUSAL BEFORE THE UPLOAD IS FREE
@@ -73,7 +72,7 @@ export interface PublishWorkspaceOptions {
 	readonly changes?: SharedStateRecorder;
 	readonly fetch?: FetchFn;
 	/**
-	 * The paths of the refusal the author was shown and agreed to replace: *Publish anyway*.
+	 * The paths the author was shown as going, and agreed to: *Overwrite the repository*.
 	 *
 	 * ⚠ **The paths and not a `true`, because the plan this runs is not the plan they read.** The
 	 * forecast is made before the local publish writes; this replans afterwards, against a tree
@@ -81,10 +80,10 @@ export interface PublishWorkspaceOptions {
 	 * decision about one `notes.json` to whatever the second listing found — including a Project
 	 * another machine published in the window, deleted without anybody having seen its name.
 	 *
-	 * Left out, a Remote holding work this Workspace has not taken in is refused, which is the
-	 * default.
+	 * Left out, a send removes only what the Baseline recorded, leaves everything the Remote has
+	 * moved past exactly as it is, and refuses a Conflict. That is the default.
 	 */
-	readonly replace?: readonly string[];
+	readonly overwrite?: readonly string[];
 	readonly onProgress?: (seen: {
 		readonly files: number;
 		readonly totalFiles: number;
@@ -116,9 +115,8 @@ export interface WorkspacePublished {
  * Send this Workspace to its Remote and record what the two now share.
  *
  * @throws RemotePublishRefusedError for a read-only account, a repository nobody can see, a
- *   truncated listing, a Remote holding source this Workspace has not taken in, and a Remote that
- *   moved past what `replace` agreed to — every one of them with the Remote and the Baseline exactly
- *   as they were
+ *   truncated listing, a path changed on both sides, and a Remote that moved past what `overwrite`
+ *   agreed to — every one of them with the Remote and the Baseline exactly as they were
  * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
  */
 export async function publishWorkspaceToRemote(
@@ -138,7 +136,7 @@ export async function publishWorkspaceToRemote(
 	const { commit, baseline, shared } = await publishToRemote(store, {
 		...request,
 		plan,
-		...(options.replace === undefined ? {} : { replace: options.replace }),
+		...(options.overwrite === undefined ? {} : { overwrite: options.overwrite }),
 		...(options.onProgress === undefined ? {} : { onProgress: options.onProgress })
 	});
 

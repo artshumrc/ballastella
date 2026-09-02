@@ -16,6 +16,7 @@ import {
 	forgetFolderWorkspace,
 	ImportRecoveryFailedError,
 	UpdateRefusedError,
+	type WorkspaceUpdate,
 	isFolderWorkspaceSupported,
 	listFolderWorkspaces,
 	openFolderWorkspace,
@@ -129,7 +130,6 @@ import {
 	type ReviewedProject,
 	type StorageAnswers,
 	type TransferProgressListener,
-	type UpdateDeletionPreview,
 	type WorkspaceBackup,
 	type WorkspaceRestore,
 	type WorkspaceSize
@@ -826,16 +826,6 @@ export class WorkspaceStorage {
 		return this.unrecoveredImport || this.unrecoveredUpdate;
 	}
 
-	/**
-	 * The deletions an Update is waiting to be told about, or `null` when it is not.
-	 *
-	 * ⚠ **State rather than a callback into a component**, because the transfer outlives the screen it
-	 * was started from: the Update control is on the navigation bar, and an author who starts one and
-	 * walks into a Project must still be the one asked. Whatever renders this owns answering it, and
-	 * {@link answerDeletionPreview} is the only way to answer.
-	 */
-	deletionPreview = $state<UpdateDeletionPreview | null>(null);
-
 	#teardownFlushOnHide: (() => void) | undefined;
 	/**
 	 * The granted folder behind the open Workspace, or `null` while it is browser-backed.
@@ -864,8 +854,6 @@ export class WorkspaceStorage {
 	 * `SynchronizationMetadata` and the write index already have.
 	 */
 	#statusChecker: RemoteStatusChecker | null = null;
-	/** Whatever is waiting on {@link deletionPreview}, or `null`. See {@link answerDeletionPreview}. */
-	#answerDeletion: ((confirmed: boolean) => void) | null = null;
 	/**
 	 * Where the write-ahead journal lives, resolved once for the whole app.
 	 *
@@ -2586,11 +2574,6 @@ export class WorkspaceStorage {
 		this.updateProgress = null;
 		this.updateNotice = '';
 		this.updateFailure = '';
-		// ⚠ **And a deletion preview least of all.** It names Projects in the Workspace the author has
-		// just left, and its Remove button would delete them out from under a screen showing another
-		// Workspace's Projects. Answered `false` rather than merely hidden: the transfer that raised it
-		// is waiting on it, and declining changes nothing.
-		this.#closeDeletionPreview(false);
 		const remote = this.remote;
 		if (remote === null) return;
 		const checker = new RemoteStatusChecker({
@@ -2622,23 +2605,34 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Bring the Remote's changes into this Workspace, because the author asked.
+	 * Bring the Remote's changes into this Workspace: the inbound half of a Sync.
 	 *
-	 * ⚠ **Explicit, and reachable from nowhere but a control that says so.** No status check, no
-	 * window focus, no open and no publish reaches this. Remote work never changes a Workspace
-	 * silently, and the way that is kept true is that there is exactly one caller.
+	 * ⚠ **Explicit, and reachable from nowhere but the Sync modal's *Get changes*.** No status check,
+	 * no window focus, no open and no send reaches this. Work coming in from a Remote never changes a
+	 * Workspace silently, and the way that is kept true is that there is exactly one caller.
 	 *
-	 * ⚠ **Every phase is guarded by which Workspace this is.** An Update is minutes of downloading and
-	 * one click switches Workspaces inside it: the transfer itself is aimed at the session it started
-	 * on and stays aimed there, which is right — those are the files the author asked about — but the
+	 * ⚠ **Every phase is guarded by which Workspace this is.** A get is minutes of downloading and one
+	 * click switches Workspaces inside it: the transfer itself is aimed at the session it started on
+	 * and stays aimed there, which is right — those are the files the author asked about — but the
 	 * progress, the report and the recomputed status must not appear beside another Workspace's name.
 	 *
-	 * Resolves rather than rejecting: the control is a persistent one on the navigation bar with no
-	 * dialog to catch a throw, so the refusal is rendered beside it as an alert.
+	 * ⚠ **It rejects rather than reporting**, which the caller before the Sync modal did not: the
+	 * modal is on screen for the whole transfer, `both` has a second half to leave unattempted, and a
+	 * refusal swallowed here would be a *Get and send* that sent after getting failed.
+	 *
+	 * @throws UpdateRefusedError with the Workspace exactly as it was
 	 */
-	async updateFromRemote(): Promise<void> {
+	async getFromRemote(
+		options: {
+			onProgress?: (progress: { files: number; totalFiles: number }) => void;
+		} = {}
+	): Promise<WorkspaceUpdate> {
 		const remote = this.remote;
-		if (remote === null || this.updateProgress !== null) return;
+		if (remote === null) {
+			throw new Error(
+				`“${this.name}” is not connected to a repository, so there is nothing to get.`
+			);
+		}
 		const session = this.session;
 		const key = this.#workspaceKey;
 		const mine = () => this.session === session && this.#workspaceKey === key;
@@ -2651,80 +2645,30 @@ export class WorkspaceStorage {
 				remote,
 				onProgress: (progress) => {
 					if (mine()) this.updateProgress = progress;
-				},
-				// ⚠ **Declined by default when the Workspace has moved on.** A preview raised over a
-				// Workspace the author has since switched away from would be a dialog naming files they
-				// cannot see, and answering it `true` would delete them behind their back.
-				confirmDeletion: (preview) =>
-					mine() ? this.#askAboutDeletions(preview) : Promise.resolve(false)
+					options.onProgress?.(progress);
+				}
 			});
-			if (!mine()) return;
-			// Re-read rather than assumed: `writeBaseline` discards the previous record when it cannot
-			// keep the new one, so the honest answer after a refused write is the `null` this reads.
-			this.baseline = (await session.synchronization?.readBaseline(remote)) ?? null;
-			this.updateNotice = baselineKept
-				? update.notice
-				: // A durable store that refused *after* the transfer succeeded is never reported as a
-					// failed Update. The files are here; what this browser cannot say is what has changed.
-					`${update.notice} This browser would not keep a record of what the two of them now ` +
-					`hold in common, so Ballastella cannot tell what has changed on either side until the ` +
-					`next Publish.`;
-			// The next required action has to be clear the moment the Update finishes, and the status on
-			// screen was worked out against the Workspace as it was before it.
-			this.updateProgress = null;
-			await this.checkRemoteStatus();
-		} catch (cause) {
-			if (!mine()) return;
-			// ⚠ **A decline is a notice, not an alert.** The author looked at what would go and said no,
-			// and reporting their own answer back to them as a failure — in the warning colour, through
-			// `role="alert"` — is this app telling them something went wrong when nothing did.
-			if (cause instanceof UpdateRefusedError && cause.refusal === 'cancelled') {
-				this.updateNotice = cause.message;
-				return;
+			if (mine()) {
+				// Re-read rather than assumed: `writeBaseline` discards the previous record when it cannot
+				// keep the new one, so the honest answer after a refused write is the `null` this reads.
+				this.baseline = (await session.synchronization?.readBaseline(remote)) ?? null;
+				this.updateNotice = baselineKept
+					? update.notice
+					: // A durable store that refused *after* the transfer succeeded is never reported as a
+						// failed get. The files are here; what this browser cannot say is what has changed.
+						`${update.notice} This browser would not keep a record of what the two of them now ` +
+						`hold in common, so Ballastella cannot tell what has changed on either side until ` +
+						`the next Sync.`;
 			}
-			this.updateFailure = cause instanceof Error ? cause.message : String(cause);
+			return update;
 		} finally {
 			if (mine()) {
 				this.updateProgress = null;
-				// Whatever happened, nothing is waiting to be asked any more. A preview left on screen
-				// after the operation that raised it has gone is a confirmation for a transfer that
-				// no longer exists.
-				this.#closeDeletionPreview(false);
+				// The next required action has to be clear the moment the transfer finishes, and the
+				// status on screen was worked out against the Workspace as it was before it.
+				await this.checkRemoteStatus();
 			}
 		}
-	}
-
-	/**
-	 * Put the deletions on screen and wait for the author's answer.
-	 *
-	 * Resolves `false` for every way of not saying yes — the Cancel button, Escape, the dialog being
-	 * closed, the Workspace being switched underneath it — because "no" is the answer that changes
-	 * nothing, and a promise that never settled would leave the Update running for ever.
-	 */
-	#askAboutDeletions(preview: UpdateDeletionPreview): Promise<boolean> {
-		// A second preview cannot arise — `updateFromRemote` refuses to start while one is in flight —
-		// but a stale resolver would be a transfer waiting on a promise nothing will settle.
-		this.#closeDeletionPreview(false);
-		return new Promise<boolean>((resolve) => {
-			this.#answerDeletion = resolve;
-			this.deletionPreview = preview;
-		});
-	}
-
-	/**
-	 * Answer the deletion preview on screen: `true` removes the files, `false` changes nothing.
-	 *
-	 * The only way to answer it, and the only thing that closes it.
-	 */
-	answerDeletionPreview(confirmed: boolean): void {
-		this.#closeDeletionPreview(confirmed);
-	}
-
-	#closeDeletionPreview(confirmed: boolean): void {
-		const answer = this.#answerDeletion;
-		this.#answerDeletion = null;
-		this.deletionPreview = null;
-		answer?.(confirmed);
 	}
 
 	/**
@@ -2931,7 +2875,8 @@ export class WorkspaceStorage {
 	/**
 	 * Whether the Remote this Workspace publishes to is the signed-in author's alone (ADR-0043).
 	 *
-	 * Read at the moment it decides something — the press of *Publish anyway* — rather than held, for
+	 * Read at the moment it decides something — the press of *Overwrite the repository* — rather than
+	 * held, for
 	 * {@link readRights}' reason: a collaborator arrives on a repository between two visits, and a
 	 * remembered *solo* is the answer that deletes their afternoon without saying so.
 	 *

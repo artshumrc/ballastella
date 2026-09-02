@@ -4,7 +4,7 @@
 	// ⚠ **A message inside an open `<dialog>` cannot live here.** `showModal()` puts the dialog in the
 	// top layer and makes the rest of the document inert, so a toast posted while a modal is open is
 	// both invisible and unannounced. Outcomes that belong to a dialog are stated inside it, and reach
-	// this stack only once it has closed — which is what `PublishDialog` does with its result.
+	// this stack only once it has closed — which is what `SyncDialog` does with its result.
 
 	import { toasts } from './toasts.svelte.js';
 </script>

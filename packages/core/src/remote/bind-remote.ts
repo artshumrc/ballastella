@@ -31,25 +31,18 @@
 // is the failure this exists to avoid, and an error dialog is a worse one.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// AND THE SUBSET REFUSAL, WHICH IS THE ONE THAT SAVES SOMEBODY'S WORK
+// AND NOTHING HERE REFUSES A REPOSITORY FOR HOLDING WORK THIS WORKSPACE HAS NOT GOT
 //
-// ADR-0033: *"If the Remote carries a `ballastella-site.json` listing Projects this Workspace does
-// not have, refuse to bind and name them."* It is ADR-0024's *"restoring a backup creates a new
-// named Workspace and switches to it — it never overwrites and never merges"* applied to a
-// repository, and it is here because connecting is the last moment at which the answer costs
-// nothing.
-//
-// **It catches two Workspaces, not one.** The obvious one is a second machine: a laptop connected to
-// the repository the desktop published from, whose first send would delete every Project the laptop
-// has not got. The other is a Workspace this app itself made — a Clone that stopped part way — and
-// it is why the check is a refusal rather than a notice.
+// ADR-0033 used to refuse that binding, because the first send would have deleted every Project the
+// Workspace had not got. It cannot any more: a send removes only what the Synchronization Baseline
+// recorded, so a Workspace with no Baseline removes nothing at all in either direction, and the
+// Projects the repository holds read as *To get* on the Sync modal instead (ADR-0044). The refusal
+// was protection against a deletion that is now impossible, and keeping it would refuse the case it
+// used to be for: a scholar connecting an existing Workspace to an existing repository.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { parsePublishedSite, type PublishedProject } from '../publish/publish.js';
 import { assertNotReviewing, readReviewMark } from '../project/review-workspace.js';
-import { Workspace } from '../project/workspace.js';
-import { PUBLISHED_SITE_RECORD_NAME } from '../transfer/viewer-files.js';
-import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
+import { GITHUB_API_ORIGIN } from './github-api.js';
 import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
 import type { ProjectStore } from '../store/project-store.js';
 
@@ -77,13 +70,6 @@ export type RemoteBindRefusal =
 	| 'credential'
 	/** No such repository, or none this credential can see — which looks the same from here. */
 	| 'no-repository'
-	/**
-	 * The Remote carries Projects this Workspace has not got, so publishing to it would delete them.
-	 *
-	 * The remedy is Open a Workspace from GitHub, never a merge: ADR-0024 refuses to answer the
-	 * collision, and there is no honest resolution for two Alignments of one sheet.
-	 */
-	| 'projects-not-here'
 	/** Anything else GitHub said. */
 	| 'refused';
 
@@ -204,51 +190,6 @@ export async function readRemoteRights(options: BindRemoteOptions): Promise<Remo
 
 	const body = (await response.json().catch(() => ({}))) as { permissions?: { push?: unknown } };
 	return { canPush: body.permissions?.push === true };
-}
-
-/**
- * The Projects the Remote's own site record lists, or `[]` when it has nothing to say.
- *
- * ⚠ **Read from `raw.githubusercontent.com`, which is where a repository's *bytes* live** — the
- * API answers file lists, and this is one file. One request and none of the hourly budget.
- *
- * ⚠ **Credentialed, and the reason is that the check below is otherwise inert.** The raw host
- * answers 404 for a private repository read without one, so an unauthenticated read makes
- * `published` empty and the subset refusal silently never fires — a second machine binds to a
- * private Remote carrying Projects it has not got, and the one thing standing between it and
- * deleting them is skipped without a word. Private repositories are out of scope, but nothing here
- * refuses one, so this must not quietly drop its own protection on them. The token costs
- * nothing extra: {@link readRemoteRights} has already established with it that this repository
- * exists and is pushable, so it has been sent to GitHub for this repository a moment ago, and the
- * raw host takes `Authorization: Bearer`.
- *
- * ⚠ **Every failure answers "nothing listed", and that is a deliberate asymmetry.** A 404 is the
- * ordinary case — a repository that has never been published to — and a network blip, a 500, or a
- * record this build cannot parse are all *we cannot say*. Refusing to bind over any of them would
- * stop a scholar binding a perfectly good repository because a CDN hiccuped, and it is the refusal
- * below rather than this read that is load-bearing: what it protects against is a Remote that
- * demonstrably lists Projects this Workspace has not got.
- */
-async function readRemoteProjects(
-	options: BindRemoteOptions
-): Promise<readonly PublishedProject[]> {
-	const { remote, token } = options;
-	const branch = remote.branch ?? DEFAULT_REMOTE_BRANCH;
-	// Per segment: a branch name may hold a `/`, and the raw host resolves one across its segments
-	// itself — while a `#` in one is a fragment that would silently truncate the request.
-	const url =
-		`${GITHUB_RAW_ORIGIN}/${encodeURIComponent(remote.owner)}/` +
-		`${encodeURIComponent(remote.repository)}/` +
-		`${branch.split('/').map(encodeURIComponent).join('/')}/${PUBLISHED_SITE_RECORD_NAME}`;
-	try {
-		const response = await request(options)(url, {
-			headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
-		});
-		if (!response.ok) return [];
-		return parsePublishedSite(new Uint8Array(await response.arrayBuffer())).projects;
-	} catch {
-		return [];
-	}
 }
 
 /** Where a repository's Pages settings live, which is the one screen the guided step sends to. */
@@ -392,14 +333,16 @@ export async function disableRemotePages(
 }
 
 /**
- * Connect a Workspace to a repository: refuse a Review Workspace, then ask GitHub the two questions
- * that can refuse.
+ * Connect a Workspace to a repository: refuse a Review Workspace, then ask GitHub who is asking.
  *
  * The order is the design. The review refusal is first because a Review Workspace must not so much
- * as *ask* GitHub a question with somebody's credential attached (ADR-0024); the rights check next,
- * because a credential GitHub will not look at is the cheaper answer and the one that makes every
- * later question meaningless; the subset refusal last, because it is the one that costs a request
- * against the raw host.
+ * as *ask* GitHub a question with somebody's credential attached (ADR-0024); the rights check
+ * second, and it is the one request this makes — it establishes that the repository exists, that
+ * this credential can see it, and whether it can push.
+ *
+ * ⚠ **A repository already holding Ballastella work is not refused** (ADR-0044). See this module's
+ * header: with no Baseline a Sync removes nothing in either direction, so what that repository
+ * holds is work to get rather than work about to be deleted.
  *
  * ⚠ **Nothing is written to the Workspace here, and nothing on the Remote is touched.** The
  * relationship is the caller's to keep (ADR-0044), so a refusal leaves the Workspace exactly as it
@@ -409,8 +352,7 @@ export async function disableRemotePages(
  * its own press, for the reason the header gives.
  *
  * @throws ReviewWorkspaceError when the Workspace is a review copy (ADR-0024)
- * @throws RemoteBindRefusedError when GitHub refuses the credential, has no such repository, or
- *   carries Projects this Workspace has not got (ADR-0033)
+ * @throws RemoteBindRefusedError when GitHub refuses the credential or has no such repository
  */
 export async function bindWorkspaceToRemote(
 	store: ProjectStore,
@@ -423,25 +365,6 @@ export async function bindWorkspaceToRemote(
 		'connected to a repository on GitHub'
 	);
 	const rights = await readRemoteRights(options);
-
-	const published = await readRemoteProjects(options);
-	if (published.length > 0) {
-		// Asked only when the Remote has something to be missing, so an ordinary bind to an empty
-		// repository still reads no Project files at all.
-		const here = new Set(
-			(await new Workspace(store).listProjects()).map((project) => project.directory)
-		);
-		// By directory rather than by name: the directory is a Project's identity and what `?p=` names
-		// (ADR-0008), while the name is what the scholar recognises — so the comparison uses the first
-		// and the sentence uses the second.
-		const missing = published.filter((project) => !here.has(project.directory));
-		if (missing.length > 0) {
-			throw new RemoteBindRefusedError(
-				'projects-not-here',
-				notHereMessage(options.remote, missing)
-			);
-		}
-	}
 
 	return {
 		remote: {
@@ -488,30 +411,6 @@ function unreachableMessage(remote: RemoteReference, cause: unknown): string {
 		`GitHub could not be reached, so nothing has been bound and the token has not been kept. The ` +
 		`browser reported: ${detail}. This is about the connection rather than about ` +
 		`${describeRemote(remote)} — everything you have is still saved on this computer.`
-	);
-}
-
-/**
- * What the subset refusal says, and where it sends the scholar instead.
- *
- * ⚠ **It names the Projects, and it names Open a Workspace from GitHub.** "This Workspace is
- * missing work" is not something anybody can act on; *"“Amsterdam 1625” is on it and is not here"*
- * is. And the remedy has to be on the same screen as the refusal, because the alternative a scholar
- * will otherwise reach for is to bind anyway from a second machine and publish — which is the loss
- * this refusal exists to prevent. The guided sequence renders the control beside this sentence, so
- * the operation it names is a press rather than an instruction to go and find one.
- */
-function notHereMessage(remote: RemoteReference, missing: readonly PublishedProject[]): string {
-	const names = missing.map((project) => `“${project.name || project.directory}”`).join(', ');
-	const are = missing.length === 1 ? 'is a Project' : 'are Projects';
-	return (
-		`${describeRemote(remote)} already carries work from Ballastella, and ${names} ${are} on it ` +
-		`that this Workspace has not got. Publishing this Workspace there would delete ` +
-		`${missing.length === 1 ? 'it' : 'them'}, so nothing has been bound and the token has not been ` +
-		`kept. Open ${describeRemote(remote)} from GitHub instead: that brings the whole of it down ` +
-		`into a new Workspace of its own, and never overwrites or merges anything you already have. ` +
-		`If this Workspace is a copy that stopped part way through downloading, opening it from ` +
-		`GitHub again is the way to finish it.`
 	);
 }
 
