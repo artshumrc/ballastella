@@ -9,6 +9,8 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { RemoteSendPlan } from '@ballastella/core';
+
 import SyncDialog from './SyncDialog.svelte';
 import { FakeSyncStorage, asStorage } from './sync-dialog-fake.svelte.js';
 import { at as file, emptyForecast } from './sync-dialog-forecast.js';
@@ -38,10 +40,17 @@ beforeEach(() => {
 	};
 });
 
-/** Every microtask the modal's opening pass takes: four reads, then the forecast. */
+/**
+ * Let the modal's opening pass finish. Its length varies with what the forecast finds — a Remote
+ * carrying a site this Workspace has not got is re-planned, which is two more awaited reads — so
+ * each turn yields to the macrotask queue, draining whatever the last one chained, rather than
+ * counting a fixed number of microtasks.
+ */
 async function settle(): Promise<void> {
-	for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
-	flushSync();
+	for (let turn = 0; turn < 3; turn += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		flushSync();
+	}
 }
 
 const el = (testid: string): HTMLElement | null =>
@@ -530,5 +539,46 @@ describe('the sync modal and Share Links', () => {
 		await settle();
 
 		expect(storage.session.siteWrites).toBe(1);
+	});
+
+	// ⚠ **A Workspace got from a Remote that has Share Links has them, and its first Sync must keep
+	// the site rather than take it down** (ADR-0045). A get brings the source namespace and nothing
+	// else, so this Workspace carries no viewer files at all — and the send that follows mirrors the
+	// owned namespace, so without writing the viewer first it would remove `index.html` and `_app/**`
+	// from a live site, breaking every link already handed out.
+	test('writes the viewer where the Remote carries a site this Workspace has not got', async () => {
+		const storage = somethingToSend();
+		storage.shareLinks = false;
+		storage.session.forecast = emptyForecast({
+			...(storage.session.forecast as RemoteSendPlan),
+			shareLinks: true
+		});
+		await open(storage);
+
+		press('sync-send');
+		await settle();
+
+		expect(storage.session.siteWrites).toBe(1);
+	});
+
+	// ⚠ **And the one state that means the opposite.** The same pair of facts — the Remote carries a
+	// site, this Workspace does not — is what a withdrawal looks like on the Sync that carries it out.
+	// Only the author's own asking tells the two apart, which is why it is recorded rather than read
+	// off the files.
+	test('writes no viewer where the author has asked for the site to come down', async () => {
+		const storage = somethingToSend();
+		storage.shareLinks = false;
+		storage.withdrawing = true;
+		storage.session.forecast = emptyForecast({
+			...(storage.session.forecast as RemoteSendPlan),
+			shareLinks: true
+		});
+		await open(storage);
+
+		press('sync-send');
+		await settle();
+
+		expect(storage.session.siteWrites).toBe(0);
+		expect(storage.withdrawalsFinished).toBe(1);
 	});
 });

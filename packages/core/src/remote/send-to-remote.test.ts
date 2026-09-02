@@ -664,6 +664,41 @@ describe('the owned namespace once Share Links are asked for (ADR-0045)', () => 
 		expect(plan.conflicts).toEqual([]);
 	});
 
+	// ⚠ **The signal a caller separates withdrawal from a fresh get with.** Both are a Remote carrying
+	// the viewer set over a Workspace that does not, and the plan reports the pair rather than
+	// guessing at the intention behind it: the editor holds the withdrawal request, and writes the
+	// viewer before sending where there is none.
+	describe('what the plan reports about Share Links', () => {
+		const planFor = async (store: MemoryProjectStore, github: FakeGitHub) =>
+			planRemoteSend(store, { token: TOKEN, remote: REMOTE, fetch: github.fetch });
+
+		it('is false where neither side carries a site', async () => {
+			const store = await seeded({ 'amsterdam-1625/project.json': '{}' });
+			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+			expect((await planFor(store, github)).shareLinks).toBe(false);
+		});
+
+		it('is true where the Workspace carries one the Remote has not got yet', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+			expect((await planFor(store, github)).shareLinks).toBe(true);
+		});
+
+		// The Workspace a second machine gets: the source namespace and nothing else, over a Remote
+		// with a live site. Reported as Share Links, so the caller writes the viewer rather than
+		// letting the mirror take the site down.
+		it('is true where only the Remote carries one', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+			await send(store, github);
+			await withdrawShareLinks(store);
+
+			expect((await planFor(store, github)).shareLinks).toBe(true);
+		});
+	});
+
 	// And then it stays withdrawn: the Remote no longer carries a site record, so the marker the last
 	// commit still holds is preserved rather than re-authored, and nothing oscillates.
 	it('leaves the repository alone on the Sync after a withdrawal', async () => {

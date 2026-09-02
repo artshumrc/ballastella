@@ -94,6 +94,10 @@ export class FakeSyncStorage {
 
 	/** Whether the Workspace carries the viewer file set, which is what Share Links are (ADR-0045). */
 	shareLinks = $state(false);
+	/** Whether the author has asked for the site to come down and no Sync has carried it out yet. */
+	withdrawing = $state(false);
+	/** How many times a send answered the withdrawal request. */
+	withdrawalsFinished = 0;
 	rights: RemoteRights = { canPush: true };
 	sharing: RemoteSharing = { shared: false, known: true, owner: 'ada', others: [] };
 	/** What `getFromRemote` answers, or an error it throws. */
@@ -112,6 +116,14 @@ export class FakeSyncStorage {
 
 	async hasShareLinks(): Promise<boolean> {
 		return this.shareLinks;
+	}
+
+	async withdrawingShareLinks(): Promise<boolean> {
+		return this.withdrawing;
+	}
+
+	async finishWithdrawal(): Promise<void> {
+		this.withdrawalsFinished += 1;
 	}
 
 	async readRights(): Promise<RemoteRights> {
