@@ -47,9 +47,9 @@ import { JEKYLL_OFF_MARKER, carriesPublishedSite } from '../transfer/viewer-file
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
 import { classifyPath, recognisedProjectDirectories } from './synchronization-paths.js';
-import { planWorkspacePublish } from './synchronization-planner.js';
+import { planWorkspaceSync } from './synchronization-planner.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
-import type { PlanRefusal } from './synchronization-planner.js';
+import type { PathChoice, PlanRefusal, SourcePath } from './synchronization-planner.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -102,16 +102,20 @@ export type RemotePublishWarning = {
 };
 
 /**
- * Why an ordinary publish will not go ahead without being told to replace what is there (ADR-0038).
+ * Why a send will not go ahead without being told to overwrite the repository (ADR-0038).
  *
  * One refusal with two remedies, never a per-file choice and never a merge: three-way merging
  * `project.json`, a GeoJSON or an Alignment is the collision ADR-0024 refuses to answer, and there
  * is no honest resolution for two Alignments of one sheet.
  *
- * ⚠ **The reason is {@link planWorkspacePublish}'s, not a second vocabulary.** The passive Remote
- * Status, Update's refusals and this one are the same three-way table asked the same question, and a
- * spelling of its own here is how the bar comes to say `Update available` while the dialog says
- * nothing is wrong.
+ * ⚠ **A Conflict and nothing else.** A Remote holding work this Workspace has not taken in is no
+ * longer a refusal: sending leaves it exactly where it is and it reads as changes to get instead,
+ * which is what makes one Sync control safe. What is left is the one row of the three-way table with
+ * no safe answer in either direction — the same path changed on both sides.
+ *
+ * ⚠ **The reason is {@link planWorkspaceSync}'s, not a second vocabulary.** The passive Remote
+ * Status and this refusal are the same three-way table asked the same question, and a spelling of
+ * its own here is how the bar comes to say one thing while the modal says another.
  */
 export type RemotePublishConflict = {
 	readonly reason: PlanRefusal;
@@ -150,10 +154,10 @@ export type RemotePublishPlan = {
 	 *
 	 * ⚠ **Counted into {@link uploads}, {@link uploadBytes}, {@link bytes}, {@link unchanged} and the
 	 * warnings, because a first publish is exactly where those numbers matter and exactly where they
-	 * would otherwise be wrong.** The dialog forecasts before it writes — decision 2 of `PublishDialog`
-	 * settles the address before anything is written at all — so at the moment the three budgets are
-	 * shown, the viewer bundle and the Base Map's five megabytes are not in the Workspace and every
-	 * one of the three would quote a total missing them.
+	 * would otherwise be wrong.** The Sync modal forecasts before it writes — pressing Sync moves
+	 * nothing at all — so at the moment the three budgets are shown, the viewer bundle and the Base
+	 * Map's five megabytes are not in the Workspace and every one of the three would quote a total
+	 * missing them.
 	 *
 	 * Each is counted as one blob it does not have: their bytes have never been hashed here, and a
 	 * forecast that guessed they were already on the Remote would understate in the direction that
@@ -174,8 +178,68 @@ export type RemotePublishPlan = {
 	 * sent, and uses this only to know which of them are source.
 	 */
 	readonly source: ReadonlyMap<string, string>;
-	/** Owned source paths the Remote holds that this publish takes down, sorted. */
+	/**
+	 * Owned source paths the Remote holds that a send takes down, sorted (ADR-0044).
+	 *
+	 * ⚠ **Baseline-narrowed, and that is the single most important property of a Sync.** A Remote
+	 * path may be removed only where the Baseline recorded it and this Workspace no longer has it.
+	 * One absent from the Baseline is left alone — {@link retained} — and reads as changes to get.
+	 * With no Baseline this is empty by construction, which is what makes a first Sync to a populated
+	 * repository safe.
+	 */
 	readonly removed: readonly string[];
+	/**
+	 * Owned Remote source paths a send leaves exactly as they are, carried into the new tree.
+	 *
+	 * ⚠ **A whole tree is posted rather than an incremental one**, so a path that is neither written
+	 * nor removed has to be carried across by name. Left out, "we do not remove it" would become "we
+	 * remove it by omission" — which is the deletion Baseline narrowing exists to prevent.
+	 */
+	readonly retained: readonly RemoteTreeEntry[];
+	/**
+	 * The paths {@link retained} covers — the ones a send neither uploads nor writes.
+	 *
+	 * ⚠ **On the plan rather than filtered out of {@link files}, because the mode decides.** An
+	 * `overwrite` writes this Workspace's copy over every one of them, which is what asking for one
+	 * means; a send does not, and {@link retained} carries the Remote's own copy into the tree.
+	 */
+	readonly leftAlone: readonly string[];
+	/**
+	 * What getting would bring into the Workspace and take out of it — the plan's other half.
+	 *
+	 * ⚠ **One listing answers both directions, which is the whole point of one Sync control.** The
+	 * transfer that acts on this replans against its own anonymous read at one commit
+	 * (`update-from-github.ts`), exactly as a send replans after the local write; what is here is the
+	 * forecast the author reads before choosing a direction.
+	 */
+	readonly incoming: readonly PathChoice[];
+	/**
+	 * Every local source path a send's commit will hold, and whether it is new, changed or already
+	 * there byte for byte.
+	 *
+	 * {@link files} is the same set as a list of bytes to upload; this is the same set as a
+	 * *difference*, which is what the Sync modal's **To send** column is made of. `keep` is a path
+	 * the Remote already holds at these very bytes, and belongs in neither column.
+	 */
+	readonly outgoing: readonly PathChoice[];
+	/** Paths changed on both sides since the two last agreed. Detected, never resolved here. */
+	readonly conflicts: readonly SourcePath[];
+	/**
+	 * Owned source paths an `overwrite` would take down, sorted.
+	 *
+	 * The one removal set computed from the Workspace alone: inside the owned namespace the Remote
+	 * becomes exactly the Workspace. Named before it is carried out, and gated by
+	 * {@link PublishToRemoteOptions.overwrite}.
+	 */
+	readonly overwrites: readonly string[];
+	/**
+	 * The Baseline an `overwrite` may record: the whole local source namespace.
+	 *
+	 * Wider than {@link source}, which an ordinary send records — that one deliberately omits every
+	 * path the Remote has moved past, because a send leaves those alone and must not claim them.
+	 * After an overwrite the Remote *is* the Workspace, so there is nothing left to omit.
+	 */
+	readonly overwriteSource: ReadonlyMap<string, string>;
 	/**
 	 * Whether the Remote's tree already holds exactly what this publish would write.
 	 *
@@ -195,12 +259,12 @@ export type RemotePublishPlan = {
 	 * Why this publish would overwrite work this Workspace has never seen, or `null` (ADR-0033).
 	 *
 	 * ⚠ **A fact on the plan rather than a throw, because the refusal has a remedy the plan itself
-	 * carries out.** "Publish anyway, replacing it" is one of the two remedies the user is offered,
+	 * carries out.** "Overwrite the repository" is one of the two remedies the user is offered,
 	 * and raising this at plan time would make taking it mean planning again — a second tree listing,
 	 * against a Remote that may have moved between the two, so the paths named in the refusal would
 	 * not be the paths replaced by the act of accepting it. {@link publishToRemote} is where the
 	 * refusal binds: it will not send a byte while this is set unless
-	 * {@link PublishToRemoteOptions.replace} says to.
+	 * {@link PublishToRemoteOptions.overwrite} says to.
 	 */
 	readonly conflict: RemotePublishConflict | null;
 	/**
@@ -333,10 +397,19 @@ export type PlanRemotePublishOptions = RemotePublishOptions & {
 	 * transfer.
 	 *
 	 * Absent or `null` is the honest answer for a first publish, for a Baseline lost with browser
-	 * storage, and for one written about a different repository — and it is refused rather than
-	 * guessed at: see {@link PlanRefusal}'s `unknown-history`.
+	 * storage, and for one written about a different repository. It is not a refusal: with no
+	 * Baseline nothing may be removed in either direction, so a first Sync to a populated repository
+	 * is safe by construction rather than by a question.
 	 */
 	readonly baseline?: SynchronizationBaseline | null;
+	/**
+	 * Whether this plan is being made in order to send. Defaults to `true`.
+	 *
+	 * `false` is a plan read for its {@link RemotePublishPlan.incoming} half by somebody whose
+	 * account cannot push: the comparison is the same and the push check is skipped, so the *To get*
+	 * column exists for a read-only collaborator instead of a refusal (ADR-0044).
+	 */
+	readonly sending?: boolean;
 };
 
 export type PublishToRemoteOptions = RemotePublishOptions & {
@@ -348,28 +421,32 @@ export type PublishToRemoteOptions = RemotePublishOptions & {
 	 */
 	readonly plan: RemotePublishPlan;
 	/**
-	 * Go ahead even though {@link RemotePublishPlan.conflict} is set: *publish anyway, replacing it*.
+	 * *Overwrite the repository*: inside the owned namespace the Remote becomes exactly the Workspace.
 	 *
-	 * ⚠ **The default refuses, and the refusal lives here rather than only in the interface.** A
-	 * caller that never looked at `conflict` would otherwise overwrite another machine's afternoon in
-	 * silence, which is the failure this whole check exists for. Safe to offer because ADR-0033's
-	 * owned namespace preserves everything outside itself: the only thing a replace can destroy is
-	 * other Ballastella work, which is what lets the refusal name files rather than say "the remote
-	 * has moved".
+	 * ⚠ **The default refuses a Conflict, and the refusal lives here rather than only in the
+	 * interface.** A caller that never looked at {@link RemotePublishPlan.conflict} would otherwise
+	 * overwrite another machine's afternoon in silence, which is the failure this whole check exists
+	 * for. Safe to offer because ADR-0033's owned namespace preserves everything outside itself: the
+	 * only thing an overwrite can destroy is other Ballastella work, which is what lets the refusal
+	 * name files rather than say "the remote has moved".
 	 *
-	 * ⚠ **`true` means "replace whatever *this* plan found", so it is only honest from a caller
+	 * ⚠ **This is also what switches removal from Baseline-narrowed to Workspace-only.** An ordinary
+	 * send removes {@link RemotePublishPlan.removed} and carries {@link RemotePublishPlan.retained}
+	 * across untouched; an overwrite removes {@link RemotePublishPlan.overwrites} and carries nothing.
+	 *
+	 * ⚠ **`true` means "overwrite whatever *this* plan found", so it is only honest from a caller
 	 * holding the plan the user actually read.** An interface that forecasts, publishes locally, and
 	 * then plans again — which `EditorSession.publishToRemote` must, or it would commit a site with no
 	 * `index.html` — is not that caller: a large publish runs for minutes, and a scholar who agreed to
-	 * replacing one `notes.json` would silently authorise deleting a Project another machine published
+	 * removing one `notes.json` would silently authorise deleting a Project another machine published
 	 * in the meantime. `force: false` on the ref move does not catch it, because the second plan is
 	 * built on the new head and its commit is a legitimate fast-forward.
 	 *
-	 * So such a caller passes **the paths of the conflict it showed**, and this refuses when the plan's
-	 * conflict is not a subset of them — the consent is about a set of files, and a set that has grown
-	 * is a set nobody has consented to.
+	 * So such a caller passes **the paths it named as going**, and this refuses when the plan's own
+	 * removals are not a subset of them — the consent is about a set of files, and a set that has
+	 * grown is a set nobody has consented to.
 	 */
-	readonly replace?: boolean | readonly string[];
+	readonly overwrite?: boolean | readonly string[];
 	readonly onProgress?: (seen: {
 		readonly files: number;
 		readonly totalFiles: number;
@@ -526,12 +603,23 @@ function encodeBase64(bytes: Uint8Array): string {
  * answers 404 for a repository that does not exist **and** for one the credential cannot see, so a
  * typo'd name and a revoked token would otherwise be planned as a full upload with no warning.
  *
- * @throws RemotePublishRefusedError when there is no such repository, or the account cannot push
+ * ⚠ **The push check is skipped for a plan that is only being read.** A collaborator who cannot
+ * write still needs to be told what the repository holds that their Workspace has not — the Sync
+ * modal's *To get* column — and refusing to plan at all would leave them looking at nothing. What
+ * their account cannot do is answered by leaving the send affordances off the screen (ADR-0044),
+ * not by declining to compare the two sides.
+ *
+ * @throws RemotePublishRefusedError when there is no such repository, or a send could not complete
  */
-async function assertPushable(api: RemoteApi, remote: RemoteRepository): Promise<void> {
+async function assertPushable(
+	api: RemoteApi,
+	remote: RemoteRepository,
+	sending: boolean
+): Promise<void> {
 	const response = await api.call('');
 	if (response.status === 404) throw new RemotePublishRefusedError(noRepositoryMessage(remote));
 	if (!response.ok) throw await failureFrom(response, api, 'blobs', 0, 0);
+	if (!sending) return;
 	const body = (await response.json().catch(() => ({}))) as { permissions?: { push?: unknown } };
 	// `false` for a token with no write permission **and** for a response carrying no `permissions` at
 	// all, exactly as `readRemoteRights` reads it. Both mean this publish cannot complete.
@@ -679,10 +767,10 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
 }
 
 /**
- * Whether an ordinary publish may go ahead, and what to say when it may not (ADR-0038).
+ * Whether a send may go ahead, and what to say when it may not (ADR-0038).
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────┐
- * │ THE DECISION IS `planWorkspacePublish`'S. WHAT IS DONE HERE IS THE WORDING FOR IT.        │
+ * │ THE DECISION IS `planWorkspaceSync`'S. WHAT IS DONE HERE IS THE WORDING FOR IT.           │
  * └──────────────────────────────────────────────────────────────────────────────────────────┘
  *
  * A publish that refused whenever the branch's head had moved would refuse after the scholar edited
@@ -690,29 +778,16 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
  * refuses it, and the reason is behavioural rather than aesthetic: a check that cries wolf is a
  * check people learn to force through, and the one time it is right is then the one time it is
  * dismissed. So the question is asked per source path against the Baseline, by the one
- * implementation of the three-way table that the Remote Status control and Update from GitHub also
- * read.
+ * implementation of the three-way table that the Remote Status control also reads.
  *
  * ⚠ **A deletion is the destructive half, and only the Baseline licenses it.** A source path this
- * publish would *not* write is a path the mirror removes — a Project deleted here since the last
- * publish, whose whole pyramid goes with it. That is right when the Baseline says this machine put
- * the file there, and it is the loss the refusal exists to prevent when it does not: a Workspace
- * missing paths it has never seen would otherwise take the whole of somebody's site down with one
- * press. Which is why no Baseline is `unknown-history` rather than *nothing was there*.
+ * send would *not* write is removed only where the Baseline recorded it — a Project deleted here
+ * since the last Sync, whose whole pyramid goes with it. One the Baseline never recorded is
+ * somebody else's, and it is carried across untouched rather than refused.
  */
-function refusalOf(
-	refused: { readonly reason: PlanRefusal; readonly paths: readonly string[] },
-	removed: readonly string[],
-	remote: RemoteRepository
-): RemotePublishConflict {
-	const paths = [...refused.paths].sort();
-	const message =
-		refused.reason === 'unknown-history'
-			? cannotTellMessage(remote, paths.length, removed)
-			: refused.reason === 'conflict'
-				? bothSidesMessage(remote, paths)
-				: remoteChangesMessage(remote, paths, refused.reason === 'changes-on-both-sides');
-	return { reason: refused.reason, paths, message };
+function refusalOf(conflicts: readonly string[], remote: RemoteRepository): RemotePublishConflict {
+	const paths = [...conflicts].sort();
+	return { reason: 'conflict', paths, message: conflictMessage(remote, paths) };
 }
 
 /**
@@ -739,7 +814,7 @@ export async function planRemotePublish(
 	}
 
 	// Before the tree listing, and long before a blob.
-	await assertPushable(api, options.remote);
+	await assertPushable(api, options.remote, options.sending !== false);
 
 	const head = await readHead(api, options.remote);
 	const remote = head === null ? [] : await readRemoteTree(api, options.remote, head);
@@ -772,14 +847,14 @@ export async function planRemotePublish(
 		return bucket === 'source' || (shareLinks && bucket === 'published-output');
 	};
 
-	const files: PlannedRemoteFile[] = [];
+	const hashed: PlannedRemoteFile[] = [];
 	for (const path of paths) {
 		// A Workspace with no Share Links keeps whatever a previous site left in it, and sends none of
 		// it: the repository holds the scholar's own work until they ask for a site.
 		if (!owned(path)) continue;
 		const bytes = await store.read(path);
 		const sha = await gitBlobSha(bytes);
-		files.push({
+		hashed.push({
 			path,
 			sha,
 			bytes: bytes.byteLength,
@@ -795,7 +870,7 @@ export async function planRemotePublish(
 	// only where GitHub will accept nothing else, and it is preserved from then on rather than owned.
 	if (shareLinks && !held.has(JEKYLL_OFF_MARKER)) {
 		const sha = await gitBlobSha(EMPTY_FILE);
-		files.push({
+		hashed.push({
 			path: JEKYLL_OFF_MARKER,
 			sha,
 			bytes: 0,
@@ -803,7 +878,36 @@ export async function planRemotePublish(
 			authored: true
 		});
 	}
-	files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+	hashed.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+
+	// ⚠ **The decision, asked of the synchronization planner once for both directions.** One plan
+	// answers for all four modes — it never refuses, so what a send would settle and what an
+	// overwrite would settle are both on it. Pure over the same three inventories, so this costs no
+	// request and cannot disagree with the Remote Status on the bar.
+	//
+	// The pending viewer files are deliberately absent from `local`: every one of them is Publish-owned
+	// output, which is not source and cannot be inbound change or a Conflict.
+	const settled = planWorkspaceSync({
+		local: hashed.map((file) => ({ path: file.path, sha: file.sha })),
+		remote: remote.map((entry) => ({ path: entry.path, sha: entry.sha })),
+		baseline: options.baseline ?? null
+	});
+
+	// The Remote's own entries for the owned source paths a send leaves alone, so the whole tree it
+	// posts can carry them across at the mode and SHA the Remote gave them.
+	const listed = new Map(remote.map((entry) => [entry.path, entry] as const));
+	const retained = settled.leftAlone.flatMap((path) => {
+		const entry = listed.get(path);
+		/* v8 ignore next -- `leftAlone` is drawn from the same listing `remote` is. */
+		return entry === undefined ? [] : [entry];
+	});
+
+	// ⚠ **Not filtered out here, because which of the two the mode wants is not settled yet.** A send
+	// skips these and lets `retained` carry the Remote's own copy across; an overwrite writes the
+	// Workspace's copy over them, which is what asking for an overwrite means. `publishToRemote`
+	// chooses; both halves are on the plan.
+	const leftAlone = new Set(settled.leftAlone);
+	const files = hashed;
 
 	// What the local publish will add, minus whatever it is about to overwrite: a second publish
 	// rewrites the whole viewer over the copy already in the Workspace, so its file list arrives here
@@ -822,6 +926,11 @@ export async function planRemotePublish(
 	const preserved = remote.filter((entry) => !owned(entry.path) && !planned.has(entry.path));
 	const preservedBytes = preserved.reduce((sum, entry) => sum + entry.bytes, 0);
 
+	// ⚠ **Counted over every owned path, which is the most any mode would send.** A send skips
+	// {@link RemotePublishPlan.leftAlone} and an overwrite does not, and a budget warning that
+	// understated is a scholar meeting a 403 at request 5,001 — the one thing this number exists to
+	// prevent. So it overstates a send by however many paths the Remote has moved past, which is
+	// normally none and never many.
 	const uploaded = blobsToUpload(files);
 	const uploads = uploaded.length + pending.length;
 	const uploadBytes = uploaded.reduce((sum, file) => sum + file.bytes, pendingBytes);
@@ -840,29 +949,15 @@ export async function planRemotePublish(
 		});
 	}
 
-	// ⚠ **The decision, asked of the synchronization planner and asked twice on purpose.** The first
-	// call is the ordinary Publish and answers whether it may go ahead; the second is the Publish
-	// anyway, which never refuses and is therefore the one that can say what either mode would settle.
-	// Both are pure over the same three inventories, so this costs no request and cannot disagree with
-	// the Remote Status on the bar.
-	//
-	// The pending viewer files are deliberately absent from `local`: every one of them is Publish-owned
-	// output, which is not source and cannot be inbound change or a Conflict.
-	const comparison = {
-		local: files.map((file) => ({ path: file.path, sha: file.sha })),
-		remote: remote.map((entry) => ({ path: entry.path, sha: entry.sha })),
-		baseline: options.baseline ?? null
-	};
-	const ordinary = planWorkspacePublish(comparison);
-	const anyway = planWorkspacePublish(comparison, { replace: true });
-	const settled = anyway.outcome === 'planned' ? anyway.plan : null;
-
 	// The tree this publish would post, path by path, against the one the Remote holds. Compared by
 	// size *and* entry, so a Remote holding one extra owned path — a Project deleted here since the
 	// last publish — is a difference rather than a subset that looks like a match.
 	const wouldWrite = new Map<string, string>([
 		...preserved.map((entry) => [entry.path, entry.sha] as const),
-		...files.map((file) => [file.path, file.sha] as const)
+		...retained.map((entry) => [entry.path, entry.sha] as const),
+		...files
+			.filter((file) => !leftAlone.has(file.path))
+			.map((file) => [file.path, file.sha] as const)
 	]);
 	const unchanged =
 		head !== null &&
@@ -877,12 +972,22 @@ export async function planRemotePublish(
 		files,
 		pending,
 		preserved,
+		retained,
+		leftAlone: settled.leftAlone,
+		incoming: settled.toGet.changes,
+		outgoing: settled.toSend.changes,
+		conflicts: settled.conflicts,
 		unchanged,
-		source: settled?.advances ?? new Map<string, string>(),
-		removed: settled?.removed ?? [],
+		source: settled.toSend.advances,
+		removed: settled.toSend.removed,
+		overwrites: settled.toOverwrite.removed,
+		overwriteSource: settled.toOverwrite.advances,
 		conflict:
-			ordinary.outcome === 'refused'
-				? refusalOf(ordinary, settled?.removed ?? [], options.remote)
+			settled.conflicts.length > 0
+				? refusalOf(
+						settled.conflicts.map((row) => row.path),
+						options.remote
+					)
 				: null,
 		uploads,
 		uploadBytes,
@@ -934,20 +1039,29 @@ export async function publishToRemote(
 	readonly shared: readonly string[];
 }> {
 	const { plan, remote } = options;
-	// Before anything is read, hashed, or sent — see {@link PublishToRemoteOptions.replace}.
-	if (plan.conflict !== null) {
-		const agreed = options.replace;
-		if (agreed === undefined || agreed === false) {
-			throw new RemotePublishRefusedError(plan.conflict.message);
-		}
-		if (agreed !== true) {
-			const consented = new Set(agreed);
-			const unseen = plan.conflict.paths.filter((path) => !consented.has(path));
-			if (unseen.length > 0) {
-				throw new RemotePublishRefusedError(movedSinceAgreedMessage(remote, unseen));
-			}
+	// Before anything is read, hashed, or sent — see {@link PublishToRemoteOptions.overwrite}.
+	const overwriting = options.overwrite !== undefined && options.overwrite !== false;
+	if (!overwriting && plan.conflict !== null) {
+		throw new RemotePublishRefusedError(plan.conflict.message);
+	}
+	if (overwriting && options.overwrite !== true) {
+		const consented = new Set(options.overwrite);
+		const unseen = plan.overwrites.filter((path) => !consented.has(path));
+		if (unseen.length > 0) {
+			throw new RemotePublishRefusedError(movedSinceAgreedMessage(remote, unseen));
 		}
 	}
+	/** What this send takes off the Remote, which is one of the two things the mode changes. */
+	const removed = overwriting ? plan.overwrites : plan.removed;
+	/**
+	 * Which of the Workspace's own files this send writes, which is the other.
+	 *
+	 * An ordinary send skips the paths the Remote has moved past since the two last agreed — their
+	 * Remote copies go into the tree from `plan.retained` instead. An overwrite writes all of them,
+	 * which is what asking for one means.
+	 */
+	const leftAlone = new Set(plan.leftAlone);
+	const sending = overwriting ? plan.files : plan.files.filter((file) => !leftAlone.has(file.path));
 	// Seeded from the plan rather than started at `null`, so a progress line has the budget to show
 	// from its first report rather than after its first upload.
 	const api = createRemoteApi(options, {
@@ -964,13 +1078,14 @@ export async function publishToRemote(
 	// the publish reports success. So every file is re-read here, hashed again, and the tree is built
 	// from what was actually sent.
 	const held = new Set([
-		...plan.files.filter((file) => file.onRemote).map((file) => file.sha),
-		...plan.preserved.map((entry) => entry.sha)
+		...sending.filter((file) => file.onRemote).map((file) => file.sha),
+		...plan.preserved.map((entry) => entry.sha),
+		...plan.retained.map((entry) => entry.sha)
 	]);
 	// The plan's count is what the user was shown before pressing the button, so it stays the
 	// denominator. A file edited mid-publish can push the numerator past it, and "10 of 9" is a worse
 	// answer to a scholar than a forecast that turned out one short.
-	const forecast = blobsToUpload(plan.files).length;
+	const forecast = blobsToUpload(sending).length;
 	let sent = 0;
 	const total = () => Math.max(forecast, sent);
 	const report = () =>
@@ -992,7 +1107,7 @@ export async function publishToRemote(
 	report();
 	/** What this publish put there, path by path — the tree's other half and the whole manifest. */
 	const written: RemoteTreeEntry[] = [];
-	for (const file of plan.files) {
+	for (const file of sending) {
 		const bytes = file.authored ? EMPTY_FILE : await store.read(file.path);
 		const computed = await gitBlobSha(bytes);
 		let sha = computed;
@@ -1022,7 +1137,11 @@ export async function publishToRemote(
 	const tree = await api.call('/git/trees', {
 		method: 'POST',
 		body: JSON.stringify({
-			tree: [...plan.preserved, ...written].map((entry) => ({
+			// ⚠ **`retained` is in the tree for an ordinary send and out of it for an overwrite**, and
+			// that is the whole of the difference between the two modes' removal rules: an owned Remote
+			// path the Baseline never recorded is carried across untouched, unless the author has asked
+			// for the Remote to become exactly this Workspace.
+			tree: [...plan.preserved, ...(overwriting ? [] : plan.retained), ...written].map((entry) => ({
 				path: entry.path,
 				mode: entry.mode,
 				// A submodule preserved from the Remote is a `commit` entry, not a blob.
@@ -1060,8 +1179,9 @@ export async function publishToRemote(
 	});
 	if (!moved.ok) throw await failureFrom(moved, api, 'ref', sent, total());
 
+	const recording = overwriting ? plan.overwriteSource : plan.source;
 	const baseline = new Map(
-		written.filter((entry) => plan.source.has(entry.path)).map((entry) => [entry.path, entry.sha])
+		written.filter((entry) => recording.has(entry.path)).map((entry) => [entry.path, entry.sha])
 	);
 	return {
 		commit: commitSha,
@@ -1069,7 +1189,7 @@ export async function publishToRemote(
 		// ⚠ **The removals belong here too.** A Project deleted in this Workspace is a `deleted` mark
 		// the index holds and a path the Baseline no longer carries, so a caller clearing only the
 		// Baseline's own keys would leave the mark standing for a path neither side has any more.
-		shared: [...baseline.keys(), ...plan.removed].sort()
+		shared: [...baseline.keys(), ...removed].sort()
 	};
 }
 
@@ -1102,32 +1222,6 @@ function describePaths(paths: readonly string[]): string {
 }
 
 /**
- * The two ways on, said the same way in both refusals.
- *
- * ⚠ **"Publish anyway" is safe to offer, and the last sentence is why.** ADR-0033's owned namespace
- * preserves everything outside itself, so the only thing a replace can destroy is other Ballastella
- * work — which is what lets this be specific rather than a generic "the remote has moved", and what
- * stops a scholar reading it as a threat to the `CNAME` their published address depends on.
- *
- * ⚠ **It promises about paths this Workspace does not hold, and not about names.** A publish sends
- * everything `store.list('')` answers, so a folder-backed Workspace holding its own `README.md`,
- * `CNAME` or workflow publishes it like any other file — outside the owned namespace, so the
- * refusal above would not have flagged it either. Said as "a README is left alone" this reassurance
- * is false for exactly the scholar who would be most annoyed by it, and it is load-bearing for the
- * "publish anyway" decision, so it says what is actually true instead.
- */
-function remedies(remote: RemoteRepository): string {
-	const where = `${remote.owner}/${remote.repository}`;
-	return (
-		`There are two ways on. Open ${where} from GitHub into a new Workspace to see what is on it — ` +
-		`that never overwrites or merges anything, so this Workspace is left exactly as it is. Or ` +
-		`publish anyway, replacing what is there with this Workspace. Either way, nothing in ${where} that this ` +
-		`Workspace has no file for is touched: a README, a CNAME, or a workflow you added on GitHub is ` +
-		`left exactly as it is.`
-	);
-}
-
-/**
  * What a credential that may read and not write says.
  *
  * ⚠ **It is a refusal rather than a warning, and it arrives before the local publish runs.** The
@@ -1141,61 +1235,32 @@ function readOnlyMessage(remote: RemoteRepository): string {
 		`The GitHub account you are signed in with can read ${where} but cannot push to it, so this ` +
 		`publish would stop part way through and nothing has been sent. Sign in again with a ` +
 		`fine-grained personal access token that has “Contents: Read and write” for ${where}, or ask ` +
-		`whoever owns it for write access. Update from GitHub needs no write access at all, so ` +
-		`bringing that repository's work into this Workspace still works.`
-	);
-}
-
-/**
- * What Remote source change says, naming the files it is about.
- *
- * Files rather than "the remote has changed", because the two remedies need a scholar to be able to
- * recognise the work: "somebody has published here" is not something they can weigh, and
- * `amsterdam-1625/annotations/notes.json` is.
- *
- * ⚠ **The first remedy is Update from GitHub, not a Clone.** Bringing the Remote's
- * work in is the whole point of the refusal: it leaves this Workspace's own unpublished changes
- * alone, and publishing afterwards sends a Remote that is the complete current Workspace rather than
- * one missing an afternoon.
- */
-function remoteChangesMessage(
-	remote: RemoteRepository,
-	paths: readonly string[],
-	alsoLocal: boolean
-): string {
-	const count = paths.length;
-	return (
-		`${remote.owner}/${remote.repository} holds ${count === 1 ? 'a change' : `${count} changes`} ` +
-		`this Workspace has not taken in yet, so publishing now would replace work done somewhere ` +
-		`else — from another computer, or by somebody else. Nothing has been sent. ` +
-		`${count === 1 ? 'It is' : 'They are'}: ${describePaths(paths)}. Update from GitHub first — ` +
-		`that brings ${count === 1 ? 'it' : 'them'} in and leaves this Workspace's own unpublished ` +
-		`work alone${alsoLocal ? ', and there is some of that here' : ''} — and then publish, so that ` +
-		`${remote.owner}/${remote.repository} becomes the whole of this Workspace rather than a state ` +
-		`missing somebody's afternoon. Or publish anyway, replacing what is there with this Workspace. ` +
-		`Either way, nothing in ${remote.owner}/${remote.repository} that this Workspace has no file ` +
-		`for is touched: a README, a CNAME, or a workflow you added on GitHub is left exactly as it is.`
+		`whoever owns it for write access. Getting a repository's changes needs no write access at ` +
+		`all, so bringing its work into this Workspace still works.`
 	);
 }
 
 /**
  * What a path changed on both sides says.
  *
- * ⚠ **Update is not offered, because Update refuses this too.** A Conflict is the one row of the
- * three-way table with no safe inbound answer — Ballastella will not choose between two versions of
- * an Annotation or two Alignments of one sheet (ADR-0024) — so the only way on from here is the
- * deliberate local-wins replacement, and saying "Update first" would send the author round a loop.
+ * ⚠ **It is the only refusal a send has left.** A Remote holding work this Workspace has not taken
+ * in is no longer refused — sending leaves it exactly where it is and the Sync modal lists it under
+ * *To get* — so the remaining case is the one row of the three-way table with no safe answer in
+ * either direction. Getting is not offered as the remedy, because getting refuses it too:
+ * Ballastella will not choose between two versions of an Annotation or two Alignments of one sheet
+ * (ADR-0024). The way on is the deliberate local-wins overwrite.
  */
-function bothSidesMessage(remote: RemoteRepository, paths: readonly string[]): string {
+function conflictMessage(remote: RemoteRepository, paths: readonly string[]): string {
 	const where = `${remote.owner}/${remote.repository}`;
 	const count = paths.length;
 	return (
 		`${count === 1 ? 'One file has' : `${count} files have`} been changed both here and on ` +
-		`${where} since the two last shared state: ${describePaths(paths)}. Ballastella will not ` +
-		`choose between two versions of your work, so nothing has been sent and Update from GitHub ` +
-		`will refuse this for the same reason. Open ${where} in a new Workspace to see what is there ` +
-		`— that changes nothing on either side — or publish anyway, replacing what is there with this ` +
-		`Workspace. Either way, nothing in ${where} that this Workspace has no file for is touched.`
+		`${where} since the two last agreed: ${describePaths(paths)}. Ballastella will not ` +
+		`choose between two versions of your work, so nothing has been sent and getting these ` +
+		`changes will refuse this for the same reason. Open ${where} in a new Workspace to see what ` +
+		`is there — that changes nothing on either side — or overwrite the repository, replacing what ` +
+		`is there with this Workspace. Either way, nothing in ${where} that this Workspace has no ` +
+		`file for is touched.`
 	);
 }
 
@@ -1203,7 +1268,7 @@ function bothSidesMessage(remote: RemoteRepository, paths: readonly string[]): s
  * What a Remote that moved between the offer and the acceptance says.
  *
  * ⚠ **It names only the files that were *not* agreed to**, because that is the whole of the news. A
- * scholar who pressed "publish anyway, replacing it" over one Annotation has read a refusal already,
+ * scholar who pressed "overwrite the repository" over one Annotation has read a refusal already,
  * and repeating the paths they accepted would bury the ones they did not under a list they have
  * decided about. The remedy is one press: publishing again forecasts against what is on the Remote
  * now, and the refusal that follows is about the set they can actually consent to.
@@ -1218,63 +1283,6 @@ function movedSinceAgreedMessage(remote: RemoteRepository, unseen: readonly stri
 		`${count === 1 ? 'was' : 'were'} not part of that: ${describePaths(unseen)}. Nothing has been ` +
 		`sent and your Published Site is exactly as it was. Publish again to see what is there now — ` +
 		`the same two ways on will be offered, about the files that are actually at stake.`
-	);
-}
-
-/**
- * What no manifest says: that we cannot tell, and — from the deletion count — how alarmed to be.
- *
- * ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
- * │ ONE SENTENCE CANNOT SERVE BOTH READERS, SO THE NUMBER OF DELETIONS CHOOSES BETWEEN THEM.      │
- * └──────────────────────────────────────────────────────────────────────────────────────────────┘
- *
- * Every Workspace cloned from a Remote is in this state until it has published once, and so is every
- * Workspace whose browser storage has been cleared — so one reader has done nothing wrong and is
- * looking at a refusal on the first press of a button. Said as an alarm it reads as data loss, and a
- * scholar who meets an alarm that was wrong learns to press through the next one.
- *
- * The other reader is a partial Clone, a second machine, or a stale Backup, and for them publishing
- * takes work down. `removed` is what separates the two and it is not a guess: after a *complete*
- * Open it is empty by construction, because every owned path on the Remote is a path the Workspace
- * holds or the local publish is about to write. So a plain sentence when nothing would go, and a
- * warning naming the count and the paths when something would — which is the half the old wording
- * left out altogether, while "publish over" said *overwrite* about files that would be deleted.
- *
- * @param files how many owned paths the Remote holds in all
- * @param removed the owned paths this publish would delete, sorted
- */
-function cannotTellMessage(
-	remote: RemoteRepository,
-	files: number,
-	removed: readonly string[]
-): string {
-	const where = `${remote.owner}/${remote.repository}`;
-	const one = files === 1;
-	const opening =
-		`This Workspace has not published to ${where} from this browser before, so there is no record ` +
-		`here of what was last sent there — and ${where} already holds ${files} ` +
-		`${one ? 'file' : 'files'} this app publishes. Nothing has been sent, because nothing here can ` +
-		`tell whether ${one ? 'it is' : 'they are'} an older copy of this Workspace's work or newer ` +
-		`work from somewhere else.`;
-
-	if (removed.length === 0) {
-		return (
-			`${opening} Publishing would replace ${one ? 'it' : 'every one of them'} with this ` +
-			`Workspace's own copy, and take nothing down: this Workspace has a file for ` +
-			`${one ? 'it' : 'each of them'}. That is the ordinary state of a Workspace opened from ` +
-			`${where}, one published from another computer, and one whose browser storage has been ` +
-			`cleared since — it is not a sign that anything has gone wrong. ${remedies(remote)}`
-		);
-	}
-
-	const count = removed.length;
-	return (
-		`${opening} ${count === 1 ? 'One of them is' : `${count} of them are`} not in this Workspace ` +
-		`at all, so publishing would delete ${count === 1 ? 'it' : 'them'} from ${where}: ` +
-		`${describePaths(removed)}. That is what a Workspace that was opened only part of the way, or ` +
-		`that has not caught up with another computer, looks like from here — and it is also what a ` +
-		`Project deliberately deleted here looks like, which is why this is a refusal rather than a ` +
-		`guess. ${remedies(remote)}`
 	);
 }
 

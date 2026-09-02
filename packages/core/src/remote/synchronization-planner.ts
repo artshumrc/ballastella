@@ -7,10 +7,10 @@
 // handed three `path → blob SHA` inventories and returns a value. Every hard question in
 // synchronization — *is this my work or somebody else's, and what happens if I take theirs* — is
 // then answerable in a table-driven test with no browser, no network, and no transfer, which is the
-// only way the six states below can be exhaustively covered at all.
+// only way the states below can be exhaustively covered at all.
 //
-// The callers supply the I/O: an Open, a status check, an Update and a Publish. They all ask the
-// same three functions the same question.
+// The callers supply the I/O: an Open, a status check, and the two halves of a Sync. They all ask
+// the same three functions the same question.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ONE TABLE, AND ADDITIONS AND DELETIONS ARE ROWS OF IT
@@ -23,17 +23,18 @@
 //
 // The table, per path, against Baseline `B`, local `L` and Remote `R`:
 //
-//   no valid B                          cannot-tell
 //   L = B and R = B                     shared
-//   L != B and R = B                    outbound     (Changes to publish)
-//   L = B and R != B                    inbound      (Update available)
+//   L != B and R = B                    outbound     (changes to send)
+//   L = B and R != B                    inbound      (changes to get)
 //   L != B and R != B and L = R         converged    (shared bytes; a Baseline may advance)
 //   L != B and R != B and L != R        conflict
 //
-// The Workspace's status is that table aggregated: any conflict wins, then outbound *and* inbound
-// together is Changes on both sides, then whichever of the two is present alone, and otherwise Up to
-// date. `converged` is Up to date on purpose — the two sides agree about the bytes and only the
-// Baseline is behind.
+// with `B` absent throughout where there is no Baseline at all — see below.
+//
+// The Workspace's status is that table aggregated: no Baseline is Cannot tell, then any conflict
+// wins, then outbound *and* inbound together is Changes on both sides, then whichever of the two is
+// present alone, and otherwise Up to date. `converged` is Up to date on purpose — the two sides
+// agree about the bytes and only the Baseline is behind.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE COMBINATION CAN BE BROKEN WHEN NO SINGLE PATH IS
@@ -43,7 +44,7 @@
 // perfectly attributable changes at two different paths, and the Workspace they add up to cannot
 // draw. So the plan's chosen bytes are assembled into a prospective path set and the Workspace's own
 // invariants are asked of it, through `gatherProjectClosure` — the same closure check Import uses, so
-// a Layer kind added later cannot mean one thing to an Import and another to an Update.
+// a Layer kind added later cannot mean one thing to an Import and another to a get.
 //
 // ⚠ **A Remote that cannot be read is an operation failure, never a verdict.** A `project.json` that
 // will not parse, one from a newer format version, or one whose bytes were never supplied is not
@@ -51,20 +52,19 @@
 // the transfer. {@link GraphVerdict} keeps them apart.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// NO BASELINE: WHICH SIDE'S EMPTINESS LICENSES WHICH OPERATION
+// NO BASELINE IS AN EMPTY BASELINE TO A PLAN, AND `Cannot tell` TO A STATUS
 //
-// A deliberate Update or Publish planning pass may establish a Baseline when both source namespaces
-// are byte-for-byte equal or one side is empty. "One side" is **the side the operation would
-// destroy**, and the two operations therefore differ:
+// The two questions are different and were once answered by one value. *What has changed* is a claim
+// about **attribution**, and with no record of what the two sides last shared there is none to make:
+// the Remote Status is `Cannot tell` and stays so. *What would move* is a claim about **bytes**, and
+// the table answers every row of it honestly against an empty Baseline — a path only one side holds
+// is that side's to offer, and a path both hold differently is a Conflict.
 //
-//   Update  refuses when local and Remote source are both non-empty and differ. An empty Workspace
-//           takes everything; an empty Remote leaves the local work as Changes to publish.
-//   Publish refuses whenever the Remote's source namespace is non-empty and differs — a safe refusal
-//           for a non-empty Remote, which is exactly `detectConflict`'s existing `unknown` refusal,
-//           and it keeps its existing remedy, Publish anyway.
-//
-// Both establish the Baseline only for what the two sides genuinely share, which is empty when
-// nothing is shared. An empty Baseline is honest evidence; a fabricated one is not.
+// ⚠ **And nothing may be removed, by construction rather than by a check.** A removal is an
+// `outbound` or `inbound` row whose own side holds nothing, and both rows require the path to be in
+// the Baseline — so an empty one yields neither. That is what makes a first Sync to a populated
+// repository safe (ADR-0044), and it is why the removal rule cannot be widened "to be safe": widening
+// it re-opens the case for splitting Sync back into two gestures.
 
 import { ALIGNMENT_DIRECTORY, alignmentPath } from '../alignment/alignment.js';
 import { BASE_MAP_TILE_ROOT } from '../base-map/tile-cache.js';
@@ -165,7 +165,7 @@ export type GraphVerdict =
 /**
  * The three inventories, and the material to validate the result with.
  *
- * ⚠ **`local` must be a *complete* hashing of the Workspace for a deliberate Update or Publish.** A
+ * ⚠ **`local` must be a *complete* hashing of the Workspace for a deliberate Sync.** A
  * chosen folder can be edited by anything on the machine, so the write index `local-change-index.ts`
  * maintains is evidence about Ballastella's own writes and nothing else; a plan built from it would
  * take an inbound change over an out-of-band local edit and call it safe. The requirement is
@@ -205,64 +205,74 @@ export interface PathChoice {
 	readonly effect: 'add' | 'replace' | 'delete' | 'keep';
 }
 
-/** Why a plan will not go ahead. Each has a remedy the caller words. */
+/** Why a Sync will not go ahead. Each has a remedy the caller words. */
 export type PlanRefusal =
-	/** The Remote holds source changes this Workspace has not taken yet; Update first. */
-	| 'remote-changes'
-	/** Safe changes on both sides, which Publish will not resolve by overwriting one of them. */
-	| 'changes-on-both-sides'
 	/** One path changed differently on both sides, or the combination breaks the Workspace. */
-	| 'conflict'
-	/** No valid Baseline, and the two sides cannot be attributed. */
-	| 'unknown-history';
+	'conflict';
 
-/** What an Update would do, and what it would then be entitled to record. */
-export interface WorkspaceUpdatePlan {
-	/** Paths to write and paths to remove, sorted. Unchanged paths are not here. */
+/** One side of a Sync: what it writes, what it removes, and what it may then record. */
+export interface SyncDirection {
+	/**
+	 * What this direction settles, sorted.
+	 *
+	 * A get's are the paths to write and remove, and nothing else. A send's are every local source
+	 * path its commit will hold — `keep` included, because a whole tree is posted — and deliberately
+	 * *not* the paths the other side has moved past: see {@link WorkspaceSyncPlan.leftAlone}.
+	 */
 	readonly changes: readonly PathChoice[];
-	/** The subset of {@link changes} that replaces or removes local bytes: confirm these by name. */
-	readonly destructive: readonly string[];
-	/** Local-only changes this Update leaves alone. Still Changes to publish afterwards. */
-	readonly retained: readonly string[];
-	/** `path → blob SHA` the Baseline may advance to, and **only** these paths. */
+	/**
+	 * Paths this direction takes off the side receiving it, sorted.
+	 *
+	 * ⚠ **Baseline-narrowed by construction, not by a check.** A removal is an `outbound` or
+	 * `inbound` row whose own side has nothing — and both rows require a Baseline entry, so a
+	 * Workspace with no Baseline has none of either. See this module's header.
+	 */
+	readonly removed: readonly string[];
+	/** `path → blob SHA` the Baseline may advance to on success, and **only** these paths. */
 	readonly advances: ReadonlyMap<string, string>;
 	/** Paths the Baseline may drop, because neither side holds them any more. */
 	readonly retires: readonly string[];
-	/** Whether this plan would establish a Baseline where there was none. */
-	readonly establishesBaseline: boolean;
-	readonly comparison: WorkspaceComparison;
 }
 
-/** What a Publish would send, and what it would then be entitled to record. */
-export interface WorkspacePublishPlan {
-	/** Every local source path the commit will hold, sorted. Local bytes win by definition. */
-	readonly source: readonly PathChoice[];
-	/** Remote paths outside Ballastella's namespace, carried into the new tree untouched. */
+/**
+ * What a Sync would settle, in both directions, from one three-way comparison.
+ *
+ * ⚠ **It never refuses.** A Conflict is *reported* here — {@link conflicts} — and the engine that
+ * would move the bytes is what declines to. That is what lets one plan answer for all four modes:
+ * `overwrite` acts on a plan a `send` would have refused.
+ */
+export interface WorkspaceSyncPlan {
+	/** What getting would bring in and take away here. */
+	readonly toGet: SyncDirection;
+	/** What sending would put there and take away there. */
+	readonly toSend: SyncDirection;
+	/**
+	 * Owned Remote source paths a send leaves exactly as they are, sorted.
+	 *
+	 * ⚠ **This is what "sending moves nothing it should not" actually means, and it is two rules at
+	 * once.** A path the Remote has moved past since the two last agreed is neither *overwritten*
+	 * with this Workspace's older copy nor *removed* by being left out of the tree — a send posts a
+	 * whole tree rather than an incremental one, so omission is deletion. Every one of these appears
+	 * in {@link toGet} instead, which is where the author can act on it.
+	 */
+	readonly leftAlone: readonly string[];
+	/** Remote paths outside Ballastella's namespace, carried into a send's tree untouched. */
 	readonly preserved: readonly string[];
-	/** Owned Remote source paths the mirror removes, sorted. */
-	readonly removed: readonly string[];
-	/** The Baseline a successful Publish may record: the whole local source namespace. */
-	readonly advances: ReadonlyMap<string, string>;
-	readonly establishesBaseline: boolean;
-	/** Whether this is the confirmed Publish anyway rather than an ordinary Publish. */
-	readonly replacing: boolean;
+	/**
+	 * What an `overwrite` would settle: the one mode whose removals come from the Workspace alone.
+	 *
+	 * ⚠ **{@link SyncDirection.removed} here is the one removal set that is not Baseline-narrowed.**
+	 * Inside the owned namespace the Remote becomes exactly the Workspace, which is why it is named
+	 * before it is carried out — and why {@link SyncDirection.advances} is the whole local source
+	 * namespace rather than the part the two sides can be said to have agreed on.
+	 */
+	readonly toOverwrite: SyncDirection;
+	/** One path changed on both sides of the Baseline. Detected here, never resolved here. */
+	readonly conflicts: readonly SourcePath[];
+	/** Local-only changes a get leaves alone. Still changes to send afterwards. */
+	readonly retained: readonly string[];
 	readonly comparison: WorkspaceComparison;
 }
-
-/** A plan, a refusal with its remedy, or a transfer that cannot be judged at all. */
-export type PlanResult<P> =
-	| { readonly outcome: 'planned'; readonly plan: P }
-	| {
-			readonly outcome: 'refused';
-			readonly reason: PlanRefusal;
-			readonly paths: readonly string[];
-			readonly message: string;
-	  }
-	| {
-			readonly outcome: 'failed';
-			readonly failures: readonly GraphFailure[];
-			readonly message: string;
-	  };
 
 /**
  * One path's three pieces of evidence, compared. `null` is absent on any of the three sides.
@@ -287,7 +297,10 @@ export function comparePath(
 
 /** The source inventories, split out and compared, with everything the plans need from them. */
 interface SourceComparison {
+	/** The rows as the caller of {@link compareWorkspace} sees them: masked where there is no Baseline. */
 	readonly paths: readonly SourcePath[];
+	/** The same rows carrying the table's own answer, which is what a plan is built from. */
+	readonly rows: readonly SourcePath[];
 	readonly byComparison: ReadonlyMap<Exclude<PathComparison, 'cannot-tell'>, readonly string[]>;
 	readonly localSource: ReadonlyMap<string, string>;
 	readonly remoteSource: ReadonlyMap<string, string>;
@@ -326,6 +339,7 @@ function compareSource(input: SynchronizationInput): SourceComparison {
 	].sort();
 
 	const paths: SourcePath[] = [];
+	const rows: SourcePath[] = [];
 	const byComparison = new Map<Exclude<PathComparison, 'cannot-tell'>, string[]>();
 	for (const path of union) {
 		const evidence = {
@@ -333,12 +347,17 @@ function compareSource(input: SynchronizationInput): SourceComparison {
 			local: localSource.get(path) ?? null,
 			remote: remoteSource.get(path) ?? null
 		};
-		if (baselineFiles === null) {
-			paths.push({ path, comparison: 'cannot-tell', ...evidence });
-			continue;
-		}
 		const comparison = comparePath(evidence.baseline, evidence.local, evidence.remote);
-		paths.push({ path, comparison, ...evidence });
+		rows.push({ path, comparison, ...evidence });
+		// ⚠ **The reported row is `cannot-tell` with no Baseline; the table's answer is kept anyway.**
+		// The Remote Status is a claim about *attribution*, and with no record of what the two sides
+		// last shared there is none to make. A plan is a claim about *bytes*, and against an empty
+		// Baseline the table answers every row of it honestly — see this module's header.
+		paths.push({
+			path,
+			comparison: baselineFiles === null ? 'cannot-tell' : comparison,
+			...evidence
+		});
 		const bucket = byComparison.get(comparison);
 		if (bucket === undefined) byComparison.set(comparison, [path]);
 		else bucket.push(path);
@@ -347,6 +366,7 @@ function compareSource(input: SynchronizationInput): SourceComparison {
 	const held = new Set(local.map((entry) => entry.path));
 	return {
 		paths,
+		rows,
 		byComparison,
 		localSource,
 		remoteSource,
@@ -363,7 +383,7 @@ const bucket = (comparison: SourceComparison, kind: Exclude<PathComparison, 'can
 	comparison.byComparison.get(kind) ?? [];
 
 /**
- * The path set an Update would leave behind: the Remote's bytes where they are inbound, the
+ * The path set a get would leave behind: the Remote's bytes where they are inbound, the
  * Workspace's everywhere else.
  *
  * A conflicting path takes the local side, which is arbitrary and does not matter: a conflict is
@@ -372,7 +392,7 @@ const bucket = (comparison: SourceComparison, kind: Exclude<PathComparison, 'can
  */
 function prospectiveSource(comparison: SourceComparison): Map<string, string> {
 	const prospective = new Map<string, string>();
-	for (const path of comparison.paths) {
+	for (const path of comparison.rows) {
 		const chosen = path.comparison === 'inbound' ? path.remote : path.local;
 		if (chosen !== null) prospective.set(path.path, chosen);
 	}
@@ -427,7 +447,7 @@ const describesAnImage = (paths: ReadonlySet<string>, imageId: string): boolean 
  * Ask the Workspace's own invariants of a prospective `path → blob SHA` set.
  *
  * `gatherProjectClosure` answers the Layer half, shared with Project Import so that a Layer kind
- * added later cannot mean one thing to an Import and another to an Update. The two halves it does not
+ * added later cannot mean one thing to an Import and another to a get. The two halves it does not
  * answer are structural rather than about Layers, and both are reachable from changes that are
  * individually safe: a Project's files surviving its `project.json`, and an Alignment surviving the
  * Map Image it places.
@@ -541,17 +561,21 @@ function validateGraph(
 	return { outcome: 'valid' };
 }
 
-// ── Update ────────────────────────────────────────────────────────────────────────────────────
+// ── The Sync ──────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Work out what an Update would bring in, what it would take away, and what it could then record.
+ * Work out what a Sync would settle in both directions, and what each side could then record.
  *
- * Takes Remote-only additions, replacements and deletions; leaves local-only work alone; refuses a
- * Conflict and a combination that would break the Workspace; and identifies exactly the paths a
- * successful Update would be entitled to advance the Baseline for. Nothing here transfers a byte —
- * tickets 14 and 15 execute the plan.
+ * One plan, four modes. `get` acts on {@link WorkspaceSyncPlan.toGet}, `send` on
+ * {@link WorkspaceSyncPlan.toSend} together with {@link WorkspaceSyncPlan.leftAlone} and
+ * {@link WorkspaceSyncPlan.preserved}, `both` on the first and then the second, and `overwrite` on
+ * {@link WorkspaceSyncPlan.overwrites} — the only removal set computed from the Workspace alone.
+ *
+ * Nothing here refuses: a Conflict is reported and the engine that would move the bytes declines.
+ * Nothing here transfers a byte either — `update-from-github.ts` carries out a get and
+ * `publish-to-remote.ts` a send.
  */
-export function planWorkspaceUpdate(input: SynchronizationInput): PlanResult<WorkspaceUpdatePlan> {
+export function planWorkspaceSync(input: SynchronizationInput): WorkspaceSyncPlan {
 	const comparison = compareSource(input);
 	const graph = validateGraph(prospectiveSource(comparison), input.projectFiles);
 	const workspace: WorkspaceComparison = {
@@ -561,240 +585,108 @@ export function planWorkspaceUpdate(input: SynchronizationInput): PlanResult<Wor
 		graph
 	};
 
-	if (graph.outcome === 'failed') return failed(graph.failures);
-	if (graph.outcome === 'invalid') return brokenWorkspace(graph.violations);
-
-	if (!comparison.hasBaseline) return establishForUpdate(comparison, workspace, input.projectFiles);
-
-	const conflicts = bucket(comparison, 'conflict');
-	if (conflicts.length > 0) {
-		return {
-			outcome: 'refused',
-			reason: 'conflict',
-			paths: conflicts,
-			message: conflictMessage(conflicts)
-		};
-	}
-
-	const changes: PathChoice[] = [];
-	const destructive: string[] = [];
-	const advances = new Map<string, string>();
-	const retires: string[] = [];
-	for (const path of comparison.paths) {
-		if (path.comparison === 'inbound') {
-			if (path.remote === null) {
-				changes.push({ path: path.path, sha: null, effect: 'delete' });
-				destructive.push(path.path);
-				retires.push(path.path);
+	const getChanges: PathChoice[] = [];
+	const getRemoved: string[] = [];
+	const getAdvances = new Map<string, string>();
+	const getRetires: string[] = [];
+	const sendChanges: PathChoice[] = [];
+	const sendRemoved: string[] = [];
+	const sendAdvances = new Map<string, string>();
+	for (const row of comparison.rows) {
+		if (row.comparison === 'inbound') {
+			if (row.remote === null) {
+				// Getting removes a path the Remote no longer holds — and the Baseline recorded it, which
+				// is what an `inbound` row means. A path this Workspace never agreed to is not here.
+				getChanges.push({ path: row.path, sha: null, effect: 'delete' });
+				getRemoved.push(row.path);
+				getRetires.push(row.path);
 				continue;
 			}
-			changes.push({
-				path: path.path,
-				sha: path.remote,
-				effect: path.local === null ? 'add' : 'replace'
+			getChanges.push({
+				path: row.path,
+				sha: row.remote,
+				effect: row.local === null ? 'add' : 'replace'
 			});
-			if (path.local !== null) destructive.push(path.path);
-			advances.set(path.path, path.remote);
+			getAdvances.set(row.path, row.remote);
+			// ⚠ **And a send writes nothing here.** The Remote has moved past what the two last agreed
+			// and this Workspace has not changed its copy, so sending the copy would put a stale file
+			// over somebody's afternoon. It is left exactly as it is and offered as something to get.
 			continue;
 		}
-		// `outbound` is the one row a successful Update must *not* advance: the local work is still
-		// unpublished, and a Baseline claiming it was shared would report it as Up to date.
-		if (path.comparison === 'outbound') continue;
+		if (row.comparison === 'outbound') {
+			// The destructive half of a send, and the Baseline is what licenses it: this Workspace put
+			// the file there and has since deleted it.
+			if (row.local === null) {
+				sendRemoved.push(row.path);
+				continue;
+			}
+			sendChanges.push({
+				path: row.path,
+				sha: row.local,
+				effect: row.remote === null ? 'add' : 'replace'
+			});
+			sendAdvances.set(row.path, row.local);
+			// `outbound` is the one row a successful get must **not** advance: the local work is still
+			// unsent, and a Baseline claiming it was shared would report it as agreed.
+			continue;
+		}
+		if (row.comparison === 'conflict') {
+			// Local bytes win in the prospective set so the *other* rows can be judged; the engines
+			// refuse before any of it is acted on. `overwrite` is the mode that means it.
+			continue;
+		}
 		// `shared` and `converged` are both already agreed between the two sides.
-		if (path.local === null) retires.push(path.path);
-		else advances.set(path.path, path.local);
-	}
-
-	return {
-		outcome: 'planned',
-		plan: {
-			changes: sortChoices(changes),
-			destructive: destructive.sort(),
-			retained: [...bucket(comparison, 'outbound')].sort(),
-			advances,
-			retires: retires.sort(),
-			establishesBaseline: false,
-			comparison: workspace
+		if (row.local === null) {
+			getRetires.push(row.path);
+			continue;
 		}
-	};
-}
-
-/** The refusal an Update gives for a result that would not be a Workspace. */
-const brokenWorkspace = (
-	violations: readonly GraphViolation[]
-): PlanResult<WorkspaceUpdatePlan> => ({
-	outcome: 'refused',
-	reason: 'conflict',
-	paths: violations.map((violation) => violation.path),
-	message:
-		`Updating would leave this Workspace incomplete: ` +
-		`${violations.map((violation) => violation.detail).join(' ')} ` +
-		`Nothing has been changed.`
-});
-
-/**
- * An Update with no Baseline at all.
- *
- * Refuses only what cannot be attributed — both sides non-empty and different — and otherwise
- * establishes the Baseline for what the two sides genuinely share, which is nothing at all
- * when the Remote's source namespace is empty.
- *
- * ⚠ **Its own graph check, because `prospectiveSource` cannot describe this plan.** Every row is
- * `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which for
- * the ordinary case here, an empty Workspace taking a whole Remote, is nothing at all. Judged by
- * that, a Remote whose `project.json` names a Map Image nobody ever pushed would be refused once
- * there is a Baseline and adopted whole on the one Update that establishes one.
- */
-function establishForUpdate(
-	comparison: SourceComparison,
-	workspace: WorkspaceComparison,
-	projectFiles: ReadonlyMap<string, Uint8Array> | undefined
-): PlanResult<WorkspaceUpdatePlan> {
-	const { localSource, remoteSource } = comparison;
-	if (localSource.size > 0 && remoteSource.size > 0 && !sameNamespace(localSource, remoteSource)) {
-		return {
-			outcome: 'refused',
-			reason: 'unknown-history',
-			paths: [...new Set([...localSource.keys(), ...remoteSource.keys()])]
-				.filter((path) => localSource.get(path) !== remoteSource.get(path))
-				.sort(),
-			message:
-				`This Workspace and the Remote both hold work, and there is no record of what they last ` +
-				`shared — so we cannot tell which changes are new. Nothing has been changed. Publish to ` +
-				`make this Workspace the shared state, or open the Remote into a new Workspace to compare ` +
-				`them side by side.`
-		};
-	}
-
-	// Past the refusal above the two sides agree wherever they overlap, so the Workspace this would
-	// leave is simply their union.
-	const graph = validateGraph(new Map([...localSource, ...remoteSource]), projectFiles);
-	if (graph.outcome === 'failed') return failed(graph.failures);
-	if (graph.outcome === 'invalid') return brokenWorkspace(graph.violations);
-
-	const changes: PathChoice[] = [];
-	const advances = new Map<string, string>();
-	// Nothing is destructive here: either the Workspace holds no source at all, or every path the
-	// Remote holds it already holds byte for byte.
-	for (const [path, sha] of remoteSource) {
-		if (localSource.get(path) !== sha) changes.push({ path, sha, effect: 'add' });
-		advances.set(path, sha);
-	}
-
-	return {
-		outcome: 'planned',
-		plan: {
-			changes: sortChoices(changes),
-			destructive: [],
-			retained: [...localSource.keys()].filter((path) => !remoteSource.has(path)).sort(),
-			advances,
-			retires: [],
-			establishesBaseline: true,
-			comparison: { ...workspace, graph }
-		}
-	};
-}
-
-// ── Publish ───────────────────────────────────────────────────────────────────────────────────
-
-/** Whether this is the confirmed Publish anyway rather than an ordinary Publish. */
-export interface WorkspacePublishOptions {
-	readonly replace?: boolean;
-}
-
-/**
- * Work out whether a Publish may go ahead, which paths it settles, and what it could then record.
- *
- * ⚠ **This is the *decision*, not the transfer.** `planRemotePublish` still works out blobs, budgets
- * and the tree; what is answered here is whether the Remote holds source work this Workspace has not
- * taken yet, and which of its files are ours to replace. `synchronization-publish.ts` joins the two.
- *
- * An ordinary Publish refuses inbound source change — alone, alongside local work, or as a Conflict —
- * because a mirror of this Workspace would overwrite it. `replace` is the confirmed Publish anyway,
- * which takes the local side of everything owned and still preserves the repository's own files.
- */
-export function planWorkspacePublish(
-	input: SynchronizationInput,
-	options: WorkspacePublishOptions = {}
-): PlanResult<WorkspacePublishPlan> {
-	const comparison = compareSource(input);
-	const workspace = compareWorkspace(input);
-	if (workspace.graph.outcome === 'failed') return failed(workspace.graph.failures);
-
-	const replacing = options.replace === true;
-	if (!replacing) {
-		const refusal = workspacePublishRefusal(comparison);
-		if (refusal !== null) return refusal;
-	}
-
-	const { localSource, remoteSource } = comparison;
-	const source: PathChoice[] = [];
-	for (const [path, sha] of localSource) {
-		const there = remoteSource.get(path);
-		source.push({
-			path,
-			sha,
-			effect: there === undefined ? 'add' : there === sha ? 'keep' : 'replace'
+		getAdvances.set(row.path, row.local);
+		sendChanges.push({
+			path: row.path,
+			sha: row.local,
+			effect: row.remote === row.local ? 'keep' : row.remote === null ? 'add' : 'replace'
 		});
+		sendAdvances.set(row.path, row.local);
 	}
 
+	const { localSource, remoteSource } = comparison;
+	// Everything the Remote holds that a send neither writes nor removes: the inbound rows, and the
+	// contested ones an `overwrite` is the only way past.
+	const settled = new Set([...sendChanges.map((choice) => choice.path), ...sendRemoved]);
+
 	return {
-		outcome: 'planned',
-		plan: {
-			source: sortChoices(source),
-			preserved: comparison.preserved,
+		toGet: {
+			changes: sortChoices(getChanges),
+			removed: getRemoved.sort(),
+			advances: getAdvances,
+			retires: getRetires.sort()
+		},
+		toSend: {
+			changes: sortChoices(sendChanges),
+			removed: sendRemoved.sort(),
+			advances: sendAdvances,
+			retires: sendRemoved.sort()
+		},
+		toOverwrite: {
+			changes: sortChoices(
+				[...localSource].map(([path, sha]) => {
+					const there = remoteSource.get(path);
+					return {
+						path,
+						sha,
+						effect: there === undefined ? 'add' : there === sha ? 'keep' : 'replace'
+					};
+				})
+			),
 			removed: [...remoteSource.keys()].filter((path) => !localSource.has(path)).sort(),
 			advances: new Map(localSource),
-			establishesBaseline: !comparison.hasBaseline,
-			replacing,
-			comparison: workspace
-		}
-	};
-}
-
-/** Why an ordinary Publish will not go ahead, or `null`. */
-function workspacePublishRefusal(
-	comparison: SourceComparison
-): PlanResult<WorkspacePublishPlan> | null {
-	if (!comparison.hasBaseline) {
-		const { localSource, remoteSource } = comparison;
-		// The existing `unknown` refusal, in the existing shape: a Remote whose owned namespace is
-		// empty is a first publish and goes ahead, and one holding exactly this Workspace has nothing
-		// to lose either.
-		if (remoteSource.size === 0 || sameNamespace(localSource, remoteSource)) return null;
-		return {
-			outcome: 'refused',
-			reason: 'unknown-history',
-			paths: [...remoteSource.keys()].sort(),
-			message:
-				`The Remote already holds ${remoteSource.size} ` +
-				`${remoteSource.size === 1 ? 'file' : 'files'} of Ballastella's own, and there is no ` +
-				`record of what this Workspace last shared with it — so we cannot tell whose work is ` +
-				`there. Nothing has been sent. Update from GitHub to bring it in, or publish anyway to ` +
-				`replace it with this Workspace.`
-		};
-	}
-
-	const conflicts = bucket(comparison, 'conflict');
-	if (conflicts.length > 0) {
-		return {
-			outcome: 'refused',
-			reason: 'conflict',
-			paths: conflicts,
-			message: conflictMessage(conflicts)
-		};
-	}
-	const inbound = bucket(comparison, 'inbound');
-	if (inbound.length === 0) return null;
-	const alsoLocal = bucket(comparison, 'outbound').length > 0;
-	return {
-		outcome: 'refused',
-		reason: alsoLocal ? 'changes-on-both-sides' : 'remote-changes',
-		paths: [...inbound].sort(),
-		message:
-			`The Remote has changed since this Workspace last shared state with it: ` +
-			`${listPaths(inbound)}. Publishing would overwrite ${inbound.length === 1 ? 'it' : 'them'}. ` +
-			`Update from GitHub first. Nothing has been sent.`
+			retires: [...remoteSource.keys()].filter((path) => !localSource.has(path)).sort()
+		},
+		leftAlone: [...remoteSource.keys()].filter((path) => !settled.has(path)).sort(),
+		preserved: comparison.preserved,
+		conflicts: comparison.rows.filter((row) => row.comparison === 'conflict'),
+		retained: [...bucket(comparison, 'outbound')].sort(),
+		comparison: workspace
 	};
 }
 
@@ -805,12 +697,6 @@ const sortChoices = (choices: readonly PathChoice[]): readonly PathChoice[] =>
 		left.path < right.path ? -1 : left.path > right.path ? 1 : 0
 	);
 
-/** Whether the two namespaces hold exactly the same paths at exactly the same bytes. */
-const sameNamespace = (
-	left: ReadonlyMap<string, string>,
-	right: ReadonlyMap<string, string>
-): boolean => left.size === right.size && [...left].every(([path, sha]) => right.get(path) === sha);
-
 /** At most five paths named, because a refusal nobody reads is a refusal nobody acts on. */
 function listPaths(paths: readonly string[]): string {
 	const named = [...paths].sort();
@@ -818,15 +704,25 @@ function listPaths(paths: readonly string[]): string {
 	return `${named.slice(0, 5).join(', ')} and ${named.length - 5} more`;
 }
 
-const conflictMessage = (paths: readonly string[]): string =>
+/**
+ * What a Conflict says, in one place, so that a get and a send cannot word it differently.
+ *
+ * ⚠ **It promises no resolution, because there is none on offer yet.** Ballastella will not choose
+ * between two versions of a scholar's work, and until a Conflict becomes a copy the honest answer is
+ * that nothing has been changed.
+ */
+export const describeConflict = (paths: readonly string[]): string =>
 	`${paths.length === 1 ? 'One file has' : `${paths.length} files have`} been changed both here and ` +
 	`on the Remote: ${listPaths(paths)}. Ballastella will not choose between two versions of your ` +
 	`work. Nothing has been changed.`;
 
-const failed = <P>(failures: readonly GraphFailure[]): PlanResult<P> => ({
-	outcome: 'failed',
-	failures,
-	message:
-		`The Remote's files could not be read, so nothing can be planned: ` +
-		`${failures.map((failure) => failure.detail).join(' ')}`
-});
+/** What an unreadable Remote says. Never a verdict about scholarship — see {@link GraphVerdict}. */
+export const describeGraphFailure = (failures: readonly GraphFailure[]): string =>
+	`The Remote's files could not be read, so nothing can be planned: ` +
+	`${failures.map((failure) => failure.detail).join(' ')}`;
+
+/** What a prospective Workspace that would not open says. */
+export const describeGraphViolations = (violations: readonly GraphViolation[]): string =>
+	`Getting these changes would leave this Workspace incomplete: ` +
+	`${violations.map((violation) => violation.detail).join(' ')} ` +
+	`Nothing has been changed.`;

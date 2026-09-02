@@ -14,8 +14,9 @@ import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import {
 	comparePath,
 	compareWorkspace,
-	planWorkspacePublish,
-	planWorkspaceUpdate,
+	describeConflict,
+	describeGraphViolations,
+	planWorkspaceSync,
 	type InventoryEntry,
 	type PathComparison,
 	type SourceStatus,
@@ -451,55 +452,65 @@ describe('prospective graph validation', () => {
 	});
 });
 
-// ── Update plans ───────────────────────────────────────────────────────────────────────────────
+// ── The Sync plan ─────────────────────────────────────────────────────────────────────────────
 
-describe('planWorkspaceUpdate', () => {
-	it('takes Remote-only additions, replacements and deletions', () => {
-		const result = planWorkspaceUpdate(
+describe('planWorkspaceSync', () => {
+	it('takes Remote-only additions, replacements and deletions into the Workspace', () => {
+		const plan = planWorkspaceSync(
 			input(
 				{ 'a/project.json': SHA.a, 'a/annotations/keep.geojson': SHA.a, 'a/gone.geojson': SHA.a },
 				{ 'a/project.json': SHA.b, 'a/annotations/keep.geojson': SHA.a, 'a/new.geojson': SHA.c },
 				{ 'a/project.json': SHA.a, 'a/annotations/keep.geojson': SHA.a, 'a/gone.geojson': SHA.a }
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.changes).toEqual([
+		expect(plan.toGet.changes).toEqual([
 			{ path: 'a/gone.geojson', sha: null, effect: 'delete' },
 			{ path: 'a/new.geojson', sha: SHA.c, effect: 'add' },
 			{ path: 'a/project.json', sha: SHA.b, effect: 'replace' }
 		]);
+		expect(plan.toGet.removed).toEqual(['a/gone.geojson']);
 	});
 
-	it('names the destructive paths for confirmation, and only those', () => {
-		const result = planWorkspaceUpdate(
+	it('sends every local source path and preserves what is outside the namespace', () => {
+		const plan = planWorkspaceSync(
 			input(
-				{ 'a/project.json': SHA.a, 'a/gone.geojson': SHA.a },
-				{ 'a/project.json': SHA.b, 'a/new.geojson': SHA.c },
-				{ 'a/project.json': SHA.a, 'a/gone.geojson': SHA.a }
+				{ 'a/project.json': SHA.b, 'images/map-1/info.json': SHA.a },
+				{ 'a/project.json': SHA.a, 'README.md': SHA.c, CNAME: SHA.c },
+				{ 'a/project.json': SHA.a }
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.destructive).toEqual(['a/gone.geojson', 'a/project.json']);
+		expect(plan.toSend.changes).toEqual([
+			{ path: 'a/project.json', sha: SHA.b, effect: 'replace' },
+			{ path: 'images/map-1/info.json', sha: SHA.a, effect: 'add' }
+		]);
+		expect(plan.preserved).toEqual(['CNAME', 'README.md']);
 	});
 
-	it('retains local-only changes at other paths and does not advance them', () => {
-		const result = planWorkspaceUpdate(
+	it('makes the whole local source namespace the Baseline a send would advance to', () => {
+		const plan = planWorkspaceSync(
+			input({ 'a/project.json': SHA.b, 'images/map-1/info.json': SHA.a }, {}, {})
+		);
+		expect([...plan.toSend.advances].sort()).toEqual([
+			['a/project.json', SHA.b],
+			['images/map-1/info.json', SHA.a]
+		]);
+	});
+
+	it('retains local-only changes at other paths and does not advance them on a get', () => {
+		const plan = planWorkspaceSync(
 			input(
 				{ 'a/project.json': SHA.b, 'b/project.json': SHA.a },
 				{ 'a/project.json': SHA.a, 'b/project.json': SHA.b },
 				{ 'a/project.json': SHA.a, 'b/project.json': SHA.a }
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.changes).toEqual([
-			{ path: 'b/project.json', sha: SHA.b, effect: 'replace' }
-		]);
-		expect(result.plan.retained).toEqual(['a/project.json']);
-		expect([...result.plan.advances]).toEqual([['b/project.json', SHA.b]]);
+		expect(plan.toGet.changes).toEqual([{ path: 'b/project.json', sha: SHA.b, effect: 'replace' }]);
+		expect(plan.retained).toEqual(['a/project.json']);
+		expect([...plan.toGet.advances]).toEqual([['b/project.json', SHA.b]]);
 	});
 
-	it('advances the Baseline for inbound, shared and converged paths only', () => {
-		const result = planWorkspaceUpdate(
+	it('advances a get’s Baseline for inbound, shared and converged paths only', () => {
+		const plan = planWorkspaceSync(
 			input(
 				{
 					'a/project.json': SHA.a,
@@ -521,52 +532,48 @@ describe('planWorkspaceUpdate', () => {
 				}
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect([...result.plan.advances].sort()).toEqual([
+		expect([...plan.toGet.advances].sort()).toEqual([
 			['a/both.geojson', SHA.b],
 			['a/in.geojson', SHA.b],
 			['a/project.json', SHA.a]
 		]);
-		expect(result.plan.retires).toEqual([]);
+		expect(plan.toGet.retires).toEqual([]);
 	});
 
 	it('retires from the Baseline a path both sides no longer hold', () => {
-		const result = planWorkspaceUpdate(
+		const plan = planWorkspaceSync(
 			input(
 				{ 'a/project.json': SHA.a },
 				{ 'a/project.json': SHA.a },
 				{ 'a/project.json': SHA.a, 'a/dropped.geojson': SHA.b }
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.retires).toEqual(['a/dropped.geojson']);
+		expect(plan.toGet.retires).toEqual(['a/dropped.geojson']);
 	});
 
-	it('refuses a Conflict without changing anything', () => {
-		const result = planWorkspaceUpdate(
+	it('reports a Conflict rather than refusing, and leaves the decision to the engine', () => {
+		const plan = planWorkspaceSync(
 			input({ 'a/project.json': SHA.b }, { 'a/project.json': SHA.c }, { 'a/project.json': SHA.a })
 		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('conflict');
-		expect(result.paths).toEqual(['a/project.json']);
-		expect(result.message).toContain('a/project.json');
+		expect(plan.conflicts.map((row) => row.path)).toEqual(['a/project.json']);
+		expect(describeConflict(['a/project.json'])).toContain('a/project.json');
 	});
 
-	it('never chooses generated Published Site output', () => {
-		const result = planWorkspaceUpdate(
+	it('never chooses generated Published Site output in either direction', () => {
+		const plan = planWorkspaceSync(
 			input(
 				{ 'a/project.json': SHA.a },
 				{ 'a/project.json': SHA.a, '_app/immutable/entry/app.old.js': SHA.b, 'index.html': SHA.c },
 				{ 'a/project.json': SHA.a }
 			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.changes).toEqual([]);
+		expect(plan.toGet.changes).toEqual([]);
+		expect(plan.toSend.removed).toEqual([]);
 	});
 
-	it('refuses when the prospective graph is invalid', async () => {
+	it('reports a prospective Workspace that would not open as a broken graph', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
-		const result = planWorkspaceUpdate({
+		const plan = planWorkspaceSync({
 			local: entries({
 				'amsterdam-1625/project.json': project.sha,
 				'images/map-1/info.json': SHA.a
@@ -578,181 +585,141 @@ describe('planWorkspaceUpdate', () => {
 			}),
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('conflict');
-		expect(result.message).toContain('images/map-1');
+		if (plan.comparison.graph.outcome !== 'invalid') throw new Error('expected an invalid graph');
+		expect(describeGraphViolations(plan.comparison.graph.violations)).toContain('images/map-1');
 	});
 
-	it('fails rather than refuses when the Remote input cannot be read', () => {
-		const result = planWorkspaceUpdate({
+	it('reports an unreadable Remote as a failure rather than as changed scholarship', () => {
+		const plan = planWorkspaceSync({
 			local: entries({ 'a/project.json': SHA.a }),
 			remote: entries({ 'a/project.json': SHA.b }),
 			baseline: baselineOf({ 'a/project.json': SHA.a }),
 			projectFiles: new Map()
 		});
-		expect(result.outcome).toBe('failed');
+		expect(plan.comparison.graph.outcome).toBe('failed');
+		expect(plan.conflicts).toEqual([]);
 	});
 });
 
-// ── Publish plans ──────────────────────────────────────────────────────────────────────────────
+// ── Baseline-narrowed removal, which is what makes one Sync control safe ───────────────────────
 
-describe('planWorkspacePublish', () => {
-	it('sends every local source path and preserves what is outside the namespace', () => {
-		const result = planWorkspacePublish(
-			input(
-				{ 'a/project.json': SHA.b, 'images/map-1/info.json': SHA.a },
-				{ 'a/project.json': SHA.a, 'README.md': SHA.c, CNAME: SHA.c },
-				{ 'a/project.json': SHA.a }
-			)
-		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.source).toEqual([
-			{ path: 'a/project.json', sha: SHA.b, effect: 'replace' },
-			{ path: 'images/map-1/info.json', sha: SHA.a, effect: 'add' }
-		]);
-		expect(result.plan.preserved).toEqual(['CNAME', 'README.md']);
-	});
-
-	it('removes owned Remote source paths the Workspace no longer holds', () => {
-		const result = planWorkspacePublish(
+describe('what a send may remove', () => {
+	it('removes an owned Remote source path the Baseline recorded and the Workspace has lost', () => {
+		const plan = planWorkspaceSync(
 			input(
 				{ 'a/project.json': SHA.a },
 				{ 'a/project.json': SHA.a, 'b/project.json': SHA.a },
-				{
-					'a/project.json': SHA.a,
-					'b/project.json': SHA.a
-				}
-			)
-		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.removed).toEqual(['b/project.json']);
-	});
-
-	it('refuses a Remote-only source change and names Update as the remedy', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.a }, { 'a/project.json': SHA.b }, { 'a/project.json': SHA.a })
-		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('remote-changes');
-		expect(result.message).toContain('Update');
-	});
-
-	it('refuses safe changes on both sides', () => {
-		const result = planWorkspacePublish(
-			input(
-				{ 'a/project.json': SHA.b, 'b/project.json': SHA.a },
-				{ 'a/project.json': SHA.a, 'b/project.json': SHA.b },
 				{ 'a/project.json': SHA.a, 'b/project.json': SHA.a }
 			)
 		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('changes-on-both-sides');
-		expect(result.paths).toEqual(['b/project.json']);
+		expect(plan.toSend.removed).toEqual(['b/project.json']);
+		expect(plan.leftAlone).toEqual([]);
 	});
 
-	it('refuses a Conflict', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.b }, { 'a/project.json': SHA.c }, { 'a/project.json': SHA.a })
-		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('conflict');
-	});
-
-	it('goes ahead when only local work is outstanding', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.b }, { 'a/project.json': SHA.a }, { 'a/project.json': SHA.a })
-		);
-		expect(result.outcome).toBe('planned');
-	});
-
-	it('replaces the whole owned namespace when told to publish anyway', () => {
-		const result = planWorkspacePublish(
+	// ⚠ **The single most important row in this file.** Absent from the Baseline and absent here means
+	// the Remote *gained* it, so it is somebody else's work and a send may not take it down. Turn the
+	// `local === null` guard in the `outbound` arm into a no-op and this is the only test that fails.
+	it('leaves alone a Remote path the Baseline never recorded, and offers it to get instead', () => {
+		const plan = planWorkspaceSync(
 			input(
-				{ 'a/project.json': SHA.b },
-				{ 'a/project.json': SHA.c, 'README.md': SHA.a },
-				{
-					'a/project.json': SHA.a
-				}
-			),
-			{ replace: true }
+				{ 'a/project.json': SHA.a },
+				{ 'a/project.json': SHA.a, 'florida-1657/project.json': SHA.b },
+				{ 'a/project.json': SHA.a }
+			)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.replacing).toBe(true);
-		expect(result.plan.source).toEqual([{ path: 'a/project.json', sha: SHA.b, effect: 'replace' }]);
-		expect(result.plan.preserved).toEqual(['README.md']);
+		expect(plan.toSend.removed).toEqual([]);
+		expect(plan.leftAlone).toEqual(['florida-1657/project.json']);
+		expect(plan.toGet.changes).toEqual([
+			{ path: 'florida-1657/project.json', sha: SHA.b, effect: 'add' }
+		]);
 	});
 
-	it('makes the whole local source namespace the Baseline it would advance to', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.b, 'images/map-1/info.json': SHA.a }, {}, {})
+	it('removes nothing in either direction with no Baseline at all', () => {
+		const plan = planWorkspaceSync(
+			input({ 'a/project.json': SHA.a }, { 'b/project.json': SHA.b, 'c/project.json': SHA.c }, null)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect([...result.plan.advances].sort()).toEqual([
-			['a/project.json', SHA.b],
-			['images/map-1/info.json', SHA.a]
+		expect(plan.toSend.removed).toEqual([]);
+		expect(plan.toGet.removed).toEqual([]);
+		// Both sides' own work is offered, in the direction it is missing from.
+		expect(plan.toGet.changes.map((choice) => choice.path)).toEqual([
+			'b/project.json',
+			'c/project.json'
 		]);
+		expect(plan.leftAlone).toEqual(['b/project.json', 'c/project.json']);
+		// And the badge is still `Cannot tell`: the plan reasons about bytes, the status about
+		// attribution, and there is no attribution to make.
+		expect(plan.comparison.status).toBe('cannot-tell');
+	});
+
+	it('is a Conflict, not a removal, where a Remote path this Workspace changed has gone', () => {
+		const plan = planWorkspaceSync(
+			input({ 'a/project.json': SHA.b }, {}, { 'a/project.json': SHA.a })
+		);
+		expect(plan.conflicts.map((row) => row.path)).toEqual(['a/project.json']);
+		expect(plan.toGet.removed).toEqual([]);
+	});
+
+	// The one mode whose removals come from the Workspace alone: inside the owned namespace the
+	// Remote becomes exactly the Workspace, which is why it is named before it is carried out.
+	it('names what an overwrite would take down, from the Workspace alone', () => {
+		const plan = planWorkspaceSync(
+			input(
+				{ 'a/project.json': SHA.a },
+				{ 'a/project.json': SHA.c, 'florida-1657/project.json': SHA.b, 'README.md': SHA.c },
+				null
+			)
+		);
+		expect(plan.toOverwrite.removed).toEqual(['florida-1657/project.json']);
+		expect(plan.preserved).toEqual(['README.md']);
 	});
 });
 
 // ── No Baseline ────────────────────────────────────────────────────────────────────────────────
 
 describe('planning without a Baseline', () => {
-	it('establishes one when the two source namespaces are byte-for-byte equal', () => {
+	it('has nothing to do where the two source namespaces are byte-for-byte equal', () => {
 		const files = { 'a/project.json': SHA.a, 'images/map-1/info.json': SHA.b };
-		const update = planWorkspaceUpdate(input(files, files, null));
-		if (update.outcome !== 'planned') throw new Error('expected a plan');
-		expect(update.plan.establishesBaseline).toBe(true);
-		expect(update.plan.changes).toEqual([]);
-		expect([...update.plan.advances].sort()).toEqual([
+		const plan = planWorkspaceSync(input(files, files, null));
+		expect(plan.toGet.changes).toEqual([]);
+		expect(plan.toSend.changes.every((choice) => choice.effect === 'keep')).toBe(true);
+		expect([...plan.toGet.advances].sort()).toEqual([
 			['a/project.json', SHA.a],
 			['images/map-1/info.json', SHA.b]
 		]);
-
-		const publish = planWorkspacePublish(input(files, files, null));
-		if (publish.outcome !== 'planned') throw new Error('expected a plan');
-		expect(publish.plan.establishesBaseline).toBe(true);
 	});
 
-	it('lets Update establish one when the Workspace holds no source at all', () => {
-		const result = planWorkspaceUpdate(input({}, { 'a/project.json': SHA.a }, null));
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.establishesBaseline).toBe(true);
-		expect(result.plan.changes).toEqual([{ path: 'a/project.json', sha: SHA.a, effect: 'add' }]);
+	it('brings a whole Remote into a Workspace that holds no source at all', () => {
+		const plan = planWorkspaceSync(input({}, { 'a/project.json': SHA.a }, null));
+		expect(plan.toGet.changes).toEqual([{ path: 'a/project.json', sha: SHA.a, effect: 'add' }]);
 	});
 
-	it('lets Update establish one when the Remote holds no source at all', () => {
-		const result = planWorkspaceUpdate(
+	it('has nothing to get where the Remote holds no source at all', () => {
+		const plan = planWorkspaceSync(
 			input({ 'a/project.json': SHA.a }, { 'README.md': SHA.b }, null)
 		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.establishesBaseline).toBe(true);
-		expect(result.plan.changes).toEqual([]);
-		// Nothing was shared, so the Baseline it establishes is empty and the local work is still
-		// Changes to publish afterwards.
-		expect([...result.plan.advances]).toEqual([]);
+		expect(plan.toGet.changes).toEqual([]);
+		expect([...plan.toGet.advances]).toEqual([]);
+		expect(plan.preserved).toEqual(['README.md']);
 	});
 
-	// The one Update that adopts a whole Remote unexamined if nothing checks it. Every row is
-	// `cannot-tell` without a Baseline, so the shared prospective set is the local side alone — which
-	// here is nothing — and a Remote that would open as a broken Workspace would be taken whole on the
-	// very transfer that establishes the evidence for every later one.
-	it('refuses to establish one from a Remote whose Project names a Map Image it does not hold', async () => {
+	// The one get that would adopt a whole Remote unexamined if nothing checked it: a Remote that
+	// would open as a broken Workspace, taken whole on the very transfer that establishes the
+	// evidence for every later one.
+	it('reports a broken graph from a Remote whose Project names a Map Image it does not hold', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
-		const result = planWorkspaceUpdate({
+		const plan = planWorkspaceSync({
 			local: [],
 			remote: entries({ 'amsterdam-1625/project.json': project.sha }),
 			baseline: null,
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
 
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('conflict');
-		expect(result.message).toContain('Nothing has been changed.');
+		expect(plan.comparison.graph.outcome).toBe('invalid');
 	});
 
-	it('still establishes one from a Remote that is a whole Workspace', async () => {
+	it('accepts a Remote that is a whole Workspace', async () => {
 		const project = await projectFile('Amsterdam', MAP_LAYER);
-		const result = planWorkspaceUpdate({
+		const plan = planWorkspaceSync({
 			local: [],
 			remote: entries({
 				'amsterdam-1625/project.json': project.sha,
@@ -762,46 +729,17 @@ describe('planning without a Baseline', () => {
 			projectFiles: new Map([[project.sha, project.bytes]])
 		});
 
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.establishesBaseline).toBe(true);
+		expect(plan.comparison.graph.outcome).toBe('valid');
 	});
 
-	it('refuses Update when differing non-empty local and Remote work cannot be attributed', () => {
-		const result = planWorkspaceUpdate(
+	// ⚠ **What used to be `unknown-history`.** Two non-empty sides that hold one path differently and
+	// no record of what they last shared is not a removal and not an overwrite: it is the same path
+	// changed on both sides, which is the one refusal a Sync has left.
+	it('reports differing non-empty sides as a Conflict', () => {
+		const plan = planWorkspaceSync(
 			input({ 'a/project.json': SHA.a }, { 'a/project.json': SHA.b }, null)
 		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('unknown-history');
-		expect(result.message).toContain('cannot tell');
-	});
-
-	it('lets Publish establish one when the Remote holds no source at all', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.a }, { 'README.md': SHA.b }, null)
-		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.establishesBaseline).toBe(true);
-		expect(result.plan.preserved).toEqual(['README.md']);
-	});
-
-	it('refuses ordinary Publish over a non-empty Remote it cannot account for', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.a }, { 'b/project.json': SHA.b }, null)
-		);
-		if (result.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(result.reason).toBe('unknown-history');
-		expect(result.paths).toEqual(['b/project.json']);
-	});
-
-	it('still lets Publish anyway through, and it establishes the Baseline', () => {
-		const result = planWorkspacePublish(
-			input({ 'a/project.json': SHA.a }, { 'b/project.json': SHA.b }, null),
-			{ replace: true }
-		);
-		if (result.outcome !== 'planned') throw new Error('expected a plan');
-		expect(result.plan.replacing).toBe(true);
-		expect(result.plan.removed).toEqual(['b/project.json']);
-		expect(result.plan.establishesBaseline).toBe(true);
+		expect(plan.conflicts.map((row) => row.path)).toEqual(['a/project.json']);
 	});
 });
 
@@ -859,16 +797,14 @@ describe('deliberate planning hashes the whole Workspace', () => {
 		expect(passive.status).toBe('update-available');
 		expect(passive.written).toEqual([]);
 		const inbound = await gitBlobSha(encode('{"features":[{"id":1}]}\n'));
-		const stale = planWorkspaceUpdate({ local: shared, remote, baseline });
-		if (stale.outcome !== 'planned') throw new Error('expected a plan');
-		expect(stale.plan.changes).toEqual([
+		const stale = planWorkspaceSync({ local: shared, remote, baseline });
+		expect(stale.toGet.changes).toEqual([
 			{ path: 'a/annotations/notes.geojson', sha: inbound, effect: 'replace' }
 		]);
 
-		// The complete hash sees both sides changed the one path, and refuses.
-		const complete = planWorkspaceUpdate({ local: await hashWorkspace(store), remote, baseline });
-		if (complete.outcome !== 'refused') throw new Error('expected a refusal');
-		expect(complete.reason).toBe('conflict');
-		expect(complete.paths).toEqual(['a/annotations/notes.geojson']);
+		// The complete hash sees both sides changed the one path, which is a Conflict.
+		const complete = planWorkspaceSync({ local: await hashWorkspace(store), remote, baseline });
+		expect(complete.toGet.changes).toEqual([]);
+		expect(complete.conflicts.map((row) => row.path)).toEqual(['a/annotations/notes.geojson']);
 	});
 });

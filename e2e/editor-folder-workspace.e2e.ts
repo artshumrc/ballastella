@@ -15,7 +15,7 @@ import {
 	seedGitHubCredential,
 	switchToWorkspace,
 	checkRemoteStatus,
-	openPublishFromTheDoor,
+	openSyncModal,
 	updateFromGitHub
 } from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
@@ -1461,14 +1461,13 @@ test.describe('synchronizing a folder Workspace', () => {
 
 	/** Publish the open Workspace to its Remote and wait for the Remote to be named in the result. */
 	async function publish(page: Page, repository: string): Promise<void> {
-		await openPublishFromTheDoor(page);
-		const dialog = page.getByRole('dialog', { name: 'Publish this Workspace' });
-		await expect(dialog.getByTestId('publish-breakdown')).toBeVisible();
-		await dialog.getByRole('button', { name: /^Publish/ }).click();
-		await expect(page.getByTestId('publish-status')).toContainText(
-			`Sent to ${OWNER}/${repository}`,
-			{ timeout: 120_000 }
-		);
+		await openSyncModal(page);
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('sync-budget')).toBeVisible();
+		await dialog.getByTestId('sync-send').click();
+		await expect(page.getByTestId('sync-status')).toContainText(`Sent to ${OWNER}/${repository}`, {
+			timeout: 120_000
+		});
 	}
 
 	/** The one badge's GitHub clause, which each determination has exactly one of (ADR-0041). */
@@ -1558,29 +1557,26 @@ test.describe('synchronizing a folder Workspace', () => {
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 		await expect(remoteStatus(page)).toContainText('Your work is on GitHub');
 
-		// ── And a destructive one, which is refused until it is confirmed ─────────────────────────
+		// ── And a destructive one, named on the modal before anything is pressed ─────────────────
 		const before = await everyPathInFolder(page);
 		await github.commitFiles(OWNER, FROM_FOLDER, { 'delft/project.json': null });
-		await updateFromGitHub(page);
-		const dialog = page.getByRole('dialog', {
-			name: 'Update will remove work from this Workspace'
-		});
-		await expect(dialog.getByTestId('deletion-preview-projects')).toContainText('Delft');
+		await openSyncModal(page);
+		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
+		await expect(dialog.getByTestId('to-get-removals')).toBeVisible({ timeout: 60_000 });
+		await expect(dialog.getByTestId('to-get')).toContainText('Delft');
 
-		// Cancelling writes nothing to the folder, and puts focus back where it came from.
-		await dialog.getByTestId('cancel-deletions').click();
+		// Dismissing writes nothing to the folder, and puts focus back where it came from.
+		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
-		// The door closed on the press that started the Update, so this is where focus goes back to.
 		await expect(page.getByTestId('connect-to-github')).toBeFocused();
 		expect(await everyPathInFolder(page)).toEqual(before);
 
 		await updateFromGitHub(page);
-		await dialog.getByTestId('confirm-deletions').click();
 		await expect(page.getByTestId('update-outcome')).toContainText('Removed');
 		await expect(page.getByRole('link', { name: 'Delft' })).toHaveCount(0);
 		// Nothing of the removed Project is left in the folder, and the Project the Remote kept is
 		// untouched — which is the transaction's own claim, seen through the adapter it ran on. The
-		// folder also holds the site the Publish above materialised, which is why this asks about the
+		// folder also holds the site the Sync above materialised, which is why this asks about the
 		// Projects rather than about every path.
 		const after = await everyPathInFolder(page);
 		expect(after.filter((path) => path.startsWith('delft/'))).toEqual([]);

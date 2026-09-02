@@ -82,14 +82,14 @@ const workspace = async (
 
 type Apparatus = Awaited<ReturnType<typeof workspace>>;
 
-const publish = (kit: Apparatus, options: { replace?: readonly string[] } = {}) =>
+const publish = (kit: Apparatus, options: { overwrite?: readonly string[] } = {}) =>
 	publishWorkspaceToRemote(kit.store, {
 		token: TOKEN,
 		remote: REMOTE,
 		metadata: kit.metadata,
 		changes: kit.changes,
 		fetch: kit.github.fetch,
-		...(options.replace === undefined ? {} : { replace: options.replace })
+		...(options.overwrite === undefined ? {} : { overwrite: options.overwrite })
 	});
 
 /** What this installation believes, read back through the reader the application uses. */
@@ -217,7 +217,7 @@ describe('an ordinary Publish', () => {
 	});
 });
 
-describe('an ordinary Publish the Remote has moved under', () => {
+describe('a send the Remote has moved under', () => {
 	/** A published Workspace, and then somebody else's afternoon arriving on the Remote. */
 	const afterSomebodyElsePublished = async (files: Record<string, string | null>) => {
 		const kit = await workspace();
@@ -226,58 +226,45 @@ describe('an ordinary Publish the Remote has moved under', () => {
 		return { ...kit, ours };
 	};
 
-	it('refuses Remote-only source change, points at Update, and changes nothing', async () => {
+	// ⚠ **Not a refusal any more, and the Baseline is what makes that safe** (ADR-0044). Their file is
+	// neither overwritten with this Workspace's older copy nor dropped out of the tree, so a send
+	// from a machine that has never seen their afternoon leaves it exactly where it is.
+	it('leaves Remote-only source change alone and sends this Workspace’s own work', async () => {
 		const kit = await afterSomebodyElsePublished({
 			'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
 		});
-		const before = snapshot(kit);
+		await kit.store.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"A2"}'));
 
-		await expect(publish(kit)).rejects.toThrow(RemotePublishRefusedError);
+		const published = await publish(kit);
 
-		expect(snapshot(kit)).toEqual(before);
-		// The Baseline is still the one *our* last publish left, at our commit rather than at the one
-		// the tree listing just saw: a refusal that advanced it would make the next publish delete the
-		// file it has this moment declined to overwrite.
-		expect((await believed(kit))?.commit).toBe(kit.ours.commit);
+		expect(published.plan.conflict).toBeNull();
+		expect(decode(kit.github.files().get('amsterdam-1625/annotations/l2.geojson') ?? EMPTY)).toBe(
+			'{"type":"FeatureCollection","features":[]}'
+		);
+		expect(decode(kit.github.files().get('amsterdam-1625/project.json') ?? EMPTY)).toBe(
+			'{"formatVersion":1,"name":"A2"}'
+		);
+		// ⚠ **And the Baseline does not claim their file.** Recorded, it would read as agreed and the
+		// next send would be entitled to overwrite it.
+		expect((await believed(kit))?.files.has('amsterdam-1625/annotations/l2.geojson')).toBe(false);
 	});
 
-	it('names the file and the remedy, so the refusal leads somewhere', async () => {
-		const kit = await afterSomebodyElsePublished({
-			'amsterdam-1625/annotations/l2.geojson': '{"type":"FeatureCollection","features":[]}'
-		});
-
-		const refusal = await publish(kit).catch((cause: unknown) => cause);
-
-		const message = refusal instanceof Error ? refusal.message : '';
-		expect(message).toContain('amsterdam-1625/annotations/l2.geojson');
-		expect(message).toContain('Update from GitHub first');
-		expect(message).toContain('publish anyway');
-	});
-
-	it('refuses safe changes on both sides rather than overwriting one of them', async () => {
+	it('leaves alone a whole Project that arrived on the Remote after the last agreement', async () => {
 		const kit = await afterSomebodyElsePublished({
 			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 		});
-		await kit.store.write('amsterdam-1625/project.json', encode('{"formatVersion":1,"name":"A2"}'));
-		const before = snapshot(kit);
 
-		const refusal = await publish(kit).catch((cause: unknown) => cause);
+		await publish(kit);
 
-		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
-		expect(snapshot(kit)).toEqual(before);
-		// The local half is named as retained, because Update keeps it and the author has to know that
-		// before they will press Update rather than Publish anyway.
-		expect(refusal instanceof Error ? refusal.message : '').toContain(
-			"leaves this Workspace's own unpublished work alone, and there is some of that here"
-		);
+		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
 	});
 
-	// Ballastella will not choose between two versions of an Annotation, so the row
-	// with no safe inbound answer must not send the author round a loop to an Update that refuses it
-	// for the same reason.
-	it('refuses a Conflict without offering an Update that would refuse it too', async () => {
+	// Ballastella will not choose between two versions of an Annotation, so the row with no safe
+	// answer in either direction must not send the author round a loop to a get that refuses it for
+	// the same reason.
+	it('refuses a Conflict without offering a get that would refuse it too', async () => {
 		const kit = await workspace();
-		await publish(kit);
+		const ours = await publish(kit);
 		await somebodyElsePublishes(kit, {
 			'amsterdam-1625/annotations/notes.json':
 				'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
@@ -294,29 +281,35 @@ describe('an ordinary Publish the Remote has moved under', () => {
 		const message = refusal instanceof Error ? refusal.message : '';
 		expect(message).toContain('changed both here and on ada/atlas');
 		expect(message).toContain('will refuse this for the same reason');
-		expect(message).not.toContain('Update from GitHub first');
+		expect(message).toContain('overwrite the repository');
 		expect(snapshot(kit)).toEqual(before);
 		// Their bytes, still theirs.
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"theirs"}]}'
 		);
+		// The Baseline is still the one *our* last publish left, at our commit rather than at the one
+		// the tree listing just saw: a refusal that advanced it would make the next send delete the
+		// file it has this moment declined to overwrite.
+		expect((await believed(kit))?.commit).toBe(ours.commit);
 	});
 });
 
 describe('a Publish with no Baseline', () => {
-	it('refuses a non-empty Remote it cannot attribute, and offers Publish anyway', async () => {
+	// ⚠ **The case the whole rule exists for**: an existing Workspace joined to an existing
+	// repository, with no record of what the two last shared. Nothing is removed, so this goes ahead.
+	it('leaves a non-empty Remote it cannot attribute exactly as it is', async () => {
 		const kit = await workspace(WORKSPACE_FILES, {
 			'README.md': '# Atlas\n',
 			'florida-1657/project.json': '{"formatVersion":1,"name":"Florida"}'
 		});
-		const before = snapshot(kit);
 
-		const refusal = await publish(kit).catch((cause: unknown) => cause);
+		const published = await publish(kit);
 
-		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
-		expect(refusal instanceof Error ? refusal.message : '').toContain('publish anyway');
-		expect(snapshot(kit)).toEqual(before);
-		expect(await believed(kit)).toBeNull();
+		expect(published.plan.conflict).toBeNull();
+		expect([...kit.github.files().keys()]).toContain('florida-1657/project.json');
+		expect([...kit.github.files().keys()]).toContain('amsterdam-1625/project.json');
+		// The Baseline covers what this send wrote and not the Project it left alone.
+		expect([...((await believed(kit))?.files.keys() ?? [])].sort()).toEqual(SOURCE_PATHS);
 	});
 
 	// An empty side establishes a Baseline safely, because there is no history to invent. This is the
@@ -345,7 +338,7 @@ describe('a Publish with no Baseline', () => {
 	});
 });
 
-describe('Publish anyway', () => {
+describe('Overwrite the repository', () => {
 	it('replaces the owned source it was shown, and records the result', async () => {
 		const kit = await workspace();
 		await publish(kit);
@@ -354,10 +347,10 @@ describe('Publish anyway', () => {
 		});
 
 		const published = await publish(kit, {
-			replace: ['amsterdam-1625/annotations/l2.geojson']
+			overwrite: ['amsterdam-1625/annotations/l2.geojson']
 		});
 
-		// Gone, because a Publish is an exact mirror of the owned namespace and this Workspace has no
+		// Gone, because an overwrite is an exact mirror of the owned namespace and this Workspace has no
 		// file for it — which is what "local wins" means and why the consent had to name it.
 		expect([...kit.github.files().keys()]).not.toContain('amsterdam-1625/annotations/l2.geojson');
 		expect(decode(kit.github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
@@ -367,9 +360,9 @@ describe('Publish anyway', () => {
 	});
 
 	// ⚠ **The consent is about a set of files, and a set that has grown is a set nobody agreed to.**
-	// A large publish runs for minutes and this replans against a listing taken after the local
-	// publish wrote — so an agreement to replace one Annotation must not become an agreement to
-	// delete a Project that arrived in the window.
+	// A large send runs for minutes and this replans against a listing taken after the local publish
+	// wrote — so an agreement to remove one Annotation must not become an agreement to delete a
+	// Project that arrived in the window.
 	it('refuses when the Remote has gained a path the author never saw', async () => {
 		const kit = await workspace();
 		await publish(kit);
@@ -381,7 +374,7 @@ describe('Publish anyway', () => {
 
 		const refusal = await publish(kit, {
 			// Only the one they were shown, a listing ago.
-			replace: ['amsterdam-1625/annotations/l2.geojson']
+			overwrite: ['amsterdam-1625/annotations/l2.geojson']
 		}).catch((cause: unknown) => cause);
 
 		expect(refusal).toBeInstanceOf(RemotePublishRefusedError);
@@ -401,7 +394,7 @@ describe('Publish anyway', () => {
 			encode('{"type":"FeatureCollection","features":[{"id":"mine"}]}')
 		);
 
-		await publish(kit, { replace: ['amsterdam-1625/annotations/notes.json'] });
+		await publish(kit, { overwrite: ['amsterdam-1625/annotations/notes.json'] });
 
 		expect(decode(kit.github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
 			'{"type":"FeatureCollection","features":[{"id":"mine"}]}'

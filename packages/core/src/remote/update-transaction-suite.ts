@@ -133,28 +133,27 @@ async function visible(store: ProjectStore): Promise<{ projects: string[]; mapIm
 }
 
 /**
- * The whole of Update from GitHub over one real backing, asserted identically for each of them.
+ * The whole of a Sync's inbound half over one real backing, asserted identically for each of them.
  *
  * @param name what the backing is called, for the test names
  * @param open a fresh, empty Workspace on that backing
  */
 export function describeUpdateTransaction(name: string, open: UpdateBacking): void {
-	describe(`Update from GitHub over ${name}`, () => {
+	describe(`getting a Remote's changes over ${name}`, () => {
 		const remoteWithChanges = async () => {
 			const fake = await createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree: BEFORE });
 			await fake.commitFiles(REMOTE_CHANGES);
 			return fake;
 		};
 
-		it('commits additions, replacements and confirmed deletions as one visible result', async () => {
+		it('commits additions, replacements and deletions as one visible result', async () => {
 			const store = await seed(open);
 			const fake = await remoteWithChanges();
 
 			const result = await updateFromGitHub(store, {
 				remote: REMOTE,
 				baseline: await baseline(),
-				fetch: fake.fetch,
-				confirmDeletion: () => true
+				fetch: fake.fetch
 			});
 
 			expect(await snapshot(store)).toEqual(AFTER);
@@ -166,28 +165,6 @@ export function describeUpdateTransaction(name: string, open: UpdateBacking): vo
 			// And no transaction artifact survives a success, on a backing where one would be a file in
 			// somebody's folder.
 			expect(await store.list(UPDATE_BEFORE_DIRECTORY)).toEqual([]);
-			expect(await readUpdateTransaction(store)).toBeNull();
-		});
-
-		it('refuses without a confirmation and leaves the Workspace byte for byte', async () => {
-			const store = await seed(open);
-			const fake = await remoteWithChanges();
-			const before = await snapshot(store);
-
-			await expect(
-				updateFromGitHub(store, {
-					remote: REMOTE,
-					baseline: await baseline(),
-					fetch: fake.fetch,
-					confirmDeletion: () => false
-				})
-			).rejects.toThrow();
-
-			expect(await snapshot(store)).toEqual(before);
-			expect(await visible(store)).toEqual({
-				projects: ['Amsterdam 1625', 'Delft 1650'],
-				mapImages: ['map-1']
-			});
 			expect(await readUpdateTransaction(store)).toBeNull();
 		});
 

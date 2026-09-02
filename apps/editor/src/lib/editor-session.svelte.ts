@@ -135,7 +135,6 @@ import {
 	type TileCoordinate,
 	type TileFetchResult,
 	type TransferProgress,
-	type UpdateDeletionPreview,
 	type ViewerBundle,
 	type ViewerBundleFile,
 	type WorkspaceMapImage,
@@ -2712,15 +2711,24 @@ export class EditorSession {
 		/**
 		 * What the local publish will write into the Workspace before the upload runs, so the three
 		 * budgets are about the publish being agreed to rather than about the folder as it stands.
-		 * `PublishDialog` hands it {@link PublishPlan.files}.
+		 * `SyncDialog` hands it {@link PublishPlan.files}.
 		 */
 		pending?: readonly PendingLocalFile[];
+		/**
+		 * Whether this plan is being made in order to send. Left out, it is.
+		 *
+		 * `false` is the read-only collaborator: the comparison is made and the push check skipped, so
+		 * the Sync modal's *To get* column exists for them and the send affordances simply are not
+		 * offered (ADR-0044).
+		 */
+		sending?: boolean;
 	}): Promise<RemotePublishPlan> {
 		return planWorkspaceUpload(this.#store, {
 			token: options.token,
 			remote: options.remote,
 			baseline: await this.#lastSharedWith(options.remote),
-			...(options.pending ? { pending: options.pending } : {})
+			...(options.pending ? { pending: options.pending } : {}),
+			...(options.sending === undefined ? {} : { sending: options.sending })
 		});
 	}
 
@@ -2820,8 +2828,6 @@ export class EditorSession {
 	async updateFromRemote(options: {
 		remote: RemoteRepository;
 		onProgress?: (progress: { files: number; totalFiles: number }) => void;
-		/** Show what would be removed and answer whether to go ahead. */
-		confirmDeletion?: (preview: UpdateDeletionPreview) => Promise<boolean>;
 	}): Promise<{ update: WorkspaceUpdate; baselineKept: boolean }> {
 		await this.flush();
 		await this.localChanges?.flushChanges();
@@ -2831,7 +2837,6 @@ export class EditorSession {
 			baseline: (await this.#synchronization?.readBaseline(options.remote)) ?? null,
 			estimateStorage: () => navigator.storage.estimate(),
 			workspace: this.#workspaceKey,
-			...(options.confirmDeletion ? { confirmDeletion: options.confirmDeletion } : {}),
 			...(options.onProgress
 				? { onProgress: ({ files, totalFiles }) => options.onProgress?.({ files, totalFiles }) }
 				: {})
@@ -2893,14 +2898,14 @@ export class EditorSession {
 	 * be another machine's belief arriving as this one's evidence (ADR-0038).
 	 *
 	 * @returns the plan that ran, the commit the branch now holds, and whether the Baseline was kept
-	 * @throws RemotePublishRefusedError when the Remote moved past what `replace` agreed to
+	 * @throws RemotePublishRefusedError when the Remote moved past what `overwrite` agreed to
 	 * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
 	 */
 	async publishToRemote(options: {
 		token: string;
 		remote: RemoteRepository;
 		/**
-		 * The paths of the conflict the scholar was shown and agreed to replace (ADR-0033).
+		 * The paths the scholar was shown as going, and agreed to: *Overwrite the repository*.
 		 *
 		 * ⚠ **The paths and not a `true`, because the plan this runs is not the plan they read.** The
 		 * forecast is made before the local publish writes; this replans afterwards, against a tree
@@ -2908,11 +2913,12 @@ export class EditorSession {
 		 * decision about one `notes.json` to whatever the second listing found — including a Project
 		 * another machine published in the window, deleted without anybody having seen its name. So the
 		 * agreement travels as the set it was about, and `publishToRemote` refuses when the second
-		 * plan's conflict is not a subset of it.
+		 * plan's removals are not a subset of it.
 		 *
-		 * Left out, a Remote somebody else has written to is refused, which is the default.
+		 * Left out, a send removes only what the Baseline recorded and leaves everything the Remote has
+		 * moved past exactly as it is, which is the default.
 		 */
-		replace?: readonly string[];
+		overwrite?: readonly string[];
 		onProgress?: (progress: {
 			files: number;
 			totalFiles: number;
@@ -2930,7 +2936,7 @@ export class EditorSession {
 			remote: options.remote,
 			...(this.#synchronization === undefined ? {} : { metadata: this.#synchronization }),
 			...(this.localChanges === null ? {} : { changes: this.localChanges.changes }),
-			...(options.replace === undefined ? {} : { replace: options.replace }),
+			...(options.overwrite === undefined ? {} : { overwrite: options.overwrite }),
 			...(options.onProgress ? { onProgress: options.onProgress } : {})
 		});
 		return { commit, plan, baselineKept };

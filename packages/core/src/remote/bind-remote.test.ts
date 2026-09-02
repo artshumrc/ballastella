@@ -493,12 +493,13 @@ describe('connecting a Workspace', () => {
 	});
 });
 
-// ── The subset refusal (ADR-0033) ─────────────────────────────────────────────────────────────
+// ── A Remote that already carries Ballastella work (ADR-0044) ─────────────────────────────────
 //
-// ADR-0024's *"restoring a backup creates a new named Workspace and switches to it — it never
-// overwrites and never merges"*, applied to a repository. What it catches is a Workspace that would
-// publish *less* than the Remote already holds: a second machine, and an Open that stopped part way
-// through and was then bound by hand.
+// ⚠ **This used to be refused and is now the ordinary case.** ADR-0033's subset refusal existed
+// because a first send would have deleted every Project the Workspace had not got. It cannot: a send
+// removes only what the Synchronization Baseline recorded, so a Workspace with no Baseline removes
+// nothing at all, and what the repository holds reads as work to get. Kept as a describe of its own
+// because the case it names is the one the refusal was written for.
 describe('binding to a Remote that already carries Projects this Workspace has not got', () => {
 	/** A published Workspace's site record, as it sits at the root of a Remote (ADR-0032). */
 	const siteRecord = (...projects: { directory: string; name: string }[]): string =>
@@ -541,24 +542,8 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		return store;
 	};
 
-	it('refuses, names the Project, and points at Open a Workspace from GitHub', async () => {
+	it('connects, so that an existing Workspace can be joined to an existing repository', async () => {
 		const store = await holding('amsterdam-1625');
-		const remote = await published();
-
-		const refusal = await bindWorkspaceToRemote(store, 'atlas', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		}).catch((cause: unknown) => cause);
-
-		expect(refusal).toBeInstanceOf(RemoteBindRefusedError);
-		expect((refusal as RemoteBindRefusedError).refusal).toBe('projects-not-here');
-		expect((refusal as Error).message).toContain('“Florida 1657”');
-		expect((refusal as Error).message).toContain('Open ada/atlas from GitHub');
-	});
-
-	it('connects when the Remote’s Projects are a subset of this Workspace’s', async () => {
-		const store = await holding('amsterdam-1625', 'florida-1657', 'leiden-1670');
 		const remote = await published();
 
 		const outcome = await bindWorkspaceToRemote(store, 'atlas', {
@@ -570,54 +555,21 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 	});
 
-	// The other half of the same protection: an Open leaves an interrupted Workspace *unbound* so that
-	// Publish has no target, and binding it by hand is the one route left into the same loss.
-	//
-	// ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-	// │ THE COUPLING THIS RESTS ON: A CLONE WRITES `[...files, ...manifests]`, MANIFESTS LAST.    │
-	// └──────────────────────────────────────────────────────────────────────────────────────────┘
-	//
-	// A partial Open is a Workspace missing files *within* Projects it has, and the check above is at
-	// Project granularity — so on its own it would see nothing wrong. What makes it adequate is
-	// `clone-from-remote.ts`'s write order: manifests are held back to the end, so an interrupted
-	// Open always lacks at least one `project.json`, and `listProjects` matches nothing but a
-	// top-level directory holding one (ADR-0008). The Project therefore reads as absent and the bind
-	// is refused. That coupling is documented on the transfer side and load-bearing here: reorder that
-	// loop and this refusal stops catching the Workspace it was written for, silently.
-	it('refuses an Open stopped part way, which has a Project’s files but not its project.json', async () => {
-		const store = await holding('amsterdam-1625');
-		// Florida's Annotation arrived before the laptop was closed; the `project.json` that would make
-		// it a Project is written last and never did.
-		await store.write(
-			'florida-1657/annotations/notes.json',
-			new TextEncoder().encode('{"type":"FeatureCollection","features":[]}')
-		);
-		const remote = await published();
-
-		await expect(
-			bindWorkspaceToRemote(store, 'atlas (2)', {
-				token: TOKEN,
-				remote: REMOTE,
-				fetch: remote.fetch
-			})
-		).rejects.toThrow('“Florida 1657”');
-	});
-
-	// ⚠ **The raw host answers 404 for a private repository read without a credential**, so an
-	// unauthenticated read of `ballastella-site.json` does not fail — it reads as "nothing published
-	// here" and the refusal above passes without ever having asked its question. That is the whole
-	// protection, silently skipped on the repositories whose owners are most likely to have two
-	// machines. `readRemoteRights` has already established with this very token that the repository
-	// exists and is pushable, so a raw 404 after that is anomalous rather than ordinary. Private
-	// repositories are out of scope, but nothing here refuses one.
-	it('asks its question of a private repository rather than passing it in silence', async () => {
+	// The refusal used to read the Remote's site record over the raw host to find out what it carried.
+	// Nothing does now, and the request is worth asserting gone: it was a second read of a repository
+	// the rights check has already established, on every connection anybody ever makes.
+	it('reads nothing but the repository itself, whatever the Remote carries', async () => {
 		const store = await holding('amsterdam-1625');
 		const remote = await published();
-		remote.privateRepository = true;
+		let raw = 0;
+		const counted: typeof remote.fetch = async (input, init) => {
+			if (String(input).includes('raw.githubusercontent.com')) raw += 1;
+			return remote.fetch(input, init);
+		};
 
-		await expect(
-			bindWorkspaceToRemote(store, 'atlas', { token: TOKEN, remote: REMOTE, fetch: remote.fetch })
-		).rejects.toThrow('“Florida 1657”');
+		await bindWorkspaceToRemote(store, 'atlas', { token: TOKEN, remote: REMOTE, fetch: counted });
+
+		expect(raw).toBe(0);
 	});
 
 	it('connects to a Remote that has never been published to', async () => {
@@ -631,26 +583,5 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 		});
 
 		expect(outcome.remote.repository).toBe('atlas');
-	});
-
-	// ⚠ **Unreadable is not the same as empty, and it must not be the same as full either.** A CDN
-	// hiccup, a 500, or a record a newer build wrote all arrive as "we cannot say" — and refusing
-	// over any of them would stop a scholar binding a repository that is perfectly fine. What
-	// protects them then is the publish's own refusal, which has no record of the Remote either.
-	it('connects when the Remote’s site record cannot be read at all', async () => {
-		const store = await holding('amsterdam-1625');
-		const remote = await createFakeGitHub({
-			owner: REMOTE.owner,
-			repository: REMOTE.repository,
-			tree: { 'ballastella-site.json': 'not json at all' }
-		});
-
-		const outcome = await bindWorkspaceToRemote(store, 'atlas', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(outcome.remote.owner).toBe('ada');
 	});
 });

@@ -45,8 +45,8 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
-	import PublishDialog from '$lib/publish/PublishDialog.svelte';
-	import { publishControlLabel, type PublishProgress } from '$lib/publish/publish-progress.js';
+	import SyncDialog from '$lib/publish/SyncDialog.svelte';
+	import { syncControlLabel, type SyncProgress } from '$lib/publish/sync-progress.js';
 	import EditHistoryControls from '$lib/undo/EditHistoryControls.svelte';
 	import { editHistorySlot } from '$lib/undo/edit-history-slot.svelte.js';
 	import { theme } from '$lib/theme.svelte';
@@ -116,7 +116,7 @@
 	);
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
-	let publishOpen = $state(false);
+	let syncOpen = $state(false);
 	/**
 	 * The door control, so a dialog opened from behind it has somewhere to put focus back.
 	 *
@@ -125,17 +125,17 @@
 	 */
 	let doorButton = $state<HTMLButtonElement | undefined>();
 	/**
-	 * Whether a publish is running, and how far it has got.
+	 * Whether a Sync is running, and how far it has got.
 	 *
-	 * Bound out of `PublishDialog` rather than kept there, because the control that started it is on
+	 * Bound out of `SyncDialog` rather than kept there, because the control that started it is on
 	 * this bar and has to say so: `aria-disabled` with a label that reflects progress, never
 	 * `disabled` — a `disabled` button leaves the tab order the instant it is pressed, dropping a
-	 * keyboard user's focus to `<body>` for the length of the publish (WCAG 2.4.3).
+	 * keyboard user's focus to `<body>` for the length of the Sync (WCAG 2.4.3).
 	 */
-	let publishing = $state(false);
-	let publishProgress = $state<PublishProgress | null>(null);
+	let syncing = $state(false);
+	let syncProgress = $state<SyncProgress | null>(null);
 	/**
-	 * Whether this Workspace may be published at all (ADR-0024).
+	 * Whether this Workspace may be synced at all (ADR-0024).
 	 *
 	 * Absent inside a review copy rather than present and refused, which is the arrangement the hub
 	 * already had: the review copy holds somebody else's work, the hub says so in words where the
@@ -146,7 +146,7 @@
 	 * would include provisional files — which is what the whole gate exists to prevent, and the hub
 	 * is already saying why in words.
 	 */
-	const publishable = $derived(
+	const syncable = $derived(
 		storage !== null && storage.review === null && storage.unavailable === ''
 	);
 
@@ -558,50 +558,49 @@
 		{@render status()}
 
 		<!--
-			5. The one door to GitHub — the whole relationship, in one control (ADR-0041).
+			5. The one GitHub control on the bar — and it opens the Sync modal directly (ADR-0044).
 
-			**One control where there were two, and behind it one surface where there were five.** A save
-			badge, a Remote Status badge, *Check Remote Status*, *Update from GitHub*, *Connect to
-			GitHub* and *Publish…* all answered one question — *is my work safe* — and a scholar had no
-			way to choose between them. The badge in the eyebrow answers it; this opens the place where
-			everything that can be *done* about it lives, and **Publish** and **Update from GitHub**
-			stay two separate presses in there, because their consequences differ in kind.
+			**One control where there were six.** A save badge, a Remote Status badge, *Check Remote
+			Status*, *Update from GitHub*, *Connect to GitHub* and *Publish…* all answered one question
+			— *is my work anywhere but this machine* — and a scholar had no way to choose between them.
+			The badge in the eyebrow answers it; this is where the answer is acted on.
+
+			**With a Remote it opens the Sync modal; with none it opens the guided sequence.** There is
+			no landing panel between the press and the thing pressed for: pressing Sync reads both
+			sides and shows what it found, which moves nothing and is therefore safe to be one press
+			away. The guided sequence survives only for a Workspace that belongs to no repository yet.
 
 			**On the bar rather than filed away in a settings dialog, and that is what this control is
 			for.** A dialog two menus deep is where a person goes when something already works and they
-			want it different, and not where anybody looks for *how do I put this on the web*.
-			The bar is on every screen including Workspace Home, so a student meets it before they have
-			opened a Project, and the surface it opens is the same one wherever it was pressed.
+			want it different, and not where anybody looks for *is my work safe*. The bar is on every
+			screen including Workspace Home, so a student meets it before they have opened a Project.
 
-			**It reflects the Workspace rather than offering the same thing twice.** With no Remote it
-			offers connecting; with one it says which repository, which is a standing fact and not
-			unfinished work. Both presses open the same surface, which lands on whichever of its steps is
-			true — there is no second path and no remembered position (see `ConnectToGitHub`).
-
-			**A publish under way is said here**, because this is the one GitHub control on the bar and a
-			publish is the one GitHub act that runs for minutes — including after the modal that started
-			it was dismissed with Escape. `aria-disabled` and never `disabled`: a `disabled` button leaves
-			the tab order the instant it is pressed, dropping a keyboard user's focus to `<body>` for the
-			length of the publish (WCAG 2.4.3).
+			**A Sync under way is said here**, because this is the one GitHub control on the bar and a
+			Sync is the one GitHub act that runs for minutes — including after the modal that started
+			it was dismissed with Escape. `aria-disabled` and never `disabled`: a `disabled` button
+			leaves the tab order the instant it is pressed, dropping a keyboard user's focus to
+			`<body>` for the length of the Sync (WCAG 2.4.3).
 		-->
-		{#if publishable && storage !== null}
+		{#if syncable && storage !== null}
 			<button
 				type="button"
 				bind:this={doorButton}
 				class="btn btn-sm"
 				class:btn-primary={storage.remote === null}
-				class:btn-disabled={publishing}
-				aria-disabled={publishing}
+				class:btn-disabled={syncing}
+				aria-disabled={syncing}
 				data-testid="connect-to-github"
 				onclick={() => {
-					if (!publishing) connectSequence.start();
+					if (syncing) return;
+					if (storage?.remote === null) connectSequence.start();
+					else syncOpen = true;
 				}}
 			>
-				{publishing
-					? publishControlLabel(publishProgress)
+				{syncing
+					? syncControlLabel(syncProgress)
 					: storage.remote === null
 						? 'Sync with GitHub'
-						: `Synced with ${describeRemote(storage.remote)}`}
+						: `Sync with ${describeRemote(storage.remote)}`}
 			</button>
 		{/if}
 	{/if}
@@ -636,9 +635,6 @@
 					update={storage.updateProgress}
 					notice={storage.updateNotice}
 					failure={storage.updateFailure}
-					deletionPreview={storage.deletionPreview}
-					onAnswerDeletions={(confirmed) => storage.answerDeletionPreview(confirmed)}
-					restoreFocusTo={() => doorButton}
 				/>
 			{:else}
 				<WhereYourWorkIs saveState={session.saveState} />
@@ -712,20 +708,20 @@
 />
 
 <!--
-	ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
-	dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on the
-	backup path where the button is in another component entirely.
+	ADR-0024: a Review Workspace never syncs. Not mounted at all inside one, so there is no dialog to
+	reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on the backup path
+	where the button is in another component entirely.
 
 	Its own live regions — the outcome, the staleness notice and a refusal that outlives the modal —
 	render here, immediately under the bar, so that they are on whichever screen the user was on when
 	they pressed the button.
 -->
-{#if publishable && storage !== null}
-	<PublishDialog
+{#if syncable && storage !== null}
+	<SyncDialog
 		{storage}
-		bind:open={publishOpen}
-		bind:publishing
-		bind:progress={publishProgress}
+		bind:open={syncOpen}
+		bind:syncing
+		bind:progress={syncProgress}
 		restoreFocusTo={() => doorButton}
 	/>
 	<!--
@@ -734,14 +730,10 @@
 		`connectSequence` rather than mounting a second copy, which is what keeps connecting one
 		implementation however it was reached.
 
-		`onpublish` hands off to the button beside it: the sequence ends where publishing begins, and
-		there is no second publish path.
+		`onsync` hands off to the modal beside it: the sequence ends where syncing begins, and there is
+		no second path to it.
 	-->
-	<ConnectToGitHub
-		{storage}
-		bind:open={connectSequence.open}
-		onpublish={() => (publishOpen = true)}
-	/>
+	<ConnectToGitHub {storage} bind:open={connectSequence.open} onsync={() => (syncOpen = true)} />
 {/if}
 
 {#if storage !== null && newName !== null}

@@ -11,11 +11,11 @@
 // meant to be.
 //
 // What there is code for is the one gesture whose blast radius is somebody else's afternoon.
-// `Publish anyway` is the explicit local-wins escape hatch (ADR-0038), and on a repository that is
-// the author's alone it can only ever discard the author's own work. On a shared one it deletes a
-// collaborator's, because a Publish mirrors an owned namespace and removes what this Workspace has
-// not got (ADR-0033). The inbound direction has refused to delete unnamed work since
-// `UpdateDeletionPreview`; this is the outbound half of the same rule.
+// *Overwrite the repository* is the explicit local-wins escape hatch (ADR-0038, ADR-0044), and on a
+// repository that is the author's alone it can only ever discard the author's own work. On a shared
+// one it deletes a collaborator's, because it mirrors an owned namespace and removes what this
+// Workspace has not got (ADR-0033). Both directions name what would go, on the Sync modal the author reads before
+// pressing anything (ADR-0044); this is what the outbound half of that naming is built from.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ⚠ A READING THAT DID NOT HAPPEN SAYS *SHARED*, NEVER *SOLO*
@@ -145,12 +145,12 @@ export async function readRemoteSharing(options: RemoteSharingOptions): Promise<
 	return { shared: others.length > 0, known: true, owner, others };
 }
 
-// ── What a Publish anyway would take off the Remote ────────────────────────────────────────────
+// ── What an Overwrite would take off the Remote ────────────────────────────────────────────────
 
 /**
- * What a confirmed `Publish anyway` would remove from the Remote, in the terms it has to be asked in.
+ * What a confirmed overwrite would remove from the Remote, in the terms it has to be asked in.
  *
- * ⚠ **Projects and Map Images rather than paths, exactly as `UpdateDeletionPreview` is.** "3 files
+ * ⚠ **Projects and Map Images rather than paths, exactly as `describeChanges` is.** "3 files
  * will be removed" is not a question anybody can answer; "the Project `florida-1657` and everything
  * drawn on it" is. Paths are still carried — {@link paths} for the record and {@link remaining} for
  * what neither grouping accounts for — so nothing is described away.
@@ -175,7 +175,9 @@ export type OutboundDeletionPreview = {
 	 * Removed paths no removed Project or Map Image above accounts for, sorted.
 	 *
 	 * A Project losing one Annotation, an Alignment for a Map Image that stays, a cached Base Map
-	 * tile. Listed rather than summed away, for `UpdateDeletionPreview.remaining`'s reason.
+	 * tile. Listed rather than summed away: the two groupings above are the *legible* part of a removal
+	 * and this is the rest of it, and a confirmation showing only the legible part would be asking
+	 * about less than it was about to do.
 	 */
 	readonly remaining: readonly string[];
 	/** The question, in the words the author should be asked it in. */
@@ -288,7 +290,7 @@ function whoseSentence(remote: RemoteReference, sharing: RemoteSharing): string 
 /**
  * The question the author is asked before a shared Remote loses anything.
  *
- * ⚠ **It says what Publish anyway *will* do, not what it might.** This is the last point at which
+ * ⚠ **It says what an overwrite *will* do, not what it might.** This is the last point at which
  * the answer is still no, so the sentence is the whole of the consequence: whose the repository is,
  * which Projects and Map Images go, how much else, and that nothing in this Workspace is touched.
  */

@@ -78,7 +78,7 @@ export type FakeRepository = {
 	 * a solo one (ADR-0043).
 	 *
 	 * The owner alone by default: every other spec here means a repository nobody else works in, and
-	 * that is the state whose `Publish anyway` behaviour is unchanged.
+	 * that is the state whose overwrite behaviour is unchanged.
 	 */
 	readonly contributors?: readonly string[];
 	/** `POST /pages` answers 409 when this is already true, and turns it on when it is not. */

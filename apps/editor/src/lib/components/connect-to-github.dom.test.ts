@@ -109,7 +109,7 @@ afterEach(() => {
 type Opened = {
 	readonly storage: FakeStorage;
 	readonly list: ReturnType<typeof vi.fn>;
-	readonly onpublish: ReturnType<typeof vi.fn>;
+	readonly onsync: ReturnType<typeof vi.fn>;
 	/** Every address the inbound door asked about, which is what "nothing is asked twice" reads. */
 	readonly resolve: ReturnType<typeof vi.fn>;
 	/** Writable, so a test can close the sequence and open it again without remounting it. */
@@ -137,7 +137,7 @@ function open(
 		// already in hand would cost every other test in this file a turn of {@link settle}.
 		return answer instanceof Promise ? await answer : answer;
 	});
-	const onpublish = vi.fn();
+	const onsync = vi.fn();
 	const resolve = vi.fn(async (pasted: string) => {
 		void pasted;
 		if (address instanceof Error) throw address;
@@ -147,13 +147,13 @@ function open(
 	document.body.append(main);
 	const props = sequenceProps({
 		storage: storage as unknown as WorkspaceStorage,
-		onpublish,
+		onsync,
 		list,
 		resolveAddress: resolve
 	});
 	mounted = mount(ConnectToGitHub, { target: main, props });
 	flushSync();
-	return { storage, list, onpublish, resolve, props };
+	return { storage, list, onsync, resolve, props };
 }
 
 /**
@@ -187,24 +187,6 @@ function signedIn(): FakeStorage {
 	return storage;
 }
 
-/**
- * The refusal that protects somebody's afternoon: the Remote carries a Project this Workspace has
- * not got, so publishing there would delete it (ADR-0033).
- *
- * ⚠ **The real class rather than a bare `Error`**, because which refusal it is decides what the
- * sequence offers — every other one goes back to the choice, and this one offers the Open. The
- * sentence is `bind-remote.ts`'s own, abbreviated only where the wording is not what is under test.
- */
-const notHere = (): RemoteBindRefusedError =>
-	new RemoteBindRefusedError(
-		'projects-not-here',
-		'ada/atlas already carries work from Ballastella, and “Amsterdam 1625” is a Project on it ' +
-			'that this Workspace has not got. Publishing this Workspace there would delete it, so ' +
-			'nothing has been bound. Open ada/atlas from GitHub instead: that brings the whole of it ' +
-			'down into a new Workspace of its own, and never overwrites or merges anything you already ' +
-			'have.'
-	);
-
 /** A promise a test settles by hand, so a request in flight is a state and not a race. */
 function deferred<T>(): { readonly promise: Promise<T>; readonly settle: (value: T) => void } {
 	let settle: (value: T) => void = () => {};
@@ -212,33 +194,6 @@ function deferred<T>(): { readonly promise: Promise<T>; readonly settle: (value:
 		settle = resolve;
 	});
 	return { promise, settle: (value: T) => settle(value) };
-}
-
-/** A store whose Open waits to be let go, which is the only way a transfer stays on screen. */
-class PausedOpen extends FakeStorage {
-	private readonly gate = deferred<void>();
-
-	letGo(): void {
-		this.gate.settle();
-	}
-
-	// Recorded and then held, rather than held and then recorded: what a paused Open has to make
-	// visible is whether a second press started a second one, and a call not yet recorded looks
-	// exactly like a call the screen refused to make.
-	override async openFromGitHub(remote: RemoteReference): Promise<{ notice: string }> {
-		const answering = super.openFromGitHub(remote);
-		await this.gate.promise;
-		return answering;
-	}
-}
-
-/** Somebody signed in whose Open waits to be let go. */
-function pausedOpen(): PausedOpen {
-	const storage = new PausedOpen();
-	storage.signedIn = true;
-	storage.identity = 'ada';
-	storage.credential = 'a-credential-this-component-never-renders';
-	return storage;
 }
 
 /**
@@ -547,7 +502,7 @@ describe('making a repository, without leaving the sequence', () => {
 			void token;
 			return answer;
 		});
-		const onpublish = vi.fn();
+		const onsync = vi.fn();
 		const resolve = vi.fn(async (pasted: string) => {
 			void pasted;
 			return ATLAS_ADDRESS;
@@ -557,7 +512,7 @@ describe('making a repository, without leaving the sequence', () => {
 		document.body.append(main);
 		const props = sequenceProps({
 			storage: storage as unknown as WorkspaceStorage,
-			onpublish,
+			onsync,
 			list,
 			resolveAddress: resolve
 		});
@@ -566,7 +521,7 @@ describe('making a repository, without leaving the sequence', () => {
 		await settle();
 		pressLink('create-repository');
 		answer = then;
-		return { storage, list, onpublish, resolve, props };
+		return { storage, list, onsync, resolve, props };
 	}
 
 	// Having nothing granted is an ordinary case with an action in it, not a dead end.
@@ -933,186 +888,6 @@ describe('connecting, which is one act', () => {
 		expect(absent('connect-notice')).toBe(true);
 		expect(at('connect-connected')).toBeTruthy();
 	});
-
-	// ⚠ **This one is a refusal and must never soften into a warning.** Publishing over a Remote
-	// carrying Projects this Workspace has not got would delete them, so the Projects are named and
-	// the connection does not happen. What the author is offered instead is the operation that
-	// answers their actual question, which is the next block.
-	test('refuses a repository whose work publishing would destroy, and names it', async () => {
-		const storage = signedIn();
-		storage.bindAnswer = notHere();
-		open(storage);
-		await choose();
-
-		expect(text(at('connect-projects-not-here'))).toContain('“Amsterdam 1625”');
-		expect(storage.remote).toBeNull();
-		expect(absent('connect-connected')).toBe(true);
-	});
-});
-
-// ⚠ **Arriving on a second device stops being a refusal and becomes an answer.** The refusal itself
-// is not softened — publishing over that Remote would delete somebody's work — but the author asked
-// *"is this my repository"*, and the honest answer is to bring it down into a Workspace of its own.
-// The operation is `openFromGitHub`, unchanged: no credential, always browser-backed, one Workspace
-// per repository. What this block asserts is that the door offers it, hands it the repository the
-// author chose, and gets out of the way of what it says.
-describe('a repository carrying work this Workspace has not got', () => {
-	/** Choose the one repository on offer, which is what meets the refusal. */
-	async function refused(storage: FakeStorage = signedIn()): Promise<Opened> {
-		storage.bindAnswer = notHere();
-		const opened = open(storage);
-		await settle();
-		press('choose-repository');
-		await settle();
-		return opened;
-	}
-
-	test('names the work that is on it and offers to open it as a Workspace of its own', async () => {
-		await refused();
-
-		// `packages/core`'s own sentence, rendered as it arrives: it names the Project, says what
-		// publishing there would do, and is not this component's to reword.
-		expect(text(at('connect-projects-not-here'))).toContain('“Amsterdam 1625”');
-		expect(text(at('connect-projects-not-here'))).toContain('would delete');
-		expect(at('open-as-new-workspace')).toBeTruthy();
-	});
-
-	// ⚠ **The repository and nothing else.** No credential is sent on this path and none is read, so
-	// what the press hands over is the reference the author chose, reached from where the question was
-	// actually asked rather than from a field the repository had to be typed into from memory.
-	test('hands the chosen repository to the Open, once', async () => {
-		const opened = await refused();
-
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(opened.storage.openCalls).toEqual([{ owner: 'ada', repository: 'atlas' }]);
-	});
-
-	// ⚠ **It only adds.** The connection did not happen, so nothing about this Workspace changed —
-	// and the Open makes a second Workspace beside it rather than touching this one. That the bytes
-	// really are untouched is Seam 2's, where there is a store to snapshot.
-	test('binds nothing and unbinds nothing on the way', async () => {
-		const opened = await refused();
-
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(opened.storage.bindCalls).toHaveLength(1);
-		expect(opened.storage.unbinds).toBe(0);
-	});
-
-	test('says which Workspace the author is now in', async () => {
-		const opened = await refused();
-		opened.storage.openAnswer = { notice: 'Opened ada/atlas into a new Workspace called “atlas”.' };
-
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(text(at('connect-notice'))).toContain('a new Workspace called “atlas”');
-	});
-
-	// ⚠ **One repository, one Workspace on this computer.** Opening one that has already been opened
-	// here goes back to it rather than downloading a second copy, and the sentence saying so is the
-	// engine's — so all the door owes it is somewhere to be read.
-	test('reports a return to the Workspace this computer already keeps for it', async () => {
-		const opened = await refused();
-		opened.storage.openAnswer = {
-			notice:
-				'Went back to “atlas”, which is the Workspace this computer already keeps for ada/atlas.'
-		};
-
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(text(at('connect-notice'))).toContain('Went back to “atlas”');
-	});
-
-	// A Map Image's pyramid is thousands of files over real minutes, and a still screen with nothing
-	// said is where a scholar concludes it has hung.
-	test('announces per-file progress while it runs', async () => {
-		const storage = pausedOpen();
-		await refused(storage);
-
-		press('open-as-new-workspace');
-		await settle();
-		storage.transfer = {
-			kind: 'open',
-			subject: 'ada/atlas',
-			files: 12,
-			totalFiles: 40,
-			finished: false
-		};
-		flushSync();
-
-		expect(text(at('hydrate-progress'))).toContain('12 of 40');
-		expect(at('hydrate-progress').getAttribute('role')).toBe('status');
-		// ⚠ `aria-disabled` and never `disabled`: a `disabled` button leaves the tab order the moment
-		// it is pressed, dropping a keyboard user to `<body>` for the length of a download that runs
-		// in minutes (WCAG 2.4.3).
-		expect(at('open-as-new-workspace').getAttribute('aria-disabled')).toBe('true');
-		expect((at('open-as-new-workspace') as HTMLButtonElement).disabled).toBe(false);
-
-		storage.letGo();
-		await settle();
-	});
-
-	// ⚠ **A second press is not a second download.** The engine serializes Opens of one repository,
-	// so the worst case is a wasted request rather than two Workspaces — but the screen must not
-	// invite it either.
-	test('does not start a second Open while one is running', async () => {
-		const storage = pausedOpen();
-		await refused(storage);
-
-		press('open-as-new-workspace');
-		await settle();
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(storage.openCalls).toHaveLength(1);
-		storage.letGo();
-		await settle();
-	});
-
-	// Not a dead end either: an Open that refused says why, and the offer it refused is still there
-	// to press again beside the way back to the list.
-	test('an Open that refused leaves both ways forward on screen', async () => {
-		const opened = await refused();
-		opened.storage.openAnswer = new Error(
-			'GitHub could not be reached, so nothing was downloaded.'
-		);
-
-		press('open-as-new-workspace');
-		await settle();
-
-		expect(text(at('connect-problem'))).toContain('could not be reached');
-		expect(at('open-as-new-workspace')).toBeTruthy();
-		expect(at('choose-another-repository')).toBeTruthy();
-	});
-
-	test('goes back to the list for an author who wants a different repository', async () => {
-		await refused();
-
-		press('choose-another-repository');
-		await settle();
-
-		expect(at('connect-choosing')).toBeTruthy();
-		expect(absent('connect-projects-not-here')).toBe(true);
-	});
-
-	// The offer is a fact about a press, so closing forgets it: reopening reads the world again, and
-	// the world says this Workspace is unconnected.
-	test('forgets the offer when the sequence is closed', async () => {
-		const opened = await refused();
-
-		press('close-connect-sequence');
-		opened.props.open = true;
-		flushSync();
-		await settle();
-
-		expect(absent('connect-projects-not-here')).toBe(true);
-		expect(at('connect-choosing')).toBeTruthy();
-	});
 });
 
 describe('the address, and the handoff', () => {
@@ -1156,9 +931,9 @@ describe('the address, and the handoff', () => {
 	test('hands off to Publish and closes', () => {
 		const opened = open(connected('ada', 'atlas'));
 
-		press('connect-publish');
+		press('connect-sync');
 
-		expect(opened.onpublish).toHaveBeenCalledTimes(1);
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -2107,18 +1882,6 @@ describe('every step of the sequence, enumerated', () => {
 				};
 			}
 		},
-		hydrate: {
-			shows: 'connect-projects-not-here',
-			go: async () => {
-				const storage = signedIn();
-				storage.bindAnswer = notHere();
-				open(storage);
-				await settle();
-				press('choose-repository');
-				await settle();
-				return {};
-			}
-		},
 		connected: {
 			shows: 'connect-connected',
 			go: async () => {
@@ -2319,27 +2082,20 @@ describe('the standing state, and the gestures on it', () => {
 		expect(opened.props.open).toBe(false);
 	});
 
-	test('asks for an Update, and gets out of the way of what it says', async () => {
+	// ⚠ **There is no separate inbound gesture here any more** (ADR-0044). Getting the Remote's
+	// changes is one of the Sync modal's four choices, and the modal reads both sides and shows what
+	// it found before it moves a byte — so this step hands off to it rather than offering a press
+	// whose consequences the author has not been shown.
+	test('hands off to the Sync modal, and asks for nothing on the way', async () => {
 		const opened = open(connected());
 
-		press('update-from-github');
+		press('connect-sync');
 		await settle();
 
-		expect(opened.storage.updates).toBe(1);
-		expect(opened.props.open).toBe(false);
-	});
-
-	// The two remain two presses: neither is offered as a single verb, and pressing one asks for
-	// nothing the other does.
-	test('never asks for one gesture on the way to the other', async () => {
-		const opened = open(connected());
-
-		press('connect-publish');
-		await settle();
-
-		expect(opened.onpublish).toHaveBeenCalledTimes(1);
+		expect(opened.onsync).toHaveBeenCalledTimes(1);
 		expect(opened.storage.updates).toBe(0);
 		expect(opened.storage.checks).toBe(0);
+		expect(opened.props.open).toBe(false);
 	});
 
 	// ⚠ **The only caller of `unbindRemote` there is.** Connecting once is not permanent, and giving
@@ -2371,38 +2127,19 @@ describe('the standing state, and the gestures on it', () => {
 	// ⚠ **`aria-disabled`, never `disabled`.** A `disabled` button leaves the tab order the instant it
 	// is pressed, dropping a keyboard user to `<body>` — and these are the controls a scholar is most
 	// likely to be pressing when they are made busy (WCAG 2.4.3).
-	test.each([
-		[
-			'a check already running',
-			'check-remote-status',
-			(storage: FakeStorage) => {
-				storage.remoteStatusState = { ...storage.remoteStatusState, checking: true };
-			}
-		],
-		[
-			'an Update already running',
-			'update-from-github',
-			(storage: FakeStorage) => {
-				storage.updateProgress = { files: 4, totalFiles: 12 };
-			}
-		]
-	])(
-		'says %s with aria-disabled, and keeps the control in the tab order',
-		(_name, testId, busy) => {
-			const storage = connected();
-			busy(storage);
-			const opened = open(storage);
+	test('says a check already running with aria-disabled, and keeps it in the tab order', () => {
+		const storage = connected();
+		storage.remoteStatusState = { ...storage.remoteStatusState, checking: true };
+		const opened = open(storage);
 
-			expect(at(testId)).toHaveAttribute('aria-disabled', 'true');
-			expect(at(testId).hasAttribute('disabled')).toBe(false);
+		expect(at('check-remote-status')).toHaveAttribute('aria-disabled', 'true');
+		expect(at('check-remote-status').hasAttribute('disabled')).toBe(false);
 
-			press(testId);
+		press('check-remote-status');
 
-			expect(opened.storage.checks).toBe(0);
-			expect(opened.storage.updates).toBe(0);
-			expect(opened.props.open).toBe(true);
-		}
-	);
+		expect(opened.storage.checks).toBe(0);
+		expect(opened.props.open).toBe(true);
+	});
 
 	/**
 	 * ⚠ **Opening a public Remote by address is reachable from a Workspace that has one** (ADR-0042).
@@ -2485,7 +2222,7 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		expect(text(at('pull-only-remote'))).toContain('you cannot publish to it');
 		// Absent rather than refusing. A control that will certainly turn the author down is
 		// worse than no control, and there is no second path to the publish dialog (ADR-0041).
-		expect(absent('connect-publish')).toBe(true);
+		expect(absent('connect-sync')).toBe(true);
 		// The way forward is on the same screen as the limitation, and it is the main action.
 		expect(at('publish-to-your-own')).toBeTruthy();
 		expect(absent('publish-needs-sign-in')).toBe(true);
@@ -2509,7 +2246,7 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		open(storage);
 		await settle();
 
-		expect(at('connect-publish')).toBeTruthy();
+		expect(at('connect-sync')).toBeTruthy();
 		expect(absent('pull-only-remote')).toBe(true);
 		expect(absent('publish-to-your-own')).toBe(true);
 		expect(storage.rightsReads).toBe(1);
@@ -2524,7 +2261,7 @@ describe('a Remote that may not be the author’s to publish to', () => {
 		open(storage);
 		await settle();
 
-		expect(at('connect-publish')).toBeTruthy();
+		expect(at('connect-sync')).toBeTruthy();
 		expect(absent('pull-only-remote')).toBe(true);
 		expect(absent('connect-problem')).toBe(true);
 		// ⚠ **Once, and the guard has to be separate from the answer for it to be once.** `rights`

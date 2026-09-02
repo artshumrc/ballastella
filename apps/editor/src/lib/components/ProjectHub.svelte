@@ -1001,7 +1001,7 @@ What else the Hub says about a Project: whether this build can read it.
 
 		     `aria-live="polite"` and not `role="status"`, which is this app's settled convention wherever
 		     a page already has one status region — the transfer line above owns it here, exactly as the
-		     save indicator owns it inside a Project (`LayerList`, `AlignmentWorkspace` and `PublishDialog`
+		     save indicator owns it inside a Project (`LayerList`, `AlignmentWorkspace` and `SyncDialog`
 		     all say so). A second `role="status"` makes `getByRole('status')` a strict
 		     mode violation, which is what pushed two existing tests off the role and onto attribute
 		     locators that stay green with the live region deleted. -->

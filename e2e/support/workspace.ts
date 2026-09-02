@@ -168,15 +168,21 @@ export async function createFolderWorkspace(page: Page, name: string): Promise<v
 export const doorButton = (page: Page) => page.getByTestId('connect-to-github');
 
 /**
- * Open the door, and wait for whichever of its landings is true.
+ * Open the guided sequence, and wait for whichever of its landings is true.
+ *
+ * ⚠ **Two routes, because the bar's one control opens the Sync modal for a Workspace that already
+ * has a repository** (ADR-0044): pressing Sync reads both sides and shows what it found, which is
+ * what an author with a repository presses for. Everything about the relationship that is *not* a
+ * transfer — Share Links, changing the repository, giving it up — is reached from that modal.
  *
  * A `<dialog>` opened with `showModal()`, so everything behind it is inert until it is closed —
- * which is why this and {@link closeTheDoor} are paired, and why the two gestures inside it
- * ({@link checkRemoteStatus}, {@link updateFromGitHub}) close it on the press rather than reporting
- * from behind it.
+ * which is why this and {@link closeTheDoor} are paired, and why {@link checkRemoteStatus} closes
+ * it on the press rather than reporting from behind it.
  */
 export async function openTheDoor(page: Page): Promise<void> {
 	await doorButton(page).click();
+	const settings = page.getByTestId('sync-repository-settings');
+	if (await settings.isVisible().catch(() => false)) await settings.click();
 	await expect(page.getByTestId('connect-sequence')).toBeVisible();
 }
 
@@ -208,23 +214,29 @@ export async function checkRemoteStatus(page: Page): Promise<void> {
 	await expect(page.getByTestId('connect-sequence')).toBeHidden();
 }
 
-/** Bring the Remote's changes in, from the same place, which closes for the same reason. */
+/**
+ * Bring the Remote's changes in: one of the Sync modal's four choices (ADR-0044).
+ *
+ * The modal is opened from the bar directly and shows what it found before anything moves, so this
+ * presses *Get changes* on what it found rather than a control whose consequences are unstated.
+ */
 export async function updateFromGitHub(page: Page): Promise<void> {
-	await openTheDoor(page);
-	await page.getByTestId('update-from-github').click();
-	await expect(page.getByTestId('connect-sequence')).toBeHidden();
+	await openSyncModal(page);
+	await page.getByTestId('sync-get').click();
+	// ⚠ **Not waited out here.** The modal stays open for the whole transfer, because `showModal()`
+	// makes the rest of the document inert and an inert `aria-live` region is not announced at all
+	// (ADR-0016) — so progress is announced from inside it. It closes itself when the get finishes.
 }
 
-/** Open the Publish dialog, which is a landing of the door rather than a control beside it. */
-export async function openPublishFromTheDoor(page: Page): Promise<void> {
-	await openTheDoor(page);
-	await page.getByTestId('connect-publish').click();
-	await expect(page.getByRole('dialog', { name: /Publish/ })).toBeVisible();
+/** Open the Sync modal, which is what the bar's one GitHub control does (ADR-0044). */
+export async function openSyncModal(page: Page): Promise<void> {
+	await doorButton(page).click();
+	await expect(page.getByTestId('sync-modal')).toBeVisible();
 }
 
 /** What the bar's door says this Workspace publishes to — a standing fact, not unfinished work. */
 export async function expectRemoteNamed(page: Page, remote: string): Promise<void> {
-	await expect(doorButton(page)).toHaveText(`Synced with ${remote}`);
+	await expect(doorButton(page)).toHaveText(`Sync with ${remote}`);
 }
 
 /**

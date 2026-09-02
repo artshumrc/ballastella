@@ -133,23 +133,25 @@ test.describe('the bar, from the keyboard alone', () => {
 	});
 
 	/**
-	 * The door, and back out of it onto itself. Closing a modal has to return the keyboard to the
-	 * control that opened it or every visit to the door costs a walk from the top of the document
+	 * The bar's one GitHub control, and back out of it onto itself. Closing a modal has to return the
+	 * keyboard to the control that opened it or every visit costs a walk from the top of the document
 	 * (WCAG 2.4.3).
+	 *
+	 * This Workspace has a repository, so the control opens the Sync modal (ADR-0044).
 	 */
-	test('the door opens on Enter and closing it comes back to the door', async ({ page }) => {
+	test('the GitHub control opens on Enter and closing comes back to it', async ({ page }) => {
 		const door = page.getByTestId('connect-to-github');
 		await tabTo(page, door);
 		await page.keyboard.press('Enter');
 
-		await expect(page.getByTestId('connect-sequence')).toBeVisible();
+		await expect(page.getByTestId('sync-modal')).toBeVisible();
 		// `showModal()` traps focus, so this walk cannot leave the dialog — which is itself the claim
-		// that the door is a real `<dialog>` rather than one of the two spellings ADR-0016 bans.
-		const close = page.getByTestId('close-connect-sequence');
-		await tabTo(page, close, 30);
+		// that it is a real `<dialog>` rather than one of the two spellings ADR-0016 bans.
+		const cancel = page.getByRole('button', { name: 'Cancel' });
+		await tabTo(page, cancel, 30);
 		await page.keyboard.press('Enter');
 
-		await expect(page.getByTestId('connect-sequence')).toBeHidden();
+		await expect(page.getByTestId('sync-modal')).toBeHidden();
 		await expect(door).toBeFocused();
 	});
 
