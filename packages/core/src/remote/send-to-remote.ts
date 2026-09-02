@@ -46,7 +46,7 @@ import type { Bytes, ProjectStore } from '../store/project-store.js';
 import { JEKYLL_OFF_MARKER, carriesPublishedSite } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
-import { classifyPath, recognisedProjectDirectories } from './synchronization-paths.js';
+import { isOwnedPath, recognisedProjectDirectories } from './synchronization-paths.js';
 import { planWorkspaceSync } from './synchronization-planner.js';
 import type { SynchronizationBaseline } from './synchronization-metadata.js';
 import type { PathChoice, SourcePath } from './synchronization-planner.js';
@@ -238,6 +238,22 @@ export type RemoteSendPlan = {
 	 * to reason about. Sending nothing is done by not calling it.
 	 */
 	readonly unchanged: boolean;
+	/**
+	 * Whether generated site output is inside the owned namespace for this send (ADR-0045).
+	 *
+	 * Observed from the bytes on either side — the Workspace's, the {@link pending} the caller is
+	 * about to write, or the Remote's — because a site first arrives from one and is taken away by
+	 * the absence of another. Reported here so a caller can learn what the listing found without
+	 * asking GitHub a second time.
+	 *
+	 * ⚠ **`true` with nothing local to write is the state a caller must decide about, not act on.**
+	 * It is a Workspace whose Remote carries a site that this Workspace does not: either the author
+	 * has asked for the site to come down, or they have just got the Workspace from a Remote that has
+	 * one. This plan cannot tell those apart and does not try — it mirrors, so the first removes the
+	 * site and the second would too. `WorkspaceStorage` holds the withdrawal request that separates
+	 * them, and writes the viewer before sending where there is none.
+	 */
+	readonly shareLinks: boolean;
 	/**
 	 * How many blobs need uploading, and what they weigh: the two numbers a user wants.
 	 *
@@ -814,10 +830,7 @@ export async function planRemoteSend(
 		carriesPublishedSite(paths) ||
 		carriesPublishedSite((options.pending ?? []).map((file) => file.path)) ||
 		carriesPublishedSite(remote.map((entry) => entry.path));
-	const owned = (path: string): boolean => {
-		const bucket = classifyPath(path, projects);
-		return bucket === 'source' || (shareLinks && bucket === 'published-output');
-	};
+	const owned = (path: string): boolean => isOwnedPath(path, projects, shareLinks);
 
 	const hashed: PlannedRemoteFile[] = [];
 	for (const path of paths) {
@@ -950,6 +963,7 @@ export async function planRemoteSend(
 		outgoing: settled.toSend.changes,
 		conflicts: settled.conflicts,
 		unchanged,
+		shareLinks,
 		source: settled.toSend.advances,
 		removed: settled.toSend.removed,
 		overwrites: settled.toOverwrite.removed,

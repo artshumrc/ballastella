@@ -306,12 +306,6 @@
 			which of the two Alignments to keep.
 		</p>
 		<!--
-			⚠ **Nothing about Share Links is offered to somebody who is not signed in.** Every one of
-			the three presses is a request to GitHub, so the offer would be a control that can only
-			refuse — and the sentence a scholar needs in that state is the one above, about sending
-			needing a sign-in, rather than a second one about a website.
-		-->
-		<!--
 			The address, which is what an author was asked for: a link to give a professor or paste into
 			a submission form. Visible text as well as a copy, because a browser that refuses the
 			clipboard must not leave them with nothing to read.
