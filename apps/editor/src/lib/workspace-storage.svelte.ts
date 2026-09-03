@@ -64,6 +64,7 @@ import {
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
 	awaitRemotePages,
+	readRemotePages,
 	disableRemotePages,
 	enableRemotePages,
 	guidedPagesStep,
@@ -2966,6 +2967,12 @@ export class WorkspaceStorage {
 	async checkShareLinks(): Promise<RemotePagesOutcome> {
 		const { remote, token } = this.#shareLinksRequest('check Share Links for');
 		return awaitRemotePages({ token, remote });
+	}
+
+	/** Check once that GitHub Pages is serving the Workspace before handing out a Project link. */
+	async verifyShareLinks(): Promise<string> {
+		const { remote, token } = this.#shareLinksRequest('share a Project from');
+		return (await readRemotePages({ token, remote })) ? '' : guidedPagesStep(remote).instruction;
 	}
 
 	/**

@@ -138,16 +138,30 @@ describe('Share Project', () => {
 		expect(at('share-unsent')).toBeNull();
 	});
 
+	test('does not copy a link while GitHub Pages is unavailable', async () => {
+		section({
+			shareLinks: true,
+			unsent: false,
+			verifyShareLinks: async () => 'GitHub Pages is not on for ada/atlas.'
+		});
+
+		press('share-project');
+		await settle();
+
+		expect(clipboard).toEqual([]);
+		expect(text('share-project-said')).toContain('GitHub Pages is not on');
+	});
+
 	// The address is readable as text too: a browser that refuses the clipboard must not leave the
 	// author with no way to get what they asked for.
 	test('shows the address as text, and says so when the clipboard is refused', async () => {
 		vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('blocked'));
 		section({ shareLinks: true });
 
-		expect(text('share-project-link')).toBe('https://ada.github.io/atlas/?p=amsterdam-1625');
 		press('share-project');
 		await settle();
 
+		expect(text('share-project-link')).toBe('https://ada.github.io/atlas/?p=amsterdam-1625');
 		expect(text('share-project-said')).toContain('clipboard');
 		expect(text('share-project-said')).toContain('by hand');
 	});
@@ -273,8 +287,11 @@ describe('Share Project', () => {
 
 	// ⚠ **Nothing unguessable, and nothing that could be read as a secret** (ADR-0045). Calling the
 	// link private is the failure mode the ADR exists to prevent.
-	test('hands over `?p=` and nothing else', () => {
+	test('hands over `?p=` and nothing else', async () => {
 		section({ shareLinks: true });
+
+		press('share-project');
+		await settle();
 
 		expect(text('share-project-link')).toMatch(/\?p=amsterdam-1625$/);
 		expect(text('share-project-settings').toLowerCase()).not.toContain('private');

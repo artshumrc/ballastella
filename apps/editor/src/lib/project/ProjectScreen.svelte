@@ -1116,6 +1116,15 @@
 		}
 	}
 
+	/** Verify that the address is serving before putting a Project link on the clipboard. */
+	async function verifyShareLinksHere(): Promise<string> {
+		try {
+			return await storage.verifyShareLinks();
+		} catch (cause) {
+			return messageOf(cause);
+		}
+	}
+
 	/** *Sync and copy the link*'s first half: the send, with its refusal as a sentence. */
 	async function sendForShareLink(): Promise<string> {
 		try {
@@ -1973,6 +1982,7 @@
 				unsent={unsentWork}
 				setOnFrontPage={(on) => session.setProjectOnFrontPage(openDirectory, on)}
 				enableShareLinks={enableShareLinksHere}
+				verifyShareLinks={verifyShareLinksHere}
 				send={sendForShareLink}
 			/>
 

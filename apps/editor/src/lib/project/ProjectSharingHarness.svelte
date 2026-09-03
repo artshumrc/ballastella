@@ -20,6 +20,7 @@
 		unsent: initiallyUnsent = false,
 		onwrite,
 		enableShareLinks = async () => '',
+		verifyShareLinks = async () => '',
 		send = async () => ''
 	}: {
 		name?: string;
@@ -32,6 +33,8 @@
 		onwrite?: (on: boolean) => void;
 		/** Answers `''` for success, or the sentence the author is left holding. */
 		enableShareLinks?: () => Promise<string>;
+		/** Answers `''` when GitHub Pages is serving the Workspace. */
+		verifyShareLinks?: () => Promise<string>;
 		send?: () => Promise<string>;
 	} = $props();
 
@@ -56,6 +59,7 @@
 		if (refusal === '') shareLinks = true;
 		return refusal;
 	}}
+	{verifyShareLinks}
 	send={async () => {
 		const refusal = await send();
 		if (refusal === '') unsent = false;

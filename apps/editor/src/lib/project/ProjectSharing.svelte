@@ -9,8 +9,8 @@
 	 * early, and is offered with no Remote and no Share Links — with one line saying the front page
 	 * does not exist yet, so nobody waits for something to happen. **Share Project** has to produce a
 	 * working address, so it cannot be answered before there is a site to serve one: with no Share
-	 * Links it offers the setup rather than refusing, and with work that has not reached the Remote it
-	 * offers to send that first (ADR-0045).
+	 * Links it offers the setup rather than refusing, verifies GitHub Pages before handing over an
+	 * address, and with work that has not reached the Remote it offers to send that first (ADR-0045).
 	 *
 	 * ⚠ **Nothing here is privacy, and nothing here may be worded as if it were.** The repository is
 	 * readable and `?p=<directory>` opens the Project for anybody who has the link, so the Front Page
@@ -31,6 +31,7 @@
 		unsent,
 		setOnFrontPage,
 		enableShareLinks,
+		verifyShareLinks,
 		send
 	}: {
 		/** The Project's display name, for the controls' accessible names. */
@@ -50,6 +51,8 @@
 		setOnFrontPage: (on: boolean) => Promise<void>;
 		/** Turn Share Links on. Resolves to `''`, or to the sentence the author has to act on. */
 		enableShareLinks: () => Promise<string>;
+		/** Verify that GitHub Pages is serving the Workspace. */
+		verifyShareLinks: () => Promise<string>;
 		/** Send this Workspace's files. Resolves to `''`, or to the sentence the author has to act on. */
 		send: () => Promise<string>;
 	} = $props();
@@ -58,6 +61,7 @@
 	let asking = $state<'none' | 'share-links' | 'unsent'>('none');
 	let busy = $state(false);
 	let copied = $state(false);
+	let verified = $state(false);
 	let problem = $state('');
 
 	const forget = (): void => {
@@ -95,7 +99,17 @@
 			asking = 'unsent';
 			return;
 		}
-		await copyLink();
+		if (busy) return;
+		busy = true;
+		try {
+			problem = await verifyShareLinks();
+			if (problem === '') {
+				verified = true;
+				await copyLink();
+			}
+		} finally {
+			busy = false;
+		}
 	}
 
 	/** The answer to the setup offer, which continues to the link rather than stopping at success. */
@@ -105,6 +119,7 @@
 		try {
 			problem = await enableShareLinks();
 			if (problem !== '') return;
+			verified = true;
 			asking = unsent ? 'unsent' : 'none';
 			if (asking === 'none') await copyLink();
 		} finally {
@@ -161,16 +176,20 @@
 	<p class="max-w-prose text-sm opacity-70">
 		A link that opens this Project alone. It works whether or not the front page lists it.
 	</p>
-	{#if link !== ''}
+	{#if verified && link !== ''}
 		<code class="text-xs break-all opacity-70" data-testid="share-project-link">{link}</code>
 	{/if}
 	<button
 		type="button"
 		class="btn btn-sm"
+		class:btn-disabled={busy}
+		aria-disabled={busy}
 		data-testid="share-project"
-		onclick={() => void shareProject()}
+		onclick={() => {
+			if (!busy) void shareProject();
+		}}
 	>
-		Share Project<span class="sr-only"> {name}</span>
+		{busy ? 'Checking Pages…' : 'Share Project'}<span class="sr-only"> {name}</span>
 	</button>
 
 	<!-- No site to serve the address: the answer to the request is the thing that was asked for. -->
