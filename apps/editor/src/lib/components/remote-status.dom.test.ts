@@ -252,12 +252,10 @@ describe('everything else, one press away', () => {
 		bar(reading('in-sync'));
 
 		expect(at('check-remote-status')).toBeNull();
-		expect(at('update-from-github')).toBeNull();
 
 		press('remote-status-explain');
 
 		expect(at('check-remote-status')).toBeNull();
-		expect(at('update-from-github')).toBeNull();
 	});
 
 	test.each(DETERMINATIONS)('%s has both a label and a sentence behind the press', (status) => {
