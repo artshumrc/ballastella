@@ -559,21 +559,13 @@ test.describe('Control Point pairing', () => {
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.65, 0.6);
 
-		// The colour a highlighted half is actually drawn in, read off the element rather than inferred
-		// from a class name. **ADR-0022 contract 4 is about what the user can see** — "this is what makes
-		// a set of twenty points comprehensible" — and `data-selected` is a test attribute: an earlier
-		// version of this test asserted only that and `aria-pressed`, so the class that does the drawing
-		// could have been dropped two lines away in `overlay-points.ts` and this stayed green.
-		//
-		// Read as the `fill` of the needle's own paths, because that is what carries the colour: the
-		// mark is an `<svg>` from `core/src/render/needle.ts` — the same drawing the Base Map's Pins are
-		// rasterised from — inside a transparent button, so the element's own `background-color` is
-		// `rgba(0, 0, 0, 0)` whether the pair is selected or not.
-		const background = (point: Locator) =>
+		// The selected state changes the needle's theme colour, not its silhouette. A wider halo made
+		// the otherwise shared Pin silhouette look thick and clipped in the align view.
+		const drawing = (point: Locator) =>
 			point.evaluate((element) => {
 				const body = element.querySelector('.needle-body');
 				if (body === null) throw new Error('the Control Point is not drawing a needle');
-				return getComputedStyle(body).fill;
+				return { fill: getComputedStyle(body).fill, filter: getComputedStyle(element).filter };
 			});
 
 		// Clear the selection completing the second pair left behind, so what follows is about the
@@ -581,7 +573,7 @@ test.describe('Control Point pairing', () => {
 		await page.getByTestId('control-point-select').nth(1).click();
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
 		await expect(basePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
-		const unselectedColour = await background(imagePoints(page).nth(0));
+		const unselectedDrawing = await drawing(imagePoints(page).nth(0));
 
 		// Select point 1 by clicking its **image** half; its **earth** half must light up too. That
 		// cross-pane link is the piece no drawing library provides (ADR-0022 contract 4).
@@ -593,16 +585,18 @@ test.describe('Control Point pairing', () => {
 		// Announced, not merely drawn: a screen-reader user has to be told which point is current.
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('aria-pressed', 'true');
 
-		// **Visibly** highlighted, on both panes: the selected class is on, and it is painting.
+		// **Visibly** highlighted, on both panes: the selected class is on, and the Pin's fill changes
+		// without changing its silhouette.
 		await expect(imagePoints(page).nth(0)).toHaveClass(/pane-overlay-point-selected/);
 		await expect(basePoints(page).nth(0)).toHaveClass(/pane-overlay-point-selected/);
 		await expect(imagePoints(page).nth(1)).not.toHaveClass(/pane-overlay-point-selected/);
-		const selectedColour = await background(imagePoints(page).nth(0));
-		expect(selectedColour, 'a highlight nobody can see is not a highlight').not.toBe(
-			unselectedColour
+		const selectedDrawing = await drawing(imagePoints(page).nth(0));
+		expect(selectedDrawing.fill, 'a highlight nobody can see is not a highlight').not.toBe(
+			unselectedDrawing.fill
 		);
-		expect(await background(basePoints(page).nth(0))).toBe(selectedColour);
-		expect(await background(imagePoints(page).nth(1))).toBe(unselectedColour);
+		expect(selectedDrawing.filter).toBe(unselectedDrawing.filter);
+		expect(await drawing(basePoints(page).nth(0))).toEqual(selectedDrawing);
+		expect(await drawing(imagePoints(page).nth(1))).toEqual(unselectedDrawing);
 
 		// And the other way round, from the Base Map half of point 2.
 		await basePoints(page).nth(1).click();
@@ -611,8 +605,8 @@ test.describe('Control Point pairing', () => {
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
 		await expect(imagePoints(page).nth(1)).toHaveClass(/pane-overlay-point-selected/);
 		await expect(imagePoints(page).nth(0)).not.toHaveClass(/pane-overlay-point-selected/);
-		expect(await background(imagePoints(page).nth(1))).toBe(selectedColour);
-		expect(await background(imagePoints(page).nth(0))).toBe(unselectedColour);
+		expect(await drawing(imagePoints(page).nth(1))).toEqual(selectedDrawing);
+		expect(await drawing(imagePoints(page).nth(0))).toEqual(unselectedDrawing);
 
 		// ── AND ONE LEADER JOINS THAT PAIR TO ITS ROW ────────────────────────────────────────
 		//
