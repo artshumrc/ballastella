@@ -349,6 +349,14 @@ export type RemoteStatusObservation =
 			/** Site-owned paths the two sides disagree about. Never part of {@link status}. */
 			readonly publishedSiteStale: readonly string[];
 			/**
+			 * Whether the Remote's tree carries a Published Site (ADR-0045).
+			 *
+			 * `false` for a determination that never listed the Remote — no Baseline to compare
+			 * against, or a repository this reader cannot see — because those looked at nothing and
+			 * must not claim a site. A surface reading this weighs it against its own files.
+			 */
+			readonly shareLinks: boolean;
+			/**
 			 * Whether reaching this asked GitHub anything.
 			 *
 			 * ⚠ **What the interval is spent on.** `Cannot tell` is settled from the Baseline's absence
@@ -384,6 +392,16 @@ export interface RemoteStatusState {
 	readonly failure: string;
 	/** Site-owned drift from the last successful check. Separate from the five source states. */
 	readonly publishedSiteStale: readonly string[];
+	/**
+	 * Whether the Remote was seen to carry a Published Site by the last check that could look
+	 * (ADR-0045).
+	 *
+	 * ⚠ **Carried through a failed check, exactly as {@link status} is.** A check that could not
+	 * reach GitHub saw nothing, and the last thing this browser did see is still the best evidence
+	 * there is — so the machine that has only got a Workspace goes on offering withdrawal rather
+	 * than losing the site the moment a train enters a tunnel.
+	 */
+	readonly shareLinks: boolean;
 }
 
 /** No determination and no failure: what a newly bound Workspace starts at. */
@@ -392,7 +410,8 @@ export const UNCHECKED_REMOTE_STATUS: RemoteStatusState = {
 	at: null,
 	checking: false,
 	failure: '',
-	publishedSiteStale: []
+	publishedSiteStale: [],
+	shareLinks: false
 };
 
 /**
@@ -516,7 +535,8 @@ export class RemoteStatusChecker {
 			at: this.#now(),
 			checking: false,
 			failure: '',
-			publishedSiteStale: found.publishedSiteStale
+			publishedSiteStale: found.publishedSiteStale,
+			shareLinks: found.shareLinks
 		});
 	}
 

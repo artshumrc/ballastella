@@ -70,6 +70,9 @@ const hub = (props: {
 	projects?: readonly ProjectSummary[];
 	mapImagesLoading?: boolean;
 	shareLinks?: boolean;
+	remoteShareLinks?: boolean;
+	withdrawing?: boolean;
+	requests?: (member: string) => void;
 	synced?: readonly string[];
 }): void => {
 	mounted = mount(ProjectHubHarness, { target: document.body, props });
@@ -444,6 +447,54 @@ describe('a row’s actions, and the one that is destructive', () => {
 			await askToDelete('Amsterdam 1625');
 
 			expect(document.querySelector('[data-testid="delete-breaks-share-link"]')).toBeNull();
+		});
+
+		// ⚠ **Either side's tree** (ADR-0045). Story 78 on the second machine: a get brings the source
+		// namespace and nothing else, so this Workspace holds no viewer files while the Remote it came
+		// from serves the links a colleague has already printed.
+		test('warns where only the Remote was seen to carry the site', async () => {
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				shareLinks: false,
+				remoteShareLinks: true,
+				synced: ['amsterdam-1625']
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(text(at('delete-breaks-share-link'))).toContain('stops working');
+		});
+
+		// The site is down the moment it is withdrawn, whatever the Remote still carries until the
+		// next Sync removes it.
+		test('says nothing of the kind once the author has asked for the site to come down', async () => {
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				remoteShareLinks: true,
+				withdrawing: true,
+				synced: ['amsterdam-1625']
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(document.querySelector('[data-testid="delete-breaks-share-link"]')).toBeNull();
+		});
+
+		// ⚠ **A confirmation costs GitHub nothing, and answers while signed out** — which is what the
+		// two-sided rule being answered from evidence already in hand buys.
+		test('asks GitHub nothing to reach the warning', async () => {
+			const asked: string[] = [];
+			hub({
+				projects: [project('amsterdam-1625', { name: 'Amsterdam 1625' })],
+				remoteShareLinks: true,
+				requests: (member) => asked.push(member),
+				synced: ['amsterdam-1625']
+			});
+
+			await askToDelete('Amsterdam 1625');
+
+			expect(text(at('delete-breaks-share-link'))).toContain('stops working');
+			expect(asked).toEqual([]);
 		});
 
 		test('says nothing of the kind in a Workspace with no Share Links at all', async () => {

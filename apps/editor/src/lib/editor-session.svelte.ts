@@ -2815,6 +2815,8 @@ export class EditorSession {
 				outcome: 'determined',
 				status: 'cannot-tell',
 				publishedSiteStale: [],
+				// Nothing was listed, so nothing is claimed about the Remote's own tree.
+				shareLinks: false,
 				requested: false
 			};
 		}
@@ -2838,6 +2840,7 @@ export class EditorSession {
 				outcome: 'determined',
 				status: determination,
 				publishedSiteStale: [],
+				shareLinks: false,
 				requested: true
 			};
 		}
@@ -2850,6 +2853,7 @@ export class EditorSession {
 			outcome: 'determined',
 			status: found.status,
 			publishedSiteStale: found.publishedSiteStale,
+			shareLinks: found.shareLinks,
 			requested: true
 		};
 	}

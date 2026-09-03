@@ -1,5 +1,9 @@
 <script lang="ts">
-	import type { ProjectSummary, WorkspaceMapImage } from '@ballastella/core';
+	import {
+		observedShareLinks,
+		type ProjectSummary,
+		type WorkspaceMapImage
+	} from '@ballastella/core';
 	import { untrack } from 'svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -24,13 +28,22 @@
 		projects = [],
 		mapImagesLoading = false,
 		shareLinks = false,
+		remoteShareLinks = false,
+		withdrawing = false,
+		requests,
 		synced = []
 	}: {
 		mapImages?: readonly WorkspaceMapImage[];
 		projects?: readonly ProjectSummary[];
 		mapImagesLoading?: boolean;
-		/** Whether the Workspace carries a site, which is what Share Links are (ADR-0045). */
+		/** Whether this Workspace's own tree carries the site record (ADR-0045). */
 		shareLinks?: boolean;
+		/** Whether the last status check saw the Remote's tree carrying one. */
+		remoteShareLinks?: boolean;
+		/** Whether the author has asked for the site to come down. */
+		withdrawing?: boolean;
+		/** Told whenever the hub asks the storage something that would reach GitHub. */
+		requests?: (member: string) => void;
 		/** The Project directories the Remote holds a version of. */
 		synced?: readonly string[];
 	} = $props();
@@ -53,11 +66,27 @@
 		transfer: null,
 		importTarget: null,
 		name: 'Atlas',
-		hasShareLinks: async () => shareLinks,
+		// The rule the real storage answers, over the same evidence and the same function: this
+		// Workspace's own tree, what the last status check saw on the Remote's, and the recorded
+		// withdrawal.
+		hasShareLinks: async () =>
+			observedShareLinks({ workspace: shareLinks, remote: remoteShareLinks, withdrawing }),
 		projectReach: async (directory: string) => ({
 			synced: synced.includes(directory),
 			unsent: !synced.includes(directory)
-		})
+		}),
+		// ⚠ **Every member here reaches GitHub, and the delete confirmation must call none of them**
+		// — it answers while signed out, so a spec counts these rather than trusting the reading.
+		checkRemoteStatus: async () => requests?.('checkRemoteStatus'),
+		readRights: async () => {
+			requests?.('readRights');
+			return { canPush: false };
+		},
+		readSharing: async () => {
+			requests?.('readSharing');
+			return { shared: false, known: false, owner: 'ada', others: [] };
+		},
+		enableShareLinks: async () => requests?.('enableShareLinks')
 	} as unknown as WorkspaceStorage;
 
 	/**

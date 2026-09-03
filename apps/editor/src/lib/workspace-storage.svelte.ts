@@ -67,6 +67,7 @@ import {
 	disableRemotePages,
 	enableRemotePages,
 	PUBLISHED_SITE_RECORD_NAME,
+	observedShareLinks,
 	browserCredentialStore,
 	closedWhileReviewing,
 	describeRemote,
@@ -2758,17 +2759,41 @@ export class WorkspaceStorage {
 	}
 
 	/**
-	 * Whether this Workspace has **Share Links**: whether it carries a Published Site (ADR-0045).
+	 * Whether this Workspace has **Share Links**: whether *either side* carries a Published Site
+	 * (ADR-0045).
 	 *
-	 * ⚠ **Observed, never stored.** There is no flag anywhere saying a Workspace has a site — the
-	 * site record's presence *is* the answer, so nothing can disagree with the files.
+	 * ⚠ **Observed, never stored, and observed of both trees.** There is no flag anywhere saying a
+	 * Workspace has a site, so nothing can disagree with the files — but the files this machine
+	 * holds are only half the evidence. A get brings the source namespace and nothing else, so
+	 * between a get and the first send this Workspace carries no viewer files while the Remote it
+	 * got them from serves a live site; answering from here alone tells that author their address
+	 * answers nothing and puts withdrawal out of reach.
+	 *
+	 * ⚠ **No request of its own** — the Remote's half is what the last status check already listed,
+	 * and before any check could look it is `false`, so a surface never claims a site nothing has
+	 * seen. Every caller of this can therefore ask while signed out, and opening a Project's
+	 * settings still costs GitHub nothing.
+	 *
+	 * The rule itself is {@link observedShareLinks}, which the fakes these surfaces are tested
+	 * against answer through as well.
+	 */
+	async hasShareLinks(): Promise<boolean> {
+		return observedShareLinks({
+			workspace: await this.#carriesPublishedSite(),
+			remote: this.remoteStatusState.shareLinks,
+			withdrawing: await this.withdrawingShareLinks()
+		});
+	}
+
+	/**
+	 * Whether this Workspace's own tree carries the site record.
 	 *
 	 * ⚠ **`size` rather than `list` or `read`.** `list` is a string-prefix match over a walk from the
 	 * store's root, so asking it about one file costs an enumeration of every tile in the Workspace;
 	 * and a `read` would answer *no* for a record this build cannot parse, which is a site that exists
 	 * and is broken. `size` reads directory metadata for one name.
 	 */
-	async hasShareLinks(): Promise<boolean> {
+	async #carriesPublishedSite(): Promise<boolean> {
 		return this.session.store.size(PUBLISHED_SITE_RECORD_NAME).then(
 			() => true,
 			() => false
@@ -2812,7 +2837,7 @@ export class WorkspaceStorage {
 	 * and holding is not wanting.
 	 */
 	async rebuildsPublishedSite(token: string, remote: RemoteRepository): Promise<boolean> {
-		if (await this.hasShareLinks()) return true;
+		if (await this.#carriesPublishedSite()) return true;
 		const plan = await this.session.planRemoteSend({ token, remote });
 		return plan.shareLinks;
 	}

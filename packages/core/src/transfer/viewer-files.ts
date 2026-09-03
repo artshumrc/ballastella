@@ -128,3 +128,32 @@ export const carriesPublishedSite = (paths: Iterable<string>): boolean => {
 	for (const path of paths) if (path === PUBLISHED_SITE_RECORD_NAME) return true;
 	return false;
 };
+
+/** What a surface outside a Sync has in hand when it asks whether a Workspace has Share Links. */
+export interface ShareLinksEvidence {
+	/** Whether this Workspace's own tree carries the site record. */
+	readonly workspace: boolean;
+	/** Whether the Remote's tree carried it at the last status check that could look. */
+	readonly remote: boolean;
+	/** Whether the author has asked for the site to come down and no Sync has carried it out. */
+	readonly withdrawing: boolean;
+}
+
+/**
+ * Whether a Workspace has **Share Links**, answered outside a Sync from evidence in hand (ADR-0045).
+ *
+ * ⚠ **Either side's tree, which is the same rule `planRemoteSend` sends on.** A get brings the
+ * source namespace and nothing else, so between a get and the first send the Workspace holds no
+ * viewer files while the Remote it got them from serves a site — and a surface answering from the
+ * Workspace alone tells that author their address answers nothing, offers to set up what already
+ * exists, and puts withdrawal out of reach. The Remote's half is what a status check has already
+ * listed, so this costs no request of its own; before any check could look it is `false`, which
+ * leaves the local answer standing rather than claiming a site nothing has seen.
+ *
+ * ⚠ **Withdrawal is the one thing the trees cannot say.** A Workspace the author withdrew from and
+ * a Workspace just got from a Remote that has a site hold the same bytes on both sides, because the
+ * Remote's copy goes on the next Sync. The recorded request is what separates them, and it is read
+ * here for the same reason a send reads it first.
+ */
+export const observedShareLinks = (evidence: ShareLinksEvidence): boolean =>
+	!evidence.withdrawing && (evidence.workspace || evidence.remote);

@@ -140,9 +140,17 @@
 		);
 	});
 
-	/** Read whether this Workspace already carries a Published Site. No credential and no request. */
+	/**
+	 * Read whether this Workspace has Share Links. No credential and no request.
+	 *
+	 * ⚠ **Re-read when the status check moves**, rather than once on open: the answer is two-sided
+	 * (ADR-0045), and on a machine that has only got the Workspace the Remote's half is the whole of
+	 * it — so a dialog opened before the first check finishes would otherwise stand on a *no* the
+	 * evidence has since overturned.
+	 */
 	$effect(() => {
-		if (bound === null || shareLinks !== null) return;
+		void storage.remoteStatusState.shareLinks;
+		if (bound === null) return;
 		void storage.hasShareLinks().then(
 			(answer) => {
 				shareLinks = answer;

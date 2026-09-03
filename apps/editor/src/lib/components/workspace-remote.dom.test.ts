@@ -14,7 +14,7 @@
 // check asks are `bind-remote.ts`'s at Seam 1 against the shared fake GitHub. That the application
 // mounts this on the roster row's dialog is `e2e/editor-github-signin.e2e.ts`'s.
 
-import { type SynchronizationBaseline } from '@ballastella/core';
+import { UNCHECKED_REMOTE_STATUS, type SynchronizationBaseline } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -318,6 +318,34 @@ describe('letting other people see it, which is a later act', () => {
 		expect(storage.pagesAsks).toBe(0);
 	});
 
+	// ⚠ **Either side's tree** (ADR-0045). A get brings the source namespace and nothing else, so
+	// this Workspace carries no viewer files while the Remote it came from serves a live site — and
+	// offering the setup there says the address answers nothing over a site people are reading, with
+	// withdrawal out of reach on the machine the author is sitting at (story 65).
+	test('offers withdrawal on a Workspace whose Remote was seen to carry a site', async () => {
+		const storage = connected();
+		storage.remoteStatusState = { ...UNCHECKED_REMOTE_STATUS, shareLinks: true };
+		open(storage);
+		await settle();
+
+		expect(at('withdraw-share-links')).toBeTruthy();
+		expect(absent('enable-pages')).toBe(true);
+		// The evidence was already in hand: the status check that listed the tree had been paid for.
+		expect(storage.pagesAsks).toBe(0);
+		expect(storage.checks).toBe(0);
+	});
+
+	// The other direction, and the one this must not trade for: before a check has looked, the answer
+	// is the Workspace's own files.
+	test('offers the setup where nothing has seen a site on either side', async () => {
+		const storage = connected();
+		open(storage);
+		await settle();
+
+		expect(at('enable-pages')).toBeTruthy();
+		expect(absent('withdraw-share-links')).toBe(true);
+	});
+
 	// ⚠ **Both permissions, and the guided step stays.** ADR-0040 refuses `Administration` for the
 	// App, so this is the ordinary answer rather than a rare one.
 	test('renders the refusal, and stays connected', async () => {
@@ -459,6 +487,29 @@ describe('withdrawing Share Links', () => {
 		expect(warning).toContain('repository and your own files are untouched');
 		// Nothing has happened yet: the warning is a question, not a report.
 		expect(storage.pagesWithdrawals).toBe(0);
+	});
+
+	// ⚠ **The recorded request is what the Remote's own copy stops meaning a site.** It goes on the
+	// next Sync, so between the press and that Sync the Remote still carries the viewer set — which
+	// is byte for byte what a Workspace just got from a shared repository looks like.
+	test('does not put the site back from the Remote it has not been removed from yet', async () => {
+		const storage = connected();
+		storage.remoteStatusState = { ...UNCHECKED_REMOTE_STATUS, shareLinks: true };
+		open(storage);
+		await settle();
+
+		press('withdraw-share-links');
+		flushSync();
+		press('withdraw-share-links-confirm');
+		await settle();
+		// The check that follows still lists the viewer set, because the Sync that removes it has not
+		// happened. Only the recorded asking tells this apart from a Workspace freshly got.
+		storage.remoteStatusState = { ...UNCHECKED_REMOTE_STATUS, status: 'in-sync', shareLinks: true };
+		await settle();
+
+		expect(storage.pagesWithdrawals).toBe(1);
+		expect(absent('withdraw-share-links')).toBe(true);
+		expect(at('enable-pages')).toBeTruthy();
 	});
 
 	test('does nothing at all when the author keeps them', async () => {
