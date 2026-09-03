@@ -2492,6 +2492,7 @@ describe('checking a private Remote', () => {
 				outcome: 'determined',
 				status: 'in-sync',
 				publishedSiteStale: [],
+				shareLinks: false,
 				requested: true
 			});
 
@@ -2504,6 +2505,8 @@ describe('checking a private Remote', () => {
 				outcome: 'determined',
 				status: 'cannot-tell',
 				publishedSiteStale: [],
+				// Nothing was listed, so nothing is claimed about the Remote's own tree.
+				shareLinks: false,
 				requested: true
 			});
 		} finally {

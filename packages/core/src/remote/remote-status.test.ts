@@ -46,8 +46,15 @@ const index = (storage: FakeMetadataStorage) =>
 const determined = (
 	status: SourceStatus,
 	publishedSiteStale: readonly string[] = [],
-	requested = true
-): RemoteStatusObservation => ({ outcome: 'determined', status, publishedSiteStale, requested });
+	requested = true,
+	shareLinks = false
+): RemoteStatusObservation => ({
+	outcome: 'determined',
+	status,
+	publishedSiteStale,
+	requested,
+	shareLinks
+});
 
 /** A clock a test moves by hand, so the throttle is asserted rather than waited for. */
 function testClock(start = 1_000): { now: () => number; advance: (ms: number) => void } {
@@ -318,6 +325,31 @@ describe('a successful check', () => {
 		expect(found.status).toBe('in-sync');
 		expect(found.publishedSiteStale).toEqual([]);
 	});
+
+	// The Remote's half of the two-sided Share Links rule (ADR-0045), taken off the listing a check
+	// has already paid for: this is how the machine that only got the Workspace learns there is a
+	// site at all, and it asks GitHub nothing beyond what the status check asked already.
+	it('reports whether the Remote itself carries a Published Site', async () => {
+		const storage = new FakeMetadataStorage();
+		const of = async (remote: readonly { path: string; sha: string }[]) =>
+			checkSourceStatus({
+				changes: index(storage),
+				remote,
+				baseline: baseline([['atlas/project.json', 's1']])
+			});
+
+		// A Workspace got from a Remote that has Share Links: the source namespace here, the site
+		// there.
+		expect(
+			(
+				await of([
+					{ path: 'atlas/project.json', sha: 's1' },
+					{ path: 'ballastella-site.json', sha: 'site' }
+				])
+			).shareLinks
+		).toBe(true);
+		expect((await of([{ path: 'atlas/project.json', sha: 's1' }])).shareLinks).toBe(false);
+	});
 });
 
 describe('RemoteStatusChecker', () => {
@@ -499,7 +531,7 @@ describe('RemoteStatusChecker', () => {
 		let attempt = 0;
 		const { checker } = checkerOver(async () => {
 			attempt += 1;
-			if (attempt === 1) return determined('changes-to-send', ['index.html']);
+			if (attempt === 1) return determined('changes-to-send', ['index.html'], true, true);
 			throw new RemoteStatusUnavailableError('unreachable', 'GitHub could not be reached.');
 		}, clock);
 
@@ -514,6 +546,9 @@ describe('RemoteStatusChecker', () => {
 		expect(checker.state.at).toBe(1_000);
 		expect(checker.state.publishedSiteStale).toEqual(['index.html']);
 		expect(checker.state.failure).toBe('GitHub could not be reached.');
+		// The Remote was seen to carry a site and the failed check saw nothing at all, so what was
+		// seen stands — the same rule the determination beside it follows.
+		expect(checker.state.shareLinks).toBe(true);
 		expect(checker.state.checking).toBe(false);
 	});
 

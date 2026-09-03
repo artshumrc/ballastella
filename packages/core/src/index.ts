@@ -439,9 +439,12 @@ export {
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
 	VIEWER_FILE_PATHS,
+	carriesPublishedSite,
 	claimedByPublishedSite,
 	createViewerFileFilter,
-	isViewerFile
+	isViewerFile,
+	observedShareLinks,
+	type ShareLinksEvidence
 } from './transfer/viewer-files.js';
 
 // The Published Site (ADR-0008, ADR-0045). Both apps, for different halves of it: the editor

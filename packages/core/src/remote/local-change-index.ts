@@ -37,6 +37,7 @@ import {
 } from './synchronization-metadata.js';
 import { compareWorkspace } from './synchronization-planner.js';
 import { classifyInventory, recognisedProjectDirectories } from './synchronization-paths.js';
+import { carriesPublishedSite } from '../transfer/viewer-files.js';
 import type { MetadataStorage, SynchronizationBaseline } from './synchronization-metadata.js';
 import type { InventoryEntry, SourcePath, SourceStatus } from './synchronization-planner.js';
 
@@ -365,6 +366,15 @@ export interface AutomaticStatus {
 	 * {@link checkSourceStatus}.
 	 */
 	readonly publishedSiteStale: readonly string[];
+	/**
+	 * Whether the **Remote's** tree carries a Published Site: the Remote's half of Share Links
+	 * (ADR-0045).
+	 *
+	 * Read off the listing this check has already paid for, so a surface that asks whether the
+	 * Workspace has Share Links can answer the two-sided rule without a request of its own. It says
+	 * nothing about what this Workspace holds, and nothing about what the author has asked for.
+	 */
+	readonly shareLinks: boolean;
 }
 
 /**
@@ -418,6 +428,7 @@ export async function checkSourceStatus(input: AutomaticStatusInput): Promise<Au
 		paths: comparison.paths,
 		written: changes.written,
 		deleted: changes.deleted,
-		publishedSiteStale: held ? comparison.publishedSiteStale : []
+		publishedSiteStale: held ? comparison.publishedSiteStale : [],
+		shareLinks: carriesPublishedSite(remote.map((entry) => entry.path))
 	};
 }

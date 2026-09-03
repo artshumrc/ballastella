@@ -13,6 +13,7 @@
  * reader sees and which mode a press asks for.
  */
 
+import { observedShareLinks } from '@ballastella/core';
 import type {
 	ProjectSummary,
 	PublishedSitePlan,
@@ -96,8 +97,10 @@ export class FakeSyncStorage {
 	name = 'Atlas';
 	session = $state(new FakeSession());
 
-	/** Whether the Workspace carries the viewer file set, which is what Share Links are (ADR-0045). */
+	/** Whether this Workspace's own tree carries the site record (ADR-0045). */
 	shareLinks = $state(false);
+	/** Whether the last status check saw the Remote's tree carrying one. */
+	remoteShareLinks = $state(false);
 	/** Whether the author has asked for the site to come down and no Sync has carried it out yet. */
 	withdrawing = $state(false);
 	/** How many times a send answered the withdrawal request. */
@@ -118,8 +121,17 @@ export class FakeSyncStorage {
 	checks = 0;
 	signOuts = 0;
 
+	/**
+	 * The two-sided rule the real storage answers, over the same evidence and the same function
+	 * (ADR-0045): this Workspace's own tree, what the last status check saw on the Remote's, and the
+	 * recorded withdrawal.
+	 */
 	async hasShareLinks(): Promise<boolean> {
-		return this.shareLinks;
+		return observedShareLinks({
+			workspace: this.shareLinks,
+			remote: this.remoteShareLinks,
+			withdrawing: this.withdrawing
+		});
 	}
 
 	async withdrawingShareLinks(): Promise<boolean> {

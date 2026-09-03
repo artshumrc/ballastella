@@ -19,6 +19,7 @@ import {
 	grantAccessUrl as composeGrantAccessUrl,
 	signInDepartureUrl,
 	UNCHECKED_REMOTE_STATUS,
+	observedShareLinks,
 	type AddressResolution,
 	type GitHubApp,
 	type GrantedRepositoriesOutcome,
@@ -121,8 +122,10 @@ export class FakeStorage {
 	checkAnswer: RemotePagesOutcome | Error = pagesOn();
 	/** What `withdrawShareLinks` answers, or throws when it is an `Error`. */
 	withdrawalAnswer: RemotePagesWithdrawal | Error = { disabled: true, notice: '' };
-	/** Whether the Workspace carries a Published Site, which is what Share Links are (ADR-0045). */
-	shareLinks = false;
+	/** Whether this Workspace's own tree carries the site record (ADR-0045). */
+	shareLinks = $state(false);
+	/** Whether the author has asked for the site to come down and no Sync has carried it out. */
+	withdrawing = $state(false);
 	/** How many times the sign-in was ended by a press. */
 	signOuts = 0;
 	/** How many times the Workspace was unbound, which is the claim about the one caller. */
@@ -208,9 +211,19 @@ export class FakeStorage {
 		return this.rightsAnswer;
 	}
 
+	/**
+	 * The two-sided rule the real storage answers, over the same evidence and the same function: this
+	 * Workspace's own tree, what the last status check saw on the Remote's, and the recorded
+	 * withdrawal. A fake that answered a stored flag could not falsify a surface that ignored the
+	 * Remote's half.
+	 */
 	async hasShareLinks(): Promise<boolean> {
 		await Promise.resolve();
-		return this.shareLinks;
+		return observedShareLinks({
+			workspace: this.shareLinks,
+			remote: this.remoteStatusState.shareLinks,
+			withdrawing: this.withdrawing
+		});
 	}
 
 	async enableShareLinks(): Promise<RemotePagesOutcome> {
@@ -219,6 +232,7 @@ export class FakeStorage {
 		if (this.pagesAnswer instanceof Error) throw this.pagesAnswer;
 		// The real one writes the viewer into the Workspace before it asks GitHub anything, and keeps
 		// it whatever the answer is — which is what puts the withdrawal beside a refusal.
+		this.withdrawing = false;
 		this.shareLinks = true;
 		return this.pagesAnswer;
 	}
@@ -234,6 +248,9 @@ export class FakeStorage {
 		this.pagesWithdrawals += 1;
 		await Promise.resolve();
 		if (this.withdrawalAnswer instanceof Error) throw this.withdrawalAnswer;
+		// The real one records the asking before the files go, because the Remote's copy is not
+		// removed until the next Sync carries it out.
+		this.withdrawing = true;
 		this.shareLinks = false;
 		return this.withdrawalAnswer;
 	}
