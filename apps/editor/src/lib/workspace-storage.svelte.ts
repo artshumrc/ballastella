@@ -66,6 +66,7 @@ import {
 	awaitRemotePages,
 	disableRemotePages,
 	enableRemotePages,
+	withdrawalNotRecordedMessage,
 	PUBLISHED_SITE_RECORD_NAME,
 	observedShareLinks,
 	browserCredentialStore,
@@ -2952,6 +2953,11 @@ export class WorkspaceStorage {
 	 * ⚠ **The Remote's copy goes on the next Sync and not here**, which is what makes this safe to
 	 * press: the removal travels through the same mirror every other change does, so a Project cannot
 	 * be caught up in it. What this does to the repository is only the Pages setting.
+	 *
+	 * ⚠ **A browser that would not keep the request is said out loud**, exactly as a refused Baseline
+	 * and a refused relationship are. The next Sync reads the request and nothing else, so without it
+	 * the Remote's viewer set reads as a site this Workspace has merely got — and the Sync rebuilds
+	 * the site the author has just taken down, with nothing on screen to account for it.
 	 */
 	async withdrawShareLinks(): Promise<RemotePagesWithdrawal> {
 		const { remote, token } = this.#shareLinksRequest('withdraw Share Links from');
@@ -2960,9 +2966,16 @@ export class WorkspaceStorage {
 		// does not is also what a Workspace just got from a shared repository looks like. Without the
 		// request the next Sync cannot tell the two apart — and rebuilding is the safe reading of the
 		// pair, so an unrecorded withdrawal would quietly put the site back.
-		await this.session.synchronization?.requestWithdrawal(remote);
+		const requested = (await this.session.synchronization?.requestWithdrawal(remote)) ?? false;
 		await this.session.withdrawShareLinks();
-		return disableRemotePages({ token, remote });
+		const withdrawal = await disableRemotePages({ token, remote });
+		if (requested) return withdrawal;
+		return {
+			...withdrawal,
+			notice:
+				withdrawalNotRecordedMessage(remote) +
+				(withdrawal.notice === '' ? '' : ` ${withdrawal.notice}`)
+		};
 	}
 
 	/** The Remote and the credential every Share Links act needs, or the sentence saying which is not there. */

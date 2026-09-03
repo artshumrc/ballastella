@@ -18,6 +18,7 @@ import {
 	pagesSettingsUrl,
 	readRemoteRights,
 	shareLinksWithdrawalMessage,
+	withdrawalNotRecordedMessage,
 	type RemoteReference
 } from './bind-remote.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
@@ -364,6 +365,19 @@ describe('withdrawing Share Links', () => {
 		expect(said).toMatch(/forked/);
 		expect(said).toMatch(/cannot make anything unseen/i);
 		expect(said).toMatch(/repository and your own files are untouched/);
+	});
+
+	// ⚠ **An unrecorded request is not a half-withdrawal but one the next Sync reverses.** The Remote
+	// goes on carrying the viewer set until a Sync takes it out, and only the recorded asking tells
+	// that apart from a Workspace freshly got from a Remote that has a site — so a browser that would
+	// not keep the record leaves the author looking at a site they took down.
+	it('says the next Sync puts the site back when the request could not be kept', () => {
+		const said = withdrawalNotRecordedMessage(REMOTE);
+
+		expect(said).toContain('ada/atlas');
+		expect(said).toMatch(/put the viewer's files back/);
+		expect(said).toMatch(/browser storage may be full/);
+		expect(said).toMatch(/Withdraw Share Links again/);
 	});
 });
 

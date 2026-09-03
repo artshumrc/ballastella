@@ -553,6 +553,24 @@ function siteStillUpMessage(remote: RemoteReference): string {
 }
 
 /**
+ * What to say when this browser would not keep the withdrawal request.
+ *
+ * ⚠ **The request is the whole of what makes the Remote's viewer set mean *remove*** (ADR-0045). A
+ * Remote carrying a viewer set the Workspace does not is also a Workspace freshly got from a Remote
+ * that has a site, and rebuilding is the safe reading of that pair — so an unrecorded withdrawal is
+ * not a withdrawal that half happened but one the next Sync silently reverses. Said here for
+ * {@link siteStillUpMessage}'s reason: the address is the thing a scholar has given out.
+ */
+export function withdrawalNotRecordedMessage(remote: RemoteReference): string {
+	return (
+		`This browser would not keep the record that ${describeRemote(remote)}'s site is to come down, ` +
+		`so the next Sync will put the viewer's files back rather than take them out. Site data may be ` +
+		`blocked for this site, or browser storage may be full. Withdraw Share Links again once that ` +
+		`is fixed.`
+	);
+}
+
+/**
  * What withdrawing Share Links cannot undo, said before it happens.
  *
  * ⚠ **It is not a way to take the work back, and it is never presented as one** (ADR-0045). A scholar who
