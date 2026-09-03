@@ -200,7 +200,7 @@ export {
 } from './project/workspace-size.js';
 export { DirectoryHandleStore, type DirectoryResolver } from './store/directory-handle-store.js';
 export { FileSystemAccessProjectStore } from './store/file-system-access-project-store.js';
-// ADR-0006's third backend: a Published Site read over HTTP. Read-only by *type* rather than by
+// ADR-0045's third backend: a Published Site read over HTTP. Read-only by *type* rather than by
 // promise — see `ReadOnlyProjectStore` — because the published viewer must have no store `write` at
 // all.
 export {
@@ -384,7 +384,7 @@ export {
 	type ImportDestination,
 	type ProjectImportAllocation
 } from './transfer/project-import-allocation.js';
-// What a bound Workspace's one Remote adds to an Import (ADR-0038): the current Remote
+// What a bound Workspace's one Remote adds to an Import (ADR-0044): the current Remote
 // inventory that allocation reserves directories from — refused rather than guessed at when GitHub
 // will not answer — and the refusal of an Import of the Project this Workspace already synchronizes.
 export {
@@ -562,7 +562,7 @@ export {
 	type LocalChangeSource,
 	type LocalChanges
 } from './remote/local-change-index.js';
-// The Remote Status a scholar reads, and the bounded observational checking behind it (ADR-0038).
+// The Remote Status a scholar reads, and the bounded observational checking behind it (ADR-0044).
 // Nothing here transfers a file, writes a Workspace path, or advances a Baseline.
 export {
 	AUTOMATIC_CHECK_INTERVAL_MS,
@@ -583,7 +583,7 @@ export {
 // Where those marks come from: composition over `ProjectStore`, so every writer that exists and every
 // writer still to be written is tracked without knowing it.
 export { ManagedProjectStore, manageProjectStore } from './store/managed-project-store.js';
-// Comparing a Workspace, its Remote and their Baseline (ADR-0038). Pure: the callers do the I/O, so
+// Comparing a Workspace, its Remote and their Baseline (ADR-0033). Pure: the callers do the I/O, so
 // the five Remote Status values and every plan are decided by a table rather than by a transfer.
 export {
 	comparePath,
@@ -618,7 +618,7 @@ export {
 	browserMetadataStorage
 } from './store/indexeddb-metadata-storage.js';
 // The inbound half of a Sync: the explicit transfer that takes the Remote's own additions,
-// replacements and deletions, keeps local-only work, and sends nothing (ADR-0038, ADR-0044).
+// replacements and deletions, keeps local-only work, and sends nothing (ADR-0044).
 // Anonymous, like the Open above — getting is not authority to send.
 export {
 	UPDATE_BEFORE_DIRECTORY,
@@ -732,7 +732,7 @@ export {
 	type GrantedInstallation
 } from './remote/github-installations.js';
 // Whether a Remote belongs to somebody else as well, and what a confirmed overwrite would take
-// off it (ADR-0043). Collaboration needs nothing built to allow it; what it needs is that the one
+// off it (ADR-0044). Collaboration needs nothing built to allow it; what it needs is that the one
 // local-wins escape hatch names the work it would delete when the Remote is not the author's alone.
 export {
 	describeOutboundRemovals,
@@ -777,7 +777,7 @@ export {
 	type CredentialStore
 } from './remote/credential-store.js';
 // The durable implementation behind that same interface, and the installation-local preference that
-// selects it (ADR-0041). Exported as a *storage* rather than a store because the sign-in's grant
+// selects it (ADR-0044). Exported as a *storage* rather than a store because the sign-in's grant
 // record shares it: one opening of the installation database holds both halves of what is kept.
 export {
 	REMEMBER_SIGN_IN_KEY,

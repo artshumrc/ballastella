@@ -1,5 +1,5 @@
 // Downloading **one Project** out of a public repository, into a Review Workspace (ADR-0024,
-// ADR-0031, ADR-0032, ADR-0037).
+// ADR-0031, ADR-0037).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS IS THE BUNDLE PATH WITH A DIFFERENT SOURCE OF BYTES, AND THE REFUSAL IS HALF THE POINT

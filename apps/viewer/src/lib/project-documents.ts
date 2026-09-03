@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS FOLLOWS REFERENCES AND NEVER LISTS ANYTHING
 //
-// A static host has no directory listing, so ADR-0006's HTTP `ProjectStore` has no `list` — see
+// A static host has no directory listing, so ADR-0045's HTTP `ProjectStore` has no `list` — see
 // `packages/core/src/store/http-project-store.ts` for why an implementation returning `[]` would be a
 // lie in the worst direction. Everything below is therefore reached by a path `project.json` itself
 // names, or derived from one: an Annotation Layer's `geojsonRef`, and — from a map Layer's `imageId` —

@@ -161,7 +161,7 @@ async function reopenTheTab(page: Page): Promise<void> {
 /**
  * Tick "keep me signed in on this computer", and wait for the record it makes to land.
  *
- * Behind the door, which is where everything about a sign-in is (ADR-0041, ADR-0042).
+ * Behind the door, which is where everything about a sign-in is (ADR-0042, ADR-0044).
  */
 async function keepTheSignIn(page: Page): Promise<void> {
 	await openTheDoor(page);
@@ -562,7 +562,7 @@ test.describe('a sign-in that has run out', () => {
 	});
 });
 
-// ADR-0041: the credential rule narrows rather than falls. *Forgotten when the tab closes* becomes
+// ADR-0044: the credential rule narrows rather than falls. *Forgotten when the tab closes* becomes
 // *forgotten when the tab closes unless the author has asked otherwise on this machine* — and what
 // is kept is the renewable half, in the installation's own database, where neither a Backup nor a
 // a Sync walks.

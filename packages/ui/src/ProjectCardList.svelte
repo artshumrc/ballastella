@@ -21,7 +21,7 @@
 	// `readOnly`, `mode` or `editable` prop: the Hub passes its last-saved line, its Front Page choice
 	// and its per-Project controls as snippets, and the Front Page passes none of them and so has none
 	// of them. What each list says when it is empty is the consumer's own prose — the two apps have
-	// two different empty states to say (ADR-0032) and neither is a fact about a card.
+	// two different empty states to say (ADR-0045) and neither is a fact about a card.
 
 	import type { Snippet } from 'svelte';
 

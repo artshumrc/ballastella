@@ -1,4 +1,4 @@
-// The three-way comparison between a Workspace, its Remote, and what the two last shared (ADR-0038).
+// The three-way comparison between a Workspace, its Remote, and what the two last shared (ADR-0033).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // PURE, AND THAT IS THE WHOLE DESIGN

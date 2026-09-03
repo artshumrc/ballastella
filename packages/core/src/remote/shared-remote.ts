@@ -1,4 +1,4 @@
-// A Remote may belong to somebody else, and the two things that follow from it (ADR-0043).
+// A Remote may belong to somebody else, and the two things that follow from it (ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // NOTHING HERE MAKES COLLABORATION POSSIBLE. IT MAKES THE INTERFACE HONEST ABOUT IT
@@ -11,7 +11,7 @@
 // meant to be.
 //
 // What there is code for is the one gesture whose blast radius is somebody else's afternoon.
-// *Overwrite the repository* is the explicit local-wins escape hatch (ADR-0038, ADR-0044), and on a
+// *Overwrite the repository* is the explicit local-wins escape hatch (ADR-0044), and on a
 // repository that is the author's alone it can only ever discard the author's own work. On a shared
 // one it deletes a collaborator's, because it mirrors an owned namespace and removes what this
 // Workspace has not got (ADR-0033). Both directions name what would go, on the Sync modal the author reads before

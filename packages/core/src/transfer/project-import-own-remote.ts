@@ -1,10 +1,10 @@
-// What a bound Workspace's one Remote does to an Import into it (ADR-0037, ADR-0038).
+// What a bound Workspace's one Remote does to an Import into it (ADR-0037, ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AN IMPORT INTO A SYNCHRONIZED WORKSPACE IS STILL ORDINARY LOCAL WORK
 //
 // Nothing here gives an imported Project a Remote, a Baseline, a status or a send of its
-// own: synchronization stays one whole Workspace to at most one Remote (ADR-0038), and an Import is
+// own: synchronization stays one whole Workspace to at most one Remote (ADR-0044), and an Import is
 // a copy that keeps no relationship with where it came from (ADR-0037). The imported files cross the
 // managed store like any other write, so they are in the local-change index and the next Remote
 // Status reads `Changes to send`; the next deliberate Sync carries them because a Sync owns

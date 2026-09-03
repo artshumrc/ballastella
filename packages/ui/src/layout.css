@@ -31,7 +31,7 @@
 
    ⚠ **THE FILES LIVE BESIDE THIS STYLESHEET, AND THE URL IS RELATIVE, AND BOTH ARE CONSTRAINTS.**
 
-   `paths: { relative: true }` is set in both apps because ADR-0006 leaves the publish target — a
+   `paths: { relative: true }` is set in both apps because ADR-0045 leaves the publish target — a
    domain root or a project subdirectory — unknown at build time. So a `url()` rooted at the origin
    404s on every site published into a subdirectory, which is most of them; and a relative URL from a
    file in an app's `static/` is no better, because the built CSS is served from

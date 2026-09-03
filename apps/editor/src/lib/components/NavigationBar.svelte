@@ -388,7 +388,7 @@
 					What this Workspace is: its name, and where its bytes are.
 
 					⚠ **The repository, the credential and the Remote Status are not restated here**
-					(ADR-0041). All three were said in the eyebrow at the same time, and a scholar asking
+					(ADR-0044). All three were said in the eyebrow at the same time, and a scholar asking
 					*is my work safe* had five candidates and no way to choose between them. The badge
 					answers it, and the door names the repository; a third copy in prose could only
 					disagree with them.

@@ -7,14 +7,14 @@
 //
 // It deliberately holds no bytes and no `fetch`. The site write takes the bytes through a `readAsset`
 // function the app supplies, for the same reason ADR-0011's injection layer exists: the editor
-// serves those files from its own deployment over a **relative** path (ADR-0006), and core has no
+// serves those files from its own deployment over a **relative** path (ADR-0045), and core has no
 // business knowing what a deployment looks like.
 
 /** One file of the bundle, and where the site write puts it. */
 export type ViewerBundleFile = {
 	/**
-	 * Where it goes, relative to the Workspace — `index.html`, `_app/immutable/…` (ADR-0008
-	 * amended ADR-0006: the shared bundle sits at the Workspace, not inside each Project).
+	 * Where it goes, relative to the Workspace — `index.html`, `_app/immutable/…`. The shared bundle
+	 * sits at the Workspace rather than inside each Project (ADR-0008).
 	 */
 	readonly path: string;
 	/**
@@ -24,7 +24,7 @@ export type ViewerBundleFile = {
 	 * under a directory of its own so its `index.html` cannot collide with the editor's, while the
 	 * Base Map's files are the ones the editor already serves for its own panes and are not copied a
 	 * second time. Core never interprets this — it is handed straight back to the app's `readAsset`,
-	 * whose business a deployment's shape is (ADR-0006).
+	 * whose business a deployment's shape is (ADR-0045).
 	 */
 	readonly source: string;
 	/**
@@ -41,7 +41,7 @@ export type ViewerBundleFile = {
 /** The viewer as built, ready to be written into a Workspace. */
 export type ViewerBundle = {
 	/**
-	 * The version stamp (ADR-0006): a content hash over the file set below.
+	 * The version stamp (ADR-0045): a content hash over the file set below.
 	 *
 	 * A hash rather than a build timestamp, so that writing the site again with an unchanged viewer produces the
 	 * same stamp and "is this Published Site's viewer out of date?" has an answer that does not
@@ -75,7 +75,7 @@ export class ViewerBundleUnreadableError extends Error {
  * Validated rather than trusted, even though it comes from our own deployment: the failure it
  * guards against is a *stale or partial* staging step, and the symptom of that without this check
  * is a Published Site missing whichever chunks the index forgot — a blank page with a 404 in the
- * console, which is precisely the failure ADR-0006's relative-path rule exists to keep rare.
+ * console, which is precisely the failure ADR-0045's relative-path rule exists to keep rare.
  */
 export function parseViewerBundle(value: unknown): ViewerBundle {
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) {

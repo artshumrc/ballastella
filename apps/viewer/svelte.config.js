@@ -8,7 +8,7 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
-		// ADR-0006: mandatory, and mandatory now rather than later. The publish target —
+		// ADR-0045: mandatory, and mandatory now rather than later. The publish target —
 		// a domain root or a project subdirectory — is unknown at build time, and `paths.base`
 		// is baked in at build time. Relative asset paths are the only way one build serves
 		// both, and retrofitting this means auditing every asset reference in the app.

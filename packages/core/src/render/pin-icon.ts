@@ -173,7 +173,7 @@ export function signedDistanceAlpha(
 /**
  * The pin as an image MapLibre can register, or `null` where there is no canvas to draw it on.
  *
- * `null` rather than a throw or a fallback, because both apps prerender (ADR-0006): this is reached
+ * `null` rather than a throw or a fallback, because both apps prerender: this is reached
  * from a stack build, which only happens in a browser, but a build step that imported its way here
  * should get nothing rather than a crash — and the caller draws no pin layer at all, which is
  * visible, rather than a mis-registered image, which is not.

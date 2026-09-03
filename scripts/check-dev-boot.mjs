@@ -2,7 +2,7 @@
 // Both apps must answer their own root route under `vite dev`.
 //
 // **Why this exists.** The browser suite runs against `apps/*/build`, and the shipped Published Site is
-// prerendered static files with no server at all (ADR-0006). So development mode — the thing every
+// prerendered static files with no server at all (ADR-0045). So development mode — the thing every
 // contributor actually runs — was the one configuration nothing exercised. It broke: `maplibre-gl`
 // resolves to its CommonJS build when Vite leaves it external, its named exports are not ES bindings,
 // and the SSR pass of the root route died with "Named export 'Popup' not found". Every route of both

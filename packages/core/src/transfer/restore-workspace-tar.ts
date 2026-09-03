@@ -110,7 +110,7 @@ export interface WorkspaceRestore {
 	/**
 	 * What the user has to be told, in the words they should see.
 	 *
-	 * Not a boolean flag for the UI to phrase, because ADR-0006's staleness warning and the rule that
+	 * Not a boolean flag for the UI to phrase, because ADR-0045's staleness warning and the rule that
 	 * the user is told in visible text rather than in a tooltip are both about the *sentence*, and a
 	 * flag is how two screens end up saying different things about the same fact.
 	 */
@@ -228,7 +228,7 @@ export async function restoreWorkspaceTar(
 			totalBytes: outcome.bytes,
 			projects: outcome.projects,
 			declined: outcome.declined,
-			// ADR-0006: a restored Workspace is data, not a site. Said here rather than left for the
+			// ADR-0045: a restored Workspace is data, not a site. Said here rather than left for the
 			// user to discover, because what they would otherwise discover is a Published Site that
 			// still opens and quietly shows the work they had *before* the backup — or, for the Base
 			// Map extract, a reader looking at a blank map with no explanation. Nothing else in the

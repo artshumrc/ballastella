@@ -354,7 +354,7 @@
 	 *
 	 * `resolveSiteAsset` rather than a bare path: the archive, the glyphs, and the sprites are files of
 	 * this Published Site, and reaching them by `/base-map/…` would work at a domain root and 404 in a
-	 * subdirectory (ADR-0006). An entry whose `archive` is an absolute URL is left alone — that is the
+	 * subdirectory (ADR-0045). An entry whose `archive` is an absolute URL is left alone — that is the
 	 * `needsNetwork` case.
 	 *
 	 * **A bare style when the files are not here.** A site written without its Base Map (ADR-0020's

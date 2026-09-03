@@ -1,5 +1,5 @@
 // The inbound half of a Sync: bringing a Remote's own additions, replacements and deletions into a
-// Workspace that is already synchronized with it (ADR-0038, ADR-0044).
+// Workspace that is already synchronized with it (ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EXPLICIT, INBOUND, AND NEITHER HALF OF THAT IS NEGOTIABLE

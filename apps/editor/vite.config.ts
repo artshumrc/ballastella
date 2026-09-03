@@ -23,7 +23,7 @@ export default defineConfig({
 	// the root route died with "Named export 'Popup' not found" before rendering a byte.
 	//
 	// It went unnoticed because **nothing tests development mode**: the browser suite runs against
-	// `apps/*/build`, and the shipped site is prerendered static files (ADR-0006) with no SSR server at
+	// `apps/*/build`, and the shipped site is prerendered static files (ADR-0045) with no SSR server at
 	// all, so production was genuinely fine while the developer loop was completely broken.
 	//
 	// Do not "fix" this at the import sites with `import maplibregl from 'maplibre-gl'` and a

@@ -12,13 +12,13 @@
 // Site's bundle for the sake of one array of strings (ADR-0019). So the names live in this leaf
 // module, which imports nothing, and the site write imports them.
 //
-// ADR-0008 amended ADR-0006: the shared bundle lives at the **Workspace** rather than inside each
-// Project, so these paths are relative to the Workspace. That has a consequence worth stating,
+// The shared bundle lives at the **Workspace** rather than inside each Project (ADR-0008), so these
+// paths are relative to the Workspace. That has a consequence worth stating,
 // because it looks like a gap otherwise: a Project-rooted export never walks the Workspace, so on
 // an ordinary Workspace these files are already outside every archive. What `isViewerFile` still
 // does is refuse them from a Project directory that *does* hold them — the shape a Project has when
 // somebody unpacks a Published Site into one, or copies a site's folder in to work on it, which
-// is exactly the case ADR-0006's "the two export flavours are indistinguishable" warns about.
+// is exactly the case ADR-0045's "the two export flavours are indistinguishable" warns about.
 
 /** The site record's own name, at the Workspace (ADR-0008). */
 export const PUBLISHED_SITE_RECORD_NAME = 'ballastella-site.json';

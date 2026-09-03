@@ -401,7 +401,7 @@ describe('writing the site', () => {
 	});
 
 	it('duplicates no image pyramid: nothing inside a Project is even read', async () => {
-		// ADR-0006 rejected copying the data outright, on tile bytes. The strongest form of that claim
+		// ADR-0045 rejected copying the data outright, on tile bytes. The strongest form of that claim
 		// is not "the tiles are still there" — a copy leaves them there too — but that the site write
 		// never opens one.
 		const read = vi.spyOn(store, 'read');
@@ -425,7 +425,7 @@ describe('writing the site', () => {
 	});
 
 	it('duplicates no tile bytes: the pyramid is in the Workspace exactly once', async () => {
-		// The other half of ADR-0006's refusal to copy, and the half a caller can check without a spy:
+		// The other half of ADR-0045's refusal to copy, and the half a caller can check without a spy:
 		// after a site write the tile's bytes appear at one path and no other. The read-count test above
 		// says the site write never opened a tile; this says nothing carrying those bytes was written
 		// either, which is what a scholar reading their own folder would look at.
@@ -697,7 +697,7 @@ describe('writing the site', () => {
 
 	it('names which archives it carries tiles for, because the viewer cannot list a directory', async () => {
 		// The site's half of the keyed cache. The tiles are at `base-map/tiles/<key>/…` and
-		// the key is one-way, so a Reader — whose store is HTTP over a static host (ADR-0006) — has no
+		// the key is one-way, so a Reader — whose store is HTTP over a static host (ADR-0045) — has no
 		// way to discover which catalog entry they belong to. Drawing them under whichever entry is
 		// selected is exactly the wrong-map failure the key exists to end, so the record says.
 		const other = 'https://other.test/v4.pmtiles';
@@ -785,11 +785,12 @@ describe('writing the site', () => {
 		expect(record.baseMapAssetsBundled).toBe(false);
 	});
 
-	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
+	it('keeps the hashed chunks an earlier viewer left', async () => {
 		// The counterpart to the sweep above, and the reason it is not simply "delete what is not in
 		// the plan": `_app/` holds content-hashed names, so an edited viewer writes new ones beside the
-		// old and that accumulation is the cost of writing a site into the working folder.
-		// Changing that is a decision for the ADR, so a test holds the line rather than a comment.
+		// old and that accumulation is the cost of writing the viewer *into* the Workspace rather than
+		// into an output directory of its own (ADR-0045). No surviving ADR decides whether the
+		// accumulation is swept, so a test holds the line rather than a comment.
 		await store.write('_app/immutable/nodes/0.FROM-AN-OLDER-BUILD.js', encode('older'));
 
 		await writeSite();
@@ -1020,7 +1021,7 @@ describe('telling the author a Published Site is behind', () => {
 	});
 
 	/**
-	 * ⚠ **A Front Page choice the site has not been told about is drift, like a rename** (ADR-0032).
+	 * ⚠ **A Front Page choice the site has not been told about is drift, like a rename** (ADR-0045).
 	 *
 	 * Taking a Project off writes `project.json` and nothing more; until the site is written again
 	 * again the live site's Front Page still offers it to every Reader who arrives. Without this the
@@ -1296,7 +1297,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 	});
 
 	/**
-	 * ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032).
+	 * ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0045).
 	 *
 	 * Every site written before this field is in front of Readers now, and its entries carry none.
 	 * Reading the field strictly would empty those Front Pages: every Project still on the host, still

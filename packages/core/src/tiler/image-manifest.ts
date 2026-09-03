@@ -1,7 +1,7 @@
 // The IIIF Presentation manifest that goes beside a generated pyramid.
 //
 // Why an ingested photograph gets a manifest at all: it is what makes the Project directory
-// readable by something that is not this app (ADR-0002, ADR-0006). `info.json` describes an
+// readable by something that is not this app (ADR-0002). `info.json` describes an
 // image service; a Manifest is the document a IIIF viewer, an Allmaps Georeference Annotation,
 // or a library's own tooling points at. A local scan that only ever had an `info.json` would be
 // a second-class Map Image the moment it left this app, which is precisely what this manifest

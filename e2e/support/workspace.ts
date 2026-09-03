@@ -156,7 +156,7 @@ export async function createFolderWorkspace(page: Page, name: string): Promise<v
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHERE THE WORK IS, READ FROM THE ONE PLACE THAT SAYS SO (ADR-0041)
+// WHERE THE WORK IS, READ FROM THE ONE PLACE THAT SAYS SO (ADR-0044)
 //
 // ⚠ **The Workspace menu's header no longer restates the repository, the credential or the Remote
 // Status**, so none of the four assertions below reads it. All three were said in the eyebrow at the
@@ -164,7 +164,7 @@ export async function createFolderWorkspace(page: Page, name: string): Promise<v
 // them. What each fact is now read from is named on its own helper, and each is the surface a
 // scholar would actually be looking at.
 
-/** The bar's one GitHub control, which is the whole relationship behind one press (ADR-0041). */
+/** The bar's one GitHub control, which is the whole relationship behind one press (ADR-0044). */
 export const doorButton = (page: Page) => page.getByTestId('connect-to-github');
 
 /**
@@ -285,7 +285,7 @@ export async function expectRemoteNamed(page: Page, remote: string): Promise<voi
 /**
  * What the door says about the sign-in this computer holds — "Signed in to GitHub", or not.
  *
- * ⚠ **Read from the door and nowhere else** (ADR-0041, ADR-0042). Which account is held, and the
+ * ⚠ **Read from the door and nowhere else** (ADR-0042, ADR-0044). Which account is held, and the
  * choice about keeping it past the tab, were in the Remote dialog; they are on the door now, which
  * is where every other gesture about a sign-in already was.
  */
@@ -336,7 +336,7 @@ export async function expectNoRemoteInReview(page: Page): Promise<void> {
 
 /**
  * Open the badge's disclosure, which is where the determination, the reading's time and the Baseline
- * live (ADR-0041). The gestures are not here: they are behind the door.
+ * live (ADR-0044). The gestures are not here: they are behind the door.
  *
  * Idempotent, because a check leaves it open: pressing a disclosure that is already expanded would
  * close the panel the caller is about to reach into.
@@ -348,7 +348,7 @@ export async function showRemoteStatusDetail(page: Page): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// INSTALLATION-LOCAL SYNCHRONIZATION METADATA (ADR-0038)
+// INSTALLATION-LOCAL SYNCHRONIZATION METADATA (ADR-0033)
 //
 // ⚠ **The record shape is spelled once, here.** It is the app's own — `synchronization-metadata.ts`
 // owns the keys, the format version and the fields — and a second copy per spec is a second thing

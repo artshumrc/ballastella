@@ -14,7 +14,7 @@ export interface ExportProjectBundleOptions {
 	readonly onProgress?: TransferProgressListener;
 	/**
 	 * Which Project-relative paths to leave out. Defaults to {@link isViewerFile}, the recorded
-	 * viewer-file list ADR-0006 requires; injectable for the same reason the backup's is — so what the
+	 * viewer-file list ADR-0045 requires; injectable for the same reason the backup's is — so what the
 	 * exclusion *mechanism* does is assertable without depending on what happens to be in the list.
 	 */
 	readonly excluded?: (relativePath: string) => boolean;

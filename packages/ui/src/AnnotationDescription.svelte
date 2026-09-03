@@ -43,7 +43,7 @@
 	/**
 	 * Whether this component has mounted in a browser.
 	 *
-	 * Both apps prerender (ADR-0006) and DOMPurify needs a DOM, so the renderer refuses in Node rather
+	 * Both apps prerender and DOMPurify needs a DOM, so the renderer refuses in Node rather
 	 * than degrading to returning its input unsanitised — the safe direction, since a fallback would
 	 * write an XSS payload into a static file.
 	 *

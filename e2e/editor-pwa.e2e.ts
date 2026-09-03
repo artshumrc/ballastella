@@ -67,7 +67,7 @@ import { waitForStoredLayers } from './support/saved';
  *     the pairs landed. Loading offline while silently failing to save is precisely the failure a
  *     scholar in an archive would find hours later, so the write is what is asserted rather than the
  *     page rendering.
- *   * **Both deployments.** ADR-0006 says one build serves a domain root and a project
+ *   * **Both deployments.** ADR-0045 says one build serves a domain root and a project
  *     subdirectory, and a service worker's scope and a manifest's `start_url` are exactly the values
  *     that hardcode `/`. Every claim here that could differ between the two is driven at both, from
  *     the same bytes with no reconfiguration — which is why these tests bring their own server
@@ -264,7 +264,7 @@ test.describe('the web app manifest and the service worker scope', () => {
 				expect(document['short_name']).toBe('Ballastella');
 				expect(document['display']).toBe('standalone');
 
-				// **The whole ADR-0006 question, in two lines.** `start_url` and `scope` are `"."` in the
+				// **The whole relative-path question, in two lines** (ADR-0045). `start_url` and `scope` are `"."` in the
 				// file, so the browser resolves them against the manifest's own URL — and the manifest's
 				// URL was reached from a relative `href`. At a domain root that lands on the origin; two
 				// directories deep it lands two directories deep. A `"/"` in either would pass here at the
@@ -469,7 +469,7 @@ test.describe('the web app manifest and the service worker scope', () => {
 
 test.describe('two deployments of this app on one origin', () => {
 	/**
-	 * ADR-0006's other half, and the one a scope does not cover.
+	 * The relative-path rule's other half (ADR-0045), and the one a scope does not cover.
 	 *
 	 * A service worker's scope keeps two deployments' *registrations* apart, and every other test in
 	 * this file rests on that. **Cache storage is not scoped.** `caches.keys()` answers for the whole

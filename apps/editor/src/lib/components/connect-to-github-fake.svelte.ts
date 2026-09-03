@@ -70,7 +70,7 @@ export class FakeStorage {
 	signedIn = $state(false);
 	identity = $state('');
 	/**
-	 * Whether this computer has been asked to keep the sign-in past the tab (ADR-0041).
+	 * Whether this computer has been asked to keep the sign-in past the tab (ADR-0044).
 	 *
 	 * A signal because the sentence beside the choice is a reading of it: what happens when the tab
 	 * closes is the whole subject of the choice, so ticking it has to change the sentence rather than

@@ -1,4 +1,4 @@
-// The outbound half of a Sync: the transfer, and the evidence it leaves behind (ADR-0038, ADR-0044).
+// The outbound half of a Sync: the transfer, and the evidence it leaves behind (ADR-0033, ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE ONLY OUTBOUND ACTION, AND THE ONLY PLACE A SYNCHRONIZATION BASELINE IS WRITTEN

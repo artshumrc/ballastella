@@ -154,7 +154,7 @@ export interface ProjectStore {
  * The read half of {@link ProjectStore}: everything a Reader of a Published Site needs, and
  * nothing that could change a byte of it.
  *
- * **A type, and it is the whole of "the viewer has no store `write`".** ADR-0006 names an
+ * **A type, and it is the whole of "the viewer has no store `write`".** ADR-0045 names an
  * HTTP adapter as the third backend, and a static host can answer exactly one question: what are the
  * bytes at this path? It cannot list a directory, it will not accept a `PUT`, and there is nothing for
  * `reclaimAbandonedWrites` to sweep. An adapter that satisfied the full interface by rejecting from

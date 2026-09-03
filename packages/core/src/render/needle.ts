@@ -95,7 +95,7 @@ export const NEEDLE_PART = {
 /**
  * The needle as a detached `<svg>`, for a renderer that draws it in the DOM.
  *
- * `document` is a parameter rather than a global because both apps prerender (ADR-0006): a module
+ * `document` is a parameter rather than a global because both apps prerender: a module
  * that reached for `document` at import time would be reached from a build step, and this way it
  * cannot be.
  *

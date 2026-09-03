@@ -92,7 +92,7 @@
 	/**
 	 * Whether the author may send to the Remote they have: `null` until GitHub has said.
 	 *
-	 * ⚠ **Signed out it is `null` and stays there** (ADR-0043). Push rights cannot be read without a
+	 * ⚠ **Signed out it is `null` and stays there** (ADR-0044). Push rights cannot be read without a
 	 * credential, so this says sending needs a sign-in and **nothing about rights**. Claiming either
 	 * way from an absent credential would be inventing the answer.
 	 */
@@ -276,7 +276,7 @@
 			{baselineSentence}
 		</p>
 		<!--
-			⚠ **What is said about sending here is only ever what is known** (ADR-0043). Push rights
+			⚠ **What is said about sending here is only ever what is known** (ADR-0044). Push rights
 			cannot be read without a credential, so signed out this says that sending needs a sign-in
 			and **nothing whatever about rights** — a scholar whose Workspace belongs to somebody else's
 			public repository must not be told they may send to it, nor that they may not.

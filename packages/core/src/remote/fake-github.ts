@@ -321,7 +321,7 @@ export interface FakeGitHub {
 
 	/**
 	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
-	 * a solo one (ADR-0043).
+	 * a solo one (ADR-0044).
 	 *
 	 * The owner alone by default, which is the solo repository every other spec here means. ⚠ **What
 	 * this cannot settle is whether a collaborator's *listing* surfaces an Installation owned by
@@ -820,7 +820,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		}
 
 		// `GET /repos/{owner}/{repo}/contributors` — who else has worked here, which is half of whether
-		// a Remote is shared (ADR-0043). Answered unauthenticated, like the reads above and for their
+		// a Remote is shared (ADR-0044). Answered unauthenticated, like the reads above and for their
 		// reason: a public repository's contributors are readable with no credential at all, and this
 		// list is the same list whoever asks. What decides sharedness is the comparison the *caller*
 		// makes against `GET /user`, which is authenticated.

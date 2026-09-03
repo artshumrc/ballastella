@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 // A static web server for a Workspace served as a site, so that "the site works" can be asserted against a
 // site rather than against a directory listing.
 //
-// ADR-0006's whole claim is that **one build serves a domain root and a project subdirectory**, and
+// ADR-0045's relative-path rule is that **one build serves a domain root and a project subdirectory**, and
 // the only way to find out is to serve the same bytes at both and drive them. `vite preview` cannot:
 // it serves an app's own build, and what is being served here is the user's Workspace as it came out
 // of OPFS. So this is a plain file server, deliberately dumb — no rewriting, no SPA fallback, no
@@ -67,7 +67,7 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 		const url = new URL(asked, 'http://localhost');
 		if (!url.pathname.startsWith(`${prefix}/`)) {
 			// Exactly what a static host does with a path outside the served folder. An asset
-			// referenced absolutely lands here, which is the failure ADR-0006 exists to prevent.
+			// referenced absolutely lands here, which is the failure the relative-path rule exists to prevent (ADR-0045).
 			answer(404, `${url.pathname} is outside ${prefix}/`, 'text/plain; charset=utf-8');
 			return;
 		}

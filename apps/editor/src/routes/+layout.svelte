@@ -83,7 +83,7 @@
 	<link rel="icon" type="image/png" sizes="16x16" href={favicon16} />
 	<link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
 	<!--
-		ADR-0006: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
+		ADR-0045: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
 		page being rendered — so the prerendered `/align` carries `../manifest.webmanifest` and the
 		prerendered `/` carries `./manifest.webmanifest`, and the same build is installable from a
 		domain root and from a project subdirectory. The manifest's own `start_url` and `scope` are

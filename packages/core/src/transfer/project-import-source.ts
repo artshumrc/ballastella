@@ -326,7 +326,7 @@ export function gatherProjectClosure(
 		// **Two ways to be describable, because there are two kinds of image.** A local copy has the
 		// `info.json` that makes its pyramid readable; a referenced image has `remote.json` instead,
 		// because its tiles and its `info.json` are on somebody else's server. A heap of tiles with
-		// neither is a directory no client can open (ADR-0006's layout), and requiring `info.json` of
+		// neither is a directory no client can open (ADR-0023's layout), and requiring `info.json` of
 		// both would refuse a Project whose Map Image is referenced rather than copied.
 		const describable =
 			files.includes(`${directory}/info.json`) ||

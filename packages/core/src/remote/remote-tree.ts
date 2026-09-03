@@ -18,7 +18,7 @@
 // and that is a property of their signatures rather than of what a caller happens to pass. The
 // signed-out door (`workspace-address.ts`) and the Review (`review-from-remote.ts`) call those, and
 // an optional `Authorization` on one shared function is one refactor away from making an account a
-// prerequisite for the operations that need none (ADR-0031, ADR-0043) — silently, because the flow
+// prerequisite for the operations that need none (ADR-0031, ADR-0044) — silently, because the flow
 // would go on working for everybody who had already signed in.
 //
 // {@link readSignedInRemoteTree} and {@link readSignedInRemoteHeadCommit} require one, and a private

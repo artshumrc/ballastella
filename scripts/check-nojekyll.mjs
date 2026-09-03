@@ -166,7 +166,7 @@ if (problems.length > 0) {
 	console.error(
 		`\n${MARKER} is not arranged as it has to be:\n\n` +
 			problems.map((problem) => `- ${problem}`).join('\n\n') +
-			'\n\nSee docs/hosting.md and ADR-0006.\n'
+			'\n\nSee docs/hosting.md and ADR-0045.\n'
 	);
 	process.exit(1);
 }

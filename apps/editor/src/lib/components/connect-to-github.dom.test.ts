@@ -890,7 +890,7 @@ describe('connecting, which is one act', () => {
 	//
 	// ⚠ **The connection stands, so the sequence ends the way every other connection does.** That the
 	// relationship is read-only is a standing fact about the Workspace and is stated on its own row
-	// (`WorkspaceRemote`, ADR-0043) — a second saying of it here would be one question with two
+	// (`WorkspaceRemote`, ADR-0044) — a second saying of it here would be one question with two
 	// answers, on a screen the author is leaving.
 	test('connects anyway where the credential cannot send, rather than refusing', async () => {
 		const storage = signedIn();
@@ -1991,7 +1991,7 @@ describe('the way in for an installation that has broken', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHAT IS TRUE OF THE SIGN-IN, AND THE ONE CHOICE ABOUT IT (ADR-0041, ADR-0042)
+// WHAT IS TRUE OF THE SIGN-IN, AND THE ONE CHOICE ABOUT IT (ADR-0042, ADR-0044)
 //
 // Both are about a sign-in, so both are on the door, which is where every other gesture about one
 // already is. The claim is that the sentence

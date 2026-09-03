@@ -33,8 +33,9 @@
 	{#if returnLink.current}
 		<!--
 			The only **absolute** address this app renders. Everything else goes through `resolve`,
-			because the site's own base path is unknown at build time (ADR-0006); this is different in
-			kind — it leaves for another origin entirely, which is the ordinary topology under ADR-0032 —
+			because the site's own base path is unknown at build time (ADR-0045); this is different in
+			kind — it leaves for another origin entirely, which is the ordinary topology a site and its
+			editor sit in —
 			and it is still built from two files read *relative* to this document.
 		-->
 		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->

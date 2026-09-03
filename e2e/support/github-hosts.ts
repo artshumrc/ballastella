@@ -83,7 +83,7 @@ export type FakeRepository = {
 	readonly private?: boolean;
 	/**
 	 * Who `GET /repos/{owner}/{repo}/contributors` reports, which is how a shared Remote is told from
-	 * a solo one (ADR-0043).
+	 * a solo one (ADR-0044).
 	 *
 	 * The owner alone by default: every other spec here means a repository nobody else works in, and
 	 * that is the state whose overwrite behaviour is unchanged.

@@ -20,7 +20,7 @@ import {
 } from './support/workspace';
 
 /**
- * A Workspace bound to a Remote (ADR-0032, ADR-0033).
+ * A Workspace bound to a Remote (ADR-0033, ADR-0044).
  *
  * Seam 2. The binding document, its tolerant reader, the rights check, the Pages outcomes and
  * the two hard refusals are all asserted at Seam 1 — `remote-binding.test.ts`, `bind-remote.test.ts`
@@ -64,7 +64,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
 		localStorage.clear();
 		sessionStorage.clear();
-		// **And the installation database** (ADR-0038), which is where the Remote relationship lives.
+		// **And the installation database** (ADR-0044), which is where the Remote relationship lives.
 		// Left behind, a Workspace made under the same name in the next scenario arrives already bound.
 		await new Promise<void>((resolve) => {
 			const request = indexedDB.deleteDatabase('ballastella');
@@ -348,7 +348,7 @@ test.describe('a first visit', () => {
 	});
 });
 
-// ADR-0032: the binding is orthogonal to the backing. `WorkspaceBacking` stays a two-member union,
+// The binding is orthogonal to the backing: `WorkspaceBacking` stays a two-member union,
 // and nothing on the binding path asks which member it is — asserted here by driving both.
 test.describe('a folder Workspace', () => {
 	/**

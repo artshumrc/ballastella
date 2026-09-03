@@ -158,7 +158,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
 		localStorage.clear();
 		sessionStorage.clear();
-		// **And the installation database** (ADR-0038), which is where the Remote relationship and the
+		// **And the installation database** (ADR-0033), which is where the Remote relationship and the
 		// Synchronization Baseline now live. Left behind, the reverse lookup in the next scenario would
 		// find the previous one's Workspace and select a directory that is no longer there.
 		await new Promise<void>((resolve) => {

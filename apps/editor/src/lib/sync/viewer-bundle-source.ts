@@ -5,7 +5,7 @@
 // `apps/editor/static/viewer-bundle/` during the editor's own build and writes an index beside it;
 // this module fetches both back at runtime.
 //
-// **Everything goes through `resolveDeploymentAsset`, which means relative** (ADR-0006). The editor
+// **Everything goes through `resolveDeploymentAsset`, which means relative** (ADR-0045). The editor
 // itself may be served from a domain root or from a project subdirectory, and a bundle fetched from
 // `/viewer-bundle/…` would 404 on every fork hosted on GitHub Pages — where Share Links would
 // then fail with the user's Workspace half written.

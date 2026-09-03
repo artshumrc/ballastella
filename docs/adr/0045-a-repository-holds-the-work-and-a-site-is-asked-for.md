@@ -30,6 +30,18 @@ settings. It turns GitHub Pages on for the Remote and adds the read-only viewer 
 Sync afterwards keeps that viewer current — there is no separate act that rebuilds a site, and no
 staleness a scholar has to notice and answer.
 
+**A site can still be behind the Workspace it sits in, in two ways, and both are reported.** No act
+is needed to fix either — the next Sync does it — but what the live site is currently saying is worth
+knowing before the author decides whether to press. The viewer's own files can be older than the build
+of the editor in front of them, which is what the version stamp on the site record is for. And the
+record's *account of the Projects* can be older than the Workspace: adding a Project, renaming one, or
+taking one off the Front Page writes `project.json` and nothing else, so until the next Sync the live
+site still omits the new Project, still names the old one by its old name, or still offers a Project
+the author has taken off. The second is the one a scholar meets — a Project added in week four is
+missing from a Front Page written in week three — and it is drift in a *direction*, so it is said in
+the direction it happened rather than as "the site is out of date": what the author needs to know is
+which answer the live site is still giving to a Reader who arrives now.
+
 The viewer is written *into* the Workspace directory, additively, alongside the data already there.
 No data is copied. The alternative — exporting to a separate output directory containing the viewer
 *and a copy of the data* — was rejected on tile bytes: a single large Map Image is hundreds of
@@ -109,6 +121,18 @@ to fork and host their own instance, which keeps old builds alive in the wild. A
 flag into `unknownFields` and writes it back untouched. Where it does not, the failure is that a
 Project falls *off* a front page, which is the conservative direction and changes nothing about who can
 read it.
+
+### The site record's rule about an absent flag is the opposite one, and both are right
+
+`project.json` and `ballastella-site.json` disagree about what a missing `onFrontPage` means, and the
+disagreement is deliberate rather than a bug in one of them. In `project.json` absence is **off**, as
+above: the field is the author's own answer, and a Project nobody has answered for is not offered to
+strangers. In the site **record** absence is **on**, because that file is not an answer — it is an
+account a past Sync wrote, and every site written before the field existed is in front of Readers now
+with entries that carry none. Reading those strictly would empty a live Front Page: every Project
+still on the host, still fetchable, none of them listed, and nothing on the page to say why. So the
+record keeps the default it shipped with. The two rules never meet, because two different pieces of
+code read them — the one that reads a Workspace, and the one that reads a site.
 
 **Being on the Front Page is discovery, never permission.** The repository is readable, the files are
 fetchable, and `?p=<directory>` opens a Project for anyone who has the link. This is why the flag is

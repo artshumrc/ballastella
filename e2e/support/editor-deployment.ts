@@ -15,7 +15,7 @@ import { PMTiles } from 'pmtiles';
 // WHY NOT `vite preview`, AND WHY NOT `support/static-site.ts`
 //
 // `vite preview` serves one app at one origin at `/`, which answers neither of the two questions
-// here. ADR-0006 says one build must serve a domain root *and* a project subdirectory, and a
+// here. ADR-0045 says one build must serve a domain root *and* a project subdirectory, and a
 // service worker's scope and a manifest's `start_url` are exactly the values that quietly hardcode
 // `/` — so both have to be driven under a prefix as well as at the root. And a service worker
 // update is a change to the *bytes a server hands out* while a browser is already running: nothing
@@ -558,7 +558,7 @@ export async function deployEditor(prefix = ''): Promise<EditorDeployment> {
  * Two or more deployments of the same build **on one origin**, which is a different question from
  * two servers and the reason this exists.
  *
- * ADR-0006's subdirectory case is `user.github.io/` and `user.github.io/ballastella/`: one host, two
+ * ADR-0045's subdirectory case is `user.github.io/` and `user.github.io/ballastella/`: one host, two
  * served folders, and — the part nothing else in this harness can express — *one* cache storage,
  * *one* set of registrations, and one OPFS between them. A second `deployEditor` call gets a second
  * port and therefore a second origin, where every one of those is private again and the interesting
@@ -610,7 +610,7 @@ export async function deployEditors(...prefixes: string[]): Promise<EditorDeploy
 
 		if (prefix === undefined) {
 			// What a static host does with a path outside the served folder. An asset referenced
-			// absolutely lands here, which is the failure ADR-0006 exists to prevent.
+			// absolutely lands here, which is the failure the relative-path rule exists to prevent (ADR-0045).
 			answer(404, `${url.pathname} is outside ${prefixes.map((p) => `${p}/`).join(', ')}`, {
 				'content-type': 'text/plain; charset=utf-8'
 			});

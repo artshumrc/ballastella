@@ -26,7 +26,7 @@ import { installedAppOr } from './installed-app-context.js';
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE SCRIPT URL IS RESOLVED AND NOT WRITTEN
  *
- * ADR-0006: one build has to serve a domain root *and* a project subdirectory, so `/service-worker.js`
+ * ADR-0045: one build has to serve a domain root *and* a project subdirectory, so `/service-worker.js`
  * is not available to us — it is correct at `example.org/` and a 404 at `example.org/ballastella/`,
  * which is the failure that ADR keeps CI greps over. `resolveDeploymentAsset` resolves the
  * deployment's own root from `base` and `document.baseURI`, exactly as the Base Map's glyphs and the

@@ -54,7 +54,7 @@ function serving(files: Record<string, string | { status: number }>) {
 	return { fetch, asked, init };
 }
 
-/** The viewer's own shape: paths resolved relative to the document, never against `/` (ADR-0006). */
+/** The viewer's own shape: paths resolved relative to the document, never against `/` (ADR-0045). */
 const relativeTo =
 	(base: string) =>
 	(path: StorePath): string =>
@@ -77,7 +77,7 @@ describe('the HTTP ProjectStore adapter', () => {
 		});
 
 		it('resolves through the injected resolver, so one build serves a root and a subdirectory', async () => {
-			// ADR-0006's whole claim, at this seam. The *same* store path has to become two different
+			// ADR-0045's relative-path rule, at this seam. The *same* store path has to become two different
 			// URLs depending on where the site was uploaded, and nothing in this module may know which —
 			// so the assertion is that the path went through `resolve` untouched and was not composed
 			// against `/` here.

@@ -1,5 +1,5 @@
 // What Ballastella itself has written or deleted in one Workspace since its Synchronization Baseline
-// (ADR-0038), and the passive Remote Status that can be read off it without touching a byte.
+// (ADR-0033), and the passive Remote Status that can be read off it without touching a byte.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHY AN INDEX AND NOT A HASHING PASS

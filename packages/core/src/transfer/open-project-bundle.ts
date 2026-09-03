@@ -667,7 +667,7 @@ export function assertReferencesPresent(project: ProjectFile, present: ReadonlyS
 	}
 
 	// An image directory that describes itself as neither is a heap of files no client can open
-	// (ADR-0006's layout), so the image is missing whether or not any Layer has been wired to it yet.
+	// (ADR-0023's layout), so the image is missing whether or not any Layer has been wired to it yet.
 	// This is the other half of the pair: the loop above catches an image a Layer names and the archive
 	// does not carry, and this one catches an image the archive carries incompletely.
 	//
