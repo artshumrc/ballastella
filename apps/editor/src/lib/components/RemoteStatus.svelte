@@ -6,7 +6,7 @@
 	//
 	// The bar answers *where is my work* once. `WhereYourWorkIs` is that badge and owns the bar's one
 	// `role="status"`; this supplies its GitHub clause, and holds the determination, the sentence, the
-	// time of the reading and the Baseline behind the disclosure beside it.
+	// time of the reading and the Baseline in the popover the badge opens.
 	//
 	// ⚠ **The two clauses are always both present and never collapse into one word.** *Is my edit kept
 	// on this machine* and *does GitHub hold it too* are different questions with different remedies,
@@ -39,7 +39,7 @@
 	// The scholar's question is *is my work anywhere but this machine?*, and the only answer they can
 	// act on is which direction has something outstanding in it. So the clause says that — to send, to
 	// get, both ways, or nothing — and the determination's own name, the reading's time and the
-	// Baseline's commit sit behind a disclosure.
+	// Baseline's commit sit in the popover.
 	//
 	// ⚠ **The repository is named in the agreeing clause and nowhere else** (ADR-0044). A name beside
 	// a state that is not agreement reports an intention rather than a fact, and the whole value of
@@ -196,13 +196,9 @@
 		remote.status === null ? UNCHECKED_DETAIL : REMOTE_STATUS_DETAILS[remote.status]
 	);
 
-	/**
-	 * Whether the determination and its detail are on screen.
-	 *
-	 * A `<button aria-expanded>` disclosure and not `<details>`: ADR-0016 bans the `<details>`
-	 * dropdown, and the WAI-ARIA disclosure button is unambiguously outside that ban.
-	 */
+	/** Whether the native status popover is open. */
 	let detailShown = $state(false);
+	const detailId = $props.id();
 
 	/** When the determination on screen was reached, in the reader's own clock. */
 	const checkedAt = $derived(
@@ -213,7 +209,7 @@
 </script>
 
 <div class="flex flex-col items-end gap-0.5" data-testid="remote-status-slot">
-	<!-- `min-h-8`: the eyebrow top-aligns its clusters, so the badge and its disclosure keep their
+	<!-- `min-h-8`: the eyebrow top-aligns its clusters, so the badge and its popover keep their
 	     centre line whatever this column grows below them. -->
 	<div class="flex min-h-8 items-center gap-2">
 		<!--
@@ -228,24 +224,10 @@
 			github={clause}
 			determination={remote.status ?? 'unchecked'}
 			{agreeing}
+			popoverTarget={detailId}
+			expanded={detailShown}
+			onToggle={() => (detailShown = !detailShown)}
 		/>
-		<!--
-			The one press between the badge and everything behind it.
-
-			Not `title`, not a tooltip: daisyUI renders those through CSS `::before`, so they are neither
-			announced nor dismissable (ADR-0016). `aria-controls` binds the button to the panel below the
-			row rather than beside it, because a badge is not a container for four lines and two buttons.
-		-->
-		<button
-			type="button"
-			class="btn btn-outline btn-xs"
-			aria-expanded={detailShown}
-			aria-controls="remote-status-detail"
-			data-testid="remote-status-explain"
-			onclick={() => (detailShown = !detailShown)}
-		>
-			{detailShown ? 'Hide what this means' : 'What this means'}
-		</button>
 	</div>
 
 	<!--
@@ -257,42 +239,44 @@
 		that grew four sentences on a press would re-read the whole status to say something the reader
 		is already looking at.
 	-->
-	{#if detailShown}
-		<div
-			id="remote-status-detail"
-			class="max-w-80 rounded-box bg-base-200 px-3 py-2 text-right shadow-lg"
-			data-testid="remote-status-detail"
-		>
-			<p class="text-sm font-medium" data-testid="remote-status-determination">{label}</p>
-			<p class="text-xs opacity-70">{detail}</p>
-			<!--
+	<div
+		id={detailId}
+		popover="auto"
+		class="remote-status-popover max-w-80 rounded-box border border-base-300 bg-base-200 px-3 py-2 text-right shadow-lg"
+		data-testid="remote-status-detail"
+		aria-label="Sync status details"
+		style="position-anchor: --{detailId}"
+		ontoggle={(event) => (detailShown = (event as ToggleEvent).newState === 'open')}
+	>
+		<p class="text-sm font-medium" data-testid="remote-status-determination">{label}</p>
+		<p class="text-xs opacity-70">{detail}</p>
+		<!--
 				When the determination on screen was reached, in the reader's own clock.
 
 				Here rather than in the bar because a retained status has to be *dateable* without costing
 				the eyebrow a second line: with the failure beside it, "Up to date" and "as of nine minutes
 				ago" are the two halves of one honest sentence, and both are one press away together.
 			-->
-			{#if checkedAt !== ''}
-				<p class="mt-1 text-xs opacity-70" data-testid="remote-status-checked">
-					Checked at {checkedAt}
-				</p>
-			{/if}
-			<!--
+		{#if checkedAt !== ''}
+			<p class="mt-1 text-xs opacity-70" data-testid="remote-status-checked">
+				Checked at {checkedAt}
+			</p>
+		{/if}
+		<!--
 				What the two sides last agreed on, beside the determination it explains.
 
 				⚠ **Absent rather than hedged when there is no record**, because `Cannot tell` is the
 				determination above and stating it twice in two vocabularies is how a reader comes to think
 				they are two facts.
 			-->
-			{#if baseline !== null}
-				<p class="mt-1 text-xs opacity-70" data-testid="remote-status-baseline">
-					Last agreed with GitHub at commit <code>{baseline.commit}</code>, over
-					{baseline.files.size}
-					{baseline.files.size === 1 ? 'file' : 'files'}.
-				</p>
-			{/if}
-		</div>
-	{/if}
+		{#if baseline !== null}
+			<p class="mt-1 text-xs opacity-70" data-testid="remote-status-baseline">
+				Last agreed with GitHub at commit <code>{baseline.commit}</code>, over
+				{baseline.files.size}
+				{baseline.files.size === 1 ? 'file' : 'files'}.
+			</p>
+		{/if}
+	</div>
 
 	<!--
 		What the getting half of a Sync is doing.
@@ -350,3 +334,20 @@
 	testid="published-site-stale"
 	tone="info"
 />
+
+<style>
+	.remote-status-popover {
+		position: fixed;
+		top: 5rem;
+		right: 1rem;
+		margin: 0;
+	}
+
+	@supports (position-area: bottom span-left) {
+		.remote-status-popover {
+			inset: auto;
+			position-area: bottom span-left;
+			margin-top: 0.25rem;
+		}
+	}
+</style>

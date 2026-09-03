@@ -335,15 +335,15 @@ export async function expectNoRemoteInReview(page: Page): Promise<void> {
 }
 
 /**
- * Open the badge's disclosure, which is where the determination, the reading's time and the Baseline
- * live (ADR-0044). The gestures are not here: they are behind the door.
+ * Open the status badge's popover, which is where the determination, the reading's time and the
+ * Baseline live (ADR-0044). The gestures are not here: they are behind the door.
  *
- * Idempotent, because a check leaves it open: pressing a disclosure that is already expanded would
+ * Idempotent, because a check leaves it open: pressing the badge while it is already expanded would
  * close the panel the caller is about to reach into.
  */
 export async function showRemoteStatusDetail(page: Page): Promise<void> {
-	const disclosure = page.getByTestId('remote-status-explain');
-	if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+	const badge = page.getByTestId('where-your-work-is');
+	if ((await badge.getAttribute('aria-expanded')) !== 'true') await badge.click();
 	await expect(page.getByTestId('remote-status-detail')).toBeVisible();
 }
 

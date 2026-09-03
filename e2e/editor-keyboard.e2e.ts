@@ -100,26 +100,25 @@ test.describe('the bar, from the keyboard alone', () => {
 	test.beforeEach(async ({ page }) => workspaceHome(page));
 
 	/**
-	 * The badge is a `role="status"` and therefore not a stop; its disclosure is a `<button>` and
-	 * therefore is. What is behind the press has to be reachable too, or the press is a dead end for
-	 * exactly the person it was put there for.
+	 * The status region contains a badge button. What is behind the press has to be reachable too, or
+	 * the press is a dead end for exactly the person it was put there for.
 	 */
-	test("the badge's disclosure opens on Enter, and what it holds is in the tab order", async ({
+	test('the status badge opens on Enter, and what it holds is in the tab order', async ({
 		page
 	}) => {
-		const disclosure = page.getByTestId('remote-status-explain');
-		await tabTo(page, disclosure);
-		await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+		const badge = page.getByTestId('where-your-work-is');
+		await tabTo(page, badge);
+		await expect(badge).toHaveAttribute('aria-expanded', 'false');
 
 		await page.keyboard.press('Enter');
 
-		await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+		await expect(badge).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('remote-status-detail')).toBeVisible();
 		// The determination itself, which is the whole reason the press exists.
 		await expect(page.getByTestId('remote-status-determination')).toBeVisible();
 		// And focus is still on the control that was pressed, so the next `Tab` carries on from here
 		// rather than from the top.
-		await expect(disclosure).toBeFocused();
+		await expect(badge).toBeFocused();
 	});
 
 	/**
