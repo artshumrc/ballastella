@@ -23,6 +23,7 @@ import { BASE_MAP_TILE_ROOT } from '../base-map/tile-cache.js';
 import { IMAGE_DIRECTORY } from '../project/image-files.js';
 import { topLevelSegment } from '../store/project-store.js';
 import type { PathChoice, SourcePath } from './synchronization-planner.js';
+import { REQUESTS_BEYOND_BLOBS } from './send-to-remote.js';
 import type { RemoteSendPlan } from './send-to-remote.js';
 
 /** Which of the four things a Sync does. One plan; the mode chooses what is acted on. */
@@ -76,7 +77,14 @@ export interface SyncPlan {
 	/** What an `overwrite` would take off the Remote, named the same way as everything else. */
 	readonly overwrites: readonly Change[];
 	readonly budget: {
-		/** How many GitHub requests sending would need. */
+		/**
+		 * How many GitHub requests sending would need: one per blob, plus the tree, the commit and
+		 * the ref move.
+		 *
+		 * ⚠ **The whole send, not the blobs alone**, because that is the number the hourly budget is
+		 * spent against — and a plan within three of what is left uploads every byte and then meets
+		 * its 403 at `POST /git/trees`, which is the most expensive place to stop.
+		 */
 		readonly requests: number;
 		readonly remaining: number | null;
 		readonly resetsAt: Date | null;
@@ -173,7 +181,7 @@ export function describeSyncPlan(
 		conflicts: upload.conflicts,
 		overwrites: describeChanges(upload.overwrites, names),
 		budget: {
-			requests: upload.uploads,
+			requests: upload.uploads + REQUESTS_BEYOND_BLOBS,
 			remaining: upload.requestsRemaining,
 			resetsAt: upload.requestsResetAt
 		},
