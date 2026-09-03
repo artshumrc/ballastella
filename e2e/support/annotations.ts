@@ -254,12 +254,26 @@ export const watchAnnotationWrites = (page: Page) =>
 export const annotationWrites = (page: Page) =>
 	page.evaluate(() => window.ballastellaAnnotationWrites ?? []);
 
-/** Create a Project through the interface, as a user would. */
+/**
+ * Create a Project through the interface, as a user would, and come back to the hub.
+ *
+ * ⚠ **Creating a Project opens it**, so the return trip is what keeps this helper's forty callers
+ * saying what they meant: most of them go on to create a second Project, click a row, or read the
+ * list, and every one of those wants Workspace Home. That the Create button lands the author in
+ * their new Project is asserted once, in `editor-workspace.e2e.ts`, rather than forty times here.
+ */
 export async function createProject(page: Page, name = PROJECT_NAME): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
 	await dialog.getByLabel('Project name').fill(name);
 	await dialog.getByRole('button', { name: 'Create' }).click();
+	// Waited for rather than raced past: the Create button navigates, and a second navigation issued
+	// while the first is in flight is one the router can still overwrite.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	// The breadcrumb rather than `page.goto('/')`: a reload would restart the app, and several
+	// callers here are mid-way through a Workspace they have seeded or signed into.
+	await page.getByTestId('all-projects').click();
+	await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 }
 
 /**
@@ -471,7 +485,7 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
  */
 export async function chooseTool(
 	page: Page,
-	tool: 'select' | 'point' | 'line' | 'polygon' | 'text'
+	tool: 'select' | 'point' | 'line' | 'polygon' | 'circle' | 'text'
 ): Promise<void> {
 	const shapes = page.getByTestId('annotation-tools');
 	if (tool === 'select') {
@@ -631,6 +645,21 @@ export async function drawShape(
 	for (const [fx, fy] of points) await clickAt(baseMap(page), fx, fy);
 	await expect(page.getByTestId('annotation-done')).toBeEnabled();
 	await page.getByTestId('annotation-done').click();
+	await expect(page.getByRole('status')).toHaveText('Saved here');
+}
+
+/**
+ * Draw a Circle with two clicks: its center, then a point on its edge. Resizing afterwards is
+ * the radius handle's drag, asserted where the Circle lands.
+ */
+export async function drawCircle(
+	page: Page,
+	center: readonly [number, number],
+	edge: readonly [number, number]
+): Promise<void> {
+	await chooseTool(page, 'circle');
+	await clickAt(baseMap(page), center[0], center[1]);
+	await clickAt(baseMap(page), edge[0], edge[1]);
 	await expect(page.getByRole('status')).toHaveText('Saved here');
 }
 

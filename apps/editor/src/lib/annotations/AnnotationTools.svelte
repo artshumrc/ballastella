@@ -57,7 +57,7 @@
 	} = $props();
 
 	/** The shapes that can be drawn. `select` is not among them — it is what happens when none is. */
-	const SHAPES: AnnotationTool[] = ['point', 'line', 'polygon', 'text'];
+	const SHAPES: AnnotationTool[] = ['point', 'line', 'polygon', 'circle', 'text'];
 
 	/** Put the tools away and go back to selecting, abandoning a gesture if one is in progress. */
 	const stopDrawing = (): void => {
@@ -71,7 +71,7 @@
 	 * The name is here rather than only in the pressed button because the criterion is that the active
 	 * tool is *announced*, and a highlight is not an announcement — nor is `data-tool`, which is a test
 	 * attribute and reaches nobody. Each tool's own status line then says what to do with it, which is
-	 * where the four per-button `title` tooltips went: CONTRIBUTING is explicit that a tooltip is not an
+	 * where the per-button `title` tooltips went: CONTRIBUTING is explicit that a tooltip is not an
 	 * information channel, and this is text that is both visible and read out.
 	 *
 	 * **The "no Layer to draw into" announcement is gone because the state is now unreachable, not

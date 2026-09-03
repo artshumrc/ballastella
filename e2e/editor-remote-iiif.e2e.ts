@@ -168,6 +168,9 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.getByRole('dialog', { name: 'New Project' })
 		.getByRole('button', { name: 'Create' })
 		.click();
+	// Creating a Project opens it; what follows is on Workspace Home.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await page.getByTestId('all-projects').click();
 }
 
 /**

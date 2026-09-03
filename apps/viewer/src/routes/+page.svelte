@@ -856,7 +856,7 @@
 	/**
 	 * How the Base Map is drawn: this Reader's own switches if they have set any, else the author's.
 	 *
-	 * All-or-nothing rather than merged per switch, and deliberately: a Reader who muted the palette
+	 * All-or-nothing rather than merged per switch, and deliberately: a Reader who raised the contrast
 	 * has said what they want the map to be, and quietly keeping the author's relief inside their
 	 * choice would make the control they used report something they did not choose.
 	 */

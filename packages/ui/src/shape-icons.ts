@@ -11,6 +11,7 @@
 
 import { isLabel, type Annotation } from '@ballastella/core';
 import MousePointer2 from '@lucide/svelte/icons/mouse-pointer-2';
+import Circle from '@lucide/svelte/icons/circle';
 import Pentagon from '@lucide/svelte/icons/pentagon';
 import Spline from '@lucide/svelte/icons/spline';
 import Shapes from '@lucide/svelte/icons/shapes';
@@ -25,7 +26,7 @@ import MapNeedle from './MapNeedle.svelte';
  * package may not reach (ADR-0034). The two cannot drift silently: the editor indexes
  * {@link TOOL_ICONS} with its own union, so a tool added there and not here fails to compile.
  */
-type ToolName = 'select' | 'point' | 'line' | 'polygon' | 'text';
+type ToolName = 'select' | 'point' | 'line' | 'polygon' | 'circle' | 'text';
 
 export const TOOL_ICONS = {
 	select: MousePointer2,
@@ -34,6 +35,7 @@ export const TOOL_ICONS = {
 	point: MapNeedle,
 	line: Spline,
 	polygon: Pentagon,
+	circle: Circle,
 	// The Label. Named `text` because that is what the editor's tool union will spell it, while the word
 	// a user meets is always **Label**; the tool itself is not built yet, and this entry is what makes
 	// adding it compile.
@@ -61,6 +63,8 @@ export const iconForAnnotation = (annotation: Annotation) => {
 			return TOOL_ICONS.line;
 		case 'Polygon':
 			return TOOL_ICONS.polygon;
+		case 'Circle':
+			return TOOL_ICONS.circle;
 		default:
 			return Shapes;
 	}

@@ -67,8 +67,10 @@
 	const geometryKind = $derived(annotation.geometry?.type ?? null);
 	const isLabel = $derived(annotationIsLabel(annotation));
 	const isPoint = $derived(geometryKind === 'Point' && !isLabel);
-	const hasArea = $derived(geometryKind === 'Polygon');
-	const hasLine = $derived(geometryKind === 'LineString' || geometryKind === 'Polygon');
+	const hasArea = $derived(geometryKind === 'Polygon' || geometryKind === 'Circle');
+	const hasLine = $derived(
+		geometryKind === 'LineString' || geometryKind === 'Polygon' || geometryKind === 'Circle'
+	);
 
 	const lineStyle = $derived<LineStyle>(lineStyleOf(resolved['stroke-dasharray']));
 

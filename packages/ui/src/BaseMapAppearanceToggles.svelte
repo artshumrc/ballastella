@@ -3,10 +3,10 @@
 	//
 	// **Three toggles rather than a `<select>`, because the three choices are independent.** They
 	// were once a list of named variants, which meant every combination somebody wanted had to have
-	// been anticipated as a row: contour lines came only without roads, and a muted palette came only
-	// without relief. Nothing in the tiles requires that — each switch is a filter or a flavor name
-	// over the same archive (`appearance.ts`) — so the control says so, and all eight combinations
-	// are reachable.
+	// been anticipated as a row: contour lines came only without roads, and the high-contrast palette
+	// came only without relief. Nothing in the tiles requires that — each switch is a filter or a
+	// repaint over the same archive (`appearance.ts`) — so the control says so, and all eight
+	// combinations are reachable.
 	//
 	// This does **not** stand in for `BaseMapSwitcher`, which chooses between sets of tiles. Both sit
 	// inside `BaseMapOptions`, which is where either is found.
@@ -44,7 +44,7 @@
 	}[] = [
 		{ key: 'streets', label: 'Streets', hint: 'roads, buildings and places' },
 		{ key: 'relief', label: 'Topography', hint: 'shaded relief and contour lines' },
-		{ key: 'muted', label: 'High contrast', hint: 'muted colours, so annotations stay legible' }
+		{ key: 'highContrast', label: 'High contrast', hint: 'black and white, for maximum legibility' }
 	];
 </script>
 

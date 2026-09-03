@@ -72,7 +72,10 @@ export function toRenderCollection(collection: AnnotationCollection): {
 			return [
 				{
 					type: 'Feature',
-					geometry: { type: geometry.type, coordinates: geometry.coordinates },
+					geometry: {
+						type: geometry.type === 'Circle' ? 'Polygon' : geometry.type,
+						coordinates: geometry.coordinates
+					},
 					properties: {
 						...style,
 						[ANNOTATION_ID_PROPERTY]: annotation.id,

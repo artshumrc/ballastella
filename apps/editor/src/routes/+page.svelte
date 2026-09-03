@@ -15,6 +15,8 @@
 	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import { connectSequence } from '$lib/connect-sequence.svelte.js';
+	import type { EditorSession } from '$lib/editor-session.svelte.js';
+	import { claimFirstVisit } from '$lib/first-run.js';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
 	import Toast from '$lib/toasts/Toast.svelte';
 	import { useWorkspaceHost, type WorkspaceStorage } from '$lib/workspace-storage.svelte.js';
@@ -54,6 +56,61 @@
 		if (!current || !ready || storage?.resumeFolder) return;
 		void ready.then(() => current.open(directory));
 	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// FIRST CONTACT MAKES A PROJECT INSTEAD OF SHOWING AN EMPTY WORKSPACE HOME
+	//
+	// Workspace Home with nothing in it is two empty lists, an Import menu, two offers to review what
+	// a colleague sent, and a door to GitHub — every one of them for somebody who already has work.
+	// So the first visit this browser has ever made lands in a Project, on a Base Map, with the Layer
+	// stack beside it.
+	//
+	// ⚠ **Nothing is asked, and nothing here may grow a question.** ADR-0001's amendment and ADR-0042
+	// both keep the choice between backings out of first contact: the Workspace this Project lands in
+	// is the silent browser-backed one either way, and `first-run.ts` carries the whole argument.
+	//
+	// ⚠ **The visit is recorded on whatever screen this is, which is why the claim is taken before
+	// the emptiness is read.** A scholar whose first landing was a `?p=` link somebody sent them, and
+	// who later deletes their last Project, must meet an empty Workspace Home — not a fresh Untitled
+	// Project minted over the one they just chose to remove.
+
+	$effect(() => {
+		const current = session;
+		const workspace = storage;
+		if (!current || !workspace || host.unsupported) return;
+		// The three branches that render instead of Workspace Home, in the order the markup asks
+		// them: a Workspace that has not opened has no list, and an empty list is not a fact yet.
+		if (workspace.resumeFolder || workspace.unavailable || current.status !== 'ready') return;
+		if (!claimFirstVisit()) return;
+		// ⚠ **Any query at all is somebody else's arrival.** A sign-in callback, a Published Site's
+		// `?clone=`, a `?review=`, a Project named in `?p=` — each lands on this one route (ADR-0008),
+		// and every one of them is a visitor who came here to do something specific. Minting a Project
+		// underneath the offer that link raised would answer a question nobody asked.
+		if (page.url.search !== '' || workspace.review !== null) return;
+		if (current.projects.length > 0) return;
+		void beginFirstProject(current);
+	});
+
+	/**
+	 * Make this Workspace's first Project and open it.
+	 *
+	 * Named by `Workspace.createProject`'s own default rather than by a string invented here, so
+	 * there is one place that decides what an unnamed Project is called. It is renamed in the
+	 * Project's own settings, which is a press away and needs no trip back to the hub.
+	 *
+	 * ⚠ **A refusal leaves the visitor on Workspace Home and says so there.** `createProject` answers
+	 * `null` having already put its own alert on that screen, so there is nothing to report here and
+	 * nowhere better to be — and `claimFirstVisit` has latched, so the failure is not retried on
+	 * every re-render.
+	 */
+	async function beginFirstProject(current: EditorSession): Promise<void> {
+		const project = await current.createProject('');
+		if (!project) return;
+		// `replaceState`, for the reason `strip` gives: the empty hub behind this was never an address
+		// the visitor chose, and Back should leave the app rather than return to a screen that only
+		// ever existed for the length of one effect.
+		await goto(resolve(`/?p=${encodeURIComponent(project.directory)}`), { replaceState: true });
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE GITHUB SIGN-IN COMES BACK HERE (ADR-0031)

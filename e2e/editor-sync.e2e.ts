@@ -191,7 +191,7 @@ const projectFiles = (
 				}
 			],
 			baseMap: null,
-			baseMapAppearance: { streets: false, relief: true, muted: false }
+			baseMapAppearance: { streets: false, relief: true, highContrast: false }
 		},
 		null,
 		'\t'

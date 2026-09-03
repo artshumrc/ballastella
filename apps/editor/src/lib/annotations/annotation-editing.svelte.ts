@@ -24,6 +24,8 @@
 
 import {
 	addAnnotation,
+	circleGeometry,
+	circleRadiusMeters,
 	findAnnotation,
 	newAnnotation,
 	isLabel as annotationIsLabel,
@@ -285,7 +287,7 @@ export class AnnotationEditing {
 	 */
 	get selectedIsDrawable(): boolean {
 		const type = this.#selectedAnnotation?.geometry?.type;
-		return type === 'Point' || type === 'LineString' || type === 'Polygon';
+		return type === 'Point' || type === 'LineString' || type === 'Polygon' || type === 'Circle';
 	}
 
 	/**
@@ -471,7 +473,7 @@ export class AnnotationEditing {
 	 *   property is written at all, which is what a shape drawn on the map is. **One write either
 	 *   way**: a creation followed by a retitle is two, and {@link placePin} exists in the shape it
 	 *   does because of it.
-	 * @param options.label whether the Label tool drew this. The other three tools write no
+	 * @param options.label whether the Label tool drew this. The other drawing tools write no
 	 *   `marker-symbol` at all.
 	 */
 	async #addDrawn(
@@ -531,19 +533,24 @@ export class AnnotationEditing {
 		const positions: readonly (readonly [number, number])[] =
 			geometry.type === 'Point'
 				? [geometry.coordinates]
-				: geometry.type === 'Polygon'
-					? (geometry.coordinates[0] ?? []).slice(0, -1)
-					: geometry.coordinates;
+				: geometry.type === 'Circle'
+					? [geometry.center, geometry.coordinates[0]?.[16] ?? geometry.center]
+					: geometry.type === 'Polygon'
+						? (geometry.coordinates[0] ?? []).slice(0, -1)
+						: geometry.coordinates;
 
 		positions.forEach((position, index) => {
 			points.push({
 				key: `annotation-vertex-${annotation.id}-${index}`,
 				point: { lng: position[0] ?? 0, lat: position[1] ?? 0 },
 				kind: 'annotation-vertex',
-				ordinal: index + 1,
+				...(geometry.type === 'Circle'
+					? { glyph: index === 0 ? 'C' : 'R' }
+					: { ordinal: index + 1 }),
 				label:
-					`Point ${index + 1} of ${positions.length} of ${this.annotationName(annotation.id)}. ` +
-					'Arrow keys move it.',
+					geometry.type === 'Circle'
+						? `${index === 0 ? 'Center' : 'Radius'} of ${this.annotationName(annotation.id)}. Arrow keys move it.`
+						: `Point ${index + 1} of ${positions.length} of ${this.annotationName(annotation.id)}. Arrow keys move it.`,
 				// **Once, on gesture end.** Pointer-up, or the release of a held arrow key — never per
 				// pointer-move, which is what makes "one edit is one store write" a number the suite counts.
 				onmove: (to) => this.previewReshape(index, to),
@@ -610,6 +617,9 @@ export class AnnotationEditing {
 				at === index ? moved : position
 			);
 			return { type: 'LineString', coordinates: positions };
+		} else if (geometry.type === 'Circle') {
+			if (index === 0) return circleGeometry(moved, geometry.radiusMeters);
+			return circleGeometry(geometry.center, circleRadiusMeters(geometry.center, moved));
 		} else {
 			const ring = (geometry.coordinates[0] ?? []).slice(0, -1);
 			const positions = ring.map((position, at) => (at === index ? moved : position));

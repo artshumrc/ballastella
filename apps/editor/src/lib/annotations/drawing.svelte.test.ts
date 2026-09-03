@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { AnnotationDrawing, toolName } from './drawing.svelte.js';
 
 /** The shapes on offer with `tool` in hand, which is what "New Annotation" then a shape leaves. */
-const armed = (tool: 'point' | 'line' | 'polygon' | 'text'): AnnotationDrawing => {
+const armed = (tool: 'point' | 'line' | 'polygon' | 'circle' | 'text'): AnnotationDrawing => {
 	const drawing = new AnnotationDrawing();
 	drawing.offerShapes();
 	drawing.choose(tool);
@@ -65,13 +65,13 @@ describe('one press of New Annotation makes one Annotation', () => {
 	// Escape and the Cancel button both come here: `ProjectScreen.svelte`'s window handler spends
 	// `cancel()`'s boolean to decide whether to consume the key, and `AnnotationTools.svelte`'s Cancel
 	// calls it before choosing `select`. So this *is* the Escape path, minus the keypress.
-	it.each(['point', 'line', 'polygon', 'text'] as const)(
+	it.each(['point', 'line', 'polygon', 'circle', 'text'] as const)(
 		'is put down by Escape with the %s tool armed and nothing drawn',
 		(tool) => {
 			// "Mid-gesture" for a one-click tool means exactly "armed and not yet placed": there is no
 			// part-drawn Label, so an Escape that only abandoned part-drawn shapes left the tool armed and
 			// the next map click placed the Label the scholar had just abandoned. The armed-nothing-drawn
-			// state belongs to all four tools, so the rule is one rule for the four.
+			// state belongs to every drawing tool, so the rule is one rule for all of them.
 			const drawing = armed(tool);
 
 			expect(drawing.cancel()).toBe(true);
@@ -96,6 +96,33 @@ describe('one press of New Annotation makes one Annotation', () => {
 		expect(geometry?.type).toBe('Polygon');
 		expect(drawing.tool).toBe('select');
 		expect(drawing.picking).toBe(false);
+	});
+
+	it('makes a semantic circle from a center and a radius point', () => {
+		const drawing = armed('circle');
+
+		expect(drawing.place({ lng: 4, lat: 7 })).toBeNull();
+		expect(drawing.status).toBe('Center placed. Click the map to set the radius.');
+		const geometry = drawing.place({ lng: 6, lat: 7 });
+
+		expect(geometry?.type).toBe('Circle');
+		if (geometry?.type !== 'Circle') throw new Error('expected a circle');
+		const ring = geometry.coordinates[0]!;
+		expect(geometry.center).toEqual([4, 7]);
+		expect(geometry.radiusMeters).toBeGreaterThan(200_000);
+		expect(ring).toHaveLength(65);
+		expect(ring.at(-1)).toEqual(ring[0]);
+		expect(drawing.tool).toBe('select');
+	});
+
+	it('stays armed when the second click lands on the center, which is no radius', () => {
+		const drawing = armed('circle');
+		drawing.place({ lng: 4, lat: 7 });
+
+		expect(drawing.place({ lng: 4, lat: 7 })).toBeNull();
+
+		expect(drawing.tool).toBe('circle');
+		expect(drawing.drawing).toBe(true);
 	});
 
 	it('puts the tool down when a gesture is abandoned, which is over too', () => {
@@ -186,6 +213,12 @@ describe('the tool and the gesture are said in words', () => {
 		drawing.place({ lng: 4.9, lat: 52.37 });
 
 		expect(drawing.status).toContain('Label added');
+	});
+
+	it('calls the rounded-shape tool a Circle', () => {
+		const drawing = armed('circle');
+		expect(toolName(drawing.tool)).toBe('Circle');
+		expect(drawing.status).toBe('Click the map to start.');
 	});
 
 	it('names the shape that was finished, not the one before it', () => {

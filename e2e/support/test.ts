@@ -24,7 +24,7 @@
 
 import { DIALOG_PROBE_PREFIX, DIALOG_PROBE_SCRIPT } from './dialog-probe.js';
 import { test as fenced } from './network-fence.js';
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * The name the editor gives a first visit's Workspace — `DEFAULT_WORKSPACE_NAME` in
@@ -97,6 +97,36 @@ const WORKSPACE_ROOT_SCRIPT = ({ fallback, key }: { fallback: string; key: strin
 };
 
 /**
+ * Where the editor records that it has been opened on this browser. `first-run.ts`'s key.
+ *
+ * ⚠ **Every spec in this suite starts as a returning visitor, and that is a decision.** A first
+ * visit makes a Project and opens it instead of showing an empty Workspace Home, and a Playwright
+ * context starts with empty `localStorage` — so without this, every spec that empties its Workspace
+ * would quietly gain an `Untitled Project` and a navigation it did not ask for. Almost nothing in
+ * this suite is about first contact; nearly everything is about a scholar who already has work, and
+ * seeding that is as legitimate as seeding the Project itself.
+ *
+ * First contact is opted into, once, by {@link asFirstVisit}.
+ */
+const VISITED_KEY = 'ballastella.visited';
+
+/**
+ * Let the next load be this browser's first visit to the editor.
+ *
+ * Init scripts run in the order they were added, so this one lands after the fixture's and wins.
+ * Call it before the `goto` whose arrival is the subject.
+ */
+export async function asFirstVisit(page: Page): Promise<void> {
+	await page.addInitScript((key: string) => {
+		try {
+			localStorage.removeItem(key);
+		} catch {
+			// A context with no storage is one the editor reads as a returning visitor anyway.
+		}
+	}, VISITED_KEY);
+}
+
+/**
  * `test` for this suite: the network fence, plus `workspaceRoot()` inside every `page.evaluate`.
  *
  * Import this in every spec. Nothing else is behind both fixtures.
@@ -108,6 +138,15 @@ export const test = fenced.extend({
 			fallback: DEFAULT_WORKSPACE,
 			key: OPEN_WORKSPACE_KEY
 		});
+
+		// See {@link VISITED_KEY}: this suite's default visitor has been here before.
+		await page.addInitScript((key: string) => {
+			try {
+				localStorage.setItem(key, 'yes');
+			} catch {
+				// Nothing to seed and nothing that needs it — see `first-run.ts`.
+			}
+		}, VISITED_KEY);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
 		// WHY A DIALOG CLOSED, KEPT FOR THE RUN THAT NEEDS IT. See `dialog-probe.ts`.

@@ -170,9 +170,9 @@ async function ingestThroughTheInterface(
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
 
-	// The wait is load-bearing: a Project is selected client-side from `?p=` (ADR-0008), so for a
-	// moment after the click the hub is still rendered — and the hub lists Projects as list items.
-	await page.getByRole('link', { name: PROJECT_NAME }).click();
+	// Creating a Project opens it, so there is no row to click. The wait is still load-bearing: a
+	// Project is selected client-side from `?p=` (ADR-0008), so for a moment after the press the hub
+	// is still rendered — and the hub lists Projects as list items.
 	await expect(addMapImageButton(page)).toBeVisible();
 
 	await pickMapImageFile(page, {

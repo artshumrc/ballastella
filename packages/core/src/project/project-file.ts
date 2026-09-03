@@ -114,7 +114,7 @@ export interface ProjectFile {
 	 */
 	readonly baseMap: string | null;
 	/**
-	 * How that Base Map is drawn: streets, relief, muted colours (`appearance.ts`).
+	 * How that Base Map is drawn: streets, relief, high contrast (`appearance.ts`).
 	 *
 	 * Never `null`, and total like `borders` below and for the same reason: every unusable value
 	 * means the documented default and `readBaseMapChoice` has already applied it, so a caller

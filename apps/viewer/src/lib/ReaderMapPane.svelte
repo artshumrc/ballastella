@@ -108,7 +108,7 @@
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
 		/**
-		 * How the geography is drawn: streets, relief, muted colours.
+		 * How the geography is drawn: streets, relief, high contrast.
 		 *
 		 * **The author's, unless this Reader has overridden it for themselves** — which they may, and
 		 * the page owns that resolution (`reader-preference.ts`). Contrast the borders below, which
@@ -347,7 +347,7 @@
 		// The appearance and the styling are in the key as their own values rather than as objects,
 		// because this is compared as a string: a repaint that missed a colour change would leave the
 		// map asserting a border the settings dialog says has been changed.
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.muted}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.highContrast}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	/**
 	 * The style for one catalog entry at the current theme.

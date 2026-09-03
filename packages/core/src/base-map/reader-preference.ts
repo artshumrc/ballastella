@@ -22,9 +22,9 @@
 //
 // **Two independent overrides in one record.** Which tiles are read is an id against the site's own
 // catalog; how they are drawn is the same `BaseMapAppearance` the author sets (`appearance.ts`), so
-// a low-vision Reader can mute the palette without also giving up the relief the author put under
+// a low-vision Reader can raise the contrast without also giving up the relief the author put under
 // the work — which is what a list of named variants forced them to do. Both are stored as one JSON
-// object under one key, and each is `null` on its own: a Reader who muted the colours has not
+// object under one key, and each is `null` on its own: a Reader who raised the contrast has not
 // thereby chosen a tile source.
 //
 // The id is not validated against a catalog here. `resolveBaseMap` already falls back visibly for an

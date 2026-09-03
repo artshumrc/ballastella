@@ -28,19 +28,23 @@ describe('the Base Map appearance', () => {
 	it('defaults to the map every Project drew before the field existed', () => {
 		// A build that started hiding the roads on upgrade would silently change what a shared map
 		// assert, which is the same rule `borders` follows.
-		expect(DEFAULT_BASE_MAP_APPEARANCE).toEqual({ streets: true, relief: false, muted: false });
+		expect(DEFAULT_BASE_MAP_APPEARANCE).toEqual({
+			streets: true,
+			relief: false,
+			highContrast: false
+		});
 		expect(isDefaultAppearance(look())).toBe(true);
-		expect(isDefaultAppearance(look({ muted: true }))).toBe(false);
+		expect(isDefaultAppearance(look({ highContrast: true }))).toBe(false);
 	});
 
 	it('names a flavor per theme, and a different one when high contrast is on', () => {
 		// ADR-0016: one theme signal drives the map as well as the interface, so a dark UI cannot
 		// frame a bright white map.
 		expect(baseMapFlavorName(look(), 'light')).not.toBe(baseMapFlavorName(look(), 'dark'));
-		expect(baseMapFlavorName(look({ muted: true }), 'light')).not.toBe(
+		expect(baseMapFlavorName(look({ highContrast: true }), 'light')).not.toBe(
 			baseMapFlavorName(look(), 'light')
 		);
-		expect(baseMapFlavorName(look({ muted: true }), 'dark')).not.toBe(
+		expect(baseMapFlavorName(look({ highContrast: true }), 'dark')).not.toBe(
 			baseMapFlavorName(look(), 'dark')
 		);
 	});
@@ -49,9 +53,9 @@ describe('the Base Map appearance', () => {
 		it('takes each switch on its own, so one unusable value does not lose the others', () => {
 			expect(
 				readBaseMapChoice({
-					baseMapAppearance: { streets: false, relief: 'yes', muted: true }
+					baseMapAppearance: { streets: false, relief: 'yes', highContrast: true }
 				}).appearance
-			).toEqual({ streets: false, relief: false, muted: true });
+			).toEqual({ streets: false, relief: false, highContrast: true });
 		});
 
 		it.each([
@@ -64,10 +68,21 @@ describe('the Base Map appearance', () => {
 			expect(readBaseMapChoice(document).appearance).toEqual(DEFAULT_BASE_MAP_APPEARANCE);
 		});
 
+		it('reads the name this switch shipped under, so a saved Project keeps its palette', () => {
+			// `muted` is `highContrast` renamed once the switch started drawing what it said. The
+			// records carrying the old name are a saved `project.json` and a Reader's `localStorage`,
+			// and neither is migrated before something has to be drawn from it.
+			expect(appearanceFrom({ muted: true })).toEqual(look({ highContrast: true }));
+			expect(appearanceFrom({ streets: false, muted: false })).toEqual(
+				look({ streets: false, highContrast: false })
+			);
+			expect(appearanceFrom({ muted: true, highContrast: false })).toEqual(look());
+		});
+
 		it('separates “switched everything off” from “said nothing”', () => {
 			// `appearanceFrom` is what a Reader's own stored preference leans on: all three off is a map
 			// somebody asked for, and falling back to the author's would put the streets back.
-			const off = { streets: false, relief: false, muted: false };
+			const off = { streets: false, relief: false, highContrast: false };
 
 			expect(appearanceFrom(off)).toEqual(off);
 			expect(appearanceFrom({})).toBeNull();
@@ -86,12 +101,12 @@ describe('the Base Map appearance', () => {
 		});
 
 		it('records the switches, and nothing that could be an address', () => {
-			const written = decode(savedWith(look({ relief: true, muted: true })));
+			const written = decode(savedWith(look({ relief: true, highContrast: true })));
 
 			expect(JSON.parse(written).baseMapAppearance).toEqual({
 				streets: true,
 				relief: true,
-				muted: true
+				highContrast: true
 			});
 			// ADR-0020, restated one level down: how a map is drawn travels, and where its tiles are
 			// does not.
@@ -105,13 +120,13 @@ describe('the Base Map appearance', () => {
 		});
 
 		it('does not also lodge the field in unknownFields, which would write it back twice', () => {
-			const parsed = parseProjectFile(savedWith(look({ muted: true })));
+			const parsed = parseProjectFile(savedWith(look({ highContrast: true })));
 
 			expect(parsed.unknownFields).not.toHaveProperty('baseMapAppearance');
 			// The round trip is the half that would actually bite: a carried copy is spread over the
 			// modelled one and silently undoes the edit just made.
 			expect(parseProjectFile(serialiseProjectFile(parsed)).baseMapAppearance).toEqual(
-				look({ muted: true })
+				look({ highContrast: true })
 			);
 		});
 	});

@@ -1294,7 +1294,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 		// its name so that "the preference" means the preference rather than anything of that shape.
 		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
 			[`ballastella.baseMap:${site.sites[0]!.url}`]: JSON.stringify({
-				appearance: { streets: true, relief: false, muted: true }
+				appearance: { streets: true, relief: false, highContrast: true }
 			})
 		});
 
@@ -2119,7 +2119,9 @@ test.describe('the Base Map a Reader sees', () => {
 		// the switch reaches the style at all is asserted at Seam 1 (`style.test.ts`).
 		site = await servedSite(
 			oneProject({
-				projectOverrides: { baseMapAppearance: { streets: false, relief: false, muted: true } }
+				projectOverrides: {
+					baseMapAppearance: { streets: false, relief: false, highContrast: true }
+				}
 			})
 		);
 		const seen = watch(page);
@@ -2222,7 +2224,7 @@ test.describe('the Base Map a Reader sees', () => {
 			)
 		).toEqual({
 			[`ballastella.baseMap:${site!.sites[0]!.url}`]: JSON.stringify({
-				appearance: { streets: true, relief: false, muted: true }
+				appearance: { streets: true, relief: false, highContrast: true }
 			})
 		});
 		expect(seen.failures).toEqual([]);
@@ -2296,10 +2298,10 @@ test.describe('the Base Map a Reader sees', () => {
 			)
 		).toEqual({
 			[`ballastella.baseMap:${server.url}tracy/`]: JSON.stringify({
-				appearance: { streets: true, relief: false, muted: true }
+				appearance: { streets: true, relief: false, highContrast: true }
 			}),
 			[`ballastella.baseMap:${server.url}sam/`]: JSON.stringify({
-				appearance: { streets: false, relief: false, muted: false }
+				appearance: { streets: false, relief: false, highContrast: false }
 			})
 		});
 		expect(seen.failures).toEqual([]);
@@ -2371,12 +2373,14 @@ test.describe('the Base Map a Reader sees', () => {
 		// switch and not the map would satisfy the letter of it only.
 		//
 		// ⚠ **The author's Project drops the built environment, and the Reader keeps it dropped.** This
-		// is the combination the named variants could not offer: muting the palette used to mean
-		// choosing a different entry, and the only muted entry was a street map — so a Reader who
+		// is the combination the named variants could not offer: raising the contrast used to mean
+		// choosing a different entry, and the only such entry was a street map — so a Reader who
 		// needed the contrast was handed back the roads the author had taken off the work.
 		site = await servedSite(
 			oneProject({
-				projectOverrides: { baseMapAppearance: { streets: false, relief: false, muted: false } }
+				projectOverrides: {
+					baseMapAppearance: { streets: false, relief: false, highContrast: false }
+				}
 			})
 		);
 		const seen = watch(page);
@@ -2392,8 +2396,8 @@ test.describe('the Base Map a Reader sees', () => {
 
 		await drawSwitch(page, 'High contrast').click();
 
-		// The style was repainted, and its layers now carry the muted flavor's own colours rather than
-		// the default's. Compared against the paint before, so this cannot pass on a style that never
+		// The style was repainted, and its layers now carry the high-contrast palette rather than the
+		// default's. Compared against the paint before, so this cannot pass on a style that never
 		// changed.
 		await expect.poll(() => paint(page)).not.toBe(before);
 		await expect(drawSwitch(page, 'High contrast')).toBeChecked();

@@ -76,7 +76,7 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 const APPEARANCE_SWITCHES = [
 	'Streets — roads, buildings and places',
 	'Topography — shaded relief and contour lines',
-	'High contrast — muted colours, so annotations stay legible'
+	'High contrast — black and white, for maximum legibility'
 ];
 
 // By role, not by label: MapLibre gives the canvas the accessible name "Base Map" too, which is
@@ -391,7 +391,7 @@ test.describe('the Base Map pane', () => {
 		await expect(page.getByTestId('border-switcher').getByRole('radio')).toHaveCount(3);
 	});
 
-	test('puts the switches within keyboard reach, and the muted Base Map renders', async ({
+	test('puts the switches within keyboard reach, and the high-contrast Base Map renders', async ({
 		page
 	}) => {
 		await openPane(page);
@@ -455,7 +455,7 @@ test.describe('the Base Map pane', () => {
 		await page.keyboard.press('Tab');
 		await expect(drawSwitch(page, 'High contrast')).toBeFocused();
 
-		// The muted palette has to be genuinely reachable from the keyboard, not merely rendered.
+		// The high-contrast palette has to be genuinely reachable from the keyboard, not merely rendered.
 		await page.keyboard.press('Space');
 		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');

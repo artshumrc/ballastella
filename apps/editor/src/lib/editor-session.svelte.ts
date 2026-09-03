@@ -3884,7 +3884,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Record how this Project draws its Base Map: streets, relief, muted colours.
+	 * Record how this Project draws its Base Map: streets, relief, high contrast.
 	 *
 	 * A discrete choice like {@link chooseBaseMap}, written now rather than debounced. The whole
 	 * appearance rather than a patch, because the control hands back a whole one — three switches

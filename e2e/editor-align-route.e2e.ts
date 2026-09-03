@@ -69,7 +69,7 @@ async function projectWithMap(page: Page): Promise<void> {
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
-	await page.getByRole('link', { name: PROJECT_NAME }).click();
+	// Creating a Project opens it, so there is no row to click.
 	await expect(addMapImageButton(page)).toBeVisible();
 	await pickMapImageFile(page, {
 		name: 'la-floride.png',

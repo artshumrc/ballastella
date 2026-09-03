@@ -68,7 +68,7 @@ async function createAndOpenProject(page: Page, name: string): Promise<void> {
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
 	await dialog.getByLabel('Project name').fill(name);
 	await dialog.getByRole('button', { name: 'Create' }).click();
-	await page.getByRole('link', { name }).click();
+	// Creating a Project opens it, so there is no row to click.
 	await expect(page.getByTestId('project-screen')).toBeVisible();
 }
 

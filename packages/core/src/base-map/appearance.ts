@@ -3,15 +3,15 @@
 //
 // **This is a composition, not a menu, because the tiles are one archive.** Every appearance below
 // is a style document over the same vector source (ADR-0005): the built environment is a set of
-// layers to keep or drop, the relief is a second dataset to draw or not, and the palette is a
-// Protomaps flavor to name. Nothing here costs a request the map was not already making, except
+// layers to keep or drop, the relief is a second dataset to draw or not, and the palette is a set of
+// colours to draw them in. Nothing here costs a request the map was not already making, except
 // `relief`, which reads the catalog's elevation dataset and says so.
 //
 // The catalog used to carry these as named variants — a "Streets" entry, a "Physical geography"
 // entry, a "Topographic" entry, a "Muted" entry — which meant a scholar who wanted contour lines
-// *and* roads could not have them, and a low-vision Reader who wanted muted colours lost the relief
-// to get them. Four entries covered four of the eight combinations, and the ones they left out were
-// not the unlikely ones. Three orthogonal fields cover all eight and are shorter.
+// *and* roads could not have them, and a low-vision Reader who wanted a legible palette lost the
+// relief to get it. Four entries covered four of the eight combinations, and the ones they left out
+// were not the unlikely ones. Three orthogonal fields cover all eight and are shorter.
 //
 // **It is Project data, not a catalog entry and not a deployment's business**, for the reason
 // `borders.ts` gives about boundaries: how the modern earth is drawn under a fourteenth-century
@@ -26,7 +26,8 @@ import type { ThemeScheme } from '../theme.js';
  * How the Base Map is drawn, as three switches that do not constrain each other.
  *
  * Every combination is meaningful, including the ones no named variant ever offered: contour lines
- * under a road network, a muted palette with the relief still shaded, bare landcover with neither.
+ * under a road network, a high-contrast palette with the relief still shaded, bare landcover with
+ * neither.
  */
 export type BaseMapAppearance = {
 	/**
@@ -48,13 +49,13 @@ export type BaseMapAppearance = {
 	 */
 	readonly relief: boolean;
 	/**
-	 * Use the unsaturated, high-contrast palette instead of the ordinary one.
+	 * Draw the map in the two-value high-contrast palette instead of the ordinary one.
 	 *
-	 * A low-vision Reader must be able to mute the Base Map so that Annotations stay legible over
-	 * it; `e2e/viewer-reader.e2e.ts` asserts that choice in the published viewer. It is one flavor
-	 * name instead of another and costs nothing.
+	 * A low-vision Reader must be able to make the Base Map legible without leaving the work;
+	 * `e2e/viewer-reader.e2e.ts` asserts that choice in the published viewer. It is a repaint of the
+	 * flavor — see `high-contrast.ts` — and costs no request.
 	 */
-	readonly muted: boolean;
+	readonly highContrast: boolean;
 };
 
 /**
@@ -67,7 +68,7 @@ export type BaseMapAppearance = {
 export const DEFAULT_BASE_MAP_APPEARANCE: BaseMapAppearance = Object.freeze({
 	streets: true,
 	relief: false,
-	muted: false
+	highContrast: false
 });
 
 /** The key `project.json` records the author's appearance under. */
@@ -78,7 +79,7 @@ export function isDefaultAppearance(appearance: BaseMapAppearance): boolean {
 	return (
 		appearance.streets === DEFAULT_BASE_MAP_APPEARANCE.streets &&
 		appearance.relief === DEFAULT_BASE_MAP_APPEARANCE.relief &&
-		appearance.muted === DEFAULT_BASE_MAP_APPEARANCE.muted
+		appearance.highContrast === DEFAULT_BASE_MAP_APPEARANCE.highContrast
 	);
 }
 
@@ -93,19 +94,26 @@ export function isDefaultAppearance(appearance: BaseMapAppearance): boolean {
  * everything off", which are different states and are stored in the same string bag —
  * see `reader-preference.ts`. A record with one recognisable boolean in it is a choice; a record
  * with none, a string, or `undefined` is not.
+ *
+ * `muted` is read as `highContrast` because it is the same switch under the name it shipped under,
+ * and the records carrying it are a Reader's `localStorage` and a saved `project.json` — neither of
+ * which this code gets to migrate before it is asked to draw. `highContrast` wins where a document
+ * somehow carries both.
  */
 export function appearanceFrom(value: unknown): BaseMapAppearance | null {
 	if (typeof value !== 'object' || value === null) return null;
 	const fields = value as Record<string, unknown>;
-	const chosen = (['streets', 'relief', 'muted'] as const).filter(
-		(key) => typeof fields[key] === 'boolean'
+	const contrast = typeof fields.highContrast === 'boolean' ? fields.highContrast : fields.muted;
+	const chosen = [fields.streets, fields.relief, contrast].filter(
+		(field) => typeof field === 'boolean'
 	);
 	if (chosen.length === 0) return null;
 	return {
 		streets:
 			typeof fields.streets === 'boolean' ? fields.streets : DEFAULT_BASE_MAP_APPEARANCE.streets,
 		relief: typeof fields.relief === 'boolean' ? fields.relief : DEFAULT_BASE_MAP_APPEARANCE.relief,
-		muted: typeof fields.muted === 'boolean' ? fields.muted : DEFAULT_BASE_MAP_APPEARANCE.muted
+		highContrast:
+			typeof contrast === 'boolean' ? contrast : DEFAULT_BASE_MAP_APPEARANCE.highContrast
 	};
 }
 
@@ -113,14 +121,17 @@ export function appearanceFrom(value: unknown): BaseMapAppearance | null {
  * The Protomaps flavor one appearance asks for in one theme.
  *
  * Both arguments, and neither optional, for the reason `baseMapStyle` takes a theme: a dark UI
- * framing a bright white map is the failure ADR-0016 is written to prevent. `grayscale` and `black`
- * are the two flavors that carry no `landcover` struct, which is why a muted map with `streets` off
- * is distinguished by its layer selection alone — a muted palette asked for muted.
+ * framing a bright white map is the failure ADR-0016 is written to prevent.
+ *
+ * High contrast names `white` and `black` — the two flavors whose earth is already the extreme its
+ * palette wants — but the *name* is not the palette: `highContrastFlavor` repaints whichever of them
+ * this returns. The name still matters on its own, because the sprite sheet is chosen by it and
+ * there are only these five.
  */
 export function baseMapFlavorName(
 	appearance: BaseMapAppearance,
 	scheme: ThemeScheme
 ): BaseMapFlavorName {
-	if (appearance.muted) return scheme === 'dark' ? 'black' : 'grayscale';
+	if (appearance.highContrast) return scheme === 'dark' ? 'black' : 'white';
 	return scheme === 'dark' ? 'dark' : 'light';
 }

@@ -26,8 +26,11 @@ import {
 	type Annotation,
 	type AnnotationCollection,
 	type AnnotationGeometry,
-	type AnnotationProperties
+	type AnnotationProperties,
+	circleGeometry
 } from './annotation.js';
+
+const CIRCLE_FIELD = 'ballastella:circle';
 
 /** An Annotation Layer's file could not be read as GeoJSON. */
 export class AnnotationsUnreadableError extends Error {
@@ -93,7 +96,7 @@ const readPositions = (value: unknown): [number, number][] | null => {
  * came from somewhere and it is not this module's business to decide it is worthless — and a
  * geometry silently rewritten is worse than one that is drawn as nothing and written back intact.
  */
-function readGeometry(value: unknown): AnnotationGeometry {
+function readGeometry(value: unknown, circleValue: unknown): AnnotationGeometry {
 	const record = asRecord(value);
 	if (record === null) return null;
 	const type = record['type'];
@@ -118,6 +121,17 @@ function readGeometry(value: unknown): AnnotationGeometry {
 			const positions = readPositions(ring);
 			if (positions === null) return foreign();
 			rings.push(positions);
+		}
+		const circle = asRecord(circleValue);
+		const center = readPosition(circle?.['center']);
+		const radiusMeters = circle?.['radiusMeters'];
+		if (
+			center !== null &&
+			typeof radiusMeters === 'number' &&
+			Number.isFinite(radiusMeters) &&
+			radiusMeters >= 0
+		) {
+			return { ...circleGeometry(center, radiusMeters), coordinates: rings };
 		}
 		return { type: 'Polygon', coordinates: rings };
 	}
@@ -174,14 +188,15 @@ export function parseAnnotations(
 		// two-case exception `parseLayers` makes, and reachable only from a hand-edited file.
 		if (feature === null) continue;
 		const id = feature['id'];
+		const geometry = readGeometry(feature['geometry'], feature[CIRCLE_FIELD]);
 		annotations.push({
 			// A number id is stringified rather than refused: RFC 7946 permits either, and QGIS writes
 			// integers. It goes back out as the string, which is a change of one character in a file
 			// that had to be rewritten anyway to gain whatever edit prompted the write.
 			id: typeof id === 'string' && id !== '' ? id : typeof id === 'number' ? String(id) : mintId(),
-			geometry: readGeometry(feature['geometry']),
+			geometry,
 			properties: readProperties(feature['properties']),
-			...rest(feature, FEATURE_KEYS)
+			...rest(feature, geometry?.type === 'Circle' ? [...FEATURE_KEYS, CIRCLE_FIELD] : FEATURE_KEYS)
 		});
 	}
 
@@ -202,7 +217,13 @@ function serialiseAnnotation(annotation: Annotation): Record<string, unknown> {
 				? null
 				: geometry.type === 'foreign'
 					? geometry.raw
-					: { type: geometry.type, coordinates: geometry.coordinates },
+					: {
+							type: geometry.type === 'Circle' ? 'Polygon' : geometry.type,
+							coordinates: geometry.coordinates
+						},
+		...(geometry?.type === 'Circle'
+			? { [CIRCLE_FIELD]: { center: geometry.center, radiusMeters: geometry.radiusMeters } }
+			: {}),
 		// Last, so a field this build does know always wins over a stale copy of itself — the same
 		// ordering rule `serialiseLayer` follows.
 		...annotation.unknownFields

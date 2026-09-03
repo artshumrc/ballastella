@@ -80,10 +80,13 @@ describe('baseMapStyle', () => {
 	it('keeps the glyphs, the sprite, and every layer when reading the cache', () => {
 		// The cache changes where the *tiles* come from and nothing else: the same style documents over
 		// one vector dataset is ADR-0020's zero-extra-bytes claim, and it has to survive caching.
-		const networked = baseMapStyle(tiles, { theme: 'dark', appearance: look({ muted: true }) });
+		const networked = baseMapStyle(tiles, {
+			theme: 'dark',
+			appearance: look({ highContrast: true })
+		});
 		const cached = baseMapStyle(tiles, {
 			theme: 'dark',
-			appearance: look({ muted: true }),
+			appearance: look({ highContrast: true }),
 			cachedTiles: { maxZoom: 14, tileTemplate: 'x://{z}/{x}/{y}' }
 		});
 		expect(cached.layers.map((layer) => layer.id)).toEqual(
@@ -105,7 +108,7 @@ describe('baseMapStyle', () => {
 		};
 
 		expect(url(look({ streets: false }))).toBe(url(look()));
-		expect(url(look({ muted: true }))).toBe(url(look()));
+		expect(url(look({ highContrast: true }))).toBe(url(look()));
 	});
 
 	it('drops the built environment when the streets are switched off', () => {
@@ -206,7 +209,7 @@ describe('baseMapStyle', () => {
 	});
 
 	it('hides borders under any appearance, because the boundaries are in the tiles', () => {
-		for (const appearance of [look(), look({ streets: false }), look({ muted: true })]) {
+		for (const appearance of [look(), look({ streets: false }), look({ highContrast: true })]) {
 			const none = baseMapStyle(tiles, { theme: 'light', appearance, borders: 'none' }).layers;
 			expect(none.map((layer) => layer.id)).not.toContain(NATIONAL_BOUNDARY_LAYER);
 		}
@@ -234,26 +237,33 @@ describe('baseMapStyle', () => {
 		expect(paint(dark, 'water')).not.toEqual(paint(light, 'water'));
 	});
 
-	it('selects the muted flavor when high contrast is on, and its sprite with it', () => {
-		const muted = baseMapStyle(tiles, { theme: 'light', appearance: look({ muted: true }) });
+	it('repaints the map when high contrast is on, and takes its sprite with it', () => {
+		const contrast = baseMapStyle(tiles, {
+			theme: 'light',
+			appearance: look({ highContrast: true })
+		});
 		const ordinary = baseMapStyle(tiles, { theme: 'light' });
 
-		expect(muted.sprite).not.toBe(ordinary.sprite);
-		expect(paint(muted.layers, 'water')).not.toEqual(paint(ordinary.layers, 'water'));
+		expect(contrast.sprite).not.toBe(ordinary.sprite);
+		expect(paint(contrast.layers, 'water')).not.toEqual(paint(ordinary.layers, 'water'));
+		// `high-contrast.test.ts` owns the palette's ratios; what this file owns is that a style
+		// document actually carries them rather than a flavor name that reads as one.
+		expect(paint(contrast.layers, 'earth')).toMatchObject({ 'fill-color': '#ffffff' });
+		expect(paint(contrast.layers, 'roads_major')).toMatchObject({ 'line-color': '#000000' });
 	});
 
 	it('keeps the three switches independent, so every combination is a different map', () => {
 		// ⚠ **The assertion the named variants could not make.** Four entries covered four of these
-		// eight, and the ones they left out — contours under a road network, a muted palette with the
-		// relief still shaded — were the combinations scholars asked for. A regression letting one
-		// switch swallow another would still draw a map; only counting them catches it.
+		// eight, and the ones they left out — contours under a road network, a high-contrast palette
+		// with the relief still shaded — were the combinations scholars asked for. A regression letting
+		// one switch swallow another would still draw a map; only counting them catches it.
 		const drawn = new Set<string>();
 		for (const streets of [true, false]) {
 			for (const relief of [true, false]) {
-				for (const muted of [true, false]) {
+				for (const highContrast of [true, false]) {
 					const style = baseMapStyle(tiles, {
 						theme: 'light',
-						appearance: { streets, relief, muted },
+						appearance: { streets, relief, highContrast },
 						terrainTiles: { dem: 'dem://x', contours: 'contour://x' }
 					});
 					drawn.add(
@@ -464,16 +474,18 @@ describe('baseMapStyle over a forked catalog', () => {
 		);
 	});
 
-	it('honours a flavor that carries no landcover struct, over a forked archive', () => {
+	it('draws a physical high-contrast map over a forked archive, landcover and all', () => {
 		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
 			...options,
-			appearance: look({ streets: false, muted: true })
+			appearance: look({ streets: false, highContrast: true })
 		});
 
-		// `grayscale` has no landcover colours to borrow, so the map is its layer selection alone.
-		expect(style.sprite).toBe('icons/grayscale');
+		// `white` has no landcover colours to borrow, so the high-contrast palette brings its own —
+		// without them the combination a low-vision Reader most needs is a blank rectangle.
+		expect(style.sprite).toBe('icons/white');
 		expect(style.layers.some((layer) => layer.id.startsWith('roads_'))).toBe(false);
 		expect(style.layers.some((layer) => layer.id === 'water')).toBe(true);
+		expect(paint(style.layers, 'landuse_park')).not.toMatchObject({ 'fill-color': '#ffffff' });
 	});
 
 	it('resolves a forked default, and falls back to it, without the real catalog involved', () => {

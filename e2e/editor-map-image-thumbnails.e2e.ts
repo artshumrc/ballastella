@@ -66,7 +66,8 @@ test('a Map Image added from a file shows a picture that has actually decoded', 
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
 	await dialog.getByLabel('Project name').fill('La Floride');
 	await dialog.getByRole('button', { name: 'Create' }).click();
-	await page.getByRole('link', { name: 'La Floride' }).click();
+	// Creating a Project opens it, so there is no row to click.
+	await expect(page.getByTestId('project-name')).toHaveText('La Floride');
 
 	// Waited out in full, `info.json` included: `addMapImageFromFile` returns when the preparing
 	// card has gone, which is the end of the whole add. A thumbnail assertion made before the pyramid is
