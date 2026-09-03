@@ -38,7 +38,10 @@
 		/** The Project's folder, which is its identity and what its link names (ADR-0008). */
 		directory: string;
 		onFrontPage: boolean;
-		/** Whether the Workspace carries a site, or `null` while nothing has read the files yet. */
+		/**
+		 * Whether the Workspace has Share Links — either side's tree, less a recorded withdrawal
+		 * (ADR-0045) — or `null` while nothing has asked yet.
+		 */
 		shareLinks: boolean | null;
 		/** The address *Share Project* hands over, or `''` where there is no repository to serve it. */
 		link: string;

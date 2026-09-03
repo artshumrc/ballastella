@@ -247,7 +247,7 @@
 	/**
 	 * That the author has asked to open a Workspace by its address.
 	 *
-	 * ⚠ **A fact about a press, exactly as {@link changing} is, and it survives nothing.** Closing the
+	 * ⚠ **A fact about a press, exactly as {@link otherWayIn} is, and it survives nothing.** Closing the
 	 * sequence forgets it, so reopening reads the world again and lands wherever the world says.
 	 */
 	let byAddress = $state(false);

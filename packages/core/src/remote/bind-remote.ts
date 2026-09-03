@@ -153,7 +153,14 @@ export type RemotePagesOutcome = {
 export type RemotePagesWithdrawal = {
 	/** Whether GitHub reports the site gone — including a repository that never had one. */
 	readonly disabled: boolean;
-	/** `''` when the site is gone; otherwise the sentence saying it may not be. */
+	/**
+	 * What the author has to be told about the withdrawal, or `''` when there is nothing.
+	 *
+	 * ⚠ **Not the negation of {@link disabled}.** {@link disableRemotePages} fills it only where the
+	 * site may still answer, but a caller that also has to keep the withdrawal *request* has a second
+	 * thing to say — {@link withdrawalNotRecordedMessage} — and says it here, over a site GitHub did
+	 * take down. So a reader renders whatever is in it and never infers it from `disabled`.
+	 */
 	readonly notice: string;
 };
 
