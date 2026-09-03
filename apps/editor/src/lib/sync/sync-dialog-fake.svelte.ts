@@ -105,7 +105,7 @@ export class FakeSyncStorage {
 	withdrawing = $state(false);
 	/** How many times a send answered the withdrawal request. */
 	withdrawalsFinished = 0;
-	rights: RemoteRights = { canPush: true };
+	rights: RemoteRights | Error = { canPush: true };
 	sharing: RemoteSharing = { shared: false, known: true, owner: 'ada', others: [] };
 	/** What `getFromRemote` answers, or an error it throws. */
 	getAnswer: WorkspaceUpdate | Error = {
@@ -143,6 +143,7 @@ export class FakeSyncStorage {
 	}
 
 	async readRights(): Promise<RemoteRights> {
+		if (this.rights instanceof Error) throw this.rights;
 		return this.rights;
 	}
 

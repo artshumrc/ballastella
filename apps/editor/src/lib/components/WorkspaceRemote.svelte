@@ -102,6 +102,9 @@
 	/** Whether the relationship is known to be read-only, which is the one state that says so. */
 	const readOnly = $derived(canPush === false);
 	const siteAddress = $derived(bound === null ? '' : publishedSiteUrl(bound));
+	const pagesSettingsUrl = $derived(
+		bound === null ? '' : `https://github.com/${bound.owner}/${bound.repository}/settings/pages`
+	);
 	const withdrawalWarning = $derived(bound === null ? '' : shareLinksWithdrawalMessage(bound));
 
 	/**
@@ -360,11 +363,19 @@
 			-->
 			{#if storage.pagesSetupByHand}
 				<p class="mt-2 max-w-prose" data-testid="pages-setup-by-hand">
-					One setting on GitHub is yours to make for this: Ballastella does not ask you for the
-					right to rename, transfer or delete your repositories, and GitHub requires that before it
-					will turn a site on for you. This press adds the viewer to your Workspace and hands you
-					the setting.
+					GitHub Pages is one setting you turn on yourself. Then turn Share Links on here.
 				</p>
+				<!-- eslint-disable svelte/no-navigation-without-resolve -->
+				<a
+					class="btn mt-2 btn-sm"
+					href={pagesSettingsUrl}
+					target="_blank"
+					rel="noreferrer noopener"
+					data-testid="pages-settings-button"
+				>
+					Open GitHub Pages settings
+				</a>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
 			{/if}
 			<!-- `aria-disabled` and never `disabled`, for the reason every busy control on this surface
 			     uses the same: a `disabled` button leaves the tab order the instant it is pressed,

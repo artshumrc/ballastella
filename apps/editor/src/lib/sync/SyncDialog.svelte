@@ -309,12 +309,12 @@
 				loadViewerBundle(),
 				storage.hasShareLinks(),
 				active.readPublishedSite(),
-				// A question GitHub would not answer is read as *cannot write*, which is the direction
-				// that offers a control that can only refuse to nobody. Signed out it is not asked at
-				// all: rights cannot be read without a credential, and nothing here may claim them.
+				// A failed rights check is not evidence that this credential cannot write. Signed out it is
+				// not asked at all: rights cannot be read without a credential, and nothing here may claim
+				// them.
 				credential === null
 					? Promise.resolve({ canPush: false })
-					: storage.readRights().catch(() => ({ canPush: false })),
+					: storage.readRights().catch(() => null),
 				storage.withdrawingShareLinks()
 			]);
 			const sitePlan = (): Promise<PublishedSitePlan> =>
@@ -326,7 +326,7 @@
 				token: credential,
 				remote: bound,
 				pending: local?.files ?? [],
-				sending: rights.canPush
+				sending: rights?.canPush === true
 			});
 			// ⚠ **The Remote's own site counts, and learning of it costs the one extra listing here.**
 			// A Workspace got from a Remote that has Share Links carries no viewer files, so the local
@@ -341,7 +341,7 @@
 					token: credential,
 					remote: bound,
 					pending: local.files,
-					sending: rights.canPush
+					sending: rights?.canPush === true
 				});
 			}
 			if (mine !== planning) return;
@@ -360,7 +360,7 @@
 			shareLinks = local !== null;
 			site = record;
 			plan = local;
-			canSend = rights.canPush;
+			canSend = rights?.canPush ?? null;
 			upload = forecast;
 			staleness =
 				record === null || local === null
