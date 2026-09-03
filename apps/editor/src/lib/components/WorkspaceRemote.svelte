@@ -202,7 +202,10 @@
 			withdrawing = false;
 			withdrawalNotice = withdrawal.notice;
 			pages = null;
-			shareLinks = false;
+			// Read back rather than assumed false: a browser that would not keep the request leaves the
+			// Remote's site standing and the next Sync rebuilding it, and the press the notice tells the
+			// author to make again has to still be on the screen.
+			shareLinks = await storage.hasShareLinks();
 		});
 
 	/**

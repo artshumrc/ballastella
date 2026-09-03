@@ -710,6 +710,7 @@ export {
 	readRemotePages,
 	readRemoteRights,
 	shareLinksWithdrawalMessage,
+	withdrawalNotRecordedMessage,
 	type AwaitRemotePagesOptions,
 	type BindRemoteOptions,
 	type RemoteBindOutcome,
