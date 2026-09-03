@@ -6,8 +6,8 @@
 // PNG encoder — and a stub of any of the three would only prove the stub agrees with itself. The
 // row arithmetic is checked without a browser in `map-snapshot.test.ts`.
 //
-// It runs in Chromium and Firefox because the two encoders are different implementations of the
-// same promise, and this is the one file that asks either of them for a file the scholar keeps.
+// It runs in Chromium only, excluded from the Firefox instance in `vitest.config.ts`: the GitHub
+// Actions runner gives Firefox no WebGL context at all, so there is no drawing buffer there to read.
 
 import { describe, expect, test } from 'vitest';
 
