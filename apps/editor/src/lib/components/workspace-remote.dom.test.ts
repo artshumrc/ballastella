@@ -289,20 +289,20 @@ describe('letting other people see it, which is a later act', () => {
 		expect(absent('pages-notice')).toBe(true);
 	});
 
-	// ⚠ **Said before the press rather than by the answer to it** (ADR-0040). Where the credential
-	// cannot turn a site on — every sign-in — the press asks GitHub for nothing, so a control offered
-	// with nothing beside it implies an act that is not going to happen. The sentence names the reason
-	// as a choice this tool made about what it asks for, because "one setting, done once" on its own
-	// reads as a defect nobody has got round to.
-	test('says the setting is the author’s own before the press, where nothing else can turn it on', async () => {
+	// ⚠ **Said before the press rather than by the answer to it** (ADR-0040). The author can go straight
+	// to the one GitHub setting the app deliberately lacks permission to change.
+	test('links directly to the author’s GitHub Pages setting before the press', async () => {
 		const storage = connected();
 		storage.pagesSetupByHand = true;
 		open(storage);
 		await settle();
 
 		const said = text(at('pages-setup-by-hand'));
-		expect(said).toMatch(/One setting on GitHub is yours to make/);
-		expect(said).toMatch(/rename, transfer or delete your repositories/);
+		expect(said).toBe('GitHub Pages is one setting you turn on yourself. Then turn Share Links on here.');
+		expect(at('pages-settings-button')).toHaveAttribute(
+			'href',
+			'https://github.com/ada/atlas/settings/pages'
+		);
 		expect(at('enable-pages')).toBeTruthy();
 	});
 
@@ -313,6 +313,7 @@ describe('letting other people see it, which is a later act', () => {
 		await settle();
 
 		expect(absent('pages-setup-by-hand')).toBe(true);
+		expect(absent('pages-settings-button')).toBe(true);
 	});
 
 	test('asks for it once when pressed, and says the site will answer', async () => {

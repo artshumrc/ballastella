@@ -334,6 +334,16 @@ describe('the sync modal for somebody who cannot write', () => {
 
 		expect(storage.gets).toHaveLength(1);
 	});
+
+	test('does not mistake an unreadable rights check for read-only access', async () => {
+		const storage = somethingToGet();
+		storage.rights = new Error('GitHub could not be reached.');
+
+		await open(storage);
+
+		expect(absent('sync-read-only')).toBe(true);
+		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
+	});
 });
 
 // ⚠ **Getting needs no credential, and this is where that property is held** (ADR-0044). A public
