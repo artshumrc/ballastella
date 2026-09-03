@@ -92,7 +92,7 @@ describe('installation-local synchronization metadata', () => {
 			expect(await new SynchronizationMetadata(storage, FOLDER).readRemote()).toEqual(ATLAS_2);
 		});
 
-		// ⚠ **A `RemoteBinding` read off disk carries its own `formatVersion`.** Spread over the stored
+		// ⚠ **A stored relationship read off disk carries its own `formatVersion`.** Spread over the stored
 		// record's, it wrote a version this build's reader refuses — a Workspace that reported itself
 		// unbound the instant it was bound.
 		it('takes only the repository identity from whatever the caller was carrying', async () => {

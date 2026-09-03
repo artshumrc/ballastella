@@ -196,7 +196,8 @@ describe('the two columns one plan answers for', () => {
 
 		expect(plan.size.files).toBe(2);
 		expect(plan.size.bytes).toBeGreaterThan(0);
-		expect(plan.budget.requests).toBe(2);
+		// Two blobs, plus the tree, the commit and the ref move: what the hour is spent against.
+		expect(plan.budget.requests).toBe(5);
 		expect(plan.budget.remaining).toBeGreaterThan(0);
 	});
 });

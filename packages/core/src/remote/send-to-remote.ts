@@ -458,7 +458,7 @@ const GITLINK_MODE = '160000';
  * every blob and then meets the 403 at `POST /git/trees` — a stop at the most expensive moment
  * possible, after all the bytes and before anything is visible.
  */
-const REQUESTS_BEYOND_BLOBS = 3;
+export const REQUESTS_BEYOND_BLOBS = 3;
 
 const EMPTY_FILE: Bytes = new Uint8Array(0);
 

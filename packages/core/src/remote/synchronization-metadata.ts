@@ -306,7 +306,7 @@ export async function discardSynchronizationMetadata(
 /**
  * The three fields of a repository identity, and nothing else the caller happened to be carrying.
  *
- * ⚠ **Spelled out rather than spread.** A `RemoteBinding` read off disk carries its *own*
+ * ⚠ **Spelled out rather than spread.** A {@link StoredRelationship} read off disk carries its *own*
  * `formatVersion`, and spreading it over the stamp below silently wrote a record this build's reader
  * then refused — a Workspace that reported itself unbound the moment it was bound.
  */

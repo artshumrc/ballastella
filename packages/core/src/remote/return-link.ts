@@ -13,7 +13,7 @@
 //
 // Both halves of a repository reference are interpolated straight into a GitHub API path by the
 // inbound and Review engines, so `readReturnLink` goes through `parseRemoteReference` — the checked
-// reader `parseRemoteBinding`'s note is written about — rather than splitting on a slash. An owner
+// reader `normaliseRemoteIdentity`'s note is written about — rather than splitting on a slash. An owner
 // of `ada/../../orgs` retargets every request the engine makes, and `encodeURIComponent` at the
 // interpolation is not the fix.
 //

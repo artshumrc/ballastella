@@ -327,7 +327,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
  * — a hand-edited record, or one served by whoever controls the host — and the link it feeds is
  * rendered on the *site's own origin*, so a `javascript:` address would be script execution against
  * the author's domain (ADR-0009). Checked once, so the field is safe by construction wherever it is
- * interpolated, which is `parseRemoteBinding`'s reasoning about the same class of input.
+ * interpolated, which is `normaliseRemoteIdentity`'s reasoning about the same class of input.
  *
  * The trailing slash is not cosmetic either: the return links are this address plus a query string,
  * and `https://host/ballastella?clone=…` asks a static host for a *file* called `ballastella`.
@@ -359,9 +359,9 @@ function parseEditorUrl(value: unknown): string {
  * ⚠ **Through `normaliseRemoteIdentity`, which is the one place GitHub's character sets are applied
  * to a persisted repository identity.** Both halves are interpolated into a GitHub API path by the
  * Open and Review engines, and an owner of `ada/../../orgs` retargets every request they make — so a
- * record served by whoever controls the host is checked here rather than trusted, exactly as
- * `parseRemoteBinding` checks the file it reads. A record that names no repository is ordinary — a
- * site written into a folder — and not a failure.
+ * record served by whoever controls the host is checked here rather than trusted, which is what
+ * that one reader exists for. A record that names no repository is ordinary — a site written
+ * into a folder — and not a failure.
  */
 function parsePublishedRepository(value: unknown): PublishedRepository | null {
 	if (typeof value !== 'object' || value === null) return null;

@@ -33,7 +33,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE PLAN IS THE PLANNER'S, AND IT IS REPLANNED HERE RATHER THAN INHERITED
 //
-// {@link planWorkspaceUpdate} owns every three-way decision, and this module reimplements none of
+// {@link planWorkspaceSync} owns every three-way decision, and this module reimplements none of
 // them. What it does own is the two inventories that plan is made from, and both are gathered again
 // at the moment of transfer:
 //

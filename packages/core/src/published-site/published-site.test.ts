@@ -1367,7 +1367,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 	 * hand-edited record, or one served by whoever controls the host — and a `javascript:` address
 	 * rendered as a link is script execution on the author's domain (ADR-0009). Refused here rather
 	 * than at the one place that renders it, so the field is safe by construction wherever it is used,
-	 * which is `parseRemoteBinding`'s reasoning about the same class of input.
+	 * which is `normaliseRemoteIdentity`'s reasoning about the same class of input.
 	 */
 	it.each([
 		['javascript:alert(1)'],

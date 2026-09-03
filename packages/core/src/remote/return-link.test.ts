@@ -153,7 +153,7 @@ describe('the link an editor is landed on', () => {
 	/**
 	 * ⚠ **A link is a thing anyone can send.** Both fields are interpolated into a GitHub API path by
 	 * the inbound and Review engines, where an owner of `ada/../../orgs` retargets every request they
-	 * make — the trap `parseRemoteBinding` records, and the reason the same checked reader is used
+	 * make — the trap `normaliseRemoteIdentity` records, and the reason the same checked reader is used
 	 * here rather than a split on `/`.
 	 */
 	it.each([['ada/../../orgs'], ['ada'], ['ada/atlas/tree/main'], ['/atlas'], ['ada atlas']])(
