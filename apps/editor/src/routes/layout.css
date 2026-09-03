@@ -353,9 +353,9 @@
 	z-index: 2;
 }
 
-/* A Control Point wears its highlight on the drawing, because its own box is a transparent
-   rectangle around an `<svg>`: the generic rule above would fill that rectangle instead, and the
-   halo would be a square floating around the needle. */
+/* A Control Point wears its highlight through its theme colour. Its own box is transparent around
+   an `<svg>`, so the generic rule would fill a square; a wider SVG halo would change the target the
+   scholar is placing. */
 .pane-overlay-point-control-point.pane-overlay-point-selected {
 	background: none;
 	box-shadow: none;
@@ -367,14 +367,6 @@
 
 .pane-overlay-point-control-point.pane-overlay-point-selected .needle-ordinal {
 	fill: var(--color-secondary-content);
-}
-
-/* The aura, in the same colour, so a selected pair reads at a glance across two panes. On the halo
-   rather than the body: a wider stroke on the shape itself would fatten the needle, and what has to
-   grow is the ring around it. */
-.pane-overlay-point-control-point.pane-overlay-point-selected .needle-halo {
-	stroke: var(--color-secondary);
-	stroke-width: 8;
 }
 
 /* The half that has been clicked but not yet matched. Dashed and hollow, because "the tool is

@@ -81,6 +81,7 @@
 		gitHubAccountKnown,
 		rememberGitHubAccount
 	} from '$lib/connect-sequence.svelte.js';
+	import { slide } from 'svelte/transition';
 
 	import ModalDialog from './ModalDialog.svelte';
 	import RepositoryChoice from './RepositoryChoice.svelte';
@@ -1446,10 +1447,16 @@
 						data-testid="connect-other-way-in"
 						onclick={() => showOtherWayIn(!otherWayIn)}
 					>
-						{otherWayIn ? 'Hide the other way in' : 'Signing in will not work for me'}
+						{otherWayIn ? 'Hide personal access token sign-in' : 'Signing in will not work for me'}
 					</button>
 					{#if otherWayIn}
-						<div id={otherWayInId} data-testid="connect-other-way-in-panel">
+						<div
+							id={otherWayInId}
+							class="overflow-hidden"
+							data-testid="connect-other-way-in-panel"
+							transition:slide={{ duration: 200 }}
+						>
+							<h4 class="mt-3 font-semibold">Sign in with a personal access token</h4>
 							<p class="mt-2 max-w-prose text-sm opacity-70">
 								If signing in cannot reach your repository — the app's access to it was removed, or
 								it was never granted and the account that could grant it is not yours to change —

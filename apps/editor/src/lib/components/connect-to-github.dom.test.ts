@@ -1952,11 +1952,13 @@ describe('the way in for an installation that has broken', () => {
 		expect(absent('connect-paste')).toBe(true);
 	});
 
-	test('says it is open once it is, and puts the field there', () => {
+	test('expands a named personal access token sign-in form', () => {
 		open(signedIn());
 		press('connect-other-way-in');
 
 		expect(at('connect-other-way-in')).toHaveAttribute('aria-expanded', 'true');
+		expect(text(at('connect-other-way-in'))).toBe('Hide personal access token sign-in');
+		expect(text(at('connect-other-way-in-panel'))).toContain('Sign in with a personal access token');
 		expect(at('connect-token-field')).toBeTruthy();
 	});
 
