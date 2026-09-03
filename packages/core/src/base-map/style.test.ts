@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { namedFlavor } from '@protomaps/basemaps';
 
 import { ANNOTATION_COLORS } from '../annotation/annotation';
 import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
+import { PHYSICAL_LAND } from './physical';
 import { defaultEntry, resolveBaseMap } from './resolve';
 import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID, bordersIllegibleThemes } from './style';
 import { TERRAIN_CONTOUR_SOURCE_ID, TERRAIN_DEM_SOURCE_ID } from './terrain';
@@ -119,6 +121,32 @@ describe('baseMapStyle', () => {
 		expect(streets).toContain('buildings');
 		expect(bare.some((id) => id.startsWith('roads_'))).toBe(false);
 		expect(bare).not.toContain('buildings');
+	});
+
+	it('drops the built environment drawn as an area, and keeps the natural world beside it', () => {
+		const bare = layerIds(look({ streets: false }));
+
+		// These share a `landuse_` prefix with the park and the beach, which is why `style.ts` names
+		// them one at a time: a prefix filter here would take the subject of the map with them.
+		for (const id of ['landuse_industrial', 'landuse_school', 'landuse_pedestrian']) {
+			expect(layerIds(look())).toContain(id);
+			expect(bare).not.toContain(id);
+		}
+		expect(bare).toContain('landuse_park');
+		expect(bare).toContain('landuse_beach');
+	});
+
+	it('paints the park in the physical palette, not the low-zoom landcover ramp', () => {
+		// The bug this replaces: `landcover.grassland` is what the `landcover` layer draws at z5-7,
+		// where its own opacity has already reached zero by the zoom `landuse_park` fades in — so the
+		// park was painted a shade off the earth at every zoom a reader actually looks at.
+		const bare = paint(
+			baseMapStyle(tiles, { theme: 'light', appearance: look({ streets: false }) }).layers,
+			'landuse_park'
+		);
+
+		expect(JSON.stringify(bare)).toContain(PHYSICAL_LAND.light.park);
+		expect(JSON.stringify(bare)).not.toContain(namedFlavor('light').landcover?.grassland);
 	});
 
 	it('keeps water, landcover, and place labels with the streets switched off', () => {

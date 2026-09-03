@@ -102,8 +102,9 @@ export const MAX_BORDER_WIDTH = 6;
  * a state line and an international one the same claim.
  */
 export function subnationalWidth(nationalWidth: number): number {
-	const ratio = BORDER_WIDTH[SUBNATIONAL_BOUNDARY_LAYER] / BORDER_WIDTH[NATIONAL_BOUNDARY_LAYER];
-	return Math.round(nationalWidth * ratio * 100) / 100;
+	return (
+		Math.round(nationalWidth * (AUTOMATIC_SUBNATIONAL_WIDTH / AUTOMATIC_NATIONAL_WIDTH) * 100) / 100
+	);
 }
 
 /**
@@ -183,9 +184,12 @@ export function readBaseMapBorders(document: unknown): BaseMapBorders {
  * this file — and a 0.4px dashed line was not reliably visible at all. The national line stays the
  * heavier of the two, because the distinction between the two levels is the point of `national`.
  */
+const AUTOMATIC_NATIONAL_WIDTH = 1;
+const AUTOMATIC_SUBNATIONAL_WIDTH = 0.64;
+
 const BORDER_WIDTH: Record<string, number> = {
-	[NATIONAL_BOUNDARY_LAYER]: 1,
-	[SUBNATIONAL_BOUNDARY_LAYER]: 0.64
+	[NATIONAL_BOUNDARY_LAYER]: AUTOMATIC_NATIONAL_WIDTH,
+	[SUBNATIONAL_BOUNDARY_LAYER]: AUTOMATIC_SUBNATIONAL_WIDTH
 };
 
 /**

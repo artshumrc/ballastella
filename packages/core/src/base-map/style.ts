@@ -18,6 +18,7 @@ import {
 } from './appearance';
 import { BASE_MAP_CATALOG } from './catalog';
 import { highContrastFlavor } from './high-contrast';
+import { physicalFlavor } from './physical';
 import type { BaseMapCatalog, BaseMapEntry, BaseMapTerrain } from './entry';
 import {
 	contourLayers,
@@ -42,6 +43,25 @@ const LABEL_LANGUAGE = 'en';
  * same tiles can say something different, not that some tiles are missing.
  */
 const BUILT_ENVIRONMENT_PREFIXES = ['roads_', 'buildings', 'address_label', 'pois'] as const;
+
+/**
+ * Layer ids a map without `streets` drops, alongside {@link BUILT_ENVIRONMENT_PREFIXES}.
+ *
+ * Named one at a time rather than by a `landuse_` prefix, because that prefix is where the park,
+ * urban green, beach and zoo polygons live too — the natural world this switch exists to show. What
+ * is listed is the built environment drawn as an area: campuses, industrial estates, plazas,
+ * aprons. Left in, they punch grey holes through the green, which is most of why turning the
+ * streets off used to read as a flatter map rather than a physical one.
+ */
+const BUILT_ENVIRONMENT_LAYERS = [
+	'landuse_hospital',
+	'landuse_industrial',
+	'landuse_school',
+	'landuse_pedestrian',
+	'landuse_aerodrome',
+	'landuse_runway',
+	'landuse_pier'
+] as const;
 
 export type BaseMapStyleOptions = {
 	readonly theme: Theme;
@@ -290,7 +310,9 @@ function appearanceLayers(
 ): LayerSpecification[] {
 	if (appearance.streets) return all;
 	return all.filter(
-		(layer) => !BUILT_ENVIRONMENT_PREFIXES.some((prefix) => layer.id.startsWith(prefix))
+		(layer) =>
+			!BUILT_ENVIRONMENT_PREFIXES.some((prefix) => layer.id.startsWith(prefix)) &&
+			!BUILT_ENVIRONMENT_LAYERS.some((id) => id === layer.id)
 	);
 }
 
@@ -303,21 +325,31 @@ function appearanceLayers(
  * earth. A palette derived twice is a scholar switching from automatic to chosen and watching the
  * border move.
  *
- * With `streets` off, woodland, scrub, sand, beach, glacier, and park are repainted in the flavor's
- * own `landcover` colours — the saturated ones Protomaps uses at low zoom where the natural world is
- * the subject, or the high-contrast ramp's own steps when that switch is on. Deriving them from the
- * flavor rather than picking a palette here is what keeps light and dark coherent, and keeps this
- * from becoming a third theme.
- *
- * `light` and `dark` are the only named flavors carrying a `landcover` struct, so a physical map is
- * the one case where the flavor a high-contrast map starts from would have left it nothing to
- * repaint — `high-contrast.ts` supplies the struct for exactly that reason.
+ * With `streets` off the land classes are repainted, and by which of two palettes depends on the
+ * switch beside it. `highContrast` brings a ramp whose steps are spaced for a low-vision Reader and
+ * are checked against the ground rather than chosen to look like country — that ramp wins, and it
+ * is the reason `high-contrast.ts` carries a `landcover` struct at all. Otherwise the land is
+ * painted in `physical.ts`'s own colours, which is the case where the map is meant to read as
+ * physical geography.
  */
 function appearanceFlavor(appearance: BaseMapAppearance, scheme: ThemeScheme): Flavor {
 	const named = namedFlavor(baseMapFlavorName(appearance, scheme));
 	const flavor = appearance.highContrast ? highContrastFlavor(named, scheme) : named;
+	if (appearance.streets) return flavor;
+	return appearance.highContrast ? contrastLandFlavor(flavor) : physicalFlavor(flavor, scheme);
+}
+
+/**
+ * `flavor` with its land classes taken from the high-contrast ramp it is already carrying.
+ *
+ * A flavor with no `landcover` struct is returned untouched rather than guessed at: every flavor a
+ * high-contrast map starts from is given one by `high-contrast.ts`, so the absent case is a fork's
+ * hand-written flavor, and drawing that fork's own colours is closer to its intent than substituting
+ * a ramp derived from nothing.
+ */
+function contrastLandFlavor(flavor: Flavor): Flavor {
 	const landcover = flavor.landcover;
-	if (appearance.streets || landcover === undefined) return flavor;
+	if (landcover === undefined) return flavor;
 
 	// `water` is deliberately not touched: it is already the flavor's most saturated colour, and
 	// dropping the built environment is about bringing the *land* up to it rather than inventing a

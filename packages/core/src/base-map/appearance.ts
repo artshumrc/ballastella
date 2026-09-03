@@ -33,9 +33,9 @@ export type BaseMapAppearance = {
 	/**
 	 * Draw the built environment: roads, buildings, address labels, and points of interest.
 	 *
-	 * Off, the same tiles read as physical geography — the built layers are dropped and the
-	 * flavor's saturated `landcover` colours take over the woodland, scrub, sand, beach, glacier and
-	 * park, which is what Protomaps paints at the zooms where the natural world is the subject.
+	 * Off, the same tiles read as physical geography: the built layers are dropped — including the
+	 * campus, industrial and plaza polygons that would otherwise punch grey holes through the green —
+	 * and the woodland, scrub, sand, beach, glacier and park are repainted from `physical.ts`.
 	 */
 	readonly streets: boolean;
 	/**
