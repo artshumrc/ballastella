@@ -15,6 +15,7 @@ import {
 	bindWorkspaceToRemote,
 	disableRemotePages,
 	enableRemotePages,
+	guidedPagesStep,
 	pagesSettingsUrl,
 	readRemoteRights,
 	shareLinksWithdrawalMessage,
@@ -187,6 +188,40 @@ describe('turning Pages on, whose failure is a step rather than an error', () =>
 		expect(outcome.instruction).toMatch(/Deploy from a branch/);
 		expect(outcome.instruction).toMatch(/“main”/);
 		expect(outcome.instruction).toMatch(/\/ \(root\)/);
+	});
+
+	// ⚠ **A refusal nobody has to be shown to predict.** A GitHub App user token cannot carry
+	// `Administration: write` (ADR-0040), so for a signed-in author `POST /pages` is refused every
+	// time — and the caller that knows which credentials those are skips the request rather than
+	// putting a spinner in front of a known answer. What must not differ is the step: the same screen,
+	// the same branch, the same folder as the refusal would have produced.
+	//
+	// That no request is made is the signature rather than an assertion: this takes no credential and
+	// no `fetch`, so there is nothing here that could reach GitHub. Which credentials skip the request
+	// is the editor's knowledge, and `e2e/editor-github-signin.e2e.ts` is where a signed-in press is
+	// watched leaving Pages off.
+	it('hands over the same step as the refusal, with nothing asked of GitHub', () => {
+		const outcome = guidedPagesStep(REMOTE);
+
+		expect([outcome.enabled, outcome.next]).toEqual([false, 'guided']);
+		expect(outcome.settingsUrl).toBe('https://github.com/ada/atlas/settings/pages');
+		expect(outcome.branch).toBe('main');
+		expect(outcome.instruction).toMatch(/Settings → Pages/);
+		expect(outcome.instruction).toMatch(/Deploy from a branch/);
+		expect(outcome.instruction).toMatch(/“main”/);
+		expect(outcome.instruction).toMatch(/\/ \(root\)/);
+	});
+
+	// ⚠ **It blames nothing, because nothing the author holds is at fault.** `pagesInstruction` names
+	// a credential that lacks two permissions, which is the truth about a pasted token that could have
+	// carried them; said over a sign-in it describes a right this tool has decided not to ask for, and
+	// sends the author off to check a setting that is not theirs to fix.
+	it('says the setting is the author’s own rather than naming a credential that lacks something', () => {
+		const outcome = guidedPagesStep(REMOTE);
+
+		expect(outcome.instruction).toMatch(/one setting you make yourself/);
+		expect(outcome.instruction).toMatch(/Administration: Read and write/);
+		expect(outcome.instruction).not.toMatch(/this credential does not have/);
 	});
 
 	// ⚠ **The guided step is one click and not a search** — the screen, the branch, and the folder,

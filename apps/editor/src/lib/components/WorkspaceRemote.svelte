@@ -350,6 +350,22 @@
 				That address answers nothing yet. Your work is on GitHub either way — Share Links is what
 				also lets other people open it.
 			</p>
+			<!--
+				⚠ **Said before the press and not after it** (ADR-0040). Where the credential cannot turn
+				a site on, this press writes the viewer into the Workspace and asks GitHub for nothing —
+				so a control announced as though GitHub were about to act would be describing something
+				that is not going to happen. The sentence GitHub's own refusal would have produced arrives
+				in the notice below either way; this is the half the author is owed *first*, because it is
+				the half that says the setting is theirs to make.
+			-->
+			{#if storage.pagesSetupByHand}
+				<p class="mt-2 max-w-prose" data-testid="pages-setup-by-hand">
+					One setting on GitHub is yours to make for this: Ballastella does not ask you for the
+					right to rename, transfer or delete your repositories, and GitHub requires that before it
+					will turn a site on for you. This press adds the viewer to your Workspace and hands you
+					the setting.
+				</p>
+			{/if}
 			<!-- `aria-disabled` and never `disabled`, for the reason every busy control on this surface
 			     uses the same: a `disabled` button leaves the tab order the instant it is pressed,
 			     dropping a keyboard user to `<body>` (WCAG 2.4.3). -->

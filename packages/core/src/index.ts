@@ -704,6 +704,7 @@ export {
 	bindWorkspaceToRemote,
 	disableRemotePages,
 	enableRemotePages,
+	guidedPagesStep,
 	pagesSettingsUrl,
 	projectShareUrl,
 	publishedSiteUrl,

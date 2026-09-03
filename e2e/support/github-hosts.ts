@@ -174,6 +174,15 @@ export type GitHubHosts = {
 	readonly rawRequests: string[];
 	/** Whether Pages is on for `owner/name`. */
 	pagesOn(owner: string, name: string): boolean;
+	/**
+	 * Turn Pages on the way the author does: on github.com, in Settings → Pages.
+	 *
+	 * ⚠ **The only way a signed-in author's site ever comes on** (ADR-0040). `POST /pages` needs
+	 * `Administration: write`, which the App does not ask for and no author can add to a sign-in, so
+	 * the app under test does not make that request at all — and a spec that reached a served site
+	 * through the press alone would be asserting something no deployment can do.
+	 */
+	turnPagesOn(owner: string, name: string): void;
 	/** Every path the branch's current commit holds, sorted. Empty for a repository this fake lacks. */
 	files(owner: string, name: string): string[];
 	/** The bytes at one path in the branch's current commit, as text, or `null`. */
@@ -436,6 +445,13 @@ export async function routeGitHubHosts(
 		requests,
 		rawRequests,
 		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false,
+		turnPagesOn: (owner, name) => {
+			const fake = fakes.get(key(owner, name));
+			if (fake === undefined) {
+				throw new Error(`No fake repository at ${key(owner, name)} to turn Pages on for.`);
+			}
+			fake.pagesEnabled = true;
+		},
 		files: (owner, name) => [...(fakes.get(key(owner, name))?.files().keys() ?? [])].sort(),
 		fileText: (owner, name, path) => {
 			const bytes = fakes.get(key(owner, name))?.files().get(path);

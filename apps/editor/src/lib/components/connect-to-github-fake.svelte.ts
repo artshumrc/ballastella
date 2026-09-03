@@ -124,6 +124,8 @@ export class FakeStorage {
 	withdrawalAnswer: RemotePagesWithdrawal | Error = { disabled: true, notice: '' };
 	/** Whether this Workspace's own tree carries the site record (ADR-0045). */
 	shareLinks = $state(false);
+	/** Whether turning the Pages site on is the author's own step — true for every sign-in. */
+	pagesSetupByHand = $state(false);
 	/** Whether the author has asked for the site to come down and no Sync has carried it out. */
 	withdrawing = $state(false);
 	/** How many times the sign-in was ended by a press. */

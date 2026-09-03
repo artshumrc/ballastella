@@ -289,6 +289,32 @@ describe('letting other people see it, which is a later act', () => {
 		expect(absent('pages-notice')).toBe(true);
 	});
 
+	// ⚠ **Said before the press rather than by the answer to it** (ADR-0040). Where the credential
+	// cannot turn a site on — every sign-in — the press asks GitHub for nothing, so a control offered
+	// with nothing beside it implies an act that is not going to happen. The sentence names the reason
+	// as a choice this tool made about what it asks for, because "one setting, done once" on its own
+	// reads as a defect nobody has got round to.
+	test('says the setting is the author’s own before the press, where nothing else can turn it on', async () => {
+		const storage = connected();
+		storage.pagesSetupByHand = true;
+		open(storage);
+		await settle();
+
+		const said = text(at('pages-setup-by-hand'));
+		expect(said).toMatch(/One setting on GitHub is yours to make/);
+		expect(said).toMatch(/rename, transfer or delete your repositories/);
+		expect(at('enable-pages')).toBeTruthy();
+	});
+
+	// The other credential: a pasted token may carry `Administration` if its author granted it, and
+	// nothing short of asking GitHub can tell — so nothing is promised and nothing is warned about.
+	test('says none of that where the credential might be allowed after all', async () => {
+		open(connected());
+		await settle();
+
+		expect(absent('pages-setup-by-hand')).toBe(true);
+	});
+
 	test('asks for it once when pressed, and says the site will answer', async () => {
 		const storage = connected();
 		open(storage);

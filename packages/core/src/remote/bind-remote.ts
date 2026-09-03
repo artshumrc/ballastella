@@ -45,6 +45,12 @@
 // the site answers. Nothing here ever throws: a repository full of correct files that serves nothing
 // is the failure this exists to avoid, and an error dialog is a worse one.
 //
+// ⚠ **A caller that already knows the answer is refused does not ask** — {@link guidedPagesStep} is
+// the same step reached without the request, which is what a sign-in takes. Whether this credential
+// could ever have been allowed is not a question this module can answer (ADR-0031: a pasted token and
+// a broker-exchanged one are the same string here), so the skipping is the caller's and the step is
+// shared.
+//
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AND NOTHING HERE REFUSES A REPOSITORY FOR HOLDING WORK THIS WORKSPACE HAS NOT GOT
 //
@@ -320,6 +326,30 @@ const guidedStep = (remote: RemoteReference, branch: string): RemotePagesOutcome
 });
 
 /**
+ * The same step, for a credential that was never going to be allowed to turn a site on.
+ *
+ * ⚠ **No request is made, because its answer is already known.** A GitHub App user token cannot
+ * carry `Administration: write` — ADR-0040 refuses to ask for it — so for a signed-in author
+ * `POST /pages` is refused every time, and a caller that made it anyway would put a spinner reading
+ * "Asking GitHub…" in front of a refusal it could have predicted. Which credentials those are is the
+ * caller's knowledge and not this module's (ADR-0031): what is here is the step, so that a caller
+ * skipping the request still hands over the same screen, branch and folder as one that made it.
+ *
+ * The sentence differs from {@link pagesInstruction}'s in the one way that matters: nothing the
+ * author did is at fault and no token of theirs can be fixed, so it does not send them looking.
+ */
+export const guidedPagesStep = (remote: RemoteReference): RemotePagesOutcome => {
+	const branch = remote.branch ?? DEFAULT_REMOTE_BRANCH;
+	return {
+		enabled: false,
+		next: 'guided',
+		instruction: pagesByHandMessage(remote, branch),
+		settingsUrl: pagesSettingsUrl(remote),
+		branch
+	};
+};
+
+/**
  * How long to wait between polls of a site that has not answered yet, in milliseconds.
  *
  * Backed off rather than evenly spaced, and the first one is immediate: an author who has just
@@ -540,6 +570,27 @@ function pagesInstruction(remote: RemoteReference, branch: string): string {
 		`have them. It is one setting, done once: on GitHub open ${describeRemote(remote)} → Settings ` +
 		`→ Pages, set Source to “Deploy from a branch”, choose the branch “${branch}” and the folder ` +
 		`“/ (root)”, and press Save. Until then your files will arrive and the site will serve nothing.`
+	);
+}
+
+/**
+ * What to say when turning the site on was always going to be the author's own step.
+ *
+ * ⚠ **It blames nothing and asks for no token to be changed.** {@link pagesInstruction} names a
+ * credential that lacks two permissions, which is the truth about a pasted token that could have
+ * carried them; said over a sign-in it describes a right this tool has decided not to hold, and
+ * sends the author to check something that is not theirs to fix. The reason is given, because "one
+ * setting, done once" with no reason reads as a defect somebody has not got round to.
+ */
+function pagesByHandMessage(remote: RemoteReference, branch: string): string {
+	return (
+		`Turning the site on is one setting you make yourself for ${describeRemote(remote)}. GitHub ` +
+		`requires “Administration: Read and write” before it will do it for anybody, and signing in to ` +
+		`Ballastella never asks you for that — it does not ask for the right to rename, transfer or ` +
+		`delete your repositories. So: open ${describeRemote(remote)} → Settings → Pages, set Source ` +
+		`to “Deploy from a branch”, choose the branch “${branch}” and the folder “/ (root)”, and press ` +
+		`Save. Then press Check again and Ballastella takes it from there. Until that setting is made ` +
+		`your files will arrive and the site will serve nothing.`
 	);
 }
 
