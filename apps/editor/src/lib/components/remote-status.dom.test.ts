@@ -161,7 +161,7 @@ describe('one badge, two clauses', () => {
 		bar(reading('in-sync'));
 
 		expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
-		expect(at('where-your-work-is')?.getAttribute('role')).toBe('status');
+		expect(at('where-your-work-is')?.closest('[role="status"]')).not.toBeNull();
 	});
 
 	// ⚠ **Where the edit is kept and whether GitHub has it are different questions**, and a badge that
@@ -176,7 +176,7 @@ describe('one badge, two clauses', () => {
 
 	test('says the reading has not been taken rather than projecting one of the six', () => {
 		bar();
-		press('remote-status-explain');
+		press('where-your-work-is');
 
 		expect(text('remote-status-determination')).toBe(REMOTE_STATUS_UNCHECKED);
 	});
@@ -213,23 +213,20 @@ describe('a Workspace with no repository', () => {
 
 		expect(text('where-your-work-is')).toBe('Saved here');
 		expect(at('where-your-work-is')?.dataset.remoteStatus).toBeUndefined();
-		expect(at('remote-status-explain')).toBeNull();
+		expect(at('where-your-work-is')?.tagName).toBe('P');
 	});
 });
 
 describe('everything else, one press away', () => {
-	test('holds nothing until the disclosure is pressed, and all four after', () => {
+	test('keeps the popover closed until the badge is pressed, and holds all four details', () => {
 		bar(reading('changes-to-send'), { baseline: BASELINE });
 
-		expect(at('remote-status-detail')).toBeNull();
-		expect(at('remote-status-determination')).toBeNull();
-		expect(at('remote-status-checked')).toBeNull();
-		expect(at('remote-status-baseline')).toBeNull();
-		expect(at('remote-status-explain')?.getAttribute('aria-expanded')).toBe('false');
+		expect(at('remote-status-detail')?.getAttribute('popover')).toBe('auto');
+		expect(at('where-your-work-is')?.getAttribute('aria-expanded')).toBe('false');
 
-		press('remote-status-explain');
+		press('where-your-work-is');
 
-		expect(at('remote-status-explain')?.getAttribute('aria-expanded')).toBe('true');
+		expect(at('where-your-work-is')?.getAttribute('aria-expanded')).toBe('true');
 		expect(text('remote-status-determination')).toContain('Changes to send');
 		expect(text('remote-status-detail')).toContain('Sync sends them');
 		expect(text('remote-status-checked')).toContain('Checked at');
@@ -239,7 +236,7 @@ describe('everything else, one press away', () => {
 
 	test('leaves the Baseline line out when there is no Baseline', () => {
 		bar(reading('cannot-tell'));
-		press('remote-status-explain');
+		press('where-your-work-is');
 
 		expect(at('remote-status-determination')).not.toBeNull();
 		expect(at('remote-status-baseline')).toBeNull();
@@ -253,14 +250,14 @@ describe('everything else, one press away', () => {
 
 		expect(at('check-remote-status')).toBeNull();
 
-		press('remote-status-explain');
+		press('where-your-work-is');
 
 		expect(at('check-remote-status')).toBeNull();
 	});
 
 	test.each(DETERMINATIONS)('%s has both a label and a sentence behind the press', (status) => {
 		bar(reading(status));
-		press('remote-status-explain');
+		press('where-your-work-is');
 
 		const detail = text('remote-status-detail');
 		expect(detail).toContain(REMOTE_STATUS_LABELS[status]);
@@ -271,10 +268,10 @@ describe('everything else, one press away', () => {
 	test('closes again on a second press', () => {
 		bar(reading('in-sync'));
 
-		press('remote-status-explain');
-		press('remote-status-explain');
+		press('where-your-work-is');
+		press('where-your-work-is');
 
-		expect(at('remote-status-detail')).toBeNull();
+		expect(at('where-your-work-is')?.getAttribute('aria-expanded')).toBe('false');
 	});
 });
 
@@ -285,7 +282,7 @@ describe('a check that failed', () => {
 		'%s keeps the determination it had',
 		(status) => {
 			bar(reading(status));
-			press('remote-status-explain');
+			press('where-your-work-is');
 			const determination = text('remote-status-determination');
 			const checked = text('remote-status-checked');
 			clear();
@@ -294,7 +291,7 @@ describe('a check that failed', () => {
 				...reading(status),
 				failure: 'GitHub could not be reached, so the status below is the last one read.'
 			});
-			press('remote-status-explain');
+			press('where-your-work-is');
 
 			expect(text('remote-status-determination')).toBe(determination);
 			expect(text('remote-status-checked')).toBe(checked);
@@ -308,7 +305,7 @@ describe('a check that failed', () => {
 describe('a Published Site built from other files', () => {
 	test('is its own message rather than a determination', () => {
 		bar({ ...reading('in-sync'), publishedSiteStale: ['index.html', 'app.js'] });
-		press('remote-status-explain');
+		press('where-your-work-is');
 
 		// A message the reader can put away, drawn in the app's one stack rather than in the bar.
 		const stale = toasts.items.find((item) => item.testid === 'published-site-stale');
@@ -326,7 +323,7 @@ describe('the words the badge uses', () => {
 		'%s says none of the words the glossary refuses',
 		(status) => {
 			bar(reading(status), { baseline: BASELINE });
-			press('remote-status-explain');
+			press('where-your-work-is');
 
 			const surface = (document.body.textContent ?? '').toLowerCase();
 			for (const word of FORBIDDEN) expect(surface).not.toContain(word);

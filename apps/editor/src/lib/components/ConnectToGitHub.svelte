@@ -1424,11 +1424,6 @@
 					/>
 					<span>
 						Keep me signed in on this computer.
-						<span class="block opacity-70">
-							Only the part that renews the sign-in is kept, never the part that sends, and it is
-							kept outside every Workspace — nothing you download and nothing you send carries any
-							of it. Leave this off on a shared or library computer.
-						</span>
 					</span>
 				</label>
 				<!--

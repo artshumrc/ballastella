@@ -16,7 +16,7 @@
 	// unambiguous, which is a hint that a screen-reader user would otherwise have to disambiguate too.
 	//
 	// **The GitHub clause is the caller's words, not this file's.** `RemoteStatus` owns the phrasing
-	// of the six determinations and the disclosure that holds them; this places the clause it is
+	// of the six determinations and the popover that holds them; this places the clause it is
 	// handed beside the local one. With no Remote there is no such question, so the badge is the local
 	// clause alone — and it is still drawn, because the local clause is the only signal a Workspace
 	// with no Save button has that an edit reached storage at all (ADR-0017 rule 5).
@@ -31,7 +31,10 @@
 		saveState,
 		github = '',
 		determination = '',
-		agreeing = false
+		agreeing = false,
+		popoverTarget,
+		expanded = false,
+		onToggle
 	}: {
 		/** Whether the edit is kept on this machine (ADR-0017 rule 5). */
 		saveState: SaveState;
@@ -41,6 +44,12 @@
 		determination?: string;
 		/** Whether GitHub agrees, which is the only thing that keeps the badge out of warning. */
 		agreeing?: boolean;
+		/** The status detail popover this badge opens, or `undefined` when there is no Remote. */
+		popoverTarget?: string;
+		/** Whether the status detail popover is open. */
+		expanded?: boolean;
+		/** Keeps the trigger's expanded state current before the native toggle event is delivered. */
+		onToggle?: () => void;
 	} = $props();
 
 	/**
@@ -96,29 +105,55 @@
 	const settled = $derived(shown === 'saved' && (github === '' || agreeing));
 </script>
 
-<p
-	role="status"
-	aria-atomic="true"
-	data-save-state={shown}
-	data-remote-status={github === '' ? undefined : determination}
-	data-testid="where-your-work-is"
-	class="badge h-8 gap-1.5 font-medium whitespace-nowrap shadow-sm"
-	class:badge-success={settled}
-	class:badge-warning={!settled}
->
-	{#if shown === 'saving'}
-		<span class="loading loading-xs loading-spinner" aria-hidden="true"></span>
-	{:else if settled}
-		<span class="saved-mark" aria-hidden="true">
-			<CircleCheck class="size-3.5" />
-		</span>
+<div role="status" aria-atomic="true">
+	{#if popoverTarget === undefined}
+		<p
+			data-save-state={shown}
+			data-remote-status={github === '' ? undefined : determination}
+			data-testid="where-your-work-is"
+			class="badge h-8 gap-1.5 font-medium whitespace-nowrap shadow-sm"
+			class:badge-success={settled}
+			class:badge-warning={!settled}
+		>
+			{#if shown === 'saving'}
+				<span class="loading loading-xs loading-spinner" aria-hidden="true"></span>
+			{:else if settled}
+				<span class="saved-mark" aria-hidden="true">
+					<CircleCheck class="size-3.5" />
+				</span>
+			{:else}
+				<TriangleAlert class="size-3.5" aria-hidden="true" />
+			{/if}
+			{LABELS[shown]}{#if github !== ''}&nbsp;· {github}{/if}
+		</p>
 	{:else}
-		<TriangleAlert class="size-3.5" aria-hidden="true" />
+		<button
+			type="button"
+			popovertarget={popoverTarget}
+			aria-controls={popoverTarget}
+			aria-expanded={expanded}
+			data-save-state={shown}
+			data-remote-status={determination}
+			data-testid="where-your-work-is"
+			class="badge h-8 gap-1.5 font-medium whitespace-nowrap shadow-sm"
+			class:badge-success={settled}
+			class:badge-warning={!settled}
+			style="anchor-name: --{popoverTarget}"
+			onclick={onToggle}
+		>
+			{#if shown === 'saving'}
+				<span class="loading loading-xs loading-spinner" aria-hidden="true"></span>
+			{:else if settled}
+				<span class="saved-mark" aria-hidden="true">
+					<CircleCheck class="size-3.5" />
+				</span>
+			{:else}
+				<TriangleAlert class="size-3.5" aria-hidden="true" />
+			{/if}
+			{LABELS[shown]}{#if github !== ''}&nbsp;· {github}{/if}
+		</button>
 	{/if}
-	<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of a block, so
-	     `{#if …} · {github}{/if}` renders as "Saved here· in sync with ada/atlas". -->
-	{LABELS[shown]}{#if github !== ''}&nbsp;· {github}{/if}
-</p>
+</div>
 
 <style>
 	.saved-mark {
