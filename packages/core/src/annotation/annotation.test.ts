@@ -20,6 +20,8 @@ import {
 	addAnnotation,
 	annotationAnchor,
 	annotationColorName,
+	circleGeometry,
+	circleRadiusMeters,
 	dashArrayFor,
 	emptyCollection,
 	findAnnotation,
@@ -102,6 +104,31 @@ describe('drawing', () => {
 		expect(read.annotations.map((annotation) => annotation.geometry?.type)) //
 			.toEqual(['Point', 'LineString', 'Polygon']);
 		expect(read).toEqual(drawn);
+	});
+
+	test('a Circle round-trips as a portable polygon with semantic center and radius', () => {
+		const center: [number, number] = [4.9, 52.37];
+		const geometry = circleGeometry(center, 1_000);
+		const drawn: AnnotationCollection = {
+			annotations: [newAnnotation({ id: 'circle', geometry })]
+		};
+
+		const encoded = serialiseAnnotations(drawn);
+		const file = JSON.parse(utf8(encoded));
+		expect(file.features[0].geometry.type).toBe('Polygon');
+		expect(file.features[0].geometry.coordinates[0]).toHaveLength(65);
+		expect(file.features[0]['ballastella:circle']).toEqual({ center, radiusMeters: 1_000 });
+
+		const read = parseAnnotations(encoded);
+		expect(read.annotations[0]?.geometry).toEqual(geometry);
+		expect(utf8(serialiseAnnotations(read))).toBe(utf8(encoded));
+	});
+
+	test('every point of a generated Circle is the stored radius from its center', () => {
+		const geometry = circleGeometry([4.9, 52.37], 2_500);
+		for (const point of geometry.coordinates[0]!.slice(0, -1)) {
+			expect(circleRadiusMeters(geometry.center, point)).toBeCloseTo(geometry.radiusMeters, 5);
+		}
 	});
 
 	test('a new Annotation carries no style properties at all', () => {
@@ -745,6 +772,13 @@ describe('where a popup points', () => {
 		);
 
 		expect(anchor).toEqual({ lng: 5, lat: 53 });
+	});
+
+	test('a Circle is anchored at its semantic center', () => {
+		expect(annotationAnchor(of(circleGeometry([4.9, 52.37], 1_000)))).toEqual({
+			lng: 4.9,
+			lat: 52.37
+		});
 	});
 
 	test('a geometry this build cannot draw has none, so the caller falls back to the click', () => {

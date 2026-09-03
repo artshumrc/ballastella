@@ -22,6 +22,7 @@ import {
 	DEFAULT_ANNOTATION_COLOR,
 	MemoryProjectStore,
 	annotationPath,
+	circleGeometry,
 	newProjectFile,
 	projectFilePath,
 	serialiseProjectFile,
@@ -415,6 +416,36 @@ describe('whether the selected Annotation’s shape can be drawn', () => {
 });
 
 describe('editing a shape', () => {
+	it('offers only center and radius handles for a Circle and preserves the circle while resizing', async () => {
+		const layer = layerNamed('one');
+		const circle: Annotation = {
+			id: 'a1',
+			geometry: circleGeometry([4.9, 52.37], 1_000),
+			properties: { title: 'Market district' }
+		};
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [circle] });
+		it_.annotations.openLayer('one');
+		it_.annotations.selectAnnotation('a1');
+
+		const points = it_.annotations.annotationPoints;
+		expect(points).toHaveLength(2);
+		expect(points.map((point) => point.label)).toEqual([
+			'Center of Market district. Arrow keys move it.',
+			'Radius of Market district. Arrow keys move it.'
+		]);
+
+		await it_.annotations.reshape(1, { lng: 4.93, lat: 52.37 });
+
+		expect(it_.session.writes).toHaveLength(1);
+		const geometry = it_.session.writes[0]!.collection.annotations[0]!.geometry;
+		expect(geometry?.type).toBe('Circle');
+		if (geometry?.type !== 'Circle') throw new Error('expected a circle');
+		expect(geometry.center).toEqual([4.9, 52.37]);
+		expect(geometry.radiusMeters).toBeGreaterThan(1_000);
+		expect(geometry.coordinates[0]).toHaveLength(65);
+	});
+
 	it('moves one vertex of a polygon and writes the ring closed, once', async () => {
 		// RFC 7946: a LinearRing's last position repeats its first. The handles are one fewer than
 		// the ring's positions, and this is the code that has to close it again — a ring whose ends
@@ -758,7 +789,7 @@ const propertiesOf = (it_: ReturnType<typeof screen>, index = 0): Record<string,
 	written(it_).annotations[index]!.properties as Record<string, unknown>;
 
 /** A screen with one Annotation Layer open, and the tool in hand. */
-function drawing(tool: 'point' | 'line' | 'polygon' | 'text') {
+function drawing(tool: 'point' | 'line' | 'polygon' | 'circle' | 'text') {
 	const it_ = screen([layerNamed('one')]);
 	it_.annotations.openLayer('one');
 	it_.annotations.drawing.choose(tool);

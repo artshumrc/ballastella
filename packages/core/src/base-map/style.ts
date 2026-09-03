@@ -17,6 +17,7 @@ import {
 	type BaseMapAppearance
 } from './appearance';
 import { BASE_MAP_CATALOG } from './catalog';
+import { highContrastFlavor } from './high-contrast';
 import type { BaseMapCatalog, BaseMapEntry, BaseMapTerrain } from './entry';
 import {
 	contourLayers,
@@ -24,7 +25,7 @@ import {
 	terrainSources,
 	type TerrainTileTemplates
 } from './terrain';
-import { themeScheme, type Theme } from '../theme';
+import { themeScheme, type Theme, type ThemeScheme } from '../theme';
 
 /** The single vector source every variant reads. One archive; many style documents. */
 export const BASE_MAP_SOURCE_ID = 'protomaps';
@@ -126,8 +127,9 @@ export function baseMapStyle(
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	const resolveAsset = options.resolveAsset ?? identity;
 	const appearance = options.appearance ?? DEFAULT_BASE_MAP_APPEARANCE;
-	const flavorName = baseMapFlavorName(appearance, themeScheme(options.theme));
-	const flavor = appearanceFlavor(namedFlavor(flavorName), appearance);
+	const scheme = themeScheme(options.theme);
+	const flavorName = baseMapFlavorName(appearance, scheme);
+	const flavor = appearanceFlavor(appearance, scheme);
 	const terrain = reliefFor(appearance, catalog, options);
 
 	return {
@@ -184,10 +186,7 @@ export function automaticBorderStyle(
 	appearance: BaseMapAppearance,
 	theme: Theme
 ): BaseMapBorderStyle {
-	const flavor = appearanceFlavor(
-		namedFlavor(baseMapFlavorName(appearance, themeScheme(theme))),
-		appearance
-	);
+	const flavor = appearanceFlavor(appearance, themeScheme(theme));
 	const drawn = strengthenedBorder(
 		{
 			id: NATIONAL_BOUNDARY_LAYER,
@@ -220,8 +219,7 @@ export function bordersIllegibleThemes(
 	colour: string
 ): readonly ('light' | 'dark')[] {
 	return (['light', 'dark'] as const).filter(
-		(scheme) =>
-			!borderColorIsLegible(colour, namedFlavor(baseMapFlavorName(appearance, scheme)).earth)
+		(scheme) => !borderColorIsLegible(colour, appearanceFlavor(appearance, scheme).earth)
 	);
 }
 
@@ -297,16 +295,27 @@ function appearanceLayers(
 }
 
 /**
- * With `streets` off, woodland, scrub, sand, beach, glacier, and park are repainted in the flavor's
- * own `landcover` colours — the saturated ones Protomaps uses at low zoom where the natural world
- * is the subject. Deriving them from the flavor rather than picking a palette here is what keeps
- * light and dark coherent, and keeps this from becoming a third theme.
+ * The colours one appearance draws in, at one theme: the named flavor, repainted by whichever of the
+ * two switches that touch colour is on.
  *
- * `grayscale`, `white`, and `black` carry no `landcover` struct — they are deliberately
- * unsaturated — so a muted map with `streets` off is distinguished by its layer selection alone.
- * That is a reasonable outcome rather than a gap: a muted palette asked for muted.
+ * **One function rather than a step inside `baseMapStyle`**, because `automaticBorderStyle` seeds
+ * the editor's border pickers from the same flavor and `bordersIllegibleThemes` warns against its
+ * earth. A palette derived twice is a scholar switching from automatic to chosen and watching the
+ * border move.
+ *
+ * With `streets` off, woodland, scrub, sand, beach, glacier, and park are repainted in the flavor's
+ * own `landcover` colours — the saturated ones Protomaps uses at low zoom where the natural world is
+ * the subject, or the high-contrast ramp's own steps when that switch is on. Deriving them from the
+ * flavor rather than picking a palette here is what keeps light and dark coherent, and keeps this
+ * from becoming a third theme.
+ *
+ * `light` and `dark` are the only named flavors carrying a `landcover` struct, so a physical map is
+ * the one case where the flavor a high-contrast map starts from would have left it nothing to
+ * repaint — `high-contrast.ts` supplies the struct for exactly that reason.
  */
-function appearanceFlavor(flavor: Flavor, appearance: BaseMapAppearance): Flavor {
+function appearanceFlavor(appearance: BaseMapAppearance, scheme: ThemeScheme): Flavor {
+	const named = namedFlavor(baseMapFlavorName(appearance, scheme));
+	const flavor = appearance.highContrast ? highContrastFlavor(named, scheme) : named;
 	const landcover = flavor.landcover;
 	if (appearance.streets || landcover === undefined) return flavor;
 

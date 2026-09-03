@@ -78,7 +78,7 @@ const RETIRED_BASE_MAP_APPEARANCES: Readonly<Record<string, BaseMapAppearance>> 
 	streets: DEFAULT_BASE_MAP_APPEARANCE,
 	physical: { ...DEFAULT_BASE_MAP_APPEARANCE, streets: false },
 	topographic: { ...DEFAULT_BASE_MAP_APPEARANCE, relief: true },
-	muted: { ...DEFAULT_BASE_MAP_APPEARANCE, muted: true }
+	muted: { ...DEFAULT_BASE_MAP_APPEARANCE, highContrast: true }
 });
 
 /** What a Project recorded about its Base Map: which tiles, and how they are drawn. */

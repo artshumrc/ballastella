@@ -10,7 +10,7 @@
 	// removing an entry changes the catalog and nothing here.
 	//
 	// **It chooses between sets of tiles and nothing else.** How the map is *drawn* — streets,
-	// relief, muted colours — is `BaseMapAppearanceToggles`, because those are style documents over
+	// relief, high contrast — is `BaseMapAppearanceToggles`, because those are style documents over
 	// whichever archive this names. So a deployment reading one archive has one entry, and this
 	// renders nothing at all: a `<select>` with a single option is not a choice, and the toggles
 	// beside it are.

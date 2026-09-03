@@ -23,6 +23,18 @@
 > where the first resolves to something entirely different. The `localStorage` preference holds both,
 > each overridable on its own.
 >
+> **Amended again (2026-09-03): the third switch is a palette, not a flavor name, and is called
+> `highContrast`.** The switch above was implemented as one Protomaps flavor name instead of another —
+> `grayscale` in light, `black` in dark — on the reasoning that a flavor is free. It was labelled High
+> contrast and it was the *lowest* contrast option in the app: every class in `grayscale` sits between
+> #a3a3a3 and #ebebeb. What it now draws is a two-value palette of this repository's own
+> (`high-contrast.ts`) — the earth at one end of the ramp, every line and letter at the other, and only
+> water, buildings and landcover off the extremes — applied over `white` or `black`, whose *names* still
+> pick the sprite sheet because there are only five of those. The field is `baseMapAppearance.highContrast`
+> in `project.json` and in the reader's `localStorage`; `muted` is read as it, unmigrated, wherever it
+> is still written. The zero-extra-bytes claim is untouched: a repaint is still a style document over
+> the one archive.
+>
 > **The four retired ids are translated on read, and they are the only ids that are.** `streets`,
 > `physical`, `topographic` and `muted` name appearances rather than tiles now, so `readBaseMapChoice`
 > reads each as no recorded entry plus the appearance it drew, and `serialiseProjectFile` drops the

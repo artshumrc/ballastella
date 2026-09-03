@@ -388,6 +388,9 @@ test.describe('a send against a Remote this browser has never seen', () => {
 			.getByLabel('Project name')
 			.fill('Delft');
 		await page.getByRole('button', { name: 'Create Project' }).click();
+		// Creating a Project opens it; this spec's subject is back on Workspace Home.
+		await expect(page.getByTestId('project-name')).toHaveText('Delft');
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 
 		const dialog = await openSync(page);
@@ -654,6 +657,9 @@ test.describe('Remote Status on the navigation bar', () => {
 			.getByLabel('Project name')
 			.fill('Delft');
 		await page.getByRole('button', { name: 'Create Project' }).click();
+		// Creating a Project opens it; this spec's subject is back on Workspace Home.
+		await expect(page.getByTestId('project-name')).toHaveText('Delft');
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByRole('link', { name: 'Delft' })).toBeVisible();
 		await checkNow(page);
 		await expect(remoteStatus(page)).toContainText('changes to send');
@@ -865,6 +871,9 @@ test.describe('getting a Remote’s changes', () => {
 			.getByLabel('Project name')
 			.fill('Leiden');
 		await page.getByRole('button', { name: 'Create Project' }).click();
+		// Creating a Project opens it; this spec's subject is back on Workspace Home.
+		await expect(page.getByTestId('project-name')).toHaveText('Leiden');
+		await page.getByTestId('all-projects').click();
 		await expect(page.getByRole('link', { name: 'Leiden' })).toBeVisible();
 
 		// And somebody else's: a Project sent from another machine, and a change to a file this

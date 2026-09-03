@@ -70,7 +70,7 @@ const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmti
 const TERRAIN_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
-	// One archive, one entry. What the map *looks like* — streets, relief, muted colours — is three
+	// One archive, one entry. What the map *looks like* — streets, relief, high contrast — is three
 	// switches the author sets per Project (`appearance.ts`), not a row here: they are style
 	// documents over these same tiles, and enumerating their combinations would be eight entries
 	// saying one thing. A deployment that really does have a second set of tiles — a regional

@@ -123,6 +123,9 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.getByRole('dialog', { name: 'New Project' })
 		.getByRole('button', { name: 'Create' })
 		.click();
+	// Creating a Project opens it; what follows is on Workspace Home.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await page.getByTestId('all-projects').click();
 }
 
 /**
@@ -1116,7 +1119,7 @@ test.describe('drawing the Base Map while aligning', () => {
 	 * The `routeBaseMapArchive` hook at the top of this file supplies the archive bytes, so no test
 	 * here depends on a third party's bucket.
 	 */
-	const WITHOUT_STREETS = { streets: false, relief: false, muted: false };
+	const WITHOUT_STREETS = { streets: false, relief: false, highContrast: false };
 
 	test('operating one records it in the Project and leaves the pane live', async ({ page }) => {
 		await start(page);

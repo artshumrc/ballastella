@@ -3,7 +3,7 @@
 // Its subject is the one property that made it worth building: the three switches are independent,
 // so flipping one carries the other two through untouched. A control that quietly reset its
 // neighbours would look right in every screenshot and lose a scholar's contour lines the moment they
-// muted the colours.
+// raised the contrast.
 
 import type { BaseMapAppearance } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -11,7 +11,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import BaseMapAppearanceToggles from './BaseMapAppearanceToggles.svelte';
 
-const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, muted: false };
+const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, highContrast: false };
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -45,39 +45,39 @@ test('offers the three switches as checkboxes, in the order a scholar reaches fo
 	).toEqual([
 		['checkbox', 'base-map-streets'],
 		['checkbox', 'base-map-relief'],
-		['checkbox', 'base-map-muted']
+		['checkbox', 'base-map-highContrast']
 	]);
 });
 
 test('shows each switch in the state it was given', () => {
-	render({ appearance: { streets: false, relief: true, muted: true }, onChange: () => {} });
+	render({ appearance: { streets: false, relief: true, highContrast: true }, onChange: () => {} });
 
 	expect(toggle('streets').checked).toBe(false);
 	expect(toggle('relief').checked).toBe(true);
-	expect(toggle('muted').checked).toBe(true);
+	expect(toggle('highContrast').checked).toBe(true);
 });
 
 test('reports the whole appearance, carrying the switches it did not touch', () => {
 	// ⚠ **The assertion this component exists for.** The named variants it replaced could not have
-	// passed it: a low-vision Reader who muted the colours lost the author's relief to do it, because
+	// passed it: a low-vision Reader who raised the contrast lost the author's relief to do it, because
 	// there was no entry that was both. Here the other two switches travel through untouched.
 	const onChange = vi.fn();
-	render({ appearance: { streets: false, relief: true, muted: false }, onChange });
+	render({ appearance: { streets: false, relief: true, highContrast: false }, onChange });
 
-	toggle('muted').click();
+	toggle('highContrast').click();
 	flushSync();
 
-	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, muted: true });
+	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, highContrast: true });
 });
 
 test('switches a thing off as readily as on', () => {
 	const onChange = vi.fn();
-	render({ appearance: { streets: true, relief: true, muted: true }, onChange });
+	render({ appearance: { streets: true, relief: true, highContrast: true }, onChange });
 
 	toggle('streets').click();
 	flushSync();
 
-	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, muted: true });
+	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, highContrast: true });
 });
 
 test('names every switch and its consequence, and never in a tooltip', () => {
@@ -87,8 +87,8 @@ test('names every switch and its consequence, and never in a tooltip', () => {
 
 	expect(toggle('streets')).toHaveAccessibleName('Streets — roads, buildings and places');
 	expect(toggle('relief')).toHaveAccessibleName('Topography — shaded relief and contour lines');
-	expect(toggle('muted')).toHaveAccessibleName(
-		'High contrast — muted colours, so annotations stay legible'
+	expect(toggle('highContrast')).toHaveAccessibleName(
+		'High contrast — black and white, for maximum legibility'
 	);
 	expect(document.querySelector('[title]')).toBeNull();
 });

@@ -216,7 +216,7 @@ describe('strengthenedBorder', () => {
 		);
 
 		expect(paint['line-color']).toBe('rgb(120 120 120)');
-		expect(paint['line-width']).toBe(1.4);
+		expect(paint['line-width']).toBe(1);
 	});
 });
 

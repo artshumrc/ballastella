@@ -47,7 +47,12 @@
 //
 // ============================================================================================
 
-import type { AnnotationGeometry, GeoPoint } from '@ballastella/core';
+import {
+	circleGeometry,
+	circleRadiusMeters,
+	type AnnotationGeometry,
+	type GeoPoint
+} from '@ballastella/core';
 
 /**
  * Which tool the toolbar has active.
@@ -57,11 +62,11 @@ import type { AnnotationGeometry, GeoPoint } from '@ballastella/core';
  * information a double negative.
  *
  * `'text'` is the Label, and it is the one member whose name in code is not the word a person meets:
- * the other three are geometry words and the shared glyph table is keyed by them, so the Label joined
+ * the other tools are geometry words and the shared glyph table is keyed by them, so the Label joined
  * them as what it draws. Everywhere a scholar reads it — the button, the status line, every
  * announcement — it is **Label**, which is {@link TOOL_NAMES}' job.
  */
-export type AnnotationTool = 'select' | 'point' | 'line' | 'polygon' | 'text';
+export type AnnotationTool = 'select' | 'point' | 'line' | 'polygon' | 'circle' | 'text';
 
 /** How many vertices each tool needs before its shape is finishable. */
 const MINIMUM_VERTICES: Record<AnnotationTool, number> = {
@@ -69,6 +74,7 @@ const MINIMUM_VERTICES: Record<AnnotationTool, number> = {
 	point: 1,
 	line: 2,
 	polygon: 3,
+	circle: 2,
 	text: 1
 };
 
@@ -78,6 +84,7 @@ const TOOL_NAMES: Record<AnnotationTool, string> = {
 	point: 'Pin',
 	line: 'Line',
 	polygon: 'Shape',
+	circle: 'Circle',
 	text: 'Label'
 };
 
@@ -161,7 +168,8 @@ export class AnnotationDrawing {
 	 * Place a vertex, and say whether that completed a shape.
 	 *
 	 * A pin completes on its first vertex, because one click is the whole gesture — and so does a Label,
-	 * whose gesture is the pin's exactly. A line and a shape accumulate until {@link finish}, so that
+	 * whose gesture is the pin's exactly. A circle completes on its second: the center, then a point
+	 * on its edge. A line and a shape accumulate until {@link finish}, so that
 	 * "click, click, click" describes one route rather than three one-vertex ones.
 	 *
 	 * A one-vertex tool is read off {@link MINIMUM_VERTICES} rather than listed again here, so the two
@@ -172,6 +180,17 @@ export class AnnotationDrawing {
 	place(point: GeoPoint): AnnotationGeometry | null {
 		if (this.tool === 'select') return null;
 		this.vertices = [...this.vertices, point];
+		if (this.tool === 'circle' && this.vertices.length === 2) {
+			const geometry = this.geometry();
+			// A second click on the center is not a radius: stay armed for a real edge.
+			if (geometry?.type === 'Circle' && geometry.radiusMeters <= 0) {
+				this.vertices = this.vertices.slice(0, 1);
+				return null;
+			}
+			this.added = this.tool;
+			this.#rest();
+			return geometry;
+		}
 		if (MINIMUM_VERTICES[this.tool] > 1) return null;
 		const geometry = this.geometry();
 		this.added = this.tool;
@@ -196,13 +215,12 @@ export class AnnotationDrawing {
 	/**
 	 * Abandon the gesture in hand — Escape, or the cancel button beside the status line.
 	 *
-	 * ⚠ **An armed tool that has drawn nothing counts as a gesture in hand, for all four tools.** For a
+	 * ⚠ **An armed tool that has drawn nothing counts as a gesture in hand, for every drawing tool.** For a
 	 * one-click tool "mid-gesture" *is* "armed and not yet placed": there is no intermediate state, so a
 	 * `cancel()` that only abandoned part-drawn shapes left the Label tool armed, the status line still
 	 * saying what to do with it, and the next map click placing a Label the scholar had just abandoned.
-	 * The armed-nothing-drawn state is common to the Pin, the Line and the Shape too, so this is one
-	 * rule for the four rather than a Label special case — the Line and the Shape are put down by an
-	 * Escape before their first click as well.
+	 * The armed-nothing-drawn state is common to all of them, so this is one rule rather than a Label
+	 * special case — every tool is put down by an Escape before its first click.
 	 *
 	 * "New Annotation pressed, no tool chosen yet" is deliberately *not* in hand: nothing is armed, so
 	 * there is nothing to put down, and {@link returnToRest} is what closes the offer.
@@ -256,6 +274,13 @@ export class AnnotationDrawing {
 		return true;
 	}
 
+	private circleGeometry(edge: GeoPoint): AnnotationGeometry {
+		const center = this.vertices[0] ?? edge;
+		const centerPosition: [number, number] = [center.lng, center.lat];
+		const edgePosition: [number, number] = [edge.lng, edge.lat];
+		return circleGeometry(centerPosition, circleRadiusMeters(centerPosition, edgePosition));
+	}
+
 	/** What has been placed, as a geometry. Only correct when {@link canFinish}. */
 	private geometry(): AnnotationGeometry {
 		const positions = this.vertices.map((vertex): [number, number] => [vertex.lng, vertex.lat]);
@@ -274,6 +299,8 @@ export class AnnotationDrawing {
 				// break exactly the portability claim ADR-0009 is for — geojson.io draws it, PostGIS and
 				// shapely refuse it. The user never places the closing vertex, so nothing else can.
 				return { type: 'Polygon', coordinates: [[...positions, positions[0] ?? [0, 0]]] };
+			case 'circle':
+				return this.circleGeometry(this.vertices[1] ?? this.vertices[0] ?? { lng: 0, lat: 0 });
 			case 'select':
 				return null;
 		}
@@ -306,6 +333,9 @@ export class AnnotationDrawing {
 		// to announce a count of points it will never accumulate.
 		if (MINIMUM_VERTICES[this.tool] === 1) {
 			return 'Click the map to place.';
+		}
+		if (this.tool === 'circle' && placed === 1) {
+			return 'Center placed. Click the map to set the radius.';
 		}
 		const need = MINIMUM_VERTICES[this.tool] - placed;
 		if (placed === 0) {

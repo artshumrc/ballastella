@@ -115,7 +115,7 @@
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
 		/**
-		 * How the geography is drawn: streets, relief, muted colours. The Project's, owned and
+		 * How the geography is drawn: streets, relief, high contrast. The Project's, owned and
 		 * persisted by the page exactly as {@link entryId} is.
 		 */
 		appearance?: BaseMapAppearance;
@@ -372,7 +372,7 @@
 		// The appearance and the styling are in the key as their own values rather than as objects,
 		// because this is compared as a string: a repaint that missed a colour change would leave the
 		// map asserting a border the settings dialog says has been changed.
-		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.muted}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}@${drawn.streets}${drawn.relief}${drawn.highContrast}@${drawnBorders}@${drawnStyle.color ?? 'auto'}@${drawnStyle.lineStyle ?? 'auto'}@${drawnStyle.width ?? 'auto'}`;
 
 	const styleFor = (id: string): StyleSpecification =>
 		baseMapStyle(resolveBaseMap(id).entry, {

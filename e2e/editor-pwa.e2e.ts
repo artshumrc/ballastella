@@ -177,7 +177,7 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
-	await page.getByRole('link', { name: PROJECT_NAME }).click();
+	// Creating a Project opens it, so there is no row to click.
 	await expect(addMapImageButton(page)).toBeVisible();
 
 	await pickMapImageFile(page, {
@@ -547,7 +547,7 @@ test.describe('the app with the network off', () => {
 		const dialog = page.getByRole('dialog', { name: 'New Project' });
 		await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 		await dialog.getByRole('button', { name: 'Create' }).click();
-		await page.getByRole('link', { name: PROJECT_NAME }).click();
+		// Creating a Project opens it, so there is no row to click.
 
 		const notice = page.getByTestId('base-map-offline');
 		await expect(notice).toBeVisible();

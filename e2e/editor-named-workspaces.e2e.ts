@@ -120,6 +120,9 @@ const createProject = async (page: Page, name: string) => {
 	await page.getByRole('button', { name: 'New Project' }).click();
 	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
 	await page.getByRole('button', { name: 'Create Project' }).click();
+	// Creating a Project opens it; what follows is on Workspace Home.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await page.getByTestId('all-projects').click();
 	await expect(page.getByRole('link', { name })).toBeVisible();
 };
 

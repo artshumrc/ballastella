@@ -103,6 +103,7 @@ describe('the tool in hand is announced, not only drawn', () => {
 			['point', 'Pin tool.'],
 			['line', 'Line tool.'],
 			['polygon', 'Shape tool.'],
+			['circle', 'Circle tool.'],
 			['text', 'Label tool.']
 		] as const) {
 			toolbar({ tool, picking: true, status: 'Click the map.' });
@@ -123,17 +124,17 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 		expect(tools).toHaveAttribute('role', 'toolbar');
 		expect(tools).toHaveAccessibleName('Annotation tools');
 
-		// Four shapes and no fifth: selecting is what the Layer does when nobody is drawing, not a tool a
-		// scholar is asked to pick. The fourth is the Label, reached the same way as the other three — one
+		// Five shapes and no sixth: selecting is what the Layer does when nobody is drawing, not a tool a
+		// scholar is asked to pick. The fifth is the Label, reached the same way as the other four — one
 		// press of *New Annotation*, then choose.
 		const buttons = [...tools.querySelectorAll('button')];
-		expect(buttons).toHaveLength(4);
+		expect(buttons).toHaveLength(5);
 		expect(buttons.map((button) => button.getAttribute('aria-pressed'))) //
-			.toEqual(['false', 'true', 'false', 'false']);
+			.toEqual(['false', 'true', 'false', 'false', 'false']);
 		// The glyph goes beside each name, never instead of it — and the word beside the Label's glyph is
 		// "Label", never the `'text'` the union spells it.
 		expect(buttons.map((button) => button.textContent?.trim())) //
-			.toEqual(['Pin', 'Line', 'Shape', 'Label']);
+			.toEqual(['Pin', 'Line', 'Shape', 'Circle', 'Label']);
 	});
 
 	test('resting, there is one button and the shapes are behind it', () => {

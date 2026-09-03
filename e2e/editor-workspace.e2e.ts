@@ -1,4 +1,4 @@
-import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
+import { asFirstVisit, DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { deleteProject, openProjectEditor } from './support/annotations.js';
@@ -169,8 +169,63 @@ const createProject = async (page: Page, name: string) => {
 	await page.getByRole('button', { name: 'New Project' }).click();
 	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
 	await page.getByRole('button', { name: 'Create Project' }).click();
+	// Creating a Project opens it; what follows is on Workspace Home.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await page.getByTestId('all-projects').click();
 	await expect(page.getByRole('link', { name })).toBeVisible();
 };
+
+test.describe('first contact', () => {
+	// ⚠ **The suite's visitor has been here before** (`support/test.ts`), so a spec about a first
+	// visit says so with {@link asFirstVisit} and every other spec keeps meeting Workspace Home.
+
+	test('lands a first-time visitor in a Project, not on an empty Workspace Home', async ({
+		page
+	}) => {
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await asFirstVisit(page);
+		await page.reload();
+
+		// The Project screen, addressed the way every Project is (ADR-0008) — and named by
+		// `Workspace.createProject`'s own default rather than by anything the route invented.
+		await expect(page.getByTestId('project-name')).toHaveText('Untitled Project');
+		expect(new URL(page.url()).searchParams.get('p')).toBe('untitled-project');
+		// One Project, really on disk: the point is a Workspace a scholar can work in, not a screen.
+		expect(await everyPath(page)).toEqual(['untitled-project/project.json']);
+		// Nothing was asked on the way (ADR-0001 as amended, ADR-0042). A dialog here would be the
+		// gate those two ADRs removed, arriving from the other side.
+		await expect(page.getByRole('dialog')).toHaveCount(0);
+	});
+
+	test('leaves a returning visitor with an empty Workspace on Workspace Home', async ({ page }) => {
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await page.reload();
+
+		// The regression this guards is the one a Workspace-emptiness test alone would miss: a
+		// scholar who deletes their last Project must not watch a fresh Untitled Project appear in
+		// its place. Only a genuinely first load mints one.
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await expect(page.getByText('No Projects yet.')).toBeVisible();
+		expect(await everyPath(page)).toEqual([]);
+	});
+
+	test('opens the Project the New Project dialog just made', async ({ page }) => {
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await page.reload();
+
+		await page.getByRole('button', { name: 'New Project' }).click();
+		const dialog = page.getByRole('dialog', { name: 'New Project' });
+		await dialog.getByLabel('Project name').fill('Amsterdam 1625');
+		await dialog.getByRole('button', { name: 'Create Project' }).click();
+
+		// Naming a Project is not an act of filing: the author came to work in it.
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		expect(new URL(page.url()).searchParams.get('p')).toBe('amsterdam-1625');
+	});
+});
 
 test.describe('the Project hub', () => {
 	test.beforeEach(async ({ page }) => {
@@ -665,6 +720,14 @@ test.describe('the keyboard alone', () => {
 			.getByRole('dialog', { name: 'New Project' })
 			.getByLabel('Project name')
 			.fill('Keyboard Only');
+		await page.keyboard.press('Enter');
+
+		// Enter in the name field creates the Project *and opens it*, so "opens" costs no press of
+		// its own. The way back to the list is the breadcrumb, which is why it is reached by
+		// focusing and pressing rather than by a `goto`: this test's whole subject is that every
+		// step of the round trip is on the keyboard.
+		await expect(page.getByTestId('project-name')).toHaveText('Keyboard Only');
+		await page.getByTestId('all-projects').focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toBeVisible();
 

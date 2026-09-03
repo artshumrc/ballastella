@@ -196,7 +196,7 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 		.getByRole('dialog', { name: 'New Project' })
 		.getByRole('button', { name: 'Create' })
 		.click();
-	await page.getByRole('link', { name }).click();
+	// Creating a Project opens it, so there is no row to click.
 	// ⚠ **The dialog is deliberately not opened here**, and it used to be. It is a *modal*, so
 	// leaving it up inerts the Project screen for the rest of the test — harmless only for as long
 	// as every call site happens to add a map first, which closes it. Each of the three places that

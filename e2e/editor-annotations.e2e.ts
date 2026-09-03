@@ -42,6 +42,7 @@ import {
 	createProject,
 	deleteAnnotation,
 	drawPin,
+	drawCircle,
 	drawShape,
 	editAnnotationText,
 	emptyWorkspace,
@@ -128,7 +129,7 @@ const SIMPLESTYLE_NAMES = new Set([
 ]);
 
 test.describe('drawing', () => {
-	test('a pin, a line, and a shape are drawn and land in the Annotation Layer’s own file, with the polygon’s ring closed (RFC 7946 §3.1.6)', async ({
+	test('a pin, a line, a shape, and a circle land in the Annotation Layer’s own file as portable GeoJSON', async ({
 		page
 	}) => {
 		const failures = watchFailures(page);
@@ -144,12 +145,13 @@ test.describe('drawing', () => {
 			[0.7, 0.6],
 			[0.6, 0.8]
 		]);
+		await drawCircle(page, [0.3, 0.65], [0.45, 0.8]);
 
 		const stored = await storedAnnotations(page, layerId);
 
 		expect(stored.type).toBe('FeatureCollection');
 		expect(stored.features.map((feature) => feature.geometry?.type)) //
-			.toEqual(['Point', 'LineString', 'Polygon']);
+			.toEqual(['Point', 'LineString', 'Polygon', 'Polygon']);
 		// And they are in *this* Layer's file, which is the criterion — not in some other Layer's.
 		expect((await projectJson(page)).layers[0].geojsonRef).toBe(`annotations/${layerId}.geojson`);
 
@@ -167,6 +169,45 @@ test.describe('drawing', () => {
 		const ring = stored.features[2]?.geometry?.coordinates as number[][][];
 		expect(ring[0]).toHaveLength(4);
 		expect(ring[0]?.at(0)).toEqual(ring[0]?.at(-1));
+		const circle = stored.features[3]!;
+		const circleRing = circle.geometry?.coordinates as number[][][];
+		expect(circleRing[0]).toHaveLength(65);
+		expect(circleRing[0]?.at(0)).toEqual(circleRing[0]?.at(-1));
+		expect((circle as unknown as Record<string, unknown>)['ballastella:circle']).toMatchObject({
+			radiusMeters: expect.any(Number)
+		});
+		const painted = await waitForPaintedAnnotations(page, [circle.id!]);
+		expect(painted[circle.id!]).toContain(`ballastella-layer-${layerId}-fill`);
+
+		const handles = page.getByTestId('pane-overlay-point-annotation-vertex');
+		await expect(handles).toHaveCount(2);
+		await expect(handles.nth(0)).toHaveAccessibleName(/Center of/);
+		await expect(handles.nth(1)).toHaveAccessibleName(/Radius of/);
+		const radiusBefore = (
+			(circle as unknown as Record<string, unknown>)['ballastella:circle'] as {
+				radiusMeters: number;
+			}
+		).radiusMeters;
+		await watchAnnotationWrites(page);
+		const radiusHandle = await handles.nth(1).boundingBox();
+		if (!radiusHandle) throw new Error('the Circle radius handle has no box');
+		const from = {
+			x: radiusHandle.x + radiusHandle.width / 2,
+			y: radiusHandle.y + radiusHandle.height / 2
+		};
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		await page.mouse.move(from.x + 40, from.y);
+		await page.mouse.up();
+		await expect(page.getByRole('status')).toHaveText('Saved here');
+		expect(await annotationWrites(page)).toHaveLength(1);
+		const resized = (await storedAnnotations(page, layerId)).features[3]! as unknown as Record<
+			string,
+			unknown
+		>;
+		expect(
+			(resized['ballastella:circle'] as { radiusMeters: number }).radiusMeters
+		).toBeGreaterThan(radiusBefore);
 
 		expect(failures).toEqual([]);
 	});
@@ -186,7 +227,6 @@ test.describe('drawing', () => {
 			[0.75, 0.6],
 			[0.6, 0.85]
 		]);
-
 		const stored = await storedAnnotations(page, layerId);
 		const [pin, line, shape] = stored.features.map((feature) => feature.id);
 		const painted = await waitForPaintedAnnotations(page, [pin!, line!, shape!]);
@@ -2386,7 +2426,8 @@ test.describe('the keyboard alone', () => {
 		for (const [tool, spoken] of [
 			['point', 'Pin tool.'],
 			['line', 'Line tool.'],
-			['polygon', 'Shape tool.']
+			['polygon', 'Shape tool.'],
+			['circle', 'Circle tool.']
 		] as const) {
 			const button = page.getByTestId(`annotation-tool-${tool}`);
 			await tabTo(page, button, `the ${tool} tool`);

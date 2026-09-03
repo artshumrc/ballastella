@@ -102,7 +102,8 @@ export const MAX_BORDER_WIDTH = 6;
  * a state line and an international one the same claim.
  */
 export function subnationalWidth(nationalWidth: number): number {
-	return Math.round(nationalWidth * (0.9 / 1.4) * 100) / 100;
+	const ratio = BORDER_WIDTH[SUBNATIONAL_BOUNDARY_LAYER] / BORDER_WIDTH[NATIONAL_BOUNDARY_LAYER];
+	return Math.round(nationalWidth * ratio * 100) / 100;
 }
 
 /**
@@ -183,15 +184,15 @@ export function readBaseMapBorders(document: unknown): BaseMapBorders {
  * heavier of the two, because the distinction between the two levels is the point of `national`.
  */
 const BORDER_WIDTH: Record<string, number> = {
-	[NATIONAL_BOUNDARY_LAYER]: 1.4,
-	[SUBNATIONAL_BOUNDARY_LAYER]: 0.9
+	[NATIONAL_BOUNDARY_LAYER]: 1,
+	[SUBNATIONAL_BOUNDARY_LAYER]: 0.64
 };
 
 /**
  * Contrast a boundary line is pushed to against the land it crosses.
  *
  * Above WCAG 2.1 §1.4.11's 3:1 floor for a graphical object, and deliberately: that floor assumes a
- * mark you can see all of, where a dashed 1.4px line covers a fraction of the area a glyph does at
+ * mark you can see all of, where a dashed 1px line covers a fraction of the area a glyph does at
  * the same ratio. A flavor already at or past this is left exactly as it was drawn.
  */
 const BORDER_CONTRAST = 4.5;

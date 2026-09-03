@@ -409,6 +409,8 @@ function geometryPaths(geometry: AnnotationGeometry): GeoPath[] {
 			return [geometry.coordinates];
 		case 'Polygon':
 			return geometry.coordinates.map(closedRing);
+		case 'Circle':
+			return geometry.coordinates.map(closedRing);
 		case 'foreign':
 			return [];
 	}

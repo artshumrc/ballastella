@@ -1,4 +1,4 @@
-// How the Base Map is drawn — streets, relief, muted colours — as three switches over one archive.
+// How the Base Map is drawn — streets, relief, high contrast — as three switches over one archive.
 // Project data beside the borders, and a Reader may override it for themselves without editing it.
 export {
 	DEFAULT_BASE_MAP_APPEARANCE,

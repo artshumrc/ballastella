@@ -41,7 +41,7 @@ const TWO_ARCHIVES: BaseMapCatalog = {
 /** One archive, which is what this repository ships and what most forks will have. */
 const ONE_ARCHIVE: BaseMapCatalog = { ...TWO_ARCHIVES, entries: TWO_ARCHIVES.entries.slice(0, 1) };
 
-const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, muted: false };
+const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, highContrast: false };
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -131,14 +131,14 @@ test('hands each section’s choice back to the caller that owns it', () => {
 	const onBorders = vi.fn();
 	render({ borders: 'all', onBorders, onAppearance });
 
-	document.querySelector<HTMLInputElement>('[data-testid="base-map-muted"]')!.click();
+	document.querySelector<HTMLInputElement>('[data-testid="base-map-highContrast"]')!.click();
 	document.querySelector<HTMLInputElement>('[data-testid="border-option-none"]')!.click();
 	flushSync();
 
 	expect(onAppearance).toHaveBeenCalledExactlyOnceWith({
 		streets: true,
 		relief: false,
-		muted: true
+		highContrast: true
 	});
 	expect(onBorders).toHaveBeenCalledExactlyOnceWith('none');
 });

@@ -20,11 +20,11 @@ import type { SimpleStyle } from '../project/layer.js';
 /**
  * The geometry kinds a user can draw.
  *
- * `Point`, `LineString`, and `Polygon` only — a pin, a route, and a shape — which is the whole of
- * what the three drawing tools produce. The multi-part kinds are not offered, but a document that
+ * Points, lines, polygons and semantic circles are the kinds this build can edit. The multi-part
+ * kinds are not offered, but a document that
  * arrives carrying one is not destroyed: see {@link ForeignGeometry}.
  */
-export type DrawnGeometryType = 'Point' | 'LineString' | 'Polygon';
+export type DrawnGeometryType = 'Point' | 'LineString' | 'Polygon' | 'Circle';
 
 export interface PointGeometry {
 	readonly type: 'Point';
@@ -41,6 +41,14 @@ export interface PolygonGeometry {
 	readonly type: 'Polygon';
 	/** Rings. The first is the outer ring; this app draws exactly one, and carries any others. */
 	readonly coordinates: readonly (readonly (readonly [number, number])[])[];
+}
+
+/** A geographic circle whose GeoJSON and renderer representation is the derived polygon. */
+export interface CircleGeometry {
+	readonly type: 'Circle';
+	readonly center: readonly [number, number];
+	readonly radiusMeters: number;
+	readonly coordinates: PolygonGeometry['coordinates'];
 }
 
 /**
@@ -62,7 +70,57 @@ export interface ForeignGeometry {
 
 /** An Annotation's shape on the earth, or `null` — which RFC 7946 permits and geojson.io writes. */
 export type AnnotationGeometry =
-	PointGeometry | LineStringGeometry | PolygonGeometry | ForeignGeometry | null;
+	PointGeometry | LineStringGeometry | PolygonGeometry | CircleGeometry | ForeignGeometry | null;
+
+const EARTH_RADIUS_METERS = 6_371_008.8;
+const CIRCLE_SEGMENTS = 64;
+
+/** The geodesic distance between two GeoJSON positions, in metres. */
+export function circleRadiusMeters(
+	center: readonly [number, number],
+	edge: readonly [number, number]
+): number {
+	const toRadians = Math.PI / 180;
+	const latitude1 = center[1] * toRadians;
+	const latitude2 = edge[1] * toRadians;
+	const latitudeDelta = (edge[1] - center[1]) * toRadians;
+	const longitudeDelta = (edge[0] - center[0]) * toRadians;
+	const a =
+		Math.sin(latitudeDelta / 2) ** 2 +
+		Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(longitudeDelta / 2) ** 2;
+	const bounded = Math.min(1, Math.max(0, a));
+	return EARTH_RADIUS_METERS * 2 * Math.atan2(Math.sqrt(bounded), Math.sqrt(1 - bounded));
+}
+
+/** Build the portable polygon for a geographic center and radius. */
+export function circleGeometry(
+	center: readonly [number, number],
+	radiusMeters: number
+): CircleGeometry {
+	const toRadians = Math.PI / 180;
+	const toDegrees = 180 / Math.PI;
+	const longitude = center[0] * toRadians;
+	const latitude = center[1] * toRadians;
+	const angularRadius = radiusMeters / EARTH_RADIUS_METERS;
+	const ring = Array.from({ length: CIRCLE_SEGMENTS }, (_, index): [number, number] => {
+		const bearing = (index / CIRCLE_SEGMENTS) * Math.PI * 2;
+		const atLatitude = Math.asin(
+			Math.sin(latitude) * Math.cos(angularRadius) +
+				Math.cos(latitude) * Math.sin(angularRadius) * Math.cos(bearing)
+		);
+		const longitudeDelta = Math.atan2(
+			Math.sin(bearing) * Math.sin(angularRadius) * Math.cos(latitude),
+			Math.cos(angularRadius) - Math.sin(latitude) * Math.sin(atLatitude)
+		);
+		return [(longitude + longitudeDelta) * toDegrees, atLatitude * toDegrees];
+	});
+	return {
+		type: 'Circle',
+		center,
+		radiusMeters,
+		coordinates: [[...ring, ring[0] ?? center]]
+	};
+}
 
 /**
  * What an Annotation says and how it looks.
@@ -572,7 +630,9 @@ export function annotationAnchor(annotation: Annotation): { lng: number; lat: nu
 			? [geometry.coordinates]
 			: geometry.type === 'LineString'
 				? geometry.coordinates
-				: (geometry.coordinates[0] ?? []);
+				: geometry.type === 'Circle'
+					? [geometry.center]
+					: (geometry.coordinates[0] ?? []);
 	if (points.length === 0) return null;
 
 	let west = Infinity;

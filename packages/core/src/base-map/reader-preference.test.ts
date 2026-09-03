@@ -21,7 +21,7 @@ const stored = (preference: Partial<ReaderBaseMapPreference>): string =>
 		...(preference.appearance ? { appearance: preference.appearance } : {})
 	});
 
-const MUTED = { streets: true, relief: false, muted: true };
+const HIGH_CONTRAST = { streets: true, relief: false, highContrast: true };
 
 /** A `localStorage` in a `Map`, with the two ways a real one fails. */
 function storage(
@@ -86,16 +86,16 @@ describe('a Reader’s Base Map preference', () => {
 	describe('reading', () => {
 		it('returns the appearance this Reader chose here', () => {
 			const held = storage({
-				[baseMapPreferenceKey('https://x.example/atlas/')]: stored({ appearance: MUTED })
+				[baseMapPreferenceKey('https://x.example/atlas/')]: stored({ appearance: HIGH_CONTRAST })
 			});
 
 			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toEqual({
 				entryId: null,
-				appearance: MUTED
+				appearance: HIGH_CONTRAST
 			});
 		});
 
-		it('keeps the two halves independent, so muting the colours chooses no tile source', () => {
+		it('keeps the two halves independent, so raising the contrast chooses no tile source', () => {
 			const held = storage({
 				[baseMapPreferenceKey('https://x.example/')]: stored({ entryId: 'harbour-charts' })
 			});
@@ -109,7 +109,7 @@ describe('a Reader’s Base Map preference', () => {
 		it('reads a Reader who switched everything off as a choice, not as silence', () => {
 			// The distinction the whole `null` half of this module exists for: "nothing on" is a map
 			// this Reader asked for, and falling back to the author's would put the streets back.
-			const off = { streets: false, relief: false, muted: false };
+			const off = { streets: false, relief: false, highContrast: false };
 			const held = storage({
 				[baseMapPreferenceKey('https://x.example/')]: stored({ appearance: off })
 			});
@@ -119,7 +119,7 @@ describe('a Reader’s Base Map preference', () => {
 
 		it('does not see the preference stored for a different site on the same origin', () => {
 			const held = storage({
-				[baseMapPreferenceKey('https://x.example/tracy/')]: stored({ appearance: MUTED })
+				[baseMapPreferenceKey('https://x.example/tracy/')]: stored({ appearance: HIGH_CONTRAST })
 			});
 
 			expect(readBaseMapPreference(held, 'https://x.example/sam/')).toEqual(NOTHING);
@@ -169,7 +169,7 @@ describe('a Reader’s Base Map preference', () => {
 			expect(
 				writeBaseMapPreference(held, 'https://x.example/atlas/', {
 					entryId: null,
-					appearance: MUTED
+					appearance: HIGH_CONTRAST
 				})
 			).toBe(true);
 			expect(Object.keys(held.entries())).toEqual([
@@ -179,7 +179,7 @@ describe('a Reader’s Base Map preference', () => {
 
 		it('is restored on return, both halves of it', () => {
 			const held = storage();
-			const chosen = { entryId: 'harbour-charts', appearance: MUTED };
+			const chosen = { entryId: 'harbour-charts', appearance: HIGH_CONTRAST };
 			writeBaseMapPreference(held, 'https://x.example/atlas/', chosen);
 
 			expect(readBaseMapPreference(held, 'https://x.example/atlas/')).toEqual(chosen);
@@ -192,7 +192,7 @@ describe('a Reader’s Base Map preference', () => {
 			expect(
 				writeBaseMapPreference(storage({}, { write: true }), 'https://x.example/', {
 					entryId: null,
-					appearance: MUTED
+					appearance: HIGH_CONTRAST
 				})
 			).toBe(false);
 		});

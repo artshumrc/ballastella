@@ -22,6 +22,8 @@ export const shapeWord = (annotation: Annotation): string => {
 			return 'line';
 		case 'Polygon':
 			return 'shape';
+		case 'Circle':
+			return 'circle';
 		default:
 			return 'Annotation';
 	}

@@ -214,9 +214,24 @@
 		action();
 	};
 
+	/**
+	 * Make the Project, then open it.
+	 *
+	 * Making one is not an act of filing: a scholar who names a Project has come to work in it, and
+	 * leaving them on this screen to find their one new card among the others and press **Open** puts
+	 * a step between the intention and the map. The Project is addressed the way every other link
+	 * here addresses one — by its folder, encoded (ADR-0008).
+	 *
+	 * ⚠ **A refusal stays put, and that is what the `null` is for.** `createProject` answers `null`
+	 * for a name this Workspace cannot use — `images`, `alignments` and `base-map` are the
+	 * Workspace's own (ADR-0023) — having already put the sentence explaining it beside this list. A
+	 * navigation there would carry the author away from the one screen that says what went wrong.
+	 */
 	const create = async () => {
 		creating = false;
-		await session.createProject(newName, newDescription);
+		const project = await session.createProject(newName, newDescription);
+		if (!project) return;
+		await goto(resolve(`/?p=${encodeURIComponent(project.directory)}`));
 	};
 
 	/** Whether the Project being edited is one whose manifest this build must not write back. */

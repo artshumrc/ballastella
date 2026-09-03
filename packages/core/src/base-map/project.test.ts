@@ -138,10 +138,10 @@ describe('a Base Map id the catalog has retired', () => {
 		new TextEncoder().encode(JSON.stringify({ formatVersion: 1, baseMap: id, ...rest }));
 
 	it.each([
-		['streets', { streets: true, relief: false, muted: false }],
-		['physical', { streets: false, relief: false, muted: false }],
-		['topographic', { streets: true, relief: true, muted: false }],
-		['muted', { streets: true, relief: false, muted: true }]
+		['streets', { streets: true, relief: false, highContrast: false }],
+		['physical', { streets: false, relief: false, highContrast: false }],
+		['topographic', { streets: true, relief: true, highContrast: false }],
+		['muted', { streets: true, relief: false, highContrast: true }]
 	])('reads “%s” as the appearance it drew, over the deployment default', (id, appearance) => {
 		const project = parseProjectFile(savedAs(id));
 
@@ -156,10 +156,16 @@ describe('a Base Map id the catalog has retired', () => {
 		// touched last is the one they meant. Reading the two independently would put the retired
 		// entry's look back over it.
 		const project = parseProjectFile(
-			savedAs('topographic', { baseMapAppearance: { streets: false, relief: false, muted: true } })
+			savedAs('topographic', {
+				baseMapAppearance: { streets: false, relief: false, highContrast: true }
+			})
 		);
 
-		expect(project.baseMapAppearance).toEqual({ streets: false, relief: false, muted: true });
+		expect(project.baseMapAppearance).toEqual({
+			streets: false,
+			relief: false,
+			highContrast: true
+		});
 	});
 
 	it('drops the retired id from the document on the next ordinary save', () => {
@@ -170,7 +176,11 @@ describe('a Base Map id the catalog has retired', () => {
 		const written = JSON.parse(decode(serialiseProjectFile(parseProjectFile(savedAs('physical')))));
 
 		expect(written.baseMap).toBeNull();
-		expect(written.baseMapAppearance).toEqual({ streets: false, relief: false, muted: false });
+		expect(written.baseMapAppearance).toEqual({
+			streets: false,
+			relief: false,
+			highContrast: false
+		});
 	});
 
 	it('still reports an id that is somebody else’s rather than retired', () => {

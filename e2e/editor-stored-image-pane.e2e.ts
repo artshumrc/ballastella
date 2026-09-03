@@ -154,6 +154,7 @@ const clearServedTiles = (page: Page) =>
 const servedTiles = (page: Page): Promise<ServedTile[]> =>
 	page.evaluate(() => window.ballastellaServedTiles ?? []);
 
+/** Make a Project and come back to the hub, which is where {@link openProject} starts. */
 async function createProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
 	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
@@ -161,6 +162,9 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.getByRole('dialog', { name: 'New Project' })
 		.getByRole('button', { name: 'Create' })
 		.click();
+	// Creating a Project opens it; every caller here goes on to open it by its row instead.
+	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await page.getByTestId('all-projects').click();
 }
 
 /**
