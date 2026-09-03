@@ -981,7 +981,10 @@
 						in with a token that has
 						<strong>Contents: Read and write</strong>
 						and <strong>Pages: Read and write</strong>, made under the account that owns the
-						repository. Kept only in this tab.
+						repository. Kept only in this tab. Adding
+						<strong>Administration: Read and write</strong> lets Share Links turn the site on for you
+						rather than leaving you one setting to make on GitHub — it also carries the right to delete
+						the repository, so it is a choice rather than something to grant by default.
 					</p>
 					<div class="mt-3 flex flex-wrap items-end gap-3">
 						<div class="flex min-w-0 grow basis-72 flex-col gap-1">

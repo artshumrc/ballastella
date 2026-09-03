@@ -348,6 +348,12 @@ Four things on that form matter:
 - **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
   write*, and **Pages** to *Read and write*. Everything else can stay at *No access*. Contents is all
   a Sync needs; Pages matters only at step 5.
+- **Permissions → Administration**, which is a choice rather than a requirement. GitHub will not turn
+  a Pages site on for anybody who has not got **Administration: Read and write** as well as Pages, so
+  a token carrying it means Share Links come on with one press in the editor, and a token without it
+  leaves you the one setting at step 5 to make on GitHub yourself. It is also the permission that can
+  rename, transfer and delete the repository. Granting it to a token that lives in a browser tab is a
+  real decision; making that one setting by hand is the alternative, and it takes a few seconds.
 - **Expiration.** Whatever you are comfortable with. When it expires, the editor says so and you make
   another one.
 
@@ -467,9 +473,11 @@ ask for the right to rename, transfer, or delete your repositories
 ([ADR-0040](adr/0040-one-installation-chosen-wide-and-no-repository-administration.md)). A pasted
 token can carry both if you grant them; a sign-in never can.
 
-So where GitHub refuses, the editor hands you the one setting and waits: **Settings → Pages → Source →
-Deploy from a branch**, branch `main`, folder `/ (root)`. Set it, come back, and press **Check
-again** — the editor keeps asking GitHub until the site answers and then carries on by itself. It
+So the editor hands you the one setting and waits: **Settings → Pages → Source → Deploy from a
+branch**, branch `main`, folder `/ (root)`. Set it, come back, and press **Check again** — the editor
+keeps asking GitHub until the site answers and then carries on by itself. Where you are signed in it
+says so before you press anything and asks GitHub nothing, because the answer is already known; where
+you pasted a token it asks, and hands you the same setting if GitHub refuses. It
 needs a branch to point at, so if your repository is still empty, sync once first; that is what makes
 the branch. You want the branch deploy here, because the site is already built. There is nothing to
 compile.

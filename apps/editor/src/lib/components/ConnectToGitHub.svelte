@@ -1548,12 +1548,16 @@
 				spellcheck="false"
 			/>
 			<!--
-				⚠ **Both permissions and the owner, because all three are set on one form and only one of
-				them is obvious.** Contents is what a Sync writes with and Pages is what turning the
-				site on needs, so a token with the first alone gets an author all the way to a Published
-				Site that never appears. **Resource owner** is the trap: left on a personal account for a
-				repository an organisation owns, GitHub issues a token that cannot see it, and the symptom
-				is a repository that appears not to exist.
+				⚠ **Two permissions, a third that is a choice, and the owner — all four set on one form
+				and only one of them obvious.** Contents is what a Sync writes with and Pages is what
+				turning the site on needs, so a token with the first alone gets an author all the way to a
+				Published Site that never appears. `POST /pages` needs `Administration: write` beside
+				`Pages: write` (ADR-0040), so a token without it meets the guided step exactly as a
+				sign-in does — named here as a choice rather than a requirement, because the same
+				permission carries renaming, transferring and deleting the repository, and a token kept in
+				a browser tab is not the place to hand that over unasked. **Resource owner** is the trap:
+				left on a personal account for a repository an organisation owns, GitHub issues a token
+				that cannot see it, and the symptom is a repository that appears not to exist.
 			-->
 			<p class="max-w-prose text-sm opacity-70">
 				A fine-grained personal access token for that repository, with
@@ -1561,6 +1565,14 @@
 				<strong>Resource owner</strong> to whoever owns the repository — your own account, or the organisation
 				it is under — or the token will not be able to see it. GitHub shows the token once, on the page
 				that makes it.
+			</p>
+			<p class="max-w-prose text-sm opacity-70">
+				<strong>Administration: Read and write</strong> is a choice, not a requirement. GitHub asks
+				for it before it will turn a Pages site on for you, so a token carrying it means Share Links
+				come on with one press here; a token without it leaves you one setting to make on GitHub
+				yourself, once — which is what signing in does too. That row set to <em>Read and write</em>
+				also lets the token rename, transfer and delete the repository, so leave it at
+				<em>No access</em> if you would rather make the setting by hand.
 			</p>
 		</div>
 		<div>

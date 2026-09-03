@@ -1883,6 +1883,16 @@ describe('a fork that has registered no GitHub App', () => {
 		expect(said()).toContain('Resource owner');
 	});
 
+	// `POST /pages` needs `Administration: write` beside `Pages: write`, so this is the only
+	// credential in the tool that can turn Share Links on without the guided step — and the same
+	// permission can delete the repository, so the offer names that rather than only the benefit.
+	test('names Administration as the row that turns Share Links on, and what else it carries', () => {
+		open(noApp());
+
+		expect(said()).toContain('Administration: Read and write');
+		expect(said()).toContain('delete the repository');
+	});
+
 	// The fork-shaped half of the same offer: the one step the tool does not take arrives with the
 	// name filled in, and the sentence beside it says the repository has to be public.
 	test('offers to create the repository with its name already filled in, and says it must be public', () => {

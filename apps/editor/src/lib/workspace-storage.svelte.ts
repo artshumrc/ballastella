@@ -66,6 +66,7 @@ import {
 	awaitRemotePages,
 	disableRemotePages,
 	enableRemotePages,
+	guidedPagesStep,
 	withdrawalNotRecordedMessage,
 	PUBLISHED_SITE_RECORD_NAME,
 	observedShareLinks,
@@ -2932,7 +2933,28 @@ export class WorkspaceStorage {
 		// request is answered by this press rather than left standing to remove the site being asked for.
 		await this.session.synchronization?.clearWithdrawal();
 		await this.#writePublishedSite();
-		return enableRemotePages({ token, remote });
+		// ⚠ **A request GitHub is certain to refuse is not made.** See {@link pagesSetupByHand}: the
+		// step is the same one `enableRemotePages` degrades to, so the author is handed the same
+		// screen, branch and folder either way — without a spinner in front of it.
+		return this.pagesSetupByHand ? guidedPagesStep(remote) : enableRemotePages({ token, remote });
+	}
+
+	/**
+	 * Whether turning the Pages site on is the author's own step rather than something to ask for.
+	 *
+	 * ⚠ **True for a sign-in, always** (ADR-0040). `POST /pages` needs `Administration: write`, the
+	 * App does not ask for it and there is no per-author way to add it, so the request is refused
+	 * every time — and a control that makes it anyway implies a right this tool has decided not to
+	 * hold. A pasted token is the other answer: it may carry `Administration` if its author granted
+	 * it, and nothing short of asking GitHub can tell.
+	 *
+	 * A grant record naming the held credential is what identifies a sign-in, which is
+	 * {@link ensureCredentialFresh}'s rule — a pasted token has no record, and a record naming
+	 * anything else is a leftover.
+	 */
+	get pagesSetupByHand(): boolean {
+		const grant = readGrantRecord(this.#grants);
+		return grant !== null && grant.token === this.#credentials.read();
 	}
 
 	/**

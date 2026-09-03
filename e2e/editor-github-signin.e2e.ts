@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { routeGitHubHosts } from './support/github-hosts.js';
+import { routeGitHubHosts, type GitHubHosts } from './support/github-hosts.js';
 import {
 	backUpWorkspace,
 	closeTheDoor,
@@ -217,9 +217,19 @@ async function bindFromTheDoor(page: Page): Promise<void> {
  * empty Workspace is nothing, and leaves the dialog correctly saying so. Every test below that means
  * to assert on a *site* therefore asks for one first, from the press that exists for it.
  */
-async function turnShareLinksOn(page: Page): Promise<void> {
+async function turnShareLinksOn(page: Page, github: GitHubHosts): Promise<void> {
 	await openRepositorySettings(page);
+	// ⚠ **The press asks GitHub for nothing on a sign-in** (ADR-0040). `POST /pages` needs
+	// `Administration: write`, the App does not ask for it and no author can add it, so what the press
+	// does is write the viewer into the Workspace and hand over the one setting — said before it is
+	// pressed, by `pages-setup-by-hand`. The setting is the author's own act on github.com, which is
+	// what `turnPagesOn` stages; the waiting and the verifying are Ballastella's, which is
+	// *Check again*.
+	await expect(page.getByTestId('pages-setup-by-hand')).toBeVisible();
 	await page.getByTestId('enable-pages').click();
+	await expect(page.getByTestId('check-pages')).toBeVisible({ timeout: 30_000 });
+	github.turnPagesOn(OWNER, REPOSITORY);
+	await page.getByTestId('check-pages').click();
 	await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 60_000 });
 	await closeWorkspaceDialog(page);
 }
@@ -711,7 +721,7 @@ test.describe('a sign-in kept past the tab', () => {
 		// Bound on the strength of the credential already held, which is what the sign-in door exists
 		// to make possible: nothing is typed and nothing is pasted.
 		await bindFromTheDoor(page);
-		await turnShareLinksOn(page);
+		await turnShareLinksOn(page, github);
 
 		await openSyncModal(page);
 		const dialog = page.getByRole('dialog', { name: 'Sync with GitHub' });
@@ -850,7 +860,7 @@ test.describe('a bound Workspace pressed to Sync with no credential', () => {
 
 		// A website is what this leg has to arrive at, and a Remote is a place the work lives before it
 		// is one (ADR-0045) — so Share Links are asked for from the Workspace's own row.
-		await turnShareLinksOn(page);
+		await turnShareLinksOn(page, github);
 
 		await openSyncModal(page);
 		await expect(dialog.getByTestId('sync-budget')).toBeVisible({ timeout: 30_000 });
@@ -958,7 +968,15 @@ test.describe('the guided sequence, wired to the real thing', () => {
 		await expect(page.getByTestId('published-site-address')).toHaveText(
 			`https://${OWNER}.github.io/${REPOSITORY}/`
 		);
+		// ⚠ **And the press does not turn the site on, because on a sign-in nothing can** — the site
+		// is one setting the author makes, and this leg is the whole of that division of labour wired
+		// to the real GitHub: the viewer into the Workspace and the setting handed over here, the
+		// setting itself on github.com, the waiting and the verifying back here.
 		await page.getByTestId('enable-pages').click();
+		await expect(page.getByTestId('check-pages')).toBeVisible({ timeout: 30_000 });
+		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(false);
+		github.turnPagesOn(OWNER, REPOSITORY);
+		await page.getByTestId('check-pages').click();
 		await expect(page.getByTestId('pages-enabled')).toBeVisible({ timeout: 30_000 });
 		expect(github.pagesOn(OWNER, REPOSITORY)).toBe(true);
 		await closeWorkspaceDialog(page);
