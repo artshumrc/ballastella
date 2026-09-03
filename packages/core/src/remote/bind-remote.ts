@@ -28,7 +28,7 @@
 // and for "nobody asked" alike — and {@link RemoteBindOutcome.rightsNotice} is therefore empty
 // rather than carrying {@link noPushMessage}. Whether this author may send is a question a sign-in
 // answers, and a screen that reported it from here would be stating a fact it could not have
-// checked (ADR-0043).
+// checked (ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // SHARE LINKS ARE NOT PART OF CONNECTING, AND FAIL INTO A SENTENCE WHEN THEY ARE ASKED FOR

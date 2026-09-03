@@ -112,7 +112,7 @@
 		try {
 			await current.completeGitHubSignIn(callback);
 			// ⚠ **Which of the two rules is in force, rather than one wording that is true under both.**
-			// The author may have asked this machine to keep the renewable half of a sign-in (ADR-0041),
+			// The author may have asked this machine to keep the renewable half of a sign-in (ADR-0044),
 			// and telling them it is forgotten when the tab closes contradicts the thing they ticked —
 			// on the one screen that reports what their sign-in just did. The door states it the same
 			// way, and the eight-hour credential itself is forgotten either way.

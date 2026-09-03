@@ -1437,7 +1437,7 @@ test.describe('synchronizing a folder Workspace', () => {
 	}
 
 	/**
-	 * Connect the open Workspace to one of the granted repositories, from the door (ADR-0041).
+	 * Connect the open Workspace to one of the granted repositories, from the door (ADR-0044).
 	 *
 	 * ⚠ **Chosen out of GitHub's own answer rather than typed.** There is no address field and no
 	 * token field anywhere on a deployment that has an App (ADR-0042): the door lists what GitHub
@@ -1470,7 +1470,7 @@ test.describe('synchronizing a folder Workspace', () => {
 		});
 	}
 
-	/** The one badge's GitHub clause, which each determination has exactly one of (ADR-0041). */
+	/** The one badge's GitHub clause, which each determination has exactly one of (ADR-0044). */
 	const remoteStatus = (page: Page) => page.getByTestId('where-your-work-is');
 
 	/** Ask for a check the way an author does, and wait for it to finish. */

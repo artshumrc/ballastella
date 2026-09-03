@@ -103,7 +103,7 @@ export const BASE_MAP_TILE_ROOT = 'base-map/tiles/';
  * files and find no cache at all. The catalog's own string is the one thing the editor and every
  * Published Site made from it agree on.
  *
- * The slug in front is for a human reading the folder — ADR-0006 makes the folder the product — and
+ * The slug in front is for a human reading the folder — the Workspace folder is what goes to the Remote (ADR-0045) — and
  * the hash behind it is what actually distinguishes: two archives can share a filename, and one of
  * them is `…/v4.pmtiles` on two different servers.
  */

@@ -836,7 +836,7 @@
 
 		{#if step === 'by-address'}
 			<!--
-				⚠ **The inbound door, in front of the sign-in rather than behind it** (ADR-0031, ADR-0043).
+				⚠ **The inbound door, in front of the sign-in rather than behind it** (ADR-0031, ADR-0044).
 				A student with no GitHub account opening their instructor's shared Workspace is the
 				likeliest thing this tool is asked to do, and it needs nothing: no account, no credential,
 				and no change to the Workspace they are in.
@@ -1376,7 +1376,7 @@
 		{#if storage.signInWithGitHubOffered}
 			<!--
 				⚠ **What is true of the sign-in, and the one choice about it, on every step of the door**
-				(ADR-0041). Both were in the Remote dialog ADR-0042 deletes, and both belong wherever a
+				(ADR-0044). Both were in the Remote dialog ADR-0042 deletes, and both belong wherever a
 				sign-in is reachable: *which* account is the question a scholar on a shared or a
 				classmate's machine is actually asking, and the choice below is about this computer rather
 				than about the sign-in currently held — so it is answerable before the button is pressed,
@@ -1409,7 +1409,7 @@
 					</p>
 				{/if}
 				<!--
-					⚠ **Unticked until the author ticks it** (ADR-0041). The rule narrows rather than falls: a
+					⚠ **Unticked until the author ticks it** (ADR-0044). The rule narrows rather than falls: a
 					scholar on a shared or lab machine changes nothing and keeps the old behaviour, and a
 					durable credential is never a default somebody else chose.
 				-->
@@ -1432,7 +1432,7 @@
 					</span>
 				</label>
 				<!--
-					⚠ **A disclosure, and *closed* is the whole of what makes it one** (ADR-0041).
+					⚠ **A disclosure, and *closed* is the whole of what makes it one** (ADR-0044).
 					An App installation that has broken mid-class leaves an instructor with no way in, and
 					this is it; a student on the same deployment must never be offered a choice between two
 					credentials, and a field that is not in the document is not an offer. So the word is

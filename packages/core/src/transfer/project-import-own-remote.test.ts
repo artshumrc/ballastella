@@ -1,5 +1,5 @@
 // What a bound Workspace's synchronization does to an Import: the current Remote inventory it must
-// have, and the Import of its own Remote Project it must refuse (ADR-0037, ADR-0038).
+// have, and the Import of its own Remote Project it must refuse (ADR-0037, ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // TWO CLAIMS, AND THE SECOND ONE CANNOT BE MADE ABOUT A FUNCTION

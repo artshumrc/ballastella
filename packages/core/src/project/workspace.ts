@@ -445,7 +445,7 @@ export class Workspace {
 	}
 
 	/**
-	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0032).
+	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0045).
 	 *
 	 * A discrete action rather than a continuing edit, so it is written straight through rather than
 	 * debounced: the user pressed one control once, and the answer to "did that stick?" has to be yes

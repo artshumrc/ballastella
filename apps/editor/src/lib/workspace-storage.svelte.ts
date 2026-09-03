@@ -226,7 +226,7 @@ const sealedSignInStorage = (reviewing: () => boolean): CredentialStorage => ({
  * Where the renewable half of a sign-in waits past the tab, shut until the author has asked for it.
  *
  * ⚠ **The preference is read here rather than branched on at each caller.** Written the other way
- * this would be an `if (remembering)` beside every write of a grant, which is the shape ADR-0041
+ * this would be an `if (remembering)` beside every write of a grant, which is the shape ADR-0044
  * forbids above the credential interface — and the shape that goes wrong the first time somebody
  * adds a sixth call site. Shut, this reads and writes nothing, so the durable record simply never
  * comes into existence and the default stays exactly what it was.
@@ -302,7 +302,7 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
 /**
  * Where a Workspace can be: browser-managed storage, or a folder the user can see.
  *
- * ⚠ **Two members, and a Remote is not a third** (ADR-0032). A Workspace bound to a repository is
+ * ⚠ **Two members, and a Remote is not a third.** A Workspace bound to a repository is
  * still browser-backed or folder-backed; the binding is orthogonal and lives in a document at the
  * Workspace root. A third member would mean a new case in `#adopt`, the journal keys, the switcher,
  * `canChooseFolder`, and `discard` — five sites where a mistake in the journal key is silent.
@@ -666,12 +666,12 @@ export class WorkspaceStorage {
 	 *
 	 * **Orthogonal to {@link backing}.** A Workspace in browser storage and a Workspace in a folder
 	 * may each have one, and nothing on this path asks which — `WorkspaceBacking` stays a two-member
-	 * union and gains no third member (ADR-0032).
+	 * union and gains no third member.
 	 */
 	remote = $state<RemoteRelationship | null>(null);
 	/**
 	 * What this installation last saw shared between this Workspace and its Remote, or `null` for
-	 * `Cannot tell` (ADR-0038).
+	 * `Cannot tell` (ADR-0033).
 	 *
 	 * ⚠ **`null` is a determination, not an absence of one.** It is what absence, corruption, a record
 	 * naming another repository, and a Baseline the browser refused to keep all read as, and every one
@@ -717,7 +717,7 @@ export class WorkspaceStorage {
 	 */
 	signedIn = $state(false);
 	/**
-	 * Whether the author has asked this machine to keep their sign-in past the tab (ADR-0041).
+	 * Whether the author has asked this machine to keep their sign-in past the tab (ADR-0044).
 	 *
 	 * ⚠ **Unticked until somebody ticks it, and installation-local rather than per-Workspace.** The
 	 * beneficiary of the original rule — a scholar on a shared or lab machine — keeps the old
@@ -868,7 +868,7 @@ export class WorkspaceStorage {
 	readonly #journalStorage: JournalStorage | null = browserJournalStorage();
 	/**
 	 * Where this installation's synchronization metadata lives, resolved once for the whole app
-	 * (ADR-0038).
+	 * (ADR-0033).
 	 *
 	 * IndexedDB rather than `localStorage`, because a Baseline for a Workspace of 40 000 files is a
 	 * couple of megabytes against an origin-wide 5 MB budget the journal already shares — which is how
@@ -1714,7 +1714,7 @@ export class WorkspaceStorage {
 	 * standing instruction to delete a directory inside whatever "Marking 2026" is made next. A
 	 * Baseline (ADR-0033) is this browser's claim about a repository, standing ready for
 	 * whichever repository the next Workspace of that name is bound to — and a send is judged by
-	 * it. The Remote relationship with its Baseline (ADR-0038), and the local-change index, are the
+	 * it. The Remote relationship with its Baseline, and the local-change index, are the
 	 * same claim in the direction that matters most: that these files are already shared with a
 	 * repository the author has never seen. Nothing else sweeps any of them.
 	 *
@@ -2521,7 +2521,7 @@ export class WorkspaceStorage {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ADR-0032, ADR-0033)
+	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ADR-0033, ADR-0044)
 	//
 	// Nothing here sends. What this half delivers is that the app knows which repository this
 	// Workspace belongs to, knows whether it may write there, and holds a credential for the length of
@@ -2997,7 +2997,7 @@ export class WorkspaceStorage {
 	 * ⚠ **Read live and never remembered.** Write access is somebody else's to grant and to take away,
 	 * and the two states this answers — a get-only relationship stated once, and a send affordance
 	 * that is absent rather than refusing — are exactly the ones a remembered answer gets wrong
-	 * (ADR-0043). It is the same one `GET /repos/{owner}/{repo}` a bind makes, for the same reason
+	 * (ADR-0044). It is the same one `GET /repos/{owner}/{repo}` a bind makes, for the same reason
 	 * `bind-remote.ts` makes it there: before a byte moves.
 	 *
 	 * @throws when there is no Remote or no sign-in to ask with, which are the two states that make
@@ -3552,7 +3552,7 @@ export class WorkspaceStorage {
 		// A folder Workspace is never a review copy: a bundle only ever opens into browser storage, so
 		// there is no such file to ask a folder store for.
 		this.review = backing === 'folder' || !available ? null : await this.#markOf(store);
-		// ⚠ **No branch on backing here, and that is the rule rather than an omission** (ADR-0032). A
+		// ⚠ **No branch on backing here, and that is the rule rather than an omission.** A
 		// folder Workspace and a browser one may each be bound; the review mark is forced `null` for a
 		// folder above because a bundle only ever opens into browser storage, and no equivalent
 		// argument exists for a binding. Read after the mark, so the seal on the credential store is

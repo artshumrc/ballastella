@@ -12,7 +12,7 @@
 # directory listing.
 #
 # Deploying `apps/editor/build` — not the viewer. The viewer is not a site anyone visits; it is bytes
-# the editor writes into a user's Workspace when they publish (ADR-0006), and it reaches a reader from
+# the editor writes into a user's Workspace when they publish (ADR-0045), and it reaches a reader from
 # *their* host. `pnpm -r build` produces it and `stage:viewer` puts it inside the editor, so it ships
 # here as cargo rather than as a deployment.
 #
@@ -77,7 +77,7 @@ jobs:
       # manifest is written from the routes that exist. See scripts/stage-deploy-build.mjs.
       - run: pnpm build:deploy
 
-      # ADR-0006: one build serves a domain root and a project subpath, so no absolute asset paths.
+      # ADR-0045: one build serves a domain root and a project subpath, so no absolute asset paths.
       # A fork is deployed at `user.github.io/<repo>/`, which is the subpath case — so on a fork this
       # is not a hypothetical, it is the only case. Checked against the artifact about to be uploaded.
       - name: Built output references assets relatively
@@ -88,10 +88,10 @@ jobs:
           set -e
           if [ "$status" -eq 0 ]; then
             echo "$matches"
-            echo "::error::absolute asset paths in the artifact — see ADR-0006 (paths.relative)"
+            echo "::error::absolute asset paths in the artifact — see ADR-0045 (paths.relative)"
             exit 1
           elif [ "$status" -ne 1 ]; then
-            echo "::error::grep exited $status — the ADR-0006 check could not run"
+            echo "::error::grep exited $status — the ADR-0045 check could not run"
             exit 1
           fi
           echo "OK: no absolute asset paths"

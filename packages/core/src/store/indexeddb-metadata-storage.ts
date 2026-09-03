@@ -1,4 +1,4 @@
-// The browser's implementation of the synchronization metadata seam (ADR-0038).
+// The browser's implementation of the synchronization metadata seam (ADR-0033).
 //
 // One database connection per operation rather than one held open for the session, matching what the
 // folder grant already does: a connection left open blocks the next version upgrade in another tab,

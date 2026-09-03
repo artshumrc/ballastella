@@ -251,7 +251,7 @@
 	<!--
 		The determination, what it means, when it was read and what the two sides last agreed on — in
 		that order, because each line explains the one above it. What to *do* about any of it is behind
-		the door (ADR-0041); this panel is the reading, and the reading alone.
+		the door (ADR-0044); this panel is the reading, and the reading alone.
 
 		⚠ **Not in the live region.** It appears because the reader pressed for it, and a polite region
 		that grew four sentences on a press would re-read the whole status to say something the reader

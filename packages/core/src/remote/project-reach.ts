@@ -6,7 +6,7 @@
 // Two questions are asked of a single Project: has any of it reached the Remote, and has anything
 // happened to it here since. Both are claims about the *outbound* half, and the outbound half is
 // answered entirely by what this machine holds — the Baseline says what the two sides last agreed
-// and the local change index says what has been written here since (ADR-0038). Reaching GitHub
+// and the local change index says what has been written here since (ADR-0033). Reaching GitHub
 // would answer a different question, more slowly, and would put a request behind opening a settings
 // dialog.
 //

@@ -1,4 +1,4 @@
-// The Remote Status a scholar reads, and the bounded checking that keeps it true (ADR-0038).
+// The Remote Status a scholar reads, and the bounded checking that keeps it true (ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // OBSERVATIONAL, AND THAT IS THE WHOLE CONTRACT

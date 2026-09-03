@@ -112,7 +112,7 @@ it('resolves and exposes the Base Map surface from the package entry point', () 
 	expect(core.BASE_MAP_CATALOG.entries.length).toBeGreaterThan(0);
 });
 
-// The blob SHA and the fake GitHub, reachable through the same barrel (ADR-0032). The fake is test
+// The blob SHA and the fake GitHub, reachable through the same barrel (ADR-0044). The fake is test
 // material in `src/` on the precedent of the store conformance suite and the directory-handle
 // fixture, and it is here rather than in each spec so that every suite shares one GitHub instead
 // of writing several that can disagree with each other.
@@ -128,7 +128,7 @@ it('exposes the git blob SHA and the fake GitHub', () => {
 });
 
 // The send engine, reachable through the same barrel because the navigation bar drives it
-// (ADR-0032). It adds no dependency: paths, byte counts, JSON, and an injected `fetch`.
+// (ADR-0044). It adds no dependency: paths, byte counts, JSON, and an injected `fetch`.
 it('exposes the send engine and its refusals', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([

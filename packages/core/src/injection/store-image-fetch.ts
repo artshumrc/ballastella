@@ -106,7 +106,7 @@ export class MissingImageServiceOverrideError extends Error {
 export type StoreImageFetchOptions = {
 	/**
 	 * The store to resolve a pyramid out of. **The read half only** — this shim writes nothing, and
-	 * saying so in the type is what lets an HTTP backend (ADR-0006) be handed to it: a
+	 * saying so in the type is what lets an HTTP backend (ADR-0045) be handed to it: a
 	 * Published Site's pyramid is read through exactly this function, and the viewer has no `write`
 	 * to give. See {@link ReadOnlyProjectStore}.
 	 */

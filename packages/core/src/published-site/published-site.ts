@@ -90,7 +90,7 @@ export type PublishedProject = {
 	/** Its display name. Untrusted text: a Reader's browser must render it as text, never as markup. */
 	readonly name: string;
 	/**
-	 * Whether the Front Page lists it (ADR-0032).
+	 * Whether the Front Page lists it (ADR-0045).
 	 *
 	 * **Every Project the Workspace holds is on the record, listed or not.** A Reader's store cannot enumerate a
 	 * static host, so this record is the only account the site has of itself — and leaving the unlisted
@@ -98,8 +98,11 @@ export type PublishedProject = {
 	 * which it is not: the files are fetchable and `?p=<directory>` opens it for anyone who knows the
 	 * name.
 	 *
-	 * Absent means listed, here as in `project.json`, so a record written before this field is read the
-	 * way it was meant — see {@link parsePublishedSite}.
+	 * ⚠ **Absent means listed here, and the opposite in `project.json`, and both are right**
+	 * (ADR-0045). `project.json` holds the author's own answer, so absence of the field there is
+	 * absence of the decision and means *off*. This record is an account a past Sync wrote, and every
+	 * site written before the field existed carries entries with none — so reading it strictly would
+	 * empty a live Front Page. See {@link parsePublishedSite}.
 	 */
 	readonly onFrontPage: boolean;
 };
@@ -120,7 +123,7 @@ export type PublishedRepository = {
 /** The record a Published Site carries about itself. */
 export type PublishedSite = {
 	readonly formatVersion: number;
-	/** The stamp of the viewer that was written, so a stale bundle is detectable (ADR-0006). */
+	/** The stamp of the viewer that was written, so a stale bundle is detectable (ADR-0045). */
 	readonly viewerVersion: string;
 	/** When it was written, ISO 8601. */
 	readonly publishedAt: string;
@@ -184,7 +187,7 @@ export type PublishedSite = {
 	 * Which archives this site carries cached tiles for, and how deep each goes. Empty for none.
 	 *
 	 * Carried on the record because a Reader's store is HTTP and **cannot list a directory**
-	 * (ADR-0006): the editor reads both facts off the folder, and a static host gives the viewer no
+	 * (ADR-0045): the editor reads both facts off the folder, and a static host gives the viewer no
 	 * way to.
 	 *
 	 * **`archive` is what makes a keyed cache usable by a Reader.** The tiles are at
@@ -286,7 +289,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 				{
 					directory,
 					name: typeof project?.name === 'string' ? project.name : directory,
-					// ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032). A viewer bundle
+					// ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0045). A viewer bundle
 					// written before the field existed is sitting in front of Readers right now, and reading
 					// this strictly would empty its Front Page — every Project still fetchable, none of them
 					// listed, and nothing on the page to say why. Absence has to mean what it meant, which is
@@ -461,7 +464,7 @@ export type PublishedSitePlan = {
 	readonly viewerVersion: string;
 	/**
 	 * Every Project the site will carry, in the order the record will name them — each saying whether
-	 * the Front Page lists it (ADR-0032).
+	 * the Front Page lists it (ADR-0045).
 	 */
 	readonly projects: readonly PublishedProject[];
 	/** Every path the site write will write, with its byte length. The site record is included. */
@@ -541,7 +544,7 @@ export type PlanPublishedSiteOptions = {
 	 * Where the editor writing the site lives, for {@link PublishedSite.editorUrl}.
 	 *
 	 * Passed in rather than read here, because it is `location.origin` plus a base path and core has
-	 * no business knowing either (ADR-0006) — the same division `readAsset` is drawn on. Omitted, the
+	 * no business knowing either (ADR-0045) — the same division `readAsset` is drawn on. Omitted, the
 	 * site records no instance and its Front Page carries no return link, which is a working site.
 	 */
 	readonly editorUrl?: string;
@@ -589,7 +592,7 @@ export async function planPublishedSite(
 	const repository = parsePublishedRepository(options.repository);
 
 	// Every Project, whether or not the Front Page lists it: the record is the site's whole account of
-	// itself, and the listing decision travels on each entry rather than by omission (ADR-0032).
+	// itself, and the listing decision travels on each entry rather than by omission (ADR-0045).
 	const listed: PublishedProject[] = projects.map((project) => ({
 		directory: project.directory,
 		name: project.name,
@@ -832,7 +835,7 @@ export type WritePublishedSiteOptions = {
 	 * `source` the editor serves it from as well as the Workspace-relative `path` it goes to.
 	 *
 	 * Injected because the editor serves those files from its own deployment over a **relative** URL
-	 * (ADR-0006), which is knowledge core must not have — and because it is what lets the tests drive
+	 * (ADR-0045), which is knowledge core must not have — and because it is what lets the tests drive
 	 * writing a site with no browser at all.
 	 */
 	readonly readAsset: (file: ViewerBundleFile) => Promise<Bytes>;
@@ -882,7 +885,7 @@ export async function writePublishedSite(
 		throw new PublishedSiteRefusedError(collisionMessage(plan.collisions));
 	}
 
-	// The recorded list is enforced here rather than merely documented. ADR-0006's requirement is
+	// The recorded list is enforced here rather than merely documented. ADR-0045's requirement is
 	// that the viewer file set be *recorded*, and the way that quietly stops being true is a chunk
 	// or an asset arriving in the bundle under a name nobody added to `VIEWER_FILE_PATHS` — after
 	// which the data-only zip carries it and nothing says so. Refusing to write an unrecorded path
@@ -891,7 +894,7 @@ export async function writePublishedSite(
 	if (unrecorded.length > 0) {
 		throw new PublishedSiteRefusedError(
 			`Writing this site would put ${unrecorded.map((file) => file.path).join(', ')} there, which ` +
-				`VIEWER_FILE_PATHS does not record. ADR-0006 requires the viewer file set to be ` +
+				`VIEWER_FILE_PATHS does not record. ADR-0045 requires the viewer file set to be ` +
 				`enumerable, so that a data-only Project archive can exclude exactly it. Record the path ` +
 				`there and try again. Nothing has been written.`
 		);
@@ -951,7 +954,7 @@ export async function writePublishedSite(
  * The case this exists for is the Base Map. The recorded viewer directory can contain files from a
  * previous build, while the record written beside it describes the current site. A Reader is
  * unaffected by superseded files, because nothing points at them; the user is not, because the folder
- * **is** the product (ADR-0006) and they are about to push it.
+ * **is** what goes to the Remote (ADR-0045) and they are about to send it.
  *
  * **Only paths `VIEWER_FILE_PATHS` records are so much as listed.** That is the whole of the safety
  * argument: the sweep cannot reach a Project directory because it never asks about one, and a
@@ -1062,10 +1065,10 @@ export async function readPublishedSite(store: ProjectStore): Promise<PublishedS
 /**
  * Whether a Published Site is behind the Workspace it sits in, and why — or `''` when it is not.
  *
- * Two ways to be behind, and both matter (ADR-0006). The viewer's files can be older than this
- * build of the editor, which is the one the ADR names. And the *Project list* can be older than the
- * Workspace, which is the case a student meets: they add a Project in week four and the hub page
- * from week three does not list it.
+ * Two ways to be behind, and both matter (ADR-0045). The viewer's files can be older than this
+ * build of the editor, which the version stamp on the record answers. And the *Project list* can be
+ * older than the Workspace, which is the case a student meets: they add a Project in week four and
+ * the hub page from week three does not list it.
  */
 export function publishedSiteStaleness(
 	site: PublishedSite | null,
@@ -1084,7 +1087,7 @@ export function publishedSiteStaleness(
 		)
 	);
 	// ⚠ **A Front Page choice the site has not been told about is drift, the same as a rename**
-	// (ADR-0032). Taking a Project off writes `project.json` and nothing else; until the site is
+	// (ADR-0045). Taking a Project off writes `project.json` and nothing else; until the site is
 	// written again its Front Page still offers the Project to every Reader who arrives. Said in
 	// both directions and separately, because the direction is the whole point of the sentence: the
 	// author needs to know *which* answer the live site is still giving.

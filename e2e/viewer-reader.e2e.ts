@@ -53,7 +53,7 @@ test.beforeEach(async ({ page }) => {
  * Everything here runs against **the built viewer** — `apps/viewer/build`, the same bytes
  * `scripts/stage-viewer-bundle.mjs` stages and `writePublishedSite` writes — served over plain HTTP out of a
  * directory with no server-side logic, no rewriting, and no SPA fallback, because a static host has none
- * of those (ADR-0006). `e2e/support/static-site.ts` is the harness, and the **subdirectory** is the
+ * of those (ADR-0045). `e2e/support/static-site.ts` is the harness, and the **subdirectory** is the
  * load-bearing half of it — mutation-verified, since pointing data reads at `/` instead of at the
  * document leaves the root site green and only the subdirectory red.
  */
@@ -335,7 +335,7 @@ function oneProject(fixture: ProjectFixture = {}, record: Record<string, unknown
 /**
  * The editor instance a site's return links point at.
  *
- * A **different origin** from the site, which is the ordinary topology under ADR-0032 and the reason
+ * A **different origin** from the site, which is the ordinary topology under ADR-0045 and the reason
  * these are plain links: nothing is handed across, so nothing has to be.
  */
 const EDITOR_INSTANCE = 'https://maps.example.edu/ballastella/';
@@ -991,7 +991,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			await expect(page.getByTestId('no-account-needed')).toHaveCount(0);
 
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this test
-			// composed — so the link is relative in the way the base path needs (ADR-0006).
+			// composed — so the link is relative in the way the base path needs (ADR-0045).
 			await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 			// The Project's name is on the bar, as the place the Reader is currently in.
 			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
@@ -1004,7 +1004,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 			// Nothing was asked for outside the served folder. This is the assertion that fails when an
 			// asset or a data file is referenced as `/…`: answered at a domain root, and outside the folder
-			// in a subdirectory, which is the GitHub Pages case ADR-0006 exists for.
+			// in a subdirectory, which is the GitHub Pages case ADR-0045 exists for.
 			expect(
 				served.requests.filter((asked) => !asked.startsWith(`${served.prefix}/`)),
 				`requests outside ${served.prefix}/`
@@ -1026,7 +1026,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 	/**
 	 * The Front Page lists what the author put on it — and the other Projects are still there
-	 * (ADR-0032).
+	 * (ADR-0045).
 	 *
 	 * ⚠ **The second half is the half that matters.** A Project taken off the Front Page is *absent from
 	 * one list* and nothing else: the repository is public, its files are fetchable, and `?p=<folder>`
@@ -1137,7 +1137,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 	 * read pointed at `/` instead of at the document leaves the root site green and only the
 	 * subdirectory red, which is what the harness was mutation-verified against.
 	 *
-	 * The links are read rather than followed: the destination is a different origin under ADR-0032
+	 * The links are read rather than followed: the destination is a different origin under ADR-0045
 	 * and there is no editor on this port. What the editor does when it is landed on is
 	 * `editor-get-remote` and `editor-review-remote`.
 	 */
@@ -4517,7 +4517,7 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		site = await servedSite(pinnedProject(BOSTON_PINS));
 		const seen = watch(page);
 
-		// Both base paths, because ADR-0006's whole claim is that one build serves a domain root and a
+		// Both base paths, because ADR-0045's relative-path rule is that one build serves a domain root and a
 		// subdirectory — and the opening view is computed from documents reached by relative path.
 		for (const served of site.sites) {
 			await page.goto(served.url + '?p=amsterdam-1625');

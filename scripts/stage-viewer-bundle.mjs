@@ -118,7 +118,7 @@ const baseMapFiles = existsSync(baseMapRoot)
 	: [];
 
 /**
- * The version stamp (ADR-0006): a hash over the viewer's own files and their contents.
+ * The version stamp (ADR-0045): a hash over the viewer's own files and their contents.
  *
  * Content-addressed rather than a build timestamp, so that writing an unchanged viewer again leaves
  * the stamp alone and "is this Published Site's viewer out of date?" does not answer yes every time

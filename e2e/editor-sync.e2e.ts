@@ -56,7 +56,7 @@ declare global {
  *
  * The file-level behaviour — additive syncing, the recorded file set, and the warnings — is asserted
  * at Seam 1 in `@ballastella/core`, where the bytes are the assertion. What only
- * a browser can settle is the claim ADR-0006 actually makes: that the folder syncing wrote **is a
+ * a browser can settle is the claim ADR-0045 actually makes: that the folder syncing wrote **is a
  * working website**, from one build, at a domain root *and* in a subdirectory.
  *
  * So these tests do not inspect files and conclude. They Sync through the UI, take the Workspace
@@ -386,7 +386,7 @@ test.describe('syncing a Workspace', () => {
 	test('references every asset relatively, asserted on the bytes that were written', async ({
 		page
 	}) => {
-		// The served assertion above is the real one. This is the ADR-0006 fence applied to the *user's
+		// The served assertion above is the real one. This is the ADR-0045 fence applied to the *user's
 		// folder* rather than to our build output — the case the CI fence deliberately does not cover,
 		// because it greps `apps/*/build` and the thing that ships to a Reader is this.
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
@@ -762,7 +762,7 @@ test.describe('syncing a Workspace', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// SYNCING TO A REMOTE (ADR-0031, ADR-0032, ADR-0033)
+// SYNCING TO A REMOTE (ADR-0031, ADR-0033, ADR-0044)
 //
 // Seam 2, driving the Seam 1 fake through Playwright routes. The engine's own
 // correctness — the incremental upload, the owned-namespace rules, the truncation refusal, the
@@ -886,7 +886,7 @@ test.describe('syncing to a Remote', () => {
 		expect(github.fileText(OWNER, REPOSITORY, 'CNAME')).toBe('atlas.example\n');
 		expect(github.fileText(OWNER, REPOSITORY, 'docs/guide.md')).toBe('How to\n');
 
-		// ⚠ **The Synchronization Baseline is kept, and it is kept *outside* the Workspace** (ADR-0038).
+		// ⚠ **The Synchronization Baseline is kept, and it is kept *outside* the Workspace** (ADR-0033).
 		// It records what **this machine** last shared with the Remote, which is what a conflict check
 		// refuses an overwrite on — so a copy inside the Workspace would be packed into a Backup,
 		// uploaded by the very Sync it describes, and downloaded by a get, at which point another
@@ -1147,7 +1147,7 @@ test.describe('syncing to a Remote', () => {
 
 	// An unbound Workspace must be given a GitHub repository before syncing is offered —
 	// and with one door, that is what the door *lands on* rather than a refusal a Sync dialog
-	// gives after the fact (ADR-0041). A Workspace with nowhere to Sync has no Sync to press.
+	// gives after the fact (ADR-0044). A Workspace with nowhere to Sync has no Sync to press.
 	test('lands on connecting, not on syncing, for a Workspace bound to nothing', async ({
 		page
 	}) => {
@@ -1213,7 +1213,7 @@ test.describe('syncing to a Remote', () => {
 	 * The credential that reaches a repository and cannot push to it.
 	 *
 	 * ⚠ **This test used to press through to a refusal, and it cannot any more — by design**
-	 * (ADR-0043). A read-only collaborator is offered no send affordance at all: the Sync modal
+	 * (ADR-0044). A read-only collaborator is offered no send affordance at all: the Sync modal
 	 * carries the three that send only where GitHub has said this sign-in may write there. So the
 	 * claim this test carries is now the *absence*, which is the stronger one — a control that will
 	 * certainly refuse is worse than no control — and the engine's own refusal before a byte moves

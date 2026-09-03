@@ -1,5 +1,5 @@
 // What this installation knows about one Workspace's Remote: the relationship, and the Synchronization
-// Baseline that says what the two sides last shared (ADR-0038).
+// Baseline that says what the two sides last shared (ADR-0033).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // INSTALLATION-LOCAL, AND NOT IN THE WORKSPACE

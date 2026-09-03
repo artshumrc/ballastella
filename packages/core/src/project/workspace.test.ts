@@ -336,7 +336,7 @@ describe('Workspace', () => {
 	});
 
 	/**
-	 * The Front Page choice, from the Workspace's side (ADR-0032).
+	 * The Front Page choice, from the Workspace's side (ADR-0045).
 	 *
 	 * The state a hub renders and the state a site records both come from `project.json`, through
 	 * `listProjects`. Nothing caches it, which is what makes "the choice survives a reload" a property

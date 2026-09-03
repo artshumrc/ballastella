@@ -104,7 +104,7 @@ const WORKSPACE: Record<string, string> = {
 	[`${DIRECTORY}/annotations/warehouses.geojson`]: '{"type":"FeatureCollection","features":[]}',
 	// Referenced by nothing. ADR-0037's closure is the Annotations the Layers *name*.
 	[`${DIRECTORY}/annotations/superseded.geojson`]: '{"type":"FeatureCollection","features":[1]}',
-	// Generated Published Site output, inside the Project directory (ADR-0006's warning).
+	// Generated Published Site output, inside the Project directory (ADR-0045's warning).
 	[`${DIRECTORY}/index.html`]: '<!doctype html><title>Amsterdam</title>',
 	[`${DIRECTORY}/_app/app.js`]: 'export const start = () => {};',
 	[`${DIRECTORY}/base-map/glyphs/0.pbf`]: 'glyph bytes',
@@ -556,7 +556,7 @@ describe('a source is refused before anything could be installed', () => {
 	});
 
 	// A heap of tiles that describes itself as neither a local copy nor a referenced image is a
-	// directory no client can open (ADR-0006's layout), so the Map Image is missing whether or not the
+	// directory no client can open (ADR-0023's layout), so the Map Image is missing whether or not the
 	// directory exists.
 	it.each(adapters)('refuses an image directory nothing can read in %s', async (_name, open) => {
 		await expect(open(without('images/amsterdam-1625/info.json'))).rejects.toMatchObject({

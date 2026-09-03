@@ -178,7 +178,7 @@ describe('a Workspace backs up to one tar', () => {
 	});
 
 	it('leaves out the published viewer files', async () => {
-		// ADR-0006's staleness warning: a restored viewer bundle may be older than the app it lands
+		// ADR-0045's staleness warning: a restored viewer bundle may be older than the app it lands
 		// beside.
 		const store = seed({
 			...twoProjectsOneMap(),

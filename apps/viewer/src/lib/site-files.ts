@@ -9,7 +9,7 @@ import {
 /**
  * A file of the Published Site, by its Workspace-relative path, as a URL this page can fetch.
  *
- * ADR-0006 is the whole of why this exists. One build has to serve a domain root *and* a project
+ * ADR-0045's relative-path rule is the whole of why this exists. One build has to serve a domain root *and* a project
  * subdirectory — `username.github.io/some-repo/` — and which one is unknown when the viewer is
  * built, so `paths.relative: true` is mandatory and no asset may be referenced by an absolute path.
  * The same rule applies to the *data*: `ballastella-site.json` and every `project.json` sit beside
@@ -52,7 +52,7 @@ export function resolveSiteAsset(path: string): string {
 }
 
 /**
- * The Published Site as a {@link ReadOnlyProjectStore}: ADR-0006's HTTP adapter, wired to this
+ * The Published Site as a {@link ReadOnlyProjectStore}: ADR-0045's HTTP adapter, wired to this
  * document's own base.
  *
  * **This is the viewer's only way to bytes, and it is read-only by type.** Everything a Reader sees —

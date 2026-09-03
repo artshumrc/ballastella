@@ -491,7 +491,7 @@ describe('connecting a Workspace with nobody signed in', () => {
 
 	// ⚠ **`canPush: false` here means "nobody asked", and the empty notice is what says so.**
 	// `noPushMessage` is a report that GitHub turned this author down, and nothing has been turned
-	// down: the screen states that sending needs a sign-in instead (ADR-0043).
+	// down: the screen states that sending needs a sign-in instead (ADR-0044).
 	it('claims nothing about push rights, because it could not have checked them', async () => {
 		const store = new MemoryProjectStore();
 		const remote = await github();

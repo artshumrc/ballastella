@@ -1,5 +1,5 @@
 // The second implementation behind `CredentialStore`: one that outlives the tab, on this machine
-// only, and only because the author asked (ADR-0041).
+// only, and only because the author asked (ADR-0044).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE RULE NARROWS; IT DOES NOT FALL

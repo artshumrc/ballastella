@@ -5,12 +5,12 @@ import { WORKSPACE_BACKINGS, type WorkspaceBacking } from './workspace-storage.s
 // ⚠ **"`WorkspaceBacking` still has exactly two members" is an acceptance criterion, and a type
 // alias cannot assert it about itself** — a test naming `'browser' | 'folder'` is a test of what the
 // test says. So the union is derived from {@link WORKSPACE_BACKINGS} and the *list* is what is
-// counted here. ADR-0032: a Remote is orthogonal to the backing and is not a third member; a third
+// counted here. A Remote is orthogonal to the backing and is not a third member; a third
 // one means a new case in `#adopt`, the journal keys, the roster, `canChooseFolder` and `discard`,
 // five sites where a mistake in the journal key is silent.
 
 describe('where a Workspace can be kept', () => {
-	it('is browser storage or a folder, and nothing else (ADR-0032)', () => {
+	it('is browser storage or a folder, and nothing else', () => {
 		expect([...WORKSPACE_BACKINGS]).toEqual(['browser', 'folder']);
 	});
 

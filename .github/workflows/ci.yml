@@ -45,7 +45,7 @@ jobs:
 
       - run: pnpm -r build
 
-      # ADR-0006: one build has to serve a domain root and a project subdirectory, so no
+      # ADR-0045: one build has to serve a domain root and a project subdirectory, so no
       # asset may be referenced by absolute path. Checked against the built output rather
       # than the config, because the config is not what ships.
       # grep exits 2 when a directory is missing, so the status is checked explicitly:
@@ -54,7 +54,7 @@ jobs:
         run: |
           for dir in apps/editor/build apps/viewer/build; do
             if [ ! -d "$dir" ]; then
-              echo "::error::$dir does not exist — the ADR-0006 check could not run"
+              echo "::error::$dir does not exist — the ADR-0045 check could not run"
               exit 1
             fi
           done
@@ -64,10 +64,10 @@ jobs:
           set -e
           if [ "$status" -eq 0 ]; then
             echo "$matches"
-            echo "::error::absolute asset paths in built output — see ADR-0006 (paths.relative)"
+            echo "::error::absolute asset paths in built output — see ADR-0045 (paths.relative)"
             exit 1
           elif [ "$status" -ne 1 ]; then
-            echo "::error::grep exited $status — the ADR-0006 check could not run"
+            echo "::error::grep exited $status — the ADR-0045 check could not run"
             exit 1
           fi
           echo "OK: no absolute asset paths"

@@ -147,7 +147,7 @@ test.describe('the Workspace on the bar', () => {
 
 		// ⚠ **And the menu does not ask at all**. It states what this Workspace is — its name and its
 		// backing — so the same choice cannot be offered in two places that could disagree. The
-		// repository, the credential and the Remote Status are not restated here either (ADR-0041):
+		// repository, the credential and the Remote Status are not restated here either (ADR-0044):
 		// the badge answers where the work is and the door names the repository, and a third copy in
 		// prose could only disagree with them.
 		await openWorkspaceMenu(page);

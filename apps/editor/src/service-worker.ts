@@ -90,7 +90,7 @@
 // nothing better is available.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// IT WORKS AT A DOMAIN ROOT AND IN A SUBDIRECTORY (ADR-0006)
+// IT WORKS AT A DOMAIN ROOT AND IN A SUBDIRECTORY (ADR-0045)
 //
 // Nothing here writes a leading `/`. `$service-worker`'s `base` is
 // `location.pathname.split('/').slice(0, -1).join('/')` — the worker's own directory, computed at
@@ -98,7 +98,7 @@
 // registration in `$lib/pwa/installed-app.svelte.ts` asks for `service-worker.js` relative to the
 // deployment, so the scope the browser derives is the deployment's own directory and not the
 // origin. A hardcoded `/` here would work at `example.org/` and 404 at `example.org/ballastella/`,
-// which is the failure ADR-0006 exists to prevent and which the suite drives at both.
+// which is the failure ADR-0045's relative-path rule exists to prevent, and which the suite drives at both.
 //
 // **Cache storage is the one place a scope does not reach**, and it is why `HERE` exists: two
 // deployments of this app on one origin share `caches`, so the deployment has to be written into the
@@ -111,7 +111,7 @@ const worker = self as unknown as ServiceWorkerGlobalScope;
 /**
  * Which deployment a cache belongs to, spelled into every cache name.
  *
- * **`caches.keys()` is origin-wide, and a deployment is not.** ADR-0006 exists because one build has
+ * **`caches.keys()` is origin-wide, and a deployment is not.** ADR-0045 requires relative paths because one build has
  * to serve `user.github.io/` *and* `user.github.io/ballastella/`, and both of those are one origin
  * with one cache storage between them. A name carrying only the build version makes each deployment
  * read the other's caches as some foreign app's, so whichever one activates last deletes the other's

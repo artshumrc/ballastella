@@ -7,12 +7,12 @@
 	//
 	// A static host has no directory listing, so nothing here can discover which folders hold a
 	// Project the way the editor's Workspace does. The site write therefore puts the list into
-	// `ballastella-site.json` (ADR-0006's HTTP reader, ADR-0008's Front Page), and this page reads it.
+	// `ballastella-site.json` (ADR-0045's HTTP reader, ADR-0008's Front Page), and this page reads it.
 	// That record also carries the Base Map catalog the authoring deployment resolved, so a
 	// Published Site keeps working when that deployment later changes its own catalog (ADR-0020).
 	//
-	// Everything is read **relative** to this document, never from `/` (ADR-0006), and everything is read
-	// through **one** {@link ReadOnlyProjectStore}: ADR-0006's HTTP adapter, whose only method is `read`.
+	// Everything is read **relative** to this document, never from `/` (ADR-0045), and everything is read
+	// through **one** {@link ReadOnlyProjectStore}: ADR-0045's HTTP adapter, whose only method is `read`.
 	// There is no second data path in this app and nothing in it can write. See `$lib/site-files`.
 	//
 	// ADR-0008 chose `?p=<folder>` over per-Project URLs so that the static adapter prerenders one
@@ -211,7 +211,7 @@
 	});
 
 	/**
-	 * The Projects the Front Page offers a Reader (ADR-0032).
+	 * The Projects the Front Page offers a Reader (ADR-0045).
 	 *
 	 * The record names every Project the site carries, listed or not, so the filter is here rather than
 	 * when the site was written — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
@@ -239,8 +239,8 @@
 	// THE WAY BACK TO THE EDITOR
 	//
 	// The only **absolute** addresses this app renders. Everything else goes through `resolve` because
-	// the site's own base path is unknown at build time (ADR-0006); these are different in kind — they
-	// leave for another origin entirely, which is the ordinary topology under ADR-0032 — and they are
+	// the site's own base path is unknown at build time (ADR-0045); these are different in kind — they
+	// leave for another origin entirely, which is the ordinary topology a site and its editor sit in — and they are
 	// still built from two files read *relative* to this document.
 	//
 	// Plain links, and deliberately nothing more: no `postMessage`, no iframe, no attempt to hand
@@ -1307,7 +1307,7 @@
 	/**
 	 * The Front Page's Projects as the shared card list takes them: the name, the folder, and the link.
 	 *
-	 * `resolve` stays in the app — the site's own base path is unknown at build time (ADR-0006) and
+	 * `resolve` stays in the app — the site's own base path is unknown at build time (ADR-0045) and
 	 * `packages/ui` has no SvelteKit to resolve against — and the query parameter is built from the
 	 * **folder**, encoded, never from the display name.
 	 */

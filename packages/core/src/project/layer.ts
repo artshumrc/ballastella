@@ -131,7 +131,7 @@ export interface ForeignLayer extends LayerCommon {
  */
 export type Layer = MapLayer | AnnotationLayer | ForeignLayer;
 
-/** Where a Project keeps its Annotation Layers, relative to the Project (ADR-0006, ADR-0008). */
+/** Where a Project keeps its Annotation Layers, relative to the Project (ADR-0008). */
 export const ANNOTATION_DIRECTORY = 'annotations';
 
 /** An Annotation Layer's `FeatureCollection`, by path within its Project. Its `geojsonRef`. */

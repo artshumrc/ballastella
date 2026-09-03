@@ -24,7 +24,7 @@
 //
 // ⚠ **No `Authorization` header reaches any of this**, for {@link readRemoteTree}'s reason: this is
 // the path a student with no GitHub account takes, and a credential sent here would make an account
-// a prerequisite for the one operation that needs none (ADR-0031, ADR-0043).
+// a prerequisite for the one operation that needs none (ADR-0031, ADR-0044).
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { describeReset } from './github-api.js';

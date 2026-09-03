@@ -99,7 +99,7 @@
 	 *
 	 * ⚠ **Beside the bundle's button and not beside a Sync's, because it is the bundle's operation.**
 	 * A Sync gets work into a Workspace of the user's own that they go on working in, which is why it
-	 * lives behind the bar's one door to GitHub, beside the binding (ADR-0041). This makes a *review
+	 * lives behind the bar's one door to GitHub, beside the binding (ADR-0044). This makes a *review
 	 * copy*, from a link somebody
 	 * sent — the same throwaway, unbound, unable-to-send Workspace `open-bundle` makes, differing only
 	 * in where the bytes come from — so it is offered where the reader already looks for "somebody

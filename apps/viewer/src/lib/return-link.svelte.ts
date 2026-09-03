@@ -11,7 +11,7 @@
  * a folder rather than to a Remote, both have nothing to link to.
  */
 export type ReturnLink = {
-	/** An **absolute** address, on another origin entirely (ADR-0032). */
+	/** An **absolute** address, on another origin entirely (ADR-0045). */
 	readonly href: string;
 	readonly label: string;
 };

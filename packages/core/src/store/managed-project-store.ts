@@ -1,4 +1,4 @@
-// The one place a Workspace's own writes and deletions are written down (ADR-0038).
+// The one place a Workspace's own writes and deletions are written down (ADR-0033).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // A WRAPPER, NOT A HOOK IN EVERY AUTHORING METHOD

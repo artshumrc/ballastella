@@ -17,7 +17,7 @@ export interface ExportWorkspaceTarOptions {
 	readonly onProgress?: TransferProgressListener;
 	/**
 	 * Which Workspace-relative paths to leave out. Defaults to {@link isViewerFile}, the recorded
-	 * viewer-file list ADR-0006 requires; injectable for the same reason the zip exporter's was —
+	 * viewer-file list ADR-0045 requires; injectable for the same reason the zip exporter's was —
 	 * so that what the exclusion *mechanism* does is assertable without depending on what happens to
 	 * be in the list this month.
 	 */
@@ -222,7 +222,7 @@ function tarStream(
 		for (const path of paths) {
 			// One file in the heap at a time. `ProjectStore` has no streaming read, so a single very
 			// large file — a referenced image's copied `full/max` derivative (ADR-0007) is the only one
-			// in ADR-0006's layout that can be — is held whole for as long as it takes to write its
+			// in ADR-0023's layout that can be — is held whole for as long as it takes to write its
 			// entry. That is the same bound the Project bundle exporter has and it is a property of the
 			// store rather than of tar; the archive around it is still streamed, which is what the ADR's
 			// claim is about.

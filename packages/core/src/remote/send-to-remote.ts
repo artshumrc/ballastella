@@ -375,7 +375,7 @@ export type PlanRemoteSendOptions = Omit<RemoteSendOptions, 'token'> & {
 	readonly pending?: readonly PendingLocalFile[];
 	/**
 	 * What this installation last saw this Workspace and this Remote share, or `null` for *we cannot
-	 * say* (ADR-0038).
+	 * say* (ADR-0033).
 	 *
 	 * ⚠ **Evidence about a Remote, and the caller has to have checked it is about *this* one.**
 	 * `SynchronizationMetadata.readBaseline` takes the repository and answers `null` for a record
@@ -759,7 +759,7 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
 }
 
 /**
- * Whether a send may go ahead, and what to say when it may not (ADR-0038).
+ * Whether a send may go ahead, and what to say when it may not (ADR-0044).
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────┐
  * │ THE DECISION IS `planWorkspaceSync`'S. WHAT IS DONE HERE IS THE WORDING FOR IT.           │
@@ -1128,7 +1128,7 @@ export async function sendToRemote(
 	});
 	if (!tree.ok) throw await failureFrom(tree, api, 'tree', sent, total());
 
-	// ⚠ **No `author` and no `committer`, and their absence is what attributes the commit** (ADR-0043).
+	// ⚠ **No `author` and no `committer`, and their absence is what attributes the commit** (ADR-0033).
 	// GitHub documents the default for this endpoint as the authenticated user and the current date, so
 	// a shared repository gets a readable history for free — and sending an author composed here would
 	// be this code's guess at a name and an email address, which is how a collaborator's commits end

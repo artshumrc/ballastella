@@ -230,7 +230,7 @@ describe('a Project exports to one self-contained bundle', () => {
 		);
 	});
 
-	// ADR-0006, and the reason the exclusion is injected rather than hard-coded: what the *mechanism*
+	// ADR-0045, and the reason the exclusion is injected rather than hard-coded: what the *mechanism*
 	// does is assertable without depending on what happens to be in `VIEWER_FILE_PATHS` this month.
 	it('leaves out the published viewer files', async () => {
 		const store = seed({

@@ -392,7 +392,7 @@ export interface EditorSessionOptions {
 	 */
 	readonly workspaceKey?: string;
 	/**
-	 * Where this installation's synchronization metadata is kept (ADR-0038).
+	 * Where this installation's synchronization metadata is kept (ADR-0033).
 	 *
 	 * Optional for the reason {@link journalStorage} is: a context with no IndexedDB cannot hold a
 	 * Remote relationship or a Baseline at all, and a silent stand-in would let the app claim
@@ -871,7 +871,7 @@ export class EditorSession {
 
 	/**
 	 * What Ballastella has written or deleted in this Workspace since its Baseline, or `null` where
-	 * nothing is tracking it (ADR-0038).
+	 * nothing is tracking it (ADR-0033).
 	 *
 	 * The seam an automatic Remote Status check is answered from, and the reason it can be answered at
 	 * all without reading a multi-gigabyte Workspace. `null` is a session whose store was never
@@ -2627,7 +2627,7 @@ export class EditorSession {
 
 	/**
 	 * What writing the Published Site would put in this Workspace, and everything the user must read first
-	 * (ADR-0006, ADR-0008).
+	 * (ADR-0008, ADR-0045).
 	 *
 	 * **Writes nothing.** Two of the three required warnings are questions rather than reports — the
 	 * Base Map's size has to be stated *before* it is added (ADR-0020) and the ~1 GB hosting cliff is
@@ -2672,7 +2672,7 @@ export class EditorSession {
 	 *
 	 * `readAsset` comes from the app rather than from here, because where this deployment serves the
 	 * viewer's files from is `$lib/sync/viewer-bundle-source`'s business and must stay relative
-	 * (ADR-0006).
+	 * (ADR-0045).
 	 */
 	async writePublishedSite(options: {
 		plan: PublishedSitePlan;
@@ -2778,7 +2778,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * What this Workspace's Remote Status is now, observed and nothing more (ADR-0038).
+	 * What this Workspace's Remote Status is now, observed and nothing more (ADR-0044).
 	 *
 	 * ⚠ **Observational, and every clause of that is load-bearing.** It lists Remote metadata; it
 	 * downloads no file bytes, writes no Workspace path, writes no Remote path, and never advances a
@@ -2860,7 +2860,7 @@ export class EditorSession {
 
 	/**
 	 * Bring the Remote's own additions, replacements and confirmed deletions into this Workspace
-	 * (ADR-0038).
+	 * (ADR-0044).
 	 *
 	 * ⚠ **Everything pending is written down first, and both flushes are load-bearing.** The engine
 	 * reads and hashes every file in the Workspace to build its plan, so an Annotation still inside
@@ -2962,7 +2962,7 @@ export class EditorSession {
 	 *
 	 * The Baseline is installation-local rather than a file in the Workspace, because it records what
 	 * *this machine* last shared with the Remote and a record that travelled with the Workspace would
-	 * be another machine's belief arriving as this one's evidence (ADR-0038).
+	 * be another machine's belief arriving as this one's evidence (ADR-0033).
 	 *
 	 * @returns the plan that ran, the commit the branch now holds, and whether the Baseline was kept
 	 * @throws RemoteSendRefusedError when the Remote moved past what `overwrite` agreed to

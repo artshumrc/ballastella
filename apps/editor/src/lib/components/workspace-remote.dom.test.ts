@@ -200,7 +200,7 @@ describe('the repository this Workspace belongs to', () => {
 	});
 });
 
-// ⚠ **A Remote may be somebody else's, and this says only what is known about that** (ADR-0043).
+// ⚠ **A Remote may be somebody else's, and this says only what is known about that** (ADR-0044).
 // Push rights cannot be read without a credential, so there are three states rather than two, and
 // the middle one — signed out — is the one that must claim nothing at all.
 describe('a Remote that may not be the author’s to send to', () => {

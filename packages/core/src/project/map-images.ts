@@ -17,7 +17,7 @@
 //
 //   * **A store that can list** — OPFS, a folder, the in-memory adapter — answers by walking
 //     `images/` once. That is `scanImages`, and it is what the editor and the site write use.
-//   * **A store that cannot** — ADR-0006's HTTP adapter, because a static host has no directory
+//   * **A store that cannot** — ADR-0045's HTTP adapter, because a static host has no directory
 //     listing — answers by asking for the two files by name and reading the 404. That is the viewer's
 //     `readMapLayer`, which builds the same {@link MapImageFiles} pair and hands it to the same
 //     rule.

@@ -425,7 +425,7 @@ test.describe('the Base Map pane', () => {
 		await expect(page.getByTestId('edit-project-name')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('app-wordmark')).toBeFocused();
-		// One GitHub control in the row and one in the order (ADR-0041): everything a scholar can do
+		// One GitHub control in the row and one in the order (ADR-0044): everything a scholar can do
 		// about GitHub — connecting, sending, getting and the check — is behind this one press,
 		// so the bar's main row is the Edit History slot, this, and the theme control.
 		await page.keyboard.press('Tab');

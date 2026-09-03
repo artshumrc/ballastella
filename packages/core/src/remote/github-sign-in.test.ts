@@ -466,7 +466,7 @@ describe('the refresh', () => {
 	});
 });
 
-// ADR-0041: what may be kept past the tab is the renewable half and nothing else. Eight hours of
+// ADR-0044: what may be kept past the tab is the renewable half and nothing else. Eight hours of
 // push rights at rest is the outcome this whole feature must not produce, so the stripping is
 // asserted at the function that does it rather than trusted to each caller.
 describe('the half of a grant that may be kept past the tab', () => {

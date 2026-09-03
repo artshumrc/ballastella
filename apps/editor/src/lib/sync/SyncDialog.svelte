@@ -119,7 +119,7 @@
 	/**
 	 * Whether this account may write to the repository, or `null` while nobody has asked.
 	 *
-	 * ⚠ **Read live and never remembered** (ADR-0043). Write access is somebody else's to grant and
+	 * ⚠ **Read live and never remembered** (ADR-0044). Write access is somebody else's to grant and
 	 * to take away, and the state this decides — send affordances absent rather than refusing — is
 	 * exactly the one a remembered answer gets wrong.
 	 */
@@ -134,7 +134,7 @@
 	 */
 	let shareLinks = $state<boolean | null>(null);
 	/**
-	 * Whether the author has answered the shared-Remote question and may overwrite (ADR-0043).
+	 * Whether the author has answered the shared-Remote question and may overwrite (ADR-0044).
 	 *
 	 * ⚠ **Cleared by every re-plan, deliberately**: a decision taken about one set of files is not a
 	 * decision about the set a later listing found.
@@ -179,7 +179,7 @@
 	let done = $state<{
 		got: { added: number; replaced: number; removed: number } | null;
 		sent: { remote: string; files: number; uploaded: number; site: PublishedSite | null } | null;
-		/** Whether this machine kept its Synchronization Baseline for the Remote (ADR-0038). */
+		/** Whether this machine kept its Synchronization Baseline for the Remote (ADR-0033). */
 		baselineKept: boolean;
 	} | null>(null);
 
@@ -371,7 +371,7 @@
 						});
 			// ⚠ **The bar has to agree with what this just found.** The forecast has listed the tree; a
 			// status control still reading `Up to date` beside a modal saying the Remote has moved is
-			// the disagreement ADR-0038 exists to remove.
+			// the disagreement ADR-0044 exists to remove.
 			if (forecast.incoming.length > 0 || forecast.conflicts.length > 0) {
 				await storage.checkRemoteStatus();
 			}
@@ -400,7 +400,7 @@
 	/**
 	 * Whether the Published Site in this Workspace already says exactly what a send would write.
 	 *
-	 * Staleness covers the viewer's version and every Project fact the record carries (ADR-0032); the
+	 * Staleness covers the viewer's version and every Project fact the record carries (ADR-0045); the
 	 * two Base Map flags are the rest of it, and they are read off the plan so the comparison
 	 * describes the files this send will actually write.
 	 */
@@ -780,7 +780,7 @@
 				: '') +
 			// Said rather than swallowed: the send reached the Remote and this machine's Baseline for it
 			// did not survive, which is the `Cannot tell` the next Sync would otherwise meet as an
-			// unexplained "we cannot tell whether somebody else wrote this" (ADR-0038).
+			// unexplained "we cannot tell whether somebody else wrote this" (ADR-0033).
 			(done.baselineKept
 				? ''
 				: ` This browser would not keep the record of what ${sent?.remote ?? 'the repository'} now ` +
@@ -1228,7 +1228,7 @@
 				{#if outbound !== null && !overwriteAgreed}
 					<!--
 					⚠ **A second press rather than a louder first one, and only where the repository is not
-					the author's alone** (ADR-0043). On a solo repository an overwrite can only discard the
+					the author's alone** (ADR-0044). On a solo repository an overwrite can only discard the
 					author's own work; on a shared one it deletes a colleague's, so what would go is named
 					and whose the repository is is said first.
 				-->

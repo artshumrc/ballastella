@@ -51,9 +51,9 @@ const config = {
 		// attach the `updatefound` listener the explicit update prompt is made of — and recovering the
 		// registration afterwards with `getRegistration()` races the update it exists to observe.
 		// `$lib/pwa/installed-app.svelte.ts` registers instead, resolving the script URL relatively so
-		// that the scope the browser derives is the deployment's own directory (ADR-0006).
+		// that the scope the browser derives is the deployment's own directory (ADR-0045).
 		serviceWorker: { register: false },
-		// ADR-0006: mandatory, and mandatory now rather than later. The publish target —
+		// ADR-0045: mandatory, and mandatory now rather than later. The publish target —
 		// a domain root or a project subdirectory — is unknown at build time, and `paths.base`
 		// is baked in at build time. Relative asset paths are the only way one build serves
 		// both, and retrofitting this means auditing every asset reference in the app.

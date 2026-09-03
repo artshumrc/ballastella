@@ -146,7 +146,7 @@ async function start(
 		 * Whose the seeded credential is, as `GET /user` reports it.
 		 *
 		 * Left out it is the repository's own owner, which is the solo Remote every other test here
-		 * means. Naming somebody else is what makes the Remote *shared* (ADR-0043) — the comparison is
+		 * means. Naming somebody else is what makes the Remote *shared* (ADR-0044) — the comparison is
 		 * between the repository's owner and this, and it costs no request at all.
 		 */
 		login?: string;
@@ -416,7 +416,7 @@ test.describe('a send against a Remote this browser has never seen', () => {
 		await expect(remoteStatus(page)).toContainText('changes to get');
 	});
 
-	// ⚠ **Overwrite is the one control whose blast radius is somebody else's afternoon** (ADR-0043).
+	// ⚠ **Overwrite is the one control whose blast radius is somebody else's afternoon** (ADR-0044).
 	// On a repository that is the author's alone it can only ever discard their own work; on a shared
 	// one it deletes a collaborator's, so what it would remove is named — the Projects and the Map
 	// Images, never a file count — and it cannot proceed without that confirmation. Whose the

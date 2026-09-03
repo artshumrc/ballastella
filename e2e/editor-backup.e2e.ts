@@ -129,7 +129,7 @@ const workspaceFiles = (): Record<string, string> => ({
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile',
-	// Build output, which a backup must leave behind (ADR-0006). Seeded so its *absence* is a
+	// Build output, which a backup must leave behind (ADR-0045). Seeded so its *absence* is a
 	// measurement rather than an assumption.
 	'index.html': '<!doctype html><title>a stale site</title>',
 	'ballastella-site.json': '{"projects":[]}',

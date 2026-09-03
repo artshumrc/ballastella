@@ -29,7 +29,7 @@ import { Marked, type TokenizerAndRendererExtension } from 'marked';
  * has no `sanitize` method at all, so the naive failure is `TypeError: DOMPurify.sanitize is not a
  * function` from inside a library the reader has no reason to suspect.
  *
- * The failure that matters is the *other* one. Both apps prerender (ADR-0006), so this module is
+ * The failure that matters is the *other* one. Both apps prerender, so this module is
  * reachable from Node during a build, and a version of it that quietly returned the unsanitised HTML
  * when DOMPurify was unavailable would write an XSS payload into a static page — the exact
  * vulnerability this module exists to prevent, arrived at by a fallback that looked like robustness.

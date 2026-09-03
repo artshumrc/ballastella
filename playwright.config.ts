@@ -11,7 +11,7 @@ import { chromiumLaunchArgs, useGpu } from './scripts/gpu-launch-args.mjs';
 // test a fake instead of the thing that ships.
 //
 // Both apps are built and served as static output, because that is what a Published Site is
-// (ADR-0006) and because `paths.relative` only means anything against real served files.
+// (ADR-0045) and because `paths.relative` only means anything against real served files.
 
 // Ports are derived from *this checkout's own path*, not fixed.
 //

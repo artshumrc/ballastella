@@ -160,12 +160,7 @@ export interface ProjectFile {
 	 */
 	readonly canonicalUrl: string | null;
 	/**
-	 * Whether this Project is listed on the Published Site's Front Page (ADR-0032).
-	 *
-	 * **Absent from the file means `true`**, which is what every Project written before this field
-	 * existed meant and what a new one means: a site listed everything unless the author said
-	 * otherwise. `false` is written; `true` is written as *absence*, so a Project on the Front Page is
-	 * byte-identical to one from a build that had never heard of the choice.
+	 * Whether this Project is listed on the Published Site's Front Page (ADR-0045).
 	 *
 	 * ⚠ **Not on the Front Page is not private, and nothing here should be read as if it were.** The
 	 * repository is public and `?p=<directory>` opens the Project for anyone who knows the name; this
@@ -174,7 +169,13 @@ export interface ProjectFile {
 	 *
 	 * **Off by default, and `true` is written explicitly** (ADR-0045). A Project is on a front page
 	 * because somebody put it there, so absence of the field is absence of that decision — and a
-	 * newly created Project is offered to nobody until its author says otherwise.
+	 * newly created Project is offered to nobody until its author says otherwise. `false` is written
+	 * as *absence*, so a Project that is not on the Front Page is byte-identical to one from a build
+	 * that had never heard of the choice.
+	 *
+	 * ⚠ **The site record's rule is the opposite one** — see {@link PublishedProject.onFrontPage}.
+	 * That file is not the author's answer but an account a past Sync wrote, and every site written
+	 * before the field existed carries entries with none, so absence there means *listed* (ADR-0045).
 	 *
 	 * **This field did not bump `CURRENT_FORMAT_VERSION`, deliberately.** ADR-0010 refuses a newer
 	 * version outright, and one repository read by several instances at several versions multiplies

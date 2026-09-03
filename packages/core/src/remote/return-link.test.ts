@@ -28,7 +28,7 @@ describe('the link a Published Site sends a Reader back with', () => {
 	});
 
 	/**
-	 * A site whose record says nothing about an instance carries no link (ADR-0032).
+	 * A site whose record says nothing about an instance carries no link (ADR-0045).
 	 *
 	 * The alternative — guessing at a canonical deployment — would send a Reader to a stranger's
 	 * editor, offering to clone a repository into somebody else's tool.

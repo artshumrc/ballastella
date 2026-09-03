@@ -1,4 +1,4 @@
-// The third `ProjectStore` backend: a Published Site read over HTTP (ADR-0006).
+// The third `ProjectStore` backend: a Published Site read over HTTP (ADR-0045).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A {@link ReadOnlyProjectStore} AND NOT A {@link ProjectStore}
@@ -30,7 +30,7 @@
 //
 // `resolve` is injected for the same reason ADR-0011's shim takes a `fetch`: one build has to serve
 // a domain root *and* `username.github.io/some-repo/`, and which one is unknown at build time
-// (ADR-0006). Where a Published Site's files are is the app's knowledge — see
+// (ADR-0045). Where a Published Site's files are is the app's knowledge — see
 // `apps/viewer/src/lib/site-files.ts` — and core has no business knowing what a deployment looks
 // like. It is also what lets the tests drive this with no server at all.
 
@@ -56,7 +56,7 @@ export type HttpProjectStoreOptions = {
 	 *
 	 * Injected, never built here — see the note at the top of this file. It must produce a URL
 	 * *relative to the document* rather than to the host's root, or the site works at a domain root
-	 * and 404s in a subdirectory, which is the GitHub Pages case ADR-0006 exists for.
+	 * and 404s in a subdirectory, which is the GitHub Pages case the relative-path rule exists for (ADR-0045).
 	 */
 	readonly resolve: (path: StorePath) => string;
 	/** The page's own `fetch` by default. Injected so the tests need no server. */

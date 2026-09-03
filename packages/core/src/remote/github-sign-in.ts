@@ -473,7 +473,7 @@ export function clearGrantRecord(storage: CredentialStorage): void {
 	}
 }
 
-// ── The half of a grant that may be kept past the tab (ADR-0041) ──────────────────────────────
+// ── The half of a grant that may be kept past the tab (ADR-0044) ──────────────────────────────
 
 /**
  * What survives a tab close when the author has asked this machine to keep their sign-in.

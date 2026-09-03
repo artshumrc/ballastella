@@ -8,7 +8,7 @@ import {
 } from './shared-remote.js';
 import type { RemoteReference } from './bind-remote.js';
 
-// Seam 1 for a Remote that may be somebody else's (ADR-0043): the determination against the shared
+// Seam 1 for a Remote that may be somebody else's (ADR-0044): the determination against the shared
 // fake GitHub, and the sentence an overwrite has to be confirmed through.
 //
 // ⚠ **What this suite cannot settle, and does not claim to**: that a write collaborator's own
