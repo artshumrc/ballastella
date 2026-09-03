@@ -632,7 +632,7 @@ describe('the gestures on the standing relationship', () => {
 		const storage = connected();
 		storage.pagesAnswer = new Error('GitHub would not answer');
 		open(storage);
-		// The Share Links offer is a reading of the Workspace's own files (ADR-0045), so it arrives one
+		// The Share Links offer is an asked-for reading of both sides (ADR-0045), so it arrives one
 		// turn after the section does.
 		await settle();
 

@@ -1057,11 +1057,16 @@
 	const provenance = $derived(session.openProject?.importProvenance ?? []);
 
 	/**
-	 * Whether the Workspace carries a site, or `null` while nothing has read the files yet.
+	 * Whether this Workspace has Share Links, or `null` while nothing has asked yet.
 	 *
-	 * ⚠ **Observed on opening rather than derived.** Having Share Links *is* carrying the viewer file
-	 * set (ADR-0045), so the answer is a read of the store — not a signal, and not something to
-	 * repeat on every render of a screen that also draws a map.
+	 * ⚠ **Either side's tree, less a recorded withdrawal** (ADR-0045), which is `hasShareLinks`'s
+	 * whole rule and not a reading of this Workspace's own files: a Workspace just got from a Remote
+	 * that serves a site carries no viewer files of its own, and answering from here alone would
+	 * offer to set up what already exists.
+	 *
+	 * ⚠ **Asked on opening rather than derived.** The answer costs one store entry, the last status
+	 * check's evidence and one local record, which is not something to repeat on every render of a
+	 * screen that also draws a map.
 	 */
 	let shareLinks = $state<boolean | null>(null);
 
