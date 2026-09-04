@@ -1,9 +1,9 @@
 // What the appearance control renders, asserted against the component rather than against an app.
 //
-// Its subject is the one property that made it worth building: the three switches are independent,
-// so flipping one carries the other two through untouched. A control that quietly reset its
-// neighbours would look right in every screenshot and lose a scholar's contour lines the moment they
-// raised the contrast.
+// Its subject is the one property that made it worth building: the switches are independent, so
+// flipping one carries the others through untouched. A control that quietly reset its neighbours
+// would look right in every screenshot and lose a scholar's contour lines the moment they raised
+// the contrast.
 
 import type { BaseMapAppearance } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
@@ -11,7 +11,12 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import BaseMapAppearanceToggles from './BaseMapAppearanceToggles.svelte';
 
-const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, highContrast: false };
+const STREETS_ONLY: BaseMapAppearance = {
+	streets: true,
+	relief: false,
+	highContrast: false,
+	imagery: false
+};
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -34,7 +39,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-test('offers the three switches as checkboxes, in the order a scholar reaches for them', () => {
+test('offers the four switches as checkboxes, in the order a scholar reaches for them', () => {
 	render({ appearance: STREETS_ONLY, onChange: () => {} });
 
 	expect(
@@ -44,17 +49,22 @@ test('offers the three switches as checkboxes, in the order a scholar reaches fo
 		])
 	).toEqual([
 		['checkbox', 'base-map-streets'],
+		['checkbox', 'base-map-imagery'],
 		['checkbox', 'base-map-relief'],
 		['checkbox', 'base-map-highContrast']
 	]);
 });
 
 test('shows each switch in the state it was given', () => {
-	render({ appearance: { streets: false, relief: true, highContrast: true }, onChange: () => {} });
+	render({
+		appearance: { streets: false, relief: true, highContrast: true, imagery: true },
+		onChange: () => {}
+	});
 
 	expect(toggle('streets').checked).toBe(false);
 	expect(toggle('relief').checked).toBe(true);
 	expect(toggle('highContrast').checked).toBe(true);
+	expect(toggle('imagery').checked).toBe(true);
 });
 
 test('reports the whole appearance, carrying the switches it did not touch', () => {
@@ -62,22 +72,38 @@ test('reports the whole appearance, carrying the switches it did not touch', () 
 	// passed it: a low-vision Reader who raised the contrast lost the author's relief to do it, because
 	// there was no entry that was both. Here the other two switches travel through untouched.
 	const onChange = vi.fn();
-	render({ appearance: { streets: false, relief: true, highContrast: false }, onChange });
+	render({
+		appearance: { streets: false, relief: true, highContrast: false, imagery: false },
+		onChange
+	});
 
 	toggle('highContrast').click();
 	flushSync();
 
-	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, highContrast: true });
+	expect(onChange).toHaveBeenCalledWith({
+		streets: false,
+		relief: true,
+		highContrast: true,
+		imagery: false
+	});
 });
 
 test('switches a thing off as readily as on', () => {
 	const onChange = vi.fn();
-	render({ appearance: { streets: true, relief: true, highContrast: true }, onChange });
+	render({
+		appearance: { streets: true, relief: true, highContrast: true, imagery: false },
+		onChange
+	});
 
 	toggle('streets').click();
 	flushSync();
 
-	expect(onChange).toHaveBeenCalledWith({ streets: false, relief: true, highContrast: true });
+	expect(onChange).toHaveBeenCalledWith({
+		streets: false,
+		relief: true,
+		highContrast: true,
+		imagery: false
+	});
 });
 
 test('names every switch and its consequence, and never in a tooltip', () => {
@@ -105,4 +131,35 @@ test('groups the three under one legend, kept for a screen reader when taken off
 
 	render({ appearance: STREETS_ONLY, onChange: () => {}, legendSrOnly: true });
 	expect(document.querySelector('legend')).toHaveClass('sr-only');
+});
+
+test('takes the high-contrast switch away while the satellite is on, rather than leaving it inert', () => {
+	// ⚠ The palette repaints land, water and buildings, and a photograph is none of them. A control
+	// that stays live and does nothing is worst for the Reader who most needs it.
+	const onChange = vi.fn();
+	render({ appearance: { ...STREETS_ONLY, imagery: true }, onChange });
+
+	expect(toggle('highContrast').disabled).toBe(true);
+	expect(toggle('streets').disabled).toBe(false);
+	expect(toggle('relief').disabled).toBe(false);
+});
+
+test('switches the high contrast off as it switches the satellite on', () => {
+	// The exclusion is the model's (`drawnAppearance`), applied here so the recorded appearance never
+	// claims a palette the map is not drawing.
+	const onChange = vi.fn();
+	render({
+		appearance: { streets: true, relief: false, highContrast: true, imagery: false },
+		onChange
+	});
+
+	toggle('imagery').click();
+	flushSync();
+
+	expect(onChange).toHaveBeenCalledWith({
+		streets: true,
+		relief: false,
+		highContrast: false,
+		imagery: true
+	});
 });

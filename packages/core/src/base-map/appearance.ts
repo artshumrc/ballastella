@@ -1,4 +1,4 @@
-// What the Base Map *looks like*, as three independent choices, and the one reader of
+// What the Base Map *looks like*, as four independent choices, and the one reader of
 // `project.json`'s field for them.
 //
 // **This is a composition, not a menu, because the tiles are one archive.** Every appearance below
@@ -23,7 +23,7 @@ import type { BaseMapFlavorName } from './entry.js';
 import type { ThemeScheme } from '../theme.js';
 
 /**
- * How the Base Map is drawn, as three switches that do not constrain each other.
+ * How the Base Map is drawn, as four switches that do not constrain each other.
  *
  * Every combination is meaningful, including the ones no named variant ever offered: contour lines
  * under a road network, a high-contrast palette with the relief still shaded, bare landcover with
@@ -56,6 +56,23 @@ export type BaseMapAppearance = {
 	 * flavor — see `high-contrast.ts` — and costs no request.
 	 */
 	readonly highContrast: boolean;
+	/**
+	 * Draw satellite imagery instead of the vector ground.
+	 *
+	 * **The second switch that reads a dataset the archive does not carry**, and the first that
+	 * replaces part of the map rather than filtering or repainting it: the imagery stands in for the
+	 * background, the earth, the landcover, the landuse and the water fills, which are the layers
+	 * that draw what a photograph already shows. Everything above them — roads, labels, boundaries,
+	 * and the relief if it is on — is drawn over it unchanged, which is what makes this "map versus
+	 * satellite" rather than a different map.
+	 *
+	 * Like `relief`, it needs the catalog to have provisioned it ({@link BaseMapCatalog.imagery}) and
+	 * degrades to the vector ground without one, because no edit to a catalog may produce a blank
+	 * pane. It is also dropped for a Project read from its offline tile cache, for ADR-0025's reason:
+	 * imagery is a live request to a second host, and a map called available offline that needs the
+	 * network is a false claim at the moment somebody relies on it.
+	 */
+	readonly imagery: boolean;
 };
 
 /**
@@ -68,7 +85,8 @@ export type BaseMapAppearance = {
 export const DEFAULT_BASE_MAP_APPEARANCE: BaseMapAppearance = Object.freeze({
 	streets: true,
 	relief: false,
-	highContrast: false
+	highContrast: false,
+	imagery: false
 });
 
 /** The key `project.json` records the author's appearance under. */
@@ -79,7 +97,8 @@ export function isDefaultAppearance(appearance: BaseMapAppearance): boolean {
 	return (
 		appearance.streets === DEFAULT_BASE_MAP_APPEARANCE.streets &&
 		appearance.relief === DEFAULT_BASE_MAP_APPEARANCE.relief &&
-		appearance.highContrast === DEFAULT_BASE_MAP_APPEARANCE.highContrast
+		appearance.highContrast === DEFAULT_BASE_MAP_APPEARANCE.highContrast &&
+		appearance.imagery === DEFAULT_BASE_MAP_APPEARANCE.imagery
 	);
 }
 
@@ -104,7 +123,7 @@ export function appearanceFrom(value: unknown): BaseMapAppearance | null {
 	if (typeof value !== 'object' || value === null) return null;
 	const fields = value as Record<string, unknown>;
 	const contrast = typeof fields.highContrast === 'boolean' ? fields.highContrast : fields.muted;
-	const chosen = [fields.streets, fields.relief, contrast].filter(
+	const chosen = [fields.streets, fields.relief, contrast, fields.imagery].filter(
 		(field) => typeof field === 'boolean'
 	);
 	if (chosen.length === 0) return null;
@@ -113,8 +132,33 @@ export function appearanceFrom(value: unknown): BaseMapAppearance | null {
 			typeof fields.streets === 'boolean' ? fields.streets : DEFAULT_BASE_MAP_APPEARANCE.streets,
 		relief: typeof fields.relief === 'boolean' ? fields.relief : DEFAULT_BASE_MAP_APPEARANCE.relief,
 		highContrast:
-			typeof contrast === 'boolean' ? contrast : DEFAULT_BASE_MAP_APPEARANCE.highContrast
+			typeof contrast === 'boolean' ? contrast : DEFAULT_BASE_MAP_APPEARANCE.highContrast,
+		imagery:
+			typeof fields.imagery === 'boolean' ? fields.imagery : DEFAULT_BASE_MAP_APPEARANCE.imagery
 	};
+}
+
+/**
+ * One appearance as it is actually drawn: the author's switches with the one exclusion between them
+ * applied.
+ *
+ * **`highContrast` does nothing over `imagery`, so it is recorded as off rather than left saying
+ * something the map does not show.** The high-contrast palette is a repaint of the flavor's land,
+ * water and buildings (`high-contrast.ts`), and a satellite map draws none of them — the ground is a
+ * photograph and no palette reaches it. Left live, the switch would be a control a low-vision Reader
+ * turns on and watches do nothing, which is worse than one that is plainly unavailable.
+ *
+ * The exclusion lives here rather than in the control, so that a `project.json` carrying both — hand
+ * edited, or written by a build before this rule — draws the same map the control would produce, and
+ * so that both apps and the editor's border pickers agree about which flavor is on screen.
+ *
+ * It is deliberately **not** applied to `relief`: shaded relief and contour lines over imagery draw
+ * something real, and whether it is wanted is the author's judgement rather than this module's.
+ */
+export function drawnAppearance(appearance: BaseMapAppearance): BaseMapAppearance {
+	return appearance.imagery && appearance.highContrast
+		? { ...appearance, highContrast: false }
+		: appearance;
 }
 
 /**

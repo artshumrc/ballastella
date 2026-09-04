@@ -213,6 +213,7 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
 		});
 	});
 	await routeTerrainTiles(target);
+	await routeImageryTiles(target);
 }
 
 /** Answer the elevation dataset's tiles from a fixture, so drawing relief needs no network. */
@@ -223,6 +224,29 @@ export async function routeTerrainTiles(target: Pick<Page, 'route'>): Promise<vo
 			status: 200,
 			headers: { 'content-type': 'image/png', 'access-control-allow-origin': '*' },
 			body: tile
+		})
+	);
+}
+
+/**
+ * Answer the satellite imagery's tiles, so drawing it needs no network.
+ *
+ * **One flat pixel rather than a fixture photograph**, which is the whole difference between this
+ * and `routeTerrainTiles`: the DEM's fixture is read for its *values* — the contour worker traces
+ * isolines out of them — where imagery is only ever displayed. A spec that wanted to assert what is
+ * on screen would be asserting somebody else's photograph, so what these specs assert is the style
+ * document, and this exists to keep the request off the network rather than to be looked at.
+ */
+export async function routeImageryTiles(target: Pick<Page, 'route'>): Promise<void> {
+	const pixel = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOIygsAAAI+ARlMR/knAAAAAElFTkSuQmCC',
+		'base64'
+	);
+	await target.route(/s2cloudless/, (route) =>
+		route.fulfill({
+			status: 200,
+			headers: { 'content-type': 'image/png', 'access-control-allow-origin': '*' },
+			body: pixel
 		})
 	);
 }

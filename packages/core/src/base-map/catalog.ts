@@ -69,6 +69,41 @@ const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmti
  */
 const TERRAIN_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
+/**
+ * The satellite imagery behind the `imagery` switch: EOX's Sentinel-2 cloudless mosaic, served as
+ * WMTS from `tiles.maps.eox.at`.
+ *
+ * **Why this mosaic and not a sharper one.** Sentinel-2 cloudless is CC BY 4.0 — an open licence,
+ * not a free tier — which is the property that matters here, because a Published Site is a scholar
+ * redistributing what this deployment pointed them at. The sharper keyless imagery in the wild
+ * (Esri's World Imagery, chiefly) is offered under terms of use rather than a licence, and putting
+ * it under somebody's edition would hand them a question they did not ask for.
+ *
+ * What that buys is a whole cloud-free planet at 10 m/px, assembled from a year of Sentinel-2
+ * passes. It reads landscape — coastline, forest, field systems, the shape of a valley — and it
+ * does not read rooftops. For a map under a fourteenth-century itinerary that is the right subject
+ * anyway, but it is a real limit and `maxZoom` states it rather than letting a scholar zoom into
+ * blur wondering whether something is loading.
+ *
+ * **The year is part of the URL**, and deliberately visible here rather than computed: each annual
+ * mosaic is a distinct published dataset, and a map whose imagery silently became a different year
+ * between two readings of the same edition is the quiet failure ADR-0025 warns about. Moving to a
+ * later year is a change to this line and nothing else.
+ *
+ * **Terms and hosting.** The imagery is CC BY 4.0, carried by the attribution below, which EOX asks
+ * be shown as given. The *hosting* is EOX's own service, free and keyless and with no promise to
+ * this deployment — the same kind of dependency as the archive and the DEM above, and
+ * `pnpm check:deployment` refuses this host for the same reason.
+ *
+ * Measured on 2026-09-03 rather than assumed: `s2cloudless-2025_3857` answers `200 image/jpeg` and
+ * reflects an `Origin` header back as `access-control-allow-origin`, so a browser can read it
+ * cross-origin. The path is WMTS REST, whose segments after `default/g` are **z, y, x** in that
+ * order — not the `{z}/{x}/{y}` of an XYZ service, and a transposed template returns real tiles of
+ * the wrong place rather than an error.
+ */
+const IMAGERY_TILES =
+	'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg';
+
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
 	// One archive, one entry. What the map *looks like* — streets, relief, high contrast — is three
 	// switches the author sets per Project (`appearance.ts`), not a row here: they are style
@@ -97,6 +132,17 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 		attribution:
 			'<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">' +
 			'Terrain Tiles</a>'
+	},
+	imagery: {
+		tiles: IMAGERY_TILES,
+		// 10 m/px is where Sentinel-2's own resolution ends, which is about z14. Past it MapLibre
+		// overzooms the deepest real tile rather than fetching four upsampled copies of it.
+		maxZoom: 14,
+		tileSize: 256,
+		attribution:
+			'<a href="https://s2maps.eu" target="_blank" rel="noreferrer">Sentinel-2 cloudless</a> by ' +
+			'<a href="https://eox.at" target="_blank" rel="noreferrer">EOX IT Services GmbH</a> ' +
+			'(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>)'
 	},
 	sprite: 'base-map/sprites/{flavor}',
 	attribution:

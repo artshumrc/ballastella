@@ -1,10 +1,12 @@
-// How the Base Map is drawn — streets, relief, high contrast — as three switches over one archive.
+// How the Base Map is drawn — streets, satellite, relief, high contrast — as four switches over
+// one archive and the two raster datasets a deployment may provision beside it.
 // Project data beside the borders, and a Reader may override it for themselves without editing it.
 export {
 	DEFAULT_BASE_MAP_APPEARANCE,
 	PROJECT_BASE_MAP_APPEARANCE_KEY,
 	appearanceFrom,
 	baseMapFlavorName,
+	drawnAppearance,
 	isDefaultAppearance,
 	type BaseMapAppearance
 } from './appearance';
@@ -32,7 +34,16 @@ export {
 	type BaseMapBorderStyle
 } from './borders';
 export { BASE_MAP_CATALOG } from './catalog';
-export type { BaseMapCatalog, BaseMapEntry, BaseMapFlavorName, BaseMapTerrain } from './entry';
+export type {
+	BaseMapCatalog,
+	BaseMapEntry,
+	BaseMapFlavorName,
+	BaseMapImagery,
+	BaseMapTerrain
+} from './entry';
+// The satellite ground: a raster layer beneath everything the vector archive draws, in place of the
+// fills that draw what a photograph already shows.
+export { IMAGERY_LAYER, IMAGERY_SOURCE_ID } from './imagery';
 // Shaded relief and contour lines, the one appearance switch that reads a second dataset. The layers are
 // here; the protocols that feed them are in `@ballastella/core/render`.
 export {

@@ -41,7 +41,12 @@ const TWO_ARCHIVES: BaseMapCatalog = {
 /** One archive, which is what this repository ships and what most forks will have. */
 const ONE_ARCHIVE: BaseMapCatalog = { ...TWO_ARCHIVES, entries: TWO_ARCHIVES.entries.slice(0, 1) };
 
-const STREETS_ONLY: BaseMapAppearance = { streets: true, relief: false, highContrast: false };
+const STREETS_ONLY: BaseMapAppearance = {
+	streets: true,
+	relief: false,
+	highContrast: false,
+	imagery: false
+};
 
 let mounted: Record<string, unknown> | undefined;
 
@@ -87,11 +92,11 @@ test('can show a down chevron after the button label', () => {
 	expect(button).toHaveAccessibleName('Base Map Options');
 });
 
-test('holds the three appearance switches', () => {
+test('holds the four appearance switches', () => {
 	render();
 
 	expect(document.querySelector('[data-testid="base-map-appearance"]')).not.toBeNull();
-	expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+	expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
 });
 
 test('offers no choice of tiles where the deployment reads one archive', () => {
@@ -138,7 +143,8 @@ test('hands each section’s choice back to the caller that owns it', () => {
 	expect(onAppearance).toHaveBeenCalledExactlyOnceWith({
 		streets: true,
 		relief: false,
-		highContrast: true
+		highContrast: true,
+		imagery: false
 	});
 	expect(onBorders).toHaveBeenCalledExactlyOnceWith('none');
 });

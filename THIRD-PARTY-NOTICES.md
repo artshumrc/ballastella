@@ -108,6 +108,17 @@ MapLibre renders uncompacted — and the entry's shading and its contour lines a
 that one dataset rather than two datasets. Its hosting is accepted on the same footing as the
 archive above: keyless, free to read, and nobody's promise to this deployment.
 
+The satellite switch reads a **third** dataset, for the same reason the second one exists — the
+archive is OpenStreetMap and OpenStreetMap is not a photograph: EOX's
+[Sentinel-2 cloudless](https://s2maps.eu) mosaic, a cloud-free composite of a year of Copernicus
+Sentinel-2 passes at 10 m/px. Unlike the two above it is redistributed under a named licence,
+**CC BY 4.0**, which is why it was chosen over the sharper imagery available under terms of use
+alone: a Published Site is a scholar redistributing what this deployment pointed them at, and an
+open licence is the only form of that which travels. The attribution EOX asks for names both the
+mosaic and EOX IT Services GmbH, and is carried the way the other two are — on the source, in the
+control MapLibre renders uncompacted. Its *hosting* is on the same footing as the archive and the
+DEM: keyless, free to read, and nobody's promise to this deployment.
+
 The central-Amsterdam ODbL/public-domain/BSD-3-Clause extract is retained only as the browser-test
 fixture `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; it is not application output.
 

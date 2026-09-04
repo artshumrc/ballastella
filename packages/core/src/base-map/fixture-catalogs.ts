@@ -51,13 +51,20 @@ export const FORKED_CATALOG: BaseMapCatalog = {
 		encoding: 'mapbox',
 		maxZoom: 11,
 		attribution: 'Somebody else&rsquo;s elevations'
+	},
+	imagery: {
+		tiles: 'https://photographs.example.invalid/{z}/{y}/{x}.jpg',
+		maxZoom: 9,
+		tileSize: 512,
+		attribution: 'Somebody else&rsquo;s photographs'
 	}
 };
 
 /**
- * The same fork with no elevation dataset provisioned, which is the ordinary state of a deployment
- * that has its own vector tiles and no DEM. A Project asking for relief must still draw over it —
- * a catalog is a fork's to edit, and no edit to it may produce a blank pane.
+ * The same fork with neither an elevation dataset nor imagery provisioned, which is the ordinary
+ * state of a deployment that has its own vector tiles and nothing else. A Project asking for relief
+ * or for satellite must still draw over it — a catalog is a fork's to edit, and no edit to it may
+ * produce a blank pane.
  */
 export const CATALOG_WITHOUT_TERRAIN: BaseMapCatalog = FORK;
 
