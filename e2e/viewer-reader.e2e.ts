@@ -1294,7 +1294,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 		// its name so that "the preference" means the preference rather than anything of that shape.
 		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
 			[`ballastella.baseMap:${site.sites[0]!.url}`]: JSON.stringify({
-				appearance: { streets: true, relief: false, highContrast: true }
+				appearance: { streets: true, relief: false, highContrast: true, imagery: false }
 			})
 		});
 
@@ -2224,7 +2224,7 @@ test.describe('the Base Map a Reader sees', () => {
 			)
 		).toEqual({
 			[`ballastella.baseMap:${site!.sites[0]!.url}`]: JSON.stringify({
-				appearance: { streets: true, relief: false, highContrast: true }
+				appearance: { streets: true, relief: false, highContrast: true, imagery: false }
 			})
 		});
 		expect(seen.failures).toEqual([]);
@@ -2298,10 +2298,10 @@ test.describe('the Base Map a Reader sees', () => {
 			)
 		).toEqual({
 			[`ballastella.baseMap:${server.url}tracy/`]: JSON.stringify({
-				appearance: { streets: true, relief: false, highContrast: true }
+				appearance: { streets: true, relief: false, highContrast: true, imagery: false }
 			}),
 			[`ballastella.baseMap:${server.url}sam/`]: JSON.stringify({
-				appearance: { streets: false, relief: false, highContrast: false }
+				appearance: { streets: false, relief: false, highContrast: false, imagery: false }
 			})
 		});
 		expect(seen.failures).toEqual([]);

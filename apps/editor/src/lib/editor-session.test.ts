@@ -1387,17 +1387,23 @@ describe('how the Base Map is drawn, which travels with the Project', () => {
 	const read = async (store: ImagesGoAway) =>
 		new TextDecoder().decode(await store.read(projectFilePath(DIRECTORY)));
 
-	it('writes the three switches into project.json at once, not on a timer', async () => {
+	it('writes the four switches into project.json at once, not on a timer', async () => {
 		const store = new ImagesGoAway();
 		const opened = await openOn(store);
 
-		await opened.chooseBaseMapAppearance({ streets: false, relief: true, highContrast: false });
+		await opened.chooseBaseMapAppearance({
+			streets: false,
+			relief: true,
+			highContrast: false,
+			imagery: false
+		});
 
 		// No `flush()`: a discrete choice is written now, the same rule `chooseBorders` follows.
 		expect(JSON.parse(await read(store)).baseMapAppearance).toEqual({
 			streets: false,
 			relief: true,
-			highContrast: false
+			highContrast: false,
+			imagery: false
 		});
 		expect(opened.openProject?.baseMapAppearance.relief).toBe(true);
 	});
@@ -1408,12 +1414,22 @@ describe('how the Base Map is drawn, which travels with the Project', () => {
 
 		expect(await read(store)).not.toContain('baseMapAppearance');
 
-		await opened.chooseBaseMapAppearance({ streets: true, relief: true, highContrast: false });
+		await opened.chooseBaseMapAppearance({
+			streets: true,
+			relief: true,
+			highContrast: false,
+			imagery: false
+		});
 		expect(await read(store)).toContain('baseMapAppearance');
 
 		// Switching back takes the field out rather than writing the default into it, so a Project
 		// drawn the ordinary way carries no trace of it — see `serialiseProjectFile`.
-		await opened.chooseBaseMapAppearance({ streets: true, relief: false, highContrast: false });
+		await opened.chooseBaseMapAppearance({
+			streets: true,
+			relief: false,
+			highContrast: false,
+			imagery: false
+		});
 		expect(await read(store)).not.toContain('baseMapAppearance');
 	});
 });

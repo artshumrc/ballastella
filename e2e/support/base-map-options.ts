@@ -26,7 +26,7 @@ export async function openBaseMapOptions(page: Page): Promise<void> {
 }
 
 /**
- * One of the three switches that decide how the Base Map is drawn.
+ * One of the four switches that decide how the Base Map is drawn.
  *
  * By its visible label rather than by a test id, because "can a scholar find this" is the question
  * and the accessible name is what answers it. The name carries the consequence after an em dash —
@@ -34,7 +34,7 @@ export async function openBaseMapOptions(page: Page): Promise<void> {
  */
 export const drawSwitch = (
 	page: Page,
-	label: 'Streets' | 'Topography' | 'High contrast'
+	label: 'Streets' | 'Satellite' | 'Topography' | 'High contrast'
 ): Locator => page.getByRole('checkbox', { name: new RegExp(`^${label} —`) });
 
 /** One of the boundary choices, in the panel's radio group. */

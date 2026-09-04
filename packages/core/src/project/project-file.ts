@@ -120,7 +120,7 @@ export interface ProjectFile {
 	 * means the documented default and `readBaseMapChoice` has already applied it, so a caller
 	 * always has something to draw with.
 	 *
-	 * **Separate from `baseMap`, which names the tiles.** These three switches are style documents
+	 * **Separate from `baseMap`, which names the tiles.** These four switches are style documents
 	 * over whichever archive that id resolves to, so they survive a Project moving to a deployment
 	 * whose catalog is entirely different — which is the whole of ADR-0020 applied one level down.
 	 */

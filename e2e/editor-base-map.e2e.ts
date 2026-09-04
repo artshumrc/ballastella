@@ -72,9 +72,10 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 		...fields
 	});
 
-/** How the Base Map is drawn: three switches over one archive, in the order they are rendered. */
+/** How the Base Map is drawn: four switches over one archive, in the order they are rendered. */
 const APPEARANCE_SWITCHES = [
 	'Streets — roads, buildings and places',
+	'Satellite — photographs of the ground instead of a drawn map',
 	'Topography — shaded relief and contour lines',
 	'High contrast — black and white, for maximum legibility'
 ];
@@ -364,6 +365,51 @@ test.describe('the Base Map pane', () => {
 		expect([...archiveUrls]).toHaveLength(1);
 	});
 
+	test('swaps the drawn ground for photographs, and keeps what a photograph cannot say', async ({
+		page
+	}) => {
+		// The satellite switch asserted against the built style rather than against pixels: the imagery
+		// host is outside this suite's network fence, so what is decidable here is which layers the map
+		// was told to draw and in what order — which is exactly where the switch does its work.
+		await openPane(page);
+		await openBaseMapOptions(page);
+
+		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('earth');
+
+		await drawSwitch(page, 'Satellite').click();
+
+		// The ground the photograph stands in for is gone rather than drawn over it, and the imagery
+		// is beneath everything else.
+		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).not.toContain('earth');
+		expect((await styleLayerIds(page))[0]).toBe('satellite');
+		expect(await styleLayerIds(page)).not.toContain('landuse_park');
+
+		// And the point of the switch: the roads, the names and the boundaries stay on top of it.
+		const ids = await styleLayerIds(page);
+		expect(ids.some((id) => id.startsWith('roads_'))).toBe(true);
+		expect(ids).toContain('places_locality');
+	});
+
+	test('takes the high-contrast palette away while the satellite is on', async ({ page }) => {
+		// ⚠ For a low-vision Reader specifically: the palette repaints land, water and buildings, and
+		// a photograph is none of them. The switch is disabled and switched off rather than left live
+		// and inert, so what the panel says is what the map draws.
+		await openPane(page);
+		await openBaseMapOptions(page);
+
+		await drawSwitch(page, 'High contrast').click();
+		await expect(drawSwitch(page, 'High contrast')).toBeChecked();
+
+		await drawSwitch(page, 'Satellite').click();
+
+		await expect(drawSwitch(page, 'High contrast')).not.toBeChecked();
+		await expect(drawSwitch(page, 'High contrast')).toBeDisabled();
+
+		// And it comes back the moment the satellite goes off, rather than staying switched off.
+		await drawSwitch(page, 'Satellite').click();
+		await expect(drawSwitch(page, 'High contrast')).toBeEnabled();
+	});
+
 	test('puts everything about the Base Map behind one button, and no list of one', async ({
 		page
 	}) => {
@@ -381,7 +427,7 @@ test.describe('the Base Map pane', () => {
 		await expect(switcher(page)).toHaveCount(0);
 
 		const switches = page.getByTestId('base-map-appearance').getByRole('checkbox');
-		await expect(switches).toHaveCount(3);
+		await expect(switches).toHaveCount(4);
 		expect(
 			await switches.evaluateAll((elements) =>
 				elements.map((element) => (element as HTMLInputElement).getAttribute('aria-label'))
@@ -450,6 +496,8 @@ test.describe('the Base Map pane', () => {
 		await expect(baseMapOptionsButton(page)).toHaveAttribute('aria-expanded', 'true');
 		await page.keyboard.press('Tab');
 		await expect(drawSwitch(page, 'Streets')).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(drawSwitch(page, 'Satellite')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(drawSwitch(page, 'Topography')).toBeFocused();
 		await page.keyboard.press('Tab');

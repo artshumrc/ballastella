@@ -92,13 +92,17 @@ const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\
 );
 
 /**
- * The elevation dataset, held to the same rule as an archive.
+ * Every raster tile template in the catalog — the elevation dataset and the satellite imagery —
+ * held to the same rule as an archive.
  *
- * It is a separate line because it is a separate host, and a fence that checked only `archive:`
- * would pass a deployment that had provisioned its own vector tiles and left the relief pointed at
- * somebody else's bucket — which is the whole failure, one dataset later.
+ * They are separate lines because they are separate hosts, and a fence that checked only `archive:`
+ * would pass a deployment that had provisioned its own vector tiles and left the relief or the
+ * imagery pointed at somebody else's bucket — which is the whole failure, one dataset later.
+ *
+ * Matched by the `tiles:` key rather than by name, so a fourth dataset added to the catalog is
+ * fenced by existing here rather than by somebody remembering to come back to this file.
  */
-const terrainTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))\s*,?$/gm)].map(
+const rasterTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))\s*,?$/gm)].map(
 	(match) => match[1] ?? archiveBindings.get(match[2]) ?? match[2]
 );
 
@@ -124,11 +128,17 @@ const terrainTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+)
  * topographic entry for both its shading and its contour lines. Free to read and keyless, and still
  * nobody's promise to this deployment — the same kind of dependency as the two above, listed here
  * for the same reason.
+ *
+ * `tiles.maps.eox.at` is EOX's WMTS service, which serves the Sentinel-2 cloudless mosaic behind
+ * the satellite switch. The *imagery* is CC BY 4.0 and may be redistributed; the *service* is EOX's
+ * own bandwidth, offered as a courtesy, with no promise to this deployment. Those are two different
+ * questions and only the second one is this fence's.
  */
 const UNCONTROLLED_HOSTS = new Set([
 	'demo-bucket.protomaps.com',
 	'data.source.coop',
-	's3.amazonaws.com'
+	's3.amazonaws.com',
+	'tiles.maps.eox.at'
 ]);
 const hostOf = (archive) => {
 	try {
@@ -146,7 +156,7 @@ const hostOf = (archive) => {
 let failed = false;
 
 if (deploymentCheck) {
-	const uncontrolled = [...entryArchives, ...terrainTiles].filter((archive) =>
+	const uncontrolled = [...entryArchives, ...rasterTiles].filter((archive) =>
 		UNCONTROLLED_HOSTS.has(hostOf(archive))
 	);
 	if (uncontrolled.length > 0) {
@@ -154,7 +164,8 @@ if (deploymentCheck) {
 			`\n${catalogModule}: ${entryIds.join(', ')} still read ${[...new Set(uncontrolled)].join(', ')}.\n\n` +
 				'These URLs are accepted only for educational development and evaluation. Before a\n' +
 				'production deployment, point REMOTE_ARCHIVE at a PMTiles archive that deployment controls,\n' +
-				"and the catalog's `terrain` at an elevation dataset it controls (ADR-0025).\n"
+				"the catalog's `terrain` at an elevation dataset it controls, and its `imagery` at tiles it\n" +
+				'controls or serves under its own agreement (ADR-0025).\n'
 		);
 		failed = true;
 	}

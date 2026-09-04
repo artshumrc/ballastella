@@ -138,10 +138,10 @@ describe('a Base Map id the catalog has retired', () => {
 		new TextEncoder().encode(JSON.stringify({ formatVersion: 1, baseMap: id, ...rest }));
 
 	it.each([
-		['streets', { streets: true, relief: false, highContrast: false }],
-		['physical', { streets: false, relief: false, highContrast: false }],
-		['topographic', { streets: true, relief: true, highContrast: false }],
-		['muted', { streets: true, relief: false, highContrast: true }]
+		['streets', { streets: true, relief: false, highContrast: false, imagery: false }],
+		['physical', { streets: false, relief: false, highContrast: false, imagery: false }],
+		['topographic', { streets: true, relief: true, highContrast: false, imagery: false }],
+		['muted', { streets: true, relief: false, highContrast: true, imagery: false }]
 	])('reads “%s” as the appearance it drew, over the deployment default', (id, appearance) => {
 		const project = parseProjectFile(savedAs(id));
 
@@ -164,7 +164,8 @@ describe('a Base Map id the catalog has retired', () => {
 		expect(project.baseMapAppearance).toEqual({
 			streets: false,
 			relief: false,
-			highContrast: true
+			highContrast: true,
+			imagery: false
 		});
 	});
 
@@ -179,7 +180,8 @@ describe('a Base Map id the catalog has retired', () => {
 		expect(written.baseMapAppearance).toEqual({
 			streets: false,
 			relief: false,
-			highContrast: false
+			highContrast: false,
+			imagery: false
 		});
 	});
 

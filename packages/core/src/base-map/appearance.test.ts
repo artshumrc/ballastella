@@ -5,6 +5,7 @@ import {
 	appearanceFrom,
 	baseMapFlavorName,
 	DEFAULT_BASE_MAP_APPEARANCE,
+	drawnAppearance,
 	isDefaultAppearance,
 	type BaseMapAppearance
 } from './appearance';
@@ -31,10 +32,27 @@ describe('the Base Map appearance', () => {
 		expect(DEFAULT_BASE_MAP_APPEARANCE).toEqual({
 			streets: true,
 			relief: false,
-			highContrast: false
+			highContrast: false,
+			imagery: false
 		});
 		expect(isDefaultAppearance(look())).toBe(true);
 		expect(isDefaultAppearance(look({ highContrast: true }))).toBe(false);
+	});
+
+	it('switches the high-contrast palette off over imagery, and leaves the relief alone', () => {
+		// The one exclusion between the four switches. It lives in the model rather than in the
+		// control so that a hand-edited `project.json` draws what the control would have produced.
+		expect(drawnAppearance(look({ imagery: true, highContrast: true }))).toEqual(
+			look({ imagery: true, highContrast: false })
+		);
+		expect(drawnAppearance(look({ imagery: true, relief: true }))).toEqual(
+			look({ imagery: true, relief: true })
+		);
+
+		// Untouched without imagery, and the same object rather than a copy — this runs on every
+		// style build and on both border helpers.
+		const contrast = look({ highContrast: true });
+		expect(drawnAppearance(contrast)).toBe(contrast);
 	});
 
 	it('names a flavor per theme, and a different one when high contrast is on', () => {
@@ -55,7 +73,7 @@ describe('the Base Map appearance', () => {
 				readBaseMapChoice({
 					baseMapAppearance: { streets: false, relief: 'yes', highContrast: true }
 				}).appearance
-			).toEqual({ streets: false, relief: false, highContrast: true });
+			).toEqual({ streets: false, relief: false, highContrast: true, imagery: false });
 		});
 
 		it.each([
@@ -82,7 +100,7 @@ describe('the Base Map appearance', () => {
 		it('separates “switched everything off” from “said nothing”', () => {
 			// `appearanceFrom` is what a Reader's own stored preference leans on: all three off is a map
 			// somebody asked for, and falling back to the author's would put the streets back.
-			const off = { streets: false, relief: false, highContrast: false };
+			const off = { streets: false, relief: false, highContrast: false, imagery: false };
 
 			expect(appearanceFrom(off)).toEqual(off);
 			expect(appearanceFrom({})).toBeNull();
@@ -106,7 +124,8 @@ describe('the Base Map appearance', () => {
 			expect(JSON.parse(written).baseMapAppearance).toEqual({
 				streets: true,
 				relief: true,
-				highContrast: true
+				highContrast: true,
+				imagery: false
 			});
 			// ADR-0020, restated one level down: how a map is drawn travels, and where its tiles are
 			// does not.

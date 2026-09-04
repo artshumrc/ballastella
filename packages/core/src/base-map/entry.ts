@@ -34,9 +34,39 @@ export type BaseMapTerrain = {
 };
 
 /**
+ * The satellite imagery a Base Map drawn with `imagery` reads, and the third address in this file
+ * — so, like an archive and a DEM, deployment configuration and never Project data (ADR-0020).
+ *
+ * **Photographs, so a raster source rather than a second archive.** Everything the vector archive
+ * carries is a claim somebody drew; imagery is the ground itself, and the reason it is a switch
+ * (`appearance.ts`) rather than a catalog entry is that a scholar turning it on wants the roads,
+ * the names and the borders to stay *on top of* it. An entry is a set of tiles a whole map is built
+ * from; this is a layer underneath one.
+ */
+export type BaseMapImagery = {
+	/** Raster tile template carrying `{z}`, `{x}`, and `{y}`. Absolute, or deployment-relative. */
+	readonly tiles: string;
+	/**
+	 * The deepest zoom the imagery holds real detail at. Load-bearing for the reason
+	 * {@link BaseMapTerrain.maxZoom} is, and for one more: past it MapLibre overzooms the deepest
+	 * real tile instead of fetching four upsampled copies of it, so a number that is honest about
+	 * the source's resolution is also four times less traffic at every zoom beyond it.
+	 */
+	readonly maxZoom: number;
+	/**
+	 * Tile edge in pixels. **Stated rather than defaulted**: MapLibre assumes 512 for a raster
+	 * source and a great deal of imagery in the wild is 256, and the failure is not an error but a
+	 * picture at the wrong scale — coastlines a zoom level out from the vector layers over them.
+	 */
+	readonly tileSize: number;
+	/** Attribution for the imagery. A separate obligation from the vector tiles' and the DEM's. */
+	readonly attribution: string;
+};
+
+/**
  * One set of tiles this deployment can draw a Base Map from.
  *
- * **An address and a name, and nothing about how the map looks.** How it looks is three switches
+ * **An address and a name, and nothing about how the map looks.** How it looks is four switches
  * the author sets (`appearance.ts`), applied to whichever of these is being read — so a deployment
  * with one archive has one entry here, and a deployment with a regional extract beside a worldwide
  * one has two, which is the only thing there is ever more than one of.
@@ -92,6 +122,12 @@ export type BaseMapCatalog = {
 	 * Project asking for relief degrades to terrain colours rather than disappearing.
 	 */
 	readonly terrain?: BaseMapTerrain;
+	/**
+	 * The satellite imagery, if this deployment has any. Optional for the reason `terrain` is: a
+	 * fork with nothing to point at still gets every other entry, and a Project asking for imagery
+	 * draws the vector ground rather than a blank pane.
+	 */
+	readonly imagery?: BaseMapImagery;
 	/**
 	 * Attribution for the tiles, shown by MapLibre's attribution control. OpenStreetMap data
 	 * is ODbL and this is a licence obligation, not a courtesy — see THIRD-PARTY-NOTICES.md.

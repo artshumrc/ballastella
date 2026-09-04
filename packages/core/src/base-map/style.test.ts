@@ -5,6 +5,7 @@ import { ANNOTATION_COLORS } from '../annotation/annotation';
 import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
+import { IMAGERY_LAYER, IMAGERY_SOURCE_ID } from './imagery';
 import { PHYSICAL_LAND } from './physical';
 import { defaultEntry, resolveBaseMap } from './resolve';
 import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID, bordersIllegibleThemes } from './style';
@@ -280,32 +281,58 @@ describe('baseMapStyle', () => {
 		expect(paint(contrast.layers, 'roads_major')).toMatchObject({ 'line-color': '#000000' });
 	});
 
-	it('keeps the three switches independent, so every combination is a different map', () => {
-		// ⚠ **The assertion the named variants could not make.** Four entries covered four of these
-		// eight, and the ones they left out — contours under a road network, a high-contrast palette
-		// with the relief still shaded — were the combinations scholars asked for. A regression letting
-		// one switch swallow another would still draw a map; only counting them catches it.
+	it('keeps the switches independent but for the one exclusion, so each combination is its own map', () => {
+		// ⚠ **The assertion the named variants could not make.** Four entries covered four of these,
+		// and the ones they left out — contours under a road network, a high-contrast palette with the
+		// relief still shaded — were the combinations scholars asked for. A regression letting one
+		// switch swallow another would still draw a map; only counting them catches it.
+		//
+		// Twelve rather than sixteen, and the four that collapse are the deliberate exclusion:
+		// `highContrast` has nothing to repaint over a photograph, so `drawnAppearance` records it as
+		// off and the pair draws one map. That count is the exclusion's own regression test — a rule
+		// that stopped applying would read here as sixteen.
 		const drawn = new Set<string>();
 		for (const streets of [true, false]) {
 			for (const relief of [true, false]) {
 				for (const highContrast of [true, false]) {
-					const style = baseMapStyle(tiles, {
-						theme: 'light',
-						appearance: { streets, relief, highContrast },
-						terrainTiles: { dem: 'dem://x', contours: 'contour://x' }
-					});
-					drawn.add(
-						JSON.stringify([
-							style.sprite,
-							style.layers.map((layer) => layer.id),
-							paint(style.layers, 'landuse_park')
-						])
-					);
+					for (const imagery of [true, false]) {
+						const style = baseMapStyle(tiles, {
+							theme: 'light',
+							appearance: { streets, relief, highContrast, imagery },
+							terrainTiles: { dem: 'dem://x', contours: 'contour://x' }
+						});
+						drawn.add(
+							JSON.stringify([
+								style.sprite,
+								style.layers.map((layer) => layer.id),
+								paint(style.layers, 'landuse_park')
+							])
+						);
+					}
 				}
 			}
 		}
 
-		expect(drawn.size).toBe(8);
+		expect(drawn.size).toBe(12);
+	});
+
+	it('draws no high-contrast palette over the imagery, and says so in the appearance', () => {
+		// The switch is recorded as off rather than ignored underneath: the sprite sheet is chosen by
+		// the flavor name, so a style that honoured `highContrast` here would load the `white` icons
+		// over photographs while the land it was meant to repaint was not being drawn at all.
+		const satellite = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			theme: 'light',
+			catalog: FORKED_CATALOG,
+			appearance: look({ imagery: true, highContrast: true })
+		});
+		const plain = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			theme: 'light',
+			catalog: FORKED_CATALOG,
+			appearance: look({ imagery: true })
+		});
+
+		expect(satellite.sprite).toBe(plain.sprite);
+		expect(JSON.stringify(satellite.layers)).toBe(JSON.stringify(plain.layers));
 	});
 
 	it('resolves relative asset paths through the caller, leaving placeholders intact', () => {
@@ -500,6 +527,88 @@ describe('baseMapStyle over a forked catalog', () => {
 		expect(source && 'attribution' in source ? source.attribution : '').toBe(
 			'Somebody else entirely'
 		);
+	});
+
+	it('draws the imagery under the map and takes away the ground it stands in for', () => {
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			...options,
+			appearance: look({ imagery: true })
+		});
+		const ids = style.layers.map((layer) => layer.id);
+
+		// Bottom of the stack, and the vector fills that would otherwise hide it are gone rather than
+		// drawn over: a style that loaded the photographs and covered them is the expensive way to
+		// draw the same map as before.
+		expect(ids[0]).toBe(IMAGERY_LAYER);
+		expect(ids).not.toContain('earth');
+		expect(ids).not.toContain('landcover');
+		expect(ids).not.toContain('landuse_park');
+		expect(ids).not.toContain('water');
+
+		// The point of the switch: everything the photograph cannot say stays on top of it.
+		expect(ids.some((id) => id.startsWith('roads_'))).toBe(true);
+		expect(ids).toContain('places_locality');
+		expect(ids).toContain(NATIONAL_BOUNDARY_LAYER);
+		// A stream is narrower than Sentinel-2's 10 m/px, so the vector line is carrying what the
+		// imagery does not have.
+		expect(ids).toContain('water_stream');
+	});
+
+	it('states the imagery source’s depth, tile size and attribution', () => {
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			...options,
+			appearance: look({ imagery: true })
+		});
+		const source = style.sources[IMAGERY_SOURCE_ID];
+
+		// `maxzoom` and `tileSize` both fail as pictures rather than as errors — blank ground past
+		// the pyramid, and a coastline a zoom out of step with the vector layers over it.
+		expect(source).toMatchObject({
+			type: 'raster',
+			maxzoom: 9,
+			tileSize: 512,
+			attribution: 'Somebody else&rsquo;s photographs'
+		});
+	});
+
+	it('draws the vector ground when the deployment has provisioned no imagery', () => {
+		// A catalog is a fork's to edit, and no edit to it may produce a blank pane.
+		const style = baseMapStyle(entry('harbour-charts', CATALOG_WITHOUT_TERRAIN), {
+			...options,
+			catalog: CATALOG_WITHOUT_TERRAIN,
+			appearance: look({ imagery: true })
+		});
+
+		expect(style.sources[IMAGERY_SOURCE_ID]).toBeUndefined();
+		expect(style.layers.map((layer) => layer.id)).toContain('earth');
+	});
+
+	it('draws no imagery for a Base Map read from the offline cache', () => {
+		// ADR-0025: the cache holds the vector archive, and photographs are a second host and a live
+		// request. A map called available offline that needs the network is a false claim.
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			...options,
+			appearance: look({ imagery: true }),
+			cachedTiles: { maxZoom: 12, tileTemplate: 'cached://{z}/{x}/{y}' }
+		});
+
+		expect(style.sources[IMAGERY_SOURCE_ID]).toBeUndefined();
+		expect(style.layers.map((layer) => layer.id)).toContain('earth');
+	});
+
+	it('keeps the relief beneath the labels when the imagery has taken the water fill away', () => {
+		// The hillshade anchors on the first water fill, which a satellite style does not have. The
+		// fallback has to be the labels: appended at the end instead, the shading would be painted
+		// over every place name on the map.
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+			...options,
+			appearance: look({ imagery: true, relief: true }),
+			terrainTiles: { dem: 'dem://x', contours: 'contour://x' }
+		});
+		const ids = style.layers.map((layer) => layer.id);
+		const firstSymbol = style.layers.findIndex((layer) => layer.type === 'symbol');
+
+		expect(ids.findIndex((id) => id.includes('hillshade'))).toBeLessThan(firstSymbol);
 	});
 
 	it('draws a physical high-contrast map over a forked archive, landcover and all', () => {

@@ -21,7 +21,7 @@ const stored = (preference: Partial<ReaderBaseMapPreference>): string =>
 		...(preference.appearance ? { appearance: preference.appearance } : {})
 	});
 
-const HIGH_CONTRAST = { streets: true, relief: false, highContrast: true };
+const HIGH_CONTRAST = { streets: true, relief: false, highContrast: true, imagery: false };
 
 /** A `localStorage` in a `Map`, with the two ways a real one fails. */
 function storage(
@@ -109,7 +109,7 @@ describe('a Reader’s Base Map preference', () => {
 		it('reads a Reader who switched everything off as a choice, not as silence', () => {
 			// The distinction the whole `null` half of this module exists for: "nothing on" is a map
 			// this Reader asked for, and falling back to the author's would put the streets back.
-			const off = { streets: false, relief: false, highContrast: false };
+			const off = { streets: false, relief: false, highContrast: false, imagery: false };
 			const held = storage({
 				[baseMapPreferenceKey('https://x.example/')]: stored({ appearance: off })
 			});

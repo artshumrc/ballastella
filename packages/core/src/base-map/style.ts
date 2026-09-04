@@ -14,12 +14,14 @@ import {
 import {
 	baseMapFlavorName,
 	DEFAULT_BASE_MAP_APPEARANCE,
+	drawnAppearance,
 	type BaseMapAppearance
 } from './appearance';
 import { BASE_MAP_CATALOG } from './catalog';
 import { highContrastFlavor } from './high-contrast';
+import { IMAGERY_SOURCE_ID, imageryLayer, imageryReplaces, imagerySource } from './imagery';
 import { physicalFlavor } from './physical';
-import type { BaseMapCatalog, BaseMapEntry, BaseMapTerrain } from './entry';
+import type { BaseMapCatalog, BaseMapEntry, BaseMapImagery, BaseMapTerrain } from './entry';
 import {
 	contourLayers,
 	hillshadeLayer,
@@ -66,7 +68,7 @@ const BUILT_ENVIRONMENT_LAYERS = [
 export type BaseMapStyleOptions = {
 	readonly theme: Theme;
 	/**
-	 * How the map is drawn — the author's three switches out of `project.json` (`appearance.ts`),
+	 * How the map is drawn — the author's four switches out of `project.json` (`appearance.ts`),
 	 * or a Reader's own override of them.
 	 *
 	 * **An argument rather than a property of the entry**, for the reason `borders` below is one:
@@ -146,11 +148,12 @@ export function baseMapStyle(
 ): StyleSpecification {
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 	const resolveAsset = options.resolveAsset ?? identity;
-	const appearance = options.appearance ?? DEFAULT_BASE_MAP_APPEARANCE;
+	const appearance = drawnAppearance(options.appearance ?? DEFAULT_BASE_MAP_APPEARANCE);
 	const scheme = themeScheme(options.theme);
 	const flavorName = baseMapFlavorName(appearance, scheme);
 	const flavor = appearanceFlavor(appearance, scheme);
 	const terrain = reliefFor(appearance, catalog, options);
+	const imagery = imageryFor(appearance, catalog, options);
 
 	return {
 		version: 8,
@@ -180,15 +183,29 @@ export function baseMapStyle(
 							url: `pmtiles://${archiveUrl(entry, resolveAsset)}`
 						})
 			},
-			...(terrain === null ? {} : terrainSources(terrain.data, terrain.tiles))
+			...(terrain === null ? {} : terrainSources(terrain.data, terrain.tiles)),
+			...(imagery === null
+				? {}
+				: {
+						// Resolved like an archive: imagery a deployment serves from its own site is a
+						// relative template, and one it reads from somebody else's is already addressed.
+						[IMAGERY_SOURCE_ID]: imagerySource(
+							imagery,
+							isAbsoluteUrl(imagery.tiles) ? imagery.tiles : resolveAsset(imagery.tiles)
+						)
+					})
 		},
-		layers: withRelief(
-			appearanceLayers(layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }), appearance)
-				.filter((layer) => bordersInclude(options.borders ?? DEFAULT_BASE_MAP_BORDERS, layer.id))
-				.map((layer) =>
-					strengthenedBorder(layer, flavor, options.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE)
-				),
-			terrain === null ? null : flavor
+		layers: withImagery(
+			withRelief(
+				appearanceLayers(layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }), appearance)
+					.filter((layer) => bordersInclude(options.borders ?? DEFAULT_BASE_MAP_BORDERS, layer.id))
+					.filter((layer) => imagery === null || !imageryReplaces(layer))
+					.map((layer) =>
+						strengthenedBorder(layer, flavor, options.borderStyle ?? DEFAULT_BASE_MAP_BORDER_STYLE)
+					),
+				terrain === null ? null : flavor
+			),
+			imagery !== null
 		)
 	};
 }
@@ -269,6 +286,25 @@ function reliefFor(
 }
 
 /**
+ * The imagery this style will actually draw, or `null` for every other style.
+ *
+ * The same three conditions `reliefFor` weighs, and for the same reasons: the deployment must have
+ * provisioned imagery at all, and a Base Map being read from the offline tile cache draws none —
+ * the cache holds the vector archive, and photographs are a second host and a live request
+ * (ADR-0025). Missing either, the map draws its vector ground rather than failing, because editing
+ * the catalog is a fork's privilege and must not be able to produce a blank pane.
+ */
+function imageryFor(
+	appearance: BaseMapAppearance,
+	catalog: BaseMapCatalog,
+	options: BaseMapStyleOptions
+): BaseMapImagery | null {
+	if (!appearance.imagery) return null;
+	if (options.cachedTiles !== undefined) return null;
+	return catalog.imagery ?? null;
+}
+
+/**
  * Slide the relief into an ordered layer stack: shading beneath the water so lakes and coastline
  * stay flat, contours beneath the labels so a place name is never crossed by a line.
  *
@@ -279,9 +315,15 @@ function reliefFor(
  */
 function withRelief(all: LayerSpecification[], flavor: Flavor | null): LayerSpecification[] {
 	if (flavor === null) return all;
-	const anchor = (found: number) => (found === -1 ? all.length : found);
-	const beneathWater = anchor(all.findIndex(isWaterFill));
-	const beneathLabels = anchor(all.findIndex((layer) => layer.type === 'symbol'));
+	const anchor = (found: number, fallback: number) => (found === -1 ? fallback : found);
+	const beneathLabels = anchor(
+		all.findIndex((layer) => layer.type === 'symbol'),
+		all.length
+	);
+	// A stack with no water fill falls back to the labels rather than to the end, because a style
+	// drawing satellite imagery has had its water fills replaced by the photograph — and relief
+	// appended after everything would be shading painted over the place names.
+	const beneathWater = anchor(all.findIndex(isWaterFill), beneathLabels);
 
 	const stacked: LayerSpecification[] = [];
 	for (let index = 0; index <= all.length; index += 1) {
@@ -291,6 +333,18 @@ function withRelief(all: LayerSpecification[], flavor: Flavor | null): LayerSpec
 		if (layer !== undefined) stacked.push(layer);
 	}
 	return stacked;
+}
+
+/**
+ * The imagery under an ordered layer stack.
+ *
+ * Applied after `withRelief` rather than before it, so the hillshade's anchors are found among the
+ * vector layers alone: the imagery is a raster layer at index 0, and searching a stack that already
+ * contained it for "the first layer that is not a symbol" is the kind of anchor that keeps working
+ * until somebody turns a switch off.
+ */
+function withImagery(all: LayerSpecification[], drawn: boolean): LayerSpecification[] {
+	return drawn ? [imageryLayer(), ...all] : all;
 }
 
 const isWaterFill = (layer: LayerSpecification): boolean =>
@@ -332,7 +386,11 @@ function appearanceLayers(
  * painted in `physical.ts`'s own colours, which is the case where the map is meant to read as
  * physical geography.
  */
-function appearanceFlavor(appearance: BaseMapAppearance, scheme: ThemeScheme): Flavor {
+function appearanceFlavor(chosen: BaseMapAppearance, scheme: ThemeScheme): Flavor {
+	// Normalised here as well as in `baseMapStyle`, because `automaticBorderStyle` and
+	// `bordersIllegibleThemes` reach this with the author's raw switches: a border seeded from a
+	// palette the map is not drawing is the mismatch this function's docstring exists to prevent.
+	const appearance = drawnAppearance(chosen);
 	const named = namedFlavor(baseMapFlavorName(appearance, scheme));
 	const flavor = appearance.highContrast ? highContrastFlavor(named, scheme) : named;
 	if (appearance.streets) return flavor;
