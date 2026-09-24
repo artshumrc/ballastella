@@ -1,56 +1,83 @@
 # Ballastella
 
-A browser-based tool for placing map images onto the modern world and annotating them, where a scholar's work lives as ordinary files they own rather than rows in someone else's database.
+A browser app for georeferencing historical map images and annotating them. There is no backend: the
+app is static files, and a user's work is plain files (IIIF, GeoJSON) in storage they own, optionally
+synced to a GitHub repository that can serve it as a read-only website.
 
-A **ballastella** — also Jacob's staff — is a graduated pole with a sliding crosspiece, used from the fourteenth century to measure the angular height of a star above the horizon and so establish one's position. It is the ancestor of the sextant. The name was chosen because a Control Point pair is a sighting: the user observes a feature on a map image, observes the same feature on the earth, and the correspondence yields a position.
+## How it fits together
 
-## Status
-
-**v1 is built and driven end to end.** Images are tiled in the browser, aligned against the modern world, annotated, synced to a GitHub repository, and given a web address. One human decision — a Base Map archive this deployment controls — is outstanding; that and the other known gaps are in [`docs/hosting.md`](docs/hosting.md).
-
-```sh
-pnpm install
-pnpm -r build && pnpm -r test && pnpm lint && pnpm check && pnpm test:e2e
+```
+ ┌──────────── editor (PWA, static) ────────────┐        ┌── user's GitHub repo ──┐
+ │ tile image → align → annotate                │  sync  │ projects/tiles/json    │
+ │            │                                 │ ─────► │ + viewer bundle        │
+ │      ProjectStore (OPFS or a real folder)    │        │ = GitHub Pages site    │
+ └──────────────────────────────────────────────┘        └────────────────────────┘
 ```
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for what each command covers, and for the three rules the toolchain enforces on your behalf.
-
-## Hosting your own instance
-
-Fork this repository, set **Settings → Pages → Source** to **GitHub Actions**, and push. `.github/workflows/pages.yml` builds the editor and deploys it to `https://<you>.github.io/<your-fork>/`. No server, no account, no API key or secret — CI asserts the last of those.
-
-Your users then sync their own work from their own folders to repositories they own, and give it an address when they want one. Both halves, including the Base Map archive you should point at your own tiles before telling anyone the instance is ready, are in [`docs/hosting.md`](docs/hosting.md).
-
-## The idea
-
-A historian has a Map Image — a photograph or scan of an old map — and wants to show where its places actually are on the earth, then write about them — labelling sites, tracing routes, outlining regions — and share the result so colleagues and students can explore it.
-
-Today that requires either specialist GIS software with a steep learning curve and no way to share the result, or a hosted platform that takes custody of the work: the scholarship becomes a row in someone else's database, the output lives on someone else's domain, and nothing is portable.
-
-Ballastella is a browser application at a stable address that reads and writes **a folder the user owns**. A user picks a Workspace directory once. Inside it, each Project is a directory holding its Map Images as level-0 IIIF tiles, its Alignments as IIIF Georeference Annotations, and its Annotations as GeoJSON — plain files in open formats, written as the user works.
-
-**Share Links** writes a read-only viewer into the workspace. That workspace, in any static host, *is* the website. No server, no build pipeline, no account.
+- **Workspace → Projects.** A Workspace is one directory; each Project in it holds Map Images as
+  level-0 IIIF tile pyramids (tiled in the browser), Alignments as IIIF Georeference Annotations,
+  and Annotations as GeoJSON (simplestyle). All reads and writes go through one `ProjectStore`
+  interface (`read`/`write`/`list`/`delete`) with adapters for OPFS (the default), a File System
+  Access folder, memory (tests) and HTTP (read-only, for the viewer).
+- **Rendering.** MapLibre draws the Base Map (a PMTiles archive), Allmaps warps aligned images onto
+  it, and Terra Draw handles drawing annotations.
+- **Sync.** The editor talks straight to the GitHub REST API from the browser. Each sync is a
+  single commit. Users authenticate by pasting a fine-grained token, or through a GitHub App sign-in.
+  The sign-in needs a small **broker** to swap the OAuth code for a token, because GitHub's token
+  endpoint doesn't allow CORS. The broker holds the App secret and never sees any data. Its code
+  lives in another repo.
+- **Share Links.** When this is on, the editor writes the prebuilt viewer (`_app/`, `index.html`,
+  `ballastella-site.json`) into the Workspace. The user's repo is then served by GitHub Pages as-is.
+  Nothing needs building.
 
 ## Repository layout
 
-| Path | What it holds |
-| --- | --- |
-| [`CONTEXT.md`](CONTEXT.md) | The project's ubiquitous language — the terms the code and UI are required to use, and the near-synonyms to avoid |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work here, the commands, and the GPL fence against the Allmaps applications |
-| [`packages/core/`](packages/core) | `@ballastella/core` — domain model, `ProjectStore` and adapters, IIIF glue, alignment serialisation, annotation styling |
-| [`apps/editor/`](apps/editor) | `@ballastella/editor` — the authoring app |
-| [`apps/viewer/`](apps/viewer) | `@ballastella/viewer` — the lean read-only viewer written into Published Sites |
-| [`e2e/`](e2e) | Playwright browser tests, run against both built apps |
-| [`docs/hosting.md`](docs/hosting.md) | How to host an instance, and how a user syncs a Workspace and gives it an address |
-| [`docs/adr/`](docs/adr) | Architectural decision records — every decision that would otherwise be surprising, referenced by number throughout the code |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Layout, the toolchain rules, the test seams, the accessibility bar |
+| Path             | What it is                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| `packages/core`  | Framework-free logic: store adapters, tiler, alignment, annotations, sync, Base Map catalog |
+| `packages/ui`    | Svelte components that both apps render                                                  |
+| `apps/editor`    | SvelteKit authoring app, installable as a PWA. This is what gets deployed                |
+| `apps/viewer`    | Lean read-only SvelteKit app. It is built and bundled into the editor, never deployed on its own |
+| `e2e/`           | Playwright tests against both built apps                                                 |
+| `scripts/`       | Lint fences, e2e wrappers and deploy checks called from `package.json`                   |
+| `docs/adr/`      | Decision records. Code comments cite them by number                                      |
 
-Start with `CONTEXT.md`, then `CONTRIBUTING.md`. The ADRs explain *why* rather than *what*, and are best read on demand when a module's comments cite one.
+Read `CONTEXT.md` (domain vocabulary) and `CONTRIBUTING.md` (toolchain rules, test seams) before
+changing anything.
 
-Work in flight is tracked in Botley rather than in this repository, and an Epic is deleted once it lands — so nothing here cites one. What a finished Epic leaves behind is the code, the glossary, this README, `CONTRIBUTING.md`, and an ADR wherever the decision was hard to reverse.
+## Develop
+
+```sh
+pnpm install
+pnpm --filter @ballastella/editor dev   # also builds and stages the viewer
+pnpm precommit                          # lint → check → test → e2e
+```
+
+Use `pnpm dev:clean` and `pnpm test:e2e` instead of `pkill` or running Playwright directly (see
+`CLAUDE.md`).
+
+## Deployment
+
+`.github/workflows/pages.yml` runs on every push to `main`. It runs `pnpm build:deploy`, which builds
+the viewer, stages it inside the editor, and removes dev-only routes and fixtures. It then checks the
+artifact (relative asset paths only, `.nojekyll`, no dev harness) and deploys `apps/editor/build`
+to GitHub Pages. `ci.yml` runs the test suite separately, so the deploy doesn't wait on it.
+
+To run your own instance, fork the repo, set **Settings → Pages → Source** to **GitHub Actions**,
+and push. You need no secrets or server. Things a fork should repoint:
+
+- **Base Map archive** in `packages/core/src/base-map/catalog.ts`. It currently points at a public
+  Protomaps build this project doesn't control, so `pnpm check:deployment` fails on purpose and the
+  deploy only warns.
+- **Place search** in `packages/core/src/places/service.ts`. It uses OSM's Nominatim by default.
+- **GitHub App and broker** in `packages/core/src/remote/github-app.ts`. A fork can't reuse this
+  deployment's App, so either register your own App and deploy a broker, or clear these values and
+  rely on pasted tokens.
+
+[`docs/hosting.md`](docs/hosting.md) covers each of these in full, plus the user-side sync and Share
+Links flow and the known gaps.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE) and [ADR-0021](docs/adr/0021-mit-licence-and-gpl-hygiene.md) for the reasoning.
-
-⚠️ **A note for contributors before you copy any code in:** the Allmaps repository's `apps/editor` and `apps/viewer` are **GPL-3.0** (its `packages/*` are MIT). Reading them to understand their architecture is fine and has been done deliberately. Lifting a function from them silently relicenses this project. See [ADR-0021](docs/adr/0021-mit-licence-and-gpl-hygiene.md).
+MIT. The Allmaps `apps/editor` and `apps/viewer` are GPL-3.0, so don't copy code from them (its
+`packages/*` are MIT). See [ADR-0021](docs/adr/0021-mit-licence-and-gpl-hygiene.md).
