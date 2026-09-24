@@ -1958,7 +1958,9 @@ describe('the way in for an installation that has broken', () => {
 
 		expect(at('connect-other-way-in')).toHaveAttribute('aria-expanded', 'true');
 		expect(text(at('connect-other-way-in'))).toBe('Hide personal access token sign-in');
-		expect(text(at('connect-other-way-in-panel'))).toContain('Sign in with a personal access token');
+		expect(text(at('connect-other-way-in-panel'))).toContain(
+			'Sign in with a personal access token'
+		);
 		expect(at('connect-token-field')).toBeTruthy();
 	});
 

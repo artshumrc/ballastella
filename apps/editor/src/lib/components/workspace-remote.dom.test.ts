@@ -298,7 +298,9 @@ describe('letting other people see it, which is a later act', () => {
 		await settle();
 
 		const said = text(at('pages-setup-by-hand'));
-		expect(said).toBe('GitHub Pages is one setting you turn on yourself. Then turn Share Links on here.');
+		expect(said).toBe(
+			'GitHub Pages is one setting you turn on yourself. Then turn Share Links on here.'
+		);
 		expect(at('pages-settings-button')).toHaveAttribute(
 			'href',
 			'https://github.com/ada/atlas/settings/pages'

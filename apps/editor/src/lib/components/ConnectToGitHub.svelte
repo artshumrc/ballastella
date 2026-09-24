@@ -1423,9 +1423,7 @@
 						checked={storage.rememberSignIn}
 						onchange={(event) => storage.setRememberSignIn(event.currentTarget.checked)}
 					/>
-					<span>
-						Keep me signed in on this computer.
-					</span>
+					<span> Keep me signed in on this computer. </span>
 				</label>
 				<!--
 					⚠ **A disclosure, and *closed* is the whole of what makes it one** (ADR-0044).
