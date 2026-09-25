@@ -1,7 +1,9 @@
 <script lang="ts">
 	import './layout.css';
 	import { refuseUnroutedImageServiceRequests } from '@ballastella/core';
+	import { afterNavigate } from '$app/navigation';
 	import { asset } from '$app/paths';
+	import { startAnalytics, trackPageview } from '$lib/analytics';
 	import favicon16 from '$lib/assets/favicon-16.png';
 	import favicon32 from '$lib/assets/favicon-32.png';
 	import NavigationBar from '$lib/components/NavigationBar.svelte';
@@ -77,6 +79,9 @@
 	 * prerendering, where there is no `document` to paint and no `matchMedia` to follow.
 	 */
 	$effect(() => startTheme());
+
+	$effect(() => startAnalytics());
+	afterNavigate(trackPageview);
 </script>
 
 <svelte:head>

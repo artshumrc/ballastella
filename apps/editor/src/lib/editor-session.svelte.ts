@@ -151,6 +151,7 @@ import {
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
 import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
+import { track } from './analytics.js';
 import { saveFile } from './save-file.js';
 
 /**
@@ -1124,7 +1125,11 @@ export class EditorSession {
 	}
 
 	async createProject(displayName: string, description = ''): Promise<ProjectSummary | null> {
-		return this.#mutate(null, () => this.#workspace.createProject(displayName, description));
+		const created = await this.#mutate(null, () =>
+			this.#workspace.createProject(displayName, description)
+		);
+		if (created) track({ name: 'project-created' });
+		return created;
 	}
 
 	async renameProject(directory: string, displayName: string): Promise<void> {
@@ -1453,7 +1458,9 @@ export class EditorSession {
 			// Image no Layer draws yet and always a Layer added rather than a no-op — but it goes through
 			// the same method the referenced path uses, so there is one implementation of "adding a map
 			// puts a Layer in the stack" rather than two that can drift.
-			await this.#addMapLayer({ imageId: ingested.imageId, image: ingested });
+			if (await this.#addMapLayer({ imageId: ingested.imageId, image: ingested })) {
+				track({ name: 'map-image-added', data: { source: 'local' } });
+			}
 			// **Last, so the map appears in the list only once the whole add is done.** The list is what
 			// the interface shows for "it is here", and the file input beside it is disabled while
 			// {@link ingest} is running — so listing the pyramid before the Layer and the Alignment were
@@ -2173,6 +2180,7 @@ export class EditorSession {
 			address: referencedAlignmentAddress(record.service)
 		});
 		if (!added) return null;
+		track({ name: 'map-image-added', data: { source: 'remote' } });
 		// The record is refreshed even when the Layer was already there: the add re-read the resource's
 		// description from the library, and the newer one is the one to keep.
 		this.referencedImages = [
@@ -2236,6 +2244,7 @@ export class EditorSession {
 				this.saveError || 'That Map Image was not added: the Layer could not be written.';
 			return null;
 		}
+		track({ name: 'map-image-added', data: { source: 'workspace' } });
 		return added.layer;
 	}
 
