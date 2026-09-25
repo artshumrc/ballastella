@@ -99,6 +99,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		// ⚠ The Baseline lives in `localStorage`, so a test that emptied only OPFS would
 		// inherit the previous one's evidence about this very repository.
 		localStorage.clear();
+		localStorage.setItem('ballastella.visited', 'yes');
 		sessionStorage.clear();
 	});
 }

@@ -63,6 +63,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		for await (const name of root.keys()) names.push(name);
 		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
 		localStorage.clear();
+		localStorage.setItem('ballastella.visited', 'yes');
 		sessionStorage.clear();
 		// **And the installation database** (ADR-0044), which is where the Remote relationship lives.
 		// Left behind, a Workspace made under the same name in the next scenario arrives already bound.

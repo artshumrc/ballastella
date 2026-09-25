@@ -157,6 +157,7 @@ async function emptyBrowserStorage(page: Page): Promise<void> {
 		for await (const name of root.keys()) names.push(name);
 		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
 		localStorage.clear();
+		localStorage.setItem('ballastella.visited', 'yes');
 		sessionStorage.clear();
 		// **And the installation database** (ADR-0033), which is where the Remote relationship and the
 		// Synchronization Baseline now live. Left behind, the reverse lookup in the next scenario would
