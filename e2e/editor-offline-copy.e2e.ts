@@ -2,9 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-// The fake IIIF services, shared by every spec that needs one. The host table, the
-// `info.json` builder and the tile matcher used to live here; see that module's header for why
-// three private copies of one fixture was a defect rather than a duplication.
+// The fake IIIF services, shared by every spec that needs one.
 import {
 	communityAnnotation,
 	generateId,

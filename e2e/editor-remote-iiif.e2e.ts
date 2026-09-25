@@ -7,9 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { IMAGE_HEIGHT, IMAGE_WIDTH, gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { addMapImageIsOpen, ensureAddMapImageOpen } from './support/map-images.js';
-// The fake IIIF services, shared by every spec that needs one. This file used to carry
-// its own copy of the host table, the `info.json` builder and the tile matcher; see the module
-// header there for why three private copies of one fixture was a defect rather than a duplication.
+// The fake IIIF services, shared by every spec that needs one.
 import {
 	communityAnnotation,
 	generateId,

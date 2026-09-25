@@ -1,0 +1,3 @@
+#!/bin/sh
+# e2e is left to CI: at ~25 minutes it is too slow to run on every push. Skip with `git push --no-verify`.
+exec pnpm precommit lint check test

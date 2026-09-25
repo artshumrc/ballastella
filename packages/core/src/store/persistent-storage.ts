@@ -3,8 +3,7 @@
 //
 // Its own module because it names no Workspace, no Project and no path: `navigator.storage.persist()`
 // covers the whole origin — OPFS, IndexedDB, Cache Storage, the lot — so a Workspace happens to be
-// what benefits rather than what is being asked about. It lived in `opfs-workspaces.ts` for one
-// commit, where it was the only export that did not take or return a Workspace name.
+// what benefits rather than what is being asked about.
 
 /**
  * What the browser answered when asked to keep this origin's storage.

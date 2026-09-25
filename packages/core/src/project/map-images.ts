@@ -218,7 +218,7 @@ async function mapImageFiles(
  * The Map Images whose tiles are on somebody else's server, by image id.
  *
  * What the site write warns from (ADR-0007) and what the editor's Layers pane
- * hands the renderer an address for. Both used to work it out for themselves.
+ * hands the renderer an address for.
  */
 export async function referencedMapImages(
 	store: Pick<ProjectStore, 'list'>
@@ -602,7 +602,7 @@ export async function deleteMapImage(
 /**
  * Split the Workspace's remote-origin records by whether a pyramid of ours is beside them.
  *
- * Moved here from `remote-iiif/referenced-image.ts` so that it and {@link referencedMapImages}
+ * So that it and {@link referencedMapImages}
  * answer through {@link tileLocation} rather than through two independent readings of the same rule.
  *
  * `offlineCopies` keeps its record, which is why this is a partition of the records rather than a

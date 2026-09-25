@@ -71,6 +71,7 @@ deliberately stays two modules, and the viewer's own header argues why.
 | `pnpm test:e2e --profile`            | the same run, plus a worker-seconds-per-test table of every spec |
 | `pnpm dev:clean`                     | stop dev servers by port, never by name pattern |
 | `pnpm precommit`                     | lint, check, test and e2e in one gate          |
+| `.githooks/pre-push`                 | runs `pnpm precommit lint check test`; `pnpm install` enables it |
 | `pnpm lint`                          | lint, format check, and the source fences      |
 | `pnpm check:deployment`              | refuse development-only deployment settings   |
 | `pnpm check:places`                  | ask the configured lookup service whether it still answers (hand-run, reaches the network) |

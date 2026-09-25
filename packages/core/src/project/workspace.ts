@@ -515,10 +515,9 @@ export class Workspace {
 		}
 		// ⚠ **Here rather than in `EditorSession`, and the `await` is the point.**
 		//
-		// The synchronous half is the sweep this class's caller used to do for it: the pending bytes,
+		// The synchronous half is the sweep: the pending bytes,
 		// the timers and the journal entries of everything under this directory, dropped so that rule
-		// 3 cannot put the Project back at `pagehide` (see {@link Autosave.abandon}). Moved in for the
-		// reason `record` above is in here: `EditorSession.deleteProject` is one route to deleting a
+		// 3 cannot put the Project back at `pagehide` (see {@link Autosave.abandon}). `EditorSession.deleteProject` is one route to deleting a
 		// Project and {@link finishInterruptedDeletions} is another, and a third added later must not
 		// be able to opt out.
 		//

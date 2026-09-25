@@ -186,7 +186,7 @@ export type ReferencedImage = {
 	 * The one input a referenced map lacked for the picture the hub shows beside its name (ADR-0030):
 	 * which power of two is the coarsest scale factor — and therefore which single tile holds the whole
 	 * sheet — follows from the sheet's pixels and this. It is in hand at add time on the accepted
-	 * service and was previously discarded.
+	 * service.
 	 *
 	 * **Provenance-grade rather than address-grade**: `0` costs the picture, and nothing else. Only a
 	 * bad service URI costs the map.
@@ -361,11 +361,6 @@ export const sourceOf = (image: ReferencedImage): MapImageSource => ({
 	imageId: image.imageId,
 	service: image.service
 });
-
-// `partitionByOfflineCopy` used to be here, and is now `project/map-images.ts`'s — beside
-// `tileLocation`, which is the single implementation of "referenced or local copy?" it and
-// `referencedMapImages` now share. It was one of five readings of that rule; see that module's
-// header for the other four and for why the split had to be a module rather than a comment.
 
 /**
  * The document a renderer takes for a referenced Map Image: the Alignment, addressed at the

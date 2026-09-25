@@ -12,10 +12,6 @@
 	// than a hope, and which no tree-shaker is a boundary against. So the bar does **not** move: what
 	// moves is the container, and each app hands it its own items as snippets.
 	//
-	// Nothing here is a `readOnly` or a `mode`. A control an app does not get is a snippet that app
-	// does not pass, which is why there is no state in which the two could disagree about what the
-	// other is allowed to do.
-	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// THE FOLD
 	//

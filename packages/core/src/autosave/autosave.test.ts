@@ -580,22 +580,10 @@ describe('Autosave', () => {
 			 * the defect `deleted-projects.ts` exists to close, by a route it cannot see.
 			 */
 			/**
-			 * ⚠ **THE THIRD PLACE, AND THE ONE THAT SAYS THE PER-ROUTE FIX WAS NOT CONVERGING.**
+			 * ⚠ **A byte value may exist outside `#states` only across code that cannot reach
+			 * application code.**
 			 *
-			 * Round 1 fixed the sweep and the debounce, and stated the rule as *only a caller who was
-			 * handed bytes may install bytes*. `commit` **is** such a caller and still reverted a newer
-			 * edit, because between being handed the bytes and installing them it called
-			 * `#writeAhead` — and a journal refusal is reported to the app through
-			 * `onJournalRefused`, which is application code, from a constructor-option seam this class
-			 * has always had.
-			 *
-			 * So the rule that survives is not about who holds the bytes but about **when**:
-			 *
-			 * > a byte value may exist outside `#states` only across code that cannot reach
-			 * > application code.
-			 *
-			 * Both routes are driven, because `queue` and `commit` install through different branches
-			 * and round 1's experience is that fixing one of a pair leaves the other.
+			 * Both routes are driven, because `queue` and `commit` install through different branches.
 			 */
 			const revertedByItsOwnRefusalHandler = (gesture: (autosave: Autosave) => unknown) => {
 				let reentered = false;

@@ -9,12 +9,6 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHERE THE TILES COME FROM IS PASSED IN, NEVER DECIDED HERE
 	//
-	// This component used to build `{ storedImageId: imageId }` and
-	// `` `${imageServiceId(imageId)}/info.json` `` for itself, which made it the one place in the
-	// application that hardcoded "the tiles are ours". A referenced map then asked the injection
-	// layer for a pyramid that by definition is not in the Workspace: a blank pane, and no gesture
-	// anywhere that could reach a Library's sheet.
-	//
 	// It takes an {@link ImagePaneSource} instead, built by `imagePaneSourceFor` — one value carrying
 	// both halves, so a caller cannot hand over a Library's tile base with the store's `info.json`.
 	// That combination is the failure worth designing against: the pane would draw a stranger's tiles
@@ -61,7 +55,7 @@
 		 *
 		 * Identity only: it keys the tile-protocol registration, names the map in a failure, and is
 		 * what a stale read compares itself against. It is deliberately **not** where the bytes come
-		 * from — that is {@link source}, and conflating the two is what this component used to do.
+		 * from — that is {@link source}.
 		 */
 		imageId: string;
 		/** Where this map's tiles and `info.json` are. Built by `imagePaneSourceFor`, never here. */

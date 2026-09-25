@@ -683,11 +683,6 @@ describe('a control the consumer does not ask for is not there', () => {
 	// names sits on the screen. So each test mounts the same stack twice — once passing the callback
 	// and once not — and the present half is what gives the absent half its meaning.
 	//
-	// **There is no `readOnly` prop to test, and that is the subject rather than an omission.** A
-	// consumer's interface *is* the set of callbacks it passes: a flag beside them would be a second
-	// description of the same thing, and the two can disagree. See the note at the head of
-	// `LayerList.svelte`.
-	//
 	// What is asserted is the control, never what pressing it does. That an editor's Delete really
 	// removes a Layer's file is `e2e/editor-layers.e2e.ts`'s, against a real store.
 

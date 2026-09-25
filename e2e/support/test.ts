@@ -139,14 +139,17 @@ export const test = fenced.extend({
 			key: OPEN_WORKSPACE_KEY
 		});
 
-		// See {@link VISITED_KEY}: this suite's default visitor has been here before.
-		await page.addInitScript((key: string) => {
-			try {
-				localStorage.setItem(key, 'yes');
-			} catch {
-				// Nothing to seed and nothing that needs it — see `first-run.ts`.
-			}
-		}, VISITED_KEY);
+		// See {@link VISITED_KEY}: this suite's default visitor has been here before. Not on the
+		// viewer, which never reads the key and whose specs assert it writes nothing to storage.
+		if (testInfo.project.name !== 'viewer') {
+			await page.addInitScript((key: string) => {
+				try {
+					localStorage.setItem(key, 'yes');
+				} catch {
+					// Nothing to seed and nothing that needs it — see `first-run.ts`.
+				}
+			}, VISITED_KEY);
+		}
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
 		// WHY A DIALOG CLOSED, KEPT FOR THE RUN THAT NEEDS IT. See `dialog-probe.ts`.

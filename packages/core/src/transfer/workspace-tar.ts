@@ -17,11 +17,8 @@
 //     central directory at its end — and it is what makes restoring a large backup on an iPad
 //     possible.
 //
-//     ⚠ This comment used to claim "2.80 MiB of peak heap growth" over a 512 MiB round trip. **That
-//     figure measured nothing** — a typed array's payload is external memory and never appears in
-//     `heapUsed`, so the same bound passed for a consumer holding the entire archive. Do not
-//     reintroduce a memory-figure assertion without reading the note in `tar-format.test.ts` first:
-//     three instruments were tried and all three gave an answer that could not be trusted.
+//     ⚠ Do not assert heap growth without reading `tar-format.test.ts`: typed-array payloads are
+//     external memory and untrustworthy under `heapUsed`.
 //   - **Paths past tar's 100-byte `name` field survive exactly**, by USTAR `prefix` up to 256 bytes
 //     and by a PAX `path` record beyond it, including Devanagari, CJK, Arabic and emoji. That is
 //     load-bearing twice over here: `<project-dir-up-to-64>/annotations/<uuid>.geojson` is already

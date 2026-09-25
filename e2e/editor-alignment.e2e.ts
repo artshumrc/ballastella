@@ -1119,7 +1119,7 @@ test.describe('drawing the Base Map while aligning', () => {
 	 * The `routeBaseMapArchive` hook at the top of this file supplies the archive bytes, so no test
 	 * here depends on a third party's bucket.
 	 */
-	const WITHOUT_STREETS = { streets: false, relief: false, highContrast: false };
+	const WITHOUT_STREETS = { streets: false, relief: false, highContrast: false, imagery: false };
 
 	test('operating one records it in the Project and leaves the pane live', async ({ page }) => {
 		await start(page);

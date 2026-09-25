@@ -1,51 +1,8 @@
 // The drawing gesture in progress: which tool is active, and the vertices placed so far.
 //
-// ============================================================================================
-// Why there is no `terra-draw` here
-// ============================================================================================
-//
-// ADR-0005 says all drawing and editing — Control Points, Resource Masks, and Annotations — goes
-// through `terra-draw`. It has never been in this repository, and this is the **third** place to
-// decline it: the Control Point pairing, the Resource Mask, and Annotations. The ADR and the code
-// therefore disagree, and that disagreement is open rather than settled here.
-//
-// The Resource Mask gave four reasons. Free-form lines and polygons over real geography are the case
-// `terra-draw` is genuinely *for*, far more than a four-corner mask is, so they were re-weighed here
-// rather than inherited. Three of the four still hold, and a fifth has appeared:
-//
-// 1. **Keyboard reach, which is the decisive one.** `terra-draw` edits inside a WebGL layer, and a
-//    WebGL layer is not focusable. Whatever it drew would be the first mouse-only editable object in
-//    the application, and "every drawing tool and style control is reachable and operable by
-//    keyboard" is a requirement of *this* drawing surface, not of a later pass. The `overlayPoints`
-//    seam gives a named `<button>` per vertex with arrow-key movement and Delete already built and
-//    already asserted.
-//
-// 2. **ADR-0017 rule 1.** A vertex edit must produce *exactly one* store write, on gesture end — a
-//    number, asserted by counting. `terra-draw`'s change events fire per
-//    coordinate, so meeting the criterion would mean debouncing its stream back into the gesture it
-//    came from. The seam's `onmoveend` already fires once per pointer-drag and once per arrow-key
-//    hold.
-//
-// 3. **ADR-0019's cost.** Two runtime dependencies, two catalog pins, two third-party notices, and a
-//    standing fence keeping both out of `apps/viewer` for ever.
-//
-// 4. ~~ADR-0005's projection rule~~ — this one **does not apply here**. The Resource Mask is in image
-//    pixel space, so `terra-draw`'s store would have held synthetic lng/lat. Annotations are on real
-//    geography, and this objection is void for them.
-//
-// 5. **One drawing mechanism, not two.** This is new, and it is what settles the question now that
-//    the seam has been widened twice. Control Points, Resource Mask vertices, and Annotation
-//    vertices are the same object to a user and to a keyboard: something you focus, nudge, and
-//    delete. Adding `terra-draw` for only the third would mean two keyboard stories, two write-count
-//    stories, and two sets of bugs — and the seam already carries the vertex editing that is most of
-//    the work, including the Resource Mask's midpoint handles for inserting one.
-//
-// What is genuinely lost is a rubber-band preview that follows the pointer between clicks, and
-// `terra-draw`'s Pro-style operations, which are out of scope here anyway. The preview is
-// replaced by drawing the vertices placed so far, plus a live count and a status line — which is
-// also what makes the gesture legible to a screen reader, where a rubber band is not.
-//
-// ============================================================================================
+// No `terra-draw`: every vertex stays a focusable button with arrow-key movement, each gesture
+// costs exactly one store write on gesture end, and Control Points, Mask and Annotation vertices
+// share the one editing mechanism.
 
 import {
 	circleGeometry,

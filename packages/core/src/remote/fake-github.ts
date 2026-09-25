@@ -7,8 +7,7 @@
 // their own IIIF hosts, byte-identical in two of the three and subtly different in the third, so a
 // spec asserting a service's behaviour was asserting the behaviour of *its copy* of that service —
 // and two specs could disagree about what a level 0 host does while both stayed green. The Remote
-// layer needs a GitHub in a dozen places. This is that module built in advance rather than extracted
-// from the wreckage afterwards.
+// layer needs a GitHub in a dozen places.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // IT IS NOT A MOCK

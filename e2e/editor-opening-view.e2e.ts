@@ -613,7 +613,10 @@ test.describe('opening a Project', () => {
 		expect(
 			await page.evaluate(() => (window as unknown as MapWindow).ballastellaWebStorageWrites ?? [])
 		).toEqual([]);
-		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({});
+		// The one key is the suite fixture's returning-visitor seed; the spy above proves the app wrote nothing.
+		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
+			'ballastella.visited': 'yes'
+		});
 		expect(await hashesUnder(page)).toEqual(before);
 	});
 });

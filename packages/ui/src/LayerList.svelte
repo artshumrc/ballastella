@@ -35,26 +35,13 @@
 	// there is one prop rather than two; this is the note that says so, because `oncommit` otherwise
 	// reads as the rename's alone.
 	//
-	// ⚠ **Do not add a `readOnly`, `mode` or `editable` boolean.** A flag and a set of callbacks are two
-	// descriptions of the same thing, and the failure is not hypothetical: the moment they can disagree,
-	// `readOnly` false with no `ondelete` renders a button that throws, and `readOnly` true with an
-	// `ondelete` renders one that quietly works. An absent callback cannot be got wrong in either
-	// direction, because the control and the thing it calls arrive together or not at all.
-	//
 	// `layers`, `outcomes`, `openLayerId` and `onopen` stay required: they are what makes this a stack a
 	// reader can look through rather than a list, and no consumer has a reason to omit them.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
-	// WHAT A CLOSED CARD SHOWS, AND WHY IT IS NOW SO LITTLE
+	// WHAT A CLOSED CARD SHOWS
 	//
-	// A closed row used to carry eleven controls: a drag handle, the position as "2/3", an
-	// Open button, a visibility toggle with the word "Show", the name as a bordered text field, Move
-	// up, Move down, Delete, the kind, the tiles badge, and the opacity slider with its percentage.
-	// Two consequences, both reported by the person this is for: the cards were hard to tell apart —
-	// three bordered text fields stacked in a column read as a form, not a stack — and the one thing a
-	// user actually scans for, *what this Layer is*, arrived tenth, as grey text under the name.
-	//
-	// So a closed card carries four things and a warning:
+	// A closed card carries four things and a warning:
 	//
 	//   • **what kind of Layer it is** — an icon and the words, at the top, in the card's own tint
 	//   • **what it is called**, as text rather than a field
@@ -64,8 +51,7 @@
 	//     needs aligning is the state a user has to be able to notice *without opening anything*
 	//
 	// Everything else — the name field, the opacity, where the tiles come from, the reorder buttons and
-	// the delete — is inside the open card. Nothing was removed from the screen; the closed card stopped
-	// being the place all of it lives at once.
+	// the delete — is inside the open card.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 	// THE TINT IS THE THING THAT MAKES TWO CARDS DIFFERENT
@@ -405,8 +391,7 @@
 	 *
 	 * **The disclosure of the card that takes this one's place**, or of the last card when the bottom
 	 * Layer went — the same place a user's eye is, and now the only control a *closed* card offers that
-	 * leads anywhere. It used to be that card's own Delete button, which was next to the pointer for the
-	 * same reason and is no longer on a closed card at all. Focus is only *taken* here because the
+	 * leads anywhere. Focus is only *taken* here because the
 	 * element that had it no longer exists.
 	 */
 	const deleteByButton = async (id: string, index: number): Promise<void> => {

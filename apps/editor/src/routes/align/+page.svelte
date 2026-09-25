@@ -3,8 +3,7 @@
 	//
 	// A route of its own rather than a section of the Project page. Aligning is a whole screen's worth
 	// of work — two live map contexts, a Control Point list, a Resource Mask, and a transformation
-	// choice — and it is entered deliberately and left deliberately, which is what a route is. The
-	// workspace itself is unchanged: it moved here, it was not rewritten.
+	// choice — and it is entered deliberately and left deliberately, which is what a route is.
 	//
 	// **Keyed by Layer id, not by image id.** The Layer is what the user clicked, what carries the name
 	// they gave it, and what exists before a single Control Point does — so `?layer=` is honest for a
@@ -214,7 +213,7 @@
 			<!--
 				A `layer` id this Project has no Map Image Layer for. Reachable by a stale bookmark, by
 				a link shared between two Workspaces, and by deleting the Layer in another tab — none of
-				which is an error in the application, and all of which used to be an empty split screen.
+				which is an error in the application.
 			-->
 			<div
 				role="alert"

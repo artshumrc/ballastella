@@ -124,7 +124,5 @@ export function themeColour(variable: string): string {
 	const first = paint('#ff00ff');
 	return first === paint('#00ff00') ? first : '';
 }
-// `INITIAL_DISTORTION_MEASURE` used to be re-exported from here so that a component reaching for the
-// overlay's colours and its default measure had one import. It had no callers by the time this module
-// moved into `core`, and the barrel now exports `DEFAULT_DISTORTION_MEASURE` itself — so a second name
-// for it here would be an alias that can drift from the thing it aliases.
+// No re-export of `DEFAULT_DISTORTION_MEASURE`: a second name would be an alias that can drift
+// from the thing it aliases.

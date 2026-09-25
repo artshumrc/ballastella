@@ -1,5 +1,3 @@
-// Which file a Layer draws, for the deletion that has to remove it.
-
 import type { Layer } from '../project/layer.js';
 
 /**

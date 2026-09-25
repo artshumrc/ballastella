@@ -1001,7 +1001,6 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 			// The Workspace root (ADR-0023).
 			''
 		);
-		// And the Layer of this Project that draws it — see the note in the session test above.
 		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride');
 		await page.reload();
 		await expect(

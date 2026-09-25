@@ -96,8 +96,7 @@ async function seedProject(
 }
 
 describe('where a Map Image’s tiles are', () => {
-	// ADR-0023's rule, and this is now its only implementation. It used to have five: `published-site.ts`,
-	// `partitionByOfflineCopy`, the viewer's 404 probe, and a derived set in each app's page. The rule
+	// ADR-0023's rule, and this is its only implementation. The rule
 	// itself is what they disagreed about most cheaply, so it is the thing that got one home.
 	it('is this Workspace when an info.json of ours is beside it', () => {
 		expect(tileLocation({ infoJson: true, remoteJson: false })).toBe('in-workspace');
@@ -824,7 +823,7 @@ describe('unusedMapImageBytes', () => {
 });
 
 describe('partitionByOfflineCopy', () => {
-	// Moved here from `referenced-image.ts` so that it and `referencedMapImages` answer through
+	// So that it and `referencedMapImages` answer through
 	// one rule rather than two. Its behaviour is unchanged, and `referenced-image.test.ts` still
 	// asserts it end to end from the records on disk.
 	const record = (imageId: string) =>

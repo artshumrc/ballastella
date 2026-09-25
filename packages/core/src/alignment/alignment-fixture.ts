@@ -33,6 +33,6 @@ export function seedAlignmentFixture(
 	bytes: Bytes | number
 ): Promise<void> {
 	const content = typeof bytes === 'number' ? (new Uint8Array(bytes) as Bytes) : bytes;
-	// alignment-write-is-the-fixture: the one place a test may put a file at an Alignment's path, so the nine that used to do it themselves now say it once, here
+	// alignment-write-is-the-fixture: the one place a test may put a file at an Alignment's path
 	return store.write(`alignments/${imageId}.json`, content);
 }

@@ -778,7 +778,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		// this repo keeps for exactly that reason — every other announcement on a page that has a save
 		// indicator is an `aria-live="polite"` region, and the indicator is on the navigation bar and
 		// therefore on every page.
-		const indicator = page.getByRole('status');
+		const indicator = page.getByRole('status').getByTestId('where-your-work-is');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 
 		// **Recorded, not polled**. This used to assert the middle of the sequence by

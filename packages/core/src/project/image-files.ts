@@ -7,7 +7,7 @@
 // it. `scripts/check-workspace-rooted-paths.mjs` is what keeps it that way — the failure mode of
 // getting it wrong is a pane showing somebody else's map rather than an error.
 //
-// **Here rather than in `tiler/pyramid.ts`, where they used to be, because the Layer model needs the
+// **Here rather than in `tiler/pyramid.ts`, because the Layer model needs the
 // image directory too.** `layer.ts` reaching into the tiler for it made the Layer model import a
 // module that value-imports `@allmaps/iiif-parser`. That is the half of ADR-0019 no script checks:
 // `apps/viewer` reads the Layer stack, must never depend on the tiler, and its leanness is enforced by

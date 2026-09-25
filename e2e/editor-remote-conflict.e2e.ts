@@ -567,12 +567,8 @@ test.describe('Remote Status on the navigation bar', () => {
 		// announcements, of which a screen-reader user has to work out which is now true.
 		await expect(page.getByRole('status')).toContainText('Saved here');
 		await expect(page.getByRole('status')).toContainText('GitHub');
-		expect(
-			await remoteStatus(page).evaluate((element) => [
-				element.getAttribute('role'),
-				element.getAttribute('aria-atomic')
-			])
-		).toEqual(['status', 'true']);
+		await expect(page.getByRole('status')).toHaveAttribute('aria-atomic', 'true');
+		await expect(page.getByRole('status').getByTestId('where-your-work-is')).toBeVisible();
 
 		await seedBaseline(page, {
 			owner: OWNER,

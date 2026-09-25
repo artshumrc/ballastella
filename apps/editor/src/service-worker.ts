@@ -37,22 +37,9 @@
 //      see what a service worker *caches*. Naming the one directory that is wanted, rather than
 //      taking `files` whole, is what closes it — and the offline suite asserts each cache's contents
 //      against its rule.
-//   5. **There is no `.wasm` in `build` to decide about, and that is ADR-0027's doing.** This slot
-//      held the longest of these five rules, because the shell's `.js`/`.css` filter existed partly
-//      to dodge a 5,084,535-byte `vips.wasm` that `vite build` emitted twice. Precaching it was
-//      measured and reverted: it cost 23% more than the 4,137,622-byte pmtiles archive removed
-//      alongside it, and it bought criterion 7 — an installed app with no connection accepting a
-//      Map Image file on first run — **nothing**, because the streaming tiler could not run in
-//      this deployment at all and every image a browser can decode went through the browser-native
-//      decode-and-crop tiler, which reaches nothing.
-//
-//      The tiler that could not run is now gone, and with it the module. The filter stays as it is:
-//      it states a rule ("code and styles") rather than a list of things to dodge, so it needs no
-//      edit when the thing it was dodging leaves — and the next heavy asset a bundler emits into
-//      `build` is excluded by it rather than by somebody remembering. Criterion 7 is still met by
-//      the decode-and-crop path, and the offline suite still asserts it with the network off. The
-//      residual cost is now honest and narrow in the other direction: an image above the measured
-//      decode ceiling cannot be prepared here at all, offline or on, and is refused by name.
+//   5. **There is no `.wasm` in `build` to decide about.** The filter states a rule ("code and
+//      styles") rather than a list of things to dodge, so the next heavy asset a bundler emits is
+//      excluded without anyone remembering.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT DOES NOT SERVE THE STORE
@@ -146,11 +133,8 @@ const ours = (name: string) => /^ballastella-(shell|base-map)-/.test(name) && na
  *
  * `build` filtered to `.js` and `.css` — see rule 5 in the header. The filter is by extension and
  * not by name so that it states a rule ("code and styles") rather than a list of things to dodge.
- * Since ADR-0027 removed `wasm-vips` there is no longer a 5 MB `.wasm` in `build` for it to
- * exclude — `build` is code, styles, and SvelteKit's own `version.json` update marker, which the
- * update check fetches from the network on purpose and which a cached copy would defeat. The filter
- * is left exactly as it was, which is the value of having written it as a rule: the thing it was
- * added to dodge has gone, and the rule has not had to change.
+ * `build` is code, styles, and SvelteKit's own `version.json` update marker, which the update check
+ * fetches from the network on purpose and which a cached copy would defeat.
  */
 const SHELL: readonly string[] = [
 	...prerendered,

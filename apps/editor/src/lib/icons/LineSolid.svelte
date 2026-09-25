@@ -20,7 +20,7 @@
 	// So the geometry of all three is written in terms of the **ink**, not the path:
 	//
 	//   • every one of them paints from 4 to 20, so the three weigh the same and sit on one baseline —
-	//     which is why this path is `5 → 19` rather than the `4 → 16` it used to be
+	//     which is why this path is `5 → 19`
 	//   • every gap is stated as the gap that survives the caps, and none is under 2.5 units, which is
 	//     about 1.7px at the 16px these are actually rendered at (`size-4`)
 	//

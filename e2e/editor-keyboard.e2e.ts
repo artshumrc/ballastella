@@ -136,7 +136,7 @@ test.describe('the bar, from the keyboard alone', () => {
 		const bar = page.getByRole('banner');
 
 		await expect(bar.getByRole('status')).toHaveCount(1);
-		await expect(bar.getByRole('status')).toHaveAttribute('data-testid', 'where-your-work-is');
+		await expect(bar.getByRole('status').getByTestId('where-your-work-is')).toBeVisible();
 	});
 
 	/**

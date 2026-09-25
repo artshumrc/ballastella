@@ -6,9 +6,7 @@
 	//
 	// **Every difference between the two apps here is an unpassed snippet.** The editor passes a `style`
 	// snippet and gets a tab strip; the viewer passes none and gets no strip at all — not a disabled
-	// Style tab and not a lone Text tab, because one face is not a choice. There is no `readOnly` prop
-	// and no `mode` prop: a flag beside the snippet would be a second description of the same fact, and
-	// two descriptions can disagree.
+	// Style tab and not a lone Text tab, because one face is not a choice.
 	//
 	// **The Inspector does not position itself.** Where it sits — top-right over the map pane on a
 	// desktop, a sheet at the bottom on a phone — is the consumer's, because only the consumer knows

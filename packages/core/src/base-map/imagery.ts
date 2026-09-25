@@ -1,5 +1,3 @@
-// The satellite ground: the raster source and layer, and which vector layers step aside for it.
-
 import type { LayerSpecification, SourceSpecification } from '@maplibre/maplibre-gl-style-spec';
 
 import type { BaseMapImagery } from './entry';

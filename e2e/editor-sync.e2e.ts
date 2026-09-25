@@ -414,20 +414,6 @@ test.describe('syncing a Workspace', () => {
 		expect(inspected.some((relative) => relative.startsWith('base-map/'))).toBe(true);
 	});
 
-	// "adds the site to the Workspace and copies no Project data" was asked here and is now asked in
-	// `packages/core/src/published-site/published-site.test.ts`, where the bytes are the assertion rather than a
-	// base64 round trip through OPFS: "writes the viewer and the site record at the Workspace, beside
-	// the Projects" for the file set, "modifies no Project data, asserted on the bytes of every Project
-	// file" and "writes nothing at all inside a Project directory" for the Project half, and
-	// "duplicates no tile bytes: the pyramid is in the Workspace exactly once" for the pyramid.
-
-	// "lets the author choose which Projects appear on the front page" was asked here, of a list of
-	// every Project inside the sync modal. That list is gone: front-page membership is set in a
-	// Project's own settings and nowhere else (ADR-0045), and what the modal now says about a site is
-	// how many Projects it carries. The control is asserted in
-	// `apps/editor/src/lib/project/project-sharing.dom.test.ts` and the serialisation in
-	// `packages/core/src/project/project-file.test.ts`.
-
 	test('states the Base Map’s size before syncing, and adds those files', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
@@ -563,18 +549,6 @@ test.describe('syncing a Workspace', () => {
 		// learns its tiles are on a Library's server. Every *other* failed request is still fatal here.
 		expect(root.failures).toEqual([{ path: `/images/${'aaa'}/info.json`, status: 404 }]);
 	});
-
-	// "names the hosting limit when the Workspace is about to cross it" was asked here and is now asked
-	// in `packages/core/src/published-site/published-site.test.ts` as "names the hosting limit when the site would take
-	// the Workspace past it", which asserts the same two strings and a third this could not — the byte
-	// figure — against arithmetic rather than against a browser's storage quota. The claim that a
-	// planning warning reaches the dialog at all is kept at Seam 2 by the two tests either side of this
-	// one: "states the Base Map's size before adding it" and "warns that a referenced Map Image
-	// leaves a Reader with no network seeing nothing".
-	//
-	// Retiring it also retires the only precondition in this suite the machine can fail: the fixture was
-	// a 999 MB sparse file, charged in full against the origin's quota, which Chromium sizes from the
-	// free space behind `TMPDIR`.
 
 	test('extends the hub page on a second Sync and leaves the first Project untouched', async ({
 		page

@@ -8,7 +8,7 @@
 	// source-layer, so it is orthogonal to which Base Map was chosen, and folding it into the catalog
 	// would make that three times as long and say the same thing three times.
 	//
-	// **A radio group rather than the `<select>` it used to be.** ADR-0016 mandates a native control
+	// **A radio group.** ADR-0016 mandates a native control
 	// and both are one; what decides between them is where it now lives. Inside a popover a `<select>`
 	// opens the OS picker *over* the panel that opened it, which on a phone is two overlapping layers
 	// for one choice — and three mutually exclusive options are what a radio group is for. Stacked,

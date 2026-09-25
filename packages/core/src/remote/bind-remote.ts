@@ -54,12 +54,9 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AND NOTHING HERE REFUSES A REPOSITORY FOR HOLDING WORK THIS WORKSPACE HAS NOT GOT
 //
-// ADR-0033 used to refuse that binding, because the first send would have deleted every Project the
-// Workspace had not got. It cannot any more: a send removes only what the Synchronization Baseline
-// recorded, so a Workspace with no Baseline removes nothing at all in either direction, and the
-// Projects the repository holds read as *To get* on the Sync modal instead (ADR-0044). The refusal
-// was protection against a deletion that is now impossible, and keeping it would refuse the case it
-// used to be for: a scholar connecting an existing Workspace to an existing repository.
+// A send removes only what the Synchronization Baseline recorded, so a Workspace with no Baseline
+// removes nothing at all in either direction, and the Projects the repository holds read as *To get*
+// on the Sync modal instead (ADR-0044).
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { assertNotReviewing, readReviewMark } from '../project/review-workspace.js';

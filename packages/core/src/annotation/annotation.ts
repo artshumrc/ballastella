@@ -337,8 +337,7 @@ const pick = <T>(value: T | undefined, fallback: T): T => (value === undefined ?
  * One Annotation's effective style: **its own `properties` → simplestyle's defaults** (ADR-0009, as
  * amended).
  *
- * **One level of fallback, where there used to be two.** A Layer carried a `defaultStyle` that sat
- * between these, and it is gone: an Annotation's style is now written onto the Annotation when it is
+ * **One level of fallback.** An Annotation's style is written onto the Annotation when it is
  * drawn, copied from the last one drawn in that Layer, so "everything in this Layer is blue" is a
  * fact about each Annotation rather than an inheritance a reader has to be told about. The amendment
  * in ADR-0009 records why that trade was taken and what it cost.

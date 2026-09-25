@@ -216,10 +216,6 @@ describe('a control the consumer does not ask for is not there', () => {
 	// every `not.toBeInTheDocument()` below goes on passing while the control it names sits on the
 	// screen. So the same two Projects are mounted twice — once with the Hub's snippets and once with
 	// the Front Page's — and the present half is what gives the absent half its meaning.
-	//
-	// **There is no `readOnly` prop to test, and that is the subject rather than an omission.** A
-	// consumer's interface *is* what it passes: the Hub hands over its last-saved line, its Front Page
-	// choice and its per-Project controls, and the Front Page hands over none of them.
 
 	const both = () => [
 		entry('amsterdam-1625', 'Amsterdam 1625'),

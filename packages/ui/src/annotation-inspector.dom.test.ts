@@ -183,9 +183,6 @@ describe('the tab strip is there if and only if a Style face was passed', () => 
 	// the viewer passes no `style` snippet — not because a case was written for a Reader. So both halves
 	// are mounted from the same component with the same Annotation, and the only difference between them
 	// is the prop set.
-	//
-	// **There is no `readOnly` prop to test, and that is the subject rather than an omission.** A
-	// consumer's interface *is* the set of props it passes.
 
 	test('an author gets a strip with two faces, and a Reader gets no strip at all', () => {
 		const subject = annotation({ id: 'a-1', title: 'Fort Amsterdam' });

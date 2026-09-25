@@ -245,7 +245,7 @@ describe('baseMapNotInSiteNotice', () => {
 	});
 
 	it('never claims the geography is here, in any row', () => {
-		// The failure this function was extracted to end. A Reader meets this notice while the archive
+		// A Reader meets this notice while the archive
 		// is refusing — the state of every site this deployment writes since 2026-08-07 — and, with
 		// no connection, with the outage notice deliberately withheld and this one standing alone in
 		// front of an empty rectangle. Any sentence asserting what is on screen is false there.

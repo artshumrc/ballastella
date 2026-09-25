@@ -544,9 +544,6 @@ describe('a surface the consumer does not ask for is not there', () => {
 	// `not.toBeInTheDocument()` below goes on passing while the control it names sits on the screen.
 	// So each test mounts the same list twice — once passing the snippet and once not — and the
 	// present half is what gives the absent half its meaning.
-	//
-	// **There is no `readOnly` prop to test, and that is the subject rather than an omission.** A
-	// consumer's interface *is* the set of props it passes.
 
 	const two = (): Annotation[] => [
 		annotation({ id: 'a-1', title: 'One' }),

@@ -505,7 +505,7 @@ test.describe('what the app says when something is wrong', () => {
 		await freshWorkspace(page);
 		// The hub, which carries the transfer announcement.
 		await expect(page.getByRole('status')).toHaveCount(1);
-		await expect(page.getByRole('status')).toHaveAttribute('data-save-state');
+		await expect(page.getByRole('status').locator('[data-save-state]')).toBeVisible();
 
 		// The Project screen, with a Map Image on it.
 		await openProject(page);
