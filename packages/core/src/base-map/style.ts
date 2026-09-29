@@ -127,6 +127,8 @@ export type BaseMapStyleOptions = {
 	 * Project asking for relief draws its terrain colours without it.
 	 */
 	readonly terrainTiles?: TerrainTileTemplates;
+	/** The screen's `devicePixelRatio`, passed in because this module also runs in Node. */
+	readonly pixelRatio?: number;
 };
 
 const identity = (path: string): string => path;
@@ -191,7 +193,8 @@ export function baseMapStyle(
 						// relative template, and one it reads from somebody else's is already addressed.
 						[IMAGERY_SOURCE_ID]: imagerySource(
 							imagery,
-							isAbsoluteUrl(imagery.tiles) ? imagery.tiles : resolveAsset(imagery.tiles)
+							isAbsoluteUrl(imagery.tiles) ? imagery.tiles : resolveAsset(imagery.tiles),
+							options.pixelRatio ?? 1
 						)
 					})
 		},

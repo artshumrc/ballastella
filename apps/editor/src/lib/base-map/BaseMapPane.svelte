@@ -390,7 +390,8 @@
 					? registerTerrainProtocols(BASE_MAP_CATALOG.terrain)
 					: undefined,
 			borders,
-			borderStyle
+			borderStyle,
+			pixelRatio: devicePixelRatio
 		});
 
 	/**

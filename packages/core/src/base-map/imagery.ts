@@ -38,13 +38,20 @@ export function imageryReplaces(layer: LayerSpecification): boolean {
  * deepest real tile, and without it the map asks for tiles past the pyramid and shows blank ground
  * at exactly the zoom somebody leaned in at.
  */
-export function imagerySource(imagery: BaseMapImagery, tiles: string): SourceSpecification {
+export function imagerySource(
+	imagery: BaseMapImagery,
+	tiles: string,
+	pixelRatio: number
+): SourceSpecification {
 	return {
 		type: 'raster',
 		tiles: [tiles],
 		minzoom: 0,
 		maxzoom: imagery.maxZoom,
-		tileSize: imagery.tileSize,
+		// MapLibre picks raster zooms by CSS pixels, so on a dense screen every tile is stretched
+		// across twice its pixels. Declaring half the size fetches one zoom deeper; placement is by
+		// tile coordinate, so the photograph stays where it was.
+		tileSize: pixelRatio >= 1.5 ? imagery.tileSize / 2 : imagery.tileSize,
 		attribution: imagery.attribution
 	};
 }

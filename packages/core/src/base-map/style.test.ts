@@ -571,6 +571,22 @@ describe('baseMapStyle over a forked catalog', () => {
 		});
 	});
 
+	it('fetches imagery one zoom deeper on a dense screen', () => {
+		const tileSize = (pixelRatio: number) =>
+			(
+				baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
+					...options,
+					appearance: look({ imagery: true }),
+					pixelRatio
+				}).sources[IMAGERY_SOURCE_ID] as { tileSize: number }
+			).tileSize;
+
+		expect(tileSize(1)).toBe(512);
+		expect(tileSize(1.25)).toBe(512);
+		expect(tileSize(2)).toBe(256);
+		expect(tileSize(3)).toBe(256);
+	});
+
 	it('draws the vector ground when the deployment has provisioned no imagery', () => {
 		// A catalog is a fork's to edit, and no edit to it may produce a blank pane.
 		const style = baseMapStyle(entry('harbour-charts', CATALOG_WITHOUT_TERRAIN), {

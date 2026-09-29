@@ -420,7 +420,8 @@
 					? registerTerrainProtocols(catalog.terrain)
 					: undefined,
 			borders,
-			borderStyle
+			borderStyle,
+			pixelRatio: devicePixelRatio
 		});
 		if (bundledBaseMapAvailable) return style;
 		// This site omitted its local glyphs and sprites, and this entry's archive is somebody else's,
