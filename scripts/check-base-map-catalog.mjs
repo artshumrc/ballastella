@@ -133,12 +133,16 @@ const rasterTiles = [...catalogSource.matchAll(/^\s*tiles:\s*(?:'([^']*)'|(\w+))
  * the satellite switch. The *imagery* is CC BY 4.0 and may be redistributed; the *service* is EOX's
  * own bandwidth, offered as a courtesy, with no promise to this deployment. Those are two different
  * questions and only the second one is this fence's.
+ *
+ * `imagery.nationalmap.gov` is USGS's NAIP ImageServer, behind the US regional imagery: public
+ * domain imagery, rendered on USGS's servers with no promise to this deployment.
  */
 const UNCONTROLLED_HOSTS = new Set([
 	'demo-bucket.protomaps.com',
 	'data.source.coop',
 	's3.amazonaws.com',
-	'tiles.maps.eox.at'
+	'tiles.maps.eox.at',
+	'imagery.nationalmap.gov'
 ]);
 const hostOf = (archive) => {
 	try {

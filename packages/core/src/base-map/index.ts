@@ -39,6 +39,7 @@ export type {
 	BaseMapEntry,
 	BaseMapFlavorName,
 	BaseMapImagery,
+	BaseMapRegionalImagery,
 	BaseMapTerrain
 } from './entry';
 // The satellite ground: a raster layer beneath everything the vector archive draws, in place of the

@@ -19,7 +19,15 @@ import {
 } from './appearance';
 import { BASE_MAP_CATALOG } from './catalog';
 import { highContrastFlavor } from './high-contrast';
-import { IMAGERY_SOURCE_ID, imageryLayer, imageryReplaces, imagerySource } from './imagery';
+import {
+	IMAGERY_SOURCE_ID,
+	imageryLayer,
+	imageryReplaces,
+	imagerySource,
+	regionalImageryId,
+	regionalImageryLayer,
+	regionalImagerySource
+} from './imagery';
 import { physicalFlavor } from './physical';
 import type { BaseMapCatalog, BaseMapEntry, BaseMapImagery, BaseMapTerrain } from './entry';
 import {
@@ -156,6 +164,9 @@ export function baseMapStyle(
 	const flavor = appearanceFlavor(appearance, scheme);
 	const terrain = reliefFor(appearance, catalog, options);
 	const imagery = imageryFor(appearance, catalog, options);
+	const regionalImagery = imagery === null ? [] : (catalog.regionalImagery ?? []);
+	const imageryTiles = (tiles: string) => (isAbsoluteUrl(tiles) ? tiles : resolveAsset(tiles));
+	const pixelRatio = options.pixelRatio ?? 1;
 
 	return {
 		version: 8,
@@ -191,12 +202,14 @@ export function baseMapStyle(
 				: {
 						// Resolved like an archive: imagery a deployment serves from its own site is a
 						// relative template, and one it reads from somebody else's is already addressed.
-						[IMAGERY_SOURCE_ID]: imagerySource(
-							imagery,
-							isAbsoluteUrl(imagery.tiles) ? imagery.tiles : resolveAsset(imagery.tiles),
-							options.pixelRatio ?? 1
-						)
-					})
+						[IMAGERY_SOURCE_ID]: imagerySource(imagery, imageryTiles(imagery.tiles), pixelRatio)
+					}),
+			...Object.fromEntries(
+				regionalImagery.map((regional, index) => [
+					regionalImageryId(index),
+					regionalImagerySource(regional, imageryTiles(regional.tiles), pixelRatio)
+				])
+			)
 		},
 		layers: withImagery(
 			withRelief(
@@ -208,7 +221,12 @@ export function baseMapStyle(
 					),
 				terrain === null ? null : flavor
 			),
-			imagery !== null
+			imagery === null
+				? []
+				: [
+						imageryLayer(),
+						...regionalImagery.map((regional, index) => regionalImageryLayer(regional, index))
+					]
 		)
 	};
 }
@@ -342,12 +360,15 @@ function withRelief(all: LayerSpecification[], flavor: Flavor | null): LayerSpec
  * The imagery under an ordered layer stack.
  *
  * Applied after `withRelief` rather than before it, so the hillshade's anchors are found among the
- * vector layers alone: the imagery is a raster layer at index 0, and searching a stack that already
+ * vector layers alone: the imagery is raster layers at the bottom, and searching a stack that already
  * contained it for "the first layer that is not a symbol" is the kind of anchor that keeps working
  * until somebody turns a switch off.
  */
-function withImagery(all: LayerSpecification[], drawn: boolean): LayerSpecification[] {
-	return drawn ? [imageryLayer(), ...all] : all;
+function withImagery(
+	all: LayerSpecification[],
+	imagery: LayerSpecification[]
+): LayerSpecification[] {
+	return [...imagery, ...all];
 }
 
 const isWaterFill = (layer: LayerSpecification): boolean =>

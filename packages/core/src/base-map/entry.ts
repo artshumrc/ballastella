@@ -64,6 +64,20 @@ export type BaseMapImagery = {
 };
 
 /**
+ * Sharper imagery for one region, drawn over {@link BaseMapCatalog.imagery} where it has coverage.
+ *
+ * Its tiles must be **transparent outside that coverage**, because the worldwide imagery beneath is
+ * what shows through; a service that answers blank ground with an opaque tile paints it white. The
+ * template may carry `{bbox-epsg-3857}` in place of `{z}`, `{x}`, and `{y}`.
+ */
+export type BaseMapRegionalImagery = BaseMapImagery & {
+	/** `[west, south, east, north]`. No tile is requested outside it. */
+	readonly bounds: readonly [number, number, number, number];
+	/** The map zoom it starts at, below which the worldwide imagery is as sharp and far cheaper. */
+	readonly minZoom: number;
+};
+
+/**
  * One set of tiles this deployment can draw a Base Map from.
  *
  * **An address and a name, and nothing about how the map looks.** How it looks is four switches
@@ -128,6 +142,8 @@ export type BaseMapCatalog = {
 	 * draws the vector ground rather than a blank pane.
 	 */
 	readonly imagery?: BaseMapImagery;
+	/** Drawn over `imagery`, bottom to top, and never without it. */
+	readonly regionalImagery?: readonly BaseMapRegionalImagery[];
 	/**
 	 * Attribution for the tiles, shown by MapLibre's attribution control. OpenStreetMap data
 	 * is ODbL and this is a licence obligation, not a courtesy — see THIRD-PARTY-NOTICES.md.

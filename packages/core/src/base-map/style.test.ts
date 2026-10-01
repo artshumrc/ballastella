@@ -5,13 +5,13 @@ import { ANNOTATION_COLORS } from '../annotation/annotation';
 import { NATIONAL_BOUNDARY_LAYER, SUBNATIONAL_BOUNDARY_LAYER } from './borders';
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITHOUT_TERRAIN, FORKED_CATALOG } from './fixture-catalogs';
-import { IMAGERY_LAYER, IMAGERY_SOURCE_ID } from './imagery';
+import { IMAGERY_LAYER, IMAGERY_SOURCE_ID, regionalImageryId } from './imagery';
 import { PHYSICAL_LAND } from './physical';
 import { defaultEntry, resolveBaseMap } from './resolve';
 import { archiveUrl, baseMapStyle, BASE_MAP_SOURCE_ID, bordersIllegibleThemes } from './style';
 import { TERRAIN_CONTOUR_SOURCE_ID, TERRAIN_DEM_SOURCE_ID } from './terrain';
 import { DEFAULT_BASE_MAP_APPEARANCE, type BaseMapAppearance } from './appearance';
-import type { BaseMapEntry } from './entry';
+import type { BaseMapCatalog, BaseMapEntry, BaseMapRegionalImagery } from './entry';
 
 const entry = (id: string, catalog = BASE_MAP_CATALOG): BaseMapEntry => {
 	const found = catalog.entries.find((candidate) => candidate.id === id);
@@ -585,6 +585,53 @@ describe('baseMapStyle over a forked catalog', () => {
 		expect(tileSize(1.25)).toBe(512);
 		expect(tileSize(2)).toBe(256);
 		expect(tileSize(3)).toBe(256);
+	});
+
+	describe('with regional imagery', () => {
+		const regional: BaseMapRegionalImagery = {
+			tiles: 'https://sharper.example.invalid/export?bbox={bbox-epsg-3857}',
+			bounds: [-10, 40, 5, 52],
+			minZoom: 13,
+			maxZoom: 18,
+			tileSize: 256,
+			attribution: 'Somebody nearer&rsquo;s photographs'
+		};
+		const catalog: BaseMapCatalog = { ...FORKED_CATALOG, regionalImagery: [regional] };
+		const styled = (patch: Partial<BaseMapAppearance>, over: BaseMapCatalog = catalog) =>
+			baseMapStyle(entry('harbour-charts', over), {
+				...options,
+				catalog: over,
+				appearance: look(patch),
+				pixelRatio: 2
+			});
+
+		it('draws it over the worldwide imagery, only inside its bounds and from its zoom', () => {
+			const style = styled({ imagery: true });
+			const ids = style.layers.map((layer) => layer.id);
+
+			expect(ids.slice(0, 2)).toEqual([IMAGERY_LAYER, regionalImageryId(0)]);
+			expect(style.layers[1]).toMatchObject({ type: 'raster', minzoom: 13 });
+			expect(style.sources[regionalImageryId(0)]).toMatchObject({
+				type: 'raster',
+				tiles: [regional.tiles],
+				bounds: [-10, 40, 5, 52],
+				maxzoom: 18,
+				tileSize: 128,
+				attribution: regional.attribution
+			});
+		});
+
+		it('draws none of it with the satellite off, or with no worldwide imagery beneath', () => {
+			const withoutImagery: BaseMapCatalog = {
+				...CATALOG_WITHOUT_TERRAIN,
+				regionalImagery: [regional]
+			};
+
+			expect(styled({ imagery: false }).sources[regionalImageryId(0)]).toBeUndefined();
+			expect(
+				styled({ imagery: true }, withoutImagery).sources[regionalImageryId(0)]
+			).toBeUndefined();
+		});
 	});
 
 	it('draws the vector ground when the deployment has provisioned no imagery', () => {

@@ -242,7 +242,7 @@ export async function routeImageryTiles(target: Pick<Page, 'route'>): Promise<vo
 		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOIygsAAAI+ARlMR/knAAAAAElFTkSuQmCC',
 		'base64'
 	);
-	await target.route(/s2cloudless/, (route) =>
+	await target.route(/s2cloudless|USGSNAIPImagery/, (route) =>
 		route.fulfill({
 			status: 200,
 			headers: { 'content-type': 'image/png', 'access-control-allow-origin': '*' },

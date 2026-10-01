@@ -104,6 +104,23 @@ const TERRAIN_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}
 const IMAGERY_TILES =
 	'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg';
 
+/**
+ * USDA NAIP aerial photography of the contiguous United States, drawn over Sentinel-2 there: public
+ * domain, 0.3–0.6 m/px, from USGS's NAIP ImageServer.
+ *
+ * **The dynamic `exportImage` endpoint rather than USGS's cached tiles**, because it answers ground
+ * it has no photograph of with a transparent PNG, so Sentinel-2 shows through across the border;
+ * `USGSImageryOnly` answers it with an opaque white JPEG, and stops at z16. The price is about a
+ * second per tile, measured on 2026-09-29, which is why `minZoom` starts it only where Sentinel-2 runs
+ * out of detail.
+ *
+ * **The `mosaicRule` pins `Year<=2023`**, the newest flight the service held on 2026-09-29, for the
+ * reason the Sentinel-2 year is in its URL: later flights would otherwise replace the picture under
+ * an edition silently.
+ */
+const US_IMAGERY_TILES =
+	'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&f=image&mosaicRule=%7B%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22Year%22%2C%22sortValue%22%3A%223000%22%2C%22where%22%3A%22Year%3C%3D2023%22%7D';
+
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
 	// One archive, one entry. What the map *looks like* — streets, relief, high contrast — is three
 	// switches the author sets per Project (`appearance.ts`), not a row here: they are style
@@ -144,6 +161,18 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 			'<a href="https://eox.at" target="_blank" rel="noreferrer">EOX IT Services GmbH</a> ' +
 			'(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>)'
 	},
+	regionalImagery: [
+		{
+			tiles: US_IMAGERY_TILES,
+			bounds: [-125, 24, -66, 50],
+			// Where the Sentinel-2 tiles above begin to overzoom.
+			minZoom: 13,
+			maxZoom: 18,
+			tileSize: 256,
+			attribution:
+				'<a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noreferrer">USGS The National Map</a>: USDA NAIP'
+		}
+	],
 	sprite: 'base-map/sprites/{flavor}',
 	attribution:
 		'<a href="https://openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a> · ' +

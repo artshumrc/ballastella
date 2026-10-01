@@ -1,12 +1,18 @@
-import type { LayerSpecification, SourceSpecification } from '@maplibre/maplibre-gl-style-spec';
+import type {
+	LayerSpecification,
+	RasterSourceSpecification
+} from '@maplibre/maplibre-gl-style-spec';
 
-import type { BaseMapImagery } from './entry';
+import type { BaseMapImagery, BaseMapRegionalImagery } from './entry';
 
 /** The raster source the imagery is drawn from. One source, one layer. */
 export const IMAGERY_SOURCE_ID = 'satellite';
 
 /** The layer id, so a caller can find the imagery in a built style without matching on type. */
 export const IMAGERY_LAYER = 'satellite';
+
+/** Source and layer id of the catalog's `index`th regional imagery. */
+export const regionalImageryId = (index: number): string => `${IMAGERY_LAYER}-regional-${index}`;
 
 /**
  * Layer ids the imagery replaces, beside every `landuse_` layer and every water fill.
@@ -42,7 +48,7 @@ export function imagerySource(
 	imagery: BaseMapImagery,
 	tiles: string,
 	pixelRatio: number
-): SourceSpecification {
+): RasterSourceSpecification {
 	return {
 		type: 'raster',
 		tiles: [tiles],
@@ -56,6 +62,14 @@ export function imagerySource(
 	};
 }
 
+export function regionalImagerySource(
+	regional: BaseMapRegionalImagery,
+	tiles: string,
+	pixelRatio: number
+): RasterSourceSpecification {
+	return { ...imagerySource(regional, tiles, pixelRatio), bounds: [...regional.bounds] };
+}
+
 /** The imagery layer. Bottom of the stack, so everything the vector archive draws sits over it. */
 export function imageryLayer(): LayerSpecification {
 	return {
@@ -64,6 +78,19 @@ export function imageryLayer(): LayerSpecification {
 		source: IMAGERY_SOURCE_ID,
 		// No fade. The default cross-fade between zoom levels dissolves one photograph into another,
 		// which over a coastline reads as the coast moving.
+		paint: { 'raster-fade-duration': 0 }
+	};
+}
+
+export function regionalImageryLayer(
+	regional: BaseMapRegionalImagery,
+	index: number
+): LayerSpecification {
+	return {
+		id: regionalImageryId(index),
+		type: 'raster',
+		source: regionalImageryId(index),
+		minzoom: regional.minZoom,
 		paint: { 'raster-fade-duration': 0 }
 	};
 }
