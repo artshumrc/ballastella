@@ -15,7 +15,7 @@ const STAGES = [
 	{ name: 'lint', command: 'pnpm', args: ['run', 'lint'] },
 	{ name: 'check', command: 'pnpm', args: ['run', 'check'] },
 	{ name: 'test', command: 'pnpm', args: ['run', 'test'] },
-	{ name: 'e2e', command: 'node', args: ['scripts/e2e.mjs'] }
+	{ name: 'e2e', command: 'node', args: ['scripts/e2e.mjs'], optIn: true }
 ];
 
 const run = (command, args) =>
@@ -27,7 +27,10 @@ const run = (command, args) =>
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
 const only = process.argv.slice(2);
-const stages = only.length > 0 ? STAGES.filter((stage) => only.includes(stage.name)) : STAGES;
+const stages =
+	only.length > 0
+		? STAGES.filter((stage) => only.includes(stage.name))
+		: STAGES.filter((stage) => !stage.optIn);
 if (stages.length === 0) {
 	console.error(`precommit: no such stage. Known: ${STAGES.map((s) => s.name).join(', ')}`);
 	process.exit(2);

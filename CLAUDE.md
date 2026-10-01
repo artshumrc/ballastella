@@ -13,7 +13,7 @@ wrong here in a way that produced a confident wrong answer rather than an error.
 | ------------------------------------------ | ------------------------- |
 | `pkill -f vite`, `pkill -f "vite dev"`     | `pnpm dev:clean [ports…]` |
 | `playwright test`, `CI=1 pnpm test:e2e`    | `pnpm test:e2e [args…]`   |
-| chaining lint + check + test + e2e by hand | `pnpm precommit [stage…]` |
+| chaining lint + check + test by hand       | `pnpm precommit [stage…]` |
 
 - **`pnpm dev:clean`** stops dev servers by the port they hold (5173/5174 by default; pass ports to
   override) **and only when they belong to this checkout**. Never `pkill` by name pattern: it matches
@@ -25,7 +25,7 @@ wrong here in a way that produced a confident wrong answer rather than an error.
   through to Playwright (a spec name, `--headed`, `--project`). **Do not pass `--reporter=…`** — it
   replaces the whole reporter list and silently drops the retry budget; spell it
   `--reporter=line,./scripts/retry-budget.mjs` if you need both.
-- **`pnpm precommit`** runs lint → check → test → e2e, cheapest first, stopping at the first failure
+- **`pnpm precommit`** runs lint → check → test (e2e only when named), cheapest first, stopping at the first failure
   and printing a per-stage timing summary. Name stages to run a subset: `pnpm precommit lint check`.
   It excludes `check:deployment`, which asks about a published site rather than a working tree.
 

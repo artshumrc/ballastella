@@ -146,7 +146,8 @@ import {
 	type ViewerBundleFile,
 	type WorkspaceMapImage,
 	type WorkspaceSize,
-	type WorkspaceUpdate
+	type WorkspaceUpdate,
+	resolveBaseMap
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
@@ -1337,8 +1338,10 @@ export class EditorSession {
 			const file = await this.#workspace.readProject(directory);
 			// A later `open` has already moved on; this read is stale and would clobber it.
 			if (generation !== this.#openGeneration) return;
-			this.openProject = file;
+			const healed = resolveBaseMap(file.baseMap).fellBack;
+			this.openProject = healed ? { ...file, baseMap: null } : file;
 			this.status = 'ready';
+			if (healed) await this.#write(directory);
 			this.unreachableDetail = '';
 			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
 			// files and writes nothing (ADR-0010). `listReferencedImages` looks for `remote.json`, which
